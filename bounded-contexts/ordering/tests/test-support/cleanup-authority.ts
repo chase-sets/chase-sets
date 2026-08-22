@@ -5,7 +5,7 @@ import type {
   OrderingInventoryHoldAuthority,
   OrderingInventoryHoldSourceLookup,
   OrderingInventoryReservationAuthority,
-} from "./cleanup-authority";
+} from "../../features/orders/api/cleanup-authority";
 
 /**
  * Fixtures for the cleanup-authority suites.

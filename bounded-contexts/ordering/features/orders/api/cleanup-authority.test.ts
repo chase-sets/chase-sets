@@ -26,7 +26,7 @@ import {
   resetGlobalPositions,
   type EventSpec,
   type StubInventoryAuthorityConfig,
-} from "./cleanup-authority-test-support";
+} from "../../../tests/test-support/cleanup-authority";
 
 const ORDER_STREAM_ID = `ordering.order-${ORDER_ID}`;
 const CREATED_AT = "2026-08-02T00:00:00.000Z";

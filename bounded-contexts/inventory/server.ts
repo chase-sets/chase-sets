@@ -16,7 +16,7 @@ export type { InventoryDraftListingCreator } from "./features/import-batches/api
 export { createInventoryHoldCleanupAuthorityForPool } from "./support/runtime-support/services";
 export {
   INVENTORY_HOLD_AUTHORITY_MAX_EVENTS,
-  INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_LIMIT,
+  INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_ROWS,
   INVENTORY_HOLD_SOURCE_LOOKUP_MAX_HOLDS,
   INVENTORY_HOLD_SOURCE_ORDER_INDEX_NAME,
   INVENTORY_RESERVATION_AUTHORITY_MAX_EVENTS,

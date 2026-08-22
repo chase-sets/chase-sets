@@ -3,7 +3,7 @@ import { EVENT_STORE_READ_PAGE_SIZE_MAX, type ReadStreamInput, type StoredEvent 
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   INVENTORY_HOLD_AUTHORITY_MAX_EVENTS,
-  INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_LIMIT,
+  INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_ROWS,
   INVENTORY_HOLD_SOURCE_LOOKUP_MAX_HOLDS,
   INVENTORY_HOLD_SOURCE_LOOKUP_SQL,
   INVENTORY_RESERVATION_AUTHORITY_MAX_EVENTS,
@@ -533,7 +533,7 @@ describe("cleanup-authority-inventory-source-lookup", () => {
     expect(INVENTORY_HOLD_SOURCE_LOOKUP_SQL).toContain("'inventory.hold.converted'");
     expect(INVENTORY_HOLD_SOURCE_LOOKUP_SQL).toContain("payload -> 'sourceRef' ->> 'orderId' = $2");
     expect(INVENTORY_HOLD_SOURCE_LOOKUP_SQL).toContain("ORDER BY first_global_position ASC, stream_id ASC");
-    expect(INVENTORY_HOLD_SOURCE_LOOKUP_SQL).toContain(`LIMIT ${INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_LIMIT}`);
+    expect(INVENTORY_HOLD_SOURCE_LOOKUP_SQL).toContain(`LIMIT ${INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_ROWS}`);
     // The UNLOGGED projection is never the authority for this question.
     expect(INVENTORY_HOLD_SOURCE_LOOKUP_SQL).not.toContain("inventory_reservation_pages");
     expect(INVENTORY_HOLD_SOURCE_LOOKUP_SQL).not.toContain("inventory_holds");
@@ -565,7 +565,7 @@ describe("cleanup-authority-inventory-source-lookup", () => {
     }
     expect(atBoundResult.holdIds).toHaveLength(64);
 
-    const overBound = authorityFor({}, rowsFor(INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_LIMIT));
+    const overBound = authorityFor({}, rowsFor(INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_ROWS));
     expect(await overBound.authority.lookupOrderHoldIds({ tenantId: TENANT_ID, orderId: ORDER_ID })).toEqual({
       kind: "unavailable",
       detail: "hold-lookup-over-bound",

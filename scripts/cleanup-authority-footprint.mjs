@@ -26,6 +26,8 @@ const repoRoot = fileURLToPath(new URL("../", import.meta.url));
  * listed here (or matched by `AUTHORIZED_PATTERNS`) is out of scope.
  */
 export const AUTHORIZED_PATHS = Object.freeze([
+  // Cross-context Ordering service constructor the typecheck reaches
+  "bounded-contexts/discovery/tests/acceptance/marketplace-search.test.ts",
   // Ordering
   "bounded-contexts/ordering/GLOSSARY.md",
   "bounded-contexts/ordering/client.ts",
@@ -43,7 +45,7 @@ export const AUTHORIZED_PATHS = Object.freeze([
   "bounded-contexts/inventory/index.ts",
   "bounded-contexts/inventory/package.json",
   "bounded-contexts/inventory/server.ts",
-  "bounded-contexts/inventory/support/runtime-support/hold-source-index-migrations.ts",
+  "bounded-contexts/inventory/features/holds/read-model/schema.ts",
   "bounded-contexts/inventory/support/runtime-support/schema.ts",
   "bounded-contexts/inventory/support/runtime-support/services.ts",
   // Composition roots
@@ -67,11 +69,14 @@ export const AUTHORIZED_PATHS = Object.freeze([
  * proves them necessary.
  */
 export const AUTHORIZED_PATTERNS = Object.freeze([
-  /^bounded-contexts\/ordering\/features\/orders\/api\/cleanup-authority[a-z-]*\.ts$/,
+  /^bounded-contexts\/ordering\/features\/orders\/api\/cleanup-authority[a-z-]*(?:\.test)?\.ts$/,
   /^bounded-contexts\/ordering\/tests\/cleanup-authority-[a-z-]+\.test\.ts$/,
-  /^bounded-contexts\/inventory\/features\/holds\/api\/cleanup-authority[a-z-]*\.(?:db\.)?test\.ts$/,
-  /^bounded-contexts\/inventory\/features\/holds\/api\/cleanup-authority\.ts$/,
+  /^bounded-contexts\/ordering\/tests\/test-support\/cleanup-authority\.ts$/,
+  /^bounded-contexts\/inventory\/features\/holds\/api\/cleanup-authority[a-z-]*(?:\.db)?(?:\.test)?\.ts$/,
+  // Whole-repo structural inventories the issue permits only when the staged
+  // diff proves them necessary, with generator evidence.
   /^scripts\/check-structure\/[a-z-]+\.json$/,
+  /^scripts\/check-structure\/[a-z-]+\.test\.mjs$/,
   /^docs\/architecture\/[a-z-]+-inventory\.md$/,
 ]);
 

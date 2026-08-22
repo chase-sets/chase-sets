@@ -1,7 +1,7 @@
 import { readCompleteStream, type CompleteStreamReader } from "@chase-sets/event-core/complete-stream";
 import type { StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { INVENTORY_HOLD_SOURCE_ORDER_INDEX_NAME } from "../../../support/runtime-support/hold-source-index-migrations";
+import { INVENTORY_HOLD_SOURCE_ORDER_INDEX_NAME } from "../read-model/schema";
 
 /**
  * Inventory-owned cleanup authority (#7222, Decision #7221 option B).
@@ -25,10 +25,11 @@ export const INVENTORY_HOLD_AUTHORITY_MAX_EVENTS = 64;
 /** Largest Hold set an Order may legitimately own. */
 export const INVENTORY_HOLD_SOURCE_LOOKUP_MAX_HOLDS = 64;
 /**
- * One more than the bound, so an over-bound Order is detected rather than
- * silently truncated to a plausible-looking set.
+ * Rows the lookup query fetches: one past the bound, so an over-bound Order is
+ * detected rather than silently truncated to a plausible-looking set. A read
+ * page size, not a business policy value.
  */
-export const INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_LIMIT = INVENTORY_HOLD_SOURCE_LOOKUP_MAX_HOLDS + 1;
+export const INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_ROWS = INVENTORY_HOLD_SOURCE_LOOKUP_MAX_HOLDS + 1;
 
 export { INVENTORY_HOLD_SOURCE_ORDER_INDEX_NAME };
 
@@ -47,7 +48,7 @@ export const INVENTORY_HOLD_SOURCE_LOOKUP_SQL = `SELECT stream_id, MIN(global_po
        AND payload -> 'sourceRef' ->> 'orderId' = $2
      GROUP BY stream_id
      ORDER BY first_global_position ASC, stream_id ASC
-     LIMIT ${INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_LIMIT}`;
+     LIMIT ${INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_ROWS}`;
 
 export type InventoryReservationReleaseAuthority = Readonly<{
   reservationRequestId: string;
