@@ -12,6 +12,7 @@ import {
   CheckoutNoticeStack,
   CheckoutStickyActionBar,
   CheckoutSummaryLineItem,
+  CheckoutSummaryPanel,
   CheckoutTotals,
   DestructiveAction,
   MarketplaceNotice,
@@ -830,6 +831,61 @@ describe("CheckoutSummaryLineItem indicative pricing (#1853)", () => {
 
     // The placeholder uses a decorative icon rather than an empty box.
     expect(container.querySelector('[aria-hidden="true"] svg')).toBeTruthy();
+  });
+});
+
+describe("CheckoutSummaryLineItem money-only mono value (#7183)", () => {
+  it("renders an exact price value alone in font-mono tabular-nums, never on the shared wrapper", () => {
+    const { container } = render(<CheckoutSummaryLineItem item={{ id: "6", title: "Exact card", price: "$120.00" }} />);
+
+    const monoElements = container.querySelectorAll(".font-mono");
+    expect(monoElements).toHaveLength(1);
+    const [valueElement] = monoElements;
+    expect(valueElement.tagName).toBe("SPAN");
+    expect(valueElement.textContent).toBe("$120.00");
+    expect(valueElement.className).toContain("tabular-nums");
+  });
+
+  it("keeps the `from` prefix out of the mono value element for an indicative price", () => {
+    const { container } = render(
+      <CheckoutSummaryLineItem item={{ id: "7", title: "Indicative card", price: "$45.00", priceState: "indicative" }} />,
+    );
+
+    const monoElements = container.querySelectorAll(".font-mono");
+    expect(monoElements).toHaveLength(1);
+    const [valueElement] = monoElements;
+    expect(valueElement.textContent).toBe("$45.00");
+    expect(valueElement.textContent).not.toContain("from");
+    expect(screen.getByText("from").className).not.toContain("font-mono");
+  });
+
+  it("renders no mono value element for a deferred price", () => {
+    const { container } = render(
+      <CheckoutSummaryLineItem item={{ id: "8", title: "Deferred card", price: "$1.00", priceState: "deferred" }} />,
+    );
+
+    expect(container.querySelectorAll(".font-mono")).toHaveLength(0);
+    expect(screen.getByText("Priced at checkout").className).not.toContain("font-mono");
+  });
+
+  it("does not let the mono value treatment leak into the panel status badge, line title, or facts", () => {
+    const { container } = render(
+      <CheckoutSummaryPanel
+        title="Order summary"
+        status="Handoff recorded"
+        items={[{ id: "9", title: "Line title", facts: ["Fact one"], price: "$10.00" }]}
+        totals={[]}
+        totalLabel="Total"
+        total="$25.00"
+      />,
+    );
+
+    const monoElements = container.querySelectorAll(".font-mono");
+    expect(monoElements).toHaveLength(1);
+    expect(monoElements[0].textContent).toBe("$10.00");
+    expect(screen.getByText("Handoff recorded").className).not.toContain("font-mono");
+    expect(screen.getByText("Line title").className).not.toContain("font-mono");
+    expect(screen.getByText("Fact one").className).not.toContain("font-mono");
   });
 });
 
