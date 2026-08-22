@@ -1,4 +1,4 @@
 import { register } from "node:module";
 
-register("./typescript-extension-loader.mjs", import.meta.url);
+register("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);
 await import("./catalog-production-completion-report.ts");
