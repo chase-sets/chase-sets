@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
-import { classified } from "./backlog-classify.mjs";
+import { classified, isExecutableMilestone } from "./backlog-classify.mjs";
 import { canonicalLabelNames, ENABLED_NATIVE_ISSUE_TYPES } from "./label-registry.mjs";
 
 export const ISSUE_READINESS_SCHEMA_VERSION = "issue-readiness/v1";
@@ -815,7 +815,7 @@ function reviewPacketComplete(value) {
   );
 }
 
-function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSha }, bodyInputs) {
+export function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSha }, bodyInputs) {
   const baseReceipt = {
     schemaVersion: ISSUE_READINESS_SCHEMA_VERSION,
     claim: "structural-only",
@@ -898,7 +898,7 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
   ) {
     classificationFailures.push("ISSUE_TYPE_NOT_DISPATCHABLE");
   }
-  if (!/^Wave\s+\d+\b/.test(authority.issue.milestone?.title ?? "")) {
+  if (!isExecutableMilestone(authority.issue.milestone?.title ?? null)) {
     classificationFailures.push("MILESTONE_NOT_WAVE");
   }
   if (authority.issue.milestone?.state !== "open") classificationFailures.push("MILESTONE_NOT_OPEN");

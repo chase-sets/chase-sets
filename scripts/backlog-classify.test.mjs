@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { BacklogClassificationInputError, classified, isEpic, isTrackingOnly, refined } from "./backlog-classify.mjs";
+import {
+  BacklogClassificationInputError,
+  classified,
+  isEpic,
+  isExecutableMilestone,
+  isTrackingOnly,
+  refined,
+} from "./backlog-classify.mjs";
 
 const EXECUTABLE_MILESTONE = "Wave 1";
 const FULL_LABELS = ["priority:p1", "area:ops", "kind:tech-debt"];
@@ -102,6 +109,26 @@ describe("classification behavior", () => {
     expect(classified(input({ hasParent: true }))).toBe(true);
     expect(refined(input({ hasParent: true }))).toBe(true);
   });
+});
+
+describe("canonical executable milestone predicate", () => {
+  it.each([
+    "Wave 1 — Synthetic Platform Outcome",
+    "Mobile 1 — Synthetic Store Outcome",
+    "Mobile 2 — Synthetic Device Outcome",
+    "Mobile 3 — Synthetic Release Outcome",
+    "Synthetic Outcome ∷ Aurora-2042 / usable result",
+  ])("accepts arbitrary open outcome title %s", (milestoneTitle) => {
+    expect(isExecutableMilestone(milestoneTitle)).toBe(true);
+    expect(classified(input({ milestoneTitle }))).toBe(true);
+  });
+
+  it.each([null, "", "Deferred / Incubation", "Operations", false])(
+    "fails closed for non-executable milestone value %s",
+    (milestoneTitle) => {
+      expect(isExecutableMilestone(milestoneTitle)).toBe(false);
+    },
+  );
 });
 
 describe("locked predecessor comparison corpus", () => {

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { parse as parseYaml } from "yaml";
 import { describe, expect, it } from "vitest";
+import { classified, isExecutableMilestone } from "./backlog-classify.mjs";
 import { releaseQualificationScopeRegistry } from "./release-qualification-scope.mjs";
 import {
   COMMENT_MARKER,
@@ -14,6 +15,7 @@ import {
   PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION,
   consumeIssueReadinessReceipt,
   evaluateProspectiveIssueReadiness,
+  evaluateStructuralReadinessFromInputs,
   main,
   parseIssueFormBody,
   scanIssueFormStructure,
@@ -37,6 +39,73 @@ const MILESTONE = {
   title: "Wave 1 — Platform Foundation & Representative Staging",
   state: "open",
 };
+const ISSUE_7285_REGRESSION_FIXTURE = Object.freeze({
+  artifact: Object.freeze({
+    id: 9473800955,
+    digest: "sha256:94638954a82b87965bb7078a4621c460781ba4406e2728eed7e1626a9ba07262",
+  }),
+  issueBodySha256: "ea347832616bb535b35d6690d2ba04745e34649f85217b7c15c73dd232befef6",
+  publishingEnabled: false,
+  repository: "chase-sets/chase-sets",
+  number: 7285,
+  nodeId: "I_kwDORKgVcc8AAAABNzW3ag",
+  state: "open",
+  updatedAt: "2026-08-22T09:34:22Z",
+  issueType: Object.freeze({
+    nodeId: "IT_kwDOEUHTf84CHLOB",
+    name: "Probe",
+    isEnabled: true,
+  }),
+  milestone: Object.freeze({
+    number: 143,
+    title: "Mobile 1 — Store Foundation & Compliance",
+    state: "open",
+  }),
+  labels: Object.freeze(["kind:test", "priority:p0", "area:marketplace-web", "risk:policy", "risk:provider"]),
+  parentNumber: 5240,
+  dependencies: Object.freeze([
+    Object.freeze({
+      nodeId: "I_kwDORKgVcc8AAAABNzVVxQ",
+      number: 7281,
+      state: "open",
+      updatedAt: "2026-08-22T09:34:16Z",
+      issueTypeName: "Slice",
+      issueTypeNodeId: "IT_kwDOEUHTf84CHLN1",
+    }),
+    Object.freeze({
+      nodeId: "I_kwDORKgVcc8AAAABNzVoOw",
+      number: 7282,
+      state: "open",
+      updatedAt: "2026-08-22T09:34:17Z",
+      issueTypeName: "Slice",
+      issueTypeNodeId: "IT_kwDOEUHTf84CHLN1",
+    }),
+    Object.freeze({
+      nodeId: "I_kwDORKgVcc8AAAABNzWDuA",
+      number: 7283,
+      state: "open",
+      updatedAt: "2026-08-22T09:34:19Z",
+      issueTypeName: "Slice",
+      issueTypeNodeId: "IT_kwDOEUHTf84CHLN1",
+    }),
+    Object.freeze({
+      nodeId: "I_kwDORKgVcc8AAAABNzWfJg",
+      number: 7284,
+      state: "open",
+      updatedAt: "2026-08-22T10:10:27Z",
+      issueTypeName: "Slice",
+      issueTypeNodeId: "IT_kwDOEUHTf84CHLN1",
+    }),
+    Object.freeze({
+      nodeId: "I_kwDORKgVcc8AAAABNzYtag",
+      number: 7287,
+      state: "open",
+      updatedAt: "2026-08-22T10:09:07Z",
+      issueTypeName: "Bug",
+      issueTypeNodeId: "IT_kwDOEUHTf84CBmVb",
+    }),
+  ]),
+});
 
 const PREDECESSOR_COMMIT = "3d20e23b7fdc66865e8459610a6601574960d566";
 const PREDECESSOR_PRODUCT_BLOB = "da828b2286373bcbb1d951fb049b6f3b18abd6d9";
@@ -332,6 +401,26 @@ function scenarioBody(scenario) {
 }
 
 function dependenciesFor(scenario) {
+  if (scenario.dependencies) {
+    return [
+      scenario.dependencies.map((dependency) => ({
+        url: `https://api.github.com/repos/${scenario.repository ?? REPOSITORY}/issues/${dependency.number}`,
+        node_id: dependency.nodeId,
+        number: dependency.number,
+        state: dependency.state,
+        updated_at: dependency.updatedAt,
+        type:
+          dependency.issueTypeName === null
+            ? null
+            : {
+                id: TYPE.id,
+                node_id: dependency.issueTypeNodeId ?? `synthetic-dependency-type-${dependency.issueTypeName}`,
+                name: dependency.issueTypeName,
+                is_enabled: dependency.issueTypeEnabled ?? true,
+              },
+      })),
+    ];
+  }
   const definitions = scenario.dependencyPages ?? [];
   let number = 7000;
   return definitions.map((page) =>
@@ -388,20 +477,34 @@ function createHarness(scenario, { comments = [] } = {}) {
   const requests = [];
   const logs = [];
   const errors = [];
+  const repository = scenario.repository ?? REPOSITORY;
+  const issueNumber = scenario.number ?? ISSUE_NUMBER;
+  const issueNodeId = scenario.nodeId ?? ISSUE_NODE_ID;
+  const issueState = scenario.state ?? "open";
+  const issueUpdatedAt = scenario.updatedAt ?? UPDATED_AT;
+  const labels = scenario.labels ?? LABELS;
+  const milestone = Object.hasOwn(scenario, "milestone") ? scenario.milestone : MILESTONE;
+  const parentNumber = Object.hasOwn(scenario, "parentNumber")
+    ? scenario.parentNumber
+    : scenario.noParent
+      ? null
+      : 5496;
   const dependencyPages = dependenciesFor(scenario);
   const dependencies = dependencyPages.flat();
   let issueReads = 0;
   let commentState = [...comments];
-  let authorityUpdatedAt = scenario.initialUpdatedAt ?? UPDATED_AT;
+  let authorityUpdatedAt = scenario.initialUpdatedAt ?? issueUpdatedAt;
   const issueTypeName = scenario.issueType ?? "Slice";
   const issueType =
     issueTypeName === null
       ? null
       : {
           id: TYPE.id,
-          node_id: issueTypeName === "Slice" ? TYPE.nodeId : `type-${issueTypeName}`,
+          node_id:
+            scenario.issueTypeNodeId ??
+            (issueTypeName === "Slice" ? TYPE.nodeId : `synthetic-issue-type-${issueTypeName}`),
           name: issueTypeName,
-          is_enabled: true,
+          is_enabled: scenario.issueTypeEnabled ?? true,
         };
 
   function currentUpdatedAt() {
@@ -410,13 +513,13 @@ function createHarness(scenario, { comments = [] } = {}) {
 
   function issuePayload() {
     return {
-      node_id: ISSUE_NODE_ID,
-      number: ISSUE_NUMBER,
-      state: "open",
+      node_id: issueNodeId,
+      number: issueNumber,
+      state: issueState,
       updated_at: currentUpdatedAt(),
       body: scenarioBody(scenario),
       type: issueType,
-      milestone: MILESTONE,
+      milestone,
       comments: commentState.length,
       issue_dependencies_summary: {
         blocked_by: dependencies.filter((item) => item.state === "open").length,
@@ -432,17 +535,17 @@ function createHarness(scenario, { comments = [] } = {}) {
         repository: {
           databaseId: REPOSITORY_DATABASE_ID,
           issue: {
-            id: ISSUE_NODE_ID,
-            number: ISSUE_NUMBER,
-            state: "OPEN",
+            id: issueNodeId,
+            number: issueNumber,
+            state: issueState.toUpperCase(),
             updatedAt: authorityUpdatedAt,
             issueType: issueType
               ? { id: issueType.node_id, name: issueType.name, isEnabled: issueType.is_enabled }
               : null,
-            parent: scenario.noParent ? null : { number: 5496 },
+            parent: parentNumber === null ? null : { number: parentNumber },
             labels: {
-              totalCount: scenario.labelsTotalOverride ?? LABELS.length,
-              pageInfo: { hasNextPage: LABELS.length > 1, endCursor: "cursor" },
+              totalCount: scenario.labelsTotalOverride ?? labels.length,
+              pageInfo: { hasNextPage: labels.length > 1, endCursor: "cursor" },
             },
             blockedBy: {
               totalCount: dependencies.length,
@@ -471,24 +574,24 @@ function createHarness(scenario, { comments = [] } = {}) {
     requests.push({ url, init });
     const method = init.method ?? "GET";
     if (url === "https://api.github.com/graphql") return response(graphPayload());
-    if (url === `https://api.github.com/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}`) {
+    if (url === `https://api.github.com/repos/${repository}/issues/${issueNumber}`) {
       issueReads += 1;
       return response(issuePayload(), {
         url: issueReads >= 2 && scenario.finalResponseUrlOverride ? scenario.finalResponseUrlOverride : url,
       });
     }
-    if (url.includes(`/issues/${ISSUE_NUMBER}/labels?`)) return response(LABELS.map((name) => ({ name })));
-    if (url.includes(`/issues/${ISSUE_NUMBER}/dependencies/blocked_by?`)) {
+    if (url.includes(`/issues/${issueNumber}/labels?`)) return response(labels.map((name) => ({ name })));
+    if (url.includes(`/issues/${issueNumber}/dependencies/blocked_by?`)) {
       const page = Number(new URL(url).searchParams.get("page") ?? "1");
       const payload = dependencyPages[page - 1] ?? [];
       const next =
         page < dependencyPages.length
-          ? `<https://api.github.com/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}/dependencies/blocked_by?per_page=100&page=${page + 1}>; rel="next"`
+          ? `<https://api.github.com/repos/${repository}/issues/${issueNumber}/dependencies/blocked_by?per_page=100&page=${page + 1}>; rel="next"`
           : null;
       return response(payload, { link: next });
     }
-    if (url.includes(`/issues/${ISSUE_NUMBER}/comments?`)) return response(commentState);
-    if (method === "POST" && url.endsWith(`/issues/${ISSUE_NUMBER}/comments`)) {
+    if (url.includes(`/issues/${issueNumber}/comments?`)) return response(commentState);
+    if (method === "POST" && url.endsWith(`/issues/${issueNumber}/comments`)) {
       const raw = JSON.parse(init.body);
       const created = botComment(9001, raw.body, CHECKED_AT.toISOString());
       commentState.push(created);
@@ -524,9 +627,9 @@ async function runScenario(scenario, options = {}) {
   const harness = createHarness(scenario, options);
   const result = await main({
     env: {
-      GITHUB_REPOSITORY: REPOSITORY,
+      GITHUB_REPOSITORY: scenario.repository ?? REPOSITORY,
       GITHUB_TOKEN: "test-token",
-      ISSUE_NUMBER: String(ISSUE_NUMBER),
+      ISSUE_NUMBER: String(scenario.number ?? ISSUE_NUMBER),
       ISSUE_READINESS_CHECKER_SHA: CHECKER_SHA,
       ISSUE_READINESS_PUBLISH: options.publish ? "true" : "false",
     },
@@ -557,6 +660,62 @@ function prospectiveMetadata(overrides = {}) {
     dependencies: [],
     ...overrides,
   };
+}
+
+function structuralAuthority(overrides = {}) {
+  const labels = overrides.labels ?? LABELS;
+  const dependencies = overrides.dependencies ?? [];
+  const parentNumber = Object.hasOwn(overrides, "parentNumber") ? overrides.parentNumber : 9_000_000;
+  const issueType = overrides.issueType ?? {
+    nodeId: "synthetic-issue-type-slice",
+    name: "Slice",
+    isEnabled: true,
+  };
+  const milestone = Object.hasOwn(overrides, "milestone") ? overrides.milestone : MILESTONE;
+  const number = overrides.number ?? 9_000_001;
+  const coverage = {
+    authorityComplete: true,
+    issue: { initialRead: true, finalRead: true, revisionStable: true },
+    labels: { pages: labels.length === 0 ? 0 : 1, collected: labels.length, total: labels.length, complete: true },
+    dependencies: {
+      pages: dependencies.length === 0 ? 0 : 1,
+      collected: dependencies.length,
+      total: dependencies.length,
+      complete: true,
+    },
+    comments: { pages: 0, collected: 0, total: 0, complete: true },
+    form: { parsed: false, complete: false },
+  };
+  return {
+    repository: overrides.repository ?? "synthetic-owner/synthetic-repository",
+    number,
+    complete: true,
+    issue: {
+      nodeId: overrides.nodeId ?? `synthetic-issue-${number}`,
+      number,
+      state: overrides.state ?? "open",
+      updatedAt: overrides.updatedAt ?? "2042-01-02T03:04:05.000Z",
+      body: overrides.body ?? fixture.readyBody,
+      issueType,
+      milestone,
+    },
+    graph: {
+      hasParent: parentNumber !== null,
+      parentNumber,
+    },
+    labels,
+    dependencies,
+    comments: [],
+    coverage,
+    reasonCodes: [],
+  };
+}
+
+function structuralReceipt(overrides = {}) {
+  return evaluateStructuralReadinessFromInputs(structuralAuthority(overrides), {
+    checkedAt: "2042-01-02T03:05:00.000Z",
+    checkerSha: "b".repeat(40),
+  });
 }
 
 function prospectiveResult(body = fixture.readyBody, metadata = prospectiveMetadata()) {
@@ -868,6 +1027,210 @@ describe("predecessor-recorded structural scanner oracle", () => {
     expect(candidateRatio).toBeLessThan(8);
     expect(mutantRatio).toBeGreaterThan(8);
   }, 60_000);
+});
+
+describe("canonical executable milestone readiness", () => {
+  it("mobile-outcome-milestone-readiness", () => {
+    const milestoneTitles = [
+      "Wave 1 — Synthetic Platform Outcome",
+      "Mobile 1 — Synthetic Store Outcome",
+      "Mobile 2 — Synthetic Device Outcome",
+      "Mobile 3 — Synthetic Release Outcome",
+    ];
+    for (const [milestoneIndex, milestoneTitle] of milestoneTitles.entries()) {
+      for (const issueTypeName of ["Slice", "Bug", "Probe"]) {
+        const receipt = structuralReceipt({
+          issueType: {
+            nodeId: `synthetic-issue-type-${issueTypeName.toLowerCase()}`,
+            name: issueTypeName,
+            isEnabled: true,
+          },
+          milestone: {
+            number: 9_100_000 + milestoneIndex,
+            title: milestoneTitle,
+            state: "open",
+          },
+        });
+
+        expect(receipt.status, `${issueTypeName} in ${milestoneTitle}`).toBe("ready");
+        expect(receipt.checkedRules.find(({ id }) => id === "ready-00-placed-classified")).toEqual({
+          id: "ready-00-placed-classified",
+          status: "pass",
+          reasonCodes: [],
+        });
+      }
+    }
+  });
+
+  it("non-executable-milestone-readiness-negatives", async () => {
+    const controls = [
+      {
+        name: "absent milestone",
+        overrides: { milestone: null },
+        reasonCodes: ["ISSUE_NOT_CLASSIFIED", "MILESTONE_NOT_OPEN", "MILESTONE_NOT_WAVE"],
+      },
+      {
+        name: "malformed empty milestone title",
+        overrides: { milestone: { number: 9_200_001, title: "", state: "open" } },
+        reasonCodes: ["ISSUE_NOT_CLASSIFIED", "MILESTONE_NOT_WAVE"],
+      },
+      {
+        name: "closed milestone",
+        overrides: { milestone: { number: 9_200_002, title: "Synthetic Outcome", state: "closed" } },
+        reasonCodes: ["MILESTONE_NOT_OPEN"],
+      },
+      {
+        name: "deferred milestone",
+        overrides: { milestone: { number: 9_200_003, title: "Deferred / Incubation", state: "open" } },
+        reasonCodes: ["ISSUE_NOT_CLASSIFIED", "MILESTONE_NOT_WAVE"],
+      },
+      {
+        name: "operations milestone",
+        overrides: { milestone: { number: 9_200_004, title: "Operations", state: "open" } },
+        reasonCodes: ["ISSUE_NOT_CLASSIFIED", "MILESTONE_NOT_WAVE"],
+      },
+      {
+        name: "native Epic",
+        overrides: {
+          issueType: { nodeId: "synthetic-issue-type-epic", name: "Epic", isEnabled: true },
+        },
+        reasonCodes: ["ISSUE_NOT_CLASSIFIED"],
+      },
+      {
+        name: "tracking-only placement",
+        overrides: { labels: [...LABELS, "status:tracking-only"] },
+        reasonCodes: ["ISSUE_NOT_CLASSIFIED", "LIFECYCLE_NOT_IMPLEMENTATION_RUNNABLE"],
+      },
+      {
+        name: "disabled native type",
+        overrides: {
+          issueType: { nodeId: "synthetic-disabled-slice-type", name: "Slice", isEnabled: false },
+        },
+        reasonCodes: ["ISSUE_TYPE_NOT_DISPATCHABLE"],
+      },
+      {
+        name: "unknown native type",
+        overrides: {
+          issueType: { nodeId: "synthetic-unknown-issue-type", name: "SyntheticUnknown", isEnabled: true },
+        },
+        reasonCodes: ["ISSUE_NOT_CLASSIFIED", "ISSUE_TYPE_NOT_DISPATCHABLE"],
+      },
+      {
+        name: "closed issue",
+        overrides: { state: "closed" },
+        reasonCodes: ["ISSUE_NOT_CLASSIFIED"],
+      },
+      {
+        name: "malformed label family",
+        overrides: { labels: LABELS.filter((label) => !label.startsWith("priority:")) },
+        reasonCodes: ["ISSUE_NOT_CLASSIFIED", "LABEL_FAMILY_PRIORITY_COUNT"],
+      },
+      {
+        name: "open native dependency",
+        overrides: {
+          dependencies: [
+            {
+              nodeId: "synthetic-open-dependency-node",
+              number: 9_299_999,
+              state: "open",
+              updatedAt: "2042-01-02T03:03:00.000Z",
+              issueTypeName: "Slice",
+            },
+          ],
+        },
+        reasonCodes: ["OPEN_NATIVE_DEPENDENCY"],
+      },
+    ];
+
+    for (const control of controls) {
+      const receipt = structuralReceipt(control.overrides);
+      expect(receipt.status, control.name).toBe("not-ready");
+      expect(receipt.reasonCodes, control.name).toEqual([...control.reasonCodes].sort());
+    }
+
+    const malformedShape = await runScenario({
+      milestone: { number: 9_200_005, title: false, state: "open" },
+    });
+    expect(malformedShape.result.receipt.status).toBe("unknown");
+    expect(malformedShape.result.receipt.reasonCodes).toEqual(["ISSUE_MILESTONE_SHAPE_INVALID"]);
+  });
+
+  it("readiness-backlog-milestone-parity", () => {
+    const milestoneTitle = "Synthetic Outcome ∷ Aurora-2042 / usable result";
+    const classificationInput = {
+      number: 9_300_001,
+      state: "open",
+      labels: LABELS,
+      issueTypeName: "Slice",
+      milestoneTitle,
+      blockedByCount: 0,
+      hasParent: true,
+    };
+    const receipt = structuralReceipt({
+      number: classificationInput.number,
+      milestone: { number: 9_300_002, title: milestoneTitle, state: "open" },
+    });
+    const titleRegexMutant = (title) => /^Wave\s+\d+\b/.test(title);
+    const namedAllowlistMutant = (title) => ["Wave 1", "Mobile 1", "Mobile 2", "Mobile 3"].includes(title);
+
+    expect(isExecutableMilestone(milestoneTitle)).toBe(true);
+    expect(classified(classificationInput)).toBe(true);
+    expect(receipt.checkedRules.find(({ id }) => id === "ready-00-placed-classified")?.status).toBe("pass");
+    expect(titleRegexMutant(milestoneTitle)).toBe(false);
+    expect(namedAllowlistMutant(milestoneTitle)).toBe(false);
+  });
+
+  it("issue-7285-mobile-milestone-regression", async () => {
+    const currentDependencies = ISSUE_7285_REGRESSION_FIXTURE.dependencies.map(
+      ({ issueTypeNodeId: _issueTypeNodeId, ...dependency }) => dependency,
+    );
+    const receipt = structuralReceipt({
+      repository: ISSUE_7285_REGRESSION_FIXTURE.repository,
+      number: ISSUE_7285_REGRESSION_FIXTURE.number,
+      nodeId: ISSUE_7285_REGRESSION_FIXTURE.nodeId,
+      state: ISSUE_7285_REGRESSION_FIXTURE.state,
+      updatedAt: ISSUE_7285_REGRESSION_FIXTURE.updatedAt,
+      issueType: ISSUE_7285_REGRESSION_FIXTURE.issueType,
+      milestone: ISSUE_7285_REGRESSION_FIXTURE.milestone,
+      labels: ISSUE_7285_REGRESSION_FIXTURE.labels,
+      parentNumber: ISSUE_7285_REGRESSION_FIXTURE.parentNumber,
+      dependencies: currentDependencies,
+    });
+
+    expect(ISSUE_7285_REGRESSION_FIXTURE.artifact).toEqual({
+      id: 9473800955,
+      digest: "sha256:94638954a82b87965bb7078a4621c460781ba4406e2728eed7e1626a9ba07262",
+    });
+    expect(ISSUE_7285_REGRESSION_FIXTURE.issueBodySha256).toBe(
+      "ea347832616bb535b35d6690d2ba04745e34649f85217b7c15c73dd232befef6",
+    );
+    expect(ISSUE_7285_REGRESSION_FIXTURE.publishingEnabled).toBe(false);
+    expect(receipt.reasonCodes).toEqual(["OPEN_NATIVE_DEPENDENCY"]);
+
+    const { result, harness } = await runScenario({
+      body: fixture.readyBody,
+      repository: ISSUE_7285_REGRESSION_FIXTURE.repository,
+      number: ISSUE_7285_REGRESSION_FIXTURE.number,
+      nodeId: ISSUE_7285_REGRESSION_FIXTURE.nodeId,
+      state: ISSUE_7285_REGRESSION_FIXTURE.state,
+      updatedAt: ISSUE_7285_REGRESSION_FIXTURE.updatedAt,
+      issueType: ISSUE_7285_REGRESSION_FIXTURE.issueType.name,
+      issueTypeNodeId: ISSUE_7285_REGRESSION_FIXTURE.issueType.nodeId,
+      issueTypeEnabled: ISSUE_7285_REGRESSION_FIXTURE.issueType.isEnabled,
+      milestone: ISSUE_7285_REGRESSION_FIXTURE.milestone,
+      labels: ISSUE_7285_REGRESSION_FIXTURE.labels,
+      parentNumber: ISSUE_7285_REGRESSION_FIXTURE.parentNumber,
+      dependencies: ISSUE_7285_REGRESSION_FIXTURE.dependencies,
+    });
+    expect(result.receipt.reasonCodes).toEqual(["OPEN_NATIVE_DEPENDENCY"]);
+    expect(result.commentAction).toBe("disabled");
+    expect(
+      harness.requests.some(({ url, init }) => {
+        const method = init.method ?? "GET";
+        return method === "PATCH" || (method === "POST" && url !== "https://api.github.com/graphql");
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("issue-readiness/v1 receipt and rule contract", () => {
@@ -1425,6 +1788,11 @@ describe("stable comment state machine", () => {
     expect(recovered.result.receipt.status).toBe("ready");
     expect(recovered.result.commentAction).toBe("updated");
     expect(recovered.harness.comments()[0].body).not.toContain("Current structural evaluation: unknown");
+    expect(
+      recovered.harness.requests.filter(
+        ({ url, init }) => init.method === "PATCH" && url.endsWith("/issues/comments/9001"),
+      ),
+    ).toHaveLength(1);
   });
 
   it("does not overwrite an unreadable prior receipt during an unknown read", async () => {
