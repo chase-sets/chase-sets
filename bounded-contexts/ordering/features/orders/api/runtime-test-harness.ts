@@ -4,6 +4,7 @@ import type { GlobalPosition } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { type ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { createOrderingOrderRuntime } from "./runtime";
+import type { OrderingInventoryCleanupAuthorityCapability } from "./cleanup-authority";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 export function createCheckpointStore(): ProjectionCheckpointStore {
@@ -25,10 +26,22 @@ export const context = {
   },
 };
 
+/**
+ * Test constructor for suites that are not about cleanup authority.
+ *
+ * The production dependency stays nonoptional: this harness states the
+ * `not-mounted` variant explicitly for suites that never observe cleanup
+ * authority, and cleanup-authority suites pass their own `available`
+ * capability. No caller ever leaves the port undefined.
+ */
 export function createOrderingOrderRuntimeForTest(
-  deps: Parameters<typeof createOrderingOrderRuntime>[0] & Readonly<{ carts?: unknown }>,
+  deps: Omit<Parameters<typeof createOrderingOrderRuntime>[0], "inventoryCleanupAuthority"> &
+    Readonly<{ carts?: unknown; inventoryCleanupAuthority?: OrderingInventoryCleanupAuthorityCapability }>,
 ) {
-  return createOrderingOrderRuntime(deps);
+  return createOrderingOrderRuntime({
+    ...deps,
+    inventoryCleanupAuthority: deps.inventoryCleanupAuthority ?? { kind: "not-mounted" },
+  });
 }
 
 export const shippingAddress = {

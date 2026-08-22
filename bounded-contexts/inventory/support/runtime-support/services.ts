@@ -7,6 +7,10 @@ import type { BcCreateServicesOptions } from "@chase-sets/bounded-context-module
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createInventoryCatalogItemRuntime } from "../../features/inventory-items/integrations/catalog/runtime";
 import { createInventoryHoldRuntime } from "../../features/holds/api/runtime";
+import {
+  createInventoryHoldCleanupAuthority,
+  type InventoryHoldCleanupAuthorityServices,
+} from "../../features/holds/api/cleanup-authority";
 import { createInventoryHoldCollisionRuntime } from "../../features/hold-collisions/api/runtime";
 import {
   createInventoryImportBatchRuntime,
@@ -24,6 +28,12 @@ export type InventoryServices = Readonly<{
   items: ReturnType<typeof createInventoryItemRuntime>;
   importBatches: ReturnType<typeof createInventoryImportBatchRuntime>;
   holds: ReturnType<typeof createInventoryHoldRuntime>;
+  /**
+   * Read-only Hold/reservation cleanup authority (#7222). It appends no
+   * event and reads no projection; Ordering consumes it through an
+   * Ordering-owned host capability.
+   */
+  holdCleanupAuthority: InventoryHoldCleanupAuthorityServices;
   holdCollisions: ReturnType<typeof createInventoryHoldCollisionRuntime>;
   reservations: ReturnType<typeof createInventoryReservationRuntime>;
   restockDecisions: ReturnType<typeof createRestockDecisionRuntime>;
@@ -37,6 +47,19 @@ export type InventoryServices = Readonly<{
 export type InventoryHostPorts = Readonly<{
   draftListingCreator?: InventoryDraftListingCreator;
 }>;
+
+/**
+ * Builds the Inventory cleanup authority against a bare Inventory pool.
+ *
+ * The composition root binds this to Ordering's own port type, so the two
+ * contexts stay decoupled while a payload or identity drift becomes a
+ * typecheck error instead of a runtime throw.
+ */
+export function createInventoryHoldCleanupAuthorityForPool(
+  pool: PgTransactionalPool,
+): InventoryHoldCleanupAuthorityServices {
+  return createInventoryHoldCleanupAuthority({ eventStore: createPostgresEventStore({ pool }), db: pool });
+}
 
 export function createInventoryServices(
   pool: PgTransactionalPool,
@@ -66,6 +89,7 @@ export function createInventoryServices(
     draftListingCreator: ports.draftListingCreator,
   });
   const holds = createInventoryHoldRuntime(deps);
+  const holdCleanupAuthority = createInventoryHoldCleanupAuthority({ eventStore, db });
   const reservations = createInventoryReservationRuntime(deps);
   const holdCollisions = createInventoryHoldCollisionRuntime(deps);
   const restockDecisions = createRestockDecisionRuntime(deps, items, reservations);
@@ -77,6 +101,7 @@ export function createInventoryServices(
     items,
     importBatches,
     holds,
+    holdCleanupAuthority,
     holdCollisions,
     reservations,
     restockDecisions,

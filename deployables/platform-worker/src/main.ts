@@ -256,6 +256,11 @@ runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
       oauthClients: pools.auth,
     }),
     draftListingCreator,
+    // Ordering's cleanup authority (#7222) is an API-only read surface: the
+    // worker runs projectors, subscriptions, and scheduled runners and never
+    // serves N8. The variant is stated explicitly rather than omitted, so an
+    // unsupplied nonoptional port can never masquerade as "mounted".
+    inventoryCleanupAuthority: { kind: "not-mounted" },
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
   },
 });

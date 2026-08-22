@@ -14,12 +14,25 @@ import type { TaxQuoteResolver } from "../../features/orders/api/runtime";
 import { createPostagePolicyRuntime } from "../../features/postage-policies/api/runtime";
 import { defaultShippingQuotePolicy, type ShippingQuotePolicy } from "../../features/orders/domain/policies";
 import type { AuthenticityFeePolicyResolver } from "../../features/orders/api/authenticity-fee-policy-resolver";
+import {
+  assertOrderingInventoryCleanupAuthorityCapability,
+  type OrderingInventoryCleanupAuthorityCapability,
+} from "../../features/orders/api/cleanup-authority";
 
 export type OrderingServiceOptions = Readonly<{
   shippingQuotePolicy?: ShippingQuotePolicy;
   taxQuoteResolver?: TaxQuoteResolver;
   notificationOutbox?: NotificationOutbox;
   authenticityFeePolicyResolver?: AuthenticityFeePolicyResolver;
+  /**
+   * Required host capability (#7222 / #7199 F2). Every host states one of two
+   * explicit variants: it either mounts the Inventory cleanup authority or it
+   * does not. There is no optional, defaulted, or `undefined` form -- an
+   * unsupplied nonoptional port is precisely the boot/runtime defect this
+   * capability exists to make impossible, so Ordering fails boot rather than
+   * constructing a placeholder.
+   */
+  inventoryCleanupAuthority: OrderingInventoryCleanupAuthorityCapability;
 }>;
 
 export type OrderingServices = Readonly<{
@@ -30,10 +43,10 @@ export type OrderingServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createOrderingServices(
-  pool: PgTransactionalPool,
-  options: OrderingServiceOptions = {},
-): OrderingServices {
+export function createOrderingServices(pool: PgTransactionalPool, options: OrderingServiceOptions): OrderingServices {
+  const inventoryCleanupAuthority = assertOrderingInventoryCleanupAuthorityCapability(
+    options?.inventoryCleanupAuthority,
+  );
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "ordering" }),
@@ -52,6 +65,7 @@ export function createOrderingServices(
     taxQuoteResolver: options.taxQuoteResolver,
     notificationOutbox,
     authenticityFeePolicyResolver: options.authenticityFeePolicyResolver,
+    inventoryCleanupAuthority,
   });
 
   return {

@@ -119,6 +119,9 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         operationsRecorder: { record: () => undefined },
         postageLabelProvider,
         addressVerificationProvider: postageLabelProvider,
+        // Real-registry composition: the worker states the Ordering
+        // cleanup-authority capability explicitly as not-mounted (#7222).
+        inventoryCleanupAuthority: { kind: "not-mounted" },
         searchEmbeddingConfig: scheduledRunnerConfig.discoverySearchEmbeddings,
       },
     });

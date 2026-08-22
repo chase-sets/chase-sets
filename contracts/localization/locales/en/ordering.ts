@@ -155,9 +155,13 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.api.route.authentication.context.missing": "Authentication context missing.",
   "ordering.features.orders.api.route.authentication.context.missing.2": "Authentication context missing.",
   "ordering.features.orders.api.route.authentication.context.missing.3": "Authentication context missing.",
+  "ordering.features.orders.api.route.authentication.context.missing.4": "Authentication context missing.",
   "ordering.features.orders.api.route.authentication.required": "Authentication required.",
   "ordering.features.orders.api.route.authenticity.fee.quote.stale":
     "The authenticity check fee changed. Review the updated fee before continuing.",
+  "ordering.features.orders.api.route.cleanup.authority.conflict":
+    "Cleanup authority could not be determined from the complete history.",
+  "ordering.features.orders.api.route.cleanup.authority.invalid": "Cleanup authority request is invalid.",
   "ordering.features.orders.api.route.forbidden": "Forbidden.",
   "ordering.features.orders.api.route.purchase.not.found": "Purchase not found.",
   "ordering.features.orders.api.route.request.failed": "Request failed.",

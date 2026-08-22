@@ -86,6 +86,37 @@ Values:
 - `manual`: an account-initiated Inventory action released the hold.
 - `superseded`: a newer hold or lifecycle transition replaced the hold.
 
+## Inventory Reservation Authority
+
+**Inventory Reservation Authority** is the complete `inventory.reservation-*` stream history for one Ordering reservation request, read as the canonical answer to whether that request was confirmed or rejected.
+
+Notes:
+
+- Valid authority is exactly a v1 `inventory.reservation.confirmed` or `inventory.reservation.rejected`, optionally followed by a v2 `inventory.reservation.released` that may only follow a confirmation.
+- A rejection proves no Hold was ever created; a confirmation supplies the Hold created atomically with it.
+- Missing, over-bound, malformed, mixed, repeated, or non-terminal history is not authority. It is never treated as "no reservation".
+- The UNLOGGED `inventory_reservation_pages` projection is never this authority.
+
+## Hold Cleanup Authority
+
+**Hold Cleanup Authority** is the complete `inventory.hold-*` stream history for one Hold, read as the canonical answer to whether that Hold is still active or reached a real terminal.
+
+Notes:
+
+- A direct Order Hold is `placed` with Hold Purpose `order` and an exact Hold Source Reference; a converted checkout Hold is `placed` with purpose `checkout`, extended zero or more times, then `converted` to purpose `order`.
+- At most one `released`, `consumed`, or `expired` terminal may appear, and nothing may follow it.
+- Reading Hold Cleanup Authority never releases, consumes, or otherwise mutates the Hold.
+
+## Hold Source Lookup
+
+A **Hold Source Lookup** is the reverse, exact-tenant query from an Ordering order id to the Hold streams whose Hold Source Reference carries it.
+
+Notes:
+
+- It covers both source-bearing events: a direct `inventory.hold.placed` with purpose `order` and an `inventory.hold.converted` that promotes a checkout Hold.
+- Results are ordered by first matching global position, then stream id, and are bounded so an order with more Holds than the contract allows is refused rather than truncated.
+- Its authority is the event stream, never a projection.
+
 ## Hold Collision
 
 A **Hold Collision** occurs when a requested stock reduction is larger than Available Quantity because active Inventory Holds already commit part of the Inventory Item.
