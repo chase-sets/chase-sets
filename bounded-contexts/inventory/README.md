@@ -4,6 +4,8 @@
 
 Inventory owns account-held stock, its storage structure, its ship-from location mapping, and its operational availability.
 
+The composition and ownership boundary is ratified in [ADR 0029: My Collection Composition And Saved List Ownership](../../docs/adr/0029-my-collection-composition-and-saved-list-ownership.md).
+
 Inventory items do not target a bare catalog item. They target a resolved product:
 
 - `catalogItemId`
@@ -30,6 +32,7 @@ If an item uses a `condition` dimension, that condition is chosen through the se
 - Offers
 - Orders
 - Shipments
+- Saved Lists, Tracked Quantity, or Saved List valuation
 
 ## Ubiquitous Language
 

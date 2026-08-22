@@ -4,6 +4,8 @@
 
 Collections owns Saved Lists: account-owned, ordered sets of exact Catalog Products kept for curation, tracking, sharing, copying, and later account workflows. A Saved List records intent, not stock or financial truth. My Collection may compose Saved Lists with Inventory-owned Owned Cards, but the customer surface does not move behavior between contexts.
 
+The composition and ownership boundary is ratified in [ADR 0029: My Collection Composition And Saved List Ownership](../../docs/adr/0029-my-collection-composition-and-saved-list-ownership.md).
+
 The context publishes the replay-stable Saved List aggregate, command contracts, and owner read models through `@chase-sets/collections/server`. The Saved List Inventory handoff snapshots selected owner lines into Inventory's review-first import. The valuation slice consumes those contracts and Pricing estimate facts without changing Saved List state or importing slice internals.
 
 ## Owns
