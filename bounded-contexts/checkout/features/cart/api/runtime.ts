@@ -142,10 +142,11 @@ export type CheckoutCartServices = Readonly<{
   createReadinessSnapshot: (
     params: Readonly<{
       accountId: string;
+      presentedAnonymousCartId?: string | null;
       decisions?: CartReadinessDecisionInput | null;
     }>,
   ) => Promise<CartReadinessSnapshot>;
-  listCartLines: (accountId: string) => ReturnType<typeof listCartLines>;
+  listCartLines: (accountId: string, presentedAnonymousCartId?: string | null) => ReturnType<typeof listCartLines>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -445,10 +446,19 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
       return { mergedLineCount: sourceLines.length };
     },
     createReadinessSnapshot: async (params) => {
-      const lines = await listCartLines(deps.db, params.accountId);
-      return createCartReadinessSnapshot(lines, params.decisions);
+      const lines = await listCartLines(deps.db, params.accountId, params.presentedAnonymousCartId);
+      return createCartReadinessSnapshot(
+        lines,
+        params.decisions,
+        params.presentedAnonymousCartId
+          ? {
+              accountId: params.accountId,
+              presentedAnonymousCartId: params.presentedAnonymousCartId,
+            }
+          : undefined,
+      );
     },
-    listCartLines: (accountId) => listCartLines(deps.db, accountId),
+    listCartLines: (accountId, presentedAnonymousCartId) => listCartLines(deps.db, accountId, presentedAnonymousCartId),
     projectors: [cartProjector],
   };
 }

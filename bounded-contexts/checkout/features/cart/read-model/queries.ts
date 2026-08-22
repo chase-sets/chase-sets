@@ -156,9 +156,37 @@ function mapCartLineRow(row: CartLinePageRow): CheckoutCartLineRow {
   };
 }
 
-export async function listCartLines(db: PgQueryable, buyerAccountId: string): Promise<CheckoutCartLineRow[]> {
+export async function listCartLines(
+  db: PgQueryable,
+  buyerAccountId: string,
+  presentedAnonymousCartId?: string | null,
+): Promise<CheckoutCartLineRow[]> {
   const result = await db.query<CartLinePageRow>(
-    `SELECT
+    `WITH requested_owners AS (
+       SELECT $1::text AS owner_id, 0::integer AS owner_precedence
+       UNION ALL
+       SELECT $2::text AS owner_id, 1::integer AS owner_precedence
+       WHERE $2::text IS NOT NULL
+         AND $2::text <> $1::text
+     ),
+     ranked_lines AS (
+       SELECT
+         cart_line.*,
+         requested_owner.owner_precedence,
+         ROW_NUMBER() OVER (
+           PARTITION BY cart_line.line_id
+           ORDER BY requested_owner.owner_precedence ASC
+         ) AS owner_line_rank
+       FROM requested_owners AS requested_owner
+       INNER JOIN checkout_cart_line_pages AS cart_line
+         ON cart_line.buyer_account_id = requested_owner.owner_id
+     ),
+     winning_lines AS (
+       SELECT ranked_line.*
+       FROM ranked_lines AS ranked_line
+       WHERE ranked_line.owner_line_rank = 1
+     )
+     SELECT
        line.buyer_account_id,
        line.line_id,
        line.catalog_catalog_item_id,
@@ -188,7 +216,7 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
        opt.seller_options,
        line.created_at,
        line.updated_at
-     FROM checkout_cart_line_pages line
+     FROM winning_lines AS line
      LEFT JOIN LATERAL (
        SELECT COALESCE(
          json_agg(
@@ -245,14 +273,13 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
              )
            ) > 0
          ORDER BY option.price_amount ASC, option.listing_id ASC
-         LIMIT $2
+         LIMIT $3
        ) o
        LEFT JOIN checkout_seller_accounts seller
          ON seller.account_id = o.seller_account_id
      ) opt ON true
-     WHERE line.buyer_account_id = $1
-     ORDER BY line.updated_at DESC, line.line_id ASC`,
-    [buyerAccountId, CART_SELLER_OPTIONS_PER_LINE_LIMIT],
+     ORDER BY line.owner_precedence ASC, line.updated_at DESC, line.line_id ASC`,
+    [buyerAccountId, presentedAnonymousCartId ?? null, CART_SELLER_OPTIONS_PER_LINE_LIMIT],
   );
 
   return result.rows.map(mapCartLineRow);

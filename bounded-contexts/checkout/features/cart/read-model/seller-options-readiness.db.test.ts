@@ -437,6 +437,62 @@ describeDb("seller-options readiness against the checkout read model", () => {
     expect(snapshot.fulfillmentGroups.map((group) => group.sellerAccountId).sort()).toEqual(["acc_blue", "acc_red"]);
   });
 
+  it("executes the production union query with Account whole-row precedence and distinct same-product lines", async () => {
+    const anonymousCartId = "anon_postgres_union";
+    await seedReadModel(
+      [
+        seededLine({
+          line_id: "cli_account_only",
+          item_title: "Account only",
+          locked_listing_id: "lst_account",
+          seller_preference_id: "lst_account",
+          updated_at: "2026-06-17T00:00:00.000Z",
+        }),
+        seededLine({
+          line_id: "cli_shared",
+          item_title: "Account winner",
+          quantity: 1,
+          locked_listing_id: "lst_account",
+          seller_preference_id: "lst_account",
+          updated_at: "2026-06-16T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: anonymousCartId,
+          line_id: "cli_shared",
+          item_title: "Anonymous loser",
+          quantity: 3,
+          locked_listing_id: "lst_anonymous",
+          seller_preference_id: "lst_anonymous",
+          updated_at: "2026-06-30T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: anonymousCartId,
+          line_id: "cli_anonymous_only",
+          item_title: "Anonymous only",
+          locked_listing_id: "lst_anonymous",
+          seller_preference_id: "lst_anonymous",
+          updated_at: "2026-06-29T00:00:00.000Z",
+        }),
+      ],
+      [
+        seededOption({ listing_id: "lst_account", price_amount: "25.00" }),
+        seededOption({ listing_id: "lst_anonymous", price_amount: "26.00" }),
+      ],
+    );
+
+    const unionLines = await listCartLines(pool, buyerAccountId, anonymousCartId);
+
+    expect(unionLines.map((line) => line.line_id)).toEqual(["cli_account_only", "cli_shared", "cli_anonymous_only"]);
+    expect(unionLines.find((line) => line.line_id === "cli_shared")).toMatchObject({
+      buyer_account_id: buyerAccountId,
+      item_title: "Account winner",
+      quantity: 1,
+      locked_listing_id: "lst_account",
+      seller_preference_id: "lst_account",
+    });
+    expect(unionLines.filter((line) => line.product_id === "cat_charizard::form:raw")).toHaveLength(3);
+  });
+
   it("ties discovery add-to-cart selection to a ready, optimization-bearing snapshot through one SQL source", async () => {
     const selectedListingId = "lst_dear";
     await seedReadModel(

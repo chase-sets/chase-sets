@@ -9,6 +9,7 @@ import {
 import { parseOptionalTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
+import { normalizePresentedAnonymousCartId } from "../../cart/api/contracts";
 import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
 import type { CheckoutSessionCreateResult, CheckoutSessionServices } from "./runtime";
 import type { CheckoutSessionRow } from "../read-model/queries";
@@ -459,6 +460,7 @@ type CheckoutEntryIdempotencySource =
       readinessSnapshotId: string;
       readinessSourceRevision: string;
       readinessDecisions: ReturnType<typeof parseCartReadinessDecisionInput>;
+      presentedAnonymousCartId?: string;
     }>
   | Readonly<{
       type: "buy-now";
@@ -605,11 +607,22 @@ export function createAccountCheckoutSessionRoutes(
         const readinessSnapshotId = String(body.source.readinessSnapshotId ?? "");
         const readinessSourceRevision = String(body.source.readinessSourceRevision ?? "");
         const readinessDecisions = parseCartReadinessDecisionInput(body.source.readinessDecisions);
+        const presentedAnonymousCartId = normalizePresentedAnonymousCartId(
+          c.req.header("x-checkout-anonymous-cart-id"),
+        );
         const shippingOption = String(body.shippingOption ?? "standard");
         const optimizationGoal = parseOptimizationGoal(body.optimizationGoal);
+        const idempotencySource: CheckoutEntryIdempotencySource = {
+          type: "cart",
+          readinessSnapshotId,
+          readinessSourceRevision,
+          readinessDecisions,
+          ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
+        };
         const result = await services.createFromCart(
           {
             accountId: access.actor.accountId as AccountId,
+            ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
             shippingOption,
             optimizationGoal,
             readinessSnapshotId,
@@ -618,12 +631,7 @@ export function createAccountCheckoutSessionRoutes(
             sessionIdOverride: checkoutEntrySessionId({
               accountId: access.actor.accountId as AccountId,
               entryAttemptKey,
-              source: {
-                type: "cart",
-                readinessSnapshotId,
-                readinessSourceRevision,
-                readinessDecisions,
-              },
+              source: idempotencySource,
               shippingOption,
               optimizationGoal,
             }),

@@ -108,6 +108,7 @@ export type CheckoutSessionServices = Readonly<{
       readinessSnapshotId: string;
       readinessSourceRevision: string;
       readinessDecisions?: CartReadinessDecisionInput | null;
+      presentedAnonymousCartId?: string | null;
       sessionIdOverride?: CheckoutSessionId;
     }>,
     context: EventStoreContext,
@@ -416,6 +417,7 @@ async function assertCurrentCartReadinessForUncommittedSession(
     submittedOfferId: string | null;
     cancelledAt?: string | null;
     cartReadinessSnapshot: CartReadinessSnapshot | null | undefined;
+    presentedAnonymousCartId: string | null | undefined;
     splitGroupHandoff: CheckoutSplitGroupHandoff | null | undefined;
   }>,
   accountId: AccountId | string,
@@ -437,12 +439,19 @@ async function assertCurrentCartReadinessForUncommittedSession(
     throw readinessStaleError();
   }
 
-  const cartLines = await cart.listCartLines(accountId as AccountId);
-  const readiness = validateCartReadinessSnapshot(cartLines, {
-    snapshotId: storedReadiness.snapshotId,
-    sourceRevision: storedReadiness.sourceRevision,
-    decisions: cartReadinessDecisionsFromSnapshot(storedReadiness),
-  });
+  const presentedAnonymousCartId = state.presentedAnonymousCartId ?? null;
+  const cartLines = presentedAnonymousCartId
+    ? await cart.listCartLines(accountId as AccountId, presentedAnonymousCartId)
+    : await cart.listCartLines(accountId as AccountId);
+  const readiness = validateCartReadinessSnapshot(
+    cartLines,
+    {
+      snapshotId: storedReadiness.snapshotId,
+      sourceRevision: storedReadiness.sourceRevision,
+      decisions: cartReadinessDecisionsFromSnapshot(storedReadiness),
+    },
+    presentedAnonymousCartId ? { accountId: String(accountId), presentedAnonymousCartId } : undefined,
+  );
   if (!readiness.valid) {
     throw readinessStaleError();
   }
@@ -569,16 +578,16 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     return loaded.state;
   }
 
-  async function loadSessionRowForBuyerFromAggregate(
+  async function loadSessionStateForBuyerOrNull(
     sessionId: string,
     accountId: AccountId | string,
-  ): Promise<CheckoutSessionRow | null> {
+  ): Promise<CheckoutSessionState | null> {
     const loaded = await repository.load(`checkout.session-${sessionId}`);
     if (loaded.state.sessionId !== sessionId || loaded.state.buyerAccountId !== accountId) {
       return null;
     }
 
-    return stateToCheckoutSessionRow(loaded.state);
+    return loaded.state;
   }
 
   function assertBuyNowHandoffReady(
@@ -628,6 +637,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       fulfillmentPreviewRevision?: string | null;
       fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
       cartReadinessSnapshot?: CartReadinessSnapshot | null;
+      presentedAnonymousCartId?: string | null;
       shippingOption: ShippingOption;
       lines: readonly CheckoutSessionLine[];
       sessionIdOverride?: CheckoutSessionId;
@@ -697,6 +707,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
           fulfillmentPreviewSnapshot: params.fulfillmentPreviewSnapshot,
           cartReadinessSnapshot: params.cartReadinessSnapshot,
+          presentedAnonymousCartId: params.presentedAnonymousCartId,
           shippingOption: params.shippingOption,
           lines: params.lines,
           createdAt: new Date().toISOString(),
@@ -732,15 +743,22 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
   return {
     commandHandler,
     createFromCart: async (params, context) => {
-      const cartLines = await deps.cart.listCartLines(params.accountId);
+      const presentedAnonymousCartId = params.presentedAnonymousCartId ?? null;
+      const cartLines = presentedAnonymousCartId
+        ? await deps.cart.listCartLines(params.accountId, presentedAnonymousCartId)
+        : await deps.cart.listCartLines(params.accountId);
       if (cartLines.length === 0) {
         throw new CheckoutDomainError("Cart must contain at least one line.", "cart_empty");
       }
-      const readiness = validateCartReadinessSnapshot(cartLines, {
-        snapshotId: params.readinessSnapshotId,
-        sourceRevision: params.readinessSourceRevision,
-        decisions: params.readinessDecisions ?? undefined,
-      });
+      const readiness = validateCartReadinessSnapshot(
+        cartLines,
+        {
+          snapshotId: params.readinessSnapshotId,
+          sourceRevision: params.readinessSourceRevision,
+          decisions: params.readinessDecisions ?? undefined,
+        },
+        presentedAnonymousCartId ? { accountId: params.accountId, presentedAnonymousCartId } : undefined,
+      );
       if (!readiness.valid) {
         throw new CheckoutDomainError(
           "Cart readiness changed. Review your cart before checkout.",
@@ -759,6 +777,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           shippingOption: normalizeShippingOption(params.shippingOption ?? "standard"),
           optimizationGoal: params.optimizationGoal,
           cartReadinessSnapshot: readiness.current,
+          presentedAnonymousCartId,
           lines: checkoutLines.map(cartLineToSessionLine),
           sessionIdOverride: params.sessionIdOverride,
         },
@@ -1049,10 +1068,11 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     },
     getSession: async (sessionId, accountId) => {
       const projectedSession = await getCheckoutSession(deps.db, sessionId, accountId);
-      const aggregateSession =
+      const aggregateState =
         !projectedSession || !hasCommittedSessionSideEffects(projectedSession)
-          ? await loadSessionRowForBuyerFromAggregate(sessionId, accountId)
+          ? await loadSessionStateForBuyerOrNull(sessionId, accountId)
           : null;
+      const aggregateSession = aggregateState ? stateToCheckoutSessionRow(aggregateState) : null;
       const session =
         projectedSession && !sessionPageIsBehindCommittedAggregate(projectedSession, aggregateSession)
           ? projectedSession
@@ -1066,12 +1086,14 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       }
 
       await assertCurrentCartReadinessForUncommittedSession(
-        {
+        aggregateState ?? {
           sourceType: session.source_type,
           orderIds: session.order_ids,
           paymentId: session.payment_id,
           submittedOfferId: session.submitted_offer_id,
+          cancelledAt: session.cancelled_at,
           cartReadinessSnapshot: session.cart_readiness_snapshot ?? null,
+          presentedAnonymousCartId: null,
           splitGroupHandoff: session.split_group_handoff ?? null,
         },
         accountId,
