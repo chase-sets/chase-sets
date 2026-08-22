@@ -3,10 +3,14 @@ import { render as renderWithoutRouter, screen, waitFor, within, type RenderOpti
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CardProps } from "@chase-sets/design-system";
 
-const { mockUseLoaderData, mockUseLocation } = vi.hoisted(() => ({
+const { mockUseLoaderData, mockUseLocation, futureCardElevationDefault } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseLocation: vi.fn(),
+  // Baseline `undefined` preserves the real Card's current omitted-elevation
+  // behavior; tests flip this to prove the hub still pins an explicit elevation.
+  futureCardElevationDefault: { current: undefined as CardProps["elevation"] | undefined },
 }));
 
 vi.mock("react-router", async () => {
@@ -17,6 +21,25 @@ vi.mock("react-router", async () => {
     Outlet: () => <main>Nested admin route</main>,
     useLoaderData: mockUseLoaderData,
     useLocation: mockUseLocation,
+  };
+});
+
+vi.mock("@chase-sets/design-system", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/design-system")>("@chase-sets/design-system");
+
+  function FutureDefaultCard({ elevation, ...props }: React.ComponentProps<typeof actual.Card>) {
+    return <actual.Card {...props} elevation={elevation ?? futureCardElevationDefault.current} />;
+  }
+
+  return {
+    ...actual,
+    Card: Object.assign(FutureDefaultCard, {
+      Header: actual.Card.Header,
+      Title: actual.Card.Title,
+      Description: actual.Card.Description,
+      Body: actual.Card.Body,
+      Footer: actual.Card.Footer,
+    }),
   };
 });
 
@@ -86,48 +109,6 @@ function hubGridMarkup(html: string, firstSection: AdminHubSection) {
   expect(gridClasses).toBeGreaterThanOrEqual(0);
 
   return html.slice(html.lastIndexOf("<div ", gridClasses), firstCardStart);
-}
-
-async function ssrAdminIndexWithOutlinedCardDefault() {
-  vi.resetModules();
-  vi.doMock("react-router", async () => {
-    const actual = await vi.importActual<typeof import("react-router")>("react-router");
-
-    return {
-      ...actual,
-      Outlet: () => <main>Nested admin route</main>,
-      useLoaderData: mockUseLoaderData,
-      useLocation: mockUseLocation,
-    };
-  });
-  vi.doMock("@chase-sets/design-system", async () => {
-    const actual = await vi.importActual<typeof import("@chase-sets/design-system")>("@chase-sets/design-system");
-    const FutureDefaultCard = ({ elevation = "outlined", ...props }: React.ComponentProps<typeof actual.Card>) => (
-      <actual.Card {...props} elevation={elevation} />
-    );
-
-    return {
-      ...actual,
-      Card: Object.assign(FutureDefaultCard, {
-        Header: actual.Card.Header,
-        Title: actual.Card.Title,
-        Description: actual.Card.Description,
-        Body: actual.Card.Body,
-        Footer: actual.Card.Footer,
-      }),
-    };
-  });
-
-  const [{ default: FutureDefaultAdminIndex }, { MemoryRouter: FutureDefaultMemoryRouter }] = await Promise.all([
-    import("./routes/index"),
-    import("react-router"),
-  ]);
-
-  return renderToString(
-    <FutureDefaultMemoryRouter>
-      <FutureDefaultAdminIndex />
-    </FutureDefaultMemoryRouter>,
-  );
 }
 
 function render(ui: React.ReactNode, options?: RenderOptions) {
@@ -385,23 +366,22 @@ describe("admin web root hub", () => {
     }
   });
 
-  it("keeps hub Cards elevated when an omitted elevation defaults to outlined", async () => {
+  it("keeps hub Cards elevated when an omitted elevation defaults to outlined", () => {
     mockUseLoaderData.mockReturnValue({
       actor: allSectionsActor,
       sections: [{ key: "catalog", label: "Catalog", href: "/catalog" }],
     });
 
+    futureCardElevationDefault.current = "outlined";
     try {
-      const html = await ssrAdminIndexWithOutlinedCardDefault();
+      const html = ssr(<AdminIndex />);
       const card = hubCardMarkup(html, { key: "catalog", label: "Catalog", href: "/catalog" });
 
       expect(card).toContain("ds-glass");
       expect(card).toContain("border border-muted");
       expect(card).toContain("shadow-tokenSm");
     } finally {
-      vi.doUnmock("react-router");
-      vi.doUnmock("@chase-sets/design-system");
-      vi.resetModules();
+      futureCardElevationDefault.current = undefined;
     }
   });
 
