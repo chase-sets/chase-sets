@@ -32,8 +32,8 @@ export type MappedOrderUpdate = Readonly<{
   orderIds: readonly string[];
   /**
    * Buyer account carried directly on the event, when present. Events that do
-   * not carry it (dispatch, cancellation, refund) are resolved by the projector
-   * via an order → recipient lookup port.
+   * not carry it (historical dispatch, cancellation, refund) are resolved by
+   * the projector via an order → recipient lookup port.
    */
   recipientAccountId: string | null;
   buildPayload: (orderId: string) => AgentOrderUpdatePayload;
@@ -56,8 +56,63 @@ type OrderCancelledData = Readonly<{
 
 type ShipmentDispatchedData = Readonly<{
   shipmentId: string;
+  orderId?: unknown;
+  buyerAccountId?: unknown;
+  sellerAccountId?: unknown;
+  trackingIdentifier?: unknown;
   dispatchedAt?: string | null;
 }>;
+
+export type ShipmentDispatchedPayloadClassification =
+  | Readonly<{ kind: "historical" }>
+  | Readonly<{
+      kind: "enriched";
+      orderId: string;
+      buyerAccountId: string;
+      sellerAccountId: string;
+      trackingIdentifier: string | null;
+    }>
+  | Readonly<{ kind: "rejected" }>;
+
+const SHIPMENT_DISPATCHED_ROUTING_KEYS = [
+  "orderId",
+  "buyerAccountId",
+  "sellerAccountId",
+  "trackingIdentifier",
+] as const;
+
+/** Classifies all dispatched routing fields atomically before any lookup can run. */
+export function classifyShipmentDispatchedPayload(data: unknown): ShipmentDispatchedPayloadClassification {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { kind: "rejected" };
+  }
+
+  const payload = data as Readonly<Record<string, unknown>>;
+  const presence = SHIPMENT_DISPATCHED_ROUTING_KEYS.map((key) => Object.hasOwn(payload, key));
+  if (presence.every((isPresent) => !isPresent)) {
+    return { kind: "historical" };
+  }
+  if (!presence.every(Boolean)) {
+    return { kind: "rejected" };
+  }
+
+  if (
+    !isNonEmptyString(payload.orderId) ||
+    !isNonEmptyString(payload.buyerAccountId) ||
+    !isNonEmptyString(payload.sellerAccountId) ||
+    (typeof payload.trackingIdentifier !== "string" && payload.trackingIdentifier !== null)
+  ) {
+    return { kind: "rejected" };
+  }
+
+  return {
+    kind: "enriched",
+    orderId: payload.orderId,
+    buyerAccountId: payload.buyerAccountId,
+    sellerAccountId: payload.sellerAccountId,
+    trackingIdentifier: payload.trackingIdentifier,
+  };
+}
 
 type ShipmentDeliveredData = Readonly<{
   shipmentId: string;
@@ -76,12 +131,13 @@ type RefundIssuedData = Readonly<{
 }>;
 
 /**
- * Some lifecycle events (shipment dispatched) reference only the shipment. The
- * projector resolves `shipmentId → orderId` before mapping, and passes the
- * resolved order id back in via `resolvedOrderId`.
+ * Historical shipment-dispatched events reference only the shipment. The
+ * projector resolves `shipmentId → orderId` before mapping and passes the
+ * resolved id back here. Enriched events carry one pre-classified routing set.
  */
 export type OrderUpdateMappingContext = Readonly<{
   resolvedOrderId?: string | null;
+  shipmentDispatchedPayload?: ShipmentDispatchedPayloadClassification;
 }>;
 
 export function mapOrderLifecycleEventToOrderUpdate(
@@ -99,9 +155,12 @@ export function mapOrderLifecycleEventToOrderUpdate(
     }
     case "fulfillment.shipment.dispatched": {
       const data = event.data as ShipmentDispatchedData;
-      const orderId = context.resolvedOrderId ?? null;
+      const classification = context.shipmentDispatchedPayload ?? classifyShipmentDispatchedPayload(event.data);
+      if (classification.kind === "rejected") return null;
+      const orderId = classification.kind === "enriched" ? classification.orderId : (context.resolvedOrderId ?? null);
       if (!orderId) return null;
-      return singleOrderUpdate(event, "shipped", orderId, null, {
+      const recipientAccountId = classification.kind === "enriched" ? classification.buyerAccountId : null;
+      return singleOrderUpdate(event, "shipped", orderId, recipientAccountId, {
         shipmentId: data.shipmentId,
         dispatchedAt: data.dispatchedAt ?? null,
       });
@@ -143,6 +202,10 @@ export function mapOrderLifecycleEventToOrderUpdate(
     default:
       return null;
   }
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
 }
 
 function singleOrderUpdate(

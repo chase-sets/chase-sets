@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { decideFulfillmentShipment, evolveFulfillmentShipment, initialFulfillmentShipmentState } from "./domain";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import {
+  decideFulfillmentShipment,
+  evolveFulfillmentShipment,
+  initialFulfillmentShipmentState,
+  type FulfillmentShipmentEvent,
+} from "./domain";
 
 const shipmentAddressSnapshots = {
   shippingDestinationSnapshot: {
@@ -88,6 +94,107 @@ function attachPurchasedLabel(state: ReturnType<typeof createPackedShipmentState
 }
 
 describe("fulfillment shipment domain", () => {
+  it("publishes the privacy-minimal shipment routing facts from aggregate state at dispatch", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+
+    const [event] = decideFulfillmentShipment(labeledState, {
+      type: "DispatchShipment",
+      dispatchedAt: "2026-04-02T00:20:00.000Z",
+    });
+
+    expect(event).toEqual({
+      type: "fulfillment.shipment.dispatched",
+      data: {
+        shipmentId: "shp_1",
+        orderId: "ord_1",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        trackingIdentifier: "trk_123",
+        dispatchedAt: "2026-04-02T00:20:00.000Z",
+      },
+    });
+    expect(Object.keys(event.data).sort()).toEqual([
+      "buyerAccountId",
+      "dispatchedAt",
+      "orderId",
+      "sellerAccountId",
+      "shipmentId",
+      "trackingIdentifier",
+    ]);
+  });
+
+  it("refuses to dispatch a shipment that has not been created", () => {
+    expect(() =>
+      decideFulfillmentShipment(initialFulfillmentShipmentState, {
+        type: "DispatchShipment",
+        dispatchedAt: "2026-04-02T00:20:00.000Z",
+      }),
+    ).toThrow("Shipment must be created first.");
+  });
+
+  it("refuses to dispatch a labeled shipment whose authoritative order routing fact is absent", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+
+    expect(() =>
+      decideFulfillmentShipment(
+        { ...labeledState, orderId: null },
+        { type: "DispatchShipment", dispatchedAt: "2026-04-02T00:20:00.000Z" },
+      ),
+    ).toThrow("Shipment must reference an order before dispatch.");
+  });
+
+  it("keeps redispatch idempotent after folding the enriched event", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+    const [dispatchedEvent] = decideFulfillmentShipment(labeledState, {
+      type: "DispatchShipment",
+      dispatchedAt: "2026-04-02T00:20:00.000Z",
+    });
+    const dispatchedState = evolveFulfillmentShipment(labeledState, dispatchedEvent);
+
+    expect(
+      decideFulfillmentShipment(dispatchedState, {
+        type: "DispatchShipment",
+        dispatchedAt: "2026-04-02T00:21:00.000Z",
+      }),
+    ).toEqual([]);
+  });
+
+  it("replays historical thin and enriched dispatched events without rewriting either payload", () => {
+    const codec = createPassthroughDomainEventCodec<FulfillmentShipmentEvent>();
+    const [historicalEvent, enrichedEvent] = [
+      {
+        eventType: "fulfillment.shipment.dispatched",
+        payload: { shipmentId: "shp_historical", dispatchedAt: "2026-04-01T00:00:00.000Z" },
+      },
+      {
+        eventType: "fulfillment.shipment.dispatched",
+        payload: {
+          shipmentId: "shp_enriched",
+          orderId: "ord_1",
+          buyerAccountId: "acc_buyer",
+          sellerAccountId: "acc_seller",
+          trackingIdentifier: "trk_123",
+          dispatchedAt: "2026-04-02T00:20:00.000Z",
+        },
+      },
+    ].map((storedEvent) => codec.decode(storedEvent));
+
+    const historicalState = evolveFulfillmentShipment(initialFulfillmentShipmentState, historicalEvent);
+    const enrichedState = evolveFulfillmentShipment(historicalState, enrichedEvent);
+
+    expect(historicalState.status).toBe("dispatched");
+    expect(enrichedState.status).toBe("dispatched");
+    expect("orderId" in historicalEvent.data).toBe(false);
+    expect(enrichedEvent.data).toEqual({
+      shipmentId: "shp_enriched",
+      orderId: "ord_1",
+      buyerAccountId: "acc_buyer",
+      sellerAccountId: "acc_seller",
+      trackingIdentifier: "trk_123",
+      dispatchedAt: "2026-04-02T00:20:00.000Z",
+    });
+  });
+
   it("moves a shipment through packing, labeling, dispatch, and delivery", () => {
     const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
       type: "CreateShipment",

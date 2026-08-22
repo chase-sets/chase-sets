@@ -2,19 +2,24 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { AgentWebhookOutbox } from "./agent-webhook-outbox";
 import type { AgentWebhookTarget } from "./agent-webhook-registration";
-import { mapOrderLifecycleEventToOrderUpdate, type MappedOrderUpdate } from "./order-update-payload";
+import {
+  classifyShipmentDispatchedPayload,
+  mapOrderLifecycleEventToOrderUpdate,
+  type MappedOrderUpdate,
+  type OrderUpdateMappingContext,
+} from "./order-update-payload";
 
 export const AGENT_ORDER_WEBHOOK_PROJECTION = "auth-agent-order-webhook-projection";
 
 /**
  * Projects order-lifecycle events onto per-client webhook deliveries.
  *
- * Some source events carry the buyer account (created, delivered); others carry
- * only the order or shipment (dispatched, cancelled, refunded). The projector
- * therefore leans on two lookup ports to reach the recipient account, then fans
- * out one signed delivery per registered agent-platform callback for that
- * account. Enqueue is idempotent per `(client, event, order)`, so replays never
- * double-send.
+ * Source events either carry the buyer account or use the preserved historical
+ * lookup path. Dispatched payloads are classified atomically before any lookup,
+ * so routing values from the event and host projections are never mixed. The
+ * projector then fans out one signed delivery per registered agent-platform
+ * callback for that account. Enqueue is idempotent per `(client, event, order)`,
+ * so replays never double-send.
  */
 export type AgentWebhookProjectorDeps = Readonly<{
   outbox: AgentWebhookOutbox;
@@ -41,10 +46,19 @@ export async function projectOrderLifecycleEventToAgentWebhooks(
   deps: AgentWebhookProjectorDeps,
   event: TransportEvent,
 ): Promise<void> {
-  const resolvedOrderId =
-    event.type === "fulfillment.shipment.dispatched" ? await deps.resolveShipmentOrderId(readShipmentId(event)) : null;
+  let mappingContext: OrderUpdateMappingContext = {};
+  if (event.type === "fulfillment.shipment.dispatched") {
+    const classification = classifyShipmentDispatchedPayload(event.data);
+    if (classification.kind === "rejected") {
+      return;
+    }
 
-  const mapped = mapOrderLifecycleEventToOrderUpdate(event, { resolvedOrderId });
+    const resolvedOrderId =
+      classification.kind === "historical" ? await deps.resolveShipmentOrderId(readShipmentId(event)) : null;
+    mappingContext = { resolvedOrderId, shipmentDispatchedPayload: classification };
+  }
+
+  const mapped = mapOrderLifecycleEventToOrderUpdate(event, mappingContext);
   if (!mapped) {
     return;
   }

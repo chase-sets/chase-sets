@@ -434,6 +434,10 @@ export type ShipmentDispatchedEvent = DomainEvent<
   "fulfillment.shipment.dispatched",
   Readonly<{
     shipmentId: ShipmentId;
+    orderId: OrderId;
+    buyerAccountId: AccountId;
+    sellerAccountId: AccountId;
+    trackingIdentifier: string | null;
     dispatchedAt: string;
   }>
 >;
@@ -818,6 +822,9 @@ export const decideFulfillmentShipment: AggregateDecider<
       ];
     case "DispatchShipment":
       assert(state.shipmentId !== null, "Shipment must be created first.");
+      assert(state.orderId !== null, "Shipment must reference an order before dispatch.");
+      assert(state.buyerAccountId !== null, "Shipment must reference a buyer before dispatch.");
+      assert(state.sellerAccountId !== null, "Shipment must reference a seller before dispatch.");
       if (state.status === "dispatched") {
         return [];
       }
@@ -827,6 +834,10 @@ export const decideFulfillmentShipment: AggregateDecider<
           type: "fulfillment.shipment.dispatched",
           data: {
             shipmentId: state.shipmentId,
+            orderId: state.orderId,
+            buyerAccountId: state.buyerAccountId,
+            sellerAccountId: state.sellerAccountId,
+            trackingIdentifier: state.trackingIdentifier,
             dispatchedAt: ensureIsoTimestamp(command.dispatchedAt, "Dispatch must record a timestamp."),
           },
         },

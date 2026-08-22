@@ -44,8 +44,7 @@ Do not use an unapproved public request-bin or commit staging credentials/eviden
   rather than in-scope here: it needs a new at-rest crypto primitive (none exists in the repo today), a key
   source, and a backfill migration over a shared table. Because the access surface is a single resolver, that
   upgrade stays local when it lands.
-- **Shipment → order resolution coupling.** `resolveShipmentOrderId` reads `ordering_fulfillment_cancellation_inputs`.
-  A `fulfillment.shipment.dispatched` event whose shipment row has not yet been projected there resolves to
-  `null` and the `shipped` delivery is skipped (it is not retried from the projector). In practice the
-  cancellation-input projection is fed by the same fulfillment stream, but a dedicated shipment→order read model
-  would remove the cross-projection freshness dependency. Tracked as a follow-up, not a blocker.
+- **Historical shipment → order resolution coupling.** Current `fulfillment.shipment.dispatched` events carry
+  their order and buyer routing facts directly. Historical thin events still use `resolveShipmentOrderId`, which
+  reads `ordering_fulfillment_cancellation_inputs`; if the historical shipment row has not projected there, the
+  lookup resolves to `null` and the `shipped` delivery is skipped (it is not retried from the projector).
