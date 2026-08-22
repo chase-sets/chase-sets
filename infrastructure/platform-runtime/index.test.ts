@@ -12,7 +12,14 @@ import {
 } from "./api";
 import type { EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import { createWorkerHost, createWorkerRunnerLoop, type WorkerContextRegistry, type WorkerRunner } from "./worker";
-import { getWebHostSections, resolveWebHostNavItems, resolveWebHostRouteRecords, type WebContextRegistry } from "./web";
+import {
+  getWebHostSections,
+  resolveWebHostActiveKey,
+  resolveWebHostNavItems,
+  resolveWebHostRouteRecords,
+  type WebContextRegistry,
+  type WebHostShellResolutionErrorCode,
+} from "./web";
 import { resolveWebHostRouteConfigRecords, toRouteConfigEntry } from "./web-route-config";
 
 type FakeQueryResult = Readonly<{
@@ -360,6 +367,44 @@ const webRegistry = [
     },
   },
 ] as const satisfies WebContextRegistry;
+
+function shellItem(overrides: Readonly<Record<string, unknown>> = {}) {
+  return {
+    deployable: "marketplace-web",
+    slot: "top-nav",
+    key: "route",
+    label: "Route",
+    icon: "box",
+    href: "/route",
+    order: 10,
+    visibility: "always",
+    requiredPermissions: [],
+    ...overrides,
+  };
+}
+
+function shellRegistry(shellContributions: readonly unknown[]): WebContextRegistry {
+  return [
+    {
+      contextName: "arbitrary-context",
+      packageName: "@test/arbitrary-context",
+      manifest: {
+        contextName: "arbitrary-context",
+        shellContributions,
+      },
+    },
+  ] as unknown as WebContextRegistry;
+}
+
+function expectShellResolutionCode(
+  shellContributions: readonly unknown[],
+  code: WebHostShellResolutionErrorCode,
+  options: Readonly<{ limit?: number }> = {},
+) {
+  expect(() =>
+    resolveWebHostNavItems(shellRegistry(shellContributions), "marketplace-web", "top-nav", null, options),
+  ).toThrowError(expect.objectContaining({ code }));
+}
 
 describe("platform host api registry", () => {
   it("returns active contexts for a host", () => {
@@ -867,6 +912,30 @@ describe("platform host worker registry", () => {
 });
 
 describe("platform host web registry", () => {
+  it("keeps an unchanged legacy manifest byte-equivalent without resolver options", () => {
+    const legacyRegistry = shellRegistry([
+      shellItem({ key: "zulu", label: "Zulu", href: "/zulu", order: 20 }),
+      shellItem({ key: "alpha", label: "Alpha", href: "/alpha", order: 10 }),
+    ]);
+
+    expect(resolveWebHostNavItems(legacyRegistry, "marketplace-web", "top-nav", null)).toEqual([
+      { key: "alpha", label: "Alpha", icon: "box", href: "/alpha" },
+      { key: "zulu", label: "Zulu", icon: "box", href: "/zulu" },
+    ]);
+  });
+
+  it("uses keys rather than localized labels to break display-order ties", () => {
+    const registry = shellRegistry([
+      shellItem({ key: "zulu", label: "Alpha label", href: "/zulu", order: 10 }),
+      shellItem({ key: "alpha", label: "Zulu label", href: "/alpha", order: 10 }),
+    ]);
+
+    expect(resolveWebHostNavItems(registry, "marketplace-web", "top-nav", null).map((item) => item.key)).toEqual([
+      "alpha",
+      "zulu",
+    ]);
+  });
+
   it("prefixes admin routes and nav items by section", () => {
     const routes = resolveWebHostRouteRecords(webRegistry, "admin-web");
     const navItems = resolveWebHostNavItems(webRegistry, "admin-web", "primary-nav", null, { section: "catalog" });
@@ -1155,6 +1224,317 @@ describe("platform host web registry", () => {
         permissions: [],
       }),
     ).toEqual([]);
+  });
+
+  it("resolves expanded parents, actions, role exclusions, placements, badges, and packing deterministically", () => {
+    const registry = [
+      {
+        contextName: "identity",
+        packageName: "@test/identity",
+        manifest: {
+          contextName: "identity",
+          shellContributions: [
+            shellItem({
+              key: "account-menu",
+              label: "Account",
+              href: undefined,
+              placements: ["top-nav", "bottom-nav"],
+              order: 30,
+              visibility: "signed-in",
+              packingPriority: 50,
+            }),
+            shellItem({
+              key: "account",
+              parentKey: "account-menu",
+              label: "Account home",
+              href: "/account",
+              placements: ["top-nav", "bottom-nav"],
+              order: 10,
+              visibility: "signed-in",
+              packingPriority: 0,
+            }),
+          ],
+        },
+      },
+      {
+        contextName: "notifications",
+        packageName: "@test/notifications",
+        manifest: {
+          contextName: "notifications",
+          shellContributions: [
+            shellItem({
+              key: "notifications",
+              label: "Notifications",
+              href: undefined,
+              activation: "action",
+              placement: "utility",
+              excludedRoleKeys: ["guest-buyer"],
+              order: 20,
+              visibility: "signed-in",
+              packingPriority: 100,
+            }),
+            shellItem({
+              key: "alerts",
+              label: "Alerts",
+              href: "/alerts",
+              badge: { valueKey: "alerts.count", max: 99, hideWhenEmptyForSignedOut: false },
+              order: 10,
+              visibility: "signed-in",
+              packingPriority: 90,
+            }),
+          ],
+        },
+      },
+    ] as unknown as WebContextRegistry;
+
+    expect(
+      resolveWebHostNavItems(
+        registry,
+        "marketplace-web",
+        "top-nav",
+        { roleKey: "member", permissions: [] },
+        {
+          dynamicValues: { "alerts.count": 100 },
+        },
+      ),
+    ).toEqual([
+      { key: "alerts", label: "Alerts", icon: "box", href: "/alerts", badge: "99+" },
+      { key: "notifications", label: "Notifications", icon: "box", placement: "utility" },
+      {
+        key: "account-menu",
+        label: "Account",
+        icon: "box",
+        children: [{ key: "account", label: "Account home", icon: "box", href: "/account" }],
+      },
+    ]);
+    expect(
+      resolveWebHostNavItems(
+        registry,
+        "marketplace-web",
+        "top-nav",
+        { roleKey: "member" },
+        {
+          dynamicValues: { "alerts.count": 2 },
+          limit: 2,
+        },
+      ).map((item) => item.key),
+    ).toEqual(["alerts", "notifications"]);
+    expect(
+      resolveWebHostNavItems(
+        registry,
+        "marketplace-web",
+        "top-nav",
+        { roleKey: "guest-buyer" },
+        {
+          dynamicValues: { "alerts.count": -4 },
+        },
+      ).map((item) => item.key),
+    ).toEqual(["alerts", "account-menu"]);
+    expect(resolveWebHostNavItems(registry, "marketplace-web", "bottom-nav", { roleKey: "member" })).toEqual([
+      {
+        key: "account-menu",
+        label: "Account",
+        icon: "box",
+        children: [{ key: "account", label: "Account home", icon: "box", href: "/account" }],
+      },
+    ]);
+  });
+
+  it("normalizes dynamic badges and signed-out empty-item hiding", () => {
+    const registry = shellRegistry([
+      shellItem({
+        badge: { valueKey: "cart.count", max: 9, hideWhenEmptyForSignedOut: true },
+        visibility: "always",
+      }),
+    ]);
+
+    expect(resolveWebHostNavItems(registry, "marketplace-web", "top-nav", null)).toEqual([]);
+    expect(
+      resolveWebHostNavItems(registry, "marketplace-web", "top-nav", null, {
+        dynamicValues: { "cart.count": Number.NaN },
+      }),
+    ).toEqual([]);
+    expect(
+      resolveWebHostNavItems(registry, "marketplace-web", "top-nav", null, {
+        dynamicValues: { "cart.count": 10.8 },
+      }),
+    ).toEqual([{ key: "route", label: "Route", icon: "box", href: "/route", badge: "9+" }]);
+    expect(resolveWebHostNavItems(registry, "marketplace-web", "top-nav", { permissions: [] })).toEqual([
+      { key: "route", label: "Route", icon: "box", href: "/route" },
+    ]);
+  });
+
+  it.each([
+    {
+      name: "duplicate expanded key",
+      code: "SHELL_DUPLICATE_EXPANDED_KEY",
+      contributions: [shellItem(), shellItem({ href: "/other" })],
+    },
+    {
+      name: "duplicate expanded href",
+      code: "SHELL_DUPLICATE_EXPANDED_HREF",
+      contributions: [shellItem(), shellItem({ key: "other" })],
+    },
+    {
+      name: "missing parent",
+      code: "SHELL_PARENT_MISSING",
+      contributions: [shellItem({ parentKey: "missing" })],
+    },
+    {
+      name: "invalid leaf parent",
+      code: "SHELL_PARENT_INVALID",
+      contributions: [shellItem({ key: "parent" }), shellItem({ key: "child", href: "/child", parentKey: "parent" })],
+    },
+    {
+      name: "self parent",
+      code: "SHELL_PARENT_SELF",
+      contributions: [shellItem({ key: "self", href: undefined, parentKey: "self" })],
+    },
+    {
+      name: "parent cycle",
+      code: "SHELL_PARENT_CYCLE",
+      contributions: [
+        shellItem({ key: "a", href: undefined, parentKey: "b" }),
+        shellItem({ key: "b", href: undefined, parentKey: "a" }),
+      ],
+    },
+    {
+      name: "access widening",
+      code: "SHELL_ACCESS_WIDENING",
+      contributions: [
+        shellItem({ key: "parent", href: undefined, visibility: "signed-in" }),
+        shellItem({ key: "child", href: "/child", parentKey: "parent", visibility: "always" }),
+      ],
+    },
+    {
+      name: "malformed action",
+      code: "SHELL_ACTION_MALFORMED",
+      contributions: [shellItem({ activation: "action" })],
+    },
+    {
+      name: "non-finite order",
+      code: "SHELL_ORDER_NON_FINITE",
+      contributions: [shellItem({ order: Number.NaN })],
+    },
+    {
+      name: "non-finite priority",
+      code: "SHELL_PACKING_PRIORITY_NON_FINITE",
+      contributions: [shellItem({ packingPriority: Number.POSITIVE_INFINITY })],
+    },
+    {
+      name: "non-finite badge max",
+      code: "SHELL_BADGE_MAX_INVALID",
+      contributions: [shellItem({ badge: { valueKey: "count", max: Number.NaN, hideWhenEmptyForSignedOut: false } })],
+    },
+    {
+      name: "duplicate badge owner",
+      code: "SHELL_DUPLICATE_BADGE_OWNER",
+      contributions: [
+        shellItem({ badge: { valueKey: "count", max: 9, hideWhenEmptyForSignedOut: false } }),
+        shellItem({
+          key: "other",
+          href: "/other",
+          badge: { valueKey: "count", max: 9, hideWhenEmptyForSignedOut: false },
+        }),
+      ],
+    },
+    {
+      name: "malformed active path",
+      code: "SHELL_ACTIVE_PATH_MALFORMED",
+      contributions: [shellItem({ activePathPatterns: ["/route/:id"] })],
+    },
+    {
+      name: "ambiguous active aliases",
+      code: "SHELL_ACTIVE_AMBIGUITY",
+      contributions: [
+        shellItem({ activePathPatterns: ["/alias"] }),
+        shellItem({ key: "other", href: "/other", activePathPatterns: ["/alias"] }),
+      ],
+    },
+    {
+      name: "limited resolution missing priority",
+      code: "SHELL_LIMIT_PRIORITY_MISSING",
+      contributions: [shellItem()],
+      options: { limit: 1 },
+    },
+  ])("fails $name with a stable code", ({ contributions, code, options }) => {
+    expectShellResolutionCode(contributions, code as WebHostShellResolutionErrorCode, options ?? {});
+  });
+
+  it("resolves active identity from the unfiltered tree before consulting rendered keys", () => {
+    const registry = shellRegistry([
+      shellItem({ key: "account", href: "/account", visibility: "signed-in" }),
+      shellItem({
+        key: "sales",
+        href: "/account/sales",
+        order: 20,
+        visibility: "signed-in",
+        requiredPermissions: ["sales.view"],
+      }),
+      shellItem({
+        key: "notifications",
+        label: "Notifications",
+        href: undefined,
+        activation: "action",
+        order: 30,
+        visibility: "signed-in",
+      }),
+    ]);
+    const options = { defaultKey: "account" } as const;
+
+    expect(
+      resolveWebHostActiveKey(registry, "marketplace-web", "top-nav", "/account", { permissions: [] }, options),
+    ).toBe("account");
+    expect(
+      resolveWebHostActiveKey(
+        registry,
+        "marketplace-web",
+        "top-nav",
+        "account/sales/123/?tab=open#history",
+        { permissions: ["sales.view"] },
+        options,
+      ),
+    ).toBe("sales");
+    expect(
+      resolveWebHostActiveKey(registry, "marketplace-web", "top-nav", "/account/sales", { permissions: [] }, options),
+    ).toBeUndefined();
+    expect(
+      resolveWebHostActiveKey(registry, "marketplace-web", "top-nav", "/outside", { permissions: [] }, options),
+    ).toBe("account");
+    expect(
+      resolveWebHostActiveKey(registry, "marketplace-web", "top-nav", "/notifications", { permissions: [] }, options),
+    ).toBe("account");
+  });
+
+  it("prefixes Admin active aliases and permits aliases that resolve to the same key", () => {
+    const registry = [
+      {
+        contextName: "catalog",
+        packageName: "@test/catalog",
+        manifest: {
+          contextName: "catalog",
+          shellContributions: [
+            {
+              ...shellItem({
+                deployable: "admin-web",
+                slot: "primary-nav",
+                key: "reference-records",
+                href: "/references",
+                activePathPatterns: ["/reference-types", "/reference-types/"],
+              }),
+              section: "catalog",
+            },
+          ],
+        },
+      },
+    ] as unknown as WebContextRegistry;
+
+    expect(
+      resolveWebHostActiveKey(registry, "admin-web", "primary-nav", "/catalog/reference-types/ref_1?tab=x", null, {
+        section: "catalog",
+        defaultKey: "dimensions",
+      }),
+    ).toBe("reference-records");
   });
 
   it("keeps route config ids unique when routes share a module file", () => {

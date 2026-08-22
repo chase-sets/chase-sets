@@ -2,6 +2,20 @@
 
 `@chase-sets/bounded-context-module` defines the normalized manifest and runtime module surfaces shared by bounded contexts and platform hosts.
 
+## Shell Contributions
+
+Shell contributions are additive presentation records owned by bounded contexts. Hosts may resolve `primary-nav`, `top-nav`, `bottom-nav`, and `account-menu` slots without requiring an existing manifest to adopt newer fields.
+
+The additive item fields are `parentKey?: string`, `placement?: "primary" | "utility"`, `packingPriority?: number`, `excludedRoleKeys?: readonly string[]`, `activePathPatterns?: readonly string[]`, `activation?: "route" | "action"`, and `badge?: { valueKey: string; max: number; hideWhenEmptyForSignedOut: boolean }`.
+
+An item with no `activation` keeps the legacy interpretation: an href leaf is a route and an item with children (or an empty item that receives `parentKey` children) is a group. `activation: "route"` explicitly declares an href leaf. `activation: "action"` declares an action leaf; it has no href, children, or `activePathPatterns`, and its emitted key is the host selection-event key. Route leaves may add literal absolute `activePathPatterns`; hrefs and patterns match themselves and descendants only at path-segment boundaries.
+
+`parentKey` attaches a contribution beneath a group with the same deployable and expanded slot. `placements` expands before attachment and actor filtering. Parent and child visibility, required permissions, and `excludedRoleKeys` compose without widening. `placement` carries the design-system `primary` or `utility` hint through unchanged.
+
+Hosts supply dynamic badge values by `badge.valueKey`. Missing, non-finite, and negative values normalize to zero. Zero omits the badge; positive values render from `1` through `badge.max`, then `<max>+`. `hideWhenEmptyForSignedOut` hides an empty item only for a signed-out actor.
+
+`packingPriority` is dormant unless a host supplies a numeric limit. A limited resolution requires a finite priority on every item expanded into the host and slot, including attached and inline children. Visible top-level candidates are selected by descending priority, ascending display `order`, then key. Selected siblings render by ascending `order`, then key. There is no shared default limit.
+
 ## API Mount Binding
 
 Each `buildApis` result is the closed tuple `{ mountPath, contextMountOrdinal, router }`. `mountPath` must equal the declaration at the same position in `apiMounts`, and `contextMountOrdinal` is that declaration's one-based position. The runtime verifies both redundant values without sorting, deduplicating, or matching by path, so contexts may intentionally declare several routers at the same mount path while retaining their declared order. The resolved mount retains the inner `router` object unchanged.

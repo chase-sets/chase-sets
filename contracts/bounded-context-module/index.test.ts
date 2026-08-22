@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import {
   buildEventReactionsFromManifest,
@@ -9,12 +10,90 @@ import {
   defineBoundedContextModule,
   type BcApiEntry,
   type BcContextManifest,
+  type BcShellContribution,
   type BcEventReactionHandlerRegistrations,
   type BcEventSubscriptionHandler,
   type BcEventSubscriptionHandlerRegistrations,
 } from "./index";
 
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
+
+const shellContractExamples = [
+  {
+    deployable: "marketplace-web",
+    slot: "account-menu",
+    key: "account-menu",
+    label: "Account",
+    icon: "user",
+    order: 10,
+    visibility: "signed-in",
+    requiredPermissions: [],
+    packingPriority: 450,
+  },
+  {
+    deployable: "marketplace-web",
+    slot: "top-nav",
+    placements: ["top-nav", "bottom-nav"],
+    key: "notifications",
+    label: "Notifications",
+    icon: "bell",
+    order: 20,
+    visibility: "signed-in",
+    requiredPermissions: [],
+    excludedRoleKeys: ["guest-buyer"],
+    activation: "action",
+    packingPriority: 600,
+  },
+  {
+    deployable: "marketplace-web",
+    slot: "top-nav",
+    key: "account",
+    parentKey: "account-menu",
+    label: "Account",
+    icon: "user",
+    href: "/account",
+    activePathPatterns: ["/profile"],
+    placement: "utility",
+    order: 30,
+    visibility: "signed-in",
+    requiredPermissions: [],
+    badge: {
+      valueKey: "identity.account-alert-count",
+      max: 99,
+      hideWhenEmptyForSignedOut: false,
+    },
+  },
+] as const satisfies readonly BcShellContribution[];
+
+describe("shell contribution contract", () => {
+  it("keeps the expanded shell surface additive and closed", () => {
+    expect(shellContractExamples).toEqual([
+      expect.objectContaining({ key: "account-menu", slot: "account-menu" }),
+      expect.objectContaining({ activation: "action", key: "notifications" }),
+      expect.objectContaining({ parentKey: "account-menu", placement: "utility" }),
+    ]);
+  });
+
+  it("documents every additive field and the legacy interpretation", () => {
+    const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
+
+    for (const field of [
+      "parentKey",
+      "placement",
+      "packingPriority",
+      "excludedRoleKeys",
+      "activePathPatterns",
+      "activation",
+      "badge.valueKey",
+      "badge.max",
+      "hideWhenEmptyForSignedOut",
+    ]) {
+      expect(readme).toContain(`\`${field}\``);
+    }
+    expect(readme).toContain("An item with no `activation` keeps the legacy interpretation");
+    expect(readme).toContain("There is no shared default limit");
+  });
+});
 
 const manifest: BcContextManifest = {
   contextName: "inventory",

@@ -67,8 +67,16 @@ export type BcDeployableContribution = Readonly<{
   readonly routes: readonly BcRouteModule[];
 }>;
 
-export type BcShellContributionSlot = "primary-nav" | "top-nav" | "bottom-nav";
+export type BcShellContributionSlot = "primary-nav" | "top-nav" | "bottom-nav" | "account-menu";
 export type BcShellContributionVisibility = "always" | "signed-in" | "signed-out";
+export type BcShellContributionPlacement = "primary" | "utility";
+export type BcShellContributionActivation = "route" | "action";
+
+export type BcShellContributionBadge = Readonly<{
+  readonly valueKey: string;
+  readonly max: number;
+  readonly hideWhenEmptyForSignedOut: boolean;
+}>;
 
 export type BcShellContributionItemBase = Readonly<{
   readonly key: string;
@@ -78,17 +86,44 @@ export type BcShellContributionItemBase = Readonly<{
   readonly order: number;
   readonly visibility: BcShellContributionVisibility;
   readonly requiredPermissions: readonly string[];
+  readonly parentKey?: string;
+  readonly placement?: BcShellContributionPlacement;
+  readonly packingPriority?: number;
+  readonly excludedRoleKeys?: readonly string[];
+  readonly badge?: BcShellContributionBadge;
 }>;
 
 export type BcShellContributionItem = BcShellContributionItemBase &
   Readonly<
     | {
+        readonly activation: "route";
         readonly href: string;
-        readonly children?: readonly BcShellContributionItem[];
+        readonly activePathPatterns?: readonly string[];
+        readonly children?: never;
       }
     | {
+        readonly activation?: never;
+        readonly href: string;
+        readonly activePathPatterns?: readonly string[];
+        readonly children?: never;
+      }
+    | {
+        readonly activation?: never;
         readonly href?: string;
+        readonly activePathPatterns?: never;
         readonly children: readonly BcShellContributionItem[];
+      }
+    | {
+        readonly activation?: never;
+        readonly href?: never;
+        readonly activePathPatterns?: never;
+        readonly children?: never;
+      }
+    | {
+        readonly activation: "action";
+        readonly href?: never;
+        readonly activePathPatterns?: never;
+        readonly children?: never;
       }
   >;
 
