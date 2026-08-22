@@ -6,6 +6,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  ProgressiveDisclosureGroup,
   Stack,
   Surface,
   Table,
@@ -84,6 +85,9 @@ export function compareMeta(competitor: FeeComparisonCompetitor, publicOrigin = 
     { property: "og:url", content: pageUrl },
   ];
 }
+
+/** Stable bounded item identity for the disclosure group; positions match `buildCompareFaqEntries`. */
+const compareFaqItemValues = ["competitor-fees", "chase-sets-fees", "keep-more", "launch"] as const;
 
 /** The visible FAQ and the FAQPage structured data render from this same list. */
 export function buildCompareFaqEntries(competitor: FeeComparisonCompetitor) {
@@ -257,16 +261,13 @@ export function ComparePage({
         </Grid>
         <FeeCalculatorSection schedule={feeSchedule} compareLinks={[otherCompetitor]} />
         <PageSection data-public-presence-section="compare_faq" title={t("publicPresence.compare.faq.title")}>
-          <Grid columns={{ base: 1, md: 2 }} gap={4}>
-            {buildCompareFaqEntries(competitor).map((entry) => (
-              <Surface key={entry.question} tone="subtle">
-                <Stack gap={2}>
-                  <Heading level={3}>{entry.question}</Heading>
-                  <Text tone="secondary">{entry.answer}</Text>
-                </Stack>
-              </Surface>
-            ))}
-          </Grid>
+          <ProgressiveDisclosureGroup
+            items={buildCompareFaqEntries(competitor).map((entry, index) => ({
+              value: compareFaqItemValues[index],
+              title: entry.question,
+              content: entry.answer,
+            }))}
+          />
         </PageSection>
         <Surface tone="subtle">
           <Stack gap={3}>
