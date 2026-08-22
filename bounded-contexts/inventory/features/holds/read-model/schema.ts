@@ -54,7 +54,7 @@ export const inventoryHoldSchemaMigrations: readonly BcSchemaMigration[] = [
 ];
 
 /**
- * Index backing the Inventory-owned reverse Hold lookup (#7222 option B).
+ * Index backing the Inventory-owned reverse Hold lookup.
  *
  * The lookup answers "which Hold streams carry this Order id in their source
  * reference?" from Inventory's own `event_store_events`, covering the two

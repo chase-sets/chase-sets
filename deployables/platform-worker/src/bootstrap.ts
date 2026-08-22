@@ -24,7 +24,7 @@ try {
       operationsRecorder: { record: () => undefined },
       postageLabelProvider: createSandboxPostageLabelProvider(),
       // See main.ts: the worker never serves the Ordering cleanup-authority
-      // read surface, and states that explicitly (#7222).
+      // read surface, and states that explicitly.
       inventoryCleanupAuthority: { kind: "not-mounted" },
     },
   });

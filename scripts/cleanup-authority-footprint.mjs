@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Scope verifier for the Ordering cleanup-authority change (#7222).
+// Scope verifier for the Ordering cleanup-authority change.
 //
 // The issue authorizes an exact maximum footprint. A diff that reaches outside
 // it -- another context's schema, a projection, a subscriber, a provider
@@ -94,14 +94,16 @@ export function classifyOutOfFootprintReason(filePath) {
   if (/(^|\/)read-model\//.test(filePath) || /projection[^/]*\.ts$/.test(filePath)) {
     return "projection";
   }
+  // Cancellation outranks the subscriber and provider classes: a cancellation
+  // reaction is both, and "cancellation" is the surface the scope fence names.
+  if (/cancel/i.test(filePath)) {
+    return "cancellation";
+  }
   if (/(subscription|subscriber|reaction)[^/]*\.ts$/.test(filePath)) {
     return "subscriber";
   }
   if (/(^|\/)integrations\//.test(filePath) || /(provider|gateway|adapter)[^/]*\.ts$/.test(filePath)) {
     return "provider";
-  }
-  if (/cancel/i.test(filePath)) {
-    return "cancellation";
   }
   if (/(^|\/)domain\//.test(filePath) || /(runtime|workflow|command)[^/]*\.ts$/.test(filePath)) {
     return "write";
@@ -129,7 +131,7 @@ export function renderFootprintArtifact(result) {
   const lines = [
     "# cleanup-authority-footprint",
     "",
-    `Result: ${result.ok ? "within the authorized #7222 footprint" : "OUT OF SCOPE"}`,
+    `Result: ${result.ok ? "within the authorized cleanup-authority footprint" : "OUT OF SCOPE"}`,
     "",
     `## Authorized changed files (${result.authorized.length})`,
     "",

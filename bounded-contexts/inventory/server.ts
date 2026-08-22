@@ -9,7 +9,7 @@ export type {
 } from "./support/request-support/api-client";
 export type { InventoryDraftListingCreator } from "./features/import-batches/api/runtime";
 /**
- * Read-only Hold/reservation cleanup authority (#7222). The platform-api
+ * Read-only Hold/reservation cleanup authority. The platform-api
  * composition root binds this to Ordering's `inventoryCleanupAuthority` host
  * capability; Ordering never imports Inventory code.
  */

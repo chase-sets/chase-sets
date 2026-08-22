@@ -485,7 +485,7 @@ export function createPlatformApiHost(
     return createDraft(params, context);
   };
   /**
-   * Ordering's required cleanup-authority capability (#7222).
+   * Ordering's required cleanup-authority capability.
    *
    * Inventory's own implementation is bound to Ordering's own port type with
    * no cast and no placeholder, so a drift in either payload becomes a
