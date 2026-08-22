@@ -10,7 +10,6 @@ Current event names:
 
 - `landing_page_view`
 - `cta_clicked`
-- `section_viewed`
 - `waitlist_form_started`
 - `waitlist_form_submitted`
 - `waitlist_signup_succeeded`
@@ -19,8 +18,10 @@ Current event names:
 - `waitlist_role_selected`
 - `waitlist_interest_selected`
 - `waitlist_marketing_consent_checked`
+- `waitlist_cohort_field_saved`
 - `referral_link_copied`
 - `referral_share_clicked`
+- `section_viewed`
 - `policy_link_clicked`
 
 Event details include:
