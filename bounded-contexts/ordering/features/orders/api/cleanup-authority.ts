@@ -4,17 +4,16 @@ import type { OrderSourceType, OrderStatus } from "../domain/common";
 import type { OrderStatusBeforeCancellation } from "../domain/domain";
 
 /**
- * Read-only cleanup authority for an Ordering Order (#7222, Decision #7221
- * option B).
+ * Read-only cleanup authority for an Ordering Order.
  *
  * The calculation answers one question -- "may this Order's inventory
  * commitment be treated as cleaned up?" -- from complete event-stream
  * histories only. It never reads a projection or readiness marker, never
  * calls a provider, and never appends an event: a lagging Ordering
- * projection returning 404 (#6725 F4 / #6726 comment 5260253272 item 4)
- * must never be mistaken for cleanup success, and the Inventory Hold that
- * #7199 F1 proves can exist without an Order-recorded confirmation must
- * never be silently discharged.
+ * projection returning 404 must never be mistaken for cleanup success, and
+ * an Inventory Hold that exists without an Order-recorded confirmation --
+ * Inventory can commit the Hold and the confirmation atomically after
+ * Ordering has already cancelled -- must never be silently discharged.
  *
  * Option B reads complete Inventory reservation authority plus an
  * Inventory-owned reverse Hold lookup through {@link
@@ -133,7 +132,7 @@ export type OrderingInventoryCleanupAuthorityPort = Readonly<{
  * Required Ordering host capability. Both variants are explicit: a host
  * either mounts the Inventory authority or states that it does not. There is
  * no optional, defaulted, or `undefined` form -- an unsupplied nonoptional
- * port is exactly the boot/runtime defect #7199 F2 records.
+ * port would otherwise read as "mounted" and hide a boot/runtime defect.
  */
 export type OrderingInventoryCleanupAuthorityCapability =
   | Readonly<{ kind: "available"; port: OrderingInventoryCleanupAuthorityPort }>
@@ -923,8 +922,8 @@ export type EvidenceWindowSourceCleanupAuthorityResult =
  * Evidence-window source adapter. The source identity, buyer, and Order-id
  * membership all arrive from the caller's durable source claim; none is
  * inferred from a projection. Empty membership is rejected rather than
- * reported as success -- the durable closed-creator predicate for
- * `not-created` is owned elsewhere (#6755).
+ * reported as success: the durable closed-creator predicate for
+ * `not-created` is owned by the evidence-window caller, not by this fold.
  */
 export async function observeEvidenceWindowSourceCleanupAuthority(
   deps: OrderCleanupAuthorityDeps,

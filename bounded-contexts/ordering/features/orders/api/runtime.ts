@@ -604,7 +604,7 @@ export type OrderingOrderServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<Readonly<{ sellerAccountIds: readonly string[] }>>;
   /**
-   * Read-only cleanup authority (#7222). The variant is the mount decision:
+   * Read-only cleanup authority. The variant is the mount decision:
    * a host that does not mount the Inventory authority exposes no observation
    * function at all, so no route handler can exist for it.
    */

@@ -406,7 +406,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
   });
 
   /**
-   * N8 -- the eighth UAT client operation after #6725 N1-N7.
+   * The eighth UAT client operation on the authenticated account router.
    *
    * A read-only `POST`: the window instant is request state that does not
    * belong in a URL, and the operation observes complete Order, reservation,

@@ -25,12 +25,12 @@ export type OrderingServiceOptions = Readonly<{
   notificationOutbox?: NotificationOutbox;
   authenticityFeePolicyResolver?: AuthenticityFeePolicyResolver;
   /**
-   * Required host capability (#7222 / #7199 F2). Every host states one of two
-   * explicit variants: it either mounts the Inventory cleanup authority or it
-   * does not. There is no optional, defaulted, or `undefined` form -- an
-   * unsupplied nonoptional port is precisely the boot/runtime defect this
-   * capability exists to make impossible, so Ordering fails boot rather than
-   * constructing a placeholder.
+   * Required host capability. Every host states one of two explicit
+   * variants: it either mounts the Inventory cleanup authority or it does
+   * not. There is no optional, defaulted, or `undefined` form -- an
+   * unsupplied nonoptional port would silently resolve to `undefined` and
+   * read as "mounted", so Ordering fails boot rather than constructing a
+   * placeholder.
    */
   inventoryCleanupAuthority: OrderingInventoryCleanupAuthorityCapability;
 }>;

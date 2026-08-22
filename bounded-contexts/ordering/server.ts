@@ -11,7 +11,7 @@ export { resolveOrderRecipient, resolveShipmentOrderId } from "./features/orders
 export { lookupOrderBySupportId, lookupOrderBySupportReference } from "./features/orders/read-model/support-lookup";
 export type { OrderingSupportLookupRow } from "./features/orders/read-model/support-lookup";
 /**
- * Ordering-owned cleanup-authority port and host capability (#7222). The
+ * Ordering-owned cleanup-authority port and host capability. The
  * composition root binds Inventory's implementation to these Ordering-owned
  * types, so Ordering never depends on Inventory and a payload or identity
  * drift is a typecheck error rather than a runtime throw.

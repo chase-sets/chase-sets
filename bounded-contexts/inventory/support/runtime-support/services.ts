@@ -29,7 +29,7 @@ export type InventoryServices = Readonly<{
   importBatches: ReturnType<typeof createInventoryImportBatchRuntime>;
   holds: ReturnType<typeof createInventoryHoldRuntime>;
   /**
-   * Read-only Hold/reservation cleanup authority (#7222). It appends no
+   * Read-only Hold/reservation cleanup authority. It appends no
    * event and reads no projection; Ordering consumes it through an
    * Ordering-owned host capability.
    */

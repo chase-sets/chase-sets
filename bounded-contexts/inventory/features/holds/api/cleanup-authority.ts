@@ -4,7 +4,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { INVENTORY_HOLD_SOURCE_ORDER_INDEX_NAME } from "../read-model/schema";
 
 /**
- * Inventory-owned cleanup authority (#7222, Decision #7221 option B).
+ * Inventory-owned cleanup authority.
  *
  * Ordering may not read Inventory storage, so Inventory answers three
  * questions about its own complete source streams and nothing else:
