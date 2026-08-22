@@ -14,7 +14,7 @@ import {
   INVENTORY_HOLD_SOURCE_LOOKUP_SQL,
   createInventoryHoldCleanupAuthority,
 } from "./cleanup-authority";
-import { inventoryHoldSourceIndexSchemaMigrations } from "../../../support/runtime-support/hold-source-index-migrations";
+import { inventoryHoldSourceIndexSchemaMigrations } from "../read-model/schema";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.

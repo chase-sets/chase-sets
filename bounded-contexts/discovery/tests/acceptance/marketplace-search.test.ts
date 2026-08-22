@@ -123,7 +123,12 @@ describe("marketplace search", () => {
     const marketplaceServices = marketplaceModule.createServices(pools.marketplace, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
     });
-    const orderingServices = orderingModule.createServices(pools.ordering, {});
+    // Discovery's acceptance host never observes Ordering cleanup authority,
+    // and states that explicitly rather than leaving the nonoptional port
+    // undefined (#7222).
+    const orderingServices = orderingModule.createServices(pools.ordering, {
+      inventoryCleanupAuthority: { kind: "not-mounted" },
+    });
     discoveryServices = createDiscoveryServices(createProjectionAwarePool(pools.discovery));
     const mountedContexts = [
       {

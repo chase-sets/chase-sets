@@ -4,7 +4,7 @@ import type { OrderingApiEnv } from "../../../api";
 import { createAccountPurchaseOrderRoutes } from "./route";
 import type { OrderingOrderServices } from "./runtime";
 import type { OrderCleanupAuthorityObservation, OrderCleanupAuthorityReport } from "./cleanup-authority";
-import { BUYER_ACCOUNT_ID, ORDER_ID } from "./cleanup-authority-test-support";
+import { BUYER_ACCOUNT_ID, ORDER_ID } from "../../../tests/test-support/cleanup-authority";
 
 const WINDOW_OPENED_AT = "2026-08-01T00:00:00.000Z";
 const ROUTE_PATH = `/account/purchases/${ORDER_ID}/cleanup-authority`;
