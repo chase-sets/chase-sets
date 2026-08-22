@@ -848,7 +848,9 @@ describe("CheckoutSummaryLineItem money-only mono value (#7183)", () => {
 
   it("keeps the `from` prefix out of the mono value element for an indicative price", () => {
     const { container } = render(
-      <CheckoutSummaryLineItem item={{ id: "7", title: "Indicative card", price: "$45.00", priceState: "indicative" }} />,
+      <CheckoutSummaryLineItem
+        item={{ id: "7", title: "Indicative card", price: "$45.00", priceState: "indicative" }}
+      />,
     );
 
     const monoElements = container.querySelectorAll(".font-mono");
