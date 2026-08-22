@@ -337,6 +337,11 @@
       "portName": "authenticityFeePolicyResolver",
       "providedBy": "commercial-terms",
       "purpose": "Resolves the authenticity-check fee policy (m109 #4275) so Ordering can offer and freeze the buyer opt-in fee at checkout preview and order-creation time."
+    },
+    {
+      "portName": "inventoryCleanupAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Required available|not-mounted capability supplying Inventory's read-only reservation and Hold cleanup authority (#7222) so Ordering can decide cleanup from complete Inventory source streams without importing Inventory or reading a projection."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -714,6 +719,21 @@
       },
       "proof": {
         "tests": ["bounded-contexts/ordering/tests/postage-policy-routes.test.ts"]
+      }
+    },
+    {
+      "id": "ordering.purchase-cleanup-authority-observation",
+      "owner": "ordering",
+      "risk": "internal",
+      "strategy": "read-model-neutral",
+      "surfaces": [
+        "api-route:bounded-contexts/ordering/features/orders/api/route.ts:POST /purchases/:id/cleanup-authority"
+      ],
+      "exception": {
+        "owner": "ordering",
+        "reason": "observeOrderCleanupAuthority performs no write: it folds the complete ordering.order-* stream and reads Inventory reservation/Hold authority through a read-only host capability, so there is no post-write read and no read model to go stale. The POST verb carries the durable window instant as request state, not a mutation.",
+        "reviewBy": "2027-02-22",
+        "issue": "#7222"
       }
     }
   ],

@@ -8,6 +8,27 @@ export type {
   InventoryListingStockSnapshot,
 } from "./support/request-support/api-client";
 export type { InventoryDraftListingCreator } from "./features/import-batches/api/runtime";
+/**
+ * Read-only Hold/reservation cleanup authority (#7222). The platform-api
+ * composition root binds this to Ordering's `inventoryCleanupAuthority` host
+ * capability; Ordering never imports Inventory code.
+ */
+export { createInventoryHoldCleanupAuthorityForPool } from "./support/runtime-support/services";
+export {
+  INVENTORY_HOLD_AUTHORITY_MAX_EVENTS,
+  INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_LIMIT,
+  INVENTORY_HOLD_SOURCE_LOOKUP_MAX_HOLDS,
+  INVENTORY_HOLD_SOURCE_ORDER_INDEX_NAME,
+  INVENTORY_RESERVATION_AUTHORITY_MAX_EVENTS,
+  createInventoryHoldCleanupAuthority,
+  inventoryHoldIdFromStreamId,
+} from "./features/holds/api/cleanup-authority";
+export type {
+  InventoryHoldCleanupAuthority,
+  InventoryHoldCleanupAuthorityServices,
+  InventoryHoldSourceLookup,
+  InventoryReservationAuthority,
+} from "./features/holds/api/cleanup-authority";
 export {
   inventorySavedListImportSourceKind,
   prepareInventorySavedListImportBatch,

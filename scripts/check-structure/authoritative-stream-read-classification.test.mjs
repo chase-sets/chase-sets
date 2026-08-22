@@ -26,12 +26,12 @@ const production = classification.analyzeAuthoritativeStreamReads({ repoRoot });
 describe("authoritative-stream-read-classification-acceptance-control", () => {
   it("loads the exact tracked Program corpus and reports the anchor-tree classification", () => {
     expect(ts.version).toBe("6.0.3");
-    expect(production.roots).toHaveLength(2_892);
+    expect(production.roots).toHaveLength(2_896);
     expect(production.totals).toMatchObject({
-      roots: 2_892,
-      loadedRoots: 2_892,
+      roots: 2_896,
+      loadedRoots: 2_896,
       extensionCounts: {
-        ".ts": 2_259,
+        ".ts": 2_263,
         ".tsx": 614,
         ".mts": 7,
         ".cts": 0,

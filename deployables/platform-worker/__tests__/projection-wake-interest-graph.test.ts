@@ -318,6 +318,9 @@ function createPlatformWorkerHost(runtimeProfile: "landing" | "proof" | "public"
       operationsRecorder: { record: () => undefined },
       postageLabelProvider: createSandboxPostageLabelProvider(),
       draftListingCreator: { createDraftListings: async () => [] },
+      // Real-registry composition: the worker states the Ordering
+      // cleanup-authority capability explicitly as not-mounted (#7222).
+      inventoryCleanupAuthority: { kind: "not-mounted" },
       notificationAdapter: { send: async () => undefined },
       agentWebhookOrderResolvers: {
         resolveOrderRecipient: async () => null,

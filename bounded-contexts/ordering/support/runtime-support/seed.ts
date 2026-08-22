@@ -353,7 +353,7 @@ const seedOrderInventory = [
 export async function inspectOrderingSeedState(
   pool: PgTransactionalPool,
 ): Promise<readonly BcSeedAggregateStateReport[]> {
-  const ordering = createOrderingServices(pool);
+  const ordering = createOrderingServices(pool, { inventoryCleanupAuthority: { kind: "not-mounted" } });
   const context = createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
   const policyReports = await reconcileSeedAggregates([buildSeedPostagePolicyReconciler(ordering, context)], false);
 
@@ -400,7 +400,7 @@ export async function inspectOrderingSeedState(
 
 export async function seedOrderingDatabase(
   pool: PgTransactionalPool,
-  ordering: OrderingServices = createOrderingServices(pool),
+  ordering: OrderingServices = createOrderingServices(pool, { inventoryCleanupAuthority: { kind: "not-mounted" } }),
 ) {
   const buyerAccountId = identitySeedIds.collector.accountId;
 

@@ -10,6 +10,28 @@ export { resolveOrderRecipient, resolveShipmentOrderId } from "./features/orders
  */
 export { lookupOrderBySupportId, lookupOrderBySupportReference } from "./features/orders/read-model/support-lookup";
 export type { OrderingSupportLookupRow } from "./features/orders/read-model/support-lookup";
+/**
+ * Ordering-owned cleanup-authority port and host capability (#7222). The
+ * composition root binds Inventory's implementation to these Ordering-owned
+ * types, so Ordering never depends on Inventory and a payload or identity
+ * drift is a typecheck error rather than a runtime throw.
+ */
+export {
+  ORDER_CLEANUP_AUTHORITY_MAX_HOLDS,
+  ORDER_CLEANUP_AUTHORITY_MAX_SOURCE_ORDER_IDS,
+  ORDER_CLEANUP_AUTHORITY_SCHEMA_VERSION,
+  assertOrderingInventoryCleanupAuthorityCapability,
+  governedOrderReleaseReason,
+} from "./features/orders/api/cleanup-authority";
+export type {
+  OrderCleanupAuthorityReport,
+  OrderCleanupAuthorityState,
+  OrderingInventoryCleanupAuthorityCapability,
+  OrderingInventoryCleanupAuthorityPort,
+  OrderingInventoryHoldAuthority,
+  OrderingInventoryHoldSourceLookup,
+  OrderingInventoryReservationAuthority,
+} from "./features/orders/api/cleanup-authority";
 export { createLocalTaxQuoteResolver, zeroTaxQuoteResolver } from "./features/tax-quotes/domain/tax-quote";
 export type {
   LocalTaxRule,
