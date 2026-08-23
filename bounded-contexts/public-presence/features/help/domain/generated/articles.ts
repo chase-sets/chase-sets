@@ -1338,6 +1338,16 @@ export const helpArticles = [
       },
       {
         claim:
+          "A seller can cancel a paid sale self-service until packing starts; the buyer receives a full refund and the cancellation is recorded in the seller cancellation rate.",
+        issues: ["#6453"],
+        tests: [
+          "bounded-contexts/ordering/features/orders/api/cancel-sale.db.test.ts",
+          "bounded-contexts/ordering/features/orders/ui/order-detail-page.test.tsx",
+          "bounded-contexts/payments/features/refunds/integrations/ordering/order-cancellation-refund-effect-projection.test.ts",
+        ],
+      },
+      {
+        claim:
           "Order problems run through structured support flows with evidence checklists, stamped response deadlines, and default remedies applied on seller silence.",
         issues: ["#3722", "#4288"],
         tests: [
@@ -1462,7 +1472,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "Before payment completes, a buyer or seller can cancel and nothing is charged. After payment, a buyer can still cancel self-service until the seller starts packing; the refund covers the order total plus the order's share of the checkout fee, and this holds even if the payment capture lands after the cancellation. Once packing has started, cancellation becomes a request the seller confirms — and if the seller does not respond within ",
+              "Before payment completes, a buyer or seller can cancel and nothing is charged. After payment, either account can still cancel self-service until packing starts. A buyer cancellation refunds the order total plus the order's share of the checkout fee, and this holds even if the payment capture lands after the cancellation. A seller cancellation gives the buyer a full refund and is recorded in the seller cancellation rate. Once packing has started, cancellation becomes a support request the seller confirms — and if the seller does not respond within ",
           },
           {
             type: "policy-value",
@@ -1480,7 +1490,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "A seller who cannot fulfill an order raises it as an urgent support case whose default outcome is a full refund to the buyer.",
+              "A seller who cannot fulfill an order after packing starts raises it as an urgent support case whose default outcome is a full refund to the buyer.",
           },
         ],
       },
@@ -1953,6 +1963,16 @@ export const helpArticles = [
     promiseTable: [
       {
         claim:
+          "Before packing starts, a seller can cancel a paid sale self-service; the buyer receives a full refund and the cancellation is recorded in the seller cancellation rate.",
+        issues: ["#6453"],
+        tests: [
+          "bounded-contexts/ordering/features/orders/api/cancel-sale.db.test.ts",
+          "bounded-contexts/ordering/features/orders/ui/order-detail-page.test.tsx",
+          "bounded-contexts/payments/features/refunds/integrations/ordering/order-cancellation-refund-effect-projection.test.ts",
+        ],
+      },
+      {
+        claim:
           "A seller who cannot fulfill an order raises an urgent support case that routes straight to support review without a buyer-seller negotiation.",
         issues: ["#3722"],
         tests: [
@@ -2020,7 +2040,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "Sometimes you cannot ship an order you accepted — the item sold elsewhere, it was damaged in storage, or it cannot be found. The right move is to say so quickly rather than let the order sit. Chase Sets treats this as its own support case so the buyer is made whole and your inventory is cleaned up without a drawn-out exchange.",
+              "Sometimes you cannot ship an order you accepted — the item sold elsewhere, it was damaged in storage, or it cannot be found. The right move is to say so quickly rather than let the order sit. Before packing starts, cancel the sale from its order detail. The buyer receives a full refund, and the cancellation is recorded in your seller cancellation rate.",
           },
         ],
       },
@@ -2030,7 +2050,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "Raise it from the order as a cannot-fulfill case. Confirm that the order cannot be filled, and the case is created for you.",
+              "After packing starts, raise it from the order as a cannot-fulfill case. Confirm that the order cannot be filled, and the case is created for you.",
           },
         ],
       },
