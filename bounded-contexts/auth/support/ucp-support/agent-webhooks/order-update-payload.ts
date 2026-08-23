@@ -1,4 +1,9 @@
-import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type {
+  FulfillmentShipmentDeliveredPayload,
+  FulfillmentShipmentDispatchedPayload,
+  PaymentRefundIssuedPayload,
+} from "@chase-sets/event-core/public-event-payloads";
+import type { TransportEvent, TypedTransportEvent } from "@chase-sets/event-core/transport";
 
 /**
  * Maps marketplace order-lifecycle domain events onto the UCP order-update
@@ -54,15 +59,6 @@ type OrderCancelledData = Readonly<{
   cancelledAt?: string | null;
 }>;
 
-type ShipmentDispatchedData = Readonly<{
-  shipmentId: string;
-  orderId?: unknown;
-  buyerAccountId?: unknown;
-  sellerAccountId?: unknown;
-  trackingIdentifier?: unknown;
-  dispatchedAt?: string | null;
-}>;
-
 export type ShipmentDispatchedPayloadClassification =
   | Readonly<{ kind: "historical" }>
   | Readonly<{
@@ -114,21 +110,12 @@ export function classifyShipmentDispatchedPayload(data: unknown): ShipmentDispat
   };
 }
 
-type ShipmentDeliveredData = Readonly<{
-  shipmentId: string;
-  orderId: string;
-  buyerAccountId?: string | null;
-  trackingIdentifier?: string | null;
-  deliveredAt?: string | null;
-}>;
-
-type RefundIssuedData = Readonly<{
-  refundId: string;
-  orderIds?: readonly string[] | null;
-  amount?: string | null;
-  currencyCode?: string | null;
-  issuedAt?: string | null;
-}>;
+type OrderLifecycleTypedEvent =
+  | TypedTransportEvent<OrderCreatedData, "ordering.order.created">
+  | TypedTransportEvent<FulfillmentShipmentDispatchedPayload, "fulfillment.shipment.dispatched">
+  | TypedTransportEvent<FulfillmentShipmentDeliveredPayload, "fulfillment.shipment.delivered">
+  | TypedTransportEvent<OrderCancelledData, "ordering.order.cancelled">
+  | TypedTransportEvent<PaymentRefundIssuedPayload, "payments.refund-issued">;
 
 /**
  * Historical shipment-dispatched events reference only the shipment. The
@@ -144,9 +131,10 @@ export function mapOrderLifecycleEventToOrderUpdate(
   event: TransportEvent,
   context: OrderUpdateMappingContext = {},
 ): MappedOrderUpdate | null {
-  switch (event.type) {
+  const typedEvent = event as OrderLifecycleTypedEvent;
+  switch (typedEvent.type) {
     case "ordering.order.created": {
-      const data = event.data as OrderCreatedData;
+      const { data } = typedEvent;
       if (!data.orderId) return null;
       return singleOrderUpdate(event, "created", data.orderId, data.buyerAccountId ?? null, {
         totalAmount: data.totalAmount ?? null,
@@ -154,8 +142,8 @@ export function mapOrderLifecycleEventToOrderUpdate(
       });
     }
     case "fulfillment.shipment.dispatched": {
-      const data = event.data as ShipmentDispatchedData;
-      const classification = context.shipmentDispatchedPayload ?? classifyShipmentDispatchedPayload(event.data);
+      const { data } = typedEvent;
+      const classification = context.shipmentDispatchedPayload ?? classifyShipmentDispatchedPayload(data);
       if (classification.kind === "rejected") return null;
       const orderId = classification.kind === "enriched" ? classification.orderId : (context.resolvedOrderId ?? null);
       if (!orderId) return null;
@@ -166,7 +154,7 @@ export function mapOrderLifecycleEventToOrderUpdate(
       });
     }
     case "fulfillment.shipment.delivered": {
-      const data = event.data as ShipmentDeliveredData;
+      const { data } = typedEvent;
       if (!data.orderId) return null;
       return singleOrderUpdate(event, "delivered", data.orderId, data.buyerAccountId ?? null, {
         shipmentId: data.shipmentId,
@@ -175,7 +163,7 @@ export function mapOrderLifecycleEventToOrderUpdate(
       });
     }
     case "ordering.order.cancelled": {
-      const data = event.data as OrderCancelledData;
+      const { data } = typedEvent;
       if (!data.orderId) return null;
       return singleOrderUpdate(event, "cancelled", data.orderId, null, {
         reason: data.reason ?? null,
@@ -183,8 +171,8 @@ export function mapOrderLifecycleEventToOrderUpdate(
       });
     }
     case "payments.refund-issued": {
-      const data = event.data as RefundIssuedData;
-      const orderIds = (data.orderIds ?? []).filter((id): id is string => typeof id === "string" && id.length > 0);
+      const { data } = typedEvent;
+      const orderIds = (data.orderIds ?? []).filter((id) => typeof id === "string" && id.length > 0);
       if (orderIds.length === 0) return null;
       return {
         status: "refunded",

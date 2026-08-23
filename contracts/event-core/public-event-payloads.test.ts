@@ -13,6 +13,13 @@ import type {
   ChaseSetsEventPayloads,
   CheckoutSessionCancelledPayload,
   EmptyEventPayload,
+  FulfillmentShipmentCancelledPayload,
+  FulfillmentShipmentCreatedPayload,
+  FulfillmentShipmentDeliveredPayload,
+  FulfillmentShipmentDispatchedPayload,
+  FulfillmentShipmentLabelAttachedPayload,
+  FulfillmentShipmentPackagePreparedPayload,
+  FulfillmentShipmentPackingStartedPayload,
   IdentityAccountClosedPayload,
   IdentityAccountReactivatedPayload,
   IdentityAccountSuspendedPayload,
@@ -24,6 +31,10 @@ import type {
   OrderingOrderCancelledPayload,
   OrderingOrderCreatedPayload,
   PaymentCapturedPayload,
+  PaymentRefundedPayload,
+  PaymentRefundFailedPayload,
+  PaymentRefundIssuedPayload,
+  PaymentRefundRequestedPayload,
   PlatformFeedbackSubmittedPayload,
   PlatformOperationsReportedContentActionRecordedPayload,
   PlatformOperationsRiskAlertActionRecordedPayload,
@@ -235,6 +246,50 @@ const aggregateTypeIdentity = {
     ChaseSetsEventPayloads["payments.payment-captured"],
     PaymentCapturedPayload
   >,
+  "fulfillment.shipment.created": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.created"],
+    FulfillmentShipmentCreatedPayload
+  >,
+  "fulfillment.shipment.packing-started": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.packing-started"],
+    FulfillmentShipmentPackingStartedPayload
+  >,
+  "fulfillment.shipment.package-prepared": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.package-prepared"],
+    FulfillmentShipmentPackagePreparedPayload
+  >,
+  "fulfillment.shipment.label-attached": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.label-attached"],
+    FulfillmentShipmentLabelAttachedPayload
+  >,
+  "fulfillment.shipment.dispatched": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.dispatched"],
+    FulfillmentShipmentDispatchedPayload
+  >,
+  "fulfillment.shipment.delivered": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.delivered"],
+    FulfillmentShipmentDeliveredPayload
+  >,
+  "fulfillment.shipment.cancelled": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.cancelled"],
+    FulfillmentShipmentCancelledPayload
+  >,
+  "payments.payment-refunded": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.payment-refunded"],
+    PaymentRefundedPayload
+  >,
+  "payments.refund-requested": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.refund-requested"],
+    PaymentRefundRequestedPayload
+  >,
+  "payments.refund-issued": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.refund-issued"],
+    PaymentRefundIssuedPayload
+  >,
+  "payments.refund-failed": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.refund-failed"],
+    PaymentRefundFailedPayload
+  >,
   "settlement.support-hold.released.v1": true satisfies IsExactly<
     ChaseSetsEventPayloads["settlement.support-hold.released.v1"],
     SettlementSupportHoldReleasedPayload
@@ -252,6 +307,18 @@ const aggregateTypeIdentity = {
     PlatformFeedbackSubmittedPayload
   >,
 } as const;
+
+const historicalFulfillmentShipmentDispatchedPayload = {
+  shipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  dispatchedAt: "2026-04-01T00:00:00.000Z",
+} as const satisfies FulfillmentShipmentDispatchedPayload;
+
+const partiallyEnrichedFulfillmentShipmentDispatchedPayload = {
+  shipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  orderId: "ord_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  dispatchedAt: "2026-04-01T00:00:00.000Z",
+  // @ts-expect-error dispatch routing enrichment is all-or-nothing.
+} as const satisfies FulfillmentShipmentDispatchedPayload;
 
 const publicPresenceReferralTypeIdentity = {
   reserved: true satisfies IsExactly<
@@ -347,7 +414,15 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(17);
+    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(28);
+  });
+
+  it("preserves the historical optionality of the unversioned dispatch fact", () => {
+    expect(historicalFulfillmentShipmentDispatchedPayload).toEqual({
+      shipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      dispatchedAt: "2026-04-01T00:00:00.000Z",
+    });
+    expect(partiallyEnrichedFulfillmentShipmentDispatchedPayload).toHaveProperty("orderId");
   });
 
   it("public cancelled payload remains optional, open, and nullable", () => {

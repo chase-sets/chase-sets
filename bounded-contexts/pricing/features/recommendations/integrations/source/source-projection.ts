@@ -1,5 +1,6 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 import { createPricingCatalogItemSlug } from "../../../../support/runtime-support/slugs";
@@ -619,24 +620,17 @@ export function buildPricingOrderingInputProjectionHandlers(db: PgQueryable): Pr
 
 export function buildPricingFulfillmentInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        lines: Array<{
-          lineId: string;
-          catalogItemId: string;
-          productId: string;
-          quantity: number;
-        }>;
-        createdAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<ChaseSetsEventPayloads, "fulfillment.shipment.created" | "fulfillment.shipment.delivered">
+    >({
+      "fulfillment.shipment.created": async (event) => {
+        const { data } = event;
 
-      await db.query(`DELETE FROM pricing_fulfillment_signal_lines WHERE shipment_id = $1`, [data.shipmentId]);
+        await db.query(`DELETE FROM pricing_fulfillment_signal_lines WHERE shipment_id = $1`, [data.shipmentId]);
 
-      for (const line of data.lines) {
-        await db.query(
-          `INSERT INTO pricing_fulfillment_signal_lines (
+        for (const line of data.lines) {
+          await db.query(
+            `INSERT INTO pricing_fulfillment_signal_lines (
              shipment_id,
              line_id,
              order_id,
@@ -659,33 +653,31 @@ export function buildPricingFulfillmentInputProjectionHandlers(db: PgQueryable):
                delivered_at = EXCLUDED.delivered_at,
                returned_at = EXCLUDED.returned_at,
                updated_at = EXCLUDED.updated_at`,
-          [
-            data.shipmentId,
-            line.lineId,
-            data.orderId,
-            line.catalogItemId,
-            line.productId,
-            line.quantity,
-            data.createdAt,
-          ],
-        );
-      }
-    },
-    "fulfillment.shipment.delivered": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        deliveredAt: string;
-      };
+            [
+              data.shipmentId,
+              line.lineId,
+              data.orderId,
+              line.catalogItemId,
+              line.productId,
+              line.quantity,
+              data.createdAt,
+            ],
+          );
+        }
+      },
+      "fulfillment.shipment.delivered": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE pricing_fulfillment_signal_lines
+        await db.query(
+          `UPDATE pricing_fulfillment_signal_lines
          SET status = 'delivered',
              delivered_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.deliveredAt],
-      );
-    },
+          [data.shipmentId, data.deliveredAt],
+        );
+      },
+    }),
     "fulfillment.shipment.returned": async (event) => {
       const data = event.data as {
         shipmentId: string;
