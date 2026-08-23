@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 
-// Domain-separated digest prefix fixed by issue #6733. Never change the
-// literal bytes below without minting a new schema version.
+// Domain-separated digest prefix for the provider-object-disposition/v1
+// schema. Never change the literal bytes below without minting a new
+// schema version.
 export const RESULT_DIGEST_DOMAIN_PREFIX = "provider-object-disposition/v1\n";
 
 function compareCodeUnits(a, b) {

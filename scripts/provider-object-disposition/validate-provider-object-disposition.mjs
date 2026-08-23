@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { computeResultDigest } from "./canonicalize-provider-object-disposition.mjs";
 
-// Decision #6728 selected Option B; #6733 binds the schema to it. The six
-// class rows live only in the fixture (issue #6733 AC-11: "no local
-// duplicate table") — this module reads them, it never redeclares them.
+// This schema is bound to the Option B six-class disposition model. The six
+// class rows live only in the fixture — "no local duplicate table" is a
+// contract invariant — this module reads them, it never redeclares them.
 const FIXTURE_PATH = fileURLToPath(new URL("./provider-object-disposition-option-b.fixture.json", import.meta.url));
 const FIXTURE = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
 
@@ -69,14 +69,14 @@ const CLASS_ENTRY_REQUIRED_KEYS = Object.freeze([
   "dispositionCompletedAt",
 ]);
 
-// AC-08 / Decision #6728: Account Session residue authority is creation-time
-// only. Pointer: infrastructure/stripe-connect/index.ts:907 creates the
-// object; no list/cancel surface exists to cross-check it against later.
+// Account Session residue authority is creation-time only. Pointer:
+// infrastructure/stripe-connect/index.ts:907 creates the object; no
+// list/cancel surface exists to cross-check it against later.
 export const ACCOUNT_SESSION_CLASS = "stripe-account-session";
 export const ACCOUNT_SESSION_AUTHORITY_POINTER = "infrastructure/stripe-connect/index.ts:907";
 
-// AC-14: providerMode is a closed const, never inferred. It is derived from
-// #6726/#6734's authoritative Stripe test-mode observation, never from
+// providerMode is a closed const, never inferred. It is derived from an
+// authoritative Stripe test-mode observation, never from
 // deploymentEnvironment, key text, or a caller assertion.
 export const PROVIDER_MODE_AUTHORITY_NOTE =
   'providerMode must be the literal value "test"; it is derived from #6726/#6734 authoritative ' +
