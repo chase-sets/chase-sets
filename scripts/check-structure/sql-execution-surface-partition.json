@@ -2225,6 +2225,7 @@
     "infrastructure/stripe-connect/index.ts",
     "infrastructure/stripe-connect/vitest.config.ts",
     "infrastructure/stripe-payments/index.ts",
+    "infrastructure/stripe-payments/test-mode-contract.ts",
     "infrastructure/stripe-payments/vitest.config.ts",
     "infrastructure/twilio-messaging/index.ts",
     "infrastructure/twilio-messaging/vitest.config.ts",

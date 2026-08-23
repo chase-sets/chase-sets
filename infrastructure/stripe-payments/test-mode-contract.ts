@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * Bounded Stripe test-mode contract verifier for #6732. Creates three
- * unmistakably synthetic SetupIntents (no customer, no real identity),
- * exercises the shipped `cancelSetupSession` candidate against each, and
- * writes a bounded, redacted artifact -- never a provider id, secret, body,
- * or credential -- only after every object is confirmed terminal `canceled`.
+ * Bounded Stripe test-mode contract verifier for SetupIntent cancellation.
+ * Creates three unmistakably synthetic SetupIntents (no customer, no real
+ * identity), exercises the shipped `cancelSetupSession` candidate against
+ * each, and writes a bounded, redacted artifact -- never a provider id,
+ * secret, body, or credential -- only after every object is confirmed
+ * terminal `canceled`.
  *
  * This script never touches live-mode authority: it refuses to run unless
  * `STRIPE_SECRET_KEY` is shaped as a test-mode key, and it refuses every
