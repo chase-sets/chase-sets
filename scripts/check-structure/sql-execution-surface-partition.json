@@ -2124,6 +2124,7 @@
     "infrastructure/platform-policy/runtime.ts",
     "infrastructure/platform-policy/schema.ts",
     "infrastructure/platform-policy/vitest.config.ts",
+    "infrastructure/platform-runtime/account-capability-registry.ts",
     "infrastructure/platform-runtime/agent-connector-packaging.ts",
     "infrastructure/platform-runtime/api.ts",
     "infrastructure/platform-runtime/auth.ts",

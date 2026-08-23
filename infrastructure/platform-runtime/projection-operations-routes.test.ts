@@ -31,6 +31,7 @@ function createRouteApp(
 
 function createRuntime(projectionGroups: ApiHostRuntime["projectionGroups"] = []): ApiHostRuntime {
   return {
+    accountCapabilityRegistry: [],
     mountedContexts: [],
     mountedModules: [],
     services: {},
