@@ -1718,6 +1718,7 @@
     "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.ts",
     "bounded-contexts/public-presence/features/policies/domain/canonical-claim-guard.ts",
     "bounded-contexts/public-presence/features/policies/domain/canonical-claims.ts",
+    "bounded-contexts/public-presence/features/policies/domain/founder-claim-guard.ts",
     "bounded-contexts/public-presence/features/policies/domain/founders-offer-terms.ts",
     "bounded-contexts/public-presence/features/policies/domain/payments-terms.ts",
     "bounded-contexts/public-presence/features/policies/domain/policy-artifact.ts",

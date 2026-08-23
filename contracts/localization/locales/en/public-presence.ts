@@ -241,11 +241,11 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.foundersOffer.description":
     "Beta access opens a 60-day window and a shot at one of 500 numbered founder badges. Here is exactly how both work.",
   "publicPresence.home.foundersOffer.point.badge":
-    "Claim your numbered founder badge with your first listing or offer — shown publicly on your profile and listings, permanently.",
+    "The first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed.",
   "publicPresence.home.foundersOffer.point.community":
     "Join the founders-circle Discord anytime and help shape the early community.",
   "publicPresence.home.foundersOffer.point.expiry":
-    "The badge and any listings you lock never expire. The 60-day window and the 500 numbers are what run out.",
+    "Your numbered founder badge is publicly displayed. Listings you locked at 0% keep that rate until they sell. The 60-day window and the 500 numbers are what run out.",
   "publicPresence.home.foundersOffer.point.input":
     "Help shape seller tools for bulk listing, pricing, fulfillment, fee locks, and offers.",
   "publicPresence.home.foundersOffer.point.window":
@@ -518,7 +518,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.info.founders.eyebrow": "Founders offer",
   "publicPresence.info.founders.title": "Founders offer terms",
   "publicPresence.info.founders.offer.body":
-    "The first 500 accounts to list or make an offer claim a numbered founder badge, shown publicly and kept permanently. Beta access also opens a 60-day 0% seller-fee window: every listing you create in that window locks 0% fees until it sells. The 60-day window starts at beta access and runs whether or not you have claimed your badge yet.",
+    "The first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed. Beta access also opens a 60-day 0% seller-fee window: every listing you create in that window locks 0% fees until it sells. The 60-day window starts at beta access and runs whether or not you have claimed your badge yet.",
   "publicPresence.info.founders.offer.title": "The offer",
   "publicPresence.info.founders.feeLock.body":
     "Each listing locks its fee the moment you create it. Editing price, photos, purchase limits, pausing, or resuming keeps the lock. Added quantity uses the current published rate only for those added units. Withdrawing and relisting, recreating, or substituting the item or condition creates a new listing at the current rate.",
@@ -530,7 +530,7 @@ export const publicPresenceEnglishTranslations = {
     "New listings created after your 60-day window lock the fee schedule published on /sales-fees at that time, not 0%. Listings you created and locked at 0% during your window keep that rate until they sell, however long that takes.",
   "publicPresence.info.founders.afterWindow.title": "What happens after your window",
   "publicPresence.info.founders.faqForever.body":
-    "The badge and any listings you locked at 0% stay that way permanently. Creating new listings at 0% only works inside your 60-day window.",
+    "Your numbered founder badge is publicly displayed. Listings you locked at 0% keep that rate until they sell. Creating new listings at 0% only works inside your 60-day window.",
   "publicPresence.info.founders.faqForever.title": "Is this forever?",
   "publicPresence.info.founders.faqSignup.body":
     "No. An invite reserves your eligibility. Beta access starts your 60-day window, and your first listing or offer claims your founder number in activation order.",
@@ -561,7 +561,7 @@ export const publicPresenceEnglishTranslations = {
     "Buyer-side marketplace costs remain visible before payment. The seller-fee promise does not create surprise checkout math; listings, order processing, shipping credit, and support context stay close to the payment decision.",
   "publicPresence.info.sellerFees.buyerVisibility.title": "Buyer-side cost visibility",
   "publicPresence.info.sellerFees.founders.body":
-    "The first 500 accounts to list or make an offer claim a numbered founder badge, permanently, and lock 0% seller fees on every listing created in their first 60 days of beta access. Full mechanics stay on /founders.",
+    "The first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed. Those accounts lock 0% seller fees on every listing created in their first 60 days of beta access. Full mechanics stay on /founders.",
   "publicPresence.info.sellerFees.founders.title": "Founders offer: cap, badge, and window",
   "publicPresence.info.sellerFees.lowValue.body":
     "The fixed seller fee is {fixedAmount}. There is no per-item fixed charge, preserving margin on budget cards and bulk inventory.",
