@@ -43,34 +43,45 @@ Production Capacitor configuration must point `webDir` at the locally generated 
 
 ### One route source, two execution adapters
 
-#5246 must implement the following named seams. The names describe required responsibilities; they do not authorize a new business framework or shared domain model.
+#5246 must publish the mobile consumer seam as `@chase-sets/platform-runtime/portable-client`, with exact public exports `createPortableClientRouter` and `PortableClientFetch`. The names below describe required responsibilities; they do not authorize a new business framework or shared domain model.
 
-- **PortableRouteDefinition** is the context-owned route record: stable route ID and path, UI component, portable load/mutation operations, delivery classification, and test fixtures. The existing `deployableContributions` route record remains the current source from which this richer contract evolves.
+- **PortableRouteDefinition** is the context-owned route record: stable route ID and path, UI component, portable load/mutation operations, exactly one value from the closed `RouteDelivery` enum (`portable`, `web-resource-only`, or `server-only`), authorization metadata, canonical-link intent, explicit web/mobile availability, orthogonal behavior metadata, and test fixtures. The existing `deployableContributions` route record remains the current source from which this richer contract evolves.
 - **RouteLoadOperation** is slice-local, browser-safe orchestration that accepts serializable route input and context API clients/ports and returns the route's typed data. It cannot read Node state, environment secrets, or an incoming server cookie directly.
 - **RouteMutationOperation** is slice-local, browser-safe orchestration that validates an intent, calls the owning API, and returns a typed outcome. Domain validation remains in the owning API/domain; route validation and presentation-ready field errors remain in the owning context.
-- **RouteOutcome** is the portable discriminated result: `data`, `validation-error`, `navigate`, `unauthorized`, `forbidden`, or `resource`. Context-specific payload types stay beside the slice. It preserves post-write receipts and semantic handoffs as data for the adapter rather than assuming an HTTP redirect.
+- **RouteOutcome** is the portable discriminated result: `data`, `validation-error`, `navigate`, `unauthorized`, `forbidden`, `not-found`, `transient-error`, or `client-upgrade-required`. Context-specific payload types stay beside the slice. It preserves post-write receipts and semantic handoffs as data for the adapter rather than assuming an HTTP redirect. Web resources are not portable outcomes; their route records use `web-resource-only`.
 - **WebRouteAdapter** maps a portable definition to React Router server `loader`/`action`, HTTP `Response`/redirect behavior, request-cookie forwarding, SSR metadata, and hydration. Existing request clients such as `createDiscoveryRequestApiClient`, `createIdentityRequestApiClient`, `resolveRequestApiBaseUrl`, and `createForwardedAuthFetch` remain web/server adapter seams.
 - **NativeRouteAdapter** maps the same definition to independent `clientLoader`/`clientAction` behavior, client navigation, a design-system loading/error fallback, native auth recovery, and the native API transport. It never calls `serverLoader`.
-- **NativeRouteRegistry** projects only native-eligible PortableRouteDefinitions from the same context registry used by the web host. The mobile deployable supplies selection and adapters; it does not copy route declarations or UI.
-- **ClientApiTransport** is infrastructure-owned fetch composition for absolute API origins, JSON/error handling, credentials, post-write headers, release identity, network state, and upgrade-required responses. Context-owned generated/manual API clients consume it without knowing Capacitor.
-- **AuthSessionPort** is the infrastructure-level session facade used by ClientApiTransport and route authorization. Its web adapter uses the current browser/session behavior. Its native adapter coordinates SystemBrowserAuthPort and SecureSessionStoragePort; bounded contexts never read native storage.
+- **createPortableClientRouter** projects only mobile-available `portable` definitions from the same context registry used by the web host and binds NativeRouteAdapter. Its resulting NativeRouteRegistry is a composition result, not a second route authority; the mobile deployable supplies adapters without copying route declarations or UI.
+- **PortableClientFetch** is the imported minimal injected-fetch contract accepted by every mobile-capable context query/command and by `createPortableClientRouter`. **ClientApiTransport** is infrastructure-owned composition that supplies its implementation for absolute API origins, credentials, post-write headers, release identity, network state, and typed transport failures. Callers must not replace the imported type with a handwritten callback, cast, same-origin assumption, or global-`fetch` fallback.
+- **AuthSessionPort** is an Auth-owned, provider-neutral client contract used by ClientApiTransport and route authorization. Auth owns authenticated session lifecycle, persistence policy, OAuth state/PKCE/callback verification, actor resolution, sign-out, and revocation orchestration. Platform Runtime implements only the OS-protected storage and system-browser/device adapters that Auth directs; bounded contexts never read native storage or import Capacitor.
 - **ClientReleaseIdentity** is compiled into a native build and includes platform, display version, monotonically increasing store build number, immutable asset revision, and client-contract version. ClientApiTransport attaches it to every native API request through the compatibility contract owned by #5249.
 
-Do not centralize route business behavior inside these generic types. Each bounded context owns its concrete operations, data types, validation, API clients, UI, post-write behavior, and route tests. Infrastructure owns only runtime-neutral contracts and technical adapters.
+Do not centralize route business behavior inside these generic types. Each bounded context owns its concrete operations, data types, validation, API clients, UI, authorization intent, post-write behavior, and route tests. Checkout owns guest/anonymous cart continuity, including any claim or merge behavior. Infrastructure owns only runtime-neutral transport contracts and technical device adapters. There is no mobile BFF: an unsuitable endpoint is fixed in its owning bounded-context API or the route remains explicitly unavailable on mobile.
 
 ### Route-class contract
 
-Every route record must receive one mechanically exhaustive delivery classification before it can enter NativeRouteRegistry:
+Every marketplace route record must receive exactly one mechanically exhaustive `delivery` value:
 
-| Route class | Web behavior | Native behavior |
+| `delivery` | Web behavior | Native behavior |
 | --- | --- | --- |
-| Public document | Server loader renders indexable HTML and hydrates it. | RouteLoadOperation calls the public API through ClientApiTransport; the same UI renders the same data type. SEO metadata remains web-only. |
-| Authenticated document | WebRouteAdapter resolves the actor from the request session, enforces permission, and runs context operations. | AuthSessionPort supplies the native session; unauthorized returns an auth navigation outcome, forbidden stays an explicit error, and the context operation calls the same owned API. |
-| Mutation with validation errors | WebRouteAdapter maps validation-error to action data and HTTP status as appropriate. | NativeRouteAdapter maps the same typed field/form errors to client action data. No HTML parsing or exception-message inference is allowed. |
-| Internal redirect | WebRouteAdapter emits an HTTP redirect. | NativeRouteAdapter consumes a typed `navigate` outcome and routes only to a declared internal route. Post-write receipts survive both mappings. |
-| External redirect or callback | The web adapter may emit an allowlisted document redirect or own a server callback route. | Native code uses SystemBrowserAuthPort, DeepLinkPort, ExternalNavigationPort, or PaymentPresentationPort; arbitrary URLs never load in the app WebView. |
-| Resource-only route | Manifest, service worker, robots, sitemap, health, analytics ingestion, download, and other non-UI responses remain HTTP resources. | Excluded from NativeRouteRegistry. A portable screen calls a stable API or capability port when it needs the resource's behavior. |
-| Server-only document | A route requiring Node-only modules, secrets, internal network access, server streaming, or server-owned policy stays on web. | Excluded until its owner provides an explicit portable operation and public API. It is never bundled with a stubbed secret or implicit fallback. |
+| `portable` | WebRouteAdapter may retain server loaders/actions for SSR, request context, and HTTP semantics, then hydrates the same context-owned UI and types. | `createPortableClientRouter` includes the route; RouteLoadOperation/RouteMutationOperation call APIs through the injected PortableClientFetch and never call `serverLoader`. |
+| `web-resource-only` | Manifest, service worker, robots, sitemap, health, analytics ingestion, downloads, and every other non-UI response remain HTTP resources. | Excluded. A portable screen calls a stable API or capability port when it needs equivalent behavior. |
+| `server-only` | A route requiring Node-only modules, secrets, internal network access, server streaming, or server-owned policy stays on web. | Excluded until its owner supplies an explicit portable operation and public API; it is never bundled with a stubbed secret or implicit fallback. |
+
+Authorization (including permissions), load/mutation capability, internal navigation, external redirect/callback behavior, canonical-link intent, and web/mobile availability are orthogonal metadata, never additional delivery classes. For example, an authenticated mutation is still assigned exactly one delivery value while carrying authentication, permission, mutation, validation-error, and navigation traits. The inventory obligation covers every context contribution, every web resource route, and the deployable-local `/` alias; no host-local or non-UI route may disappear by omission.
+
+Both adapters map every portable RouteOutcome exhaustively:
+
+| Outcome | WebRouteAdapter | NativeRouteAdapter |
+| --- | --- | --- |
+| `data` | Loader/action data for SSR and hydration. | Client loader/action state for the same UI and data type. |
+| `validation-error` | Typed action data and the owned HTTP status. | The same typed field/form errors; no HTML or exception-message inference. |
+| `navigate` | Declared internal HTTP redirect with post-write receipt intact. | Declared internal client navigation with the same receipt. |
+| `unauthorized` | Auth-owned challenge/sign-in flow mounted by the web host. | Auth-owned recovery through the system-browser adapter, then one validated resume. |
+| `forbidden` | Typed 403/error-boundary state. | Typed design-system forbidden state. |
+| `not-found` | Typed 404/catch-boundary state. | Typed design-system not-found state without a server fallback. |
+| `transient-error` | Typed retryable error response/boundary with bounded retry metadata. | Typed local retry state using the same bounded metadata and network hints. |
+| `client-upgrade-required` | Stable compatibility problem with minimum contract and destination metadata; no mutation occurs. | Upgrade-only design-system state that opens the typed platform-store destination; no mutation occurs. |
 
 `clientLoader` is not sufficient evidence of portability when it delegates to `serverLoader`; the current Search route demonstrates this distinction. A native-eligible route must complete cold load and mutation with the server loader unavailable.
 
@@ -87,10 +98,10 @@ Current web path:
 
 Future native path:
 
-1. NativeRouteRegistry projects the same Discovery `search` PortableRouteDefinition; the mobile composition root does not redeclare `/search`.
+1. `createPortableClientRouter` projects the same Discovery `search` PortableRouteDefinition into NativeRouteRegistry; the mobile composition root does not redeclare `/search`.
 2. NativeRouteAdapter invokes Discovery's `RouteLoadOperation(search)` on cold boot. It calls the existing context-owned Discovery client through ClientApiTransport, never through the web `loader` or `serverLoader`.
 3. The result uses the same Discovery route-data type and renders the same `SearchPage`. Web-only canonical/Open Graph metadata is not synthesized in the native client.
-4. Search mutations invoke Discovery's `RouteMutationOperation(search)` and preserve its typed validation, anonymous/authenticated Checkout calls, and post-write outcomes through injected clients. A native anonymous-session implementation, if needed, is an AuthSessionPort concern rather than deployable business logic.
+4. Search mutations invoke Discovery's `RouteMutationOperation(search)` and preserve its typed validation, anonymous/authenticated Checkout calls, and post-write outcomes through injected clients. Checkout owns guest/anonymous cart continuity; the mobile deployable only binds the Auth- and Checkout-owned client contracts and technical adapters they require.
 
 #### Authenticated `/account`
 
@@ -103,8 +114,8 @@ Current web path:
 
 Future native path:
 
-1. NativeRouteRegistry projects the same Identity `account` definition and `AccountProfilePage`.
-2. NativeRouteAdapter asks AuthSessionPort for the actor/session. Signed-out returns `unauthorized`, which starts SystemBrowserAuthPort and resumes only after a validated DeepLinkPort callback; it does not navigate the app WebView to the sign-in site.
+1. `createPortableClientRouter` projects the same Identity `account` definition and `AccountProfilePage` into NativeRouteRegistry.
+2. NativeRouteAdapter asks the Auth-owned AuthSessionPort for the actor/session. Signed-out returns `unauthorized`; Auth directs SystemBrowserAuthPort and resumes only after Auth validates the DeepLinkPort callback state, PKCE verifier, actor, and one-time consumption. It does not navigate the app WebView to the sign-in site.
 3. Identity's `RouteLoadOperation(account)` uses its existing context client through ClientApiTransport to resolve actor display and Account data. The native credential and ClientReleaseIdentity are attached by infrastructure, and `accounts.view` remains enforced by the API.
 4. Identity's `RouteMutationOperation(account)` preserves `accounts.manage`, typed validation errors, post-write receipt, recovery classification, and final internal navigation. The same AccountProfilePage receives the same typed data/action states.
 
@@ -115,10 +126,12 @@ These two traces define the minimum omission-revealing proof for #5246: remove t
 | Owner | Owns | Must not own |
 | --- | --- | --- |
 | Bounded context | Route definition/ID, portable load and mutation operations, UI, route/API validation, API client, authorization intent, post-write semantics, domain behavior, and tests | Capacitor/native SDK imports, plugin selection, secure-store implementation, platform project files, or deployable imports |
-| Infrastructure / Platform Runtime | Generic route adapters, ClientApiTransport, RuntimeKind, AuthSessionPort, capability-port contracts, browser/native adapters, release identity transport, and technical policy enforcement | Marketplace/Checkout/Identity decisions, route copy, form rules, domain state, or context-owned read models |
+| Auth | AuthSessionPort; authenticated session lifecycle and persistence policy; OAuth state, PKCE, and callback verification; actor resolution; sign-out; and revocation orchestration | OS-protected storage or system-browser device adapter implementations, Capacitor imports, Identity account behavior, or Checkout cart continuity |
+| Checkout | Guest/anonymous cart continuity and its claim/merge behavior | Authenticated session lifecycle, credential persistence policy, or device adapters |
+| Infrastructure / Platform Runtime | Generic route adapters, ClientApiTransport, RuntimeKind, capability-port contracts, OS-protected storage and system-browser/device adapters, release identity transport, and technical transport policy | Auth session/domain policy, OAuth/callback verification, actor resolution, sign-out/revocation orchestration, Checkout continuity, route copy, form rules, domain state, or context-owned read models |
 | Web deployable | SSR boot, web root/layout composition, web-only resource routes, host configuration, and adapter binding | Context business behavior or duplicate context routes/UI |
 | Mobile deployable | Client boot, local asset selection, NativeRouteRegistry composition, native adapter binding, platform configuration, icons/splash/entitlements, and release metadata | Business/domain logic, context API orchestration, validation rules, duplicate route modules/UI, or direct read-model access |
-| Platform API | Context API composition, authentication enforcement, client-compatibility ingress, and provider callback mounting | Mobile-specific business behavior or UI decisions |
+| Platform API | Mounting context APIs, Auth- and context-owned enforcement, client-compatibility ingress, and provider callbacks | Authentication/session behavior, context authorization policy, mobile-specific business behavior, or UI decisions |
 
 Capacitor/native imports are forbidden anywhere under `bounded-contexts/`, `contracts/`, `packages/`, and context business/domain modules. Direct plugin imports are allowed only in infrastructure native adapters and the future mobile composition root when required solely to bind or configure an adapter. Business or domain logic in deployables/marketplace-mobile is forbidden even when it appears convenient for one platform.
 
@@ -128,8 +141,8 @@ Capacitor/native imports are forbidden anywhere under `bounded-contexts/`, `cont
 
 | Required port | Contract boundary |
 | --- | --- |
-| SecureSessionStoragePort | Stores only opaque session/refresh material and key metadata in OS-protected storage; access tokens prefer memory; sign-out/revocation clears native state. WebView localStorage, IndexedDB, CacheStorage, and plain preferences are not session stores. |
-| SystemBrowserAuthPort | Starts OAuth/auth in ASWebAuthenticationSession or a Custom Tabs-equivalent system surface with Authorization Code + PKCE, state, and nonce. Embedded WebView auth is prohibited. |
+| SecureSessionStoragePort | Stores, returns, or deletes only opaque session/refresh material and key metadata in OS-protected storage when directed by Auth's persistence policy; access tokens prefer memory. It does not decide session lifetime, sign-out, or revocation. WebView localStorage, IndexedDB, CacheStorage, and plain preferences are not session stores. |
+| SystemBrowserAuthPort | Opens an Auth-prepared authorization request in ASWebAuthenticationSession or a Custom Tabs-equivalent system surface and returns the untrusted callback to Auth. Auth creates and verifies Authorization Code + PKCE, state, nonce, initiating session, and one-time consumption. Embedded WebView auth is prohibited. |
 | PasskeyPort | Performs platform passkey create/get with the server-owned RP ID and challenge contract. Associated-domain/app-link configuration and origin binding are release gates; a WebView WebAuthn assumption is not the fallback. |
 | PushRegistrationPort | Acquires/rotates/revokes a platform token. Notifications owns registration behavior and user preferences; the adapter owns only device interaction. Tapping a notification enters through DeepLinkPort. |
 | DeepLinkPort | Receives universal links, app links, and narrowly registered callback schemes as untrusted input; normalizes them to a declared route intent; rejects unknown hosts, callbacks, duplicate consumption, and open redirects. |
@@ -141,7 +154,7 @@ Capacitor/native imports are forbidden anywhere under `bounded-contexts/`, `cont
 | PaymentPresentationPort | Coordinates provider-approved external authentication or a future reviewed native SDK surface. Checkout and Payments retain all payment decisions. Arbitrary checkout/provider pages and card-entry challenges must not run in the embedded app WebView without provider and store-policy proof. |
 | PlatformMetadataPort | Exposes the minimum typed platform, display version, build number, asset revision, locale, and supported-capability facts. It does not expose advertising IDs, raw device fingerprints, or mutable business flags. |
 
-OAuth callbacks must bind state, PKCE verifier, initiating install/session, expected host/scheme, and one-time consumption before a credential is stored. System-browser cookies and WebView cookies are separate and must never be assumed to synchronize. Deep links and push payloads may select a route only after parsing and authorization; they cannot contain executable route code.
+Auth must bind OAuth callbacks to state, PKCE verifier, initiating install/session, expected host/scheme, actor resolution, and one-time consumption before its persistence policy permits a credential to be stored. Platform Runtime transports the request/callback and implements device storage but does not make those session decisions. System-browser cookies and WebView cookies are separate and must never be assumed to synchronize. Deep links and push payloads may select a route only after parsing and context-owned authorization; they cannot contain executable route code.
 
 Passkeys must preserve RP ID/domain association on both platforms. Photo/file acquisition must survive permission denial and process/lifecycle interruption. Sharing must not disclose private URLs or tokens. External links default to the system browser. Payment flows must be reviewed against current provider guidance and Apple/Google rules before implementation; the fact that Chase Sets sells physical collectibles does not make arbitrary embedded payment content safe.
 
@@ -211,7 +224,7 @@ The follow-up work must make these rules executable, not leave them as review co
 11. **MOB-11 plugin-maintenance-inventory:** require every native dependency to be pinned and recorded with port, owner, supported OS matrix, permissions/privacy metadata, contract tests, and upgrade/rollback posture. No dependency is grandfathered by transitive installation.
 12. **MOB-12 store-functionality-smoke:** on both platforms, prove local cold boot, system-browser auth, representative authenticated workflow, offline/upgrade UX, and at least one workflow-relevant native capability before store submission.
 
-#5246 owns MOB-03 through MOB-05 and the route seam. #5247 owns the thin root, local asset build, generated native projects, and MOB-02/MOB-06/MOB-07. #5248 owns capability contracts/adapters and MOB-01/MOB-08/MOB-10/MOB-11. #5249 owns ClientReleaseIdentity, the compatibility ingress/window, and MOB-09. Store delivery owns MOB-12. No follow-up may weaken a rule implicitly; a different architecture requires a superseding ADR.
+#5246 owns MOB-03 through MOB-05 and the route seam. #5247 owns the thin root, local asset build, generated native projects, and MOB-02/MOB-06/MOB-07. #5248 owns capability contracts/adapters and MOB-01/MOB-08/MOB-10/MOB-11. #5249 owns ClientReleaseIdentity, the compatibility ingress/window, and MOB-09. #5278 owns MOB-12's terminal both-platform behavior proof, #5275 supplies its platform/device harness, and #5271 binds the evidence to signed IPA/AAB provenance. Store submission consumes this gate; it is not a substitute owner. No follow-up may weaken a rule implicitly; a different architecture requires a superseding ADR.
 
 ## Consequences
 
