@@ -10,6 +10,7 @@
 // directory that is not re-exported below fails the partition test.
 import type { AuthEventPayloads } from "./auth";
 import type { CheckoutEventPayloads } from "./checkout";
+import type { FulfillmentEventPayloads } from "./fulfillment";
 import type { IdentityEventPayloads } from "./identity";
 import type { InventoryEventPayloads } from "./inventory";
 import type { MarketplaceEventPayloads } from "./marketplace";
@@ -29,6 +30,7 @@ export * from "./inventory";
 export * from "./ordering";
 export * from "./marketplace";
 export * from "./checkout";
+export * from "./fulfillment";
 export * from "./payments";
 export * from "./settlement";
 export * from "./platform-operations";
@@ -37,6 +39,7 @@ export * from "./public-presence";
 export type ChaseSetsEventPayloads = AuthEventPayloads &
   IdentityEventPayloads &
   CheckoutEventPayloads &
+  FulfillmentEventPayloads &
   InventoryEventPayloads &
   OrderingEventPayloads &
   MarketplaceEventPayloads &

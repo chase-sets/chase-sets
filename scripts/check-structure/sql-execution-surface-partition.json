@@ -1872,6 +1872,7 @@
     "contracts/event-core/public-event-payloads/auth.ts",
     "contracts/event-core/public-event-payloads/checkout.ts",
     "contracts/event-core/public-event-payloads/event-core.ts",
+    "contracts/event-core/public-event-payloads/fulfillment.ts",
     "contracts/event-core/public-event-payloads/identity.ts",
     "contracts/event-core/public-event-payloads/index.ts",
     "contracts/event-core/public-event-payloads/inventory.ts",

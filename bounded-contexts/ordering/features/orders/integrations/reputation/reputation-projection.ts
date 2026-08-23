@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { decideReviewEligibility, type ReviewDirectionEligibility } from "@chase-sets/review-eligibility";
 
@@ -126,15 +127,14 @@ export function buildOrderingReputationProjectionHandlers(db: PgQueryable): Proj
       const data = event.data as { orderId: string };
       await syncOrderReviewEligibility(db, data.orderId, event.timing.recordedAt);
     },
-    "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        createdAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<ChaseSetsEventPayloads, "fulfillment.shipment.created" | "fulfillment.shipment.delivered">
+    >({
+      "fulfillment.shipment.created": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `INSERT INTO ordering_order_review_shipment_sources (
+        await db.query(
+          `INSERT INTO ordering_order_review_shipment_sources (
            shipment_id,
            order_id,
            status,
@@ -145,30 +145,28 @@ export function buildOrderingReputationProjectionHandlers(db: PgQueryable): Proj
          ON CONFLICT (shipment_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
              updated_at = EXCLUDED.updated_at`,
-        [data.shipmentId, data.orderId, data.createdAt],
-      );
-    },
-    "fulfillment.shipment.delivered": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        deliveredAt: string;
-      };
+          [data.shipmentId, data.orderId, data.createdAt],
+        );
+      },
+      "fulfillment.shipment.delivered": async (event) => {
+        const { data } = event;
 
-      const shipmentResult = await db.query<{ order_id: string }>(
-        `UPDATE ordering_order_review_shipment_sources
+        const shipmentResult = await db.query<{ order_id: string }>(
+          `UPDATE ordering_order_review_shipment_sources
          SET status = 'delivered',
              delivered_at = $2,
              updated_at = $2
          WHERE shipment_id = $1
          RETURNING order_id`,
-        [data.shipmentId, data.deliveredAt],
-      );
+          [data.shipmentId, data.deliveredAt],
+        );
 
-      const orderId = shipmentResult.rows[0]?.order_id;
-      if (orderId) {
-        await syncOrderReviewEligibility(db, orderId, data.deliveredAt);
-      }
-    },
+        const orderId = shipmentResult.rows[0]?.order_id;
+        if (orderId) {
+          await syncOrderReviewEligibility(db, orderId, data.deliveredAt);
+        }
+      },
+    }),
     "support.support-request.opened": async (event) => {
       const data = event.data as { supportRequestId: string; orderId: string; openedAt: string };
 

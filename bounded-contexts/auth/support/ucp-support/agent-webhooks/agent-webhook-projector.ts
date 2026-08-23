@@ -101,6 +101,6 @@ async function enqueueForOrder(
 }
 
 function readShipmentId(event: TransportEvent): string {
-  const shipmentId = (event.data as { shipmentId?: unknown }).shipmentId;
+  const shipmentId = event.data.shipmentId;
   return typeof shipmentId === "string" ? shipmentId : "";
 }

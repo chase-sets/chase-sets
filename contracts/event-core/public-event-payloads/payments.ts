@@ -1,5 +1,7 @@
 // Payments-owned public event payloads.
-import type { AccountId, PaymentId } from "../../primitives/typed-ids";
+import type { LiabilityAllocationFactV1 } from "../platform-coverage-facts";
+import type { RefundTrigger } from "../../primitives/platform-coverage";
+import type { AccountId, OrderId, PaymentId, TypedUlid } from "../../primitives/typed-ids";
 import type { MarketplaceSalesFeeLineSnapshotPayload } from "./marketplace";
 
 export type PaymentSellerPayoutPayload = Readonly<{
@@ -97,6 +99,81 @@ export type PaymentCancelledPayload = Readonly<{
   cancelledAt: string;
 }>;
 
+export type PaymentRefundOrderAmountPayload = Readonly<{
+  orderId: OrderId;
+  amount: string;
+}>;
+
+export type PaymentRefundCausationPayload = Readonly<{
+  remedyId: string;
+  coverageId: string | null;
+  allocation: LiabilityAllocationFactV1;
+  reasonCode: string;
+  refundTrigger: RefundTrigger;
+  refundTriggerEvidenceRef: string | null;
+  policyVersion: string | null;
+}>;
+
+export type PaymentRefundedPayload = Readonly<{
+  paymentId: PaymentId;
+  refundId: TypedUlid<"rfd"> | null;
+  orderIds: readonly OrderId[];
+  buyerAccountId: AccountId;
+  amount: string;
+  refundedAmount: string;
+  orderRefundAmounts: readonly PaymentRefundOrderAmountPayload[];
+  refundedOrderAmounts: readonly PaymentRefundOrderAmountPayload[];
+  orderRefundCaps: readonly PaymentRefundOrderAmountPayload[];
+  currencyCode: "usd";
+  processorName: "stripe";
+  processorPaymentReference: string;
+  sellerPayouts: readonly PaymentSellerPayoutPayload[];
+  processorRefundReference: string | null;
+  processorStatus: string;
+  refundedAt: string;
+}>;
+
+export type PaymentRefundRequestedPayload = Readonly<{
+  refundId: TypedUlid<"rfd">;
+  paymentId: PaymentId;
+  orderIds: readonly OrderId[];
+  amount: string;
+  currencyCode: "usd";
+  reason: string;
+  processorName: "stripe";
+  causation?: PaymentRefundCausationPayload;
+  requestedAt: string;
+}>;
+
+export type PaymentRefundIssuedPayload = Readonly<{
+  refundId: TypedUlid<"rfd">;
+  paymentId: PaymentId;
+  orderIds: readonly OrderId[];
+  amount: string;
+  currencyCode: "usd";
+  reason: string;
+  processorName: "stripe";
+  processorRefundReference: string;
+  processorStatus: string;
+  causation?: PaymentRefundCausationPayload;
+  issuedAt: string;
+}>;
+
+export type PaymentRefundFailedPayload = Readonly<{
+  refundId: TypedUlid<"rfd">;
+  paymentId: PaymentId;
+  orderIds: readonly OrderId[];
+  amount: string;
+  currencyCode: "usd";
+  reason: string;
+  processorName: "stripe";
+  processorStatus: string;
+  failureCode: string | null;
+  failureMessage: string | null;
+  causation?: PaymentRefundCausationPayload;
+  failedAt: string;
+}>;
+
 export type PaymentsCheckoutAffordanceInstrumentPayload = Readonly<{
   instrumentId: string;
   paymentMethodCategory: "card" | "bank-account" | "platform-credit";
@@ -122,5 +199,9 @@ export type PaymentsEventPayloads = Readonly<{
   "payments.payment-captured": PaymentCapturedPayload;
   "payments.payment-failed": PaymentFailedPayload;
   "payments.payment-cancelled": PaymentCancelledPayload;
+  "payments.payment-refunded": PaymentRefundedPayload;
+  "payments.refund-requested": PaymentRefundRequestedPayload;
+  "payments.refund-issued": PaymentRefundIssuedPayload;
+  "payments.refund-failed": PaymentRefundFailedPayload;
   "payments.checkout-affordances-published": PaymentsCheckoutAffordancesPublishedPayload;
 }>;

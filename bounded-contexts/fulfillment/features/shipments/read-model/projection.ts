@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ShipmentId } from "@chase-sets/primitives/typed-ids";
 import { withShipmentDisplayReference } from "./display-reference";
@@ -19,34 +20,15 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
   }
 
   return {
-    "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        buyerAccountId: string;
-        sellerAccountId: string;
-        shippingOption: string;
-        shippingDestinationSnapshot: unknown;
-        shippingOriginSnapshot: unknown;
-        shippingPlanSnapshot?: unknown;
-        lines: Array<{
-          lineId: string;
-          orderLineId: string;
-          catalogItemId: string;
-          productId: string;
-          itemTitle: string;
-          itemSubtitle: string | null;
-          productSummary: string | null;
-          quantity: number;
-          packingConfirmedQuantity?: number | null;
-          packingConfirmedAt?: string | null;
-        }>;
-        createdAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<ChaseSetsEventPayloads, "fulfillment.shipment.created" | "fulfillment.shipment.packing-started">
+    >({
+      "fulfillment.shipment.created": async (event) => {
+        const { data } = event;
 
-      await withShipmentDisplayReference(data.shipmentId as ShipmentId, (displayReference) =>
-        db.query(
-          `INSERT INTO fulfillment_shipment_pages (
+        await withShipmentDisplayReference(data.shipmentId as ShipmentId, (displayReference) =>
+          db.query(
+            `INSERT INTO fulfillment_shipment_pages (
            shipment_id,
            order_id,
            buyer_account_id,
@@ -103,26 +85,26 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              shipping_plan_snapshot = EXCLUDED.shipping_plan_snapshot,
              display_reference = EXCLUDED.display_reference,
              updated_at = EXCLUDED.updated_at`,
-          [
-            data.shipmentId,
-            data.orderId,
-            data.buyerAccountId,
-            data.sellerAccountId,
-            data.shippingOption,
-            JSON.stringify(data.shippingDestinationSnapshot),
-            JSON.stringify(data.shippingOriginSnapshot),
-            JSON.stringify(data.shippingPlanSnapshot ?? {}),
-            displayReference,
-            data.createdAt,
-          ],
-        ),
-      );
+            [
+              data.shipmentId,
+              data.orderId,
+              data.buyerAccountId,
+              data.sellerAccountId,
+              data.shippingOption,
+              JSON.stringify(data.shippingDestinationSnapshot),
+              JSON.stringify(data.shippingOriginSnapshot),
+              JSON.stringify(data.shippingPlanSnapshot ?? {}),
+              displayReference,
+              data.createdAt,
+            ],
+          ),
+        );
 
-      await db.query(`DELETE FROM fulfillment_shipment_line_pages WHERE shipment_id = $1`, [data.shipmentId]);
+        await db.query(`DELETE FROM fulfillment_shipment_line_pages WHERE shipment_id = $1`, [data.shipmentId]);
 
-      for (const [index, line] of data.lines.entries()) {
-        await db.query(
-          `INSERT INTO fulfillment_shipment_line_pages (
+        for (const [index, line] of data.lines.entries()) {
+          await db.query(
+            `INSERT INTO fulfillment_shipment_line_pages (
              shipment_id,
              line_id,
              line_index,
@@ -138,39 +120,37 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
            )`,
-          [
-            data.shipmentId,
-            line.lineId,
-            index,
-            line.orderLineId,
-            line.catalogItemId,
-            line.productId,
-            line.itemTitle,
-            line.itemSubtitle,
-            line.productSummary,
-            line.quantity,
-            line.packingConfirmedQuantity ?? (line.packingConfirmedAt ? line.quantity : 0),
-            line.packingConfirmedAt ?? null,
-          ],
-        );
-      }
-    },
-    "fulfillment.shipment.packing-started": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        startedAt: string;
-      };
+            [
+              data.shipmentId,
+              line.lineId,
+              index,
+              line.orderLineId,
+              line.catalogItemId,
+              line.productId,
+              line.itemTitle,
+              line.itemSubtitle,
+              line.productSummary,
+              line.quantity,
+              line.packingConfirmedQuantity ?? (line.packingConfirmedAt ? line.quantity : 0),
+              line.packingConfirmedAt ?? null,
+            ],
+          );
+        }
+      },
+      "fulfillment.shipment.packing-started": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'packing',
              package_status = 'packing',
              packing_started_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.startedAt],
-      );
-    },
+          [data.shipmentId, data.startedAt],
+        );
+      },
+    }),
     "fulfillment.shipment.packing-line-confirmed": async (event) => {
       const data = event.data as {
         shipmentId: string;
@@ -242,55 +222,28 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
         [data.shipmentId, data.setAt],
       );
     },
-    "fulfillment.shipment.package-prepared": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        packageCount: number;
-        preparedAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<ChaseSetsEventPayloads, "fulfillment.shipment.package-prepared" | "fulfillment.shipment.label-attached">
+    >({
+      "fulfillment.shipment.package-prepared": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'awaiting-label',
              package_status = 'packed',
              package_count = $2,
              package_prepared_at = $3,
              updated_at = $3
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.packageCount, data.preparedAt],
-      );
-    },
-    "fulfillment.shipment.label-attached": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        shippingMethod: string;
-        carrierName: string;
-        labelReference: string;
-        labelDocumentUrl: string | null;
-        trackingIdentifier: string;
-        postageProviderName: string | null;
-        postageProviderMode: string | null;
-        postageProviderShipmentId: string | null;
-        postageProviderLabelId: string | null;
-        postageRateId: string | null;
-        postageServiceLevel: string | null;
-        postageAmountCents: number | null;
-        postageCurrency: string | null;
-        addressOverrideAudit: {
-          originalSenderSnapshot: unknown;
-          submittedSenderAddress: unknown;
-          originalRecipientSnapshot: unknown;
-          submittedRecipientAddress: unknown;
-          changedSide: string;
-          reason: string;
-          actor: string;
-          timestamp: string;
-        } | null;
-        attachedAt: string;
-      };
+          [data.shipmentId, data.packageCount, data.preparedAt],
+        );
+      },
+      "fulfillment.shipment.label-attached": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'label-attached',
              shipping_method = $2,
              carrier_name = $3,
@@ -314,28 +267,28 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              label_voided_at = NULL,
              updated_at = $15
          WHERE shipment_id = $1`,
-        [
-          data.shipmentId,
-          data.shippingMethod,
-          data.carrierName,
-          data.labelReference,
-          data.labelDocumentUrl,
-          data.trackingIdentifier,
-          data.postageProviderName,
-          data.postageProviderMode,
-          data.postageProviderShipmentId,
-          data.postageProviderLabelId,
-          data.postageRateId,
-          data.postageServiceLevel,
-          data.postageAmountCents,
-          data.postageCurrency,
-          data.attachedAt,
-        ],
-      );
+          [
+            data.shipmentId,
+            data.shippingMethod,
+            data.carrierName,
+            data.labelReference,
+            data.labelDocumentUrl,
+            data.trackingIdentifier,
+            data.postageProviderName,
+            data.postageProviderMode,
+            data.postageProviderShipmentId,
+            data.postageProviderLabelId,
+            data.postageRateId,
+            data.postageServiceLevel,
+            data.postageAmountCents,
+            data.postageCurrency,
+            data.attachedAt,
+          ],
+        );
 
-      if (data.addressOverrideAudit) {
-        await db.query(
-          `INSERT INTO fulfillment_label_address_override_audit_pages (
+        if (data.addressOverrideAudit) {
+          await db.query(
+            `INSERT INTO fulfillment_label_address_override_audit_pages (
              shipment_id,
              recorded_at,
              changed_side,
@@ -354,20 +307,21 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              submitted_sender_address = EXCLUDED.submitted_sender_address,
              original_recipient_snapshot = EXCLUDED.original_recipient_snapshot,
              submitted_recipient_address = EXCLUDED.submitted_recipient_address`,
-          [
-            data.shipmentId,
-            data.addressOverrideAudit.timestamp,
-            data.addressOverrideAudit.changedSide,
-            data.addressOverrideAudit.reason,
-            data.addressOverrideAudit.actor,
-            JSON.stringify(data.addressOverrideAudit.originalSenderSnapshot),
-            JSON.stringify(data.addressOverrideAudit.submittedSenderAddress),
-            JSON.stringify(data.addressOverrideAudit.originalRecipientSnapshot),
-            JSON.stringify(data.addressOverrideAudit.submittedRecipientAddress),
-          ],
-        );
-      }
-    },
+            [
+              data.shipmentId,
+              data.addressOverrideAudit.timestamp,
+              data.addressOverrideAudit.changedSide,
+              data.addressOverrideAudit.reason,
+              data.addressOverrideAudit.actor,
+              JSON.stringify(data.addressOverrideAudit.originalSenderSnapshot),
+              JSON.stringify(data.addressOverrideAudit.submittedSenderAddress),
+              JSON.stringify(data.addressOverrideAudit.originalRecipientSnapshot),
+              JSON.stringify(data.addressOverrideAudit.submittedRecipientAddress),
+            ],
+          );
+        }
+      },
+    }),
     "fulfillment.shipment.label-purchase-failed": async (event) => {
       const data = event.data as {
         shipmentId: string;
@@ -441,44 +395,41 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
         [data.shipmentId, shipmentStatus, labelStatus, data.refundStatus, data.refundReference, data.resolvedAt],
       );
     },
-    "fulfillment.shipment.cancelled": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        cancelledAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<
+        ChaseSetsEventPayloads,
+        "fulfillment.shipment.cancelled" | "fulfillment.shipment.dispatched" | "fulfillment.shipment.delivered"
+      >
+    >({
+      "fulfillment.shipment.cancelled": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'cancelled',
              cancelled_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.cancelledAt],
-      );
-    },
-    "fulfillment.shipment.dispatched": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        dispatchedAt: string;
-      };
+          [data.shipmentId, data.cancelledAt],
+        );
+      },
+      "fulfillment.shipment.dispatched": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'dispatched',
              dispatched_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.dispatchedAt],
-      );
-    },
-    "fulfillment.shipment.delivered": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        deliveredAt: string;
-      };
+          [data.shipmentId, data.dispatchedAt],
+        );
+      },
+      "fulfillment.shipment.delivered": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'delivered',
              delivered_at = $2,
              current_exception_type = NULL,
@@ -486,9 +437,10 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              exception_raised_at = NULL,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.deliveredAt],
-      );
-    },
+          [data.shipmentId, data.deliveredAt],
+        );
+      },
+    }),
     "fulfillment.shipment.returned": async (event) => {
       const data = event.data as {
         shipmentId: string;
