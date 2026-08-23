@@ -182,6 +182,11 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.protection.included.description":
     "Included in the Shipping amount; never added as a separate buyer fee.",
   "ordering.features.orders.ui.orderDetailPage.cancel": "Cancel ",
+  "ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.cancel": "Keep sale",
+  "ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.confirm": "Cancel sale",
+  "ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.description":
+    "The buyer will receive a full refund, and this cancellation will be recorded in your seller cancellation rate.",
+  "ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.title": "Cancel this sale?",
   "ordering.features.orders.ui.orderDetailPage.counterparty": "Counterparty",
   "ordering.features.orders.ui.orderDetailPage.inventory.holds": "Inventory Holds",
   "ordering.features.orders.ui.orderDetailPage.inventory.item": "Inventory item ",

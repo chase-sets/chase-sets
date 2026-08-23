@@ -1,5 +1,6 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import {
+  AlertDialog,
   Form,
   Badge,
   OrderProtectionModule,
@@ -7,6 +8,7 @@ import {
   CheckoutLayout,
   Divider,
   Grid,
+  HiddenInput,
   ImageGallery,
   LinkText,
   LinkButton,
@@ -22,7 +24,7 @@ import {
   Text,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import type { PurchaseDetail, SaleDetail } from "./contracts";
 import { OrderMoneyTimeline } from "./order-money-timeline";
 
@@ -88,7 +90,8 @@ export function OrderingOrderDetailPage({
       ? (order.seller_display_name ?? order.seller_account_id)
       : (order.buyer_display_name ?? order.buyer_account_id);
   const canPay = order.status === "pending-payment" && paymentHref;
-  const canCancel = role === "buyer" ? canSelfServiceCancel(order) : isPendingStatus(order.status);
+  const canCancel = canSelfServiceCancel(order);
+  const sellerCancellationIntentRef = useRef<HTMLInputElement>(null);
   const projectionLabel =
     role === "buyer"
       ? t("ordering.features.orders.ui.orderDetailPage.purchase")
@@ -109,7 +112,7 @@ export function OrderingOrderDetailPage({
     moneyTimeline.support_cases.some((supportCase) => supportCase.active_hold) ||
     Number.parseFloat(moneyTimeline.refunded_amount) > 0;
   const supportLabel =
-    role === "buyer" && order.cancellation_unavailable_reason === "fulfillment-started"
+    order.cancellation_unavailable_reason === "fulfillment-started"
       ? t("ordering.features.orders.ui.orderDetailPage.ask.to.cancel")
       : t("ordering.features.orders.ui.orderDetailPage.open.support");
   const statusLine = {
@@ -306,11 +309,32 @@ export function OrderingOrderDetailPage({
                 ) : null}
                 {canCancel ? (
                   <Form spacing="none" method="post">
-                    <Button type="submit" name="intent" value={cancelIntent} tone="danger">
-                      {t("ordering.features.orders.ui.orderDetailPage.cancel.projection", {
-                        projectionLabel: projectionLabel.toLowerCase(),
-                      })}
-                    </Button>
+                    {role === "seller" ? (
+                      <>
+                        <HiddenInput ref={sellerCancellationIntentRef} name="intent" value="cancel-sale" />
+                        <AlertDialog
+                          title={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.title")}
+                          description={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.description")}
+                          confirmLabel={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.confirm")}
+                          cancelLabel={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.cancel")}
+                          tone="danger"
+                          onConfirm={() => sellerCancellationIntentRef.current?.form?.requestSubmit()}
+                          trigger={
+                            <Button type="button" tone="danger">
+                              {t("ordering.features.orders.ui.orderDetailPage.cancel.projection", {
+                                projectionLabel: projectionLabel.toLowerCase(),
+                              })}
+                            </Button>
+                          }
+                        />
+                      </>
+                    ) : (
+                      <Button type="submit" name="intent" value={cancelIntent} tone="danger">
+                        {t("ordering.features.orders.ui.orderDetailPage.cancel.projection", {
+                          projectionLabel: projectionLabel.toLowerCase(),
+                        })}
+                      </Button>
+                    )}
                   </Form>
                 ) : null}
               </Stack>

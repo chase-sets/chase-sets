@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { Card, Text } from "@chase-sets/design-system";
@@ -345,5 +346,113 @@ describe("ordering order detail page", () => {
     expect(markup).toContain("$8.00");
     expect(markup).toContain("Retained");
     expect(markup).toContain("$18.74");
+  });
+
+  it("offers sellers self-service cancellation before packing starts", () => {
+    const markup = renderToString(
+      <OrderingOrderDetailPage
+        role="seller"
+        backHref="/account/sales"
+        order={
+          {
+            ...order,
+            status: "ready-for-fulfillment",
+            self_service_cancellation_available: true,
+            cancellation_unavailable_reason: null,
+          } as never
+        }
+      />,
+    );
+
+    expect(markup).toContain("Cancel sale");
+    expect(markup).toContain('name="intent"');
+    expect(markup).toContain('value="cancel-sale"');
+  });
+
+  it("steers sellers to support once fulfillment has started", () => {
+    const markup = renderToString(
+      <OrderingOrderDetailPage
+        role="seller"
+        backHref="/account/sales"
+        supportHref="/account/support?orderId=ord_1"
+        order={
+          {
+            ...order,
+            status: "ready-for-fulfillment",
+            self_service_cancellation_available: false,
+            cancellation_unavailable_reason: "fulfillment-started",
+          } as never
+        }
+      />,
+    );
+
+    expect(markup).toContain("Ask to cancel");
+    expect(markup).not.toContain("Cancel sale");
+  });
+
+  it("keeps the buyer render and direct cancel submitter unchanged", () => {
+    const markup = renderToString(
+      <OrderingOrderDetailPage role="buyer" backHref="/account/purchases" order={order as never} />,
+    );
+
+    expect(markup).toMatch(/<button[^>]*value="cancel-purchase"[^>]*type="submit"[^>]*name="intent"/);
+    expect(markup).not.toContain("Cancel this sale?");
+    expect(markup).not.toContain('value="cancel-sale"');
+  });
+
+  it("submits exactly one cancel-sale intent only after seller confirmation", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <OrderingOrderDetailPage
+        role="seller"
+        backHref="/account/sales"
+        order={
+          {
+            ...order,
+            status: "ready-for-fulfillment",
+            self_service_cancellation_available: true,
+            cancellation_unavailable_reason: null,
+          } as never
+        }
+      />,
+    );
+    const form = container.querySelector('form[method="post"]');
+    expect(form).toBeInstanceOf(HTMLFormElement);
+    const submissions: FormData[] = [];
+    form?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submissions.push(new FormData(event.currentTarget as HTMLFormElement));
+    });
+
+    await user.click(screen.getByRole("button", { name: "Cancel sale" }));
+
+    expect(submissions).toHaveLength(0);
+    const dialog = screen.getByRole("alertdialog", { name: "Cancel this sale?" });
+    expect(within(dialog).getByText(/full refund/)).toBeTruthy();
+    expect(within(dialog).getByText(/seller cancellation rate/)).toBeTruthy();
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel sale" }));
+
+    expect(submissions).toHaveLength(1);
+    expect(submissions[0]?.getAll("intent")).toEqual(["cancel-sale"]);
+  });
+
+  it("submits exactly one cancel-purchase intent directly for buyers", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <OrderingOrderDetailPage role="buyer" backHref="/account/purchases" order={order as never} />,
+    );
+    const form = container.querySelector('form[method="post"]');
+    const submissions: FormData[] = [];
+    form?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submissions.push(new FormData(event.currentTarget as HTMLFormElement, (event as SubmitEvent).submitter));
+    });
+
+    await user.click(screen.getByRole("button", { name: "Cancel purchase" }));
+
+    expect(submissions).toHaveLength(1);
+    expect(submissions[0]?.getAll("intent")).toEqual(["cancel-purchase"]);
+    expect(screen.queryByText("Cancel this sale?")).toBeNull();
   });
 });
