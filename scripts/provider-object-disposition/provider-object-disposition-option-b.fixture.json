@@ -1,0 +1,658 @@
+{
+  "schemaVersion": "provider-object-disposition-option-b-fixture/v1",
+  "classTable": [
+    {
+      "class": "captured-payment-intent",
+      "declaredBudget": 1,
+      "budgetScope": "per-confirmation-window",
+      "precedenceOrdinal": 5,
+      "permittedStates": ["budgeted-residue", "remedy-requested"],
+      "successStates": ["remedy-requested"]
+    },
+    {
+      "class": "uncaptured-payment-intent",
+      "declaredBudget": 0,
+      "budgetScope": "per-window",
+      "precedenceOrdinal": 1,
+      "permittedStates": ["cancelled", "already-terminal", "disposition-failed"],
+      "successStates": ["cancelled", "already-terminal"]
+    },
+    {
+      "class": "setup-intent",
+      "declaredBudget": 0,
+      "budgetScope": "per-window",
+      "precedenceOrdinal": 2,
+      "permittedStates": ["cancelled", "already-terminal", "disposition-failed"],
+      "successStates": ["cancelled", "already-terminal"]
+    },
+    {
+      "class": "stripe-checkout-session",
+      "declaredBudget": 0,
+      "budgetScope": "per-window",
+      "precedenceOrdinal": 3,
+      "permittedStates": ["not-created"],
+      "successStates": ["not-created"]
+    },
+    {
+      "class": "stripe-customer",
+      "declaredBudget": 1,
+      "budgetScope": "per-e2e-identity-persistent",
+      "precedenceOrdinal": 6,
+      "permittedStates": ["retained-reused"],
+      "successStates": ["retained-reused"]
+    },
+    {
+      "class": "stripe-account-session",
+      "declaredBudget": 2,
+      "budgetScope": "per-connect-window",
+      "precedenceOrdinal": 4,
+      "permittedStates": ["budgeted-residue"],
+      "successStates": ["budgeted-residue"]
+    }
+  ],
+  "scenarios": {
+    "success": {
+      "version": "provider-object-disposition/v1",
+      "variant": "success",
+      "emittedBy": "executor",
+      "startedAt": "2026-08-01T00:00:00Z",
+      "finishedAt": "2026-08-01T00:10:00Z",
+      "deploymentEnvironment": "test",
+      "providerMode": "test",
+      "windowId": "67336733673367336733673367330001",
+      "resultDigest": "dc5326ef76af3bfaf0c62cd51b2526dabf82c80a1d46b054c5332414b5ef2708",
+      "classes": [
+        {
+          "class": "captured-payment-intent",
+          "state": "remedy-requested",
+          "declaredBudget": 1,
+          "budgetScope": "per-confirmation-window",
+          "observedCount": 1,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record-plus-provider-cross-check",
+          "precedenceOrdinal": 5,
+          "dispositionStartedAt": "2026-08-01T00:00:45Z",
+          "dispositionCompletedAt": "2026-08-01T00:01:00Z"
+        },
+        {
+          "class": "uncaptured-payment-intent",
+          "state": "cancelled",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 1,
+          "dispositionStartedAt": "2026-08-01T00:00:10Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:20Z"
+        },
+        {
+          "class": "setup-intent",
+          "state": "cancelled",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 2,
+          "dispositionStartedAt": "2026-08-01T00:00:20Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:30Z"
+        },
+        {
+          "class": "stripe-checkout-session",
+          "state": "not-created",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 3,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-customer",
+          "state": "retained-reused",
+          "declaredBudget": 1,
+          "budgetScope": "per-e2e-identity-persistent",
+          "observedCount": 1,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 6,
+          "dispositionStartedAt": "2026-08-01T00:01:00Z",
+          "dispositionCompletedAt": "2026-08-01T00:01:10Z"
+        },
+        {
+          "class": "stripe-account-session",
+          "state": "budgeted-residue",
+          "declaredBudget": 2,
+          "budgetScope": "per-connect-window",
+          "observedCount": 2,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 4,
+          "dispositionStartedAt": "2026-08-01T00:00:30Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:45Z"
+        }
+      ]
+    },
+    "preNetworkRefusal": {
+      "version": "provider-object-disposition/v1",
+      "variant": "pre-network-refusal",
+      "emittedBy": "executor",
+      "startedAt": "2026-08-01T00:00:00Z",
+      "finishedAt": "2026-08-01T00:00:00Z",
+      "deploymentEnvironment": "test",
+      "providerMode": "test",
+      "windowId": "67336733673367336733673367330002",
+      "resultDigest": "6f4941a0918e6a8633c8f587d1609d9d06286b92f7c08b8a9c178cd7e8c5d5fc",
+      "refusal": "authority-unavailable",
+      "classes": [
+        {
+          "class": "captured-payment-intent",
+          "state": "not-attempted",
+          "declaredBudget": 1,
+          "budgetScope": "per-confirmation-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 5,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "uncaptured-payment-intent",
+          "state": "not-attempted",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 1,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "setup-intent",
+          "state": "not-attempted",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 2,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-checkout-session",
+          "state": "not-attempted",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 3,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-customer",
+          "state": "not-attempted",
+          "declaredBudget": 1,
+          "budgetScope": "per-e2e-identity-persistent",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 6,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-account-session",
+          "state": "not-attempted",
+          "declaredBudget": 2,
+          "budgetScope": "per-connect-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 4,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        }
+      ]
+    },
+    "partialEffectCompleteCleanup": {
+      "version": "provider-object-disposition/v1",
+      "variant": "cleanup-failure",
+      "emittedBy": "executor",
+      "startedAt": "2026-08-01T00:00:00Z",
+      "finishedAt": "2026-08-01T00:10:00Z",
+      "deploymentEnvironment": "test",
+      "providerMode": "test",
+      "windowId": "67336733673367336733673367330003",
+      "resultDigest": "d20464057dbcc8fbeda4d42359d283be0b29cb18fe908a95be4e027e837cad49",
+      "failure": "cleanup-incomplete",
+      "classes": [
+        {
+          "class": "captured-payment-intent",
+          "state": "remedy-requested",
+          "declaredBudget": 1,
+          "budgetScope": "per-confirmation-window",
+          "observedCount": 1,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 5,
+          "dispositionStartedAt": "2026-08-01T00:00:45Z",
+          "dispositionCompletedAt": "2026-08-01T00:01:00Z"
+        },
+        {
+          "class": "uncaptured-payment-intent",
+          "state": "cancelled",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 1,
+          "dispositionStartedAt": "2026-08-01T00:00:10Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:20Z"
+        },
+        {
+          "class": "setup-intent",
+          "state": "disposition-failed",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 2,
+          "dispositionStartedAt": "2026-08-01T00:00:20Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:30Z"
+        },
+        {
+          "class": "stripe-checkout-session",
+          "state": "not-created",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 3,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-customer",
+          "state": "retained-reused",
+          "declaredBudget": 1,
+          "budgetScope": "per-e2e-identity-persistent",
+          "observedCount": 1,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 6,
+          "dispositionStartedAt": "2026-08-01T00:01:00Z",
+          "dispositionCompletedAt": "2026-08-01T00:01:10Z"
+        },
+        {
+          "class": "stripe-account-session",
+          "state": "budgeted-residue",
+          "declaredBudget": 2,
+          "budgetScope": "per-connect-window",
+          "observedCount": 2,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 4,
+          "dispositionStartedAt": "2026-08-01T00:00:30Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:45Z"
+        }
+      ]
+    },
+    "ambiguousUnknown": {
+      "version": "provider-object-disposition/v1",
+      "variant": "post-network-failure",
+      "emittedBy": "executor",
+      "startedAt": "2026-08-01T00:00:00Z",
+      "finishedAt": "2026-08-01T00:10:00Z",
+      "deploymentEnvironment": "test",
+      "providerMode": "test",
+      "windowId": "67336733673367336733673367330004",
+      "resultDigest": "63a17083a75cfda9ec13e7363c0f87330a0bf02bf3c5a25ab4dd356028ce100c",
+      "failure": "correlation-discrepancy",
+      "lastCompletedPrecedenceOrdinal": 1,
+      "classes": [
+        {
+          "class": "captured-payment-intent",
+          "state": "not-attempted",
+          "declaredBudget": 1,
+          "budgetScope": "per-confirmation-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 5,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "uncaptured-payment-intent",
+          "state": "cancelled",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 1,
+          "dispositionStartedAt": "2026-08-01T00:00:10Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:20Z"
+        },
+        {
+          "class": "setup-intent",
+          "state": "unknown",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 2,
+          "dispositionStartedAt": "2026-08-01T00:00:20Z",
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-checkout-session",
+          "state": "not-attempted",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 3,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-customer",
+          "state": "not-attempted",
+          "declaredBudget": 1,
+          "budgetScope": "per-e2e-identity-persistent",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 6,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-account-session",
+          "state": "not-attempted",
+          "declaredBudget": 2,
+          "budgetScope": "per-connect-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 4,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        }
+      ]
+    },
+    "postNetworkFailureLaterNotAttempted": {
+      "version": "provider-object-disposition/v1",
+      "variant": "post-network-failure",
+      "emittedBy": "executor",
+      "startedAt": "2026-08-01T00:00:00Z",
+      "finishedAt": "2026-08-01T00:10:00Z",
+      "deploymentEnvironment": "test",
+      "providerMode": "test",
+      "windowId": "67336733673367336733673367330005",
+      "resultDigest": "5bd5ae2fd2107e172637cd28f9f5be38f6f9558276c0fa2b48a3bb5d45caba78",
+      "failure": "transport-failure",
+      "lastCompletedPrecedenceOrdinal": 4,
+      "classes": [
+        {
+          "class": "captured-payment-intent",
+          "state": "unknown",
+          "declaredBudget": 1,
+          "budgetScope": "per-confirmation-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 5,
+          "dispositionStartedAt": "2026-08-01T00:01:00Z",
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "uncaptured-payment-intent",
+          "state": "cancelled",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 1,
+          "dispositionStartedAt": "2026-08-01T00:00:10Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:20Z"
+        },
+        {
+          "class": "setup-intent",
+          "state": "cancelled",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 2,
+          "dispositionStartedAt": "2026-08-01T00:00:20Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:30Z"
+        },
+        {
+          "class": "stripe-checkout-session",
+          "state": "not-created",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 3,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-customer",
+          "state": "not-attempted",
+          "declaredBudget": 1,
+          "budgetScope": "per-e2e-identity-persistent",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 6,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-account-session",
+          "state": "budgeted-residue",
+          "declaredBudget": 2,
+          "budgetScope": "per-connect-window",
+          "observedCount": 2,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 4,
+          "dispositionStartedAt": "2026-08-01T00:00:30Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:45Z"
+        }
+      ]
+    },
+    "cleanupFailureAtPrecedenceBoundary": {
+      "version": "provider-object-disposition/v1",
+      "variant": "cleanup-failure",
+      "emittedBy": "executor",
+      "startedAt": "2026-08-01T00:00:00Z",
+      "finishedAt": "2026-08-01T00:10:00Z",
+      "deploymentEnvironment": "test",
+      "providerMode": "test",
+      "windowId": "67336733673367336733673367330006",
+      "resultDigest": "7a2ffad36da0078d99e24de67d44837df758dc8e2413c2ab8ec4b4465843d606",
+      "failure": "enumeration-incomplete",
+      "classes": [
+        {
+          "class": "captured-payment-intent",
+          "state": "not-attempted",
+          "declaredBudget": 1,
+          "budgetScope": "per-confirmation-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 5,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "uncaptured-payment-intent",
+          "state": "cancelled",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 1,
+          "dispositionStartedAt": "2026-08-01T00:00:10Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:20Z"
+        },
+        {
+          "class": "setup-intent",
+          "state": "cancelled",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 2,
+          "dispositionStartedAt": "2026-08-01T00:00:20Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:30Z"
+        },
+        {
+          "class": "stripe-checkout-session",
+          "state": "not-created",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 3,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-customer",
+          "state": "not-attempted",
+          "declaredBudget": 1,
+          "budgetScope": "per-e2e-identity-persistent",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "not-applicable",
+          "precedenceOrdinal": 6,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-account-session",
+          "state": "unknown",
+          "declaredBudget": 2,
+          "budgetScope": "per-connect-window",
+          "observedCount": null,
+          "enumerationComplete": false,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 4,
+          "dispositionStartedAt": "2026-08-01T00:00:30Z",
+          "dispositionCompletedAt": null
+        }
+      ]
+    },
+    "cleanupFailureOverBudget": {
+      "version": "provider-object-disposition/v1",
+      "variant": "cleanup-failure",
+      "emittedBy": "executor",
+      "startedAt": "2026-08-01T00:00:00Z",
+      "finishedAt": "2026-08-01T00:10:00Z",
+      "deploymentEnvironment": "test",
+      "providerMode": "test",
+      "windowId": "67336733673367336733673367330007",
+      "resultDigest": "f4fefd5c313c3d2091929e066a066975f5f545a0468c43f4b27a3df3faca5ce3",
+      "failure": "budget-exceeded",
+      "classes": [
+        {
+          "class": "captured-payment-intent",
+          "state": "remedy-requested",
+          "declaredBudget": 1,
+          "budgetScope": "per-confirmation-window",
+          "observedCount": 1,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 5,
+          "dispositionStartedAt": "2026-08-01T00:00:45Z",
+          "dispositionCompletedAt": "2026-08-01T00:01:00Z"
+        },
+        {
+          "class": "uncaptured-payment-intent",
+          "state": "cancelled",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 1,
+          "dispositionStartedAt": "2026-08-01T00:00:10Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:20Z"
+        },
+        {
+          "class": "setup-intent",
+          "state": "cancelled",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 2,
+          "dispositionStartedAt": "2026-08-01T00:00:20Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:30Z"
+        },
+        {
+          "class": "stripe-checkout-session",
+          "state": "not-created",
+          "declaredBudget": 0,
+          "budgetScope": "per-window",
+          "observedCount": 0,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 3,
+          "dispositionStartedAt": null,
+          "dispositionCompletedAt": null
+        },
+        {
+          "class": "stripe-customer",
+          "state": "retained-reused",
+          "declaredBudget": 1,
+          "budgetScope": "per-e2e-identity-persistent",
+          "observedCount": 1,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 6,
+          "dispositionStartedAt": "2026-08-01T00:01:00Z",
+          "dispositionCompletedAt": "2026-08-01T00:01:10Z"
+        },
+        {
+          "class": "stripe-account-session",
+          "state": "budgeted-residue",
+          "declaredBudget": 2,
+          "budgetScope": "per-connect-window",
+          "observedCount": 3,
+          "enumerationComplete": true,
+          "correlationSource": "creation-time-record",
+          "precedenceOrdinal": 4,
+          "dispositionStartedAt": "2026-08-01T00:00:30Z",
+          "dispositionCompletedAt": "2026-08-01T00:00:45Z"
+        }
+      ]
+    }
+  }
+}
