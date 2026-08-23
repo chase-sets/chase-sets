@@ -12,6 +12,6 @@ export const publicPaymentsTermsPublicationRecord = {
   counselApprovalReference: null,
   rolloutJurisdictionsOrProductLimits: [],
   launchRequired: true,
-  contentFingerprint: "sha256:5784d9cc30d802c994d34e7c96de9e3e818d1f9b3595536fb796ac3d77a97560",
+  contentFingerprint: "sha256:e75dd6ca085f40e1469b901058472d826d52a754a15d5e7e0e230f4eacf9b542",
   consentActivatable: false,
 } as const satisfies PublicPolicyPublicationRecord<"payments-terms">;
