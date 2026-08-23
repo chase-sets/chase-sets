@@ -4,7 +4,26 @@ import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { Card, Text } from "@chase-sets/design-system";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { OrderingOrderDetailPage } from "./order-detail-page";
+
+const destinationFixture = {
+  name: "Recipient Only",
+  company: "Dock 7",
+  line1: "455 Market St",
+  line2: "Suite 8",
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+  phone: "phone-sentinel",
+  email: "email-sentinel@example.test",
+  verification: {
+    status: "verified",
+    source: "verification-sentinel",
+    checkedAt: "2026-04-02T00:00:00.000Z",
+  },
+} satisfies AddressSnapshot;
 
 const order = {
   order_id: "ord_1",
@@ -35,19 +54,7 @@ const order = {
   terms_schedule_id: null,
   terms_agreement_id: null,
   terms_resolved_at: "2026-04-02T00:00:00.000Z",
-  shipping_destination_snapshot: {
-    name: "Recipient Only",
-    company: "Dock 7",
-    line1: "455 Market St",
-    line2: "Suite 8",
-    city: "Chicago",
-    state: "IL",
-    postalCode: "60601",
-    country: "US",
-    phone: "phone-sentinel",
-    email: "email-sentinel@example.test",
-    verification_metadata: "verification-sentinel",
-  },
+  shipping_destination_snapshot: destinationFixture,
   shipping_origin_snapshot: {
     name: "Seller",
     company: null,
@@ -144,6 +151,7 @@ describe("ordering order detail page", () => {
   it.each(destinationCases)(
     "renders one postal-only shipping destination section for $role $status detail",
     ({ role, status }) => {
+      expect(order.shipping_destination_snapshot.verification?.source).toBe("verification-sentinel");
       render(
         <OrderingOrderDetailPage
           role={role}

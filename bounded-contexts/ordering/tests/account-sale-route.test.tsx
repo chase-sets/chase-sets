@@ -10,6 +10,7 @@ import {
   encodeCommitReceipt,
 } from "@chase-sets/http/responses";
 import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
 const { mockUseLoaderData, mockUseActionData, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
@@ -42,6 +43,24 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 import MarketplaceAccountSaleRoute, { action, loader } from "../routes/account-sale";
 import { loader as salesListLoader } from "../routes/account-sales";
 
+const destinationFixture = {
+  name: "Recipient Only",
+  company: "Dock 7",
+  line1: "455 Market St",
+  line2: "Suite 8",
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+  phone: "phone-sentinel",
+  email: "email-sentinel@example.test",
+  verification: {
+    status: "verified",
+    source: "verification-sentinel",
+    checkedAt: "2026-04-02T00:00:00.000Z",
+  },
+} satisfies AddressSnapshot;
+
 const order = {
   order_id: "ord_1",
   source_type: "cart-checkout",
@@ -73,19 +92,7 @@ const order = {
   terms_schedule_id: "cts_default",
   terms_agreement_id: null,
   terms_resolved_at: "2026-04-02T00:00:00.000Z",
-  shipping_destination_snapshot: {
-    name: "Recipient Only",
-    company: "Dock 7",
-    line1: "455 Market St",
-    line2: "Suite 8",
-    city: "Chicago",
-    state: "IL",
-    postalCode: "60601",
-    country: "US",
-    phone: "phone-sentinel",
-    email: "email-sentinel@example.test",
-    verification_metadata: "verification-sentinel",
-  },
+  shipping_destination_snapshot: destinationFixture,
   shipping_origin_snapshot: {
     name: "Seller",
     company: null,
@@ -370,6 +377,7 @@ describe("marketplace account sale route", () => {
   });
 
   it("renders a verified-sale counterparty review CTA", () => {
+    expect(order.shipping_destination_snapshot.verification?.source).toBe("verification-sentinel");
     mockUseLoaderData.mockReturnValue({
       sale: order,
       reviewOutcome: {
@@ -398,6 +406,7 @@ describe("marketplace account sale route", () => {
   });
 
   it("starts seller-cannot-fulfill intake from the sale detail without a role query", () => {
+    expect(order.shipping_destination_snapshot.verification?.source).toBe("verification-sentinel");
     mockUseLoaderData.mockReturnValue({
       sale: order,
       reviewOutcome: { status: "ready", opportunity: null },
