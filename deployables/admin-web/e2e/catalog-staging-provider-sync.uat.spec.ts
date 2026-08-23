@@ -32,6 +32,13 @@ const terminalSyncTimeoutMs = 720_000;
 const downstreamProjectionTimeoutMs = 300_000;
 const controlActionTimeoutMs = 10_000;
 const supportSafeDiagnosticMaxLength = 2_000;
+// #7408 F5: the seven-line matrix step runs after the full provider sync loop
+// inside the same uatTestTimeoutMs wall clock, so it needs its own bounded
+// deadline rather than relying on the outer Playwright test timeout — an
+// aborted test destroys the per-line evidence packet for every line, attempted
+// or not.
+const stagingRepresentativeCatalogMatrixTimeBudgetMs =
+  Number.parseInt(process.env.CATALOG_STAGING_PROVIDER_UAT_MATRIX_TIME_BUDGET_MS?.trim() ?? "", 10) || 1_500_000;
 const uatTestTimeoutMs =
   Number.parseInt(process.env.CATALOG_STAGING_PROVIDER_UAT_TEST_TIMEOUT_MS?.trim() ?? "", 10) || 3_000_000;
 const supportedProviderUatJourneyScopes = [
@@ -1335,7 +1342,46 @@ function promotableProviderSyncJourneysByStagingRepresentativeCatalogMatrixLine(
   return groups;
 }
 
-type MatrixLineDurableState = "settled" | "queued-only" | "absent";
+// #7408 F1: the real /catalog/catalog-items filters are `source`, `language`,
+// `status`, `tag`, `blueprintId`, `search` — `setId` is accepted by the UI but
+// silently ignored server-side (bounded-contexts/catalog/features/catalog-items/
+// read-model/queries.ts buildCatalogItemConditions never reads it), so it cannot
+// scope anything. Every durable promotion path unconditionally tags a created
+// Catalog Item with its product line ("magic", "yugioh", "one-piece", "lorcana",
+// "pokemon" — see provider-promotion-command-planner.ts's per-line tag
+// builders), which is a real, literal, provider-independent `tag=` filter. Four
+// of the seven matrix lines share a provider with a sibling line (Pokemon
+// EN/JA/ZH-TW/KO all use tcgdex; MTG and Yu-Gi-Oh both use tcgplayer; One Piece
+// and Lorcana both use scrydex), so scoping readback to `source=` alone lets an
+// earlier sibling's rows satisfy a later line. `tag=` discriminates every
+// non-Pokemon line; the three Pokemon lines additionally need `language=` (a
+// real per-item column) since they all share the "pokemon" tag.
+const stagingRepresentativeCatalogMatrixLineTag: Readonly<Record<StagingRepresentativeCatalogMatrixLine, string>> = {
+  "pokemon-en": "pokemon",
+  "pokemon-ja": "pokemon",
+  "pokemon-zh-tw-ko": "pokemon",
+  mtg: "magic",
+  yugioh: "yugioh",
+  "one-piece": "one-piece",
+  lorcana: "lorcana",
+};
+
+type StagingRepresentativeCatalogMatrixLineReadbackScope = Readonly<{
+  tag: string;
+  language: string | null;
+}>;
+
+function stagingRepresentativeCatalogMatrixLineReadbackScope(
+  line: StagingRepresentativeCatalogMatrixLine,
+  journey: ProviderSyncJourney,
+): StagingRepresentativeCatalogMatrixLineReadbackScope {
+  return {
+    tag: stagingRepresentativeCatalogMatrixLineTag[line],
+    language: line.startsWith("pokemon-") ? pokemonLanguageCodeOf(journey) : null,
+  };
+}
+
+type MatrixLineDurableState = "settled" | "queued-only" | "absent" | "errored" | "unreached";
 
 type MatrixLinePromotionOutcome = Readonly<{
   line: string;
@@ -1348,7 +1394,9 @@ type MatrixPromotionEvaluation = Readonly<{ ok: true }> | Readonly<{ ok: false; 
 
 // Gates overall success on a settled durable readback with a non-zero count for
 // every required line, never on a transient "Command queued" acknowledgment
-// alone (durableState "queued-only") and never on a missing line ("absent").
+// alone (durableState "queued-only") and never on a missing line ("absent"),
+// an uncaught per-line failure ("errored"), or a line the matrix time budget
+// never reached ("unreached").
 function evaluateStagingRepresentativeCatalogMatrixPromotion(
   outcomes: readonly MatrixLinePromotionOutcome[],
 ): MatrixPromotionEvaluation {
@@ -1362,7 +1410,13 @@ function evaluateStagingRepresentativeCatalogMatrixPromotion(
       return {
         ok: false,
         reason: `matrix line "${line}" promotion command was ${
-          outcome.durableState === "queued-only" ? "acknowledged but never reached a durable outcome" : "never accepted"
+          outcome.durableState === "queued-only"
+            ? "acknowledged but never reached a durable outcome"
+            : outcome.durableState === "errored"
+              ? "aborted by an unexpected error before a durable outcome could be read"
+              : outcome.durableState === "unreached"
+                ? "never attempted before the matrix time budget was exhausted"
+                : "never accepted"
         }`,
         line,
       };
@@ -2059,6 +2113,114 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     ];
     expect(evaluateStagingRepresentativeCatalogMatrixPromotion(allSeven)).toEqual({ ok: true });
   });
+
+  test("staging-representative-catalog matrix promotion fails closed when a line errors before a durable outcome can be read", () => {
+    const outcomes: MatrixLinePromotionOutcome[] = requiredStagingRepresentativeCatalogMatrixLines.map((line) => ({
+      line,
+      providerKey: "tcgplayer",
+      durableState: "settled",
+      promotedCount: 3,
+    }));
+    outcomes[2] = { ...outcomes[2], durableState: "errored", promotedCount: 0 };
+
+    const evaluation = evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes);
+    expect(evaluation.ok).toBe(false);
+    expect(evaluation.ok === false && evaluation.reason).toContain(
+      "aborted by an unexpected error before a durable outcome could be read",
+    );
+    expect(evaluation.ok === false && evaluation.line).toBe(requiredStagingRepresentativeCatalogMatrixLines[2]);
+  });
+
+  test("staging-representative-catalog matrix promotion fails closed when a line is never reached before the matrix time budget is exhausted", () => {
+    const outcomes: MatrixLinePromotionOutcome[] = requiredStagingRepresentativeCatalogMatrixLines.map((line) => ({
+      line,
+      providerKey: "tcgplayer",
+      durableState: "settled",
+      promotedCount: 3,
+    }));
+    outcomes[5] = { ...outcomes[5], durableState: "unreached", promotedCount: 0 };
+
+    const evaluation = evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes);
+    expect(evaluation.ok).toBe(false);
+    expect(evaluation.ok === false && evaluation.reason).toContain("matrix time budget was exhausted");
+    expect(evaluation.ok === false && evaluation.line).toBe(requiredStagingRepresentativeCatalogMatrixLines[5]);
+  });
+
+  // #7408 F1/F3: the reviewer's central finding was that a provider-scoped
+  // readback collapses to three provider counts for seven lines, so a
+  // sibling's pre-existing rows can pass a line that never promoted anything.
+  // These tests pin the producer of the readback scope itself (not a
+  // hand-built evaluator literal), proving two lines that share a real
+  // provider in stagingRepresentativeCatalogProviderSyncJourneys still resolve
+  // to distinct readback targets.
+  test("mtg and yugioh matrix lines resolve to distinct readback scopes despite sharing the tcgplayer provider", () => {
+    const mtgJourney = tcgplayerRepresentativeMtgJourneys[0];
+    const yugiohJourney = yugiohProviderSyncJourneys.find(
+      (journey) => providerUnitRoleOf(journey.unitKey) === "source-observation-import",
+    )!;
+    expect(mtgJourney.providerKey).toBe("tcgplayer");
+    expect(yugiohJourney.providerKey).toBe("tcgplayer");
+
+    const mtgScope = stagingRepresentativeCatalogMatrixLineReadbackScope("mtg", mtgJourney);
+    const yugiohScope = stagingRepresentativeCatalogMatrixLineReadbackScope("yugioh", yugiohJourney);
+    expect(mtgScope.tag).not.toBe(yugiohScope.tag);
+    expect(catalogItemsMatrixLineUrl(mtgJourney.providerKey, mtgScope)).not.toBe(
+      catalogItemsMatrixLineUrl(yugiohJourney.providerKey, yugiohScope),
+    );
+  });
+
+  test("one-piece and lorcana matrix lines resolve to distinct readback scopes despite sharing the scrydex provider", () => {
+    const onePieceJourney = onePieceLaunchProviderSyncJourneys[0];
+    const lorcanaJourney = lorcanaLaunchProviderSyncJourneys[0];
+    expect(onePieceJourney.providerKey).toBe("scrydex");
+    expect(lorcanaJourney.providerKey).toBe("scrydex");
+
+    const onePieceScope = stagingRepresentativeCatalogMatrixLineReadbackScope("one-piece", onePieceJourney);
+    const lorcanaScope = stagingRepresentativeCatalogMatrixLineReadbackScope("lorcana", lorcanaJourney);
+    expect(onePieceScope.tag).not.toBe(lorcanaScope.tag);
+    expect(catalogItemsMatrixLineUrl(onePieceJourney.providerKey, onePieceScope)).not.toBe(
+      catalogItemsMatrixLineUrl(lorcanaJourney.providerKey, lorcanaScope),
+    );
+  });
+
+  test("pokemon matrix lines resolve to distinct readback scopes for the shared tcgdex provider via language", () => {
+    const enJourney = tcgdexRepresentativePokemonJourneys.find((journey) => pokemonLanguageCodeOf(journey) === "en")!;
+    const jaJourney = tcgdexRepresentativePokemonJourneys.find((journey) => pokemonLanguageCodeOf(journey) === "ja")!;
+    const zhTwJourney = tcgdexRepresentativePokemonJourneys.find(
+      (journey) => pokemonLanguageCodeOf(journey) === "zh-tw",
+    )!;
+    const koJourney = tcgdexRepresentativePokemonJourneys.find((journey) => pokemonLanguageCodeOf(journey) === "ko")!;
+    expect(new Set([enJourney, jaJourney, zhTwJourney, koJourney].map((journey) => journey.providerKey))).toEqual(
+      new Set(["tcgdex"]),
+    );
+
+    const enScope = stagingRepresentativeCatalogMatrixLineReadbackScope("pokemon-en", enJourney);
+    const jaScope = stagingRepresentativeCatalogMatrixLineReadbackScope("pokemon-ja", jaJourney);
+    const zhTwScope = stagingRepresentativeCatalogMatrixLineReadbackScope("pokemon-zh-tw-ko", zhTwJourney);
+    const koScope = stagingRepresentativeCatalogMatrixLineReadbackScope("pokemon-zh-tw-ko", koJourney);
+
+    expect(enScope.tag).toBe(jaScope.tag);
+    expect(enScope.language).not.toBe(jaScope.language);
+    expect(zhTwScope.tag).toBe(koScope.tag);
+    expect(zhTwScope.language).not.toBe(koScope.language);
+    expect(catalogItemsMatrixLineUrl(enJourney.providerKey, enScope)).not.toBe(
+      catalogItemsMatrixLineUrl(jaJourney.providerKey, jaScope),
+    );
+    expect(catalogItemsMatrixLineUrl(zhTwJourney.providerKey, zhTwScope)).not.toBe(
+      catalogItemsMatrixLineUrl(koJourney.providerKey, koScope),
+    );
+  });
+
+  // #7408 F2: a transient "Command queued" acknowledgment plus pre-existing
+  // draft/active rows for the same line must never read as settled — the
+  // producer must require a strictly positive delta over a pre-promotion
+  // baseline, not merely a non-empty durable list.
+  test("matrix line readback requires a strictly positive delta over the pre-promotion baseline", () => {
+    expect(matrixLineReadbackFromCounts(9, 9, false)).toEqual({ settled: false, count: 0, pageCapped: false });
+    expect(matrixLineReadbackFromCounts(0, 0, false)).toEqual({ settled: false, count: 0, pageCapped: false });
+    expect(matrixLineReadbackFromCounts(9, 12, false)).toEqual({ settled: true, count: 3, pageCapped: false });
+    expect(matrixLineReadbackFromCounts(0, 1, true)).toEqual({ settled: true, count: 1, pageCapped: true });
+  });
 });
 
 test.describe("catalog staging provider sync UAT", () => {
@@ -2125,7 +2287,7 @@ test.describe("catalog staging provider sync UAT", () => {
       await test.step("Durable Catalog Item promotion across all seven staging matrix lines", async () => {
         const outcomes = await promoteAndReadBackStagingRepresentativeCatalogMatrix(page);
         const evidence = outcomes
-          .map((outcome) => `${outcome.line}=${outcome.durableState}(${outcome.promotedCount})`)
+          .map((outcome) => `${outcome.line}=${outcome.durableState}(${outcome.promotedCount})[${outcome.providerKey}]`)
           .join(", ");
         console.log(`[catalog-staging-provider-uat] staging-representative-catalog matrix outcome: ${evidence}`);
 
@@ -3171,8 +3333,9 @@ async function expectLorcanaCatalogItemsDownstreamProjection(page: Page): Promis
 
 async function promoteAndReadBackMatrixLine(
   page: Page,
-  line: string,
+  line: StagingRepresentativeCatalogMatrixLine,
   journeys: readonly ProviderSyncJourney[],
+  deadline: number,
 ): Promise<MatrixLinePromotionOutcome> {
   if (journeys.length === 0) {
     return { line, providerKey: "unknown", durableState: "absent", promotedCount: 0 };
@@ -3181,9 +3344,22 @@ async function promoteAndReadBackMatrixLine(
   let lastOperatorState = "";
   let lastProviderKey = journeys[0].providerKey;
   for (const journey of journeys) {
+    if (Date.now() >= deadline) {
+      break;
+    }
+
+    lastProviderKey = journey.providerKey;
+    const readbackScope = stagingRepresentativeCatalogMatrixLineReadbackScope(line, journey);
+    // #7408 F2: capture the durable count for this exact line BEFORE touching
+    // the importer, so success can never be satisfied by a pre-existing
+    // draft/active row this run did not create. This must happen before
+    // openCatalogImporter/selectProviderScope below: it navigates the page
+    // away to the Catalog Items list, which would otherwise discard the
+    // importer's in-progress workflow-stage selection.
+    const baseline = await countDurableCatalogItemsForMatrixLineScope(page, journey.providerKey, readbackScope);
+
     await openCatalogImporter(page);
     const selectedScope = await selectProviderScope(page, journey);
-    lastProviderKey = journey.providerKey;
     const promoted =
       (await promoteFirstEligibleObservationFromReview(page, selectedScope, journey.unitKey)) ??
       (await promoteFromCompletedImportJobReview(page, selectedScope, journey.unitKey)) ??
@@ -3195,12 +3371,22 @@ async function promoteAndReadBackMatrixLine(
       continue;
     }
 
-    await openCatalogItemsHandoff(page, result.providerKey);
-    const readback = await readBackCatalogItemsProjection(page, result);
+    await openCatalogItemsHandoffForMatrixLine(page, result.providerKey, readbackScope);
+    const readback = await readBackCatalogItemsProjectionForMatrixLine(
+      page,
+      result.providerKey,
+      readbackScope,
+      baseline.count,
+      deadline,
+    );
     console.log(
       `[catalog-staging-provider-uat] matrix line "${line}" durable promotion ${
         readback.settled ? "settled" : "did not settle before the deadline"
-      }: provider=${result.providerKey}, unit=${result.unitKey}, promotedCount=${readback.count}`,
+      }: provider=${result.providerKey}, unit=${result.unitKey}, tag=${readbackScope.tag}${
+        readbackScope.language ? `, language=${readbackScope.language}` : ""
+      }, baseline=${baseline.count}, promotedCount=${readback.count}${
+        readback.pageCapped ? " (durable list page-capped; count is a lower bound)" : ""
+      }`,
     );
     return {
       line,
@@ -3213,24 +3399,46 @@ async function promoteAndReadBackMatrixLine(
   console.log(
     `[catalog-staging-provider-uat] matrix line "${line}" could not find an eligible Source Observation to promote or reapply across ${
       journeys.length
-    } journey(s). ${sanitizeSupportSafeEvidence(lastOperatorState)}`,
+    } journey(s) before the deadline. ${sanitizeSupportSafeEvidence(lastOperatorState)}`,
   );
   return { line, providerKey: lastProviderKey, durableState: "absent", promotedCount: 0 };
 }
 
 // Runs promotion + durable readback for one required staging matrix line at a
-// time, trying every candidate journey for a line before giving up on it, and
-// always attempting every line so one failure never hides the state of the
-// others in the support-safe evidence packet.
+// time, trying every candidate journey for a line before giving up on it. Each
+// line's promotion + readback chain reuses shared helpers that throw on an
+// unexpected operator state (e.g. a hidden "Source Observation review"
+// heading), so it is wrapped in try/catch here rather than left to propagate:
+// one line's failure is recorded as an explicit "errored" outcome and never
+// aborts the remaining lines' evidence. A line the bounded matrix time budget
+// never reaches is recorded as "unreached" rather than left for the outer
+// Playwright test timeout to silently swallow.
 async function promoteAndReadBackStagingRepresentativeCatalogMatrix(
   page: Page,
 ): Promise<readonly MatrixLinePromotionOutcome[]> {
   const promotableJourneysByLine = promotableProviderSyncJourneysByStagingRepresentativeCatalogMatrixLine(
     stagingRepresentativeCatalogProviderSyncJourneys,
   );
+  const deadline = Date.now() + stagingRepresentativeCatalogMatrixTimeBudgetMs;
   const outcomes: MatrixLinePromotionOutcome[] = [];
   for (const line of requiredStagingRepresentativeCatalogMatrixLines) {
-    outcomes.push(await promoteAndReadBackMatrixLine(page, line, promotableJourneysByLine.get(line) ?? []));
+    if (Date.now() >= deadline) {
+      console.log(
+        `[catalog-staging-provider-uat] matrix line "${line}" was never attempted: the matrix time budget was exhausted by earlier lines.`,
+      );
+      outcomes.push({ line, providerKey: "unknown", durableState: "unreached", promotedCount: 0 });
+      continue;
+    }
+
+    try {
+      outcomes.push(await promoteAndReadBackMatrixLine(page, line, promotableJourneysByLine.get(line) ?? [], deadline));
+    } catch (error) {
+      const message = sanitizeSupportSafeEvidence(error instanceof Error ? error.message : String(error));
+      console.log(
+        `[catalog-staging-provider-uat] matrix line "${line}" errored before a durable outcome could be read: ${message}`,
+      );
+      outcomes.push({ line, providerKey: "unknown", durableState: "errored", promotedCount: 0 });
+    }
   }
   return outcomes;
 }
@@ -3620,10 +3828,11 @@ type CatalogItemsProjectionReadback = Readonly<{
   observedRows: readonly string[];
 }>;
 
-// Polls the real Catalog Items list for a durable draft/active row, never a
-// transient command acknowledgment. Non-throwing: a caller that must evaluate
-// every staging matrix line (not stop at the first failure) reads `.settled`
-// and `.count` instead of catching an exception.
+// Polls the real Catalog Items list for a durable draft/active row for the
+// Lorcana downstream smoke check, never a transient command acknowledgment.
+// Used only by expectCatalogItemsProjectionForProvider below; the matrix-line
+// flow uses readBackCatalogItemsProjectionForMatrixLine instead, which scopes
+// to a matrix line (not just a provider) and correlates against a baseline.
 async function readBackCatalogItemsProjection(
   page: Page,
   result: LorcanaDownstreamSmokeResult,
@@ -3677,6 +3886,135 @@ async function catalogItemProviderRowTexts(page: Page, providerKey: string): Pro
     .allInnerTexts()
     .then((rows) => rows.map(normalizeWhitespace).filter(Boolean))
     .catch(() => []);
+}
+
+// #7408 F6: the durable Catalog Items list is capped at CATALOG_LIST_PAGE_SIZE
+// (bounded-contexts/catalog/support/shell-support/list-query-state.ts) per
+// page; a returned count exactly at this cap is a lower bound, not an exact
+// total, and the outcome evidence says so rather than reporting a false-precise
+// number.
+const catalogListPageSize = 50;
+
+function catalogItemsMatrixLineSearchParams(
+  providerKey: string,
+  scope: StagingRepresentativeCatalogMatrixLineReadbackScope,
+): URLSearchParams {
+  const params = new URLSearchParams({ source: providerKey, tag: scope.tag });
+  if (scope.language) {
+    params.set("language", scope.language);
+  }
+  return params;
+}
+
+function catalogItemsMatrixLineUrl(
+  providerKey: string,
+  scope: StagingRepresentativeCatalogMatrixLineReadbackScope,
+  status?: "draft" | "active",
+): string {
+  const params = catalogItemsMatrixLineSearchParams(providerKey, scope);
+  if (status) {
+    params.set("status", status);
+  }
+  return `/catalog/catalog-items?${params.toString()}`;
+}
+
+// Clicks the real production handoff link (preserving the exact source=
+// semantics openCatalogItemsHandoff already verifies), then narrows the list
+// to this matrix line's scope via the supported language=/tag= filters so a
+// sibling line sharing the same provider can never satisfy this line's count.
+async function openCatalogItemsHandoffForMatrixLine(
+  page: Page,
+  providerKey: string,
+  scope: StagingRepresentativeCatalogMatrixLineReadbackScope,
+): Promise<void> {
+  await openCatalogItemsHandoff(page, providerKey);
+  await page.goto(catalogItemsMatrixLineUrl(providerKey, scope), {
+    waitUntil: "domcontentloaded",
+    timeout: pageReadyTimeoutMs,
+  });
+  await expect(page.getByRole("heading", { name: "Catalog Items", exact: true })).toBeVisible({
+    timeout: pageReadyTimeoutMs,
+  });
+
+  const observedUrl = new URL(page.url());
+  if (observedUrl.searchParams.get("source") !== providerKey || observedUrl.searchParams.get("tag") !== scope.tag) {
+    throw new Error(
+      `Catalog Items list did not narrow to matrix line scope (source=${providerKey}, tag=${scope.tag}${
+        scope.language ? `, language=${scope.language}` : ""
+      }): observed ${observedUrl.pathname}${observedUrl.search}`,
+    );
+  }
+}
+
+// #7408 F6: status is a real, exact server-side filter (item.status = $N), so
+// two status-scoped reads (draft, active) are a more trustworthy durable-state
+// signal than regexing rendered row text for "draft"/"active" substrings,
+// which false-positives on any row whose title, subtitle, set, or blueprint
+// text happens to contain those words.
+async function countDurableCatalogItemsForMatrixLineScope(
+  page: Page,
+  providerKey: string,
+  scope: StagingRepresentativeCatalogMatrixLineReadbackScope,
+): Promise<Readonly<{ count: number; pageCapped: boolean }>> {
+  let count = 0;
+  let pageCapped = false;
+  for (const status of ["draft", "active"] as const) {
+    await page.goto(catalogItemsMatrixLineUrl(providerKey, scope, status), {
+      waitUntil: "domcontentloaded",
+      timeout: pageReadyTimeoutMs,
+    });
+    await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
+    const rows = await catalogItemProviderRowTexts(page, providerKey);
+    count += rows.length;
+    if (rows.length >= catalogListPageSize) {
+      pageCapped = true;
+    }
+  }
+  return { count, pageCapped };
+}
+
+type MatrixLineCatalogItemsReadback = Readonly<{
+  settled: boolean;
+  count: number;
+  pageCapped: boolean;
+}>;
+
+// #7408 F2: a line only settles on a strictly positive delta over its
+// pre-promotion baseline — a transient acknowledgment or a pre-existing
+// draft/active row under the same provider/tag/language can never satisfy
+// this on their own, because they cannot move the delta above zero.
+function matrixLineReadbackFromCounts(
+  baselineCount: number,
+  currentCount: number,
+  pageCapped: boolean,
+): MatrixLineCatalogItemsReadback {
+  const delta = currentCount - baselineCount;
+  return delta > 0 ? { settled: true, count: delta, pageCapped } : { settled: false, count: 0, pageCapped: false };
+}
+
+// Polls the durable Catalog Items count scoped to one matrix line and requires
+// it to exceed the pre-promotion baseline before reporting settled. Bounds its
+// own poll to whichever comes first of downstreamProjectionTimeoutMs or the
+// matrix-wide deadline, so one slow line cannot silently consume the budget
+// every remaining line needs.
+async function readBackCatalogItemsProjectionForMatrixLine(
+  page: Page,
+  providerKey: string,
+  scope: StagingRepresentativeCatalogMatrixLineReadbackScope,
+  baselineCount: number,
+  deadline: number,
+): Promise<MatrixLineCatalogItemsReadback> {
+  const pollDeadline = Math.min(Date.now() + downstreamProjectionTimeoutMs, deadline);
+  let last = matrixLineReadbackFromCounts(baselineCount, baselineCount, false);
+  while (Date.now() < pollDeadline) {
+    const observed = await countDurableCatalogItemsForMatrixLineScope(page, providerKey, scope);
+    last = matrixLineReadbackFromCounts(baselineCount, observed.count, observed.pageCapped);
+    if (last.settled) {
+      return last;
+    }
+    await page.waitForTimeout(5_000);
+  }
+  return last;
 }
 
 async function waitForSearchParam(page: Page, name: string, timeout: number): Promise<string> {
