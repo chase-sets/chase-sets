@@ -31,6 +31,17 @@ const syncTimeoutMs = 120_000;
 const terminalSyncTimeoutMs = 720_000;
 const downstreamProjectionTimeoutMs = 300_000;
 const controlActionTimeoutMs = 10_000;
+// #7408 B2: how far before a line's own pre-promotion baseline read an
+// existing row's updated_at may sit and still count as durable proof from
+// THIS run. Wide enough to absorb test-runner/server clock skew and Postgres
+// timestamp rounding, narrow enough that a genuinely older row (a prior
+// completed matrix run, or a concurrent run outside the staging mutating-
+// operations concurrency group) cannot be mistaken for this run's promotion.
+const matrixLineClockSkewToleranceMs = 60_000;
+// #7408 C1: the per-line evidence packet must finish emitting before the
+// outer Playwright test timeout aborts the test, even if the matrix step
+// starts late because the full provider sync loop ahead of it ran long.
+const matrixEvidenceEmissionSafetyMarginMs = 30_000;
 const supportSafeDiagnosticMaxLength = 2_000;
 // #7408 F5: the seven-line matrix step runs after the full provider sync loop
 // inside the same uatTestTimeoutMs wall clock, so it needs its own bounded
@@ -1381,13 +1392,80 @@ function stagingRepresentativeCatalogMatrixLineReadbackScope(
   };
 }
 
+// #7408 B1: pure so a sign-in redirect, a wrong/missing source or tag, a
+// dropped language, or a dropped/wrong status can be pinned by literal URL
+// fixtures without a live navigation. Returns the mismatch reason (thrown by
+// the caller) or null when the observed URL genuinely matches the intended
+// exact scope. Used on EVERY counting navigation (baseline reads and every
+// poll iteration), not only the readback's first handoff navigation, so a
+// transient list-page failure can never be mistaken for a healthy,
+// correctly-scoped Catalog Items list.
+function catalogItemsListScopeMismatchReason(
+  observedUrl: URL,
+  providerKey: string,
+  scope: StagingRepresentativeCatalogMatrixLineReadbackScope,
+  status?: "draft" | "active",
+): string | null {
+  const observedSource = observedUrl.searchParams.get("source");
+  const observedTag = observedUrl.searchParams.get("tag");
+  const observedLanguage = observedUrl.searchParams.get("language");
+  const observedStatus = observedUrl.searchParams.get("status");
+
+  if (observedSource !== providerKey || observedTag !== scope.tag) {
+    return `Catalog Items list did not narrow to matrix line scope (source=${providerKey}, tag=${scope.tag}${
+      scope.language ? `, language=${scope.language}` : ""
+    }${status ? `, status=${status}` : ""}): observed ${observedUrl.pathname}${observedUrl.search}`;
+  }
+  if (scope.language && observedLanguage !== scope.language) {
+    return `Catalog Items list did not narrow to matrix line language scope (language=${scope.language}): observed ${observedUrl.pathname}${observedUrl.search}`;
+  }
+  if (status && observedStatus !== status) {
+    return `Catalog Items list did not narrow to matrix line status scope (status=${status}): observed ${observedUrl.pathname}${observedUrl.search}`;
+  }
+  return null;
+}
+
+// #7408 B2: pure identity+updated_at correlation core, kept separate from the
+// I/O (list reads, detail-page navigation) that produces its inputs so
+// first-run creates, CI retries after a partial prior attempt, fully
+// idempotent reruns, and pre-existing-only rows can all be pinned by literal
+// fixtures. A brand-new id (present in currentIds, absent from baselineIds)
+// is durable proof on its own — no timestamp needed. Otherwise, an id only
+// counts as durable if its own updated_at moved to at or after notBeforeMs;
+// a sample for an id outside currentIds (e.g. a wrong-line/provider leak)
+// is never consulted.
+function matrixLineDurableIdsFromSamples(
+  baselineIds: ReadonlySet<string>,
+  currentIds: ReadonlySet<string>,
+  existingRowUpdatedAt: ReadonlyMap<string, string | null>,
+  notBeforeMs: number,
+): readonly string[] {
+  const newIds = [...currentIds].filter((id) => !baselineIds.has(id));
+  if (newIds.length > 0) {
+    return newIds;
+  }
+
+  return [...currentIds].filter((id) => {
+    const updatedAt = existingRowUpdatedAt.get(id);
+    return updatedAt != null && Date.parse(updatedAt) >= notBeforeMs;
+  });
+}
+
 type MatrixLineDurableState = "settled" | "queued-only" | "absent" | "errored" | "unreached";
 
 type MatrixLinePromotionOutcome = Readonly<{
   line: string;
   providerKey: string;
   durableState: MatrixLineDurableState;
+  // #7408 B2: identity-correlated rows durably attributable to this run (new
+  // rows, or existing rows whose updated_at moved at/after this run's
+  // pre-promotion baseline). The sole causal gate.
   promotedCount: number;
+  // #7408 C3/AC2: the absolute scoped Catalog Items count regardless of
+  // causal attribution, reported alongside promotedCount so the evidence
+  // packet shows both the AC2 "non-zero in scope" fact and the B2 causal
+  // proof instead of collapsing them into one number.
+  currentCount: number;
 }>;
 
 type MatrixPromotionEvaluation = Readonly<{ ok: true }> | Readonly<{ ok: false; reason: string; line: string }>;
@@ -1422,7 +1500,14 @@ function evaluateStagingRepresentativeCatalogMatrixPromotion(
       };
     }
     if (outcome.promotedCount <= 0) {
-      return { ok: false, reason: `matrix line "${line}" settled with zero durable promoted Catalog Items`, line };
+      return {
+        ok: false,
+        reason: `matrix line "${line}" settled with zero durable identity-correlated promoted Catalog Items`,
+        line,
+      };
+    }
+    if (outcome.currentCount <= 0) {
+      return { ok: false, reason: `matrix line "${line}" settled with zero absolute Catalog Items in scope`, line };
     }
   }
   return { ok: true };
@@ -2045,14 +2130,37 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     );
   });
 
+  // #7408 C4: scryfallRepresentativeMtgJourneys use a "reference-data" unit
+  // (scryfall:mtg:single-card:reference-data) that resolves to the same
+  // "mtg" matrix line as the promotable TCGplayer source-observation-import
+  // journeys. Only the role filter in
+  // promotableProviderSyncJourneysByStagingRepresentativeCatalogMatrixLine
+  // keeps them out of the promotable set; the length/key-set assertions
+  // above stay green even if that filter is deleted, because the "mtg" key
+  // is still present and its journey count only grows. This pins the filter
+  // directly: every promotable journey for every line must be a real
+  // source-observation-import unit.
+  test("promotable staging-representative-catalog matrix journeys are all source-observation-import units", () => {
+    const promotableJourneysByLine = promotableProviderSyncJourneysByStagingRepresentativeCatalogMatrixLine(
+      stagingRepresentativeCatalogProviderSyncJourneys,
+    );
+    for (const [line, journeys] of promotableJourneysByLine) {
+      for (const journey of journeys) {
+        expect(providerUnitRoleOf(journey.unitKey), `${line}: ${journey.unitKey}`).toBe("source-observation-import");
+      }
+    }
+    expect(promotableJourneysByLine.get("mtg")).not.toEqual(expect.arrayContaining(scryfallRepresentativeMtgJourneys));
+  });
+
   test("staging-representative-catalog matrix promotion fails closed on a transient acknowledgment with no durable outcome", () => {
     const outcomes: MatrixLinePromotionOutcome[] = requiredStagingRepresentativeCatalogMatrixLines.map((line) => ({
       line,
       providerKey: "tcgplayer",
       durableState: "settled",
       promotedCount: 3,
+      currentCount: 3,
     }));
-    outcomes[0] = { ...outcomes[0], durableState: "queued-only", promotedCount: 0 };
+    outcomes[0] = { ...outcomes[0], durableState: "queued-only", promotedCount: 0, currentCount: 0 };
 
     const evaluation = evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes);
     expect(evaluation.ok).toBe(false);
@@ -2060,12 +2168,13 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     expect(evaluation.ok === false && evaluation.line).toBe(requiredStagingRepresentativeCatalogMatrixLines[0]);
   });
 
-  test("staging-representative-catalog matrix promotion fails closed when a settled line has zero durable Catalog Items", () => {
+  test("staging-representative-catalog matrix promotion fails closed when a settled line has zero durable promoted Catalog Items", () => {
     const outcomes: MatrixLinePromotionOutcome[] = requiredStagingRepresentativeCatalogMatrixLines.map((line) => ({
       line,
       providerKey: "tcgplayer",
       durableState: "settled",
       promotedCount: 3,
+      currentCount: 3,
     }));
     const lastLine =
       requiredStagingRepresentativeCatalogMatrixLines[requiredStagingRepresentativeCatalogMatrixLines.length - 1];
@@ -2073,7 +2182,34 @@ test.describe("catalog staging provider sync UAT helpers", () => {
 
     const evaluation = evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes);
     expect(evaluation.ok).toBe(false);
-    expect(evaluation.ok === false && evaluation.reason).toContain("zero durable promoted Catalog Items");
+    expect(evaluation.ok === false && evaluation.reason).toContain(
+      "zero durable identity-correlated promoted Catalog Items",
+    );
+    expect(evaluation.ok === false && evaluation.line).toBe(lastLine);
+  });
+
+  // #7408 C3/AC2: promotedCount (causal proof) and currentCount (absolute
+  // scoped total) are gated separately. A settled line can never legitimately
+  // have promotedCount > 0 with currentCount <= 0 (every durable id is a
+  // member of the current scoped set), but the evaluator still checks both
+  // explicitly rather than trusting that invariant, so AC2's literal
+  // "non-zero Catalog Items in scope" requirement has its own failure path
+  // and message distinct from B2's causal-proof requirement.
+  test("staging-representative-catalog matrix promotion fails closed when a settled line has zero absolute Catalog Items in scope", () => {
+    const outcomes: MatrixLinePromotionOutcome[] = requiredStagingRepresentativeCatalogMatrixLines.map((line) => ({
+      line,
+      providerKey: "tcgplayer",
+      durableState: "settled",
+      promotedCount: 3,
+      currentCount: 3,
+    }));
+    const lastLine =
+      requiredStagingRepresentativeCatalogMatrixLines[requiredStagingRepresentativeCatalogMatrixLines.length - 1];
+    outcomes[outcomes.length - 1] = { ...outcomes[outcomes.length - 1], currentCount: 0 };
+
+    const evaluation = evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes);
+    expect(evaluation.ok).toBe(false);
+    expect(evaluation.ok === false && evaluation.reason).toContain("zero absolute Catalog Items in scope");
     expect(evaluation.ok === false && evaluation.line).toBe(lastLine);
   });
 
@@ -2083,6 +2219,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       providerKey: "tcgplayer",
       durableState: "settled",
       promotedCount: 1,
+      currentCount: 9,
     }));
 
     expect(evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes)).toEqual({ ok: true });
@@ -2094,6 +2231,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       providerKey: "tcgplayer",
       durableState: "settled" as const,
       promotedCount: 2,
+      currentCount: 2,
     }));
 
     // A wholly missing seventh line (never attempted) fails closed, even
@@ -2109,6 +2247,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
         providerKey: "tcgplayer",
         durableState: "settled" as const,
         promotedCount: 5,
+        currentCount: 5,
       },
     ];
     expect(evaluateStagingRepresentativeCatalogMatrixPromotion(allSeven)).toEqual({ ok: true });
@@ -2120,8 +2259,9 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       providerKey: "tcgplayer",
       durableState: "settled",
       promotedCount: 3,
+      currentCount: 3,
     }));
-    outcomes[2] = { ...outcomes[2], durableState: "errored", promotedCount: 0 };
+    outcomes[2] = { ...outcomes[2], durableState: "errored", promotedCount: 0, currentCount: 0 };
 
     const evaluation = evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes);
     expect(evaluation.ok).toBe(false);
@@ -2137,8 +2277,9 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       providerKey: "tcgplayer",
       durableState: "settled",
       promotedCount: 3,
+      currentCount: 3,
     }));
-    outcomes[5] = { ...outcomes[5], durableState: "unreached", promotedCount: 0 };
+    outcomes[5] = { ...outcomes[5], durableState: "unreached", promotedCount: 0, currentCount: 0 };
 
     const evaluation = evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes);
     expect(evaluation.ok).toBe(false);
@@ -2211,21 +2352,202 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     );
   });
 
-  // #7408 F2: a transient "Command queued" acknowledgment plus pre-existing
-  // draft/active rows for the same line must never read as settled — the
-  // producer must require a strictly positive delta over a pre-promotion
-  // baseline, not merely a non-empty durable list.
-  test("matrix line readback requires a strictly positive delta over the pre-promotion baseline", () => {
-    expect(matrixLineReadbackFromCounts(9, 9, false)).toEqual({ settled: false, count: 0, pageCapped: false });
-    expect(matrixLineReadbackFromCounts(0, 0, false)).toEqual({ settled: false, count: 0, pageCapped: false });
-    expect(matrixLineReadbackFromCounts(9, 12, false)).toEqual({ settled: true, count: 3, pageCapped: false });
-    expect(matrixLineReadbackFromCounts(0, 1, true)).toEqual({ settled: true, count: 1, pageCapped: true });
+  // #7408 B1: pure URL-scope mismatch detector, pinned directly so a
+  // sign-in redirect, a wrong/missing source or tag, a dropped language, or
+  // a dropped/wrong status can never be mistaken for a correctly-scoped
+  // Catalog Items list.
+  test("catalog items list scope mismatch reason rejects a sign-in redirect", () => {
+    const scope: StagingRepresentativeCatalogMatrixLineReadbackScope = { tag: "magic", language: null };
+    expect(catalogItemsListScopeMismatchReason(new URL("https://admin.example/sign-in"), "tcgplayer", scope)).toEqual(
+      expect.stringContaining("did not narrow to matrix line scope"),
+    );
+  });
+
+  test("catalog items list scope mismatch reason rejects a wrong source or a wrong tag", () => {
+    const scope: StagingRepresentativeCatalogMatrixLineReadbackScope = { tag: "magic", language: null };
+    expect(
+      catalogItemsListScopeMismatchReason(
+        new URL("https://admin.example/catalog/catalog-items?source=scrydex&tag=magic"),
+        "tcgplayer",
+        scope,
+      ),
+    ).toEqual(expect.stringContaining("did not narrow to matrix line scope"));
+    expect(
+      catalogItemsListScopeMismatchReason(
+        new URL("https://admin.example/catalog/catalog-items?source=tcgplayer&tag=yugioh"),
+        "tcgplayer",
+        scope,
+      ),
+    ).toEqual(expect.stringContaining("did not narrow to matrix line scope"));
+  });
+
+  test("catalog items list scope mismatch reason rejects a dropped or wrong language for a Pokemon line", () => {
+    const scope: StagingRepresentativeCatalogMatrixLineReadbackScope = { tag: "pokemon", language: "ja" };
+    expect(
+      catalogItemsListScopeMismatchReason(
+        new URL("https://admin.example/catalog/catalog-items?source=tcgdex&tag=pokemon"),
+        "tcgdex",
+        scope,
+      ),
+    ).toEqual(expect.stringContaining("did not narrow to matrix line language scope"));
+    expect(
+      catalogItemsListScopeMismatchReason(
+        new URL("https://admin.example/catalog/catalog-items?source=tcgdex&tag=pokemon&language=en"),
+        "tcgdex",
+        scope,
+      ),
+    ).toEqual(expect.stringContaining("did not narrow to matrix line language scope"));
+  });
+
+  test("catalog items list scope mismatch reason rejects a dropped or wrong status", () => {
+    const scope: StagingRepresentativeCatalogMatrixLineReadbackScope = { tag: "magic", language: null };
+    expect(
+      catalogItemsListScopeMismatchReason(
+        new URL("https://admin.example/catalog/catalog-items?source=tcgplayer&tag=magic"),
+        "tcgplayer",
+        scope,
+        "active",
+      ),
+    ).toEqual(expect.stringContaining("did not narrow to matrix line status scope"));
+    expect(
+      catalogItemsListScopeMismatchReason(
+        new URL("https://admin.example/catalog/catalog-items?source=tcgplayer&tag=magic&status=draft"),
+        "tcgplayer",
+        scope,
+        "active",
+      ),
+    ).toEqual(expect.stringContaining("did not narrow to matrix line status scope"));
+  });
+
+  test("catalog items list scope mismatch reason accepts an exact source/tag/language/status match", () => {
+    const scope: StagingRepresentativeCatalogMatrixLineReadbackScope = { tag: "pokemon", language: "en" };
+    expect(
+      catalogItemsListScopeMismatchReason(
+        new URL("https://admin.example/catalog/catalog-items?source=tcgdex&tag=pokemon&language=en&status=active"),
+        "tcgdex",
+        scope,
+        "active",
+      ),
+    ).toBeNull();
+  });
+
+  // #7408 B2: identity+updated_at correlation producer, pinned directly
+  // against literal fixtures instead of a live browser run.
+  test("matrix line durable ids: a first run's brand-new row is durable proof on its own", () => {
+    expect(matrixLineDurableIdsFromSamples(new Set(), new Set(["new-1"]), new Map(), Date.now())).toEqual(["new-1"]);
+  });
+
+  test("matrix line durable ids: a CI retry after a partial prior attempt settles the line that already promoted", () => {
+    // Attempt 1 created "existing-1" for this line before flaking on a
+    // sibling line; the retry's baseline read already contains it, then
+    // re-promoting the same observation matches and updates it rather than
+    // creating anything new.
+    const baselineIds = new Set(["existing-1"]);
+    const currentIds = new Set(["existing-1"]);
+    const notBeforeMs = Date.now() - 1_000;
+    const freshUpdatedAt = new Map([["existing-1", new Date(notBeforeMs + 500).toISOString()]]);
+    expect(matrixLineDurableIdsFromSamples(baselineIds, currentIds, freshUpdatedAt, notBeforeMs)).toEqual([
+      "existing-1",
+    ]);
+  });
+
+  test("matrix line durable ids: a fully idempotent rerun over an already-settled line still settles", () => {
+    const baselineIds = new Set(["existing-1"]);
+    const currentIds = new Set(["existing-1"]);
+    const notBeforeMs = Date.now();
+    const freshUpdatedAt = new Map([["existing-1", new Date(notBeforeMs + 2_000).toISOString()]]);
+    expect(matrixLineDurableIdsFromSamples(baselineIds, currentIds, freshUpdatedAt, notBeforeMs)).toEqual([
+      "existing-1",
+    ]);
+  });
+
+  test("matrix line durable ids: pre-existing rows with no fresh update never settle a transient acknowledgment", () => {
+    const baselineIds = new Set(["existing-1", "existing-2"]);
+    const currentIds = new Set(["existing-1", "existing-2"]);
+    const notBeforeMs = Date.now();
+    const staleUpdatedAt = new Map([
+      ["existing-1", new Date(notBeforeMs - 86_400_000).toISOString()],
+      ["existing-2", new Date(notBeforeMs - 3_600_000).toISOString()],
+    ]);
+    expect(matrixLineDurableIdsFromSamples(baselineIds, currentIds, staleUpdatedAt, notBeforeMs)).toEqual([]);
+  });
+
+  test("matrix line durable ids: an unresolvable updated_at sample never settles", () => {
+    const baselineIds = new Set(["existing-1"]);
+    const currentIds = new Set(["existing-1"]);
+    const notBeforeMs = Date.now();
+    expect(
+      matrixLineDurableIdsFromSamples(baselineIds, currentIds, new Map([["existing-1", null]]), notBeforeMs),
+    ).toEqual([]);
+  });
+
+  test("matrix line durable ids: an updated_at sample for an id outside the current scoped set (a wrong-line/provider leak) is ignored", () => {
+    const baselineIds = new Set(["existing-1"]);
+    const currentIds = new Set(["existing-1"]);
+    const notBeforeMs = Date.now();
+    const leakedSampleFromAnotherScope = new Map([["foreign-line-item", new Date(notBeforeMs + 1_000).toISOString()]]);
+    expect(matrixLineDurableIdsFromSamples(baselineIds, currentIds, leakedSampleFromAnotherScope, notBeforeMs)).toEqual(
+      [],
+    );
+  });
+
+  // #7408 B1: a matched row that renders without a resolvable View link is a
+  // rendering anomaly (entity-list-page.tsx renders one on every row), not a
+  // legitimately empty scope. Pinned against literal markup so it can never
+  // regress back to catalogItemProviderRowTexts's swallow-everything-as-[]
+  // behavior, which is exactly what let a transient list-page failure read as
+  // a durable baseline of zero.
+  test("catalog item row identity extraction throws when a matched row has no resolvable View link, never returning an empty read", async ({
+    page,
+  }) => {
+    await page.setContent(`
+      <table>
+        <tbody>
+          <tr><td>tcgplayer Charizard EX</td></tr>
+        </tbody>
+      </table>
+    `);
+    await expect(catalogItemRowsForMatrixLineScope(page, "tcgplayer")).rejects.toThrow(
+      "did not expose a resolvable catalog item id",
+    );
+  });
+
+  test("catalog item row identity extraction resolves a real row to its catalog item id from the View link href", async ({
+    page,
+  }) => {
+    await page.setContent(`
+      <table>
+        <tbody>
+          <tr><td>tcgplayer Charizard EX</td><td><a href="/catalog/catalog-items/cat_charizard">View</a></td></tr>
+        </tbody>
+      </table>
+    `);
+    const rows = await catalogItemRowsForMatrixLineScope(page, "tcgplayer");
+    expect(rows).toEqual([{ id: "cat_charizard", text: expect.stringContaining("Charizard") }]);
+  });
+
+  test("catalog item row identity extraction resolves to no rows when the provider genuinely has no matching rows", async ({
+    page,
+  }) => {
+    await page.setContent(`
+      <table>
+        <tbody>
+          <tr><td>scrydex Sylveon</td><td><a href="/catalog/catalog-items/cat_sylveon">View</a></td></tr>
+        </tbody>
+      </table>
+    `);
+    await expect(catalogItemRowsForMatrixLineScope(page, "tcgplayer")).resolves.toEqual([]);
   });
 });
 
 test.describe("catalog staging provider sync UAT", () => {
   test("operator syncs provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({ page }) => {
     test.setTimeout(uatTestTimeoutMs);
+    // #7408 C1: captured before the (potentially long) provider sync loop
+    // below runs, so the matrix step can derive its own deadline from the
+    // wall clock actually remaining before this test's timeout, not from a
+    // budget that assumes it starts immediately.
+    const testDeadline = Date.now() + uatTestTimeoutMs;
     test.skip(!runStagingProviderUat, "Set CATALOG_STAGING_PROVIDER_UAT=true to run the staging provider sync UAT.");
     test.skip(
       !supportedProviderUatJourneyScopes.includes(
@@ -2285,9 +2607,16 @@ test.describe("catalog staging provider sync UAT", () => {
 
     if (providerUatJourneyScope === "staging-representative-catalog") {
       await test.step("Durable Catalog Item promotion across all seven staging matrix lines", async () => {
-        const outcomes = await promoteAndReadBackStagingRepresentativeCatalogMatrix(page);
+        const outcomes = await promoteAndReadBackStagingRepresentativeCatalogMatrix(page, testDeadline);
+        // #7408 C3: reports both the causal, identity-correlated promoted
+        // count (B2) and the absolute scoped count (AC2) per line, not just
+        // the delta, so the aggregate evidence line shows the same two
+        // numbers the evaluator actually gates on.
         const evidence = outcomes
-          .map((outcome) => `${outcome.line}=${outcome.durableState}(${outcome.promotedCount})[${outcome.providerKey}]`)
+          .map(
+            (outcome) =>
+              `${outcome.line}=${outcome.durableState}(promoted=${outcome.promotedCount}, current=${outcome.currentCount})[${outcome.providerKey}]`,
+          )
           .join(", ");
         console.log(`[catalog-staging-provider-uat] staging-representative-catalog matrix outcome: ${evidence}`);
 
@@ -3338,7 +3667,7 @@ async function promoteAndReadBackMatrixLine(
   deadline: number,
 ): Promise<MatrixLinePromotionOutcome> {
   if (journeys.length === 0) {
-    return { line, providerKey: "unknown", durableState: "absent", promotedCount: 0 };
+    return { line, providerKey: "unknown", durableState: "absent", promotedCount: 0, currentCount: 0 };
   }
 
   let lastOperatorState = "";
@@ -3350,13 +3679,19 @@ async function promoteAndReadBackMatrixLine(
 
     lastProviderKey = journey.providerKey;
     const readbackScope = stagingRepresentativeCatalogMatrixLineReadbackScope(line, journey);
-    // #7408 F2: capture the durable count for this exact line BEFORE touching
-    // the importer, so success can never be satisfied by a pre-existing
-    // draft/active row this run did not create. This must happen before
-    // openCatalogImporter/selectProviderScope below: it navigates the page
-    // away to the Catalog Items list, which would otherwise discard the
-    // importer's in-progress workflow-stage selection.
+    // #7408 B1/B2: capture the durable row identity set for this exact line
+    // BEFORE touching the importer, so a brand-new row can be told apart from
+    // an existing one, and so a re-promotion that only updates/links an
+    // existing row can still be proven durable via that row's own updated_at.
+    // This must happen before openCatalogImporter/selectProviderScope below:
+    // it navigates the page away to the Catalog Items list, which would
+    // otherwise discard the importer's in-progress workflow-stage selection.
     const baseline = await countDurableCatalogItemsForMatrixLineScope(page, journey.providerKey, readbackScope);
+    // #7408 B2: the causal window opens the instant the baseline read
+    // completes, before promotion begins, widened backward by
+    // matrixLineClockSkewToleranceMs to absorb clock skew and timestamp
+    // rounding without admitting a genuinely older row.
+    const notBeforeMs = Date.now() - matrixLineClockSkewToleranceMs;
 
     await openCatalogImporter(page);
     const selectedScope = await selectProviderScope(page, journey);
@@ -3371,12 +3706,25 @@ async function promoteAndReadBackMatrixLine(
       continue;
     }
 
+    // #7408 C1: check the matrix deadline again here, between the (long)
+    // promotion chain above and the (also potentially long) durable readback
+    // poll below, so an already-exhausted budget can never be compounded by
+    // starting a poll doomed to be cut off mid-flight — this line reports
+    // "queued-only" immediately instead.
+    if (Date.now() >= deadline) {
+      console.log(
+        `[catalog-staging-provider-uat] matrix line "${line}" promoted via ${result.providerKey} but the matrix time budget was exhausted before the durable readback could start.`,
+      );
+      return { line, providerKey: result.providerKey, durableState: "queued-only", promotedCount: 0, currentCount: 0 };
+    }
+
     await openCatalogItemsHandoffForMatrixLine(page, result.providerKey, readbackScope);
     const readback = await readBackCatalogItemsProjectionForMatrixLine(
       page,
       result.providerKey,
       readbackScope,
-      baseline.count,
+      baseline.ids,
+      notBeforeMs,
       deadline,
     );
     console.log(
@@ -3384,8 +3732,8 @@ async function promoteAndReadBackMatrixLine(
         readback.settled ? "settled" : "did not settle before the deadline"
       }: provider=${result.providerKey}, unit=${result.unitKey}, tag=${readbackScope.tag}${
         readbackScope.language ? `, language=${readbackScope.language}` : ""
-      }, baseline=${baseline.count}, promotedCount=${readback.count}${
-        readback.pageCapped ? " (durable list page-capped; count is a lower bound)" : ""
+      }, baseline=${baseline.count}, durableCount=${readback.count}, currentCount=${readback.absoluteCount}${
+        readback.pageCapped ? " (durable list page-capped; currentCount is a lower bound)" : ""
       }`,
     );
     return {
@@ -3393,6 +3741,7 @@ async function promoteAndReadBackMatrixLine(
       providerKey: result.providerKey,
       durableState: readback.settled ? "settled" : "queued-only",
       promotedCount: readback.count,
+      currentCount: readback.absoluteCount,
     };
   }
 
@@ -3401,7 +3750,7 @@ async function promoteAndReadBackMatrixLine(
       journeys.length
     } journey(s) before the deadline. ${sanitizeSupportSafeEvidence(lastOperatorState)}`,
   );
-  return { line, providerKey: lastProviderKey, durableState: "absent", promotedCount: 0 };
+  return { line, providerKey: lastProviderKey, durableState: "absent", promotedCount: 0, currentCount: 0 };
 }
 
 // Runs promotion + durable readback for one required staging matrix line at a
@@ -3415,18 +3764,39 @@ async function promoteAndReadBackMatrixLine(
 // Playwright test timeout to silently swallow.
 async function promoteAndReadBackStagingRepresentativeCatalogMatrix(
   page: Page,
+  testDeadline: number,
 ): Promise<readonly MatrixLinePromotionOutcome[]> {
   const promotableJourneysByLine = promotableProviderSyncJourneysByStagingRepresentativeCatalogMatrixLine(
     stagingRepresentativeCatalogProviderSyncJourneys,
   );
-  const deadline = Date.now() + stagingRepresentativeCatalogMatrixTimeBudgetMs;
+  // #7408 C1: derive the matrix's own deadline from whichever is tighter —
+  // its fixed budget, or the wall clock actually remaining before the outer
+  // Playwright test timeout (minus a safety margin) — so a provider sync
+  // loop that ran long ahead of this step can never leave so little time that
+  // the per-line evidence packet is destroyed by the test timeout instead of
+  // emitted by this function's own deadline checks.
+  const deadline = Math.min(
+    Date.now() + stagingRepresentativeCatalogMatrixTimeBudgetMs,
+    testDeadline - matrixEvidenceEmissionSafetyMarginMs,
+  );
   const outcomes: MatrixLinePromotionOutcome[] = [];
   for (const line of requiredStagingRepresentativeCatalogMatrixLines) {
+    // #7408 C5: fall back to the line's known candidate provider (derived
+    // from its promotable journeys), not a bare "unknown", so an "unreached"
+    // or "errored" outcome still carries the identity of the provider the
+    // line was going to attempt.
+    const knownProviderKey = promotableJourneysByLine.get(line)?.[0]?.providerKey ?? "unknown";
     if (Date.now() >= deadline) {
       console.log(
         `[catalog-staging-provider-uat] matrix line "${line}" was never attempted: the matrix time budget was exhausted by earlier lines.`,
       );
-      outcomes.push({ line, providerKey: "unknown", durableState: "unreached", promotedCount: 0 });
+      outcomes.push({
+        line,
+        providerKey: knownProviderKey,
+        durableState: "unreached",
+        promotedCount: 0,
+        currentCount: 0,
+      });
       continue;
     }
 
@@ -3437,7 +3807,13 @@ async function promoteAndReadBackStagingRepresentativeCatalogMatrix(
       console.log(
         `[catalog-staging-provider-uat] matrix line "${line}" errored before a durable outcome could be read: ${message}`,
       );
-      outcomes.push({ line, providerKey: "unknown", durableState: "errored", promotedCount: 0 });
+      outcomes.push({
+        line,
+        providerKey: knownProviderKey,
+        durableState: "errored",
+        promotedCount: 0,
+        currentCount: 0,
+      });
     }
   }
   return outcomes;
@@ -3918,6 +4294,30 @@ function catalogItemsMatrixLineUrl(
   return `/catalog/catalog-items?${params.toString()}`;
 }
 
+// #7408 B1: shared by every counting navigation (baseline reads and every
+// poll iteration), not only the readback's first handoff navigation, so a
+// sign-in redirect or a route ErrorBoundary (both wrapped by the same
+// data-admin-web-hydrated Layout as a healthy page — deployables/admin-web/
+// app/root.tsx) can never be mistaken for a healthy, correctly-scoped
+// Catalog Items list. Throws (rather than returning a falsy/zero signal) so
+// callers surface this as an explicit failure.
+async function assertCatalogItemsListScopeForMatrixLine(
+  page: Page,
+  providerKey: string,
+  scope: StagingRepresentativeCatalogMatrixLineReadbackScope,
+  status?: "draft" | "active",
+): Promise<void> {
+  await expect(page.getByRole("heading", { name: "Catalog Items", exact: true })).toBeVisible({
+    timeout: pageReadyTimeoutMs,
+  });
+  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
+
+  const mismatch = catalogItemsListScopeMismatchReason(new URL(page.url()), providerKey, scope, status);
+  if (mismatch) {
+    throw new Error(mismatch);
+  }
+}
+
 // Clicks the real production handoff link (preserving the exact source=
 // semantics openCatalogItemsHandoff already verifies), then narrows the list
 // to this matrix line's scope via the supported language=/tag= filters so a
@@ -3932,83 +4332,202 @@ async function openCatalogItemsHandoffForMatrixLine(
     waitUntil: "domcontentloaded",
     timeout: pageReadyTimeoutMs,
   });
-  await expect(page.getByRole("heading", { name: "Catalog Items", exact: true })).toBeVisible({
-    timeout: pageReadyTimeoutMs,
-  });
-
-  const observedUrl = new URL(page.url());
-  if (observedUrl.searchParams.get("source") !== providerKey || observedUrl.searchParams.get("tag") !== scope.tag) {
-    throw new Error(
-      `Catalog Items list did not narrow to matrix line scope (source=${providerKey}, tag=${scope.tag}${
-        scope.language ? `, language=${scope.language}` : ""
-      }): observed ${observedUrl.pathname}${observedUrl.search}`,
-    );
-  }
+  await assertCatalogItemsListScopeForMatrixLine(page, providerKey, scope);
 }
+
+function catalogItemIdFromViewHref(href: string): string | null {
+  const match = href.match(/\/catalog-items\/([^/?#]+)/);
+  return match ? match[1] : null;
+}
+
+// #7408 B1: unlike catalogItemProviderRowTexts (kept as-is for the legacy
+// single-provider Lorcana downstream smoke above), this never swallows a
+// locator failure as an empty read. A row that matches the provider filter
+// but whose "View" link (entity-list-page.tsx's LinkButton, which every row
+// renders) can't be resolved to a catalog_item_id is a rendering anomaly, not
+// a legitimately empty scope, so it throws — the per-line try/catch in
+// promoteAndReadBackStagingRepresentativeCatalogMatrix records that as
+// "errored". A genuinely empty match set (zero rows) is not a failure and
+// resolves to [].
+async function catalogItemRowsForMatrixLineScope(
+  page: Page,
+  providerKey: string,
+): Promise<readonly Readonly<{ id: string; text: string }>[]> {
+  const rows = page.getByRole("row").filter({ hasText: providerKey });
+  const rowCount = await rows.count();
+  const results: Readonly<{ id: string; text: string }>[] = [];
+  for (let index = 0; index < rowCount; index += 1) {
+    const row = rows.nth(index);
+    const text = normalizeWhitespace(await row.innerText());
+    if (!text) {
+      continue;
+    }
+    // The View link renders in the same pass as the row itself (both come
+    // from the same DataTable row render), so a short bound is enough — no
+    // async gap is ever expected. Caught (not propagated) so a genuinely
+    // missing link surfaces as this function's own clear diagnostic error
+    // below instead of a raw Playwright locator-timeout message.
+    const href = await row
+      .getByRole("link", { name: "View" })
+      .getAttribute("href", { timeout: 5_000 })
+      .catch(() => null);
+    const id = href ? catalogItemIdFromViewHref(href) : null;
+    if (!id) {
+      throw new Error(
+        `Catalog Items row for provider ${providerKey} did not expose a resolvable catalog item id: ${text}`,
+      );
+    }
+    results.push({ id, text });
+  }
+  return results;
+}
+
+// #7408 C2: catalog-item-list-page.tsx renders the real server-side total via
+// BulkActionBar (count={data.total}, "{n} matching Catalog Items") whenever
+// nothing is selected and total > 0. Returns null (never a guessed number)
+// when that text isn't visible — genuinely zero items, or the realtime
+// reload bar (entity-list-page.tsx: realtimeReloadActionBar ?? bulkActionBar)
+// covering it — so the caller can fail closed to the page-capped row count
+// instead of claiming an exactness it doesn't have.
+async function catalogItemsListVisibleTotal(page: Page): Promise<number | null> {
+  const totalText = page.getByText(/^\d+ matching Catalog Items$/).first();
+  if ((await totalText.count()) === 0) {
+    return null;
+  }
+  const match = (await totalText.innerText()).match(/^(\d+) matching Catalog Items$/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+type MatrixLineScopedRowSnapshot = Readonly<{
+  ids: ReadonlySet<string>;
+  count: number;
+  pageCapped: boolean;
+}>;
 
 // #7408 F6: status is a real, exact server-side filter (item.status = $N), so
 // two status-scoped reads (draft, active) are a more trustworthy durable-state
 // signal than regexing rendered row text for "draft"/"active" substrings,
 // which false-positives on any row whose title, subtitle, set, or blueprint
 // text happens to contain those words.
+//
+// #7408 B1: every navigation here is scope-asserted (heading, hydration,
+// exact source/tag/language/status) before its rows are read, and row
+// extraction throws rather than swallowing a locator failure — see
+// assertCatalogItemsListScopeForMatrixLine and catalogItemRowsForMatrixLineScope.
+//
+// #7408 C2: prefers the exact server-side total (catalogItemsListVisibleTotal)
+// over the page-capped row count when it's reliably visible for every status
+// read; falls back to the honest page-capped lower bound otherwise.
 async function countDurableCatalogItemsForMatrixLineScope(
   page: Page,
   providerKey: string,
   scope: StagingRepresentativeCatalogMatrixLineReadbackScope,
-): Promise<Readonly<{ count: number; pageCapped: boolean }>> {
-  let count = 0;
+): Promise<MatrixLineScopedRowSnapshot> {
+  const ids = new Set<string>();
   let pageCapped = false;
+  let exactTotal: number | null = 0;
   for (const status of ["draft", "active"] as const) {
     await page.goto(catalogItemsMatrixLineUrl(providerKey, scope, status), {
       waitUntil: "domcontentloaded",
       timeout: pageReadyTimeoutMs,
     });
-    await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
-    const rows = await catalogItemProviderRowTexts(page, providerKey);
-    count += rows.length;
+    await assertCatalogItemsListScopeForMatrixLine(page, providerKey, scope, status);
+    const rows = await catalogItemRowsForMatrixLineScope(page, providerKey);
+    for (const row of rows) {
+      ids.add(row.id);
+    }
     if (rows.length >= catalogListPageSize) {
       pageCapped = true;
     }
+    const visibleTotal = await catalogItemsListVisibleTotal(page);
+    if (exactTotal !== null && visibleTotal !== null) {
+      exactTotal += visibleTotal;
+    } else if (rows.length > 0) {
+      exactTotal = null;
+    }
   }
-  return { count, pageCapped };
+  return { ids, count: exactTotal ?? ids.size, pageCapped: exactTotal === null && pageCapped };
 }
 
 type MatrixLineCatalogItemsReadback = Readonly<{
   settled: boolean;
   count: number;
+  absoluteCount: number;
   pageCapped: boolean;
 }>;
 
-// #7408 F2: a line only settles on a strictly positive delta over its
-// pre-promotion baseline — a transient acknowledgment or a pre-existing
-// draft/active row under the same provider/tag/language can never satisfy
-// this on their own, because they cannot move the delta above zero.
-function matrixLineReadbackFromCounts(
-  baselineCount: number,
-  currentCount: number,
-  pageCapped: boolean,
-): MatrixLineCatalogItemsReadback {
-  const delta = currentCount - baselineCount;
-  return delta > 0 ? { settled: true, count: delta, pageCapped } : { settled: false, count: 0, pageCapped: false };
+// #7408 B2: reads the authoritative per-row updated_at exposed on the
+// Catalog Item detail page's "Updated" field (KeyValueList <dt>/<dd> pair —
+// catalog-item-detail-page.tsx) so a matched update/link promotion (no
+// net-new row) can still be proven durable.
+async function catalogItemDetailUpdatedAt(page: Page, catalogItemId: string): Promise<string | null> {
+  await page.goto(`/catalog/catalog-items/${catalogItemId}`, {
+    waitUntil: "domcontentloaded",
+    timeout: pageReadyTimeoutMs,
+  });
+  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
+  const updatedLabel = page.locator("dt", { hasText: "Updated" }).first();
+  if ((await updatedLabel.count()) === 0) {
+    return null;
+  }
+  const value = normalizeWhitespace(await updatedLabel.locator("xpath=following-sibling::dd[1]").innerText());
+  return value || null;
 }
 
-// Polls the durable Catalog Items count scoped to one matrix line and requires
-// it to exceed the pre-promotion baseline before reporting settled. Bounds its
-// own poll to whichever comes first of downstreamProjectionTimeoutMs or the
-// matrix-wide deadline, so one slow line cannot silently consume the budget
-// every remaining line needs.
+// #7408 B2: I/O wrapper around the pure matrixLineDurableIdsFromSamples. The
+// fast path (a brand-new id) needs no detail-page navigation at all, so a
+// genuine first-time promotion pays no extra latency. The slow path (every
+// current id was already in the baseline — the update/link/idempotent-rerun
+// case) fetches each id's updated_at, bailing out at the matrix deadline so
+// one line's identity check can never silently consume the budget every
+// remaining line needs.
+async function matrixLineDurableRowIds(
+  page: Page,
+  baselineIds: ReadonlySet<string>,
+  currentIds: ReadonlySet<string>,
+  notBeforeMs: number,
+  deadline: number,
+): Promise<readonly string[]> {
+  const newIds = [...currentIds].filter((id) => !baselineIds.has(id));
+  if (newIds.length > 0) {
+    return newIds;
+  }
+
+  const existingRowUpdatedAt = new Map<string, string | null>();
+  for (const id of currentIds) {
+    if (Date.now() >= deadline) {
+      break;
+    }
+    existingRowUpdatedAt.set(id, await catalogItemDetailUpdatedAt(page, id));
+  }
+  return matrixLineDurableIdsFromSamples(baselineIds, currentIds, existingRowUpdatedAt, notBeforeMs);
+}
+
+// Polls the durable Catalog Items scoped to one matrix line and requires
+// identity-correlated proof (a brand-new row, or an existing row whose own
+// updated_at moved to at/after notBeforeMs) before reporting settled — never
+// a strictly-positive count delta, which fails closed on a CI retry or a
+// rerun over an already-promoted line (#7408 B2). Bounds its own poll to
+// whichever comes first of downstreamProjectionTimeoutMs or the matrix-wide
+// deadline, so one slow line cannot silently consume the budget every
+// remaining line needs.
 async function readBackCatalogItemsProjectionForMatrixLine(
   page: Page,
   providerKey: string,
   scope: StagingRepresentativeCatalogMatrixLineReadbackScope,
-  baselineCount: number,
+  baselineIds: ReadonlySet<string>,
+  notBeforeMs: number,
   deadline: number,
 ): Promise<MatrixLineCatalogItemsReadback> {
   const pollDeadline = Math.min(Date.now() + downstreamProjectionTimeoutMs, deadline);
-  let last = matrixLineReadbackFromCounts(baselineCount, baselineCount, false);
+  let last: MatrixLineCatalogItemsReadback = { settled: false, count: 0, absoluteCount: 0, pageCapped: false };
   while (Date.now() < pollDeadline) {
     const observed = await countDurableCatalogItemsForMatrixLineScope(page, providerKey, scope);
-    last = matrixLineReadbackFromCounts(baselineCount, observed.count, observed.pageCapped);
+    const durableIds = await matrixLineDurableRowIds(page, baselineIds, observed.ids, notBeforeMs, pollDeadline);
+    last =
+      durableIds.length > 0
+        ? { settled: true, count: durableIds.length, absoluteCount: observed.count, pageCapped: observed.pageCapped }
+        : { settled: false, count: 0, absoluteCount: observed.count, pageCapped: false };
     if (last.settled) {
       return last;
     }
