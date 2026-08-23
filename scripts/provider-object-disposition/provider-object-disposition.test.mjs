@@ -127,7 +127,7 @@ describe("enforces v1 raw-byte and recursive closure", () => {
 
     // Matched control: an ordinary unknown key carrying the same forbidden
     // marker refuses on both TOP_LEVEL_KEY_UNKNOWN and FORBIDDEN_PROVIDER_MARKER.
-    const controlText = rawText.replace(/^\{/, '{"ordinaryUnknownKey":{"leakNote":"pi_1SyntheticSix733AbCd"},');
+    const controlText = rawText.replace(/^\{/, '{"ordinaryUnknownKey":{"leakNote":"pi_SYNTHETIC_6733"},');
     const controlResult = validateProviderObjectDispositionBytes(toBytes(null, { rawTextOverride: controlText }));
     expect(controlResult.ok).toBe(false);
     expect(controlResult.errors).toContainEqual(
@@ -137,7 +137,7 @@ describe("enforces v1 raw-byte and recursive closure", () => {
 
     // Top-level __proto__ key must refuse identically to the control, not
     // silently vanish into the prototype chain.
-    const topLevelExploitText = rawText.replace(/^\{/, '{"__proto__":{"leakNote":"pi_1SyntheticSix733AbCd"},');
+    const topLevelExploitText = rawText.replace(/^\{/, '{"__proto__":{"leakNote":"pi_SYNTHETIC_6733"},');
     const topLevelExploitResult = validateProviderObjectDispositionBytes(
       toBytes(null, { rawTextOverride: topLevelExploitText }),
     );
@@ -150,7 +150,7 @@ describe("enforces v1 raw-byte and recursive closure", () => {
     // Nested __proto__ key inside classes[0] must refuse identically.
     const nestedExploitText = rawText.replace(
       '"class":"captured-payment-intent"',
-      '"__proto__":{"leak":"acct_1SyntheticZZ"},"class":"captured-payment-intent"',
+      '"__proto__":{"leak":"acct_SYNTHETIC_6733"},"class":"captured-payment-intent"',
     );
     const nestedExploitResult = validateProviderObjectDispositionBytes(
       toBytes(null, { rawTextOverride: nestedExploitText }),
@@ -179,6 +179,25 @@ describe("enforces v1 raw-byte and recursive closure", () => {
     expect(parseRawDocumentBytes(Buffer.from('{"n":0}', "utf8")).ok).toBe(true);
     expect(parseRawDocumentBytes(Buffer.from('{"n":"a\\tb"}', "utf8")).ok).toBe(true);
   });
+
+  it("closes RFC 8259 frac/exp digit-requirement parser leniency (NB4)", () => {
+    // RFC 8259: frac = decimal-point 1*DIGIT, exp = e [minus/plus] 1*DIGIT.
+    // "1." and "1e" have zero digits after the point/sign and are illegal —
+    // Number("1.") silently rolls this over to 1, so the parser must reject
+    // the bytes before that lenient coercion is ever reached.
+    for (const illegal of ['{"n":1.}', '{"n":1.e5}', '{"n":1e}', '{"n":1e+}', '{"n":1e-}']) {
+      const result = parseRawDocumentBytes(Buffer.from(illegal, "utf8"));
+      expect(result.ok, illegal).toBe(false);
+      expect(result.errors, illegal).toContainEqual(
+        expect.objectContaining({ code: "MALFORMED_JSON_OR_DUPLICATE_KEY" }),
+      );
+    }
+
+    // The legal forms of each remain accepted.
+    for (const legal of ['{"n":1.0}', '{"n":1.5e5}', '{"n":1e5}', '{"n":1e+5}', '{"n":1e-5}']) {
+      expect(parseRawDocumentBytes(Buffer.from(legal, "utf8")).ok, legal).toBe(true);
+    }
+  });
 });
 
 describe("represents each disposition variant exactly once", () => {
@@ -206,6 +225,73 @@ describe("represents each disposition variant exactly once", () => {
       expect(result.ok, variant).toBe(false);
       expect(result.errors).toContainEqual(expect.objectContaining({ code: "VARIANT_INVALID", path: "$.variant" }));
     }
+
+    // R2-F1: a non-string variant must not coerce via ToPropertyKey and
+    // resolve a real VARIANT_KEY_RULES entry. Before the fix,
+    // Object.hasOwn(VARIANT_KEY_RULES, document.variant) stringifies
+    // `["success"]` to `"success"` and resolves the real rule, so every
+    // variant-gated semantic invariant (B1/B3/R1/N1/K1) below is skipped
+    // while structural closure still passes.
+    for (const variant of [
+      ["success"],
+      [["success"]],
+      ["pre-network-refusal"],
+      ["cleanup-failure"],
+      {},
+      [],
+      42,
+      null,
+      true,
+    ]) {
+      const doc = withFreshDigest({ ...clone(VALID_SUCCESS), variant });
+      const result = validateProviderObjectDisposition(doc);
+      expect(result.ok, JSON.stringify(variant)).toBe(false);
+      expect(result.errors).toContainEqual(expect.objectContaining({ code: "VARIANT_INVALID", path: "$.variant" }));
+    }
+
+    // End-to-end: an over-budget document (would trip B1_BUDGET_EXCEEDED_IN_SUCCESS
+    // under the real "success" variant) must still refuse through the raw-byte
+    // and publication entrypoints when disguised behind a coerceable array variant.
+    const overBudgetArrayVariantDoc = withFreshDigest(
+      patchClass({ ...clone(VALID_SUCCESS), variant: ["success"] }, "uncaptured-payment-intent", {
+        observedCount: 7,
+      }),
+    );
+    const overBudgetBytes = toBytes(overBudgetArrayVariantDoc);
+    expect(validateProviderObjectDispositionBytes(overBudgetBytes).ok).toBe(false);
+    const qualifies = qualifiesForPublicationV1(overBudgetBytes);
+    expect(qualifies.ok).toBe(false);
+    expect(qualifies.errors).toContainEqual(expect.objectContaining({ code: "VARIANT_INVALID", path: "$.variant" }));
+
+    // Attempted-class pre-network-refusal (would trip R1_ATTEMPT_BEGAN_BEFORE_REFUSAL
+    // under the real "pre-network-refusal" variant) disguised behind a
+    // coerceable array variant must still refuse.
+    const attemptedPreNetworkRefusalDoc = withFreshDigest(
+      patchClass(
+        { ...clone(VALID_PRE_NETWORK_REFUSAL), variant: ["pre-network-refusal"], refusal: "invalid-input" },
+        "captured-payment-intent",
+        VALID_SUCCESS.classes[CLASS_ORDER.indexOf("captured-payment-intent")],
+      ),
+    );
+    const attemptedPreNetworkRefusalResult = validateProviderObjectDisposition(attemptedPreNetworkRefusalDoc);
+    expect(attemptedPreNetworkRefusalResult.ok).toBe(false);
+    expect(attemptedPreNetworkRefusalResult.errors).toContainEqual(
+      expect.objectContaining({ code: "VARIANT_INVALID", path: "$.variant" }),
+    );
+
+    // Budget-exceeded cleanup-failure with no actual overage anywhere (would
+    // trip K1_BUDGET_EXCEEDED_WITHOUT_OVERAGE under the real "cleanup-failure"
+    // variant) disguised behind a coerceable array variant must still refuse.
+    const budgetExceededNoOverageDoc = withFreshDigest({
+      ...clone(VALID_CLEANUP_FAILURE),
+      variant: ["cleanup-failure"],
+      failure: "budget-exceeded",
+    });
+    const budgetExceededNoOverageResult = validateProviderObjectDisposition(budgetExceededNoOverageDoc);
+    expect(budgetExceededNoOverageResult.ok).toBe(false);
+    expect(budgetExceededNoOverageResult.errors).toContainEqual(
+      expect.objectContaining({ code: "VARIANT_INVALID", path: "$.variant" }),
+    );
 
     // Variant-only keys on another variant refuse.
     const successWithRefusal = { ...clone(VALID_SUCCESS), refusal: "invalid-input" };
@@ -694,6 +780,33 @@ describe("canonicalizes and digests v1 deterministically", () => {
     expect(brokenResult.ok).toBe(false);
     expect(brokenResult.errors).toContainEqual(expect.objectContaining({ code: "RESULT_DIGEST_MISMATCH" }));
   });
+
+  it("keeps sortKeysByCodeUnit prototype-safe: an own __proto__ key survives instead of vanishing (NB5)", () => {
+    // JSON.parse defines "__proto__" as an ordinary own data property (via
+    // CreateDataProperty), not the exotic Object.prototype accessor — the
+    // same shape a raw-byte payload produces. Publication already refuses
+    // this document before it ever reaches the canonicalizer
+    // (TOP_LEVEL_KEY_UNKNOWN + FORBIDDEN_PROVIDER_MARKER); this pins the
+    // canonicalizer's own defence in depth for its independent export.
+    const withOwnProtoKey = JSON.parse('{"a":1,"__proto__":{"leak":true},"b":2}');
+    expect(Object.getPrototypeOf(withOwnProtoKey)).toBe(Object.prototype);
+    expect(Object.hasOwn(withOwnProtoKey, "__proto__")).toBe(true);
+
+    const canonicalText = canonicalizeProviderObjectDisposition(withOwnProtoKey).toString("utf8");
+    expect(canonicalText).toContain('"__proto__"');
+    expect(canonicalText).toContain('"leak":true');
+
+    // Mutant: the pre-fix plain-object accumulator (`result[key] = value`)
+    // invokes the inherited Object.prototype.__proto__ setter for this key,
+    // silently dropping it — producing byte-identical output to a document
+    // that never carried it.
+    const withoutProtoKey = { a: 1, b: 2 };
+    expect(
+      canonicalizeProviderObjectDisposition(withOwnProtoKey).equals(
+        canonicalizeProviderObjectDisposition(withoutProtoKey),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("rejects identifier and diagnostic channels", () => {
@@ -715,13 +828,51 @@ describe("rejects identifier and diagnostic channels", () => {
       expect(result.errors.some((e) => e.code === "FORBIDDEN_PROVIDER_MARKER")).toBe(true);
     }
 
-    // Insertion breadth: the detector walks the whole document, so it must
-    // fire at a second, nested location too — not only windowId.
-    for (const marker of markers) {
-      const nestedDoc = patchClass(VALID_SUCCESS, "captured-payment-intent", { class: marker });
+    // Insertion breadth (NB6): scanForForbiddenMarkers walks the whole
+    // document with no field allowlist, so every representable string
+    // field — not just windowId or one nested field — must detect a
+    // marker. All 9 top-level and all 6 class-entry string fields on
+    // VALID_SUCCESS (the marker also trips unrelated const/enum/shape
+    // errors on most of these; that is expected and does not suppress the
+    // FORBIDDEN_PROVIDER_MARKER assertion below).
+    const TOP_LEVEL_STRING_FIELDS = [
+      "version",
+      "variant",
+      "emittedBy",
+      "startedAt",
+      "finishedAt",
+      "deploymentEnvironment",
+      "providerMode",
+      "windowId",
+      "resultDigest",
+    ];
+    const CLASS_ENTRY_STRING_FIELDS = [
+      "class",
+      "state",
+      "budgetScope",
+      "correlationSource",
+      "dispositionStartedAt",
+      "dispositionCompletedAt",
+    ];
+    expect(TOP_LEVEL_STRING_FIELDS).toHaveLength(9);
+    expect(CLASS_ENTRY_STRING_FIELDS).toHaveLength(6);
+
+    const marker = markers[0];
+    for (const field of TOP_LEVEL_STRING_FIELDS) {
+      const doc = { ...clone(VALID_SUCCESS), [field]: marker };
+      const result = validateProviderObjectDisposition(doc);
+      expect(
+        result.errors.some((e) => e.code === "FORBIDDEN_PROVIDER_MARKER"),
+        field,
+      ).toBe(true);
+    }
+    for (const field of CLASS_ENTRY_STRING_FIELDS) {
+      const nestedDoc = patchClass(VALID_SUCCESS, "captured-payment-intent", { [field]: marker });
       const nestedResult = validateProviderObjectDisposition(nestedDoc);
-      expect(nestedResult.ok, marker).toBe(false);
-      expect(nestedResult.errors.some((e) => e.code === "FORBIDDEN_PROVIDER_MARKER")).toBe(true);
+      expect(
+        nestedResult.errors.some((e) => e.code === "FORBIDDEN_PROVIDER_MARKER"),
+        field,
+      ).toBe(true);
     }
 
     // Detector negative control: a benign enum value never trips it.
@@ -748,6 +899,42 @@ describe("rejects identifier and diagnostic channels", () => {
     };
     auditStringFieldsClosed(SCHEMA, "$");
     expect(violations).toEqual([]);
+  });
+
+  it("censuses every provider-shaped literal in this footprint for the SYNTHETIC_6733 marker", () => {
+    // Standing regression for R2-F2: the F1 __proto__ regression tests were
+    // originally written with real-Stripe-id-shaped literals instead of the
+    // mandated SYNTHETIC_6733 marker, defeating a repo-wide grep for the
+    // designated synthetic-provenance token. Widened past
+    // PROVIDER_ID_PATTERN's own character class (which stops at the first
+    // underscore) so the whole literal, not just its prefix, is checked.
+    //
+    // The offending literals are deliberately not reproduced verbatim in
+    // this comment or below (string concatenation instead of an inline
+    // literal for the positive control) — a literal match here would trip
+    // this very census.
+    const PROVIDER_SHAPED_LITERAL = /\b(?:pi|seti|cs|cus|acct)_[A-Za-z0-9_]+/g;
+
+    // Negative control: the pattern must not fire on the regex/documentation
+    // vocabulary that legitimately names the provider-id prefixes without a
+    // synthetic identity attached — otherwise the census would be
+    // unusable noise, not a discriminating guard.
+    expect("(?:pi|seti|cs|cus|acct)_[A-Za-z0-9]+".match(PROVIDER_SHAPED_LITERAL)).toBeNull();
+    expect("disambiguates the Stripe cs_ object from the checkout session".match(PROVIDER_SHAPED_LITERAL)).toBeNull();
+
+    // Positive control: a real-shaped literal without the marker still fires.
+    const realShapedControl = "pi_" + "LiveLookingId123";
+    expect(realShapedControl.match(PROVIDER_SHAPED_LITERAL)).not.toBeNull();
+
+    const footprintFiles = readdirSync(DIR).filter((name) => name.endsWith(".mjs") || name.endsWith(".json"));
+    const offenders = [];
+    for (const file of footprintFiles) {
+      const source = readFileSync(`${DIR}${file}`, "utf8");
+      for (const match of source.matchAll(PROVIDER_SHAPED_LITERAL)) {
+        if (!match[0].includes("SYNTHETIC_6733")) offenders.push(`${file}: ${match[0]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 
@@ -820,6 +1007,51 @@ describe("derives the Option B terminal fixture once", () => {
 // so `import "ajv"` would fail here; adding it as a devDependency would
 // touch package.json and the lockfile outside this issue's declared
 // six-file footprint.
+// Keywords this evaluator actually implements or deliberately treats as pure
+// annotation. Any other schema keyword throws in evaluateSchema below, so a
+// future schema edit that introduces an unsupported keyword (patternProperties,
+// if/then, unevaluatedProperties, not, anyOf, dependentRequired,
+// exclusiveMinimum, multipleOf, uniqueItems, contains, minLength, ...) fails
+// loudly instead of silently no-opping.
+const RECOGNIZED_SCHEMA_KEYWORDS = new Set([
+  "$id",
+  "$schema",
+  "$defs",
+  "$ref",
+  "title",
+  "description",
+  "type",
+  "properties",
+  "additionalProperties",
+  "required",
+  "enum",
+  "const",
+  "pattern",
+  "minimum",
+  "maximum",
+  "oneOf",
+  "allOf",
+  "prefixItems",
+  "items",
+  "minItems",
+  "maxItems",
+  // "format" is present (date-time) but deliberately unenforced: JSON Schema
+  // treats format as annotation-only unless an implementation opts into
+  // assertion, and this schema defers calendar-validity enforcement to the
+  // hand validator's parseStrictRfc3339 (see NB4).
+  "format",
+]);
+
+function assertNoUnsupportedKeywords(schema, path) {
+  for (const key of Object.keys(schema)) {
+    if (!RECOGNIZED_SCHEMA_KEYWORDS.has(key)) {
+      throw new Error(
+        `unsupported schema keyword "${key}" at ${path} — extend evaluateSchema or RECOGNIZED_SCHEMA_KEYWORDS`,
+      );
+    }
+  }
+}
+
 function resolveSchemaRef(ref, defs) {
   const key = ref.replace("#/$defs/", "");
   if (!(key in defs)) throw new Error(`unresolved $ref ${ref}`);
@@ -851,6 +1083,8 @@ function evaluateSchema(schema, value, path, defs, errors) {
     return;
   }
   if (schema === true || schema == null) return;
+
+  assertNoUnsupportedKeywords(schema, path);
 
   if ("$ref" in schema) {
     evaluateSchema(resolveSchemaRef(schema.$ref, defs), value, path, defs, errors);
@@ -991,6 +1225,34 @@ describe("enforces the repaired checked-in JSON Schema structurally", () => {
     expect(SCHEMA.additionalProperties).toBe(false);
     for (const branch of SCHEMA.oneOf) {
       expect("additionalProperties" in branch).toBe(false);
+    }
+  });
+
+  it("fails loudly on an unsupported keyword instead of silently no-opping it (NB3)", () => {
+    // Pins the comment's claim above evaluateSchema: a keyword this
+    // evaluator does not implement must throw, not be ignored, so a future
+    // schema edit that adds one cannot ship unenforced behind a green suite.
+    for (const unsupportedKeyword of [
+      "patternProperties",
+      "if",
+      "unevaluatedProperties",
+      "not",
+      "anyOf",
+      "dependentRequired",
+      "exclusiveMinimum",
+      "multipleOf",
+      "uniqueItems",
+      "contains",
+      "minLength",
+    ]) {
+      expect(() =>
+        evaluateSchema({ type: "string", [unsupportedKeyword]: true }, "probe value", "$", SCHEMA.$defs, []),
+      ).toThrow(/unsupported schema keyword/);
+    }
+
+    // Every keyword the schema actually uses today remains recognized and unaffected.
+    for (const [name, doc] of Object.entries(SCENARIO_FIXTURES)) {
+      expect(evaluatesAgainstSchema(doc), name).toEqual([]);
     }
   });
 });

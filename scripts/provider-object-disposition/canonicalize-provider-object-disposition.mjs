@@ -13,15 +13,28 @@ function compareCodeUnits(a, b) {
 
 // Sorts object keys by raw UTF-16 code unit (JS string `<`/`>`), not locale
 // collation, at every depth. Arrays keep their schema-declared order.
+//
+// Builds into a null-prototype target with Object.defineProperty per key
+// (mirroring parseObject in validate-provider-object-disposition.mjs): an
+// own `__proto__` key must become an ordinary own key, not invoke the
+// inherited Object.prototype setter via `result[key] = value`, which would
+// silently vanish the key and its value from the canonical bytes and digest
+// (defence in depth — publication already refuses an own `__proto__` key
+// via TOP_LEVEL_KEY_UNKNOWN/CLASS_ENTRY_KEY_UNKNOWN before this ever runs).
 export function sortKeysByCodeUnit(value) {
   if (Array.isArray(value)) {
     return value.map(sortKeysByCodeUnit);
   }
   if (value !== null && typeof value === "object") {
     const sortedKeys = Object.keys(value).sort(compareCodeUnits);
-    const result = {};
+    const result = Object.create(null);
     for (const key of sortedKeys) {
-      result[key] = sortKeysByCodeUnit(value[key]);
+      Object.defineProperty(result, key, {
+        value: sortKeysByCodeUnit(value[key]),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return result;
   }

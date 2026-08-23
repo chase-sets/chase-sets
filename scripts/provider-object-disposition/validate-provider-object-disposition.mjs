@@ -186,11 +186,17 @@ export function parseJsonNoDuplicateKeys(text) {
     while (i < n && text[i] >= "0" && text[i] <= "9") i++;
     if (text[i] === ".") {
       i++;
+      // RFC 8259: frac = decimal-point 1*DIGIT — at least one digit is
+      // mandatory after the point ("1." is illegal; only "1.0" is legal).
+      if (!(text[i] >= "0" && text[i] <= "9")) fail("digit required after decimal point");
       while (i < n && text[i] >= "0" && text[i] <= "9") i++;
     }
     if (text[i] === "e" || text[i] === "E") {
       i++;
       if (text[i] === "+" || text[i] === "-") i++;
+      // RFC 8259: exp = e [minus/plus] 1*DIGIT — at least one digit is
+      // mandatory after the sign ("1e" and "1e+" are illegal).
+      if (!(text[i] >= "0" && text[i] <= "9")) fail("digit required in exponent");
       while (i < n && text[i] >= "0" && text[i] <= "9") i++;
     }
     return Number(text.slice(start, i));
@@ -544,10 +550,15 @@ export function validateProviderObjectDisposition(document) {
   // Own-property-only lookup: VARIANT_KEY_RULES is a frozen object literal
   // and inherits Object.prototype, so an unguarded index (`constructor`,
   // `toString`, `hasOwnProperty`, `valueOf`, `__proto__`, ...) would resolve
-  // to an inherited value instead of falling through to VARIANT_INVALID.
-  const variantRule = Object.hasOwn(VARIANT_KEY_RULES, document.variant)
-    ? VARIANT_KEY_RULES[document.variant]
-    : undefined;
+  // to an inherited value instead of falling through to VARIANT_INVALID. The
+  // typeof check also stops ToPropertyKey coercion: a non-string variant such
+  // as `["success"]` stringifies to `"success"` and would otherwise resolve
+  // the real rule while every strict-equality-gated semantic invariant below
+  // silently no-ops.
+  const variantRule =
+    typeof document.variant === "string" && Object.hasOwn(VARIANT_KEY_RULES, document.variant)
+      ? VARIANT_KEY_RULES[document.variant]
+      : undefined;
   const allowedTopKeys = new Set([...COMMON_REQUIRED_KEYS, ...(variantRule ? variantRule.required : [])]);
   for (const key of Object.keys(document)) {
     if (!allowedTopKeys.has(key)) errors.push({ code: "TOP_LEVEL_KEY_UNKNOWN", path: `$.${key}` });
