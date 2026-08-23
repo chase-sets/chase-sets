@@ -155,9 +155,7 @@ export class ProcessorSetupSessionCancellationResultError extends Error {
 }
 
 function failSetupSessionCancellationResult(path: string, detail: string): never {
-  throw new ProcessorSetupSessionCancellationResultError(
-    `Setup-session cancellation result '${path}' ${detail}.`,
-  );
+  throw new ProcessorSetupSessionCancellationResultError(`Setup-session cancellation result '${path}' ${detail}.`);
 }
 
 function setupSessionCancellationResultBase(value: unknown): Record<string, unknown> {
