@@ -187,6 +187,10 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.description":
     "The buyer will receive a full refund, and this cancellation will be recorded in your seller cancellation rate.",
   "ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.title": "Cancel this sale?",
+  "ordering.features.orders.ui.orderDetailPage.cancellation.window.fulfillment.started":
+    "The seller has started packing. Contact support for help with this {projectionLabel}.",
+  "ordering.features.orders.ui.orderDetailPage.cancellation.window.open":
+    "You can cancel this {projectionLabel} until the seller starts packing.",
   "ordering.features.orders.ui.orderDetailPage.counterparty": "Counterparty",
   "ordering.features.orders.ui.orderDetailPage.inventory.holds": "Inventory Holds",
   "ordering.features.orders.ui.orderDetailPage.inventory.item": "Inventory item ",
@@ -221,6 +225,7 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.seller.protection": "Seller Protection",
   "ordering.features.orders.ui.orderDetailPage.secure.payment": "Secure payment",
   "ordering.features.orders.ui.orderDetailPage.shipping": "Shipping",
+  "ordering.features.orders.ui.orderDetailPage.shipping.destination": "Shipping destination",
   "ordering.features.orders.ui.orderDetailPage.shipping.allowance": "Shipping allowance",
   "ordering.features.orders.ui.orderDetailPage.order.protection": "Order protection",
   "ordering.features.orders.ui.orderDetailPage.shipping.overage": "Shipping overage",

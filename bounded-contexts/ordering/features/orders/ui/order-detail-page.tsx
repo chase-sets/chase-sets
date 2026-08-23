@@ -1,5 +1,6 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import {
+  AddressBlock,
   AlertDialog,
   Form,
   Badge,
@@ -27,6 +28,18 @@ import {
 import { useRef, type ReactNode } from "react";
 import type { PurchaseDetail, SaleDetail } from "./contracts";
 import { OrderMoneyTimeline } from "./order-money-timeline";
+
+function destinationLines(order: PurchaseDetail | SaleDetail) {
+  const address = order.shipping_destination_snapshot;
+  return [
+    address.name,
+    address.company,
+    address.line1,
+    address.line2,
+    `${address.city}, ${address.state} ${address.postalCode}`,
+    address.country,
+  ].filter((line): line is string => Boolean(line));
+}
 
 function isPendingStatus(status: string) {
   return status === "pending-payment" || status === "pending-reservation";
@@ -101,6 +114,18 @@ export function OrderingOrderDetailPage({
   const canViewFulfillment =
     Boolean(fulfillmentHref) && order.status !== "pending-payment" && order.status !== "pending-reservation";
   const paymentDeadlineAt = order.status === "pending-payment" ? order.payment_deadline_at : null;
+  const cancellationWindowStatus =
+    order.status === "ready-for-fulfillment"
+      ? order.self_service_cancellation_available
+        ? t("ordering.features.orders.ui.orderDetailPage.cancellation.window.open", {
+            projectionLabel: projectionLabel.toLowerCase(),
+          })
+        : order.cancellation_unavailable_reason === "fulfillment-started"
+          ? t("ordering.features.orders.ui.orderDetailPage.cancellation.window.fulfillment.started", {
+              projectionLabel: projectionLabel.toLowerCase(),
+            })
+          : null
+      : null;
   const moneyTimeline = order.money_timeline ?? {
     refunds: [],
     support_cases: [],
@@ -293,6 +318,7 @@ export function OrderingOrderDetailPage({
                   })}
                 />
               ) : null}
+              {cancellationWindowStatus ? <MarketplaceNotice tone="info" title={cancellationWindowStatus} /> : null}
               <Stack gap={3} direction={{ base: "column", sm: "row" }}>
                 {canPay ? (
                   <LinkButton href={paymentHref}>{t("ordering.features.orders.ui.orderDetailPage.pay.now")}</LinkButton>
@@ -340,6 +366,12 @@ export function OrderingOrderDetailPage({
               </Stack>
             </Stack>
           </Surface>
+
+          <AddressBlock
+            aria-label={t("ordering.features.orders.ui.orderDetailPage.shipping.destination")}
+            title={t("ordering.features.orders.ui.orderDetailPage.shipping.destination")}
+            lines={destinationLines(order)}
+          />
 
           {supplementarySection ? (
             <PageSection title={supplementarySectionTitle}>{supplementarySection}</PageSection>
