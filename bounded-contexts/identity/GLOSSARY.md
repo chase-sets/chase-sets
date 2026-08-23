@@ -525,13 +525,25 @@ The following rules must always hold:
 Closing an Account preserves its Memberships for audit. Membership teardown is explicit and is permitted only after the
 Account is closed; closing the Account itself does not revoke or demote Memberships.
 
-## Planned Account Capabilities And Channel Connections
-
-These planned terms pre-register upcoming account capability, store team, and external channel connection language. They are not shipped behavior until Identity adds the corresponding consent, membership, authorization, and account-management facts.
+## Account Capabilities
 
 ### Account Capability
 
-An **Account Capability** is the planned account-level ability to use a marketplace or integration workflow.
+An **Account Capability** is a named durable product-policy dimension describing functionality that may be made available to an Account.
+
+### Account Capability Declaration
+
+An **Account Capability Declaration** is context-owned catalog metadata that gives an Account Capability its key, description, kind, and kind-shaped default. A tier declaration separately lists its allowed values; an allowed value is not itself a default or a grant.
+
+### Account Capability Registry
+
+An **Account Capability Registry** is the complete immutable, key-sorted catalog assembled from every registered context manifest independently of the mounted runtime profile. Its `owningContext` comes from module registration, not from the capability key's product namespace.
+
+The shipped catalog contains `authenticity.seller-included`, `inventory.locations`, and `mcp.rate-tier`. These are inert declarations without grants, resolution, enforcement, pricing, or UI behavior. In particular, the `mcp` namespace does not change the `platform-operations` owner of `mcp.rate-tier`.
+
+## Planned Account Capabilities And Channel Connections
+
+These planned terms pre-register upcoming Account Capability lifecycle, store team, and external channel connection language. They are not shipped behavior until the owning contexts add the corresponding facts and workflows.
 
 ### Capability Grant
 

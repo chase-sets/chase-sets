@@ -4,6 +4,14 @@
   "localeCatalogs": ["contracts/localization/locales/en/inventory.ts"],
   "ownedNouns": ["inventory-item", "inventory-hold", "import-batch", "recovered-item", "storage-location"],
   "streamPrefix": "inventory.",
+  "accountCapabilities": [
+    {
+      "key": "inventory.locations",
+      "description": "Declares the Account's inventory location limit.",
+      "kind": "limit",
+      "defaultValue": 0
+    }
+  ],
   "apiBasePath": "/api/inventory",
   "slices": [
     "inventory-items",

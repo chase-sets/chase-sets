@@ -2,6 +2,12 @@
 
 `@chase-sets/bounded-context-module` defines the normalized manifest and runtime module surfaces shared by bounded contexts and platform hosts.
 
+## Account Capability Declarations
+
+Contexts may publish Account Capability Declarations through the optional `accountCapabilities` manifest field. Manifest input is untrusted JSON: normalization accepts only the closed `boolean`, `limit`, and `tier` declaration variants, validates the key and kind-specific default, and rejects extra fields. Tier `allowedValues` remain distinct from the declared `defaultValue`.
+
+The normalized manifest and `BcApiModule` expose only `BcAccountCapabilityDeclaration`. Omitting `accountCapabilities` preserves absence on both surfaces; an empty authored array remains an explicit empty array. Declarations are catalog metadata only. This contract does not grant, resolve, enforce, price, or present an Account Capability.
+
 ## API Mount Binding
 
 Each `buildApis` result is the closed tuple `{ mountPath, contextMountOrdinal, router }`. `mountPath` must equal the declaration at the same position in `apiMounts`, and `contextMountOrdinal` is that declaration's one-based position. The runtime verifies both redundant values without sorting, deduplicating, or matching by path, so contexts may intentionally declare several routers at the same mount path while retaining their declared order. The resolved mount retains the inner `router` object unchanged.
