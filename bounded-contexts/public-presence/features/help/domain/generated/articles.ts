@@ -6333,7 +6333,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "The first 500 accounts to list or make an offer claim a numbered founder badge, shown publicly and kept permanently. Beta access also opens a 60-day 0% seller-fee window: every listing created in that window locks 0% seller fees until it sells. The complete plain-language terms, including exactly how the fee lock behaves, are published at ",
+              "The first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed. Beta access also opens a 60-day 0% seller-fee window: every listing created in that window locks 0% seller fees until it sells. The complete plain-language terms, including exactly how the fee lock behaves, are published at ",
           },
           {
             type: "link",
@@ -6839,7 +6839,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "Founders also join the founders-circle Discord and help shape seller tools such as bulk listing, pricing, fulfillment, fee locks, and offers. The badge appears publicly on the account and its listings and stays permanently.",
+              "Founders also join the founders-circle Discord and help shape seller tools such as bulk listing, pricing, fulfillment, fee locks, and offers. The first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed.",
           },
         ],
       },
