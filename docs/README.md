@@ -219,6 +219,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0026: Market-Price Methodology](./adr/0026-market-price-methodology.md)
 - [ADR 0027: Representative Catalog Observation Packs](./adr/0027-representative-catalog-observation-packs.md)
 - [ADR 0029: My Collection Composition And Saved List Ownership](./adr/0029-my-collection-composition-and-saved-list-ownership.md)
+- [ADR 0031: Card Identification Authority And Provider Boundary](./adr/0031-card-identification-authority-and-provider-boundary.md)
 
 ## Generated Markdown
 
