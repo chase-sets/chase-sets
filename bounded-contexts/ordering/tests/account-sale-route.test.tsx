@@ -61,12 +61,54 @@ const order = {
   marketplace_sales_fee_amount: "1.00",
   seller_item_net_amount: "19.00",
   seller_payout_amount: "23.99",
+  shipping_allowance_percentage_bps: 500,
+  taxable_amount: "24.99",
+  tax_jurisdiction_country: "US",
+  tax_jurisdiction_state: "IL",
+  tax_rate_bps: 0,
+  tax_provider_name: "local-tax-stub",
+  tax_provider_quote_reference: null,
+  tax_quoted_at: "2026-04-02T00:00:00.000Z",
   total_amount: "24.99",
+  terms_schedule_id: "cts_default",
+  terms_agreement_id: null,
+  terms_resolved_at: "2026-04-02T00:00:00.000Z",
+  shipping_destination_snapshot: {
+    name: "Recipient Only",
+    company: "Dock 7",
+    line1: "455 Market St",
+    line2: "Suite 8",
+    city: "Chicago",
+    state: "IL",
+    postalCode: "60601",
+    country: "US",
+    phone: "phone-sentinel",
+    email: "email-sentinel@example.test",
+    verification_metadata: "verification-sentinel",
+  },
+  shipping_origin_snapshot: {
+    name: "Seller",
+    company: null,
+    line1: "1 Main St",
+    line2: null,
+    city: "Austin",
+    state: "TX",
+    postalCode: "78701",
+    country: "US",
+    phone: null,
+    email: null,
+  },
   status: "ready-for-fulfillment",
+  pending_payment_at: null,
+  payment_deadline_at: null,
+  payment_deadline_policy: null,
   created_at: "2026-04-02T00:00:00.000Z",
   updated_at: "2026-04-02T00:00:00.000Z",
   cancelled_at: null,
+  cancellation_reason: null,
   ready_for_fulfillment_at: "2026-04-02T00:15:00.000Z",
+  self_service_cancellation_available: true,
+  cancellation_unavailable_reason: null,
   line_count: 1,
   total_quantity: 1,
   lines: [],
@@ -369,5 +411,8 @@ describe("marketplace account sale route", () => {
 
     const reportLink = screen.getByRole("link", { name: "Report a problem" });
     expect(reportLink.getAttribute("href")).toBe("/account/support?orderId=ord_1&flow=seller-cannot-fulfill");
+    const destinations = screen.getAllByRole("region", { name: "Shipping destination" });
+    expect(destinations).toHaveLength(1);
+    expect(destinations[0]?.querySelectorAll("address")).toHaveLength(1);
   });
 });

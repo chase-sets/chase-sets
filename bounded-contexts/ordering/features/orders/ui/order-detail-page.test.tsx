@@ -32,6 +32,34 @@ const order = {
   seller_net_amount: "18.00",
   seller_item_net_amount: "18.00",
   seller_payout_amount: "22.99",
+  terms_schedule_id: null,
+  terms_agreement_id: null,
+  terms_resolved_at: "2026-04-02T00:00:00.000Z",
+  shipping_destination_snapshot: {
+    name: "Recipient Only",
+    company: "Dock 7",
+    line1: "455 Market St",
+    line2: "Suite 8",
+    city: "Chicago",
+    state: "IL",
+    postalCode: "60601",
+    country: "US",
+    phone: "phone-sentinel",
+    email: "email-sentinel@example.test",
+    verification_metadata: "verification-sentinel",
+  },
+  shipping_origin_snapshot: {
+    name: "Seller",
+    company: null,
+    line1: "1 Main St",
+    line2: null,
+    city: "Austin",
+    state: "TX",
+    postalCode: "78701",
+    country: "US",
+    phone: null,
+    email: null,
+  },
   status: "pending-payment",
   pending_payment_at: null,
   payment_deadline_at: null,
@@ -39,7 +67,10 @@ const order = {
   created_at: "2026-04-02T00:00:00.000Z",
   updated_at: "2026-04-02T00:00:00.000Z",
   cancelled_at: null,
+  cancellation_reason: null,
   ready_for_fulfillment_at: null,
+  self_service_cancellation_available: true,
+  cancellation_unavailable_reason: null,
   line_count: 1,
   total_quantity: 1,
   item_titles: ["Charizard"],
@@ -80,6 +111,23 @@ const order = {
 
 afterEach(cleanup);
 
+const destinationStatuses = ["pending-reservation", "pending-payment", "ready-for-fulfillment", "cancelled"] as const;
+
+const destinationCases = (["buyer", "seller"] as const).flatMap((role) =>
+  destinationStatuses.map((status) => ({ role, status })),
+);
+
+const pendingCancellationCases = (["buyer", "seller"] as const).flatMap((role) =>
+  (["pending-reservation", "pending-payment"] as const).map((status) => ({ role, status })),
+);
+
+const cancellationWindowSentences = [
+  "You can cancel this purchase until the seller starts packing.",
+  "You can cancel this sale until the seller starts packing.",
+  "The seller has started packing. Contact support for help with this purchase.",
+  "The seller has started packing. Contact support for help with this sale.",
+];
+
 function expectSurfaceChrome(
   root: Element | null,
   label: string,
@@ -93,6 +141,132 @@ function expectSurfaceChrome(
 }
 
 describe("ordering order detail page", () => {
+  it.each(destinationCases)(
+    "renders one postal-only shipping destination section for $role $status detail",
+    ({ role, status }) => {
+      render(
+        <OrderingOrderDetailPage
+          role={role}
+          backHref={role === "buyer" ? "/account/purchases" : "/account/sales"}
+          order={{ ...order, status } as never}
+        />,
+      );
+
+      const sections = screen.getAllByRole("region", { name: "Shipping destination" });
+      expect(sections).toHaveLength(1);
+      const addresses = sections[0]?.querySelectorAll("address");
+      expect(addresses).toHaveLength(1);
+      expect(Array.from(addresses![0]?.children ?? []).map((line) => line.textContent)).toEqual([
+        "Recipient Only",
+        "Dock 7",
+        "455 Market St",
+        "Suite 8",
+        "Chicago, IL 60601",
+        "US",
+      ]);
+      expect(sections[0]?.textContent).not.toContain("phone-sentinel");
+      expect(sections[0]?.textContent).not.toContain("email-sentinel@example.test");
+      expect(sections[0]?.textContent).not.toContain("verification-sentinel");
+    },
+  );
+
+  it.each(pendingCancellationCases)(
+    "keeps the pending $role $status cancellation action without a cancellation-window sentence",
+    ({ role, status }) => {
+      render(
+        <OrderingOrderDetailPage
+          role={role}
+          backHref={role === "buyer" ? "/account/purchases" : "/account/sales"}
+          order={{ ...order, status, self_service_cancellation_available: true } as never}
+        />,
+      );
+
+      expect(screen.getByRole("button", { name: `Cancel ${role === "buyer" ? "purchase" : "sale"}` })).toBeTruthy();
+      for (const sentence of cancellationWindowSentences) expect(screen.queryByText(sentence)).toBeNull();
+    },
+  );
+
+  it.each(["buyer", "seller"] as const)(
+    "shows the open cancellation window for a ready-for-fulfillment $role",
+    (role) => {
+      render(
+        <OrderingOrderDetailPage
+          role={role}
+          backHref={role === "buyer" ? "/account/purchases" : "/account/sales"}
+          supportHref={`/account/support?flow=${role === "buyer" ? "buyer-cancel-request" : "seller-cannot-fulfill"}`}
+          order={
+            {
+              ...order,
+              status: "ready-for-fulfillment",
+              self_service_cancellation_available: true,
+              cancellation_unavailable_reason: null,
+            } as never
+          }
+        />,
+      );
+
+      expect(
+        screen.getByText(
+          `You can cancel this ${role === "buyer" ? "purchase" : "sale"} until the seller starts packing.`,
+        ),
+      ).toBeTruthy();
+      expect(screen.getByRole("button", { name: `Cancel ${role === "buyer" ? "purchase" : "sale"}` })).toBeTruthy();
+    },
+  );
+
+  it.each(["buyer", "seller"] as const)(
+    "shows the post-packing support path for a ready-for-fulfillment $role",
+    (role) => {
+      const supportHref = `/account/support?flow=${role === "buyer" ? "buyer-cancel-request" : "seller-cannot-fulfill"}`;
+      render(
+        <OrderingOrderDetailPage
+          role={role}
+          backHref={role === "buyer" ? "/account/purchases" : "/account/sales"}
+          supportHref={supportHref}
+          order={
+            {
+              ...order,
+              status: "ready-for-fulfillment",
+              self_service_cancellation_available: false,
+              cancellation_unavailable_reason: "fulfillment-started",
+            } as never
+          }
+        />,
+      );
+
+      expect(
+        screen.getByText(
+          `The seller has started packing. Contact support for help with this ${role === "buyer" ? "purchase" : "sale"}.`,
+        ),
+      ).toBeTruthy();
+      expect(screen.getByRole("link", { name: "Ask to cancel" }).getAttribute("href")).toBe(supportHref);
+      expect(screen.queryByRole("button", { name: `Cancel ${role === "buyer" ? "purchase" : "sale"}` })).toBeNull();
+    },
+  );
+
+  it.each(["buyer", "seller"] as const)(
+    "suppresses cancellation-window status and actions for a cancelled $role",
+    (role) => {
+      render(
+        <OrderingOrderDetailPage
+          role={role}
+          backHref={role === "buyer" ? "/account/purchases" : "/account/sales"}
+          order={
+            {
+              ...order,
+              status: "cancelled",
+              self_service_cancellation_available: false,
+              cancellation_unavailable_reason: "already-cancelled",
+            } as never
+          }
+        />,
+      );
+
+      for (const sentence of cancellationWindowSentences) expect(screen.queryByText(sentence)).toBeNull();
+      expect(screen.queryByRole("button", { name: `Cancel ${role === "buyer" ? "purchase" : "sale"}` })).toBeNull();
+    },
+  );
+
   it("pins order summary, order line, and inventory hold to their ratified chrome", () => {
     render(<OrderingOrderDetailPage role="seller" backHref="/account/sales" order={order as never} />);
 

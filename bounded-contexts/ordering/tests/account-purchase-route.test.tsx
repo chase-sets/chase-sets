@@ -72,16 +72,17 @@ const order = {
   terms_agreement_id: null,
   terms_resolved_at: "2026-04-02T00:00:00.000Z",
   shipping_destination_snapshot: {
-    name: "Buyer",
-    company: null,
-    line1: "2 Market St",
-    line2: null,
+    name: "Recipient Only",
+    company: "Dock 7",
+    line1: "455 Market St",
+    line2: "Suite 8",
     city: "Chicago",
     state: "IL",
     postalCode: "60601",
     country: "US",
-    phone: null,
-    email: null,
+    phone: "phone-sentinel",
+    email: "email-sentinel@example.test",
+    verification_metadata: "verification-sentinel",
   },
   shipping_origin_snapshot: {
     name: "Seller",
@@ -335,6 +336,9 @@ describe("marketplace account purchase route", () => {
     );
 
     expect(screen.getByText("Leave account review")).toBeTruthy();
+    const destinations = screen.getAllByRole("region", { name: "Shipping destination" });
+    expect(destinations).toHaveLength(1);
+    expect(destinations[0]?.querySelectorAll("address")).toHaveLength(1);
   });
 
   it("hides the review CTA when the order is not verified for review", () => {
