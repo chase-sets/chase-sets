@@ -1257,6 +1257,123 @@ function groupProviderSyncJourneysByCanonicalScope(
   return groups;
 }
 
+// --- staging-representative-catalog durable promotion matrix ------------------
+// #7408: a representative-catalog run must promote and durably verify Catalog
+// Items for every one of the seven staging matrix lines it is meant to cover,
+// not just sync source observations and report success. A line's canonical key
+// is derived from journey data already declared above (product line, plus a
+// Pokemon language split) rather than hand-listed, so the set can't silently
+// drift from the journeys actually run under this scope.
+const requiredStagingRepresentativeCatalogMatrixLines = [
+  "pokemon-en",
+  "pokemon-ja",
+  "pokemon-zh-tw-ko",
+  "mtg",
+  "yugioh",
+  "one-piece",
+  "lorcana",
+] as const;
+
+type StagingRepresentativeCatalogMatrixLine = (typeof requiredStagingRepresentativeCatalogMatrixLines)[number];
+
+const nonPokemonStagingRepresentativeCatalogMatrixLineKeys = new Set<string>(["mtg", "yugioh", "one-piece", "lorcana"]);
+
+// localizationOfProviderSyncJourney() prefers the human-readable label
+// ("English", "Traditional Chinese") over the ISO-ish code, which is right for
+// display but not for matching a fixed set of short codes here; read the
+// scope selection's `values` entry directly instead.
+function pokemonLanguageCodeOf(journey: ProviderSyncJourney): string | null {
+  const selection = journey.scope.find((candidate) => scopeSelectionLabelText(candidate) === "language");
+  return selection?.choice.values?.[0]?.toLowerCase() ?? null;
+}
+
+function stagingRepresentativeCatalogMatrixLineOf(
+  journey: ProviderSyncJourney,
+): StagingRepresentativeCatalogMatrixLine | null {
+  const productLine = providerUnitProductLineOf(journey.unitKey);
+  if (productLine === "pokemon") {
+    const languageCode = pokemonLanguageCodeOf(journey);
+    if (languageCode === "en") {
+      return "pokemon-en";
+    }
+    if (languageCode === "ja") {
+      return "pokemon-ja";
+    }
+    if (languageCode === "zh-tw" || languageCode === "ko") {
+      return "pokemon-zh-tw-ko";
+    }
+    return null;
+  }
+
+  return nonPokemonStagingRepresentativeCatalogMatrixLineKeys.has(productLine)
+    ? (productLine as StagingRepresentativeCatalogMatrixLine)
+    : null;
+}
+
+// Only source-observation-import journeys go through Source Observation review
+// and promotion; reference-data and image-evidence journeys feed merge evidence
+// but never themselves produce a promotable observation.
+function promotableProviderSyncJourneysByStagingRepresentativeCatalogMatrixLine(
+  journeys: readonly ProviderSyncJourney[],
+): ReadonlyMap<StagingRepresentativeCatalogMatrixLine, readonly ProviderSyncJourney[]> {
+  const groups = new Map<StagingRepresentativeCatalogMatrixLine, ProviderSyncJourney[]>();
+  for (const journey of journeys) {
+    if (providerUnitRoleOf(journey.unitKey) !== "source-observation-import") {
+      continue;
+    }
+    const line = stagingRepresentativeCatalogMatrixLineOf(journey);
+    if (!line) {
+      continue;
+    }
+    const existing = groups.get(line);
+    if (existing) {
+      existing.push(journey);
+    } else {
+      groups.set(line, [journey]);
+    }
+  }
+  return groups;
+}
+
+type MatrixLineDurableState = "settled" | "queued-only" | "absent";
+
+type MatrixLinePromotionOutcome = Readonly<{
+  line: string;
+  providerKey: string;
+  durableState: MatrixLineDurableState;
+  promotedCount: number;
+}>;
+
+type MatrixPromotionEvaluation = Readonly<{ ok: true }> | Readonly<{ ok: false; reason: string; line: string }>;
+
+// Gates overall success on a settled durable readback with a non-zero count for
+// every required line, never on a transient "Command queued" acknowledgment
+// alone (durableState "queued-only") and never on a missing line ("absent").
+function evaluateStagingRepresentativeCatalogMatrixPromotion(
+  outcomes: readonly MatrixLinePromotionOutcome[],
+): MatrixPromotionEvaluation {
+  const byLine = new Map(outcomes.map((outcome) => [outcome.line, outcome]));
+  for (const line of requiredStagingRepresentativeCatalogMatrixLines) {
+    const outcome = byLine.get(line);
+    if (!outcome) {
+      return { ok: false, reason: `no promotion outcome was recorded for required matrix line "${line}"`, line };
+    }
+    if (outcome.durableState !== "settled") {
+      return {
+        ok: false,
+        reason: `matrix line "${line}" promotion command was ${
+          outcome.durableState === "queued-only" ? "acknowledged but never reached a durable outcome" : "never accepted"
+        }`,
+        line,
+      };
+    }
+    if (outcome.promotedCount <= 0) {
+      return { ok: false, reason: `matrix line "${line}" settled with zero durable promoted Catalog Items`, line };
+    }
+  }
+  return { ok: true };
+}
+
 test.describe("catalog staging provider sync UAT helpers", () => {
   test("uses the canonical commands rendered by the Catalog workbench", async ({ page }) => {
     const unitKey = "scrydex:lorcana:single-card:source-observation-import";
@@ -1854,6 +1971,94 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     }
     expect(providerUatScopeAcceptsSettledNoPromotableCoverage("full-matrix-uat")).toBe(true);
   });
+
+  test("staging-representative-catalog does not accept settled no-promotable coverage", () => {
+    // #7408: unlike the launch/regression/matrix scopes above, a zero-eligible
+    // representative-catalog line must fail closed, not be treated as an
+    // already-settled skip.
+    expect(providerUatScopeAcceptsSettledNoPromotableCoverage("staging-representative-catalog")).toBe(false);
+  });
+
+  test("every required staging-representative-catalog matrix line has at least one promotable journey", () => {
+    const promotableJourneysByLine = promotableProviderSyncJourneysByStagingRepresentativeCatalogMatrixLine(
+      stagingRepresentativeCatalogProviderSyncJourneys,
+    );
+    for (const line of requiredStagingRepresentativeCatalogMatrixLines) {
+      expect(promotableJourneysByLine.get(line)?.length ?? 0, line).toBeGreaterThan(0);
+    }
+    expect([...promotableJourneysByLine.keys()].sort()).toEqual(
+      [...requiredStagingRepresentativeCatalogMatrixLines].sort(),
+    );
+  });
+
+  test("staging-representative-catalog matrix promotion fails closed on a transient acknowledgment with no durable outcome", () => {
+    const outcomes: MatrixLinePromotionOutcome[] = requiredStagingRepresentativeCatalogMatrixLines.map((line) => ({
+      line,
+      providerKey: "tcgplayer",
+      durableState: "settled",
+      promotedCount: 3,
+    }));
+    outcomes[0] = { ...outcomes[0], durableState: "queued-only", promotedCount: 0 };
+
+    const evaluation = evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes);
+    expect(evaluation.ok).toBe(false);
+    expect(evaluation.ok === false && evaluation.reason).toContain("acknowledged but never reached a durable outcome");
+    expect(evaluation.ok === false && evaluation.line).toBe(requiredStagingRepresentativeCatalogMatrixLines[0]);
+  });
+
+  test("staging-representative-catalog matrix promotion fails closed when a settled line has zero durable Catalog Items", () => {
+    const outcomes: MatrixLinePromotionOutcome[] = requiredStagingRepresentativeCatalogMatrixLines.map((line) => ({
+      line,
+      providerKey: "tcgplayer",
+      durableState: "settled",
+      promotedCount: 3,
+    }));
+    const lastLine =
+      requiredStagingRepresentativeCatalogMatrixLines[requiredStagingRepresentativeCatalogMatrixLines.length - 1];
+    outcomes[outcomes.length - 1] = { ...outcomes[outcomes.length - 1], promotedCount: 0 };
+
+    const evaluation = evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes);
+    expect(evaluation.ok).toBe(false);
+    expect(evaluation.ok === false && evaluation.reason).toContain("zero durable promoted Catalog Items");
+    expect(evaluation.ok === false && evaluation.line).toBe(lastLine);
+  });
+
+  test("staging-representative-catalog matrix promotion accepts a settled readback with a non-zero durable count", () => {
+    const outcomes: MatrixLinePromotionOutcome[] = requiredStagingRepresentativeCatalogMatrixLines.map((line) => ({
+      line,
+      providerKey: "tcgplayer",
+      durableState: "settled",
+      promotedCount: 1,
+    }));
+
+    expect(evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes)).toEqual({ ok: true });
+  });
+
+  test("staging-representative-catalog matrix promotion only passes once all seven matrix lines settle non-zero", () => {
+    const sixOfSeven = requiredStagingRepresentativeCatalogMatrixLines.slice(0, -1).map((line) => ({
+      line,
+      providerKey: "tcgplayer",
+      durableState: "settled" as const,
+      promotedCount: 2,
+    }));
+
+    // A wholly missing seventh line (never attempted) fails closed, even
+    // though the other six settled with non-zero durable Catalog Items.
+    expect(evaluateStagingRepresentativeCatalogMatrixPromotion(sixOfSeven).ok).toBe(false);
+
+    const allSeven = [
+      ...sixOfSeven,
+      {
+        line: requiredStagingRepresentativeCatalogMatrixLines[
+          requiredStagingRepresentativeCatalogMatrixLines.length - 1
+        ],
+        providerKey: "tcgplayer",
+        durableState: "settled" as const,
+        promotedCount: 5,
+      },
+    ];
+    expect(evaluateStagingRepresentativeCatalogMatrixPromotion(allSeven)).toEqual({ ok: true });
+  });
 });
 
 test.describe("catalog staging provider sync UAT", () => {
@@ -1913,6 +2118,23 @@ test.describe("catalog staging provider sync UAT", () => {
     if (providerUatJourneyScope === "lorcana-launch" || providerUatJourneyScope === "all-provider-regression") {
       await test.step("Lorcana Catalog Items downstream projection through shared UI", async () => {
         await expectLorcanaCatalogItemsDownstreamProjection(page);
+      });
+    }
+
+    if (providerUatJourneyScope === "staging-representative-catalog") {
+      await test.step("Durable Catalog Item promotion across all seven staging matrix lines", async () => {
+        const outcomes = await promoteAndReadBackStagingRepresentativeCatalogMatrix(page);
+        const evidence = outcomes
+          .map((outcome) => `${outcome.line}=${outcome.durableState}(${outcome.promotedCount})`)
+          .join(", ");
+        console.log(`[catalog-staging-provider-uat] staging-representative-catalog matrix outcome: ${evidence}`);
+
+        const evaluation = evaluateStagingRepresentativeCatalogMatrixPromotion(outcomes);
+        if (!evaluation.ok) {
+          throw new Error(
+            `staging-representative-catalog durable promotion failed closed: ${evaluation.reason}. Full matrix outcome: ${evidence}`,
+          );
+        }
       });
     }
   });
@@ -2947,20 +3169,83 @@ async function expectLorcanaCatalogItemsDownstreamProjection(page: Page): Promis
   );
 }
 
+async function promoteAndReadBackMatrixLine(
+  page: Page,
+  line: string,
+  journeys: readonly ProviderSyncJourney[],
+): Promise<MatrixLinePromotionOutcome> {
+  if (journeys.length === 0) {
+    return { line, providerKey: "unknown", durableState: "absent", promotedCount: 0 };
+  }
+
+  let lastOperatorState = "";
+  let lastProviderKey = journeys[0].providerKey;
+  for (const journey of journeys) {
+    await openCatalogImporter(page);
+    const selectedScope = await selectProviderScope(page, journey);
+    lastProviderKey = journey.providerKey;
+    const promoted =
+      (await promoteFirstEligibleObservationFromReview(page, selectedScope, journey.unitKey)) ??
+      (await promoteFromCompletedImportJobReview(page, selectedScope, journey.unitKey)) ??
+      (await promoteSelectedScopeFromSharedImporter(page, selectedScope, journey.unitKey));
+    const result =
+      promoted ?? (await reapplyPromotedObservationFromSharedImporter(page, selectedScope, journey.unitKey));
+    if (!result) {
+      lastOperatorState = await promotionPreviewOperatorStateMessage(page, selectedScope);
+      continue;
+    }
+
+    await openCatalogItemsHandoff(page, result.providerKey);
+    const readback = await readBackCatalogItemsProjection(page, result);
+    console.log(
+      `[catalog-staging-provider-uat] matrix line "${line}" durable promotion ${
+        readback.settled ? "settled" : "did not settle before the deadline"
+      }: provider=${result.providerKey}, unit=${result.unitKey}, promotedCount=${readback.count}`,
+    );
+    return {
+      line,
+      providerKey: result.providerKey,
+      durableState: readback.settled ? "settled" : "queued-only",
+      promotedCount: readback.count,
+    };
+  }
+
+  console.log(
+    `[catalog-staging-provider-uat] matrix line "${line}" could not find an eligible Source Observation to promote or reapply across ${
+      journeys.length
+    } journey(s). ${sanitizeSupportSafeEvidence(lastOperatorState)}`,
+  );
+  return { line, providerKey: lastProviderKey, durableState: "absent", promotedCount: 0 };
+}
+
+// Runs promotion + durable readback for one required staging matrix line at a
+// time, trying every candidate journey for a line before giving up on it, and
+// always attempting every line so one failure never hides the state of the
+// others in the support-safe evidence packet.
+async function promoteAndReadBackStagingRepresentativeCatalogMatrix(
+  page: Page,
+): Promise<readonly MatrixLinePromotionOutcome[]> {
+  const promotableJourneysByLine = promotableProviderSyncJourneysByStagingRepresentativeCatalogMatrixLine(
+    stagingRepresentativeCatalogProviderSyncJourneys,
+  );
+  const outcomes: MatrixLinePromotionOutcome[] = [];
+  for (const line of requiredStagingRepresentativeCatalogMatrixLines) {
+    outcomes.push(await promoteAndReadBackMatrixLine(page, line, promotableJourneysByLine.get(line) ?? []));
+  }
+  return outcomes;
+}
+
 async function promoteFromCompletedImportJobReview(
   page: Page,
   selectedScope: SelectedProviderScope,
+  unitKey: string = lorcanaDownstreamCatalogItemsJourney.unitKey,
 ): Promise<LorcanaDownstreamSmokeResult | null> {
-  const opened = await openCompletedImportJobObservationReview(
-    page,
-    lorcanaDownstreamCatalogItemsJourney.unitKey,
-    selectedScope,
-  );
+  const opened = await openCompletedImportJobObservationReview(page, unitKey, selectedScope);
   if (!opened) {
     return null;
   }
 
-  return promoteFirstEligibleObservationFromReview(page, selectedScope);
+  return promoteFirstEligibleObservationFromReview(page, selectedScope, unitKey);
 }
 
 async function openCompletedImportJobObservationReview(
@@ -2987,6 +3272,7 @@ async function openCompletedImportJobObservationReview(
 async function promoteFirstEligibleObservationFromReview(
   page: Page,
   selectedScope: SelectedProviderScope,
+  unitKey: string = lorcanaDownstreamCatalogItemsJourney.unitKey,
 ): Promise<LorcanaDownstreamSmokeResult | null> {
   await expandWorkflowStage(page, "review-changes");
   await expect(page.getByRole("heading", { name: "Source Observation review" })).toBeVisible({
@@ -3010,7 +3296,7 @@ async function promoteFirstEligibleObservationFromReview(
   return {
     mode: "promote",
     providerKey: selectedScope.providerKey,
-    unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
+    unitKey,
     selectedScope: selectedScope.displayLabel,
     selectedObservationIds: preview.selectedObservationIds,
     promotionPreviewId,
@@ -3021,12 +3307,11 @@ async function promoteFirstEligibleObservationFromReview(
 async function promoteSelectedScopeFromSharedImporter(
   page: Page,
   selectedScope: SelectedProviderScope,
+  unitKey: string = lorcanaDownstreamCatalogItemsJourney.unitKey,
 ): Promise<LorcanaDownstreamSmokeResult | null> {
-  const scopePreviewForms = sourceScopeCommandForms(
-    page,
-    lorcanaDownstreamCatalogItemsJourney.unitKey,
-    catalogWorkbenchCommand.promote,
-  ).filter({ has: page.getByRole("button", { name: /^Preview / }) });
+  const scopePreviewForms = sourceScopeCommandForms(page, unitKey, catalogWorkbenchCommand.promote).filter({
+    has: page.getByRole("button", { name: /^Preview / }),
+  });
   if (!(await clickSelectedScopeCommandForm(scopePreviewForms, selectedScope))) {
     return null;
   }
@@ -3034,7 +3319,7 @@ async function promoteSelectedScopeFromSharedImporter(
   const promotionPreviewId = await tryPromotionPreviewReady(page, 15_000);
   if (!promotionPreviewId) {
     console.log(
-      `[catalog-staging-provider-uat] ${lorcanaDownstreamCatalogItemsJourney.unitKey} source-scope promotion preview did not produce a routable preview id for ${selectedScope.displayLabel}; trying to execute any fresh visible preview before row-level or reapply fallback.`,
+      `[catalog-staging-provider-uat] ${unitKey} source-scope promotion preview did not produce a routable preview id for ${selectedScope.displayLabel}; trying to execute any fresh visible preview before row-level or reapply fallback.`,
     );
   }
   const freshPreview = await executePromotionFromFreshPreview(page, selectedScope, {
@@ -3048,7 +3333,7 @@ async function promoteSelectedScopeFromSharedImporter(
   return {
     mode: "promote",
     providerKey: selectedScope.providerKey,
-    unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
+    unitKey,
     selectedScope: selectedScope.displayLabel,
     selectedObservationIds: [],
     promotionPreviewId: promotionPreviewId ?? currentSearchParam(page, "promotionPreviewId"),
@@ -3059,12 +3344,11 @@ async function promoteSelectedScopeFromSharedImporter(
 async function reapplyPromotedObservationFromSharedImporter(
   page: Page,
   selectedScope: SelectedProviderScope,
+  unitKey: string = lorcanaDownstreamCatalogItemsJourney.unitKey,
 ): Promise<LorcanaDownstreamSmokeResult | null> {
-  const sourceScopeReapplyForms = sourceScopeCommandForms(
-    page,
-    lorcanaDownstreamCatalogItemsJourney.unitKey,
-    catalogWorkbenchCommand.reapply,
-  ).filter({ has: page.getByRole("button", { name: /^Reapply / }) });
+  const sourceScopeReapplyForms = sourceScopeCommandForms(page, unitKey, catalogWorkbenchCommand.reapply).filter({
+    has: page.getByRole("button", { name: /^Reapply / }),
+  });
   if (await clickSelectedScopeCommandForm(sourceScopeReapplyForms, selectedScope)) {
     if (!(await expectCommandQueuedOrSettledNoPromotable(page, selectedScope))) {
       return null;
@@ -3072,7 +3356,7 @@ async function reapplyPromotedObservationFromSharedImporter(
     return {
       mode: "reapply",
       providerKey: selectedScope.providerKey,
-      unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
+      unitKey,
       selectedScope: selectedScope.displayLabel,
       selectedObservationIds: [],
       promotionPreviewId: null,
@@ -3104,7 +3388,7 @@ async function reapplyPromotedObservationFromSharedImporter(
   return {
     mode: "reapply",
     providerKey: selectedScope.providerKey,
-    unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
+    unitKey,
     selectedScope: selectedScope.displayLabel,
     selectedObservationIds: reapplied.selectedObservationIds,
     promotionPreviewId: null,
@@ -3330,10 +3614,20 @@ async function openCatalogItemsHandoff(page: Page, providerKey: string): Promise
   await page.waitForLoadState("domcontentloaded", { timeout: pageReadyTimeoutMs }).catch(() => undefined);
 }
 
-async function expectCatalogItemsProjectionForProvider(
+type CatalogItemsProjectionReadback = Readonly<{
+  settled: boolean;
+  count: number;
+  observedRows: readonly string[];
+}>;
+
+// Polls the real Catalog Items list for a durable draft/active row, never a
+// transient command acknowledgment. Non-throwing: a caller that must evaluate
+// every staging matrix line (not stop at the first failure) reads `.settled`
+// and `.count` instead of catching an exception.
+async function readBackCatalogItemsProjection(
   page: Page,
   result: LorcanaDownstreamSmokeResult,
-): Promise<void> {
+): Promise<CatalogItemsProjectionReadback> {
   await expect(page).toHaveURL(new RegExp(`/catalog/catalog-items\\?source=${result.providerKey}`), {
     timeout: pageReadyTimeoutMs,
   });
@@ -3346,20 +3640,33 @@ async function expectCatalogItemsProjectionForProvider(
   while (Date.now() < deadline) {
     await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
     observedRows = await catalogItemProviderRowTexts(page, result.providerKey);
-    const projected = observedRows.find((row) => /\b(?:draft|active)\b/i.test(row));
-    if (projected) {
-      console.log(`[catalog-staging-provider-uat] Lorcana Catalog Items row observed: ${projected}`);
-      return;
+    const projectedRows = observedRows.filter((row) => /\b(?:draft|active)\b/i.test(row));
+    if (projectedRows.length > 0) {
+      return { settled: true, count: projectedRows.length, observedRows };
     }
 
     await page.waitForTimeout(5_000);
     await page.reload({ waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs }).catch(() => undefined);
   }
 
+  return { settled: false, count: 0, observedRows };
+}
+
+async function expectCatalogItemsProjectionForProvider(
+  page: Page,
+  result: LorcanaDownstreamSmokeResult,
+): Promise<void> {
+  const readback = await readBackCatalogItemsProjection(page, result);
+  if (readback.settled) {
+    const projected = readback.observedRows.find((row) => /\b(?:draft|active)\b/i.test(row));
+    console.log(`[catalog-staging-provider-uat] Lorcana Catalog Items row observed: ${projected}`);
+    return;
+  }
+
   throw new Error(
     `Catalog Items did not show a ${result.providerKey} draft or active downstream projection after ${
       result.mode
-    } for ${result.selectedScope}. Observed provider rows: ${observedRows.join(" | ") || "none"}`,
+    } for ${result.selectedScope}. Observed provider rows: ${readback.observedRows.join(" | ") || "none"}`,
   );
 }
 
