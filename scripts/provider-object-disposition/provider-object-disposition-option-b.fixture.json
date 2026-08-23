@@ -222,7 +222,7 @@
         }
       ]
     },
-    "partialEffectCompleteCleanup": {
+    "cleanupFailurePartialEffect": {
       "version": "provider-object-disposition/v1",
       "variant": "cleanup-failure",
       "emittedBy": "executor",

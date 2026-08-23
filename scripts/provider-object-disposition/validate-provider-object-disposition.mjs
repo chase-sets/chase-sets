@@ -168,6 +168,8 @@ export function parseJsonNoDuplicateKeys(text) {
         } else fail(`invalid escape \\${esc}`);
         i++;
       } else {
+        // RFC 8259: control characters (U+0000-U+001F) are illegal unescaped inside a JSON string.
+        if (ch.charCodeAt(0) <= 0x1f) fail("unescaped control character in string");
         result += ch;
         i++;
       }
@@ -179,6 +181,8 @@ export function parseJsonNoDuplicateKeys(text) {
     const start = i;
     if (text[i] === "-") i++;
     if (!(text[i] >= "0" && text[i] <= "9")) fail("invalid number");
+    // RFC 8259: no leading zeros — "0" and "0.5" are legal, "007" is not.
+    if (text[i] === "0" && text[i + 1] >= "0" && text[i + 1] <= "9") fail("leading zero not permitted");
     while (i < n && text[i] >= "0" && text[i] <= "9") i++;
     if (text[i] === ".") {
       i++;
@@ -194,7 +198,12 @@ export function parseJsonNoDuplicateKeys(text) {
 
   const parseObject = () => {
     i++; // {
-    const result = {};
+    // Null-prototype target with an own-property definition per key: a
+    // "__proto__" key must become an ordinary own key, not invoke the
+    // inherited Object.prototype accessor via `result[key] = value`, which
+    // would silently vanish the key from every downstream Object.keys/
+    // Object.entries closure check.
+    const result = Object.create(null);
     const seenKeys = new Set();
     skipWhitespace();
     if (text[i] === "}") {
@@ -210,7 +219,8 @@ export function parseJsonNoDuplicateKeys(text) {
       skipWhitespace();
       if (text[i] !== ":") fail("expected ':'");
       i++;
-      result[key] = parseValue();
+      const value = parseValue();
+      Object.defineProperty(result, key, { value, enumerable: true, writable: true, configurable: true });
       skipWhitespace();
       if (text[i] === ",") {
         i++;
@@ -531,7 +541,13 @@ export function validateProviderObjectDisposition(document) {
     if (!(key in document)) errors.push({ code: "TOP_LEVEL_KEY_MISSING", path: `$.${key}` });
   }
 
-  const variantRule = VARIANT_KEY_RULES[document.variant];
+  // Own-property-only lookup: VARIANT_KEY_RULES is a frozen object literal
+  // and inherits Object.prototype, so an unguarded index (`constructor`,
+  // `toString`, `hasOwnProperty`, `valueOf`, `__proto__`, ...) would resolve
+  // to an inherited value instead of falling through to VARIANT_INVALID.
+  const variantRule = Object.hasOwn(VARIANT_KEY_RULES, document.variant)
+    ? VARIANT_KEY_RULES[document.variant]
+    : undefined;
   const allowedTopKeys = new Set([...COMMON_REQUIRED_KEYS, ...(variantRule ? variantRule.required : [])]);
   for (const key of Object.keys(document)) {
     if (!allowedTopKeys.has(key)) errors.push({ code: "TOP_LEVEL_KEY_UNKNOWN", path: `$.${key}` });

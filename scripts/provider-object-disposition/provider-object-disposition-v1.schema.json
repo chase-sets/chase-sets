@@ -4,6 +4,7 @@
   "title": "Chase Sets provider-object-disposition/v1 evidence receipt",
   "description": "Structural documentation of the schema bound by Decision #6728 (Option B) and issue #6733. The checked-in validator at validate-provider-object-disposition.mjs is the executable source of truth for every invariant this document cannot express declaratively (B1-B4, P1, R1, N1, K1, digest recomputation); this file documents recursive key closure and the fixed Option B shape.",
   "type": "object",
+  "additionalProperties": false,
   "$defs": {
     "instant": {
       "type": "string",
@@ -175,7 +176,12 @@
   },
   "oneOf": [
     {
-      "properties": { "variant": { "const": "success" } },
+      "properties": {
+        "variant": { "const": "success" },
+        "refusal": false,
+        "failure": false,
+        "lastCompletedPrecedenceOrdinal": false
+      },
       "required": [
         "version",
         "variant",
@@ -187,11 +193,14 @@
         "windowId",
         "classes",
         "resultDigest"
-      ],
-      "additionalProperties": false
+      ]
     },
     {
-      "properties": { "variant": { "const": "pre-network-refusal" } },
+      "properties": {
+        "variant": { "const": "pre-network-refusal" },
+        "failure": false,
+        "lastCompletedPrecedenceOrdinal": false
+      },
       "required": [
         "version",
         "variant",
@@ -204,11 +213,13 @@
         "classes",
         "resultDigest",
         "refusal"
-      ],
-      "additionalProperties": false
+      ]
     },
     {
-      "properties": { "variant": { "const": "post-network-failure" } },
+      "properties": {
+        "variant": { "const": "post-network-failure" },
+        "refusal": false
+      },
       "required": [
         "version",
         "variant",
@@ -222,11 +233,14 @@
         "resultDigest",
         "failure",
         "lastCompletedPrecedenceOrdinal"
-      ],
-      "additionalProperties": false
+      ]
     },
     {
-      "properties": { "variant": { "const": "cleanup-failure" } },
+      "properties": {
+        "variant": { "const": "cleanup-failure" },
+        "refusal": false,
+        "lastCompletedPrecedenceOrdinal": false
+      },
       "required": [
         "version",
         "variant",
@@ -239,8 +253,7 @@
         "classes",
         "resultDigest",
         "failure"
-      ],
-      "additionalProperties": false
+      ]
     }
   ]
 }

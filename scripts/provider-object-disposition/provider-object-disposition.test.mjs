@@ -60,7 +60,7 @@ function rowFor(className) {
 const VALID_SUCCESS = SCENARIO_FIXTURES.success;
 const VALID_PRE_NETWORK_REFUSAL = SCENARIO_FIXTURES.preNetworkRefusal;
 const VALID_POST_NETWORK_FAILURE = SCENARIO_FIXTURES.postNetworkFailureLaterNotAttempted;
-const VALID_CLEANUP_FAILURE = SCENARIO_FIXTURES.partialEffectCompleteCleanup;
+const VALID_CLEANUP_FAILURE = SCENARIO_FIXTURES.cleanupFailurePartialEffect;
 
 describe("enforces v1 raw-byte and recursive closure", () => {
   it("accepts only the exact byte grammar and names every refusal by key/path or byte rule", () => {
@@ -121,6 +121,64 @@ describe("enforces v1 raw-byte and recursive closure", () => {
     const naiveParse = JSON.parse(duplicated);
     expect(naiveParse.version).toBe("provider-object-disposition/v1");
   });
+
+  it("closes a top-level and nested __proto__ key exactly like an ordinary unknown key", () => {
+    const rawText = JSON.stringify(VALID_SUCCESS);
+
+    // Matched control: an ordinary unknown key carrying the same forbidden
+    // marker refuses on both TOP_LEVEL_KEY_UNKNOWN and FORBIDDEN_PROVIDER_MARKER.
+    const controlText = rawText.replace(/^\{/, '{"ordinaryUnknownKey":{"leakNote":"pi_1SyntheticSix733AbCd"},');
+    const controlResult = validateProviderObjectDispositionBytes(toBytes(null, { rawTextOverride: controlText }));
+    expect(controlResult.ok).toBe(false);
+    expect(controlResult.errors).toContainEqual(
+      expect.objectContaining({ code: "TOP_LEVEL_KEY_UNKNOWN", path: "$.ordinaryUnknownKey" }),
+    );
+    expect(controlResult.errors.some((e) => e.code === "FORBIDDEN_PROVIDER_MARKER")).toBe(true);
+
+    // Top-level __proto__ key must refuse identically to the control, not
+    // silently vanish into the prototype chain.
+    const topLevelExploitText = rawText.replace(/^\{/, '{"__proto__":{"leakNote":"pi_1SyntheticSix733AbCd"},');
+    const topLevelExploitResult = validateProviderObjectDispositionBytes(
+      toBytes(null, { rawTextOverride: topLevelExploitText }),
+    );
+    expect(topLevelExploitResult.ok).toBe(false);
+    expect(topLevelExploitResult.errors).toContainEqual(
+      expect.objectContaining({ code: "TOP_LEVEL_KEY_UNKNOWN", path: "$.__proto__" }),
+    );
+    expect(topLevelExploitResult.errors.some((e) => e.code === "FORBIDDEN_PROVIDER_MARKER")).toBe(true);
+
+    // Nested __proto__ key inside classes[0] must refuse identically.
+    const nestedExploitText = rawText.replace(
+      '"class":"captured-payment-intent"',
+      '"__proto__":{"leak":"acct_1SyntheticZZ"},"class":"captured-payment-intent"',
+    );
+    const nestedExploitResult = validateProviderObjectDispositionBytes(
+      toBytes(null, { rawTextOverride: nestedExploitText }),
+    );
+    expect(nestedExploitResult.ok).toBe(false);
+    expect(nestedExploitResult.errors).toContainEqual(
+      expect.objectContaining({ code: "CLASS_ENTRY_KEY_UNKNOWN", path: "$.classes[0].__proto__" }),
+    );
+    expect(nestedExploitResult.errors.some((e) => e.code === "FORBIDDEN_PROVIDER_MARKER")).toBe(true);
+
+    // Mutant: reverting parseObject to a plain object literal (`result[key]
+    // = value`) makes both exploit cases pass, since `__proto__` never
+    // becomes an own key.
+  });
+
+  it("closes leading-zero and raw-control-character parser leniency", () => {
+    const leadingZero = parseRawDocumentBytes(Buffer.from('{"n":007}', "utf8"));
+    expect(leadingZero.ok).toBe(false);
+    expect(leadingZero.errors).toContainEqual(expect.objectContaining({ code: "MALFORMED_JSON_OR_DUPLICATE_KEY" }));
+
+    const rawControlChar = parseRawDocumentBytes(Buffer.from('{"n":"a\tb"}', "utf8"));
+    expect(rawControlChar.ok).toBe(false);
+    expect(rawControlChar.errors).toContainEqual(expect.objectContaining({ code: "MALFORMED_JSON_OR_DUPLICATE_KEY" }));
+
+    // A single legal "0" and an escaped control character remain legal.
+    expect(parseRawDocumentBytes(Buffer.from('{"n":0}', "utf8")).ok).toBe(true);
+    expect(parseRawDocumentBytes(Buffer.from('{"n":"a\\tb"}', "utf8")).ok).toBe(true);
+  });
 });
 
 describe("represents each disposition variant exactly once", () => {
@@ -135,6 +193,18 @@ describe("represents each disposition variant exactly once", () => {
       expect(doc.variant).toBe(variant);
       const result = validateProviderObjectDisposition(doc);
       expect(result.ok, `${variant}: ${JSON.stringify(result.errors)}`).toBe(true);
+    }
+
+    // Object.prototype-named variants (and the never-used "runner-loss")
+    // must structurally refuse with VARIANT_INVALID, not throw. Before the
+    // fix, VARIANT_KEY_RULES[document.variant] resolves an inherited
+    // Object.prototype member (e.g. the `constructor` function), which is
+    // truthy, so `[...variantRule.required]` spreads `undefined` and throws.
+    for (const variant of ["constructor", "toString", "hasOwnProperty", "valueOf", "__proto__", "runner-loss"]) {
+      const doc = withFreshDigest({ ...clone(VALID_SUCCESS), variant });
+      const result = validateProviderObjectDisposition(doc);
+      expect(result.ok, variant).toBe(false);
+      expect(result.errors).toContainEqual(expect.objectContaining({ code: "VARIANT_INVALID", path: "$.variant" }));
     }
 
     // Variant-only keys on another variant refuse.
@@ -245,6 +315,22 @@ describe("pins Decision 6728 Option B by class", () => {
         expect(stateResult.ok, `${className} success-state mutant`).toBe(false);
         expect(stateResult.errors).toContainEqual(
           expect.objectContaining({ code: "B3_NON_SUCCESS_STATE_IN_SUCCESS_VARIANT", class: className }),
+        );
+      } else {
+        // Classes 4 and 5 have permittedStates identical to successStates,
+        // so no B3 mutant exists for them. Pin STATE_NOT_PERMITTED_FOR_CLASS
+        // instead, using a state that is legal for a different class's row
+        // but not this one's.
+        const foreignRow = OPTION_B_CLASS_TABLE.find(
+          (otherRow) => otherRow.class !== className && !row.permittedStates.includes(otherRow.permittedStates[0]),
+        );
+        const offTableMutant = withFreshDigest(
+          patchClass(VALID_SUCCESS, className, { state: foreignRow.permittedStates[0] }),
+        );
+        const offTableResult = validateProviderObjectDisposition(offTableMutant);
+        expect(offTableResult.ok, `${className} off-table state mutant`).toBe(false);
+        expect(offTableResult.errors).toContainEqual(
+          expect.objectContaining({ code: "STATE_NOT_PERMITTED_FOR_CLASS", class: className }),
         );
       }
     }
@@ -388,6 +474,18 @@ describe("enforces time and cleanup precedence", () => {
       expect.objectContaining({ code: "NESTED_INSTANT_OUT_OF_WINDOW" }),
     );
 
+    // Stricter-than-spec lower bound (pinned intentionally): a nested
+    // instant before startedAt refuses too, not only one after finishedAt.
+    // #6733 only specifies the upper bound; do not loosen this casually.
+    const beforeStarted = withFreshDigest(
+      patchClass(VALID_SUCCESS, "uncaptured-payment-intent", { dispositionStartedAt: "2026-07-31T23:59:00Z" }),
+    );
+    const beforeStartedResult = validateProviderObjectDisposition(beforeStarted);
+    expect(beforeStartedResult.ok).toBe(false);
+    expect(beforeStartedResult.errors).toContainEqual(
+      expect.objectContaining({ code: "NESTED_INSTANT_OUT_OF_WINDOW" }),
+    );
+
     const elapsedOver = withFreshDigest({ ...clone(VALID_PRE_NETWORK_REFUSAL), finishedAt: "2026-08-02T00:00:01Z" });
     const elapsedOverResult = validateProviderObjectDisposition(elapsedOver);
     expect(elapsedOverResult.ok).toBe(false);
@@ -497,6 +595,15 @@ describe("enforces every Option B residue budget", () => {
       validateProviderObjectDisposition(knownOverBudget).ok,
       JSON.stringify(validateProviderObjectDisposition(knownOverBudget).errors),
     ).toBe(true);
+
+    // Reverse K1: labeling budget-exceeded without an actual overage
+    // refuses (the biconditional's other direction).
+    const falseOverageLabel = withFreshDigest({ ...clone(VALID_CLEANUP_FAILURE), failure: "budget-exceeded" });
+    const falseOverageLabelResult = validateProviderObjectDisposition(falseOverageLabel);
+    expect(falseOverageLabelResult.ok).toBe(false);
+    expect(falseOverageLabelResult.errors).toContainEqual(
+      expect.objectContaining({ code: "K1_BUDGET_EXCEEDED_WITHOUT_OVERAGE" }),
+    );
 
     // Mutant: accept caller budget 3 for class 6.
     const callerBudget3 = withFreshDigest(patchClass(VALID_SUCCESS, "stripe-account-session", { declaredBudget: 3 }));
@@ -608,6 +715,15 @@ describe("rejects identifier and diagnostic channels", () => {
       expect(result.errors.some((e) => e.code === "FORBIDDEN_PROVIDER_MARKER")).toBe(true);
     }
 
+    // Insertion breadth: the detector walks the whole document, so it must
+    // fire at a second, nested location too — not only windowId.
+    for (const marker of markers) {
+      const nestedDoc = patchClass(VALID_SUCCESS, "captured-payment-intent", { class: marker });
+      const nestedResult = validateProviderObjectDisposition(nestedDoc);
+      expect(nestedResult.ok, marker).toBe(false);
+      expect(nestedResult.errors.some((e) => e.code === "FORBIDDEN_PROVIDER_MARKER")).toBe(true);
+    }
+
     // Detector negative control: a benign enum value never trips it.
     expect(containsForbiddenProviderMarker("cancelled")).toBe(false);
     expect(containsForbiddenProviderMarker("creation-time-record")).toBe(false);
@@ -652,7 +768,7 @@ describe("derives the Option B terminal fixture once", () => {
     expect(scenarioNames).toEqual([
       "success",
       "preNetworkRefusal",
-      "partialEffectCompleteCleanup",
+      "cleanupFailurePartialEffect",
       "ambiguousUnknown",
       "postNetworkFailureLaterNotAttempted",
       "cleanupFailureAtPrecedenceBoundary",
@@ -668,16 +784,214 @@ describe("derives the Option B terminal fixture once", () => {
     expect(FIXTURE_RAW).not.toContain("self-expiring");
     expect(FIXTURE_RAW).not.toContain("probeReceiptDigest");
 
-    // Source census: no .mjs file in this directory hardcodes a second copy
-    // of the class table (a distinctive budgetScope literal that only the
-    // fixture may declare).
-    const mjsFiles = readdirSync(DIR).filter((name) => name.endsWith(".mjs") && !name.endsWith(".test.mjs"));
+    // Source census: no other artifact in this directory hardcodes a second
+    // copy of the class table. This scans every .mjs file, including this
+    // test file itself (closing the blind spot where a hardcoded table
+    // hidden in a test would previously evade detection) — using a
+    // fixture-derived telltale rather than the literal string keeps the
+    // census from matching its own detection code.
+    //
+    // provider-object-disposition-v1.schema.json is a deliberate, reviewed
+    // exception: F3 requires it to restate each row's consts to express
+    // declarative JSON Schema closure. That copy is guarded independently
+    // by the schema/fixture parity assertion below, not by this census.
+    const CLASS_TABLE_TELLTALE = OPTION_B_CLASS_TABLE[0].budgetScope;
+    const mjsFiles = readdirSync(DIR).filter((name) => name.endsWith(".mjs"));
     let occurrences = 0;
     for (const file of mjsFiles) {
       const source = readFileSync(`${DIR}${file}`, "utf8");
-      if (source.includes("per-confirmation-window")) occurrences += 1;
+      if (source.includes(CLASS_TABLE_TELLTALE)) occurrences += 1;
     }
     expect(occurrences).toBe(0);
+  });
+});
+
+// A minimal, bounded JSON Schema evaluator scoped to exactly the keywords
+// provider-object-disposition-v1.schema.json uses (type, properties,
+// additionalProperties, required, enum, const, pattern, minimum, maximum,
+// oneOf, allOf, $ref, prefixItems, items, minItems, maxItems). It is not a
+// general-purpose validator: draft-2020-12 keywords this schema does not use
+// (if/then/else, patternProperties, unevaluatedProperties, ...) are
+// intentionally unsupported and will throw rather than silently no-op.
+//
+// This exists in place of a real schema compiler (e.g. ajv) because ajv is
+// not resolvable from this workspace: it is only present transitively,
+// inside a sibling package's pnpm store, not as a root/workspace dependency,
+// so `import "ajv"` would fail here; adding it as a devDependency would
+// touch package.json and the lockfile outside this issue's declared
+// six-file footprint.
+function resolveSchemaRef(ref, defs) {
+  const key = ref.replace("#/$defs/", "");
+  if (!(key in defs)) throw new Error(`unresolved $ref ${ref}`);
+  return defs[key];
+}
+
+function matchesSchemaType(value, type) {
+  switch (type) {
+    case "object":
+      return value !== null && typeof value === "object" && !Array.isArray(value);
+    case "array":
+      return Array.isArray(value);
+    case "string":
+      return typeof value === "string";
+    case "integer":
+      return Number.isInteger(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "null":
+      return value === null;
+    default:
+      throw new Error(`unsupported type keyword ${type}`);
+  }
+}
+
+function evaluateSchema(schema, value, path, defs, errors) {
+  if (schema === false) {
+    errors.push(`${path}: forbidden (schema is \`false\`)`);
+    return;
+  }
+  if (schema === true || schema == null) return;
+
+  if ("$ref" in schema) {
+    evaluateSchema(resolveSchemaRef(schema.$ref, defs), value, path, defs, errors);
+    return;
+  }
+  if ("allOf" in schema) {
+    for (const sub of schema.allOf) evaluateSchema(sub, value, path, defs, errors);
+  }
+  if ("oneOf" in schema) {
+    const passCount = schema.oneOf.filter((sub) => {
+      const subErrors = [];
+      evaluateSchema(sub, value, path, defs, subErrors);
+      return subErrors.length === 0;
+    }).length;
+    if (passCount !== 1) errors.push(`${path}: oneOf matched ${passCount} branches (expected exactly 1)`);
+  }
+  if ("type" in schema) {
+    if (!matchesSchemaType(value, schema.type)) {
+      errors.push(`${path}: expected type ${schema.type}, got ${JSON.stringify(value)}`);
+      return;
+    }
+  }
+  if ("const" in schema && JSON.stringify(value) !== JSON.stringify(schema.const)) {
+    errors.push(`${path}: expected const ${JSON.stringify(schema.const)}, got ${JSON.stringify(value)}`);
+  }
+  if ("enum" in schema && !schema.enum.some((entry) => JSON.stringify(entry) === JSON.stringify(value))) {
+    errors.push(`${path}: ${JSON.stringify(value)} not in enum`);
+  }
+  if ("pattern" in schema && typeof value === "string" && !new RegExp(schema.pattern).test(value)) {
+    errors.push(`${path}: fails pattern ${schema.pattern}`);
+  }
+  if ("minimum" in schema && typeof value === "number" && value < schema.minimum) {
+    errors.push(`${path}: below minimum ${schema.minimum}`);
+  }
+  if ("maximum" in schema && typeof value === "number" && value > schema.maximum) {
+    errors.push(`${path}: above maximum ${schema.maximum}`);
+  }
+
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    if ("required" in schema) {
+      for (const key of schema.required) {
+        if (!(key in value)) errors.push(`${path}.${key}: required key missing`);
+      }
+    }
+    if ("properties" in schema) {
+      for (const [key, sub] of Object.entries(schema.properties)) {
+        if (key in value) evaluateSchema(sub, value[key], `${path}.${key}`, defs, errors);
+      }
+    }
+    if (schema.additionalProperties === false) {
+      const allowed = new Set(Object.keys(schema.properties || {}));
+      for (const key of Object.keys(value)) {
+        if (!allowed.has(key)) errors.push(`${path}.${key}: additional property not permitted`);
+      }
+    }
+  }
+
+  if (Array.isArray(value)) {
+    if ("minItems" in schema && value.length < schema.minItems) errors.push(`${path}: fewer than minItems`);
+    if ("maxItems" in schema && value.length > schema.maxItems) errors.push(`${path}: more than maxItems`);
+    if ("prefixItems" in schema) {
+      schema.prefixItems.forEach((sub, index) => {
+        if (index < value.length) evaluateSchema(sub, value[index], `${path}[${index}]`, defs, errors);
+      });
+      if (schema.items === false && value.length > schema.prefixItems.length) {
+        errors.push(`${path}: extra items beyond prefixItems`);
+      }
+    }
+  }
+}
+
+function evaluatesAgainstSchema(document) {
+  const errors = [];
+  evaluateSchema(SCHEMA, document, "$", SCHEMA.$defs, errors);
+  return errors;
+}
+
+describe("enforces the repaired checked-in JSON Schema structurally", () => {
+  it("accepts all seven fixture scenarios and refuses every closure-violating mutant", () => {
+    for (const [name, doc] of Object.entries(SCENARIO_FIXTURES)) {
+      const errors = evaluatesAgainstSchema(doc);
+      expect(errors, `${name}: ${JSON.stringify(errors)}`).toEqual([]);
+    }
+
+    // Unknown top-level key.
+    const unknownTopLevel = { ...clone(VALID_SUCCESS), unexpectedField: "x" };
+    expect(evaluatesAgainstSchema(unknownTopLevel).length).toBeGreaterThan(0);
+
+    // Unknown nested key.
+    const unknownNested = patchClass(VALID_SUCCESS, "captured-payment-intent", { unexpectedField: "x" });
+    expect(evaluatesAgainstSchema(unknownNested).length).toBeGreaterThan(0);
+
+    // Cross-variant key leakage on the success branch.
+    expect(evaluatesAgainstSchema({ ...clone(VALID_SUCCESS), refusal: "invalid-input" }).length).toBeGreaterThan(0);
+    expect(evaluatesAgainstSchema({ ...clone(VALID_SUCCESS), failure: "transport-failure" }).length).toBeGreaterThan(0);
+    expect(
+      evaluatesAgainstSchema({ ...clone(VALID_SUCCESS), lastCompletedPrecedenceOrdinal: null }).length,
+    ).toBeGreaterThan(0);
+
+    // Class-6 budget forced to 0.
+    const zeroBudget = patchClass(VALID_SUCCESS, "stripe-account-session", { declaredBudget: 0 });
+    expect(evaluatesAgainstSchema(zeroBudget).length).toBeGreaterThan(0);
+
+    // Class-6 cross-check correlationSource — forbidden by the allOf
+    // intersection narrowing it to {creation-time-record, not-applicable}.
+    const crossCheck = patchClass(VALID_SUCCESS, "stripe-account-session", {
+      correlationSource: "creation-time-record-plus-provider-cross-check",
+    });
+    expect(evaluatesAgainstSchema(crossCheck).length).toBeGreaterThan(0);
+
+    // Class-6 self-expiry: a state that exists in no branch's enum.
+    const selfExpiring = patchClass(VALID_SUCCESS, "stripe-account-session", { state: "self-expiring-proven" });
+    expect(evaluatesAgainstSchema(selfExpiring).length).toBeGreaterThan(0);
+
+    // Seven class entries: one more than the fixed six-slot prefixItems/minItems/maxItems.
+    const sevenEntries = clone(VALID_SUCCESS);
+    sevenEntries.classes.push({ ...sevenEntries.classes[0] });
+    expect(evaluatesAgainstSchema(sevenEntries).length).toBeGreaterThan(0);
+  });
+
+  it("keeps the schema's per-class consts in parity with the single fixture table", () => {
+    const branches = SCHEMA.properties.classes.prefixItems;
+    expect(branches).toHaveLength(OPTION_B_CLASS_TABLE.length);
+    branches.forEach((branch, index) => {
+      const row = OPTION_B_CLASS_TABLE[index];
+      const narrowing = branch.allOf[1].properties;
+      expect(narrowing.class.const, `row ${index} class`).toBe(row.class);
+      expect(narrowing.declaredBudget.const, `row ${index} declaredBudget`).toBe(row.declaredBudget);
+      expect(narrowing.budgetScope.const, `row ${index} budgetScope`).toBe(row.budgetScope);
+      expect(narrowing.precedenceOrdinal.const, `row ${index} precedenceOrdinal`).toBe(row.precedenceOrdinal);
+      expect([...narrowing.state.enum].sort(), `row ${index} state`).toEqual(
+        ["unknown", "not-attempted", ...row.permittedStates].sort(),
+      );
+    });
+  });
+
+  it("never lets a root oneOf branch reintroduce its own additionalProperties closure", () => {
+    expect(SCHEMA.additionalProperties).toBe(false);
+    for (const branch of SCHEMA.oneOf) {
+      expect("additionalProperties" in branch).toBe(false);
+    }
   });
 });
 
@@ -758,6 +1072,15 @@ describe("requires authoritative Stripe test mode", () => {
     expect(stagingResult.ok).toBe(false);
     expect(stagingResult.errors.some((e) => e.code === "TOP_LEVEL_KEY_MISSING" && e.path === "$.providerMode")).toBe(
       true,
+    );
+
+    // deploymentEnvironment: "production" is explicitly outside the closed
+    // set (dev/test/staging) and must refuse, not merely be undocumented.
+    const productionDoc = withFreshDigest({ ...clone(VALID_SUCCESS), deploymentEnvironment: "production" });
+    const productionResult = validateProviderObjectDisposition(productionDoc);
+    expect(productionResult.ok).toBe(false);
+    expect(productionResult.errors).toContainEqual(
+      expect.objectContaining({ code: "DEPLOYMENT_ENVIRONMENT_INVALID", path: "$.deploymentEnvironment" }),
     );
   });
 });
