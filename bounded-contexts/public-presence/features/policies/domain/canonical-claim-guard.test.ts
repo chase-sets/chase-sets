@@ -504,6 +504,9 @@ function validateCitationAuthority(row: CitationAuthorityRow, ref = row.ref): re
   if (slice.error !== undefined) {
     return [`${row.id} ${ref}: ${slice.error}`];
   }
+  if (slice.start === undefined || slice.end === undefined || slice.text === undefined) {
+    return [`${row.id} ${ref}: cited source slice was incomplete`];
+  }
   const errors: string[] = [];
   const identity = row.spanOf(row.identity);
   if (slice.start < identity.start || slice.end > identity.end) {
@@ -1354,7 +1357,12 @@ describe("line-keyed policy citation authority", () => {
         const identity = row.spanOf(row.identity);
         expect(identity, `${row.id} identity`).toEqual({ start: 11, end: 41 });
         const slice = readCitedSourceSlice(repoRoot, row.ref);
-        expect(slice.error, row.id).toBeUndefined();
+        if (slice.error !== undefined) {
+          throw new Error(`${row.id}: ${slice.error}`);
+        }
+        if (slice.text === undefined) {
+          throw new Error(`${row.id}: cited source slice was incomplete`);
+        }
         const lines = slice.text.split("\n");
         expect(lines[0], `${row.id} first line`).toContain(row.minimalEdges.first);
         expect(lines.at(-1), `${row.id} last line`).toContain(row.minimalEdges.last);
