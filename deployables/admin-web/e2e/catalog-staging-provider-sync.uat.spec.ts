@@ -2149,7 +2149,9 @@ test.describe("catalog staging provider sync UAT helpers", () => {
         expect(providerUnitRoleOf(journey.unitKey), `${line}: ${journey.unitKey}`).toBe("source-observation-import");
       }
     }
-    expect(promotableJourneysByLine.get("mtg")).not.toEqual(expect.arrayContaining(scryfallRepresentativeMtgJourneys));
+    expect(promotableJourneysByLine.get("mtg")).not.toEqual(
+      expect.arrayContaining([...scryfallRepresentativeMtgJourneys]),
+    );
   });
 
   test("staging-representative-catalog matrix promotion fails closed on a transient acknowledgment with no durable outcome", () => {
