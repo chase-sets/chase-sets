@@ -1,24 +1,26 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type {
-  CreatedProcessorPayment,
-  CreatedProcessorRefund,
-  CreatedProcessorCustomer,
-  CreatedProcessorSetupSession,
-  AgenticProcessorPaymentInput,
-  CreateProcessorCustomerInput,
-  CreateProcessorPaymentInput,
-  CreateProcessorRefundInput,
-  CreateProcessorSetupSessionInput,
-  PaymentProcessorGateway,
-  PaymentProcessorPublicConfig,
-  ProcessorDisputeEvidence,
-  ProcessorPaymentDisputeLifecycleState,
-  ProcessorPaymentReconciliationResult,
-  PaymentProcessorWebhookEvent,
-  ProcessorLiabilityShiftOutcome,
-  ProcessorThreeDSecureRequest,
-  ProcessorSavedPaymentMethod,
-  ProcessorSetupSessionResult,
+import {
+  type CreatedProcessorPayment,
+  type CreatedProcessorRefund,
+  type CreatedProcessorCustomer,
+  type CreatedProcessorSetupSession,
+  type AgenticProcessorPaymentInput,
+  type CreateProcessorCustomerInput,
+  type CreateProcessorPaymentInput,
+  type CreateProcessorRefundInput,
+  type CreateProcessorSetupSessionInput,
+  type PaymentProcessorGateway,
+  type PaymentProcessorPublicConfig,
+  type ProcessorDisputeEvidence,
+  type ProcessorPaymentDisputeLifecycleState,
+  type ProcessorPaymentReconciliationResult,
+  type PaymentProcessorWebhookEvent,
+  type ProcessorLiabilityShiftOutcome,
+  type ProcessorThreeDSecureRequest,
+  type ProcessorSavedPaymentMethod,
+  type ProcessorSetupSessionResult,
+  type ProcessorSetupSessionCancellationResult,
+  parseProcessorSetupSessionCancellationResult,
 } from "@chase-sets/payment-processing";
 import {
   ProviderAdapterError,
@@ -712,6 +714,36 @@ async function parseStripeResponse<T>(response: Response): Promise<T> {
   }
 
   return body as T;
+}
+
+const CANCELLABLE_SETUP_INTENT_STATUSES = new Set([
+  "requires_payment_method",
+  "requires_confirmation",
+  "requires_action",
+]);
+
+/**
+ * Maps a thrown Stripe request failure into the bounded, redacted setup-
+ * session cancellation refusal. Only the HTTP status crosses this boundary --
+ * `error.message` may carry Stripe's raw response text and is deliberately
+ * never read here.
+ */
+function setupSessionCancellationFailureFromError(error: unknown): ProcessorSetupSessionCancellationResult {
+  if (error instanceof ProviderAdapterError && typeof error.providerStatus === "number") {
+    if (error.providerStatus === 404) {
+      return parseProcessorSetupSessionCancellationResult({ outcome: "not-found" });
+    }
+    return parseProcessorSetupSessionCancellationResult({
+      outcome: "refused",
+      reason: "provider-rejected",
+      httpStatus: error.providerStatus,
+    });
+  }
+  return parseProcessorSetupSessionCancellationResult({
+    outcome: "refused",
+    reason: "transport-failure",
+    httpStatus: null,
+  });
 }
 
 function parseStripeSignature(signatureHeader: string | null) {
@@ -1448,6 +1480,58 @@ export function createStripePaymentProcessorGateway(
         setupIntentReference,
         savedPaymentMethod: await retrieveSetupIntentPaymentMethod(setupIntentReference),
       };
+    },
+    async cancelSetupSession(processorSetupReference: string): Promise<ProcessorSetupSessionCancellationResult> {
+      const reference = normalizeOptionalText(processorSetupReference);
+      if (!reference || !reference.startsWith("seti_")) {
+        return parseProcessorSetupSessionCancellationResult({
+          outcome: "refused",
+          reason: "invalid-reference",
+          httpStatus: null,
+        });
+      }
+
+      let setupIntent: StripeSetupIntentResponse;
+      try {
+        setupIntent = await stripeRequest<StripeSetupIntentResponse>(
+          `/v1/setup_intents/${encodeURIComponent(reference)}`,
+          { method: "GET" },
+        );
+      } catch (error) {
+        return setupSessionCancellationFailureFromError(error);
+      }
+
+      const status = setupIntent.status?.trim();
+      if (status === "canceled" || status === "succeeded") {
+        return parseProcessorSetupSessionCancellationResult({ outcome: "already-terminal", processorStatus: status });
+      }
+      if (!status || !CANCELLABLE_SETUP_INTENT_STATUSES.has(status)) {
+        return parseProcessorSetupSessionCancellationResult({
+          outcome: "refused",
+          reason: "unexpected-status",
+          httpStatus: 200,
+        });
+      }
+
+      let cancelled: StripeSetupIntentResponse;
+      try {
+        cancelled = await stripeRequest<StripeSetupIntentResponse>(
+          `/v1/setup_intents/${encodeURIComponent(reference)}/cancel`,
+          { method: "POST" },
+        );
+      } catch (error) {
+        return setupSessionCancellationFailureFromError(error);
+      }
+
+      if (cancelled.status?.trim() !== "canceled") {
+        return parseProcessorSetupSessionCancellationResult({
+          outcome: "refused",
+          reason: "unexpected-status",
+          httpStatus: 200,
+        });
+      }
+
+      return parseProcessorSetupSessionCancellationResult({ outcome: "cancelled", processorStatus: "canceled" });
     },
     retrieveSavedPaymentMethod: retrievePaymentMethod,
     async detachSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null> {

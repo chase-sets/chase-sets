@@ -15,6 +15,7 @@ function formSnapshot(body: BodyInit | null | undefined) {
 
 const contractWebhookSecret = "whsec_gateway_contract";
 let contractFetchMock = vi.fn();
+let contractSetupIntentCanceled = false;
 
 testPaymentProcessorGatewayContract(
   () =>
@@ -26,7 +27,18 @@ testPaymentProcessorGatewayContract(
     }),
   {
     prepare: () => {
+      contractSetupIntentCanceled = false;
       contractFetchMock = vi.fn(async (url: string) => {
+        if (url.includes("/v1/setup_intents/") && url.endsWith("/cancel")) {
+          contractSetupIntentCanceled = true;
+          return Response.json({ id: "seti_gateway_contract", status: "canceled" });
+        }
+        if (url.includes("/v1/setup_intents/")) {
+          return Response.json({
+            id: "seti_gateway_contract",
+            status: contractSetupIntentCanceled ? "canceled" : "requires_payment_method",
+          });
+        }
         if (url.includes("/v1/payment_intents/")) {
           return Response.json({ id: "pi_gateway_contract", status: "requires_payment_method", payment_method: null });
         }
@@ -1658,6 +1670,170 @@ describe("Stripe payment processor gateway", () => {
     );
     await expect(gateway.cancelPayment("cs_session")).rejects.toThrow("Only direct payment intents can be cancelled");
     vi.unstubAllGlobals();
+  });
+
+  it("refuses non-SetupIntent cancellation references before networking", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    const invalidReferences = ["pi_not_a_setup_intent", "cs_checkout_session", "", "   ", "unknown_prefix_123"];
+    for (const reference of invalidReferences) {
+      await expect(gateway.cancelSetupSession(reference)).resolves.toEqual({
+        outcome: "refused",
+        reason: "invalid-reference",
+        httpStatus: null,
+      });
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["requires_payment_method", "requires_confirmation", "requires_action"] as const)(
+    "cancels an eligible SetupIntent exactly once (%s)",
+    async (initialStatus) => {
+      const calls: string[] = [];
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (init?.method === "POST") {
+          return Response.json({ id: "seti_eligible", status: "canceled" });
+        }
+        return Response.json({ id: "seti_eligible", status: initialStatus });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const gateway = createStripePaymentProcessorGateway({
+        secretKey: "sk_test",
+        publishableKey: "pk_test",
+        webhookSecret: "whsec_test",
+        apiBaseUrl: "https://stripe.test",
+      });
+
+      await expect(gateway.cancelSetupSession("seti_eligible")).resolves.toEqual({
+        outcome: "cancelled",
+        processorStatus: "canceled",
+      });
+
+      expect(calls).toEqual([
+        "GET https://stripe.test/v1/setup_intents/seti_eligible",
+        "POST https://stripe.test/v1/setup_intents/seti_eligible/cancel",
+      ]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      vi.unstubAllGlobals();
+    },
+  );
+
+  it.each([
+    ["canceled" as const, "already-terminal" as const, "canceled" as const],
+    ["succeeded" as const, "already-terminal" as const, "succeeded" as const],
+  ])(
+    "does not write for terminal or unrecognized SetupIntent states (%s)",
+    async (initialStatus, expectedOutcome, expectedProcessorStatus) => {
+      let postCount = 0;
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          postCount += 1;
+        }
+        return Response.json({ id: "seti_terminal", status: initialStatus });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const gateway = createStripePaymentProcessorGateway({
+        secretKey: "sk_test",
+        publishableKey: "pk_test",
+        webhookSecret: "whsec_test",
+        apiBaseUrl: "https://stripe.test",
+      });
+
+      await expect(gateway.cancelSetupSession("seti_terminal")).resolves.toEqual({
+        outcome: expectedOutcome,
+        processorStatus: expectedProcessorStatus,
+      });
+      expect(postCount).toBe(0);
+      vi.unstubAllGlobals();
+    },
+  );
+
+  it("does not write for terminal or unrecognized SetupIntent states (unrecognized)", async () => {
+    let postCount = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+      }
+      return Response.json({ id: "seti_unknown", status: "processing" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(gateway.cancelSetupSession("seti_unknown")).resolves.toEqual({
+      outcome: "refused",
+      reason: "unexpected-status",
+      httpStatus: 200,
+    });
+    expect(postCount).toBe(0);
+    vi.unstubAllGlobals();
+  });
+
+  it("classifies setup cancellation failures without leaking provider text", async () => {
+    const providerMarker = "PROVIDER_LEAK_MARKER_6732";
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const gatewayOptions = {
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    };
+
+    const notFoundFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { message: `Setup intent missing ${providerMarker}` } }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", notFoundFetch);
+    await expect(
+      createStripePaymentProcessorGateway(gatewayOptions).cancelSetupSession("seti_missing"),
+    ).resolves.toEqual({ outcome: "not-found" });
+    vi.unstubAllGlobals();
+
+    const providerRejectedFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { message: `Card declined ${providerMarker}` } }), {
+          status: 402,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", providerRejectedFetch);
+    await expect(
+      createStripePaymentProcessorGateway(gatewayOptions).cancelSetupSession("seti_declined"),
+    ).resolves.toEqual({ outcome: "refused", reason: "provider-rejected", httpStatus: 402 });
+    vi.unstubAllGlobals();
+
+    const transportFailureFetch = vi.fn(async () => {
+      throw new Error(`Network unreachable ${providerMarker}`);
+    });
+    vi.stubGlobal("fetch", transportFailureFetch);
+    await expect(
+      createStripePaymentProcessorGateway(gatewayOptions).cancelSetupSession("seti_unreachable"),
+    ).resolves.toEqual({ outcome: "refused", reason: "transport-failure", httpStatus: null });
+    vi.unstubAllGlobals();
+
+    const loggedText = consoleErrorSpy.mock.calls
+      .flat()
+      .map((value) => (typeof value === "string" ? value : JSON.stringify(value)))
+      .join("\n");
+    expect(loggedText.includes(providerMarker)).toBe(false);
+    consoleErrorSpy.mockRestore();
   });
 
   it("rejects tampered webhook payloads even when the original payload was signed", async () => {

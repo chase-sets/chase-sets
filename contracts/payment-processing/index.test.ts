@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PaymentProcessorGateway } from ".";
+import type { PaymentProcessorGateway, ProcessorSetupSessionCancellationResult } from ".";
+import { parseProcessorSetupSessionCancellationResult } from ".";
 
 describe("payment processing contract", () => {
   it("keeps the processor port provider-neutral", () => {
@@ -38,6 +39,10 @@ describe("payment processing contract", () => {
         setupIntentReference: "seti_test",
         savedPaymentMethod: null,
       }),
+      cancelSetupSession: async () => ({
+        outcome: "cancelled",
+        processorStatus: "canceled",
+      }),
       retrieveSavedPaymentMethod: async () => null,
       detachSavedPaymentMethod: async () => null,
       cancelPayment: async (processorPaymentReference: string) => ({
@@ -63,5 +68,55 @@ describe("payment processing contract", () => {
       dynamicPaymentMethods: true,
       sensitivePaymentDetailsHandledByProcessor: true,
     });
+  });
+
+  it("closes the setup-session cancellation result", () => {
+    const validCases: readonly ProcessorSetupSessionCancellationResult[] = [
+      { outcome: "cancelled", processorStatus: "canceled" },
+      { outcome: "already-terminal", processorStatus: "canceled" },
+      { outcome: "already-terminal", processorStatus: "succeeded" },
+      { outcome: "not-found" },
+      { outcome: "refused", reason: "invalid-reference", httpStatus: null },
+      { outcome: "refused", reason: "provider-rejected", httpStatus: 402 },
+      { outcome: "refused", reason: "transport-failure", httpStatus: null },
+      { outcome: "refused", reason: "unexpected-status", httpStatus: 200 },
+    ];
+    for (const validCase of validCases) {
+      expect(parseProcessorSetupSessionCancellationResult(validCase)).toEqual(validCase);
+    }
+
+    const refusals: readonly Readonly<{ label: string; value: unknown }>[] = [
+      { label: "unknown key", value: { outcome: "not-found", extra: "x" } },
+      { label: "missing required key", value: { outcome: "cancelled" } },
+      { label: "out-of-enum outcome", value: { outcome: "voided" } },
+      { label: "out-of-enum reason", value: { outcome: "refused", reason: "mystery", httpStatus: null } },
+      {
+        label: "non-integer status",
+        value: { outcome: "refused", reason: "provider-rejected", httpStatus: 402.5 },
+      },
+      { label: "status below 100", value: { outcome: "refused", reason: "provider-rejected", httpStatus: 99 } },
+      { label: "status above 599", value: { outcome: "refused", reason: "provider-rejected", httpStatus: 600 } },
+      {
+        label: "invalid nullability (null where an integer is required)",
+        value: { outcome: "refused", reason: "provider-rejected", httpStatus: null },
+      },
+      {
+        label: "invalid nullability (integer where null is required)",
+        value: { outcome: "refused", reason: "invalid-reference", httpStatus: 400 },
+      },
+      {
+        label: "provider-shaped string",
+        value: {
+          outcome: "refused",
+          reason: "provider-rejected",
+          httpStatus: 402,
+          message: "Your card was declined.",
+        },
+      },
+      { label: "not an object", value: "cancelled" },
+    ];
+    for (const refusal of refusals) {
+      expect(() => parseProcessorSetupSessionCancellationResult(refusal.value)).toThrow();
+    }
   });
 });

@@ -118,6 +118,144 @@ export type ProcessorSetupSessionResult = Readonly<{
   savedPaymentMethod: ProcessorSavedPaymentMethod | null;
 }>;
 
+export type ProcessorSetupSessionCancellationRefusalReason =
+  | "invalid-reference"
+  | "provider-rejected"
+  | "transport-failure"
+  | "unexpected-status";
+
+/**
+ * Recursively closed and bounded: no optional, free-text, or identifier field
+ * is representable. `httpStatus` is `null` exactly for `invalid-reference` and
+ * `transport-failure`, and an integer `100..599` for every other refusal.
+ */
+export type ProcessorSetupSessionCancellationResult =
+  | Readonly<{ outcome: "cancelled"; processorStatus: "canceled" }>
+  | Readonly<{ outcome: "already-terminal"; processorStatus: "canceled" | "succeeded" }>
+  | Readonly<{ outcome: "not-found" }>
+  | Readonly<{
+      outcome: "refused";
+      reason: ProcessorSetupSessionCancellationRefusalReason;
+      httpStatus: number | null;
+    }>;
+
+const SETUP_SESSION_CANCELLATION_OUTCOMES = ["cancelled", "already-terminal", "not-found", "refused"] as const;
+const SETUP_SESSION_CANCELLATION_REFUSAL_REASONS = [
+  "invalid-reference",
+  "provider-rejected",
+  "transport-failure",
+  "unexpected-status",
+] as const;
+
+export class ProcessorSetupSessionCancellationResultError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "ProcessorSetupSessionCancellationResultError";
+  }
+}
+
+function failSetupSessionCancellationResult(path: string, detail: string): never {
+  throw new ProcessorSetupSessionCancellationResultError(
+    `Setup-session cancellation result '${path}' ${detail}.`,
+  );
+}
+
+function setupSessionCancellationResultBase(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    failSetupSessionCancellationResult("result", "must be an object");
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    failSetupSessionCancellationResult("result", "must be a plain object");
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireSetupSessionCancellationKeys(
+  record: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  path: string,
+): void {
+  for (const key of Object.keys(record)) {
+    if (!allowedKeys.includes(key)) {
+      failSetupSessionCancellationResult(path, `has unexpected field '${key}'`);
+    }
+  }
+  for (const key of allowedKeys) {
+    if (!(key in record)) {
+      failSetupSessionCancellationResult(path, `is missing required field '${key}'`);
+    }
+  }
+}
+
+function setupSessionCancellationHttpStatus(value: unknown, path: string, mustBeNull: boolean): number | null {
+  if (mustBeNull) {
+    if (value !== null) {
+      failSetupSessionCancellationResult(path, "must be null for this refusal reason");
+    }
+    return null;
+  }
+  if (!Number.isInteger(value) || (value as number) < 100 || (value as number) > 599) {
+    failSetupSessionCancellationResult(path, "must be an integer from 100 through 599 for this refusal reason");
+  }
+  return value as number;
+}
+
+/**
+ * The single runtime trust boundary for `cancelSetupSession` results. Every
+ * implementer constructs its return value through this parser rather than
+ * building the union by hand, so an unknown key, a missing key, an
+ * out-of-enum value, or an out-of-bounds status raises instead of silently
+ * widening the closed contract.
+ */
+export function parseProcessorSetupSessionCancellationResult(value: unknown): ProcessorSetupSessionCancellationResult {
+  const record = setupSessionCancellationResultBase(value);
+  const outcome = record.outcome;
+  if (typeof outcome !== "string" || !(SETUP_SESSION_CANCELLATION_OUTCOMES as readonly string[]).includes(outcome)) {
+    failSetupSessionCancellationResult("result.outcome", "must be one of the recognized cancellation outcomes");
+  }
+
+  switch (outcome as (typeof SETUP_SESSION_CANCELLATION_OUTCOMES)[number]) {
+    case "cancelled": {
+      requireSetupSessionCancellationKeys(record, ["outcome", "processorStatus"], "result");
+      if (record.processorStatus !== "canceled") {
+        failSetupSessionCancellationResult("result.processorStatus", "must be 'canceled' for a cancelled outcome");
+      }
+      return { outcome: "cancelled", processorStatus: "canceled" };
+    }
+    case "already-terminal": {
+      requireSetupSessionCancellationKeys(record, ["outcome", "processorStatus"], "result");
+      if (record.processorStatus !== "canceled" && record.processorStatus !== "succeeded") {
+        failSetupSessionCancellationResult(
+          "result.processorStatus",
+          "must be 'canceled' or 'succeeded' for an already-terminal outcome",
+        );
+      }
+      return { outcome: "already-terminal", processorStatus: record.processorStatus };
+    }
+    case "not-found": {
+      requireSetupSessionCancellationKeys(record, ["outcome"], "result");
+      return { outcome: "not-found" };
+    }
+    case "refused": {
+      requireSetupSessionCancellationKeys(record, ["outcome", "reason", "httpStatus"], "result");
+      const reason = record.reason;
+      if (
+        typeof reason !== "string" ||
+        !(SETUP_SESSION_CANCELLATION_REFUSAL_REASONS as readonly string[]).includes(reason)
+      ) {
+        failSetupSessionCancellationResult("result.reason", "must be one of the recognized refusal reasons");
+      }
+      const typedReason = reason as ProcessorSetupSessionCancellationRefusalReason;
+      const mustBeNull = typedReason === "invalid-reference" || typedReason === "transport-failure";
+      const httpStatus = setupSessionCancellationHttpStatus(record.httpStatus, "result.httpStatus", mustBeNull);
+      return { outcome: "refused", reason: typedReason, httpStatus };
+    }
+    default:
+      return failSetupSessionCancellationResult("result.outcome", "is not a recognized cancellation outcome");
+  }
+}
+
 export type AgenticPaymentHandlerDeclaration = Readonly<{
   id: "stripe-shared-payment-token";
   provider: "stripe";
@@ -268,6 +406,14 @@ export interface PaymentProcessorGateway {
   createCustomer(input: CreateProcessorCustomerInput): Promise<CreatedProcessorCustomer>;
   createSetupSession(input: CreateProcessorSetupSessionInput): Promise<CreatedProcessorSetupSession>;
   retrieveSetupSessionResult(processorSetupReference: string): Promise<ProcessorSetupSessionResult>;
+  /**
+   * Cancels a SetupIntent-backed setup session for test-mode cleanup. Distinct
+   * from `cancelPayment`: neither method accepts the other's reference class.
+   * Never throws for a recognized failure mode -- every outcome, including
+   * provider and transport failures, is represented in the returned closed
+   * union.
+   */
+  cancelSetupSession(processorSetupReference: string): Promise<ProcessorSetupSessionCancellationResult>;
   retrieveSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
   detachSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
   /**

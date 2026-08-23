@@ -122,6 +122,10 @@ function createProcessorGateway() {
       setupIntentReference: "seti_setup",
       savedPaymentMethod: null,
     })),
+    cancelSetupSession: vi.fn(async () => ({
+      outcome: "cancelled" as const,
+      processorStatus: "canceled" as const,
+    })),
     retrieveSavedPaymentMethod: vi.fn(async () => null),
     detachSavedPaymentMethod: vi.fn(async () => null),
     cancelPayment: vi.fn(async (processorPaymentReference: string) => ({
@@ -923,6 +927,9 @@ describe("payment runtime", () => {
         setupIntentReference: "seti_setup",
         savedPaymentMethod: null,
       })),
+      cancelSetupSession: vi.fn(async () => {
+        throw new Error("Setup-session cancellation is not part of this test.");
+      }),
       retrieveSavedPaymentMethod: vi.fn(async () => null),
       detachSavedPaymentMethod: vi.fn(async () => null),
       cancelPayment: vi.fn(async () => {

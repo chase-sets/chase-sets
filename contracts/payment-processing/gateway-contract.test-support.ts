@@ -68,5 +68,25 @@ export function testPaymentProcessorGatewayContract(
         processorStatus: expect.any(String),
       });
     });
+
+    it("payment processor gateway setup-session cancellation contract", async () => {
+      const gateway = await createPreparedGateway();
+
+      await expect(gateway.cancelSetupSession("pi_gateway_contract")).resolves.toEqual({
+        outcome: "refused",
+        reason: "invalid-reference",
+        httpStatus: null,
+      });
+
+      const reference = "seti_gateway_contract";
+      await expect(gateway.cancelSetupSession(reference)).resolves.toEqual({
+        outcome: "cancelled",
+        processorStatus: "canceled",
+      });
+      await expect(gateway.cancelSetupSession(reference)).resolves.toEqual({
+        outcome: "already-terminal",
+        processorStatus: "canceled",
+      });
+    });
   });
 }

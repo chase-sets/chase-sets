@@ -7,6 +7,7 @@ import type {
   PaymentProcessorWebhookEvent,
   ProcessorPaymentReconciliationResult,
   ProcessorSavedPaymentMethod,
+  ProcessorSetupSessionCancellationResult,
 } from "./index";
 
 type FakeWebhookEnvelope = Readonly<{
@@ -54,6 +55,7 @@ export function createFakePaymentProcessorGateway(
 ): PaymentProcessorGateway {
   const paymentResults = new Map(Object.entries(options.paymentResults ?? {}));
   const paymentResultsByPaymentId = new Map(Object.entries(options.paymentResultsByPaymentId ?? {}));
+  const setupSessionCancellationStates = new Map<string, "canceled" | "succeeded">();
 
   return {
     getPublicConfiguration() {
@@ -92,6 +94,18 @@ export function createFakePaymentProcessorGateway(
         setupIntentReference: `seti_${processorSetupReference}`,
         savedPaymentMethod: fakeSavedPaymentMethod(`pm_${processorSetupReference}`, "cus_seed"),
       };
+    },
+    async cancelSetupSession(processorSetupReference): Promise<ProcessorSetupSessionCancellationResult> {
+      const reference = processorSetupReference.trim();
+      if (!reference || !reference.startsWith("seti_")) {
+        return { outcome: "refused", reason: "invalid-reference", httpStatus: null };
+      }
+      const existingStatus = setupSessionCancellationStates.get(reference);
+      if (existingStatus) {
+        return { outcome: "already-terminal", processorStatus: existingStatus };
+      }
+      setupSessionCancellationStates.set(reference, "canceled");
+      return { outcome: "cancelled", processorStatus: "canceled" };
     },
     async retrieveSavedPaymentMethod(providerReference) {
       return fakeSavedPaymentMethod(providerReference);
