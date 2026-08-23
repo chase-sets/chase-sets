@@ -390,7 +390,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           "State the adult-marketplace facts (18+ contractual requirement, no age gate) and reserve children's-privacy conclusions and commitments for counsel.",
         decisionRefs: [5679],
         productTruthRefs: [
-          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345",
+          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370",
           "bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
         ],
         openQuestions: [
@@ -402,7 +402,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
             assertion:
               "The Terms of Service eligibility draft requires account holders to be at least 18; registration collects no age or date-of-birth field.",
             evidenceRef:
-              "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+              "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
           },
         ],
       },

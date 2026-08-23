@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { canonicalClaimRegistry, resolveUnresolvedPublicDisclosureText } from "./canonical-claims";
 import {
   evaluateTermsOfServicePublicationReadiness,
   requiredTermsOfServiceSubjectIds,
@@ -41,6 +42,89 @@ function termsIdentityCitations() {
     },
   ];
 }
+
+const agentResponsibilityClaimId = "authorized-agent-principal-responsibility-and-liability-boundary";
+const agentAccessAndAccountSanctionClaimId = "agent-access-and-agent-caused-account-sanction-boundary";
+
+function termsSection(sectionId: TermsOfServiceSubjectId) {
+  const section = termsOfServicePolicyArtifact.sections.find((candidate) => candidate.id === sectionId);
+  if (section === undefined) {
+    throw new Error(`Terms of Service artifact is missing section '${sectionId}'.`);
+  }
+  return section;
+}
+
+/**
+ * Before/after sentence table for the two sections that carried the
+ * authorized-agent responsibility boundary in public draft text.
+ *
+ * `before` records the exact prose each sentence had prior to this change and
+ * is documentation for review; `after` is asserted. A sentence whose `after`
+ * equals its `before` must be byte-identical — the change is allowed to touch
+ * exactly one sentence per section and nothing else.
+ */
+const agentBoundarySentenceTable = [
+  {
+    sectionId: "electronic-agents-and-automated-access",
+    label: "MCP interface, developer portal, and bounded permission grant",
+    before:
+      "Chase Sets publishes a Model Context Protocol interface and a developer portal (chasesets.com/developers) that let you authorize a software agent to act on your Account within a bounded set of permissions you grant.",
+    after:
+      "Chase Sets publishes a Model Context Protocol interface and a developer portal (chasesets.com/developers) that let you authorize a software agent to act on your Account within a bounded set of permissions you grant.",
+  },
+  {
+    sectionId: "electronic-agents-and-automated-access",
+    label: "Agent Connector Terms incorporation and conflict rule",
+    before:
+      "Automated or agent access to Chase Sets is governed by the Agent Connector Terms (chasesets.com/agent-terms) in addition to these Terms; where the two conflict on automated-access-specific subjects, the Agent Connector Terms control.",
+    after:
+      "Automated or agent access to Chase Sets is governed by the Agent Connector Terms (chasesets.com/agent-terms) in addition to these Terms; where the two conflict on automated-access-specific subjects, the Agent Connector Terms control.",
+  },
+  {
+    sectionId: "eligibility-and-accounts",
+    label: "Minimum age and contracting capacity",
+    before: "You must be at least 18 years old and able to form a binding contract to create a Chase Sets Account.",
+    after: "You must be at least 18 years old and able to form a binding contract to create a Chase Sets Account.",
+  },
+  {
+    sectionId: "eligibility-and-accounts",
+    label: "Bounded holder duties: registration accuracy, contact currency, credential safeguarding",
+    before:
+      "You are responsible for the accuracy of the information you provide when you register, for keeping your contact information current, and for safeguarding your credentials, including any password, passkey, or API key, and for all activity conducted through your Account.",
+    after:
+      "You are responsible for the accuracy of the information you provide when you register, for keeping your contact information current, and for safeguarding your credentials, including any password, passkey, or API key.",
+  },
+  {
+    sectionId: "eligibility-and-accounts",
+    label: "Registration screening",
+    before:
+      "Chase Sets may screen registration and decline, delay, or condition an Account, including through an invitation or waitlist process.",
+    after:
+      "Chase Sets may screen registration and decline, delay, or condition an Account, including through an invitation or waitlist process.",
+  },
+  {
+    sectionId: "eligibility-and-accounts",
+    label: "Compromise notification",
+    before:
+      "Notify Chase Sets promptly through a Support Request if you believe your Account or credentials have been compromised.",
+    after:
+      "Notify Chase Sets promptly through a Support Request if you believe your Account or credentials have been compromised.",
+  },
+] as const satisfies readonly Readonly<{
+  sectionId: TermsOfServiceSubjectId;
+  label: string;
+  before: string;
+  after: string;
+}>[];
+
+/** The whole sentence deleted from the agent subject. */
+const deletedAgentBoundarySentence =
+  "You remain responsible for actions your authorized agent takes on your Account, and Chase Sets may suspend " +
+  "an agent's access, or your Account, for activity that violates these Terms, the Agent Connector Terms, or " +
+  "an incorporated policy.";
+
+/** The clause removed from the account subject's responsibility sentence. */
+const deletedAccountActivityClause = "and for all activity conducted through your Account";
 
 describe("Terms of Service policy artifact", () => {
   it.each(termsIdentityCitations())("resolves the Identity $name citation to its claimed symbols", (row) => {
@@ -172,5 +256,226 @@ describe("Terms of Service policy artifact", () => {
     });
 
     expect(readiness).toEqual({ ready: true, errors: [] });
+  });
+});
+describe("authorized-agent responsibility and access boundary", () => {
+  it("reconstructs both edited sections exactly from the before/after sentence table", () => {
+    for (const sectionId of ["electronic-agents-and-automated-access", "eligibility-and-accounts"] as const) {
+      const rows = agentBoundarySentenceTable.filter((row) => row.sectionId === sectionId);
+      expect(rows.length).toBeGreaterThan(0);
+
+      // Exact equality, not containment: the section is the table and nothing
+      // else, so an added sentence fails here even if every listed sentence
+      // still survives verbatim.
+      expect(termsSection(sectionId).draftText).toBe(rows.map((row) => row.after).join(" "));
+    }
+  });
+
+  it("keeps every sentence outside the two edited ones byte-identical to its prior prose", () => {
+    const changed = agentBoundarySentenceTable.filter((row) => row.before !== row.after);
+
+    expect(changed.map((row) => `${row.sectionId}: ${row.label}`)).toEqual([
+      "eligibility-and-accounts: Bounded holder duties: registration accuracy, contact currency, credential safeguarding",
+    ]);
+    for (const row of agentBoundarySentenceTable) {
+      if (row.before === row.after) {
+        expect(termsSection(row.sectionId).draftText).toContain(row.before);
+      }
+    }
+  });
+
+  it("removed the agent-responsibility sentence and the all-activity clause from public draft text", () => {
+    const agentSection = termsSection("electronic-agents-and-automated-access");
+    const eligibilitySection = termsSection("eligibility-and-accounts");
+
+    expect(agentSection.draftText).not.toContain(deletedAgentBoundarySentence);
+    expect(agentSection.draftText.toLowerCase()).not.toContain("you remain responsible");
+    expect(agentSection.draftText.toLowerCase()).not.toContain("suspend an agent's access");
+    expect(eligibilitySection.draftText).not.toContain(deletedAccountActivityClause);
+    expect(eligibilitySection.draftText.toLowerCase()).not.toContain("all activity conducted through your account");
+  });
+
+  it("retains the registration-accuracy, contact-currency, and credential-safeguarding duties in the bounded clause", () => {
+    const draftText = termsSection("eligibility-and-accounts").draftText;
+
+    expect(draftText).toContain("the accuracy of the information you provide when you register");
+    expect(draftText).toContain("keeping your contact information current");
+    expect(draftText).toContain("safeguarding your credentials, including any password, passkey, or API key");
+  });
+
+  it("states no responsibility posture for authorized-agent activity in either direction", () => {
+    const lowered = termsSection("eligibility-and-accounts").draftText.toLowerCase();
+
+    // The extent is declined, not decided: the section must not assign
+    // responsibility for agent activity, and must not disclaim it either.
+    for (const phrase of [
+      "agent",
+      "automated",
+      "not responsible",
+      "no responsibility",
+      "responsible for all",
+      "all activity",
+    ]) {
+      expect(lowered).not.toContain(phrase);
+    }
+  });
+
+  it("enrolls exactly three claim disclosures across exactly two sections, each mirrored in its manifest", () => {
+    const enrolled = termsOfServicePolicyArtifact.sections.flatMap((section) =>
+      (section.claimDisclosures ?? [])
+        .filter(
+          (disclosure) =>
+            disclosure.claimId === agentResponsibilityClaimId ||
+            disclosure.claimId === agentAccessAndAccountSanctionClaimId,
+        )
+        .map((disclosure) => ({ sectionId: section.id, claimId: disclosure.claimId })),
+    );
+
+    expect(enrolled).toEqual([
+      { sectionId: "eligibility-and-accounts", claimId: agentResponsibilityClaimId },
+      { sectionId: "electronic-agents-and-automated-access", claimId: agentResponsibilityClaimId },
+      { sectionId: "electronic-agents-and-automated-access", claimId: agentAccessAndAccountSanctionClaimId },
+    ]);
+
+    for (const { sectionId, claimId } of enrolled) {
+      const section = termsSection(sectionId as TermsOfServiceSubjectId);
+      const claimRef = (section.reviewManifest.canonicalClaims ?? []).find(
+        (candidate) => candidate.claimId === claimId,
+      );
+
+      expect(claimRef, `${sectionId} must mirror ${claimId} in its review manifest`).toBeDefined();
+      expect(claimRef?.productTruthRefs).toEqual([]);
+      expect(section.reviewManifest.openQuestions.length).toBeGreaterThan(0);
+      expect(section.reviewStatus).toBe("counsel-required");
+    }
+  });
+
+  it("carries an explicit counsel question for each enrolled proposition", () => {
+    const eligibilityQuestions = termsSection("eligibility-and-accounts").reviewManifest.openQuestions.join(" ");
+    const agentQuestions = termsSection("electronic-agents-and-automated-access").reviewManifest.openQuestions.join(
+      " ",
+    );
+
+    expect(eligibilityQuestions).toContain("Counsel question:");
+    expect(eligibilityQuestions.toLowerCase()).toContain("authorized software agent's activity");
+    expect(agentQuestions.match(/Counsel question:/g)).toHaveLength(2);
+    expect(agentQuestions.toLowerCase()).toContain("responsibility or liability");
+    expect(agentQuestions.toLowerCase()).toContain("suspended or revoked");
+  });
+
+  it("registers both identities as unresolved with one status and provenance and no product truth", () => {
+    for (const claimId of [agentResponsibilityClaimId, agentAccessAndAccountSanctionClaimId] as const) {
+      const definition = canonicalClaimRegistry[claimId];
+
+      expect(definition.status).toBe("unresolved");
+      expect(definition.productTruthRefs).toEqual([]);
+      expect(definition.requiredEvidenceKeywords).toEqual([]);
+      expect(definition.forbiddenAssertionPhrases).toHaveLength(5);
+    }
+
+    expect(resolveUnresolvedPublicDisclosureText(agentResponsibilityClaimId)).toBe(
+      "The extent to which an account holder is responsible or liable for actions taken by an authorized agent " +
+        "remains unresolved pending qualified counsel review.",
+    );
+    expect(resolveUnresolvedPublicDisclosureText(agentAccessAndAccountSanctionClaimId)).toBe(
+      "The grounds, process, and consequences for suspending or revoking agent access, and for suspending, " +
+        "restricting, or closing an Account because of agent conduct, remain unresolved pending qualified counsel " +
+        "review.",
+    );
+
+    expect(canonicalClaimRegistry[agentResponsibilityClaimId].description).toBe(
+      "Whether, and how far, an account holder is responsible or liable for actions an authorized software agent " +
+        "takes on the Account is not yet supported by any ratified product-truth source; it remains an explicit " +
+        "open question pending qualified counsel confirmation before publication, not a productTruthRef-backed fact.",
+    );
+    expect(canonicalClaimRegistry[agentAccessAndAccountSanctionClaimId].description).toBe(
+      "Whether, on what grounds, and with what process and consequences Chase Sets may suspend or revoke an " +
+        "authorized software agent's access, and may separately suspend, restrict, close or otherwise sanction the " +
+        "underlying Account because of that agent's conduct is not yet supported by any ratified product-truth " +
+        "source; it remains an explicit open question pending qualified counsel confirmation before publication, " +
+        "not a productTruthRef-backed fact.",
+    );
+  });
+
+  it("maps both isolated P-B controls to the one two-branch canonical identity", () => {
+    const coverage = [
+      {
+        control: "credential/access disablement",
+        draftText:
+          "Chase Sets may disable a delegated program's credentials whenever its conduct violates these rules.",
+        claimId: agentAccessAndAccountSanctionClaimId,
+      },
+      {
+        control: "agent-caused Account lock",
+        draftText: "If an automated delegate breaks an incorporated rule, Chase Sets can lock the profile it uses.",
+        claimId: agentAccessAndAccountSanctionClaimId,
+      },
+    ] as const;
+
+    expect(coverage.map(({ control, claimId }) => ({ control, claimId }))).toEqual([
+      { control: "credential/access disablement", claimId: agentAccessAndAccountSanctionClaimId },
+      { control: "agent-caused Account lock", claimId: agentAccessAndAccountSanctionClaimId },
+    ]);
+    expect(coverage.every(({ draftText }) => draftText.length > 0)).toBe(true);
+  });
+
+  it("requires claim 2's id, description, disclosure, and isolated controls to cover both P-B branches", () => {
+    const definition = canonicalClaimRegistry[agentAccessAndAccountSanctionClaimId];
+    const components = [
+      {
+        name: "id",
+        text: agentAccessAndAccountSanctionClaimId,
+        agentAccess: (text: string) => text.includes("agent-access"),
+        accountSanction: (text: string) => text.includes("agent-caused-account-sanction"),
+      },
+      {
+        name: "description",
+        text: definition.description,
+        agentAccess: (text: string) => text.includes("agent's access"),
+        accountSanction: (text: string) =>
+          text.includes("underlying Account") && text.includes("because of that agent's conduct"),
+      },
+      {
+        name: "disclosure",
+        text: definition.unresolvedPublicDisclosure!,
+        agentAccess: (text: string) => text.includes("agent access"),
+        accountSanction: (text: string) => text.includes("Account because of agent conduct"),
+      },
+    ] as const;
+
+    for (const component of components) {
+      expect(component.agentAccess(component.text), `${component.name}: agent-access branch`).toBe(true);
+      expect(component.accountSanction(component.text), `${component.name}: agent-caused Account-sanction branch`).toBe(
+        true,
+      );
+    }
+
+    const accessOnlyIdMutant = "agent-access-suspension-and-revocation-boundary";
+    expect(components[0].agentAccess(accessOnlyIdMutant)).toBe(true);
+    expect(components[0].accountSanction(accessOnlyIdMutant)).toBe(false);
+
+    const accessOnlyDescriptionMutant =
+      "Whether, on what grounds, and with what process and consequences Chase Sets may suspend or revoke an " +
+      "authorized software agent's access is not yet supported by any ratified product-truth source.";
+    expect(components[1].agentAccess(accessOnlyDescriptionMutant)).toBe(true);
+    expect(components[1].accountSanction(accessOnlyDescriptionMutant)).toBe(false);
+
+    expect(definition.unresolvedPublicDisclosure).toBe(
+      canonicalClaimRegistry[agentAccessAndAccountSanctionClaimId].unresolvedPublicDisclosure,
+    );
+    expect(
+      termsOfServicePolicyArtifact.sections
+        .flatMap((section) => section.claimDisclosures ?? [])
+        .filter(({ claimId }) => claimId === agentAccessAndAccountSanctionClaimId),
+    ).toHaveLength(1);
+  });
+
+  it("keeps the artifact non-effective, non-activatable, and counsel-review-required", () => {
+    expect(termsOfServicePolicyArtifact.metadata).toMatchObject({
+      publicationStatus: "counsel-review-required",
+      effectiveAt: null,
+      counselApprovalReference: null,
+    });
+    expect(evaluateTermsOfServicePublicationReadiness(termsOfServicePolicyArtifact).ready).toBe(false);
   });
 });
