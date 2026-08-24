@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SettlementDomainError } from "../../../support/runtime-support/common";
 import {
   assertPayoutAmountWithinPolicy,
   capPayoutAmountToPolicy,
@@ -63,6 +64,61 @@ describe("settlement payout-bounds policy", () => {
   it("caps a requested amount to the resolved maximum", () => {
     expect(capPayoutAmountToPolicy("999999.00", { maximumAmount: "50.00" })).toBe("50.00");
     expect(capPayoutAmountToPolicy("10.00", { maximumAmount: "50.00" })).toBe("10.00");
+  });
+
+  it("cap payout amount to policy requested amount matrix", () => {
+    const cases = [
+      ["", "0.00"],
+      ["abc", "0.00"],
+      ["0.00", "0.00"],
+      ["-5.00", "0.00"],
+      ["10.005", "0.00"],
+      ["+10.00", "0.00"],
+      ["1e2", "0.00"],
+      ["10.00abc", "0.00"],
+      ["999999.00", "10000.00"],
+      ["99999999999.00", "0.00"],
+      ["10.00", "10.00"],
+    ] as const;
+
+    for (const [amount, expected] of cases) {
+      const result = capPayoutAmountToPolicy(amount);
+      expect(result, amount).toBe(expected);
+      expect(result, amount).toMatch(/^\d+\.\d{2}$/);
+    }
+  });
+
+  it("cap payout amount to policy rejects a non-canonical policy maximum", () => {
+    const invalidShapeOrRange = ["", "abc", "-5.00", "10.005", "+10.00", "1e2", "10.00abc", "99999999999.00"];
+
+    for (const maximumAmount of invalidShapeOrRange) {
+      let rejection: unknown;
+      try {
+        capPayoutAmountToPolicy("10.00", { maximumAmount });
+      } catch (error) {
+        rejection = error;
+      }
+      expect(rejection, maximumAmount).toBeInstanceOf(SettlementDomainError);
+      expect(rejection, maximumAmount).toMatchObject({
+        name: "SettlementDomainError",
+        message: "Payout maximum amount must be a valid decimal.",
+      });
+    }
+
+    let zeroRejection: unknown;
+    try {
+      capPayoutAmountToPolicy("10.00", { maximumAmount: "0.00" });
+    } catch (error) {
+      zeroRejection = error;
+    }
+    expect(zeroRejection).toBeInstanceOf(SettlementDomainError);
+    expect(zeroRejection).toMatchObject({
+      name: "SettlementDomainError",
+      message: "Payout maximum amount must be greater than zero.",
+    });
+
+    expect(capPayoutAmountToPolicy("10.00", { maximumAmount: "999999.00" })).toBe("10.00");
+    expect(capPayoutAmountToPolicy("999999.00", { maximumAmount: "10000.00" })).toBe("10000.00");
   });
 
   it("resolves the minimum-amount shortcut from the resolved policy", () => {

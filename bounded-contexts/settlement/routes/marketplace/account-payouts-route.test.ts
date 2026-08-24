@@ -131,6 +131,72 @@ describe("Seller Desk money route", () => {
     });
   });
 
+  it("payout preview resolves the full-available shortcut through the route action", async () => {
+    const previewPayout = vi.fn(async () => ({
+      can_request: true,
+      estimated_wallet_balance_after: "0.00",
+      unavailable_reason_details: [],
+    }));
+    mockRequireActorFromAuthApi.mockResolvedValue(actor(["payouts.view", "payouts.request"]));
+    mockCreateSettlementRequestApiClient.mockReturnValue({ previewPayout });
+
+    for (const [availableAmount, expectedAmount] of [
+      ["999999.00", "10000.00"],
+      ["10.005", "0.00"],
+      ["99999999999.00", "0.00"],
+    ] as const) {
+      const result = await action({
+        request: formRequest(
+          new URLSearchParams({
+            intent: "preview-payout",
+            quickAmount: "available",
+            availableAmount,
+          }),
+        ),
+        params: {},
+        context: undefined,
+      } as never);
+
+      expect(previewPayout).toHaveBeenLastCalledWith({ amount: expectedAmount });
+      expect(result).toMatchObject({ confirmation: { amount: expectedAmount } });
+      expect(previewPayout).not.toHaveBeenLastCalledWith({ amount: availableAmount });
+    }
+
+    const manualResult = await action({
+      request: formRequest(new URLSearchParams({ intent: "preview-payout", amount: "12.50" })),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(previewPayout).toHaveBeenLastCalledWith({ amount: "12.50" });
+    expect(manualResult).toMatchObject({ confirmation: { amount: "12.50" } });
+
+    await action({
+      request: formRequest(
+        new URLSearchParams({
+          intent: "preview-payout",
+          quickAmount: "available",
+          renamedAvailableAmount: "999999.00",
+        }),
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(previewPayout).toHaveBeenLastCalledWith({ amount: "0.00" });
+
+    await action({
+      request: formRequest(
+        new URLSearchParams({
+          intent: "preview-payout",
+          renamedQuickAmount: "available",
+          availableAmount: "999999.00",
+        }),
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(previewPayout).toHaveBeenLastCalledWith({ amount: "" });
+  });
+
   it("queues the settlement reconciliation workflow for a retry action", async () => {
     const runPayoutReconciliation = vi.fn(async () => ({ progress: { message: "Payout retry queued." } }));
     mockRequireActorFromAuthApi.mockResolvedValue(actor(["payouts.view", "payouts.reconcile"]));
