@@ -679,6 +679,9 @@ describeDb("postgres event store real database integration", () => {
     await appendEvents(store, "catalog.item-included-1", "tenant_a", [
       ["catalog.item.created", { itemId: "included-1" }],
     ]);
+    await appendEvents(store, "catalog.category-wrong-prefix", "tenant_a", [
+      ["catalog.item.created", { itemId: "wrong-prefix" }],
+    ]);
     await appendEvents(store, "catalog.item-wrong-type", "tenant_a", [
       ["catalog.item.updated", { itemId: "wrong-type" }],
     ]);
@@ -689,6 +692,15 @@ describeDb("postgres event store real database integration", () => {
     await appendEvents(store, "catalog.item-above-horizon", "tenant_a", [
       ["catalog.item.created", { itemId: "above-horizon" }],
     ]);
+    const readQueries: { sql: string; params: readonly unknown[] }[] = [];
+    const recordingPool: PgTransactionalPool = {
+      query: (async (sql: string, params: readonly unknown[] = []) => {
+        readQueries.push({ sql, params });
+        return schema.pool.query(sql, params);
+      }) as PgTransactionalPool["query"],
+      connect: () => schema.pool.connect(),
+    };
+    const recordingStore = createPostgresEventStore({ pool: recordingPool, createEventId });
 
     const input = {
       afterGlobalPosition: "1" as never,
@@ -698,19 +710,34 @@ describeDb("postgres event store real database integration", () => {
       streamPrefixes: ["catalog.item-"],
       limit: 10,
     } as const;
-    const page = await store.readAll(input);
+    const page = await recordingStore.readAll(input);
 
     expect(input).toEqual({
       afterGlobalPosition: "1",
-      atOrBeforeGlobalPosition: "5",
+      atOrBeforeGlobalPosition: "6",
       tenantId: "tenant_a",
       eventTypes: ["catalog.item.created"],
       streamPrefixes: ["catalog.item-"],
       limit: 10,
     });
-    expect(page.map((event) => event.globalPosition)).toEqual(["3", "5"]);
+    expect(page.map((event) => event.globalPosition)).toEqual(["3", "6"]);
+    expect(page.map((event) => event.streamId)).toEqual(["catalog.item-included-1", "catalog.item-included-2"]);
+    expect(page.map((event) => event.streamId)).not.toContain("catalog.item-before-cursor");
     expect(page.map((event) => event.streamId)).not.toContain("catalog.item-foreign");
+    expect(page.map((event) => event.streamId)).not.toContain("catalog.category-wrong-prefix");
+    expect(page.map((event) => event.streamId)).not.toContain("catalog.item-wrong-type");
     expect(page.map((event) => event.streamId)).not.toContain("catalog.item-above-horizon");
+    expect(readQueries).toHaveLength(2);
+    expect(readQueries[1]?.params).toEqual([
+      "1",
+      "7",
+      "6",
+      "tenant_a",
+      ["catalog.item.created"],
+      "catalog",
+      "catalog.item-",
+      10,
+    ]);
   });
 
   it("preserves the 500 page and 501 refusal boundaries under a horizon", async () => {
