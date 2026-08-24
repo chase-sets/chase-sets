@@ -230,17 +230,7 @@ function dependencySummary(value, scope) {
 function issueNode(value, scope) {
   exactRecord(
     value,
-    [
-      "id",
-      "number",
-      "state",
-      "issueType",
-      "milestone",
-      "labels",
-      "issueDependenciesSummary",
-      "blocking",
-      "blockedBy",
-    ],
+    ["id", "number", "state", "issueType", "milestone", "labels", "issueDependenciesSummary", "blocking", "blockedBy"],
     scope,
   );
   const state = issueState(value.state, `${scope}.state`);
@@ -252,10 +242,7 @@ function issueNode(value, scope) {
     issueType: nullableIssueType(value.issueType, `${scope}.issueType`),
     milestone: nullableMilestone(value.milestone, `${scope}.milestone`),
     labels: connectionPage(value.labels, `${scope}.labels`, labelNode),
-    issueDependenciesSummary: dependencySummary(
-      value.issueDependenciesSummary,
-      `${scope}.issueDependenciesSummary`,
-    ),
+    issueDependenciesSummary: dependencySummary(value.issueDependenciesSummary, `${scope}.issueDependenciesSummary`),
     blocking: connectionPage(value.blocking, `${scope}.blocking`, dependencyNode),
     blockedBy: connectionPage(value.blockedBy, `${scope}.blockedBy`, dependencyNode),
   };
@@ -336,9 +323,7 @@ async function exhaustNested({ firstPage, issueId, connectionName, query, nodeVa
   const seenIdentities = new Set();
   const seenCursors = new Set();
   const identityForNode =
-    connectionName === "labels"
-      ? (node) => node.id
-      : (node) => `${node.repository.nameWithOwner}\0${node.id}`;
+    connectionName === "labels" ? (node) => node.id : (node) => `${node.repository.nameWithOwner}\0${node.id}`;
   let page = firstPage;
   let requestCount = 0;
 
@@ -473,7 +458,11 @@ async function collectCanonicalSnapshot({ request, owner, repository, token }) {
     const page = rootPage(data, expectedRepository).issues;
     totalCount ??= page.totalCount;
     if (page.totalCount !== totalCount) {
-      failPagination("repository.issues", "changed-total-count", `totalCount changed from ${totalCount} to ${page.totalCount}`);
+      failPagination(
+        "repository.issues",
+        "changed-total-count",
+        `totalCount changed from ${totalCount} to ${page.totalCount}`,
+      );
     }
 
     for (const issue of page.nodes) {
@@ -517,7 +506,13 @@ async function collectCanonicalSnapshot({ request, owner, repository, token }) {
       requestCount += labels.requestCount + blocking.requestCount + blockedBy.requestCount;
 
       for (const label of labels.nodes) {
-        retainConsistentFact(labelFacts, label.id, { name: label.name }, `labels for issue ${issue.id}`, "repeated-label-facts");
+        retainConsistentFact(
+          labelFacts,
+          label.id,
+          { name: label.name },
+          `labels for issue ${issue.id}`,
+          "repeated-label-facts",
+        );
       }
       for (const connection of [blocking, blockedBy]) {
         for (const edge of connection.nodes) {
@@ -545,7 +540,11 @@ async function collectCanonicalSnapshot({ request, owner, repository, token }) {
   } while (after !== null);
 
   if (roots.length !== totalCount) {
-    failPagination("repository.issues", "exhausted-count-mismatch", `collected ${roots.length} of totalCount ${totalCount}`);
+    failPagination(
+      "repository.issues",
+      "exhausted-count-mismatch",
+      `collected ${roots.length} of totalCount ${totalCount}`,
+    );
   }
 
   const snapshot = {
@@ -748,7 +747,11 @@ export async function githubGraphql(query, variables, token, fetchImplementation
     throw new DispatchDependencySnapshotError("graphql-error", "response", "GraphQL returned invalid JSON");
   }
   if (!response.ok || !isRecord(payload) || Object.hasOwn(payload, "errors") || !Object.hasOwn(payload, "data")) {
-    throw new DispatchDependencySnapshotError("graphql-error", "response", `GraphQL failed with status ${response.status}`);
+    throw new DispatchDependencySnapshotError(
+      "graphql-error",
+      "response",
+      `GraphQL failed with status ${response.status}`,
+    );
   }
   return payload;
 }
