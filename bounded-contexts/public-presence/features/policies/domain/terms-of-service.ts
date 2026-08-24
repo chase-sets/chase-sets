@@ -498,7 +498,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "Cross-reference the Agent Connector Terms for automated and agent access, and describe the repo-provable surface: the Model Context Protocol interface, the developer portal, the bounded permission grant an account holder makes when authorizing a software agent, and which document controls on conflict.",
         decisionRefs: [],
         productTruthRefs: [
-          "bounded-contexts/public-presence/features/developer-portal/domain/developer-manifest.ts:15,25-29",
+          "bounded-contexts/public-presence/features/developer-portal/domain/developer-manifest.ts:24,41-45",
           "bounded-contexts/public-presence/features/developer-portal/domain/articles/agent-authentication.en.md",
           "bounded-contexts/public-presence/features/policies/domain/agent-connector-terms.ts",
         ],

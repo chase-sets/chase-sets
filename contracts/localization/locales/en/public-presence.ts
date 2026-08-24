@@ -465,6 +465,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.help.title": "How can we help?",
   "publicPresence.help.toc.title": "On this page",
   "publicPresence.developers.article.meta.title": "{title} | Chase Sets Developers",
+  "publicPresence.developers.agentTerms": "Review Agent Connector Terms",
   "publicPresence.developers.breadcrumb": "Developers",
   "publicPresence.developers.catalog.available": "Available tools",
   "publicPresence.developers.catalog.available.description": "Landed tools that the MCP endpoint can invoke today.",
