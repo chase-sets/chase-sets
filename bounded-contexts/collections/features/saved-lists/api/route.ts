@@ -15,18 +15,69 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 const CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const CAPTURE_RATE_LIMIT_MAX = 30;
 const CAPTURE_RATE_LIMIT_SURFACE = "collections.saved-list.anonymous-capture";
+const CAPTURE_SURFACE_RATE_LIMIT_MAX = 3_000;
+const CAPTURE_SURFACE_RATE_LIMIT_SURFACE = "collections.saved-list.anonymous-capture-surface";
 
-export function createSavedListRoutes(
+export function createGuestSavedListRoutes(
   services: SavedListDiscoveryServices,
   resolveRateLimitRule?: RateLimitRuleResolver,
 ) {
   const app = new Hono<CollectionsApiEnv>();
-  const captureRateLimiter = createPolicyBackedRateLimiter(
+  const ownerCaptureRateLimiter = createPolicyBackedRateLimiter(
     CAPTURE_RATE_LIMIT_SURFACE,
     { max: CAPTURE_RATE_LIMIT_MAX, windowMs: CAPTURE_RATE_LIMIT_WINDOW_MS },
     resolveRateLimitRule ?? (async (_surface, defaults) => defaults),
     { keyPrefix: "collections:anonymous-saved-list-capture" },
   );
+  const surfaceCaptureRateLimiter = createPolicyBackedRateLimiter(
+    CAPTURE_SURFACE_RATE_LIMIT_SURFACE,
+    { max: CAPTURE_SURFACE_RATE_LIMIT_MAX, windowMs: CAPTURE_RATE_LIMIT_WINDOW_MS },
+    resolveRateLimitRule ?? (async (_surface, defaults) => defaults),
+    { keyPrefix: "collections:anonymous-saved-list-capture-surface" },
+  );
+
+  app.post("/saved-list-intents", async (c) => {
+    const anonymousOwnerId = readAnonymousOwnerId(c.req.header("x-collections-anonymous-saved-list-id"));
+    if (!anonymousOwnerId) {
+      return c.json(
+        {
+          error: {
+            code: "anonymous_saved_list_required",
+            message: t("collections.features.savedLists.api.route.anonymous.owner.required"),
+          },
+        },
+        400,
+      );
+    }
+    const ownerRateLimit = await ownerCaptureRateLimiter.check(anonymousOwnerId);
+    if (ownerRateLimit.limited) return rateLimitedResponse(ownerRateLimit.retryAfterSeconds);
+    const surfaceRateLimit = await surfaceCaptureRateLimiter.check("all");
+    if (surfaceRateLimit.limited) return rateLimitedResponse(surfaceRateLimit.retryAfterSeconds);
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      const request: CreateAnonymousSavedListIntentRequest = {
+        sourcePath: String(body.sourcePath ?? ""),
+        sourceSurface: parseSurface(body.sourceSurface),
+        product: parseProduct(body.product),
+        productSummary: body.productSummary == null ? null : String(body.productSummary),
+      };
+      return c.json(
+        {
+          intent: await services.createAnonymousIntent({ ...request, anonymousOwnerId }),
+          analyticsLabel: "saved-list.guest-intent-created" as const,
+        },
+        201,
+      );
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+
+  return app;
+}
+
+export function createSavedListRoutes(services: SavedListDiscoveryServices) {
+  const app = new Hono<CollectionsApiEnv>();
 
   app.get("/account/lists/recent", async (c) => {
     const access = requireAccess(c);
@@ -45,52 +96,6 @@ export function createSavedListRoutes(
       const request = parseAdditionRequest(body);
       return c.json(
         await services.addProduct({ ...request, ownerAccountId: access.actor.accountId as AccountId }, context),
-      );
-    } catch (error) {
-      return errorResponse(error);
-    }
-  });
-
-  app.post("/guest/saved-list-intents", async (c) => {
-    const anonymousOwnerId = readAnonymousOwnerId(c.req.header("x-collections-anonymous-saved-list-id"));
-    if (!anonymousOwnerId) {
-      return c.json(
-        {
-          error: {
-            code: "anonymous_saved_list_required",
-            message: t("collections.features.savedLists.api.route.anonymous.owner.required"),
-          },
-        },
-        400,
-      );
-    }
-    const rateLimit = await captureRateLimiter.check(c.req.raw);
-    if (rateLimit.limited) {
-      return c.json(
-        {
-          error: {
-            code: "rate_limited",
-            message: t("collections.features.savedLists.api.route.rate.limited"),
-          },
-        },
-        429,
-        { "Retry-After": String(rateLimit.retryAfterSeconds) },
-      );
-    }
-    const body = await c.req.json().catch(() => ({}));
-    try {
-      const request: CreateAnonymousSavedListIntentRequest = {
-        sourcePath: String(body.sourcePath ?? ""),
-        sourceSurface: parseSurface(body.sourceSurface),
-        product: parseProduct(body.product),
-        productSummary: body.productSummary == null ? null : String(body.productSummary),
-      };
-      return c.json(
-        {
-          intent: await services.createAnonymousIntent({ ...request, anonymousOwnerId }),
-          analyticsLabel: "saved-list.guest-intent-created" as const,
-        },
-        201,
       );
     } catch (error) {
       return errorResponse(error);
@@ -163,6 +168,18 @@ export function createSavedListRoutes(
   });
 
   return app;
+}
+
+function rateLimitedResponse(retryAfterSeconds: number) {
+  return Response.json(
+    {
+      error: {
+        code: "rate_limited",
+        message: t("collections.features.savedLists.api.route.rate.limited"),
+      },
+    },
+    { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+  );
 }
 
 function requireAccess(c: { get(key: "actor"): CollectionsApiEnv["Variables"]["actor"] }) {
