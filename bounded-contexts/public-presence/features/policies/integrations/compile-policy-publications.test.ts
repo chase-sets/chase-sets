@@ -24,7 +24,7 @@ const siblingPublicationModules = [
  *  cited-source digest is re-resolved from the working tree rather than
  *  reusing this process's memoized value. */
 function runCompilerCheck() {
-  return spawnSync(process.execPath, ["--experimental-strip-types", compilerScript, "--check"], {
+  return spawnSync(process.execPath, [compilerScript, "--check"], {
     cwd: packageRoot,
     encoding: "utf8",
   });

@@ -140,7 +140,7 @@ afterEach(async () => {
 function runPlatformSmoke(baseUrl) {
   const child = spawn(
     process.execPath,
-    ["--experimental-strip-types", "./scripts/platform-smoke.mjs", baseUrl, baseUrl],
+    ["./scripts/platform-smoke.mjs", baseUrl, baseUrl],
     {
       cwd: repoRoot,
       env: {

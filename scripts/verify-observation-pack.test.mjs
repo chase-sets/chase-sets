@@ -58,7 +58,7 @@ beforeAll(() => {
     `;
   stripTypesRuntimeProbe = spawnSync(
     process.execPath,
-    ["--experimental-strip-types", "--input-type=module", "--eval", source],
+    ["--input-type=module", "--eval", source],
     { cwd: path.resolve("."), encoding: "utf8" },
   );
 });

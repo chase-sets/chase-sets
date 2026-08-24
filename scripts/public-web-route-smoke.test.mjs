@@ -112,7 +112,6 @@ function startCli(baseUrl, mode, extraArgs = [], executablePath = checkerPath) {
   const child = spawn(
     process.execPath,
     [
-      "--experimental-strip-types",
       executablePath,
       "--base-url",
       baseUrl,
