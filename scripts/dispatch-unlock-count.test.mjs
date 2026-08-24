@@ -93,8 +93,16 @@ function expectFailure(error, reason) {
 
 describe("dispatch dependency snapshot", () => {
   it("computes unique transitive unlock counts under every pinned graph boundary", () => {
-    const a = issue({ id: "A", number: 1, blocking: connection([edge({ id: "B", number: 2 }), edge({ id: "C", number: 3 })]) });
-    const b = issue({ id: "B", number: 2, blocking: connection([edge({ id: "D", number: 4 }), edge({ id: "E", number: 5 })]) });
+    const a = issue({
+      id: "A",
+      number: 1,
+      blocking: connection([edge({ id: "B", number: 2 }), edge({ id: "C", number: 3 })]),
+    });
+    const b = issue({
+      id: "B",
+      number: 2,
+      blocking: connection([edge({ id: "D", number: 4 }), edge({ id: "E", number: 5 })]),
+    });
     const c = issue({
       id: "C",
       number: 3,
@@ -106,14 +114,23 @@ describe("dispatch dependency snapshot", () => {
       ]),
     });
     const d = issue({ id: "D", number: 4, blocking: connection([edge({ id: "A", number: 1 })]) });
-    const e = issue({ id: "E", number: 5, issueType: { name: "Epic" }, blocking: connection([edge({ id: "G", number: 9 })]) });
+    const e = issue({
+      id: "E",
+      number: 5,
+      issueType: { name: "Epic" },
+      blocking: connection([edge({ id: "G", number: 9 })]),
+    });
     const f = issue({
       id: "F",
       number: 6,
       labels: connection([label("status:tracking-only")]),
       blocking: connection([edge({ id: "H", number: 10 })]),
     });
-    const g = issue({ id: "G", number: 9, milestone: { id: "operations", number: 2, title: "Operations", state: "OPEN" } });
+    const g = issue({
+      id: "G",
+      number: 9,
+      milestone: { id: "operations", number: 2, title: "Operations", state: "OPEN" },
+    });
     const h = issue({ id: "H", number: 10, milestone: null });
     const counts = reduceUnlockCounts(snapshot([a, b, c, d, e, f, g, h]));
 
@@ -142,12 +159,12 @@ describe("dispatch dependency snapshot", () => {
         issueId: "synthetic/local#2",
         issueNumber: 2,
         openBlockerCount: 1,
-        openBlockers: [
-          { id: "synthetic/external#1", number: 1, repository: { nameWithOwner: "synthetic/external" } },
-        ],
+        openBlockers: [{ id: "synthetic/external#1", number: 1, repository: { nameWithOwner: "synthetic/external" } }],
       },
     ]);
-    expect(reduceOpenBlockerFacts(snapshot([issue({ id: "synthetic/local#2", number: 2 })]))[0].openBlockerCount).toBe(0);
+    expect(reduceOpenBlockerFacts(snapshot([issue({ id: "synthetic/local#2", number: 2 })]))[0].openBlockerCount).toBe(
+      0,
+    );
   });
 
   it("requires consecutive identical complete graph digests before both projections", async () => {
@@ -162,11 +179,25 @@ describe("dispatch dependency snapshot", () => {
     const target4 = issue({ id: "local-4", number: 4 });
     const request = rootCaptureRequest([
       [first, target4, target3],
-      [target3, target4, { ...first, labels: connection([...first.labels.nodes].reverse()), blocking: connection([...first.blocking.nodes].reverse()) }],
+      [
+        target3,
+        target4,
+        {
+          ...first,
+          labels: connection([...first.labels.nodes].reverse()),
+          blocking: connection([...first.blocking.nodes].reverse()),
+        },
+      ],
     ]);
     const unlockReducer = vi.fn(reduceUnlockCounts);
     const blockerReducer = vi.fn(reduceOpenBlockerFacts);
-    const result = await collectStableDependencyFacts({ request, owner: OWNER, repository: REPOSITORY, unlockReducer, blockerReducer });
+    const result = await collectStableDependencyFacts({
+      request,
+      owner: OWNER,
+      repository: REPOSITORY,
+      unlockReducer,
+      blockerReducer,
+    });
 
     expect(result.attempts).toBe(2);
     expect(result.requestCount).toBe(2);
@@ -174,12 +205,20 @@ describe("dispatch dependency snapshot", () => {
     expect(blockerReducer).toHaveBeenCalledTimes(1);
     expect(result.blockerFacts.find((value) => value.issueId === "local-2")?.openBlockerCount).toBe(1);
 
+    const target5 = issue({ id: "local-5", number: 5 });
     const replacement = rootCaptureRequest([
       [first, target3, target4],
-      [target3, target4, { ...first, blocking: connection([edge({ id: "local-3", number: 3 }), edge({ id: "local-5", number: 5 })]) }],
+      [
+        target3,
+        target4,
+        target5,
+        { ...first, blocking: connection([edge({ id: "local-3", number: 3 }), edge({ id: "local-5", number: 5 })]) },
+      ],
       [first, target3, target4],
     ]);
-    await expect(collectStableDependencyFacts({ request: replacement, owner: OWNER, repository: REPOSITORY })).rejects.toMatchObject({
+    await expect(
+      collectStableDependencyFacts({ request: replacement, owner: OWNER, repository: REPOSITORY }),
+    ).rejects.toMatchObject({
       code: "unstable-authority",
     });
 
@@ -188,7 +227,9 @@ describe("dispatch dependency snapshot", () => {
       [target3, target4, { ...first, issueDependenciesSummary: { ...first.issueDependenciesSummary, blockedBy: 99 } }],
       [target4, first, target3],
     ]);
-    await expect(collectStableDependencyFacts({ request: recovery, owner: OWNER, repository: REPOSITORY })).resolves.toMatchObject({ attempts: 3 });
+    await expect(
+      collectStableDependencyFacts({ request: recovery, owner: OWNER, repository: REPOSITORY }),
+    ).resolves.toMatchObject({ attempts: 3 });
   });
 
   it("fails closed until every authoritative dependency connection is complete", async () => {
@@ -207,7 +248,12 @@ describe("dispatch dependency snapshot", () => {
       {
         name: "recursive label schema",
         reason: "invalid-provider-schema",
-        response: rootResponse([{ ...valid, labels: { totalCount: 0, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [], extra: true } }]),
+        response: rootResponse([
+          {
+            ...valid,
+            labels: { totalCount: 0, pageInfo: { hasNextPage: false, endCursor: null }, nodes: [], extra: true },
+          },
+        ]),
       },
       {
         name: "incoming exhausted count",
@@ -217,7 +263,15 @@ describe("dispatch dependency snapshot", () => {
       {
         name: "outgoing page size",
         reason: "page-size-exceeded",
-        response: rootResponse([{ ...valid, blocking: connection(Array.from({ length: 101 }, (_, index) => edge({ id: `edge-${index}`, number: index + 2 })), { totalCount: 101 }) }]),
+        response: rootResponse([
+          {
+            ...valid,
+            blocking: connection(
+              Array.from({ length: 101 }, (_, index) => edge({ id: `edge-${index}`, number: index + 2 })),
+              { totalCount: 101 },
+            ),
+          },
+        ]),
       },
     ];
     for (const testCase of cases) {
@@ -271,7 +325,10 @@ describe("dispatch dependency snapshot", () => {
     });
     const target = issue({ id: "local-3", number: 3 });
     const result = await collectStableDependencyFacts({
-      request: rootCaptureRequest([[current, target], [target, current]]),
+      request: rootCaptureRequest([
+        [current, target],
+        [target, current],
+      ]),
       owner: OWNER,
       repository: REPOSITORY,
     });
@@ -307,7 +364,9 @@ describe("dispatch dependency snapshot", () => {
         return rootResponse([firstPageIssue]);
       }
       if (query === BLOCKED_BY_QUERY && variables.issue === "local-1" && variables.after === "blockedBy-page-2") {
-        return nestedResponse("local-1", "blockedBy", [edge({ id: "external-2", number: 2, repository: "synthetic/external" })]);
+        return nestedResponse("local-1", "blockedBy", [
+          edge({ id: "external-2", number: 2, repository: "synthetic/external" }),
+        ]);
       }
       throw new Error("unexpected overflow request");
     });
@@ -326,9 +385,21 @@ describe("dispatch dependency snapshot", () => {
     expect(ISSUES_QUERY).toContain("issueDependenciesSummary { blocking,totalBlocking,blockedBy,totalBlockedBy }");
     expect(ISSUES_QUERY).toContain("blockedBy(first:100");
     await expect(
-      collectStableDependencyFacts({ request: collectorErrorRequest({ errors: [{ message: "refused" }] }), owner: OWNER, repository: REPOSITORY }),
+      collectStableDependencyFacts({
+        request: collectorErrorRequest({ errors: [{ message: "refused" }] }),
+        owner: OWNER,
+        repository: REPOSITORY,
+      }),
     ).rejects.toMatchObject({ code: "graphql-error" });
-    await expect(githubGraphql("query", {}, "token", async () => ({ ok: true, status: 200, json: async () => { throw new Error("bad json"); } }))).rejects.toMatchObject({
+    await expect(
+      githubGraphql("query", {}, "token", async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new Error("bad json");
+        },
+      })),
+    ).rejects.toMatchObject({
       code: "graphql-error",
     });
   });
