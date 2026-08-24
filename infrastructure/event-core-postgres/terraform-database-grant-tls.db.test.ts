@@ -9,12 +9,13 @@ import tls from "node:tls";
 import { promisify } from "node:util";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-// @ts-expect-error The production boundary is intentionally an ESM script without a declaration file.
 import {
   connectionUrlForGrant,
   main as runGrantScript,
   statementsForGrant as productionStatementsForGrant,
-} from "../../scripts/apply-digitalocean-database-grant.mjs";
+} from
+// @ts-expect-error The production boundary is intentionally an ESM script without a declaration file.
+"../../scripts/apply-digitalocean-database-grant.mjs";
 
 const { Client } = pg;
 const execFileAsync = promisify(execFile);
@@ -542,7 +543,7 @@ async function startTlsPostgresProxy(certificatePath: string, keyPath: string, b
     socket.on("close", () => sockets.delete(socket));
     socket.on("error", () => undefined);
     socket.once("data", (request) => {
-      if (request.length !== 8 || request.readInt32BE(4) !== 80877103) {
+      if (!Buffer.isBuffer(request) || request.length !== 8 || request.readInt32BE(4) !== 80877103) {
         socket.destroy();
         return;
       }
