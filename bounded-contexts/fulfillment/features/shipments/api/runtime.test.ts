@@ -16,6 +16,30 @@ import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { recordFulfillmentPostageLabelOperationPending } from "../read-model/queries";
 import { createFulfillmentShipmentRuntime } from "./runtime";
 
+function webhookReceiptQueryResult(sql: string, values: readonly unknown[] = []) {
+  if (sql.includes("WITH inserted AS") && sql.includes("fulfillment_postage_provider_events")) {
+    return {
+      rows: [
+        {
+          provider_event_id: values[0],
+          payload_hash: values[11],
+          handoff_state: "reserved",
+          processing_result: "reserved",
+          inserted: true,
+        },
+      ],
+      rowCount: 1,
+    };
+  }
+  if (sql.includes("SET claim_token") && sql.includes("fulfillment_postage_provider_events")) {
+    return { rows: [{ provider_event_id: values[0] }], rowCount: 1 };
+  }
+  if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
+    return { rows: [{ provider_event_id: values[0] }], rowCount: 1 };
+  }
+  return null;
+}
+
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
 
@@ -1849,12 +1873,15 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "label-attached",
                 tracking_identifier: "940000000000000000",
@@ -1862,13 +1889,6 @@ describe("fulfillment shipment runtime", () => {
               },
             ],
           };
-        }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          expect(sql).toContain("processing_result <> 'received'");
-          return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_tracker_1" }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -2005,12 +2025,15 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "awaiting-label",
                 label_status: "void-requested",
@@ -2023,13 +2046,6 @@ describe("fulfillment shipment runtime", () => {
               },
             ],
           };
-        }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          expect(sql).toContain("processing_result <> 'received'");
-          return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_refund_1" }], rowCount: 1 };
         }
         if (sql.includes("SET status = 'succeeded'")) {
           return { rows: [], rowCount: 1 };
@@ -2136,12 +2152,15 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "awaiting-label",
                 label_status: "void-requested",
@@ -2155,14 +2174,8 @@ describe("fulfillment shipment runtime", () => {
             ],
           };
         }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          return { rows: [], rowCount: 0 };
-        }
         if (sql.includes("SET status = 'failed'")) {
           return { rows: [], rowCount: 1 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_refund_rejected_1" }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -2256,12 +2269,15 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "label-attached",
                 label_status: "purchased",
@@ -2275,14 +2291,8 @@ describe("fulfillment shipment runtime", () => {
             ],
           };
         }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          return { rows: [], rowCount: 0 };
-        }
         if (sql.includes("SET status = 'failed'")) {
           return { rows: [], rowCount: 1 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_refund_after_rebuy_1" }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),

@@ -8,6 +8,11 @@ import {
 } from "./route";
 import type { FulfillmentShipmentServices } from "./runtime";
 
+const MUTATION_HEADERS = {
+  "Content-Type": "application/json",
+  "Idempotency-Key": "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
+};
+
 function buildSellerApp(
   options: Readonly<{
     actor: FulfillmentApiEnv["Variables"]["actor"];
@@ -62,11 +67,24 @@ function createServices(): FulfillmentShipmentServices {
     })),
     reconcileStalePostageLabelPurchases: vi.fn(async () => ({ checked: 0, attached: 0, voided: 0, failed: 0 })),
     reconcileStalePostageLabelVoids: vi.fn(async () => ({ checked: 0, failed: 0 })),
+    listStalePostageOperationLocators: vi.fn(async () => []),
+    reconcilePostageOperationLocator: vi.fn(async () => ({ outcome: "missing" as const })),
     voidLabel: vi.fn(async () => ({ shipmentId: "shp_1", version: 4 })),
     dispatchShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 4 })),
     deliverShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 5 })),
     returnShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 6 })),
     raiseShipmentException: vi.fn(async () => ({ shipmentId: "shp_1", version: 7 })),
+    recoverShipmentMutation: vi.fn(async () => ({
+      schemaVersion: 1 as const,
+      shipmentId: "shp_1",
+      shipmentVersion: 1,
+      shipmentStatus: "packing",
+      status: "confirming",
+      receiptKind: "absent" as const,
+      commandKind: null,
+      result: null,
+      actions: ["refresh-status"],
+    })),
     processPostageProviderWebhook: vi.fn(async () => ({
       status: "recorded" as const,
       providerEventId: "evt_1",
@@ -175,6 +193,38 @@ function createServices(): FulfillmentShipmentServices {
 }
 
 describe("fulfillment shipment routes", () => {
+  it("issue-7171-read-only-recovery-route performs one authorized GET and never reissues the mutation", async () => {
+    const services = createServices();
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view", "fulfillment.manage"],
+      },
+      services,
+    });
+    const response = await app.request("/account/sales/shipments/shp_1/mutation-recovery", {
+      method: "GET",
+      headers: { "Idempotency-Key": MUTATION_HEADERS["Idempotency-Key"] },
+    });
+
+    expect(response.status).toBe(200);
+    expect(services.recoverShipmentMutation).toHaveBeenCalledWith(
+      {
+        shipmentId: "shp_1",
+        sellerAccountId: "acc_seller",
+        mutationAttemptId: MUTATION_HEADERS["Idempotency-Key"],
+      },
+      expect.objectContaining({ tenantId: "tnt_identity" }),
+    );
+    for (const mutation of [services.startPackingShipment, services.packShipment, services.purchaseUspsLabel]) {
+      expect(mutation).not.toHaveBeenCalled();
+    }
+  });
   it("lists seller shipments for the current account", async () => {
     const services = createServices();
     const app = buildSellerApp({
@@ -222,7 +272,7 @@ describe("fulfillment shipment routes", () => {
     const response = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/pack", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({ packageCount: 1 }),
       }),
     );
@@ -377,28 +427,28 @@ describe("fulfillment shipment routes", () => {
     const startPackingResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/packing/start", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({}),
       }),
     );
     const packResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/packing/lines/spl_1", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({ confirmedQuantity: 1 }),
       }),
     );
     const completePackingResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/pack", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({ packageCount: 1 }),
       }),
     );
     const labelResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/label", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({
           shippingMethod: "standard",
           carrierName: "USPS",
@@ -410,11 +460,13 @@ describe("fulfillment shipment routes", () => {
     const dispatchResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/dispatch", {
         method: "POST",
+        headers: MUTATION_HEADERS,
       }),
     );
     const deliverResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/deliver", {
         method: "POST",
+        headers: MUTATION_HEADERS,
       }),
     );
 
@@ -460,6 +512,7 @@ describe("fulfillment shipment routes", () => {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
         packageCount: 1,
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
@@ -469,6 +522,7 @@ describe("fulfillment shipment routes", () => {
         sellerAccountId: "acc_seller",
         lineId: "spl_1",
         confirmedQuantity: 1,
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
@@ -476,6 +530,7 @@ describe("fulfillment shipment routes", () => {
       {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
@@ -487,6 +542,7 @@ describe("fulfillment shipment routes", () => {
         carrierName: "USPS",
         labelReference: "lbl_1",
         trackingIdentifier: "trk_1",
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
@@ -494,6 +550,7 @@ describe("fulfillment shipment routes", () => {
       {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
@@ -501,6 +558,7 @@ describe("fulfillment shipment routes", () => {
       {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
@@ -524,7 +582,7 @@ describe("fulfillment shipment routes", () => {
     const response = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/label/purchase", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({
           serviceLevel: "USPS_GROUND_ADVANTAGE",
           senderName: "Seller",
@@ -577,6 +635,7 @@ describe("fulfillment shipment routes", () => {
           heightInches: 1,
           weightOunces: 4,
         },
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );

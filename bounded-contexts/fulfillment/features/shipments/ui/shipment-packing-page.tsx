@@ -30,6 +30,11 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { FulfillmentShipmentDetail, FulfillmentShipmentLine } from "./contracts";
+import {
+  hashShipmentMutationIntent,
+  persistShipmentMutationDescriptor,
+  updateShipmentMutationDescriptor,
+} from "./mutation-recovery";
 
 function statusLabel(status: string) {
   switch (status) {
@@ -246,10 +251,12 @@ export function FulfillmentShipmentPackingPage({
   shipment,
   backHref,
   errorMessage,
+  recoveryScope,
 }: {
   shipment: FulfillmentShipmentDetail;
   backHref: string;
   errorMessage?: string | null;
+  recoveryScope: Readonly<{ tenantId: string; sellerAccountId: string }>;
 }) {
   const [packedQuantities, setPackedQuantities] = useState<Record<string, number>>(() =>
     initialPackedQuantities(shipment.lines),
@@ -315,6 +322,16 @@ export function FulfillmentShipmentPackingPage({
     formData.set("confirmedQuantity", String(nextQuantity));
 
     try {
+      const descriptor = await persistShipmentMutationDescriptor({
+        ...recoveryScope,
+        shipmentId: shipment.shipment_id,
+        command: "set-line-confirmed",
+        target: lineId,
+        intentHash: await hashShipmentMutationIntent({ lineId, confirmedQuantity: nextQuantity }),
+      });
+      formData.set("mutationAttemptId", descriptor.mutationAttemptId);
+      const sentAt = new Date().toISOString();
+      await updateShipmentMutationDescriptor(descriptor, { sentAt, lastObservedAt: sentAt, state: "submitting" });
       const response = await fetch(window.location.pathname, {
         method: "POST",
         credentials: "same-origin",

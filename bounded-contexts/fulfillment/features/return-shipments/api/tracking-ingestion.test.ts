@@ -41,17 +41,45 @@ function webhookEvent(overrides: Partial<PostageProviderWebhookEvent> = {}): Pos
  */
 function createFakeDb(shipmentMatch: ReturnShipmentTrackingMatch | null) {
   const processed = new Map<string, string>();
+  const hashes = new Map<string, string>();
+  const claims = new Map<string, string>();
   const query = vi.fn(async (sql: string, params: readonly unknown[]) => {
-    if (sql.includes("FROM fulfillment_return_shipment_provider_events")) {
+    if (sql.includes("WITH inserted AS") && sql.includes("fulfillment_return_shipment_provider_events")) {
       const id = params[0] as string;
-      const result = processed.get(id);
-      return { rows: result && result !== "unmatched" ? [{ provider_event_id: id }] : [], rowCount: 0 };
+      const payloadHash = params[11] as string;
+      const inserted = !processed.has(id);
+      if (inserted) processed.set(id, "reserved");
+      if (!hashes.has(id)) hashes.set(id, payloadHash);
+      return {
+        rows: [
+          {
+            payload_hash: hashes.get(id),
+            handoff_state:
+              processed.get(id) === "unmatched"
+                ? "unmatched"
+                : processed.get(id) === "reserved"
+                  ? "reserved"
+                  : "completed",
+            processing_result: processed.get(id),
+            inserted,
+          },
+        ],
+        rowCount: 1,
+      };
+    }
+    if (sql.includes("UPDATE fulfillment_return_shipment_provider_events") && sql.includes("claim_generation")) {
+      const id = params[0] as string;
+      const token = params[2] as string;
+      if (claims.has(id)) return { rows: [], rowCount: 0 };
+      claims.set(id, token);
+      return { rows: [{ provider_event_id: id }], rowCount: 1 };
     }
     if (sql.includes("FROM fulfillment_return_shipment_operator_pages")) {
       return { rows: shipmentMatch ? [shipmentMatch] : [], rowCount: shipmentMatch ? 1 : 0 };
     }
     if (sql.includes("INSERT INTO fulfillment_return_shipment_provider_events")) {
       processed.set(params[0] as string, params[12] as string);
+      claims.delete(params[0] as string);
       return { rows: [], rowCount: 1 };
     }
     return { rows: [], rowCount: 0 };

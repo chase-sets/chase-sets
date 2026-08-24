@@ -30,6 +30,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
           db.query(
             `INSERT INTO fulfillment_shipment_pages (
            shipment_id,
+           tenant_id,
            order_id,
            buyer_account_id,
            seller_account_id,
@@ -73,10 +74,11 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
            returned_at,
            exception_raised_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, $9, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $10, $10, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $11, $11, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
          )
          ON CONFLICT (shipment_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
+             tenant_id = EXCLUDED.tenant_id,
              buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
              shipping_option = EXCLUDED.shipping_option,
@@ -87,6 +89,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              updated_at = EXCLUDED.updated_at`,
             [
               data.shipmentId,
+              event.tenantId,
               data.orderId,
               data.buyerAccountId,
               data.sellerAccountId,
@@ -98,6 +101,25 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
               data.createdAt,
             ],
           ),
+        );
+
+        await db.query(
+          `INSERT INTO fulfillment_shipment_tenant_resolutions (
+             shipment_id, tenant_id, seller_account_id, status, reason_code, resolved_at
+           ) VALUES ($1, $2, $3, 'resolved', 'authoritative-history', $4)
+           ON CONFLICT (shipment_id) DO UPDATE
+           SET tenant_id = EXCLUDED.tenant_id,
+               seller_account_id = EXCLUDED.seller_account_id,
+               status = CASE
+                 WHEN fulfillment_shipment_tenant_resolutions.tenant_id = EXCLUDED.tenant_id
+                  AND fulfillment_shipment_tenant_resolutions.seller_account_id = EXCLUDED.seller_account_id
+                 THEN 'resolved' ELSE 'quarantined' END,
+               reason_code = CASE
+                 WHEN fulfillment_shipment_tenant_resolutions.tenant_id = EXCLUDED.tenant_id
+                  AND fulfillment_shipment_tenant_resolutions.seller_account_id = EXCLUDED.seller_account_id
+                 THEN 'authoritative-history' ELSE 'projection-identity-mismatch' END,
+               resolved_at = EXCLUDED.resolved_at`,
+          [data.shipmentId, event.tenantId, data.sellerAccountId, data.createdAt],
         );
 
         await db.query(`DELETE FROM fulfillment_shipment_line_pages WHERE shipment_id = $1`, [data.shipmentId]);

@@ -56,6 +56,7 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
                 orderId: params.orderId,
                 cancelledAt: params.receivedAt,
                 context: params.context,
+                sourceIdentity: params.sourceIdentity,
               });
             },
           }),

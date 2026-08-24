@@ -25,6 +25,21 @@ Notes:
 - Starting Packing closes buyer self-service purchase cancellation because seller work has begun.
 - Packing completion records package count and moves the shipment to label readiness.
 
+## Shipment Mutation Attempt
+
+A **Shipment Mutation Attempt** is Fulfillment's private, permanent, one-event receipt for one non-provider seller Shipment command. It is separate from the Shipment aggregate and from a Postage Operation. The receipt closes as `succeeded`, `unchanged`, or `failed-safe`; exact replay reads it without appending another Shipment fact.
+
+## Postage Operation
+
+A **Postage Operation** is Fulfillment's durable provider-command receipt across reservation, committed invocation, ambiguity, provider success, and local Shipment-effect finalization.
+
+Notes:
+
+- `ambiguous` means provider invocation may have occurred and no reissue is authorized.
+- `failed-safe` proves the provider was not invoked.
+- `confirming` is a client read-only state while a keyed owner receipt is absent or unavailable.
+- `effect-applied` means the matching Shipment fact is authoritative; it is the only provider-operation success state exposed by recovery.
+
 ## Package Plan
 
 A **Package Plan** is the immutable package, mailpiece class, dimensions, weight, and measurement-version snapshot committed by Ordering and executed by Fulfillment.

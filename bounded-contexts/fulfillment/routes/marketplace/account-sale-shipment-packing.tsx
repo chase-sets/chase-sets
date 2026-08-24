@@ -9,6 +9,7 @@ import { defineFormAction, type FormActionContext } from "@chase-sets/platform-r
 import { FulfillmentApiError, type FulfillmentShipmentDetail } from "../../support/request-support/api-client";
 import { createFulfillmentRequestApiClient } from "../../support/request-support/api-client";
 import { FulfillmentShipmentPackingPage } from "../../features/shipments/ui/shipment-packing-page";
+import { ShipmentMutationBoundary } from "../../features/shipments/ui/shipment-mutation-boundary";
 
 type ShipmentPackingActionData = Readonly<{ error?: string }>;
 
@@ -17,7 +18,7 @@ function formValue(formData: FormData, key: string) {
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "fulfillment.view",
   });
@@ -27,6 +28,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     return {
       shipment: await api.getSellerShipment(params.shipmentId!),
       freshnessError: null,
+      recoveryScope: { tenantId: actor.tenantId, sellerAccountId: actor.accountId },
     };
   } catch (error) {
     const recovery = recoverFreshWriteReadError({
@@ -57,24 +59,30 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
   const api = createFulfillmentRequestApiClient(request);
   const shipmentId = params.shipmentId!;
+  const mutationAttemptId = formValue(formData, "mutationAttemptId");
+  formData.delete("mutationAttemptId");
 
   try {
     if (intent === "start-packing") {
-      const result = await api.startPackingShipment(shipmentId);
+      const result = await api.startPackingShipment(shipmentId, mutationAttemptId);
       return redirect(navigateAfterWrite(result, `/account/sales/shipments/${shipmentId}/packing`));
     }
 
     if (intent === "complete-packing") {
-      const result = await api.packShipment(shipmentId, {
-        packageCount: Number(formValue(formData, "packageCount") || 1),
-      });
+      const result = await api.packShipment(
+        shipmentId,
+        {
+          packageCount: Number(formValue(formData, "packageCount") || 1),
+        },
+        mutationAttemptId,
+      );
       return redirect(navigateAfterWrite(result, `/account/sales/shipments/${shipmentId}`));
     }
 
     if (intent === "set-line-confirmed") {
       const lineId = formValue(formData, "lineId");
       const confirmedQuantity = Number(formValue(formData, "confirmedQuantity"));
-      const result = await api.updatePackingLineQuantity(shipmentId, lineId, confirmedQuantity);
+      const result = await api.updatePackingLineQuantity(shipmentId, lineId, confirmedQuantity, mutationAttemptId);
       return result;
     }
 
@@ -141,10 +149,13 @@ export default function MarketplaceAccountSaleShipmentPackingRoute() {
   }
 
   return (
-    <FulfillmentShipmentPackingPage
-      backHref="/account/sales/shipments"
-      shipment={data.shipment as FulfillmentShipmentDetail}
-      errorMessage={actionData?.error ?? null}
-    />
+    <ShipmentMutationBoundary {...data.recoveryScope} defaultShipmentId={data.shipment.shipment_id}>
+      <FulfillmentShipmentPackingPage
+        backHref="/account/sales/shipments"
+        shipment={data.shipment as FulfillmentShipmentDetail}
+        errorMessage={actionData?.error ?? null}
+        recoveryScope={data.recoveryScope}
+      />
+    </ShipmentMutationBoundary>
   );
 }

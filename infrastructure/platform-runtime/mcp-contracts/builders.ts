@@ -50,6 +50,8 @@ export type McpConfirmationPolicy = Readonly<{
 export type McpGuardrails = Readonly<{
   confirmation: McpConfirmationPolicy;
   idempotencyKey: McpIdempotencyPolicy;
+  /** Omitted historical/generated descriptors are platform-authoritative. */
+  idempotencyAuthority?: "platform" | "owner";
   dryRunSupported: boolean;
   notes: readonly string[];
 }>;
@@ -206,6 +208,7 @@ export const guardrails = (risk: McpToolRisk, options: Partial<McpGuardrails> = 
     ...options.confirmation,
   },
   idempotencyKey: risk === "read" ? "not-applicable" : "required",
+  idempotencyAuthority: "platform",
   dryRunSupported: risk !== "read",
   notes:
     risk === "read"
@@ -225,7 +228,7 @@ export const audit = (
   sensitiveInputFields,
 });
 
-const sensitiveWriteInputFieldNames = ["amount", "confirmationText", "email", "reason"] as const;
+const sensitiveWriteInputFieldNames = ["amount", "confirmationText", "email", "reason", "idempotencyKey"] as const;
 
 function sensitiveInputFieldsForWriteTool(inputSchema: McpJsonSchema): readonly string[] {
   const properties = inputSchema.properties ?? {};

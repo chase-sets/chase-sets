@@ -106,7 +106,8 @@
         "fulfillment_shipment_exception_pages",
         "fulfillment_label_address_override_audit_pages",
         "fulfillment_postage_label_operations",
-        "fulfillment_postage_provider_events"
+        "fulfillment_postage_provider_events",
+        "fulfillment_shipment_tenant_resolutions"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
@@ -188,6 +189,15 @@
               "readModelTable": "fulfillment_postage_provider_events"
             }
           ]
+        },
+        {
+          "routePath": "/account/sales/shipments/:id/mutation-recovery",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            { "readModelTable": "fulfillment_shipment_pages" },
+            { "readModelTable": "fulfillment_postage_label_operations" },
+            { "readModelTable": "fulfillment_shipment_tenant_resolutions" }
+          ]
         }
       ]
     },
@@ -234,6 +244,35 @@
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
           "behavior": "Seller shipment redirects carry the Fulfillment command receipt as afterWrite; seller shipment loaders forward the receipt to the Fulfillment API freshness gate and render temporary shipment recovery copy for fresh 404 or projection_freshness_timeout responses."
+        }
+      }
+    },
+    {
+      "id": "fulfillment.shipment-mutation-owner-recovery",
+      "owner": "fulfillment",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["account-sale-shipments", "account-sale-shipment", "account-sale-shipment-packing"],
+        "actions": ["Recover an interrupted Shipment mutation by its retained owner attempt"],
+        "command": "Read-only Shipment mutation recovery"
+      },
+      "destination": {
+        "routeIds": ["account-sale-shipments", "account-sale-shipment", "account-sale-shipment-packing"],
+        "apiContextName": "fulfillment",
+        "apiRoutePath": "/account/sales/shipments/:id/mutation-recovery",
+        "readModelTables": [
+          "fulfillment_shipment_pages",
+          "fulfillment_postage_label_operations",
+          "fulfillment_shipment_tenant_resolutions"
+        ],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The encrypted browser descriptor performs one header-keyed recovery GET after response loss; absence remains confirming and focus, reconnect, navigation, and refresh never replay a write."
         }
       }
     }
