@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSavedListRoutes } from "./route";
+import { createGuestSavedListRoutes, createSavedListRoutes } from "./route";
 
 describe("Saved List discovery routes", () => {
   it("localizes signed-out access failures without revealing account or List data", async () => {
@@ -12,8 +12,8 @@ describe("Saved List discovery routes", () => {
   });
 
   it("requires the opaque anonymous owner for guest capture", async () => {
-    const app = createSavedListRoutes({ createAnonymousIntent: vi.fn() } as never);
-    const response = await app.request("http://collections.test/guest/saved-list-intents", {
+    const app = createGuestSavedListRoutes({ createAnonymousIntent: vi.fn() } as never);
+    const response = await app.request("http://collections.test/saved-list-intents", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
