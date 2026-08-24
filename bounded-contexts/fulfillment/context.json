@@ -277,6 +277,7 @@
       }
     }
   ],
+  "rawFetchCensus": "complete",
   "mutationConsistencyInventory": [
     {
       "id": "fulfillment.shipment-command-snapshots",
@@ -381,7 +382,10 @@
       "owner": "fulfillment",
       "risk": "important",
       "strategy": "optimistic-with-correction",
-      "surfaces": ["route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing.tsx"],
+      "surfaces": [
+        "raw-fetch:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:POST Hd5352f45e551#1",
+        "route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing.tsx"
+      ],
       "visibleDestination": {
         "routeId": "account-sale-shipment-packing",
         "description": "Packing line quantity controls update the visible packed count immediately, serialize each line's newest write with a per-line request sequence, reconcile to the command snapshot, and roll back only the latest failed write."
@@ -391,6 +395,25 @@
         "tests": [
           "bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-optimistic-correction.test.tsx",
           "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "fulfillment.shipment-mutation-owner-recovery-fetch",
+      "owner": "fulfillment",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "raw-fetch:bounded-contexts/fulfillment/features/shipments/ui/shipment-mutation-boundary.tsx:GET H086ffdc28797#1"
+      ],
+      "visibleDestination": {
+        "description": "The one automatic recovery GET returns only the Fulfillment owner receipt and current Shipment authority; it never retries a mutation."
+      },
+      "proof": {
+        "authoritativeResponse": "shipment-mutation-boundary.tsx addresses the Fulfillment mutation-recovery route with the retained owner key in the header and classifies only its bounded response.",
+        "tests": [
+          "bounded-contexts/fulfillment/features/shipments/api/route.test.ts",
+          "deployables/marketplace/e2e/shipment-mutation-recovery.spec.ts"
         ]
       }
     },

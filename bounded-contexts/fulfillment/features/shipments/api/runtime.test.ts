@@ -367,6 +367,79 @@ function createPostageOperationDb(shipmentRow = createPackedShipmentRow()) {
 }
 
 describe("fulfillment shipment runtime", () => {
+  it("validates internal cancellation identity, tenant history, and expected Shipment version", async () => {
+    const store = createInMemoryEventStore();
+    const appendToStream = vi.fn(store.eventStore.appendToStream);
+    const eventStore: EventStore = { ...store.eventStore, appendToStream };
+    const shipment = createPackedShipmentRow({ status: "awaiting-package", package_status: "awaiting-package" });
+    const db = {
+      query: vi.fn(async (sql: string) =>
+        sql.includes("FROM fulfillment_shipment_pages") ? { rows: [shipment] } : { rows: [] },
+      ),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_seller" as never },
+    };
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      context,
+      command: {
+        type: "CreateShipment",
+        shipmentId: "shp_1" as never,
+        orderId: "ord_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
+        lines: [
+          {
+            lineId: "spl_1" as never,
+            orderLineId: "oli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-08-24T00:00:00.000Z",
+      },
+    });
+    const cancellation = {
+      orderId: "ord_1",
+      cancelledAt: "2026-08-24T00:01:00.000Z",
+      context,
+      sourceIdentity: {
+        eventId: "evt_cancel_1",
+        streamId: "ordering.order-ord_1",
+        streamVersion: 2,
+        eventType: "ordering.order.cancelled",
+      },
+    };
+    await services.cancelShipmentForCancelledOrder(cancellation);
+    await services.cancelShipmentForCancelledOrder(cancellation);
+
+    const cancelledAppends = appendToStream.mock.calls
+      .map(([input]) => input)
+      .filter((input) => input.events.some((event) => event.eventType === "fulfillment.shipment.cancelled"));
+    expect(cancelledAppends).toHaveLength(1);
+    expect(cancelledAppends[0]?.expectedVersion).toBe(1);
+    await expect(
+      services.cancelShipmentForCancelledOrder({
+        ...cancellation,
+        sourceIdentity: { ...cancellation.sourceIdentity, streamVersion: 0 },
+      }),
+    ).rejects.toThrow("source identity is invalid");
+  });
+
   it("creates a shipment from a ready local order source", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = {

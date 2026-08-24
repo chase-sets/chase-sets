@@ -54,6 +54,16 @@ export function assertCanonicalShipmentMutationId(value: unknown): asserts value
   }
 }
 
+function compareCodePointStrings(left: string, right: string) {
+  const leftCodePoints = Array.from(left, (value) => value.codePointAt(0)!);
+  const rightCodePoints = Array.from(right, (value) => value.codePointAt(0)!);
+  for (let index = 0; index < Math.min(leftCodePoints.length, rightCodePoints.length); index += 1) {
+    const difference = leftCodePoints[index]! - rightCodePoints[index]!;
+    if (difference !== 0) return difference;
+  }
+  return leftCodePoints.length - rightCodePoints.length;
+}
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonicalize);
@@ -61,7 +71,7 @@ function canonicalize(value: unknown): unknown {
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => compareCodePointStrings(left, right))
         .map(([key, child]) => [key, canonicalize(child)]),
     );
   }

@@ -34,6 +34,7 @@ export type ShipmentMutationRecoveryDescriptor = Readonly<{
 type EncryptedDescriptorRecord = Readonly<{
   id: string;
   scope: string;
+  terminal: boolean;
   iv: ArrayBuffer;
   ciphertext: ArrayBuffer;
 }>;
@@ -122,10 +123,19 @@ async function getOrCreateKey(db: IDBDatabase) {
   return key;
 }
 
-async function encryptDescriptor(key: CryptoKey, descriptor: ShipmentMutationRecoveryDescriptor) {
+function descriptorAdditionalData(id: string, scope: string) {
+  return new TextEncoder().encode(`shipment-recovery-aad/v1\n${scope}\n${id}`);
+}
+
+async function encryptDescriptor(
+  key: CryptoKey,
+  descriptor: ShipmentMutationRecoveryDescriptor,
+  id: string,
+  scope: string,
+) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv, additionalData: descriptorAdditionalData(id, scope) },
     key,
     new TextEncoder().encode(JSON.stringify(descriptor)),
   );
@@ -134,7 +144,11 @@ async function encryptDescriptor(key: CryptoKey, descriptor: ShipmentMutationRec
 
 async function decryptDescriptor(key: CryptoKey, record: EncryptedDescriptorRecord) {
   try {
-    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: record.iv }, key, record.ciphertext);
+    const plaintext = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: record.iv, additionalData: descriptorAdditionalData(record.id, record.scope) },
+      key,
+      record.ciphertext,
+    );
     const value = JSON.parse(new TextDecoder().decode(plaintext)) as ShipmentMutationRecoveryDescriptor;
     if (value.schemaVersion !== SHIPMENT_MUTATION_RECOVERY_SCHEMA_VERSION) throw new Error("unknown-schema");
     return value;
@@ -151,6 +165,22 @@ async function recordsForScope(db: IDBDatabase, scope: string) {
   )) as EncryptedDescriptorRecord[];
   await done;
   return records;
+}
+
+function buffersEqual(left: ArrayBuffer, right: ArrayBuffer) {
+  const leftBytes = new Uint8Array(left);
+  const rightBytes = new Uint8Array(right);
+  return leftBytes.length === rightBytes.length && leftBytes.every((value, index) => value === rightBytes[index]);
+}
+
+function recordsEqual(left: EncryptedDescriptorRecord, right: EncryptedDescriptorRecord) {
+  return (
+    left.id === right.id &&
+    left.scope === right.scope &&
+    left.terminal === right.terminal &&
+    buffersEqual(left.iv, right.iv) &&
+    buffersEqual(left.ciphertext, right.ciphertext)
+  );
 }
 
 export async function persistShipmentMutationDescriptor(
@@ -184,19 +214,23 @@ export async function persistShipmentMutationDescriptor(
     const existingIndex = records.findIndex((record) => record.id === id);
     if (existingIndex >= 0) {
       const existing = decoded[existingIndex]!;
-      if (
-        existing.tenantId !== input.tenantId ||
-        existing.sellerAccountId !== input.sellerAccountId ||
-        existing.shipmentId !== input.shipmentId ||
-        existing.command !== input.command ||
-        existing.target !== (input.target ?? null) ||
-        existing.intentHash !== input.intentHash
-      ) {
-        throw new ShipmentRecoveryStorageRequiredError(
-          "An unresolved Shipment action already owns this recovery slot.",
-        );
+      if (TERMINAL_STATES.has(existing.state)) {
+        // Reclaimed atomically below; a completed action never owns the next explicit attempt.
+      } else {
+        if (
+          existing.tenantId !== input.tenantId ||
+          existing.sellerAccountId !== input.sellerAccountId ||
+          existing.shipmentId !== input.shipmentId ||
+          existing.command !== input.command ||
+          existing.target !== (input.target ?? null) ||
+          existing.intentHash !== input.intentHash
+        ) {
+          throw new ShipmentRecoveryStorageRequiredError(
+            "An unresolved Shipment action already owns this recovery slot.",
+          );
+        }
+        return existing;
       }
-      return existing;
     }
     const nonterminalCount = decoded.filter((descriptor) => !TERMINAL_STATES.has(descriptor.state)).length;
     if (nonterminalCount >= SHIPMENT_MUTATION_RECOVERY_MAX_NONTERMINAL) {
@@ -218,17 +252,30 @@ export async function persistShipmentMutationDescriptor(
       sentAt: null,
       automaticRecoveryReadAt: null,
     };
-    const encrypted = await encryptDescriptor(key, descriptor);
+    const encrypted = await encryptDescriptor(key, descriptor, id, scope);
+    const reclaimableTerminalRecords = new Map(
+      records.flatMap((record, index) =>
+        TERMINAL_STATES.has(decoded[index]!.state) && record.terminal === true ? [[record.id, record] as const] : [],
+      ),
+    );
     const write = db.transaction(DESCRIPTOR_STORE, "readwrite");
     const writeDone = transactionDone(write);
     const store = write.objectStore(DESCRIPTOR_STORE);
-    const scopedCount = await requestResult(store.index("scope").count(scope));
-    if (scopedCount >= SHIPMENT_MUTATION_RECOVERY_MAX_NONTERMINAL) {
+    const scopedRecords = (await requestResult(store.index("scope").getAll(scope))) as EncryptedDescriptorRecord[];
+    const terminalRecords = scopedRecords.filter((record) => {
+      const observed = reclaimableTerminalRecords.get(record.id);
+      return observed !== undefined && recordsEqual(observed, record);
+    });
+    const nonterminalRecords = scopedRecords.filter((record) => !terminalRecords.includes(record));
+    if (nonterminalRecords.length >= SHIPMENT_MUTATION_RECOVERY_MAX_NONTERMINAL) {
       write.abort();
       await writeDone.catch(() => undefined);
       throw new ShipmentRecoveryStorageRequiredError("The secure Shipment recovery limit has been reached.");
     }
-    store.add({ id, scope, ...encrypted } satisfies EncryptedDescriptorRecord);
+    for (const record of terminalRecords) {
+      store.delete(record.id);
+    }
+    store.add({ id, scope, terminal: false, ...encrypted } satisfies EncryptedDescriptorRecord);
     await writeDone;
     const verify = db.transaction(DESCRIPTOR_STORE, "readonly");
     const verifyDone = transactionDone(verify);
@@ -254,10 +301,15 @@ export async function updateShipmentMutationDescriptor(
     const scope = await scopeIdentity(descriptor.tenantId, descriptor.sellerAccountId);
     const id = await descriptorIdentity(descriptor);
     const next = { ...descriptor, ...patch };
-    const encrypted = await encryptDescriptor(key, next);
+    const encrypted = await encryptDescriptor(key, next, id, scope);
     const transaction = db.transaction(DESCRIPTOR_STORE, "readwrite");
     const done = transactionDone(transaction);
-    transaction.objectStore(DESCRIPTOR_STORE).put({ id, scope, ...encrypted } satisfies EncryptedDescriptorRecord);
+    transaction.objectStore(DESCRIPTOR_STORE).put({
+      id,
+      scope,
+      terminal: TERMINAL_STATES.has(next.state),
+      ...encrypted,
+    } satisfies EncryptedDescriptorRecord);
     await done;
     return next;
   } finally {
@@ -301,6 +353,17 @@ export async function purgeShipmentMutationDescriptor(descriptor: ShipmentMutati
   } finally {
     db.close();
   }
+}
+
+export async function completeShipmentMutationDescriptor(
+  descriptor: ShipmentMutationRecoveryDescriptor,
+  state: "succeeded" | "failed-safe" | "conflict",
+) {
+  const terminal = await updateShipmentMutationDescriptor(descriptor, {
+    state,
+    lastObservedAt: new Date().toISOString(),
+  });
+  await purgeShipmentMutationDescriptor(terminal);
 }
 
 export async function purgeAllShipmentMutationRecovery() {

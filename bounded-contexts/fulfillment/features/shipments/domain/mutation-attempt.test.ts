@@ -13,6 +13,7 @@ import {
   assertCanonicalShipmentMutationId,
   executeShipmentMutationAttempt,
   shipmentMutationAttemptStreamId,
+  shipmentMutationRequestHash,
   ShipmentMutationConflictError,
 } from "./mutation-attempt";
 
@@ -82,9 +83,24 @@ describe("issue-7171-key-hash-and-mcp-boundary", () => {
       expect(() => assertCanonicalShipmentMutationId(invalid)).toThrow("canonical UUIDv4");
     }
   });
+
+  it("keeps canonical request ordering codepoint-stable without locale collation", () => {
+    const original = String.prototype.localeCompare;
+    String.prototype.localeCompare = () => {
+      throw new Error("persisted hashes must not use locale collation");
+    };
+    try {
+      expect(shipmentMutationRequestHash({ z: 1, a: 2, ä: 3 })).toBe(shipmentMutationRequestHash({ ä: 3, a: 2, z: 1 }));
+      expect(shipmentMutationRequestHash({ "😀": 1, "\uE000": 2 })).toBe(
+        "8f8e9ebe2fb50531573f8fa2ed4e6df97cedc7452f67bf0260b2c2a101ff7264",
+      );
+    } finally {
+      String.prototype.localeCompare = original;
+    }
+  });
 });
 
-describe("issue-7171-non-provider-atomic-replay", () => {
+describe("Shipment mutation attempt unit behavior", () => {
   it("atomically records one Shipment fact and one permanent receipt, then replays read-only", async () => {
     const runtime = await harness();
     const execute = () =>

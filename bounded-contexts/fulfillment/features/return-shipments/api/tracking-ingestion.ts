@@ -172,6 +172,16 @@ export type ReturnShipmentTrackingIngestionDeps = Readonly<{
   streamIdFor: (returnShipmentId: string) => string;
 }>;
 
+function compareCodePointStrings(left: string, right: string) {
+  const leftCodePoints = Array.from(left, (value) => value.codePointAt(0)!);
+  const rightCodePoints = Array.from(right, (value) => value.codePointAt(0)!);
+  for (let index = 0; index < Math.min(leftCodePoints.length, rightCodePoints.length); index += 1) {
+    const difference = leftCodePoints[index]! - rightCodePoints[index]!;
+    if (difference !== 0) return difference;
+  }
+  return leftCodePoints.length - rightCodePoints.length;
+}
+
 function canonicalJson(value: unknown): string {
   if (value === null || typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
   if (typeof value === "number") {
@@ -181,7 +191,7 @@ function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (typeof value === "object") {
     return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareCodePointStrings(left, right))
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
       .join(",")}}`;
   }
@@ -189,6 +199,34 @@ function canonicalJson(value: unknown): string {
 }
 
 function returnTrackingPayloadHash(event: PostageProviderWebhookEvent) {
+  const required = {
+    providerEventId: event.providerEventId,
+    providerName: event.providerName,
+    providerMode: event.providerMode,
+    eventKind: event.eventKind,
+    providerObjectReference: event.providerObjectReference,
+    occurredAt: event.occurredAt,
+  };
+  for (const [field, value] of Object.entries(required)) {
+    if (typeof value !== "string" || value.length === 0) {
+      throw new Error(`Return tracking ${field} must be a non-empty normalized string.`);
+    }
+  }
+  if (Number.isNaN(new Date(event.occurredAt).getTime())) {
+    throw new Error("Return tracking occurredAt must be a normalized timestamp.");
+  }
+  const optional = {
+    providerShipmentId: event.providerShipmentId,
+    trackingIdentifier: event.trackingIdentifier,
+    status: event.status,
+    statusDetail: event.statusDetail,
+    message: event.message,
+  };
+  for (const [field, value] of Object.entries(optional)) {
+    if (value !== null && value !== undefined && typeof value !== "string") {
+      throw new Error(`Return tracking ${field} must be a normalized string or null.`);
+    }
+  }
   return createHash("sha256")
     .update(
       `return-tracking-webhook/v1\n${canonicalJson({
@@ -200,8 +238,8 @@ function returnTrackingPayloadHash(event: PostageProviderWebhookEvent) {
         trackingIdentifier: event.trackingIdentifier ?? null,
         status: event.status ?? null,
         statusDetail: event.statusDetail ?? null,
+        message: event.message ?? null,
         occurredAt: event.occurredAt,
-        payload: event.payload ?? {},
       })}`,
     )
     .digest("hex");
@@ -325,12 +363,6 @@ export async function processReturnShipmentTrackingEvent(
 
   const reservation = await reserveReturnTrackingEvent(deps.db, event);
   if (reservation.payload_hash !== reservation.payloadHash) {
-    await deps.db.query(
-      `UPDATE fulfillment_return_shipment_provider_events
-       SET handoff_state = 'quarantined', processing_result = 'payload-hash-mismatch'
-       WHERE provider_event_id = $1 AND payload_hash = $2`,
-      [event.providerEventId, reservation.payload_hash],
-    );
     return {
       status: "quarantined",
       providerEventId: event.providerEventId,

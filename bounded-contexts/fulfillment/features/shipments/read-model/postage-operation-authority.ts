@@ -60,7 +60,7 @@ const operationColumns = `operation_key, operation_id, operation_kind, shipment_
 
 export async function findPostageOperationByDigest(
   db: PgQueryable,
-  input: Readonly<{ tenantId: string; sellerAccountId: string; keyDigest: string }>,
+  input: Readonly<{ tenantId: string; sellerAccountId: string; shipmentId: string; keyDigest: string }>,
 ) {
   const result = await db.query<PostageOperationAuthority>(
     `SELECT ${operationColumns}
@@ -68,6 +68,7 @@ export async function findPostageOperationByDigest(
      WHERE operation.tenant_id = $1
        AND operation.seller_account_id = $2
        AND operation.key_digest = $3
+       AND operation.shipment_id = $4
        AND EXISTS (
          SELECT 1 FROM fulfillment_shipment_tenant_resolutions AS authority
          WHERE authority.shipment_id = operation.shipment_id
@@ -75,7 +76,7 @@ export async function findPostageOperationByDigest(
            AND authority.tenant_id = operation.tenant_id
            AND authority.seller_account_id = operation.seller_account_id
        )`,
-    [input.tenantId, input.sellerAccountId, input.keyDigest],
+    [input.tenantId, input.sellerAccountId, input.keyDigest, input.shipmentId],
   );
   return result.rows[0] ?? null;
 }
@@ -359,12 +360,17 @@ export async function expireInvokingPostageOperation(db: PgQueryable, operationI
   return result.rows[0] ?? null;
 }
 
-export function postageOperationRecoveryStatus(operation: PostageOperationAuthority) {
+export function postageOperationRecoveryStatus(operation: PostageOperationAuthority, now = new Date()) {
   switch (operation.status) {
     case "reserved":
-    case "invoking":
     case "provider-succeeded":
       return "provider-pending";
+    case "invoking":
+      return operation.claim_token &&
+        operation.claim_expires_at &&
+        new Date(operation.claim_expires_at).getTime() > now.getTime()
+        ? "provider-pending"
+        : "ambiguous";
     case "ambiguous":
       return "ambiguous";
     case "effect-applied":

@@ -175,6 +175,43 @@ describe("processReturnShipmentTrackingEvent", () => {
     expect(commandHandler).toHaveBeenCalledTimes(1);
   });
 
+  it("ignores raw provider payload enrichment when the normalized event is unchanged", async () => {
+    const fake = createFakeDb(match);
+    const commandHandler = vi.fn(async () => ({ version: 1 }) as never);
+    const deps = { db: fake.db, commandHandler, streamIdFor: (id: string) => `fulfillment.return-shipment-${id}` };
+    await processReturnShipmentTrackingEvent(deps, webhookEvent({ payload: { firstDeliveryShape: true } }), context);
+    const second = await processReturnShipmentTrackingEvent(
+      deps,
+      webhookEvent({ payload: { firstDeliveryShape: true, laterProviderEnrichment: "ignored-by-hash" } }),
+      context,
+    );
+    expect(second.status).toBe("duplicate");
+    expect(commandHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a completed receipt immutable on a same-id different-hash redelivery", async () => {
+    const fake = createFakeDb(match);
+    const commandHandler = vi.fn(async () => ({ version: 1 }) as never);
+    const deps = { db: fake.db, commandHandler, streamIdFor: (id: string) => `fulfillment.return-shipment-${id}` };
+    await processReturnShipmentTrackingEvent(deps, webhookEvent(), context);
+    const result = await processReturnShipmentTrackingEvent(
+      deps,
+      webhookEvent({ statusDetail: "provider-enrichment-that-changes-the-normalized-hash" }),
+      context,
+    );
+
+    expect(result).toMatchObject({ status: "quarantined", processingResult: "payload-hash-mismatch" });
+    expect(fake.processed.get("pev_1")).toBe("delivered");
+    expect(commandHandler).toHaveBeenCalledTimes(1);
+    expect(
+      fake.query.mock.calls.some(
+        ([sql]) =>
+          String(sql).includes("UPDATE fulfillment_return_shipment_provider_events") &&
+          String(sql).includes("payload-hash-mismatch"),
+      ),
+    ).toBe(false);
+  });
+
   it("records an unmatched event as retryable so a later reconciliation poll repairs the miss", async () => {
     const fake = createFakeDb(null);
     const commandHandler = vi.fn(async () => ({ version: 1 }) as never);

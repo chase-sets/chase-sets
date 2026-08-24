@@ -5,6 +5,10 @@ const recoveryModulePath = fileURLToPath(
   new URL("../../../bounded-contexts/fulfillment/features/shipments/ui/mutation-recovery.ts", import.meta.url),
 ).replaceAll("\\", "/");
 const recoveryModuleUrl = `/@fs/${recoveryModulePath}`;
+const packingModulePath = fileURLToPath(
+  new URL("../../../bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx", import.meta.url),
+).replaceAll("\\", "/");
+const packingModuleUrl = `/@fs/${packingModulePath}`;
 
 test.describe("shipment-mutation-recovery", () => {
   test("persists the production encrypted descriptor before transport and survives a browser reload", async ({
@@ -87,7 +91,95 @@ test.describe("shipment-mutation-recovery", () => {
     expect(postCount).toBe(0);
   });
 
-  test("purges tampered ciphertext and never manufactures a recovery write", async ({ page }) => {
+  test("reclaims 256 terminal descriptors transactionally while retaining the 256-nonterminal refusal", async ({
+    page,
+  }) => {
+    let postCount = 0;
+    await page.route("**/*", async (route) => {
+      if (route.request().method() === "POST") postCount += 1;
+      await route.continue();
+    });
+    await page.goto("/");
+    const result = await page.evaluate(async (moduleUrl) => {
+      const recovery = await import(moduleUrl);
+      await recovery.purgeAllShipmentMutationRecovery();
+      for (let index = 0; index < recovery.SHIPMENT_MUTATION_RECOVERY_MAX_NONTERMINAL; index += 1) {
+        const descriptor = await recovery.persistShipmentMutationDescriptor({
+          tenantId: "tnt_terminal_cap_7171",
+          sellerAccountId: "acc_terminal_cap_7171",
+          shipmentId: `shp_terminal_${index}`,
+          command: "confirm-packing-line",
+          target: `spl_terminal_${index}`,
+          intentHash: await recovery.hashShipmentMutationIntent({ index }),
+        });
+        await recovery.updateShipmentMutationDescriptor(descriptor, { state: "succeeded" });
+      }
+      const accepted = await recovery.persistShipmentMutationDescriptor({
+        tenantId: "tnt_terminal_cap_7171",
+        sellerAccountId: "acc_terminal_cap_7171",
+        shipmentId: "shp_after_terminal_cap",
+        command: "confirm-packing-line",
+        target: "spl_after_terminal_cap",
+        intentHash: await recovery.hashShipmentMutationIntent({ index: 256 }),
+      });
+      return {
+        accepted: accepted.mutationAttemptId,
+        retained: (await recovery.listShipmentMutationDescriptors("tnt_terminal_cap_7171", "acc_terminal_cap_7171"))
+          .length,
+      };
+    }, recoveryModuleUrl);
+    expect(result.accepted).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.retained).toBe(1);
+    expect(postCount).toBe(0);
+  });
+
+  test("confirm then unconfirm crosses the production packing route boundary with distinct UUIDv4 attempts", async ({
+    page,
+  }) => {
+    const attempts: string[] = [];
+    await page.route("**/account/sales/shipments/shp_browser_route/packing", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const body = route.request().postData() ?? "";
+      const attempt = body.match(/name="mutationAttemptId"\r?\n\r?\n([^\r\n]+)/)?.[1] ?? "";
+      attempts.push(attempt);
+      const confirmedQuantity = attempts.length === 1 ? 1 : 0;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          lineId: "spl_browser_route",
+          confirmedQuantity,
+        }),
+      });
+    });
+    await page.goto("/");
+    const quantities = await page.evaluate(
+      async ({ recoveryUrl, packingUrl }) => {
+        const recovery = await import(recoveryUrl);
+        const packing = await import(packingUrl);
+        await recovery.purgeAllShipmentMutationRecovery();
+        const base = {
+          recoveryScope: { tenantId: "tnt_browser_route", sellerAccountId: "acc_browser_route" },
+          shipmentId: "shp_browser_route",
+          lineId: "spl_browser_route",
+          action: "/account/sales/shipments/shp_browser_route/packing",
+        };
+        const confirmed = await packing.submitPackingLineQuantity({ ...base, confirmedQuantity: 1 });
+        const unconfirmed = await packing.submitPackingLineQuantity({ ...base, confirmedQuantity: 0 });
+        return [confirmed.confirmedQuantity, unconfirmed.confirmedQuantity];
+      },
+      { recoveryUrl: recoveryModuleUrl, packingUrl: packingModuleUrl },
+    );
+    expect(quantities).toEqual([1, 0]);
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(attempts[1]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(attempts[0]).not.toBe(attempts[1]);
+  });
+
+  test("purges a record whose AES-GCM identity binding was tampered and never manufactures a recovery write", async ({
+    page,
+  }) => {
     let postCount = 0;
     await page.route("**/*", async (route) => {
       if (route.request().method() === "POST") postCount += 1;
@@ -115,7 +207,8 @@ test.describe("shipment-mutation-recovery", () => {
         const request = store.getAll();
         request.onsuccess = () => {
           const record = request.result[0];
-          record.ciphertext = new Uint8Array([1, 2, 3, 4]).buffer;
+          store.delete(record.id);
+          record.id = "tampered-record-identity";
           store.put(record);
         };
         transaction.oncomplete = () => resolve();

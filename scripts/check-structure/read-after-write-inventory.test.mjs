@@ -2,7 +2,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
+import {
+  collectMutationConsistencySurfaces,
+  validateReadAfterWriteRouteInventory,
+} from "./read-after-write-inventory.mjs";
 
 const tempRoots = [];
 
@@ -244,6 +247,62 @@ afterEach(() => {
 });
 
 describe("read-after-write route inventory guard", () => {
+  it("issue-7171-complete-caller-census rejects added or removed raw fetches outside the shipped inventory", async () => {
+    const root = createTempRepo();
+    const relative = "bounded-contexts/checkout/features/sessions/ui/recovery.ts";
+    const absolute = path.join(root, relative);
+    mkdirSync(path.dirname(absolute), { recursive: true });
+    writeFileSync(
+      absolute,
+      'export async function recover() {\n  return fetch("/recovery", { method: "GET" });\n}\n',
+      "utf8",
+    );
+    const baseManifests = createContextManifest(root, {
+      rawFetchCensus: "complete",
+      readAfterWriteRouteInventory: [],
+      mutationConsistencyInventory: [],
+    });
+    const [surface] = (
+      await collectMutationConsistencySurfaces({ repoRoot: root, contextManifests: baseManifests })
+    ).filter((candidate) => candidate.kind === "raw-fetch");
+    expect(surface).toBeDefined();
+    const classified = createContextManifest(root, {
+      rawFetchCensus: "complete",
+      readAfterWriteRouteInventory: [],
+      mutationConsistencyInventory: [
+        {
+          id: "checkout.owner-recovery-read",
+          owner: "checkout",
+          risk: "important",
+          strategy: "snapshot-return",
+          surfaces: [surface.id],
+          visibleDestination: { description: "The recovery GET returns the owner snapshot." },
+          proof: { authoritativeResponse: "The owner route returns its receipt.", tests: [relative] },
+        },
+      ],
+    });
+    const classifiedResult = await validate(root, classified);
+    expect(classifiedResult.violations.some((violation) => violation.includes("raw-fetch is unclassified"))).toBe(
+      false,
+    );
+
+    writeFileSync(
+      absolute,
+      'export async function recover() {\n  await fetch("/recovery", { method: "GET" });\n  return fetch("/retry", { method: "POST" });\n}\n',
+      "utf8",
+    );
+    const addedResult = await validate(root, classified);
+    expect(addedResult.violations.some((violation) => violation.includes("raw-fetch is unclassified"))).toBe(true);
+
+    rmSync(absolute);
+    const removedResult = await validate(root, classified);
+    expect(removedResult.violations).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`surface '${surface.id}' was not discovered by the mutation inventory scanner`),
+      ]),
+    );
+  });
+
   it("accepts helper usage represented by exact freshness inventory", async () => {
     const root = createTempRepo();
     writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);

@@ -278,7 +278,7 @@ export type FulfillmentShipmentServices = Readonly<{
     orderId: string;
     cancelledAt: string;
     context: EventStoreContext;
-    sourceIdentity?: Readonly<{ eventId: string; streamId: string; streamVersion: number; eventType: string }>;
+    sourceIdentity: Readonly<{ eventId: string; streamId: string; streamVersion: number; eventType: string }>;
   }) => Promise<{ shipmentId: ShipmentId | null }>;
   listBuyerShipments: (params: Parameters<typeof listBuyerShipments>[1]) => ReturnType<typeof listBuyerShipments>;
   getBuyerShipment: (shipmentId: string, buyerAccountId: string) => ReturnType<typeof getBuyerShipment>;
@@ -1574,6 +1574,17 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId };
     },
     cancelShipmentForCancelledOrder: async (params) => {
+      if (
+        !params.sourceIdentity.eventId ||
+        !params.sourceIdentity.streamId ||
+        !Number.isInteger(params.sourceIdentity.streamVersion) ||
+        params.sourceIdentity.streamVersion < 1 ||
+        !["ordering.order.cancelled", "payments.payment-fraud-warning-received"].includes(
+          params.sourceIdentity.eventType,
+        )
+      ) {
+        throw new ShipmentHistoryPoisonedError("Shipment cancellation source identity is invalid.");
+      }
       const shipment = await loadCancellableShipmentForOrder(deps.db, params.orderId);
       if (!shipment || shipment.status === "cancelled") {
         return { shipmentId: null };
@@ -1582,6 +1593,11 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         return { shipmentId: null };
       }
 
+      const loaded = await repository.load(`fulfillment.shipment-${shipment.shipment_id}`);
+      assertCompleteHistoryTenant(loaded.storedEvents, String(params.context.tenantId));
+      if (String(loaded.state.orderId) !== params.orderId) {
+        throw new ShipmentHistoryPoisonedError("Shipment cancellation source identity was reused for another order.");
+      }
       await commandHandler({
         streamId: `fulfillment.shipment-${shipment.shipment_id}`,
         command: {
@@ -1589,6 +1605,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           cancelledAt: params.cancelledAt,
         },
         context: params.context,
+        expectedVersion: loaded.version,
       });
 
       return { shipmentId: shipment.shipment_id as ShipmentId };
@@ -1953,6 +1970,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
             const current = await findPostageOperationByDigest(deps.db, {
               tenantId,
               sellerAccountId: params.sellerAccountId,
+              shipmentId: params.shipmentId,
               keyDigest,
             });
             if (current?.claim_token && current.claim_expires_at) {
@@ -2010,17 +2028,22 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           });
           throw new FulfillmentDomainError("Postage label purchase outcome is ambiguous; reconciliation is required.");
         }
-        operation =
-          (await transitionPostageOperation(deps.db, {
-            claim,
-            from: "invoking",
-            to: "provider-succeeded",
-            providerInvoked: true,
-            providerShipmentId: purchasedLabel.providerShipmentId,
-            providerLabelId: purchasedLabel.providerLabelId,
-            trackingIdentifier: purchasedLabel.trackingIdentifier,
-            providerResult: purchasedLabel,
-          })) ?? operation;
+        const providerSucceeded = await transitionPostageOperation(deps.db, {
+          claim,
+          from: "invoking",
+          to: "provider-succeeded",
+          providerInvoked: true,
+          providerShipmentId: purchasedLabel.providerShipmentId,
+          providerLabelId: purchasedLabel.providerLabelId,
+          trackingIdentifier: purchasedLabel.trackingIdentifier,
+          providerResult: purchasedLabel,
+        });
+        if (!providerSucceeded) {
+          throw new FulfillmentDomainError(
+            "Postage label purchase claim was lost after invocation; reconciliation is required.",
+          );
+        }
+        operation = providerSucceeded;
 
         const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
         assertCompleteHistoryTenant(loaded.storedEvents, tenantId);
@@ -2636,9 +2659,13 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     recoverShipmentMutation: async (params, context) => {
       const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
       const tenantId = String(context.tenantId);
-      assertCompleteHistoryTenant(loaded.storedEvents, tenantId);
-      if (String(loaded.state.sellerAccountId) !== params.sellerAccountId) {
-        throw new FulfillmentDomainError("Shipment not found.");
+      try {
+        assertCompleteHistoryTenant(loaded.storedEvents, tenantId);
+        if (String(loaded.state.sellerAccountId) !== params.sellerAccountId) {
+          throw new ShipmentHistoryPoisonedError();
+        }
+      } catch {
+        throw new FulfillmentDomainError("Shipment mutation recovery is unavailable.");
       }
       const attempt = await readShipmentMutationAttempt({
         eventStore: deps.eventStore,
@@ -2668,6 +2695,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const operation = await findPostageOperationByDigest(deps.db, {
         tenantId,
         sellerAccountId: params.sellerAccountId,
+        shipmentId: params.shipmentId,
         keyDigest,
       });
       if (operation) {
