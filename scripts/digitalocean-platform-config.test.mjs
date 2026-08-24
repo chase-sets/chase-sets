@@ -663,8 +663,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionRestorePointCleanupWorkflow).toContain('cron: "17 3,9,15,21 * * *"');
     expect(platformProductionRestorePointCleanupWorkflow).toContain('default: "6"');
     expect(platformProductionRestorePointCleanupWorkflow).toContain(
-      `min_age_hours="\${{ github.event.inputs.min_age_hours || '6' }}"`,
+      `MIN_AGE_HOURS: \${{ github.event.inputs.min_age_hours || '6' }}`,
     );
+    expect(platformProductionRestorePointCleanupWorkflow).toContain('--min-age-hours "$MIN_AGE_HOURS"');
     expect(platformProductionRestorePointCleanupWorkflow).toContain("PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES");
   });
 
@@ -994,9 +995,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(cleanupStep).toContain("if: steps.deploy_lane.outputs.deferred != 'true'");
     expect(cleanupStep).toContain("--retain-recent-sha-tree-tags=25");
     expect(platformRegistryCleanupWorkflow).toContain(
-      "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}",
+      "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || github.event.inputs.dry_run }}",
     );
-    expect(cleanupStep).toContain('--dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN}"');
+    expect(cleanupStep).toContain('--dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_RESOLVED_DRY_RUN}"');
     expect(cleanupStep).toContain("--out artifacts/release-health/digitalocean-registry-cleanup.json");
     expect(cleanupStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN }}");
     expect(validateStep).toContain("if: ${{ always() }}");

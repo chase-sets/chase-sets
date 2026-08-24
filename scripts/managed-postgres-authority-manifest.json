@@ -4456,14 +4456,14 @@
     {
       "file": ".github/workflows/platform-production-restore-point-cleanup.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Cleanup restore-point forks#3",
+      "stepAnchor": "name:Cleanup restore-point forks#4",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production-restore-point-cleanup.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Summarize cleanup#4",
+      "stepAnchor": "name:Summarize cleanup#5",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
@@ -8082,7 +8082,7 @@
     {
       "file": ".github/workflows/platform-registry-cleanup.yml",
       "jobId": "cleanup",
-      "stepAnchor": "name:Cleanup registry tags#6",
+      "stepAnchor": "name:Cleanup registry tags#7",
       "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
       "purpose": "digitalocean-ops"
     },
