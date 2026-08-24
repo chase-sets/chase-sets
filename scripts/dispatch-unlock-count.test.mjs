@@ -225,7 +225,11 @@ describe("dispatch dependency snapshot", () => {
     const recovery = rootCaptureRequest([
       [first, target3, target4],
       [target3, target4, { ...first, issueDependenciesSummary: { ...first.issueDependenciesSummary, blockedBy: 99 } }],
-      [target4, first, target3],
+      [
+        target4,
+        { ...first, issueDependenciesSummary: { ...first.issueDependenciesSummary, blockedBy: 99 } },
+        target3,
+      ],
     ]);
     await expect(
       collectStableDependencyFacts({ request: recovery, owner: OWNER, repository: REPOSITORY }),
@@ -366,7 +370,7 @@ describe("dispatch dependency snapshot", () => {
       if (query === BLOCKED_BY_QUERY && variables.issue === "local-1" && variables.after === "blockedBy-page-2") {
         return nestedResponse("local-1", "blockedBy", [
           edge({ id: "external-2", number: 2, repository: "synthetic/external" }),
-        ]);
+        ], { totalCount: 2 });
       }
       throw new Error("unexpected overflow request");
     });
@@ -382,7 +386,7 @@ describe("dispatch dependency snapshot", () => {
       expect(query).toContain("pageInfo");
       expect(query).toContain("nodes");
     }
-    expect(ISSUES_QUERY).toContain("issueDependenciesSummary { blocking,totalBlocking,blockedBy,totalBlockedBy }");
+    expect(ISSUES_QUERY).toContain("issueDependenciesSummary { blocking totalBlocking blockedBy totalBlockedBy }");
     expect(ISSUES_QUERY).toContain("blockedBy(first:100");
     await expect(
       collectStableDependencyFacts({
