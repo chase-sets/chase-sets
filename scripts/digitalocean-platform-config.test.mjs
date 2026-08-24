@@ -3,7 +3,11 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
-import { assertNoDestructiveChanges, destructiveChangeApprovalFromText } from "./terraform-plan-inspection.mjs";
+import {
+  assertNoDestructiveChanges,
+  destructiveChangeApprovalFromText,
+  terraformPlanSummary,
+} from "./terraform-plan-inspection.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
@@ -174,6 +178,13 @@ function hasSpacesBackendCredentials(source) {
 }
 
 function expectGuardedTerraformResource(source, resourceType, resourceName) {
+  const resource = terraformResourceBlock(source, resourceType, resourceName);
+
+  expect(resource).toContain("lifecycle {");
+  expect(resource).toContain("prevent_destroy = true");
+}
+
+function terraformResourceBlock(source, resourceType, resourceName) {
   const declaration = `resource "${resourceType}" "${resourceName}" {`;
   const start = source.indexOf(declaration);
   expect(start).toBeGreaterThanOrEqual(0);
@@ -186,10 +197,7 @@ function expectGuardedTerraformResource(source, resourceType, resourceName) {
     ]
       .filter((index) => index >= 0)
       .sort((left, right) => left - right)[0] ?? source.length;
-  const resource = source.slice(start, nextBlockStart);
-
-  expect(resource).toContain("lifecycle {");
-  expect(resource).toContain("prevent_destroy = true");
+  return source.slice(start, nextBlockStart);
 }
 
 function listFilesRecursively(rootDir, prefix = "") {
@@ -516,6 +524,50 @@ function platformApiExposedContextNames(runtimeProfile) {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("replaces exactly both database-grant provisioners onto cluster-specific verified trust", () => {
+    const resourceNames = ["context_database_grants", "wake_listener_database_grants"];
+    for (const resourceName of resourceNames) {
+      const resource = terraformResourceBlock(platformMain, "terraform_data", resourceName);
+      const command = /^\s*command\s+=\s+"([^"]+)"/m.exec(resource)?.[1];
+
+      expect(command).toBe("node scripts/apply-digitalocean-database-grant.mjs");
+      expect(resource).toContain('"managed-postgres-grant-trust-v2"');
+      expect(resource).toContain("DATABASE_CLUSTER_ID");
+      expect(resource).toContain("digitalocean_database_cluster.postgres[0].id");
+      expect(resource).toContain("DIGITALOCEAN_ACCESS_TOKEN = var.digitalocean_token");
+      expect(resource).toContain("DATABASE_GRANTS_JSON = jsonencode([");
+      expect(resource).not.toContain("PGDATABASE");
+      expect(resource).not.toContain("PGSSLMODE");
+      expect(command).not.toContain("DIGITALOCEAN_ACCESS_TOKEN");
+      expect(command).not.toContain("DATABASE_GRANTS_JSON");
+      expect(command).not.toContain("PGPASSWORD");
+    }
+    expect(occurrenceCount(platformMain, '"managed-postgres-grant-trust-v2"')).toBe(2);
+
+    const firstV2Plan = grantTrustPlan("legacy", "managed-postgres-grant-trust-v2");
+    expect(terraformPlanSummary(firstV2Plan).resources).toEqual([
+      { address: "terraform_data.context_database_grants[0]", actions: ["delete", "create"] },
+      { address: "terraform_data.wake_listener_database_grants[0]", actions: ["delete", "create"] },
+    ]);
+    expect(assertNoDestructiveChanges(firstV2Plan)).toEqual([]);
+    expect(
+      terraformPlanSummary(grantTrustPlan("managed-postgres-grant-trust-v2", "managed-postgres-grant-trust-v2")),
+    ).toMatchObject({ add: 0, change: 0, destroy: 0, resources: [] });
+    expect(
+      terraformPlanSummary(grantTrustPlan("managed-postgres-grant-trust-v2", "managed-postgres-grant-trust-v3"))
+        .resources,
+    ).toHaveLength(2);
+
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const stagingPlan = workflowStep(stagingJob, "Terraform plan");
+    const stagingApply = workflowSteps(stagingJob, "Terraform apply").at(-1);
+    expect(stagingJob).toContain("environment: staging");
+    expect(stagingPlan).toContain("terraform plan -out=tfplan");
+    expect(stagingPlan).toContain("terraform show -no-color tfplan");
+    expect(stagingApply).toContain("terraform apply -auto-approve tfplan");
+    expect(stagingJob).not.toMatch(/approved (?:binary )?plan|plan bytes (?:were )?approved/i);
+  });
+
   it("retires application compute while preserving live DOKS DNS addresses", () => {
     expect(platformMain).not.toMatch(/resource\s+"digitalocean_app"/);
     expect(platformProjects).not.toContain("digitalocean_app.platform.urn");
@@ -2796,6 +2848,25 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 });
+
+function grantTrustPlan(beforeVersion, afterVersion) {
+  const actions = beforeVersion === afterVersion ? ["no-op"] : ["delete", "create"];
+  return {
+    resource_changes: [
+      ...["context_database_grants", "wake_listener_database_grants"].map((name) => ({
+        address: `terraform_data.${name}[0]`,
+        type: "terraform_data",
+        name,
+        change: { actions, before: { input: beforeVersion }, after: { input: afterVersion } },
+      })),
+      ...[
+        ["digitalocean_database_cluster.postgres[0]", "digitalocean_database_cluster", "postgres"],
+        ['digitalocean_database_db.contexts["checkout"]', "digitalocean_database_db", "contexts"],
+        ['digitalocean_database_user.contexts["checkout"]', "digitalocean_database_user", "contexts"],
+      ].map(([address, type, name]) => ({ address, type, name, change: { actions: ["no-op"] } })),
+    ],
+  };
+}
 
 describe("Release qualification evidence root (issue #5836)", () => {
   const rootDir = "infrastructure/digitalocean/release-qualification";

@@ -12,8 +12,17 @@
 //                  relay's listener connection never reads tables today
 //                  (catch-up uses pooled query URLs), so a skipped SELECT
 //                  grant never degrades the relay.
+import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import {
+  fetchDigitalOceanManagedPostgresCa,
+  managedPostgresConnectionUrl,
+  writeManagedPostgresCa,
+} from "./terraform-state-database-urls.mjs";
+import { postgresClientConfig, postgresFailureFields } from "./lib/postgres-connection.mjs";
 
 const { Client } = pg;
 
@@ -64,24 +73,119 @@ export function statementsForGrant({ database, user, kind }) {
   ];
 }
 
-async function applyGrant(grant, env = process.env) {
-  const client = new Client({
-    host: requireEnv("PGHOST", env),
-    port: Number(env.PGPORT ?? "5432"),
-    database: grant.database,
-    user: requireEnv("PGUSER", env),
-    password: requireEnv("PGPASSWORD", env),
-    ssl: env.PGSSLMODE === "require" ? { rejectUnauthorized: false } : undefined,
-  });
+async function applyGrant(grant, connectionUrl, dependencies = {}) {
+  assertVerifiedGrantConnection(connectionUrl, grant.database);
+  const config = postgresClientConfig(connectionUrl, Object.create(null), dependencies.readFileSync);
+  const client = (dependencies.createClient ?? ((clientConfig) => new Client(clientConfig)))(config);
+  let operationError;
+  try {
+    try {
+      await client.connect();
+    } catch (error) {
+      throw boundedPostgresError(error, "postgres-connect-failed");
+    }
 
-  await client.connect();
+    try {
+      const statements = (dependencies.statementsForGrant ?? statementsForGrant)(grant);
+      for (const statement of statements) {
+        await client.query(statement);
+      }
+    } catch (error) {
+      throw boundedPostgresError(error, "postgres-grant-query-failed");
+    }
+  } catch (error) {
+    operationError = error;
+    throw error;
+  } finally {
+    try {
+      await client.end();
+    } catch (error) {
+      if (!operationError) {
+        throw boundedPostgresError(error, "postgres-client-close-failed");
+      }
+    }
+  }
+}
+
+export function readManagedPostgresGrantOptions(env = process.env) {
+  return {
+    grants: readGrants(env),
+    clusterId: requireClassifiedEnv("DATABASE_CLUSTER_ID", "managed-postgres-cluster-id-missing", env),
+    digitalOceanToken: env.DIGITALOCEAN_ACCESS_TOKEN,
+    host: requireClassifiedEnv("PGHOST", "managed-postgres-connection-input-missing", env),
+    port: env.PGPORT ?? "5432",
+    user: requireClassifiedEnv("PGUSER", "managed-postgres-connection-input-missing", env),
+    password: requireClassifiedEnv("PGPASSWORD", "managed-postgres-connection-input-missing", env),
+  };
+}
+
+export async function applyDigitalOceanDatabaseGrants(options, dependencies = {}) {
+  const createTemporaryDirectory = dependencies.mkdtemp ?? mkdtemp;
+  const setMode = dependencies.chmod ?? chmod;
+  const writeCa = dependencies.writeCa ?? writeManagedPostgresCa;
+  const remove = dependencies.rm ?? rm;
+  const temporaryDirectoryParent = dependencies.temporaryDirectoryParent ?? tmpdir();
+  let caDirectory;
 
   try {
-    for (const statement of statementsForGrant(grant)) {
-      await client.query(statement);
+    caDirectory = await createTemporaryDirectory(join(temporaryDirectoryParent, "chase-sets-managed-postgres-grant-"));
+    await setMode(caDirectory, 0o700);
+    const caPath = join(caDirectory, "ca.pem");
+    const certificate = await fetchDigitalOceanManagedPostgresCa(
+      {
+        clusterId: options.clusterId,
+        digitalOceanToken: options.digitalOceanToken,
+      },
+      dependencies,
+    );
+    try {
+      await writeCa(caPath, certificate);
+    } catch (error) {
+      throw classifiedError("managed-postgres-ca-write-failed", error);
     }
+
+    for (const grant of options.grants) {
+      const connectionUrl = (dependencies.connectionUrlForGrant ?? connectionUrlForGrant)(options, grant, caPath);
+      await applyGrant(grant, connectionUrl, dependencies);
+    }
+
+    return { grantCount: options.grants.length };
   } finally {
-    await client.end();
+    if (caDirectory) {
+      try {
+        await remove(caDirectory, { recursive: true, force: true });
+      } catch (error) {
+        throw classifiedError("managed-postgres-ca-cleanup-failed", error);
+      }
+    }
+  }
+}
+
+export function connectionUrlForGrant(options, grant, caPath) {
+  const url = new URL("postgresql://localhost");
+  url.hostname = options.host;
+  url.port = String(options.port);
+  url.username = options.user;
+  url.password = options.password;
+  url.pathname = `/${grant.database}`;
+  return managedPostgresConnectionUrl(url.toString(), caPath);
+}
+
+function assertVerifiedGrantConnection(connectionString, database) {
+  let url;
+  try {
+    url = new URL(connectionString);
+  } catch {
+    throw classifiedError("managed-postgres-connection-url-invalid");
+  }
+  if (
+    url.protocol !== "postgresql:" ||
+    decodeURIComponent(url.pathname.slice(1)) !== database ||
+    url.searchParams.get("sslmode") !== "verify-full" ||
+    !url.searchParams.get("sslrootcert") ||
+    url.searchParams.get("uselibpqcompat") !== "true"
+  ) {
+    throw classifiedError("managed-postgres-connection-url-invalid");
   }
 }
 
@@ -120,8 +224,41 @@ export function readGrants(env = process.env) {
   ];
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  for (const grant of readGrants()) {
-    await applyGrant(grant);
+export async function main(env = process.env, dependencies = {}) {
+  const log = dependencies.log ?? console.log;
+  const logError = dependencies.error ?? console.error;
+  try {
+    const result = await applyDigitalOceanDatabaseGrants(readManagedPostgresGrantOptions(env), dependencies);
+    log(JSON.stringify({ status: "database-grants-applied", grantCount: result.grantCount }));
+    return 0;
+  } catch (error) {
+    logError(JSON.stringify(postgresFailureFields(error)));
+    return 1;
   }
+}
+
+function requireClassifiedEnv(name, classification, env) {
+  try {
+    return requireEnv(name, env);
+  } catch (error) {
+    throw classifiedError(classification, error);
+  }
+}
+
+function boundedPostgresError(error, fallbackClassification) {
+  const fields = postgresFailureFields(error);
+  const classification =
+    fields.classification === "postgres-query-failed" ? fallbackClassification : fields.classification;
+  return classifiedError(classification, error, fields);
+}
+
+function classifiedError(classification, error, fields = {}) {
+  return Object.assign(new Error(classification), fields, {
+    classification,
+    ...(typeof error?.code === "string" ? { code: error.code } : {}),
+  });
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  process.exitCode = await main();
 }
