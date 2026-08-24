@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 363
+- Runtime exports indexed: 364
 - Source modules covered: 127
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -50,7 +50,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ButtonGroup` | `packages/design-system/src/components/actions/button.tsx` | Purpose not documented; symbol name suggests: Button Group. | `No production consumer yet.` |
 | `Calendar` | `packages/design-system/src/components/forms/date-picker.tsx` | An accessible month-grid calendar with full keyboard navigation. | `No production consumer yet.` |
 | `Caption` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Caption. | `No production consumer yet.` |
-| `Card` | `packages/design-system/src/components/data-display/card.tsx` | Canonical card surface with a compound slot API. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
+| `Card` | `packages/design-system/src/components/data-display/card.tsx` | Canonical card surface with a compound slot API and opt-in `flush`/`tinted`/`outlined`/`elevated` elevation intents. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `CategoryTile` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Category Tile. | `No production consumer yet.` |
 | `Center` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Center. | `No production consumer yet.` |
 | `chaseDarkTheme` | `packages/design-system/src/theme/tokens.ts` | Purpose not documented; symbol name suggests: chase Dark Theme. | `No production consumer yet.` |
@@ -122,6 +122,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `EvidenceList` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Evidence List. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx` |
 | `EvidencePanel` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Evidence Panel. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-import-scope-details.tsx` |
 | `EvidenceStringList` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Evidence String List. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/alias-review/alias-review-workspace.tsx` |
+| `Eyebrow` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Eyebrow. | `No production consumer yet.` |
 | `FeatureCard` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Feature Card. | `bounded-contexts/discovery/features/home/ui/home-merchandising.tsx` |
 | `Field` | `packages/design-system/src/components/forms/field.tsx` | Purpose not documented; symbol name suggests: Field. | `No production consumer yet.` |
 | `Fieldset` | `packages/design-system/src/components/forms/fieldset.tsx` | Purpose not documented; symbol name suggests: Fieldset. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/import-context-bar.tsx` |
@@ -309,7 +310,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `StickyTaskFooter` | `packages/design-system/src/components/data-display/operational-workflow/sticky-task-footer.tsx` | Sticky task footer: an in-flow action bar that pins to the bottom of a workstation flow, carrying a running summary plus the primary action, with mobile offsets that clear the app shell's bottom navigation. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |
 | `stripeAppearanceSnapshot` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: stripe Appearance Snapshot. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `Subheading` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Subheading. | `No production consumer yet.` |
-| `Surface` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Surface. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
+| `Surface` | `packages/design-system/src/primitives/layout.tsx` | Canonical furniture surface with tone-driven fills and opt-in `flush`/`tinted`/`outlined`/`elevated` elevation intents. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `surfaceSemanticToneClasses` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: surface Semantic Tone Classes. | `No production consumer yet.` |
 | `Switch` | `packages/design-system/src/components/forms/switch.tsx` | Purpose not documented; symbol name suggests: Switch. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx` |
 | `Table` | `packages/design-system/src/components/data-display/table.tsx` | Purpose not documented; symbol name suggests: Table. | `bounded-contexts/fulfillment/features/return-shipments/ui/facility-intake-page.tsx` |

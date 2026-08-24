@@ -14,7 +14,9 @@ import { createWalletRuntime } from "../../wallets/api/runtime";
 import type { WalletServices } from "../../wallets/api/runtime";
 import { createPayoutRuntime } from "./runtime";
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
+import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement/test-support";
+import { SettlementDomainError } from "../../../support/runtime-support/common";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -93,6 +95,101 @@ function createPayoutReadiness(
         payout_destination_status: "ready",
       })),
   } as unknown as PayoutReadinessServices;
+}
+
+function createSyntheticPlatformBalanceGateway(availableAmount: string): MoneyMovementGateway {
+  return {
+    ...createFakeMoneyMovementGateway(),
+    providerName: "synthetic-cent-math-control",
+    async retrievePlatformBalance(input) {
+      return { currencyCode: input.currencyCode, availableAmount };
+    },
+  };
+}
+
+function createPayoutArithmeticRuntime(
+  options: Readonly<{
+    walletAvailableAmount?: string;
+    walletPendingAmount?: string;
+    supportHoldAmount?: string;
+    spendHoldAmount?: string;
+    platformAvailableAmount?: string;
+    inTransitAmounts?: readonly string[];
+  }> = {},
+) {
+  const { eventStore, readAllEvents } = createInMemoryEventStore();
+  const db = {
+    query: vi.fn(async (sql: string) => {
+      if (sql.includes("COUNT(*) FILTER")) {
+        return {
+          rows: [
+            {
+              failed_payout_count: "0",
+              stale_requested_payout_count: "0",
+              in_transit_payout_count: "0",
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+      if (sql.includes("FROM settlement_wallet_spend_holds")) {
+        return { rows: [{ amount: options.spendHoldAmount ?? "0.00" }], rowCount: 1 };
+      }
+      if (sql.includes("FROM settlement_ledger_entry_pages entry")) {
+        return { rows: [{ amount: options.supportHoldAmount ?? "0.00" }], rowCount: 1 };
+      }
+      if (sql.includes("FROM settlement_payout_pages")) {
+        const rows = (options.inTransitAmounts ?? []).map((amount, index) => ({
+          payout_id: `pyo_synthetic_cent_math_${index}`,
+          account_id: "acc_synthetic_cent_math",
+          amount,
+          currency_code: "usd",
+          status: "in-transit",
+          updated_at: "2026-08-24T00:00:00.000Z",
+        }));
+        return { rows, rowCount: rows.length };
+      }
+      return { rows: [], rowCount: 0 };
+    }),
+  };
+  const wallets = {
+    getWallet: vi.fn(async () => ({
+      account_id: "acc_seller",
+      currency_code: "usd",
+      pending_balance_amount: options.walletPendingAmount ?? "0.00",
+      available_balance_amount: options.walletAvailableAmount ?? "20.00",
+      total_credited_amount: "20.00",
+      total_debited_amount: "0.00",
+      negative_balance_status: "in-good-standing",
+      negative_balance_started_at: null,
+      collections_escalated_at: null,
+      opened_at: "2026-08-24T00:00:00.000Z",
+      updated_at: "2026-08-24T00:00:00.000Z",
+    })),
+    postEntry: vi.fn(),
+    listNegativeBalanceAccounts: vi.fn(async () => ({ items: [], total: 0 })),
+  };
+  const payouts = createPayoutRuntime({
+    eventStore,
+    checkpointStore: createCheckpointStore(),
+    db: db as never,
+    wallets: wallets as unknown as WalletServices,
+    payoutReadiness: createPayoutReadiness("ready"),
+    moneyMovementGateway: createSyntheticPlatformBalanceGateway(options.platformAvailableAmount ?? "999999.00"),
+  });
+
+  return { payouts, readAllEvents, wallets, db };
+}
+
+async function expectNamedSettlementRejection(promise: Promise<unknown>, message: string) {
+  let rejection: unknown;
+  try {
+    await promise;
+  } catch (error) {
+    rejection = error;
+  }
+  expect(rejection).toBeInstanceOf(SettlementDomainError);
+  expect(rejection).toMatchObject({ name: "SettlementDomainError", message });
 }
 
 function createPayoutProviderOperationDb(payoutRows: () => Record<string, unknown>[]) {
@@ -218,6 +315,173 @@ function createPayoutProviderOperationDb(payoutRows: () => Record<string, unknow
 }
 
 describe("settlement payout runtime", () => {
+  it("settlement payout money consolidation preserves in-range and negative results", async () => {
+    const schedules = [
+      {
+        walletAvailableAmount: "100.00",
+        supportHoldAmount: "30.00",
+        spendHoldAmount: "20.00",
+        available: "50.00",
+        estimated: "45.00",
+      },
+      {
+        walletAvailableAmount: "10.00",
+        supportHoldAmount: "30.00",
+        spendHoldAmount: "20.00",
+        available: "-40.00",
+        estimated: "0.00",
+      },
+      {
+        walletAvailableAmount: "-5.00",
+        supportHoldAmount: "0.00",
+        spendHoldAmount: "0.00",
+        available: "-5.00",
+        estimated: "0.00",
+      },
+      {
+        walletAvailableAmount: "0.00",
+        supportHoldAmount: "0.01",
+        spendHoldAmount: "0.00",
+        available: "-0.01",
+        estimated: "0.00",
+      },
+      {
+        walletAvailableAmount: "9999999999.99",
+        supportHoldAmount: "0.00",
+        spendHoldAmount: "0.00",
+        available: "9999999999.99",
+        estimated: "9999999994.99",
+      },
+    ] as const;
+
+    for (const schedule of schedules) {
+      const { payouts } = createPayoutArithmeticRuntime(schedule);
+      const preview = await payouts.previewPayoutRequest({ accountId: "acc_seller" as never, amount: "5.00" }, context);
+      expect(preview.available_balance_amount, JSON.stringify(schedule)).toBe(schedule.available);
+      expect(preview.estimated_wallet_balance_after, JSON.stringify(schedule)).toBe(schedule.estimated);
+    }
+  });
+
+  it("settlement payout nested subtraction fails closed on signed range overflow", async () => {
+    const overflow = {
+      walletAvailableAmount: "0.00",
+      supportHoldAmount: "9999999999.99",
+      spendHoldAmount: "9999999999.99",
+    } as const;
+    const previewRuntime = createPayoutArithmeticRuntime(overflow);
+    await expectNamedSettlementRejection(
+      previewRuntime.payouts.previewPayoutRequest({ accountId: "acc_seller" as never, amount: "5.00" }, context),
+      "Payout available balance must be a valid signed decimal.",
+    );
+    expect(previewRuntime.readAllEvents()).toHaveLength(0);
+
+    const requestRuntime = createPayoutArithmeticRuntime(overflow);
+    await expectNamedSettlementRejection(
+      requestRuntime.payouts.requestPayout({ accountId: "acc_seller" as never, amount: "5.00" }, context),
+      "Payout available balance must be a valid signed decimal.",
+    );
+    expect(requestRuntime.readAllEvents()).toHaveLength(0);
+    expect(requestRuntime.wallets.postEntry).not.toHaveBeenCalled();
+  });
+
+  it("payout preview unavailable reasons are unchanged after money consolidation", async () => {
+    const { payouts } = createPayoutArithmeticRuntime({
+      walletAvailableAmount: "-5.00",
+      walletPendingAmount: "10.00",
+    });
+
+    const preview = await payouts.previewPayoutRequest({ accountId: "acc_seller" as never, amount: "10.00" }, context);
+
+    expect(preview.available_balance_amount).toBe("-5.00");
+    expect(preview.unavailable_reasons).toEqual([
+      "no-available-wallet-balance",
+      "negative-balance-active",
+      "payout-release-hold-active",
+      "amount-exceeds-available-balance",
+    ]);
+  });
+
+  it("platform balance accepts a signed negative amount and rejects malformed or out-of-range amounts with a named domain error", async () => {
+    const negativeRuntime = createPayoutArithmeticRuntime({
+      platformAvailableAmount: "-12.34",
+      inTransitAmounts: ["55.00"],
+    });
+    await expect(negativeRuntime.payouts.getPlatformBalanceForecast()).resolves.toMatchObject({
+      available_amount: "-12.34",
+      pending_payout_demand_amount: "55.00",
+      forecast_after_pending_demand_amount: "-67.34",
+    });
+    const negativePreview = await negativeRuntime.payouts.previewPayoutRequest(
+      { accountId: "acc_seller" as never, amount: "5.00" },
+      context,
+    );
+    expect(negativePreview.platform_available_amount).toBe("-12.34");
+    expect(negativePreview.unavailable_reasons).toContain("platform-balance-insufficient");
+    await expectNamedSettlementRejection(
+      negativeRuntime.payouts.requestPayout({ accountId: "acc_seller" as never, amount: "5.00" }, context),
+      "Platform balance is too low for this payout.",
+    );
+    expect(negativeRuntime.readAllEvents()).toHaveLength(0);
+    expect(negativeRuntime.wallets.postEntry).not.toHaveBeenCalled();
+
+    for (const availableAmount of ["abc", "10000000000000.00", "-10000000000000.00"]) {
+      const forecastRuntime = createPayoutArithmeticRuntime({ platformAvailableAmount: availableAmount });
+      await expectNamedSettlementRejection(
+        forecastRuntime.payouts.getPlatformBalanceForecast(),
+        "Platform available amount must be a valid signed decimal.",
+      );
+
+      const previewRuntime = createPayoutArithmeticRuntime({ platformAvailableAmount: availableAmount });
+      await expectNamedSettlementRejection(
+        previewRuntime.payouts.previewPayoutRequest({ accountId: "acc_seller" as never, amount: "5.00" }, context),
+        "Platform available amount must be a valid signed decimal.",
+      );
+
+      const requestRuntime = createPayoutArithmeticRuntime({ platformAvailableAmount: availableAmount });
+      await expectNamedSettlementRejection(
+        requestRuntime.payouts.requestPayout({ accountId: "acc_seller" as never, amount: "5.00" }, context),
+        "Platform available amount must be a valid signed decimal.",
+      );
+      expect(requestRuntime.readAllEvents()).toHaveLength(0);
+      expect(requestRuntime.wallets.postEntry).not.toHaveBeenCalled();
+    }
+  });
+
+  it("platform balance forecast keeps every operand aggregate and result canonical", async () => {
+    const validRuntime = createPayoutArithmeticRuntime({
+      platformAvailableAmount: "100.00",
+      inTransitAmounts: ["0.00", "55.00"],
+    });
+    await expect(validRuntime.payouts.getPlatformBalanceForecast()).resolves.toMatchObject({
+      available_amount: "100.00",
+      pending_payout_demand_amount: "55.00",
+      forecast_after_pending_demand_amount: "45.00",
+    });
+
+    const malformedRowRuntime = createPayoutArithmeticRuntime({ inTransitAmounts: ["abc"] });
+    await expectNamedSettlementRejection(
+      malformedRowRuntime.payouts.getPlatformBalanceForecast(),
+      "In-transit payout amount must be a valid decimal.",
+    );
+
+    const aggregateOverflowRuntime = createPayoutArithmeticRuntime({
+      inTransitAmounts: ["9999999999.99", "9999999999.99"],
+    });
+    await expectNamedSettlementRejection(
+      aggregateOverflowRuntime.payouts.getPlatformBalanceForecast(),
+      "Pending payout demand amount must be a valid decimal.",
+    );
+
+    const forecastOverflowRuntime = createPayoutArithmeticRuntime({
+      platformAvailableAmount: "-9999999999.99",
+      inTransitAmounts: ["0.01"],
+    });
+    await expectNamedSettlementRejection(
+      forecastOverflowRuntime.payouts.getPlatformBalanceForecast(),
+      "Platform balance forecast must be a valid signed decimal.",
+    );
+  });
+
   it("turns a duplicate command with a stale expected version into a typed conflict", async () => {
     const { eventStore } = createInMemoryEventStore();
     const input = {

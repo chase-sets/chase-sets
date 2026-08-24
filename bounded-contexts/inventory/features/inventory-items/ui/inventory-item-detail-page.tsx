@@ -14,6 +14,7 @@ import {
   Stack,
   Text,
   TextInput,
+  NativeSelect,
   NumberField,
   ProductOptions,
   Textarea,
@@ -114,7 +115,9 @@ function ledgerDescription(entry: InventoryItemDetail["ledger"][number]) {
           count: entry.hold_quantity,
         }),
     entry.purpose ? holdPurposeLabel(entry.purpose) : null,
+    entry.reason_code ? adjustmentReasonLabel(entry.reason_code) : null,
     entry.reason,
+    entry.note,
     entry.actor === "seller"
       ? t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.actor.seller")
       : t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.actor.system"),
@@ -135,6 +138,10 @@ function ledgerDescription(entry: InventoryItemDetail["ledger"][number]) {
       ) : null}
     </Stack>
   );
+}
+
+function adjustmentReasonLabel(reason: NonNullable<InventoryItemDetail["ledger"][number]["reason_code"]>) {
+  return t(`inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.${reason}`);
 }
 
 function ledgerFilterHref(currentPath: string | null | undefined, kind: string | null) {
@@ -187,13 +194,13 @@ export function InventoryItemDetailPage({
       />
 
       {errorMessage ? (
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Text>{errorMessage}</Text>
         </Card>
       ) : null}
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.inventory.item.summary")}>
-        <Card>
+        <Card elevation="elevated" data-elevation-role="entity">
           <Stack gap={2}>
             <Text>
               <strong>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.catalog.item")}</strong>{" "}
@@ -227,7 +234,7 @@ export function InventoryItemDetailPage({
       </PageSection>
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjust.quantity")}>
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Form spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="adjust-item" />
@@ -237,10 +244,43 @@ export function InventoryItemDetailPage({
                 required
                 placeholder={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.1.or.5")}
               />
+              <NativeSelect
+                label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.code")}
+                name="reasonCode"
+                required
+                placeholder={t(
+                  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.placeholder",
+                )}
+                items={[
+                  {
+                    value: "damaged",
+                    label: t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.damaged"),
+                  },
+                  {
+                    value: "lost",
+                    label: t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.lost"),
+                  },
+                  {
+                    value: "found",
+                    label: t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.found"),
+                  },
+                  {
+                    value: "correction",
+                    label: t(
+                      "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.correction",
+                    ),
+                  },
+                ]}
+              />
               <TextInput
                 label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.reason")}
                 name="reason"
                 required
+              />
+              <Textarea
+                label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.note")}
+                name="note"
+                rows={3}
               />
               <Button type="submit">
                 {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.apply.adjustment")}
@@ -251,7 +291,7 @@ export function InventoryItemDetailPage({
       </PageSection>
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.create.hold")}>
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Form spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create-hold" />
@@ -282,14 +322,14 @@ export function InventoryItemDetailPage({
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.history")}>
         <Stack gap={4}>
           {item.holds.length === 0 ? (
-            <Card>
+            <Card elevation="tinted" data-elevation-role="furniture">
               <Text>
                 {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.no.holds.have.been.created.for")}
               </Text>
             </Card>
           ) : (
             item.holds.map((hold) => (
-              <Card key={hold.hold_id}>
+              <Card key={hold.hold_id} elevation="tinted" data-elevation-role="furniture">
                 <Stack gap={2}>
                   <Text weight="semibold">
                     {hold.reason} ({hold.quantity})
@@ -357,7 +397,7 @@ export function InventoryItemDetailPage({
             ))}
           </Inline>
           {ledgerEntries.length === 0 ? (
-            <Card>
+            <Card elevation="tinted" data-elevation-role="furniture">
               <Text>{t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.no.stock.movements")}</Text>
             </Card>
           ) : (

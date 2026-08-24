@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chase-sets.com/schemas/ink-foil-candidate-tokens/v1.json",
+  "title": "Ink & Foil candidate token values",
+  "description": "The single value authority for the Ink & Foil replacement graph. Carries, for each colour mode, the currently shipped value and the candidate value of every custom property the value cutover will change, plus every custom property the Stripe appearance factories consume. Data only: nothing here ships a value into styles.css.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "shippedHead", "proposalSource", "light", "dark", "preAuthorisedSubstitutions"],
+  "properties": {
+    "schemaVersion": {
+      "const": "ink-foil-candidate-tokens/v1"
+    },
+    "shippedHead": {
+      "description": "The 40-character commit the shipped values were read from.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "proposalSource": {
+      "description": "Read-only provenance of the candidate value proposal. Nothing in that head is evidence.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "head"],
+      "properties": {
+        "branch": { "type": "string", "minLength": 1 },
+        "head": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "light": { "$ref": "#/$defs/modeValues" },
+    "dark": { "$ref": "#/$defs/modeValues" },
+    "preAuthorisedSubstitutions": {
+      "description": "Substitutions the ratified anchor table authorises in advance. The dark alpha border carries an opaque equivalent for surfaces that reject alpha; applying one is recorded here and in the acceptance receipt.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/substitution" }
+    }
+  },
+  "$defs": {
+    "modeValues": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^--[a-z0-9]+(?:-[a-z0-9]+)*$" },
+      "patternProperties": {
+        "^--[a-z0-9]+(?:-[a-z0-9]+)*$": { "$ref": "#/$defs/tokenValue" }
+      }
+    },
+    "tokenValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shipped", "candidate"],
+      "properties": {
+        "shipped": {
+          "description": "The value this property resolves to at shippedHead in this mode.",
+          "type": "string",
+          "minLength": 1
+        },
+        "candidate": {
+          "description": "The value the cutover will ship for this property in this mode.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "substitution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["property", "mode", "ratified", "opaqueEquivalent", "applied"],
+      "properties": {
+        "property": { "type": "string", "pattern": "^--[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "mode": { "enum": ["light", "dark"] },
+        "ratified": { "type": "string", "minLength": 1 },
+        "opaqueEquivalent": { "type": "string", "minLength": 1 },
+        "applied": {
+          "description": "True only when the provider rejected the ratified value and the pre-authorised opaque equivalent was substituted in the candidate map above.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

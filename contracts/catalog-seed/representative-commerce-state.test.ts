@@ -706,6 +706,11 @@ describe("representative inventory stock retained-state reuse", () => {
     await ensureRepresentativeInventoryStock(harness.services as never, [{ catalogItemId: "cat_real_1" }]);
 
     expect(harness.ensured).toHaveLength(1);
+    expect(harness.ensured[0]).toMatchObject({
+      accountId: "acc_repr_card_vault_account",
+      catalogItemId: "cat_real_1",
+      quantity: 4,
+    });
   });
 });
 

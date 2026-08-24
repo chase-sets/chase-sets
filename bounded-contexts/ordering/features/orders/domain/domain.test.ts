@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import { decideOrderingOrder, evolveOrderingOrder, initialOrderingOrderState } from "./domain";
-import type { CreateOrderCommand } from "./domain";
+import type {
+  CreateOrderCommand,
+  OrderCancelledEvent,
+  OrderingOrderEvent,
+  OrderingOrderState,
+  OrderStatusBeforeCancellation,
+} from "./domain";
 
 const commercialTermsSnapshot = {
   marketplaceSalesFeeAmount: "1.00",
@@ -421,4 +427,225 @@ describe("ordering order domain", () => {
       ).toThrow("Buyer and seller accounts must be different for an order.");
     },
   );
+
+  const isCancelledEvent = (event: OrderingOrderEvent): event is OrderCancelledEvent =>
+    event.type === "ordering.order.cancelled";
+
+  const cancelledEventFrom = (events: readonly OrderingOrderEvent[]): OrderCancelledEvent => {
+    const cancelled = events.find(isCancelledEvent);
+    if (cancelled === undefined) {
+      throw new Error(`Expected a cancellation event, saw [${events.map((event) => event.type).join(", ")}].`);
+    }
+    return cancelled;
+  };
+
+  // The three reachable pre-cancellation states, each built by driving real transitions
+  // rather than hand-assembling aggregate state.
+  const pendingReservationState = (): OrderingOrderState =>
+    decideOrderingOrder(initialOrderingOrderState, createOrderCommand("cart-checkout")).reduce(
+      evolveOrderingOrder,
+      initialOrderingOrderState,
+    );
+
+  const pendingPaymentState = (): OrderingOrderState => {
+    const created = pendingReservationState();
+    return decideOrderingOrder(created, {
+      type: "RecordReservationConfirmed",
+      reservationRequestId: "rsv_1",
+      holdId: "hld_1",
+      confirmedAt: "2026-03-31T00:00:00.000Z",
+    }).reduce(evolveOrderingOrder, created);
+  };
+
+  const readyForFulfillmentState = (): OrderingOrderState => {
+    const pendingPayment = pendingPaymentState();
+    return decideOrderingOrder(pendingPayment, {
+      type: "MarkReadyForFulfillment",
+      readyForFulfillmentAt: "2026-03-31T00:30:00.000Z",
+    }).reduce(evolveOrderingOrder, pendingPayment);
+  };
+
+  const releasedAtReadyForFulfillmentState = (): OrderingOrderState => {
+    const ready = readyForFulfillmentState();
+    return decideOrderingOrder(ready, {
+      type: "RecordReservationReleased",
+      reservationRequestId: "rsv_1",
+      holdId: "hld_1",
+      releasedAt: "2026-03-31T00:40:00.000Z",
+    }).reduce(evolveOrderingOrder, ready);
+  };
+
+  const rejectReservation = (state: OrderingOrderState, reservationRequestId: string) =>
+    decideOrderingOrder(state, {
+      type: "RecordReservationRejected",
+      reservationRequestId,
+      rejectedAt: "2026-03-31T03:00:00.000Z",
+      reason: "inventory-unavailable",
+    });
+
+  it("pre-cancellation status excludes cancelled and the pre-creation null", () => {
+    const pendingReservation: OrderStatusBeforeCancellation = "pending-reservation";
+    const pendingPayment: OrderStatusBeforeCancellation = "pending-payment";
+    const readyForFulfillment: OrderStatusBeforeCancellation = "ready-for-fulfillment";
+    // @ts-expect-error null is the pre-creation sentinel, never a pre-cancellation status.
+    const preCreation: OrderStatusBeforeCancellation = null;
+    // @ts-expect-error cancelled is the post-transition steady state.
+    const cancelled: OrderStatusBeforeCancellation = "cancelled";
+
+    expect([pendingReservation, pendingPayment, readyForFulfillment]).toEqual([
+      "pending-reservation",
+      "pending-payment",
+      "ready-for-fulfillment",
+    ]);
+    void preCreation;
+    void cancelled;
+  });
+
+  it("both cancellation emitters carry buyer account and pre-cancellation status", () => {
+    const viaCancelOrder = cancelledEventFrom(
+      decideOrderingOrder(pendingReservationState(), {
+        type: "CancelOrder",
+        cancelledAt: "2026-03-31T02:00:00.000Z",
+        reason: "buyer-cancelled",
+      }),
+    );
+    const viaReservationRejection = cancelledEventFrom(rejectReservation(pendingReservationState(), "rsv_1"));
+
+    // Buyer identity is the aggregate's own buyer, never the acting party.
+    expect(viaCancelOrder.data).toMatchObject({
+      buyerAccountId: "acc_buyer",
+      statusBeforeCancellation: "pending-reservation",
+    });
+    expect(viaReservationRejection.data).toMatchObject({
+      buyerAccountId: "acc_buyer",
+      statusBeforeCancellation: "pending-reservation",
+    });
+  });
+
+  it("pre-cancellation status equals the emission-site aggregate status", () => {
+    // Per-emitter transition-derived rows. Each CancelOrder row uses a reason admissible at
+    // that row's status: `payment-deadline` is admitted only at `pending-payment`.
+    const rows = [
+      {
+        emitter: "CancelOrder",
+        status: "pending-reservation",
+        buildState: pendingReservationState,
+        reason: "buyer-cancelled",
+      },
+      {
+        emitter: "CancelOrder",
+        status: "pending-payment",
+        buildState: pendingPaymentState,
+        reason: "payment-deadline",
+      },
+      {
+        emitter: "CancelOrder",
+        status: "ready-for-fulfillment",
+        buildState: readyForFulfillmentState,
+        reason: "seller-cancelled",
+      },
+      {
+        emitter: "RecordReservationRejected",
+        status: "pending-reservation",
+        buildState: pendingReservationState,
+        reason: "inventory-unavailable",
+      },
+    ] as const;
+
+    const observed = rows.map((row) => {
+      const state = row.buildState();
+      const events =
+        row.emitter === "CancelOrder"
+          ? decideOrderingOrder(state, {
+              type: "CancelOrder",
+              cancelledAt: "2026-03-31T04:00:00.000Z",
+              reason: row.reason,
+            })
+          : rejectReservation(state, "rsv_1");
+
+      return {
+        emitter: row.emitter,
+        emissionSiteStatus: state.status,
+        carried: cancelledEventFrom(events).data.statusBeforeCancellation,
+      };
+    });
+
+    // Carried value equals the emission-site status verbatim, which equals the status the
+    // transitions produce — no narrowing, defaulting, normalization, or re-read after the fold.
+    expect(observed).toEqual(
+      rows.map((row) => ({ emitter: row.emitter, emissionSiteStatus: row.status, carried: row.status })),
+    );
+    expect(observed.map((entry) => entry.carried)).not.toContain("cancelled");
+  });
+
+  it("reservation rejection cannot reach a post-reservation status", () => {
+    // The emitter's only event-reachable pre-cancellation status.
+    expect(
+      cancelledEventFrom(rejectReservation(pendingReservationState(), "rsv_1")).data.statusBeforeCancellation,
+    ).toBe("pending-reservation");
+
+    // Past `pending-reservation` no request is still pending, so the command cannot emit a
+    // cancellation there: a matched request throws, an unmatched id is inert.
+    const pendingPayment = pendingPaymentState();
+    expect(pendingPayment.status).toBe("pending-payment");
+    expect(pendingPayment.reservationRequests[0]?.status).toBe("confirmed");
+    expect(() => rejectReservation(pendingPayment, "rsv_1")).toThrow(
+      "Only pending reservation requests can be rejected.",
+    );
+    expect(rejectReservation(pendingPayment, "rsv_missing")).toEqual([]);
+
+    const released = releasedAtReadyForFulfillmentState();
+    expect(released.status).toBe("ready-for-fulfillment");
+    expect(released.reservationRequests[0]?.status).toBe("released");
+    expect(() => rejectReservation(released, "rsv_1")).toThrow("Only pending reservation requests can be rejected.");
+    expect(rejectReservation(released, "rsv_missing")).toEqual([]);
+  });
+
+  it("aggregate replay is unaffected by the added cancellation fields", () => {
+    const state = pendingPaymentState();
+    const enriched = cancelledEventFrom(
+      decideOrderingOrder(state, {
+        type: "CancelOrder",
+        cancelledAt: "2026-03-31T05:00:00.000Z",
+        reason: "payment-deadline",
+      }),
+    );
+
+    // A cancellation written before this slice: the same event with the two properties
+    // simply absent from its stored row. Only a cast expresses that against the enriched
+    // domain type, and that absence is exactly the decode the evolver must keep tolerating.
+    const historical = {
+      type: "ordering.order.cancelled",
+      data: {
+        orderId: enriched.data.orderId,
+        cancelledAt: enriched.data.cancelledAt,
+        reason: enriched.data.reason,
+        buyerEmail: enriched.data.buyerEmail,
+        reservationRequests: enriched.data.reservationRequests,
+      },
+    } as OrderCancelledEvent;
+
+    expect(historical.data).not.toHaveProperty("buyerAccountId");
+    expect(historical.data).not.toHaveProperty("statusBeforeCancellation");
+    expect(evolveOrderingOrder(state, historical)).toEqual(evolveOrderingOrder(state, enriched));
+  });
+
+  it("re-cancellation emits nothing after the added fields", () => {
+    const state = pendingReservationState();
+    const cancelled = decideOrderingOrder(state, {
+      type: "CancelOrder",
+      cancelledAt: "2026-03-31T06:00:00.000Z",
+      reason: "buyer-cancelled",
+    }).reduce(evolveOrderingOrder, state);
+
+    expect(cancelled.status).toBe("cancelled");
+    expect(
+      decideOrderingOrder(cancelled, {
+        type: "CancelOrder",
+        cancelledAt: "2026-03-31T07:00:00.000Z",
+        reason: "seller-cancelled",
+      }),
+    ).toEqual([]);
+    expect(rejectReservation(cancelled, "rsv_1")).toEqual([]);
+  });
 });

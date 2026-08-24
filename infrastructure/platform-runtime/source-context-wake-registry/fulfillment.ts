@@ -29,5 +29,5 @@ export const fulfillmentWakeRegistryEntry = registryEntry({
     "platform-operations:support-shipment-source-projection",
     "platform-operations:support-return-label-source-projection",
   ],
-  routeDependencyIds: ["fulfillment.seller-shipment-self-refresh"],
+  routeDependencyIds: ["fulfillment.seller-shipment-self-refresh", "fulfillment.shipment-mutation-owner-recovery"],
 });

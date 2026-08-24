@@ -212,7 +212,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: change-scope
-    if: (needs['change-scope'].outputs.full_battery_required == 'true' || needs['change-scope'].outputs.integration_risk_required == 'true') && needs['change-scope'].outputs.db_tests == 'true'
+    if: needs['change-scope'].outputs.db_tests == 'true'
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -242,7 +242,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # The three-file bootstrap DB partition (#6035) runs with bounded
+          # The eight-file bootstrap DB partition (#6035) runs with bounded
           # --maxWorkers=3, so up to ~3 x ~20 concurrent multi-context pools
           # each cascade-drop their schemas in beforeEach. max_locks_per_transaction
           # is a postmaster-start parameter: ALTER SYSTEM only stages the
@@ -315,17 +315,6 @@ jobs:
           CHASE_SETS_BROWSER_E2E_SYSTEM: production
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm run test:e2e:suite "${{ matrix.suite_batch }}"
-
-      - name: Upload Playwright artifacts
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: playwright-e2e-artifacts-${{ strategy.job-index }}
-          path: |
-            artifacts/playwright/report
-            artifacts/playwright/test-results
-          if-no-files-found: error
-          retention-days: 7
 
   build:
     name: Build
@@ -967,8 +956,7 @@ jobs:
       (needs['change-scope'].outputs.local_checks != 'true' || needs.static.result == 'success') &&
       needs.typecheck.result == 'success' &&
       (needs['change-scope'].outputs.unit_tests != 'true' || needs['unit-tests'].result == 'success') &&
-      (needs['change-scope'].outputs.full_battery_required != 'true' ||
-       needs['change-scope'].outputs.db_tests != 'true' ||
+      (needs['change-scope'].outputs.db_tests != 'true' ||
        needs['db-tests'].result == 'success') &&
       (needs['change-scope'].outputs.full_battery_required != 'true' ||
        needs['change-scope'].outputs.e2e_tests != 'true' ||
@@ -1526,7 +1514,7 @@ jobs:
             require_job "$name" "$result" "false"
           }
 
-          require_targeted_heavy_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests }}"
+          require_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests }}"
           require_targeted_heavy_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests }}"
           require_heavy_job "Build" "${{ needs.build.result }}" "${{ needs['change-scope'].outputs.build }}"
           require_heavy_job "Docker Image Build" "${{ needs['docker-image'].result }}" "${{ needs['change-scope'].outputs.docker_image }}"

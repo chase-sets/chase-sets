@@ -3,6 +3,40 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MarketplaceListingCreatePage } from "./listing-create-page";
+import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
+
+function expectTintedCard(root: Element | null, label: string) {
+  expect(root, `${label} root`).not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  expect(tokens.has("bg-surface-2"), `${label} includes bg-surface-2`).toBe(true);
+  for (const excluded of [
+    "ds-glass",
+    "border",
+    "border-muted",
+    "shadow-tokenSm",
+    "shadow-tokenLg",
+    "ds-glow",
+    "hover:border-accent",
+    "hover:shadow-tokenMd",
+  ])
+    expect(tokens.has(excluded), `${label} excludes ${excluded}`).toBe(false);
+}
+
+function expectOutlinedPhoto(root: Element | null) {
+  expect(root, "active evidence photo root").not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  for (const included of ["border", "border-muted", "bg-surface"])
+    expect(tokens.has(included), `active evidence photo includes ${included}`).toBe(true);
+  for (const excluded of [
+    "ds-glass",
+    "shadow-tokenSm",
+    "shadow-tokenLg",
+    "ds-glow",
+    "hover:border-accent",
+    "hover:shadow-tokenMd",
+  ])
+    expect(tokens.has(excluded), `active evidence photo excludes ${excluded}`).toBe(false);
+}
 
 const acerolaProductSchema = {
   canonicalDimensionOrder: [
@@ -64,6 +98,59 @@ afterEach(() => {
 });
 
 describe("marketplace listing create page", () => {
+  it("renders the create-listing form as tinted furniture", () => {
+    const { container } = render(<MarketplaceListingCreatePage inventoryItems={[]} hasListingStockLocation />);
+
+    expectTintedCard(
+      container.querySelector('button[name="intent"][value="create-listing"]')?.closest(".rounded-tokenLg") ?? null,
+      "create-listing form",
+    );
+  });
+
+  it("directly renders a populated evidence photo as an outlined entity", () => {
+    render(
+      <ListingEvidenceReadiness
+        listing={
+          {
+            status: "draft",
+            evidence: [
+              {
+                photoId: "lpho_create_1",
+                altText: "Create flow active photo",
+                slotId: null,
+                viewKind: null,
+                status: "active",
+                sortOrder: 0,
+              },
+            ],
+            evidence_readiness: {
+              ready: true,
+              policy: {
+                policyId: null,
+                policyVersion: null,
+                policyHash: "sha256:test",
+                requirementHash: "sha256:req",
+                evaluatedAt: "2026-08-19T00:00:00.000Z",
+                explanationCodes: [],
+              },
+              requirements: {
+                minimumPhotoCount: 1,
+                requiredSlots: [],
+                sellerTrustRequirements: [],
+                buyerAcknowledgment: "none",
+              },
+              coverage: { complete: true, unmetCodes: [], slots: [], activePhotoCount: 1, minimumPhotoCount: 1 },
+              nextActions: [],
+              publicGallery: [],
+            },
+          } as never
+        }
+      />,
+    );
+
+    expectOutlinedPhoto(screen.getByText("Create flow active photo").closest(".rounded-tokenLg"));
+  });
+
   it("keeps create-listing multipart payload fields after migration to shared Form", () => {
     const markup = renderToString(<MarketplaceListingCreatePage inventoryItems={[]} hasListingStockLocation />);
 

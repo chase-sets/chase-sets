@@ -184,7 +184,7 @@ export function ListingEvidenceReadiness({ listing }: { listing: MarketplaceList
           </Form>
           <Grid columns={{ base: 1, lg: 2 }} gap={3}>
             {activePhotos.map((photo, index) => (
-              <Card key={photo.photoId}>
+              <Card key={photo.photoId} elevation="outlined">
                 <Stack gap={3}>
                   <Text weight="semibold">
                     {photo.altText ?? t("marketplace.features.listings.ui.evidence.photo.label", { index: index + 1 })}

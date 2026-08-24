@@ -324,7 +324,7 @@ export function SupportOperationsPage({
       />
 
       {unavailableMessage ? (
-        <Surface tone="muted">
+        <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
           <Stack gap={2}>
             <Badge tone="warning">{t("support.features.supportRequests.ui.supportOperationsPage.unavailable")}</Badge>
             <Text size="sm" tone="secondary">
@@ -335,7 +335,7 @@ export function SupportOperationsPage({
       ) : null}
 
       {drawerUnavailableMessage ? (
-        <Surface tone="muted">
+        <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
           <Inline gap={2}>
             <Badge tone="danger">{t("support.features.supportRequests.ui.supportOperationsPage.error")}</Badge>
             <Text size="sm" weight="semibold">
@@ -346,7 +346,7 @@ export function SupportOperationsPage({
       ) : null}
 
       {escalationResult ? (
-        <Surface tone="muted">
+        <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
           <Stack gap={2}>
             <Inline gap={2}>
               <Badge tone={escalationResult.capped ? "warning" : "success"}>
@@ -474,7 +474,7 @@ export function SupportOperationsPage({
             }
           />
 
-          <Surface>
+          <Surface elevation="tinted" data-elevation-role="furniture">
             <Cluster>
               <Text size="sm" weight="semibold">
                 {t("support.features.supportRequests.ui.supportOperationsPage.queue.count", {

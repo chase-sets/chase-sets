@@ -2308,8 +2308,12 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       if (!order) {
         throw new OrderingDomainError("Sale not found.");
       }
-      if (!isCancelableOrderStatus(order.status)) {
-        throw new OrderingDomainError("Only pending sales can be cancelled.");
+      if (!isCancelableOrderStatus(order.status) && !order.self_service_cancellation_available) {
+        throw new OrderingDomainError(
+          order.cancellation_unavailable_reason === "fulfillment-started"
+            ? "Sale cancellation is now handled through support because fulfillment has started."
+            : "Only pending sales can be cancelled.",
+        );
       }
 
       const result = await commandHandler({

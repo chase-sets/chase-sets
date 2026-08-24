@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 import { parse as parseYaml } from "yaml";
 import { describe, expect, it } from "vitest";
 import { releaseQualificationScopeRegistry } from "./release-qualification-scope.mjs";
@@ -14,6 +16,7 @@ import {
   evaluateProspectiveIssueReadiness,
   main,
   parseIssueFormBody,
+  scanIssueFormStructure,
   validateIssueReadinessReceipt,
 } from "./issue-readiness.mjs";
 
@@ -34,6 +37,277 @@ const MILESTONE = {
   title: "Wave 1 — Platform Foundation & Representative Staging",
   state: "open",
 };
+
+const PREDECESSOR_COMMIT = "3d20e23b7fdc66865e8459610a6601574960d566";
+const PREDECESSOR_PRODUCT_BLOB = "da828b2286373bcbb1d951fb049b6f3b18abd6d9";
+const GOLDEN_READINESS_METADATA = Object.freeze({
+  repository: "chase-sets/chase-sets",
+  number: 6749,
+  state: "open",
+  issueType: Object.freeze({ nodeId: "synthetic-slice-type", name: "Slice", isEnabled: true }),
+  milestone: Object.freeze({ number: 136, title: MILESTONE.title, state: "open" }),
+  labels: Object.freeze(["priority:p1", "area:ops", "kind:tech-debt"]),
+  parentNumber: null,
+  dependencies: Object.freeze([]),
+});
+const REQUIRED_FIELD_NAMES = Object.freeze([
+  "Context",
+  "Scope fence",
+  "Decisions already made",
+  "Acceptance criteria",
+  "Verification plan",
+  "Footprint & chain",
+  "Operator actions",
+  "Glossary impact",
+  "External authority probe & evidence timing",
+  "Review packet seed",
+  "Tier + routing hint",
+]);
+
+function generatedCandidateBody(index) {
+  const payload = Array.from({ length: index + 10 }, (_, lineIndex) =>
+    lineIndex === 0 ? `candidate-${index}-payload` : "x",
+  );
+  return `## Context\n${payload.join("\n")}`;
+}
+
+const REQUIRED_STRUCTURAL_WITNESSES = Object.freeze([
+  Object.freeze({ name: "empty body", body: "" }),
+  Object.freeze({ name: "single newline", body: "\n" }),
+  Object.freeze({ name: "mixed line endings", body: "## Context\r\nalpha\nbeta" }),
+  Object.freeze({ name: "unclosed fence", body: "## Context\nalpha\n```text\ninside" }),
+  Object.freeze({ name: "duplicate required heading", body: "## Context\nfirst\n## Context\nsecond" }),
+  Object.freeze({ name: "non-required heading before", body: "## Other\nignored\n## Context\nfirst" }),
+  Object.freeze({
+    name: "non-required heading between",
+    body: "## Context\nfirst\n## Other\nignored\n## Scope fence\nsecond",
+  }),
+]);
+const GOLDEN_CORPUS = Object.freeze([
+  ...REQUIRED_STRUCTURAL_WITNESSES,
+  ...Array.from({ length: 400 }, (_, index) =>
+    Object.freeze({ name: `generated candidate ${index}`, body: generatedCandidateBody(index) }),
+  ),
+]);
+
+function structuralSignature(body, parsed, { includeScannerLineCount = true } = {}) {
+  const presentFields = REQUIRED_FIELD_NAMES.filter((field) => parsed.fields[field] !== "");
+  const fieldLineCounts = REQUIRED_FIELD_NAMES.map((field) => {
+    const value = parsed.fields[field] ?? "";
+    return value === "" ? 0 : value.split("\n").length;
+  });
+  const signature = [parsed.status, parsed.reasonCodes];
+  if (includeScannerLineCount) signature.push(body.split(/\r?\n/).length);
+  signature.push(presentFields, fieldLineCounts);
+  return JSON.stringify(signature);
+}
+
+function structuralSignatures(corpus, options) {
+  return corpus.map(({ body }) => structuralSignature(body, parseIssueFormBody(body), options));
+}
+
+function pairwiseDistinctStructuralSignatures(corpus, options) {
+  const signatures = structuralSignatures(corpus, options);
+  return new Set(signatures).size === signatures.length;
+}
+
+function fillerPaddedCorpus() {
+  return Array.from({ length: 20 }, (_, seedIndex) =>
+    Array.from({ length: 20 }, (_, variantIndex) => {
+      const trailingLines = Array.from({ length: seedIndex }, (_, lineIndex) => `seed-${seedIndex}-line-${lineIndex}`);
+      return Object.freeze({
+        seedIndex,
+        body: [`## Context`, `seed-${seedIndex}-filler-${variantIndex}`, ...trailingLines].join("\n"),
+      });
+    }),
+  ).flat();
+}
+
+function readinessExpectation(body, evaluator = evaluateProspectiveIssueReadiness) {
+  const result = evaluator({
+    body,
+    metadata: GOLDEN_READINESS_METADATA,
+    checkedAt: CHECKED_AT.toISOString(),
+    checkerSha: PREDECESSOR_COMMIT,
+  });
+  return {
+    status: result.status,
+    reasonCodes: result.reasonCodes,
+    checkedRules: result.checkedRules,
+  };
+}
+
+// PREDECESSOR_ORACLE_START
+const PREDECESSOR_ORACLE_GZIP_BASE64 =
+  "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";
+// PREDECESSOR_ORACLE_END
+
+function decodePredecessorOracle() {
+  return JSON.parse(gunzipSync(Buffer.from(PREDECESSOR_ORACLE_GZIP_BASE64, "base64")).toString("utf8"));
+}
+
+function evaluatorComparison(evaluator) {
+  const oracle = decodePredecessorOracle();
+  const parserMatches = GOLDEN_CORPUS.every(({ body }, index) => {
+    return JSON.stringify(evaluator.parser(body)) === JSON.stringify(oracle[index].parser);
+  });
+  const readinessMatches = GOLDEN_CORPUS.every(({ body }, index) => {
+    return JSON.stringify(evaluator.readiness(body)) === JSON.stringify(oracle[index].readiness);
+  });
+  return { parserMatches, readinessMatches };
+}
+
+function currentEvaluator() {
+  return {
+    parser: parseIssueFormBody,
+    readiness: (body) => readinessExpectation(body),
+  };
+}
+
+function mutatedEvaluator() {
+  return {
+    parser(body) {
+      const parsed = parseIssueFormBody(body);
+      return { ...parsed, status: parsed.status === "ok" ? "malformed" : "ok" };
+    },
+    readiness(body) {
+      const readiness = readinessExpectation(body);
+      return { ...readiness, status: readiness.status === "ready" ? "not-ready" : "ready" };
+    },
+  };
+}
+
+function productBlobAt(revision) {
+  try {
+    return execFileSync("git", ["rev-parse", `${revision}:scripts/issue-readiness.mjs`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function provenanceMatches(revision, expectedBlob) {
+  return productBlobAt(revision) === expectedBlob;
+}
+
+const RETIRED_VOCABULARY = Object.freeze([
+  ["PART", "BOUNDARY", "STRADDLES", "LINE"].join("_"),
+  ["PART", "FENCE", "UNBALANCED"].join("_"),
+  ["SEGMENT", "PARSE", "DIVERGES"].join("_"),
+]);
+const FUTURE_MANIFEST_NEEDLE = `${["chase-sets", "dispatch-brief-manifest", "v2"].join(":")}:`;
+const OWNED_SCANNER_PATHS = Object.freeze(["scripts/issue-readiness.mjs", "scripts/issue-readiness.test.mjs"]);
+
+function trackedTreeEntries() {
+  const trackedPaths = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot })
+    .toString("utf8")
+    .split("\0")
+    .filter(Boolean);
+  return trackedPaths.map((trackedPath) => ({
+    path: trackedPath,
+    bytes: readFileSync(path.join(repoRoot, trackedPath)),
+  }));
+}
+
+function vocabularyViolations(trackedEntries, ownedEntries) {
+  const violations = [];
+  for (const needle of RETIRED_VOCABULARY) {
+    const encodedNeedle = Buffer.from(needle);
+    for (const entry of trackedEntries) {
+      if (entry.bytes.indexOf(encodedNeedle) !== -1) violations.push({ kind: "retired", path: entry.path });
+    }
+  }
+  const encodedManifestNeedle = Buffer.from(FUTURE_MANIFEST_NEEDLE);
+  for (const entry of ownedEntries) {
+    if (entry.bytes.indexOf(encodedManifestNeedle) !== -1)
+      violations.push({ kind: "future-manifest", path: entry.path });
+  }
+  return violations;
+}
+
+function withInjectedBytes(entries, targetPath, injectedText) {
+  return entries.map((entry) =>
+    entry.path === targetPath
+      ? { ...entry, bytes: Buffer.concat([entry.bytes, Buffer.from(`\n${injectedText}\n`)]) }
+      : entry,
+  );
+}
+
+function fencePayloads(record) {
+  return [...record.lines.flatMap((line) => [line.enteringFence, line.leavingFence]), record.terminalFence].filter(
+    Boolean,
+  );
+}
+
+function scannerInvariantResult(scanner) {
+  const payloadsDistinct = GOLDEN_CORPUS.every(({ body }) => {
+    const payloads = fencePayloads(scanner(body));
+    return new Set(payloads).size === payloads.length;
+  });
+
+  const terminalBody = REQUIRED_STRUCTURAL_WITNESSES.find(({ name }) => name === "unclosed fence").body;
+  const terminalRecord = scanner(terminalBody);
+  const terminalOpener = terminalRecord.lines.find((line) => line.enteringFence !== null).enteringFence;
+  terminalOpener.length = 99;
+  terminalOpener.mutated = true;
+  const terminalIsolated =
+    JSON.stringify(terminalRecord.terminalFence) === JSON.stringify({ marker: "`", length: 3 }) &&
+    Object.keys(terminalRecord.terminalFence).join(",") === "marker,length";
+
+  const freshBody = "```text\ninside\n```";
+  const first = scanner(freshBody);
+  const expectedFresh = scanner(freshBody);
+  first.lines.push({ mutated: true });
+  first.lines[0].enteringFence.length = 99;
+  const freshCallIsolated = JSON.stringify(scanner(freshBody)) === JSON.stringify(expectedFresh);
+
+  return { payloadsDistinct, terminalIsolated, freshCallIsolated };
+}
+
+function collapsedPayloadScanner(text) {
+  const record = scanIssueFormStructure(text);
+  const payloads = fencePayloads(record);
+  if (payloads.length < 2) return record;
+  const shared = payloads[0];
+  for (const line of record.lines) {
+    if (line.enteringFence !== null) line.enteringFence = shared;
+    if (line.leavingFence !== null) line.leavingFence = shared;
+  }
+  if (record.terminalFence !== null) record.terminalFence = shared;
+  return record;
+}
+
+function prefixReencodingParserMutant(body) {
+  const lines = body.split(/\r?\n/);
+  let codeUnitOffset = 0;
+  const priorHeadings = [];
+  for (const line of lines) {
+    codeUnitOffset += line.length;
+    Buffer.byteLength(body.slice(0, codeUnitOffset), "utf8");
+    if (/^#{2,3}\s+/.test(line)) priorHeadings.push(line);
+    priorHeadings.includes(line);
+    codeUnitOffset += 1;
+  }
+  return parseIssueFormBody(body);
+}
+
+function scalingBody(lineCount) {
+  return ["## Context", ...Array.from({ length: lineCount - 1 }, () => "payload-alpha")].join("\n");
+}
+
+function bestElapsed(operation, input, samples, iterations = 1) {
+  for (let iteration = 0; iteration < iterations; iteration += 1) operation(input);
+  let best = Number.POSITIVE_INFINITY;
+  for (let sample = 0; sample < samples; sample += 1) {
+    const startedAt = performance.now();
+    for (let iteration = 0; iteration < iterations; iteration += 1) operation(input);
+    best = Math.min(best, performance.now() - startedAt);
+  }
+  return best;
+}
 
 function replaceField(body, label, value) {
   const heading = `### ${label}`;
@@ -304,6 +578,297 @@ function bodyWithAcceptanceCriteria(count) {
     ).join("\n"),
   );
 }
+
+describe("predecessor-recorded structural scanner oracle", () => {
+  it("the recorded predecessor oracle decodes to one entry per corpus body", () => {
+    const oracle = decodePredecessorOracle();
+
+    expect(oracle).toHaveLength(GOLDEN_CORPUS.length);
+    expect(oracle.every((entry) => Object.keys(entry).join(",") === "parser,readiness")).toBe(true);
+  });
+
+  it("the predecessor oracle binds to the exact reviewed product object", () => {
+    expect(provenanceMatches(PREDECESSOR_COMMIT, PREDECESSOR_PRODUCT_BLOB)).toBe(true);
+    expect(provenanceMatches("0".repeat(40), PREDECESSOR_PRODUCT_BLOB)).toBe(false);
+    expect(provenanceMatches(PREDECESSOR_COMMIT, "f".repeat(40))).toBe(false);
+  });
+
+  it("the golden corpus is deterministic and structurally distinct", () => {
+    const regenerated = [
+      ...REQUIRED_STRUCTURAL_WITNESSES,
+      ...Array.from({ length: 400 }, (_, index) => ({
+        name: `generated candidate ${index}`,
+        body: generatedCandidateBody(index),
+      })),
+    ];
+    const signatures = structuralSignatures(GOLDEN_CORPUS);
+
+    expect(GOLDEN_CORPUS).toHaveLength(407);
+    expect(regenerated).toEqual(GOLDEN_CORPUS);
+    expect(new Set(GOLDEN_CORPUS.map(({ body }) => body)).size).toBe(GOLDEN_CORPUS.length);
+    expect(new Set(signatures).size).toBe(407);
+    expect(pairwiseDistinctStructuralSignatures(GOLDEN_CORPUS)).toBe(true);
+  });
+
+  it("the golden corpus covers every required structural state", () => {
+    const witnesses = Object.fromEntries(REQUIRED_STRUCTURAL_WITNESSES.map((entry) => [entry.name, entry.body]));
+
+    expect(witnesses["empty body"]).toBe("");
+    expect(witnesses["single newline"]).toBe("\n");
+    expect(witnesses["mixed line endings"]).toContain("\r\n");
+    expect(witnesses["mixed line endings"].replace("\r\n", "")).toContain("\n");
+    expect(parseIssueFormBody(witnesses["unclosed fence"]).reasonCodes).toEqual(["FORM_FENCE_UNCLOSED"]);
+    expect(parseIssueFormBody(witnesses["duplicate required heading"]).reasonCodes).toEqual([
+      "FORM_FIELD_DUPLICATE:Context",
+    ]);
+    expect(parseIssueFormBody(witnesses["non-required heading before"]).fields.Context).toBe("first");
+    expect(parseIssueFormBody(witnesses["non-required heading between"]).fields).toMatchObject({
+      Context: "first",
+      "Scope fence": "second",
+    });
+  });
+
+  it("a filler padded corpus fails the structural distinctness assertion", () => {
+    const mutant = fillerPaddedCorpus();
+    const signatures = structuralSignatures(mutant);
+
+    expect(mutant).toHaveLength(400);
+    expect(new Set(mutant.map(({ body }) => body)).size).toBe(400);
+    expect(new Set(signatures).size).toBe(20);
+    expect(pairwiseDistinctStructuralSignatures(mutant)).toBe(false);
+    for (let seedIndex = 0; seedIndex < 20; seedIndex += 1) {
+      const variants = mutant.filter((entry) => entry.seedIndex === seedIndex);
+      expect(new Set(variants.map(({ body }) => body.split(/\r?\n/).length)).size).toBe(1);
+      expect(new Set(structuralSignatures(variants)).size).toBe(1);
+    }
+  });
+
+  it("the structural signature separates an empty body from a single newline", () => {
+    const empty = parseIssueFormBody("");
+    const singleNewline = parseIssueFormBody("\n");
+
+    expect(structuralSignature("", empty, { includeScannerLineCount: false })).toBe(
+      structuralSignature("\n", singleNewline, { includeScannerLineCount: false }),
+    );
+    expect("".split(/\r?\n/)).toHaveLength(1);
+    expect("\n".split(/\r?\n/)).toHaveLength(2);
+    expect(structuralSignature("", empty)).not.toBe(structuralSignature("\n", singleNewline));
+  });
+
+  it("the predecessor oracle is indexed one to one with the corpus", () => {
+    const oracle = decodePredecessorOracle();
+
+    expect(oracle).toHaveLength(GOLDEN_CORPUS.length);
+    for (const [index, { body }] of GOLDEN_CORPUS.entries()) {
+      expect(parseIssueFormBody(body)).toEqual(oracle[index].parser);
+      expect(readinessExpectation(body)).toEqual(oracle[index].readiness);
+    }
+  });
+
+  it("the extraction matches predecessor recorded parser output", () => {
+    expect(evaluatorComparison(currentEvaluator()).parserMatches).toBe(true);
+  });
+
+  it("the extraction matches predecessor recorded readiness outcomes", () => {
+    expect(evaluatorComparison(currentEvaluator()).readinessMatches).toBe(true);
+  });
+
+  it("a mutated evaluator fails the predecessor recorded comparison", () => {
+    expect(evaluatorComparison(currentEvaluator())).toEqual({ parserMatches: true, readinessMatches: true });
+    expect(evaluatorComparison(mutatedEvaluator())).toEqual({ parserMatches: false, readinessMatches: false });
+  });
+
+  it("the extraction leaves no retired vocabulary or manifest marker", () => {
+    const trackedEntries = trackedTreeEntries();
+    const ownedEntries = trackedEntries.filter((entry) => OWNED_SCANNER_PATHS.includes(entry.path));
+
+    expect(trackedEntries.length).toBeGreaterThan(0);
+    expect(ownedEntries.map(({ path: ownedPath }) => ownedPath)).toEqual(OWNED_SCANNER_PATHS);
+    expect(vocabularyViolations(trackedEntries, ownedEntries)).toEqual([]);
+  }, 120_000);
+
+  it("the retired vocabulary predicate rejects every injected marker", () => {
+    const trackedEntries = trackedTreeEntries();
+    const ownedEntries = trackedEntries.filter((entry) => OWNED_SCANNER_PATHS.includes(entry.path));
+    const targetPath = OWNED_SCANNER_PATHS[0];
+
+    for (const retiredNeedle of RETIRED_VOCABULARY) {
+      const injectedTracked = withInjectedBytes(trackedEntries, targetPath, retiredNeedle);
+      const injectedOwned = injectedTracked.filter((entry) => OWNED_SCANNER_PATHS.includes(entry.path));
+      expect(vocabularyViolations(injectedTracked, injectedOwned)).toEqual([{ kind: "retired", path: targetPath }]);
+    }
+    for (const boundary of ["start", "end"]) {
+      const injectedOwned = withInjectedBytes(ownedEntries, targetPath, `${FUTURE_MANIFEST_NEEDLE}${boundary}`);
+      expect(vocabularyViolations(trackedEntries, injectedOwned)).toEqual([
+        { kind: "future-manifest", path: targetPath },
+      ]);
+    }
+    const acceptedOwned = withInjectedBytes(
+      withInjectedBytes(ownedEntries, targetPath, "manifest"),
+      targetPath,
+      COMMENT_MARKER,
+    );
+    expect(vocabularyViolations(trackedEntries, acceptedOwned)).toEqual([]);
+  }, 120_000);
+
+  it("fence transitions report literal opener records", () => {
+    const structure = scanIssueFormStructure(
+      ["  ```js", "inside", "````", "~~~", "inside", "~~~~", " ````", "```", "~~~", "````", "~~~terminal"].join("\n"),
+    );
+
+    expect(structure.lines).toEqual([
+      {
+        index: 0,
+        startOffset: 0,
+        endOffset: 7,
+        enteringFence: { marker: "`", length: 3 },
+        leavingFence: null,
+      },
+      { index: 1, startOffset: 8, endOffset: 14, enteringFence: null, leavingFence: null },
+      {
+        index: 2,
+        startOffset: 15,
+        endOffset: 19,
+        enteringFence: null,
+        leavingFence: { marker: "`", length: 3 },
+      },
+      {
+        index: 3,
+        startOffset: 20,
+        endOffset: 23,
+        enteringFence: { marker: "~", length: 3 },
+        leavingFence: null,
+      },
+      { index: 4, startOffset: 24, endOffset: 30, enteringFence: null, leavingFence: null },
+      {
+        index: 5,
+        startOffset: 31,
+        endOffset: 35,
+        enteringFence: null,
+        leavingFence: { marker: "~", length: 3 },
+      },
+      {
+        index: 6,
+        startOffset: 36,
+        endOffset: 41,
+        enteringFence: { marker: "`", length: 4 },
+        leavingFence: null,
+      },
+      { index: 7, startOffset: 42, endOffset: 45, enteringFence: null, leavingFence: null },
+      { index: 8, startOffset: 46, endOffset: 49, enteringFence: null, leavingFence: null },
+      {
+        index: 9,
+        startOffset: 50,
+        endOffset: 54,
+        enteringFence: null,
+        leavingFence: { marker: "`", length: 4 },
+      },
+      {
+        index: 10,
+        startOffset: 55,
+        endOffset: 66,
+        enteringFence: { marker: "~", length: 3 },
+        leavingFence: null,
+      },
+    ]);
+    expect(structure.headings).toEqual([]);
+    expect(structure.terminalFence).toEqual({ marker: "~", length: 3 });
+    expect(structure.reasonCodes).toEqual(["FORM_FENCE_UNCLOSED"]);
+  });
+
+  it("headings reports every recognized heading with its acceptance flag", () => {
+    const body = [
+      "## Other",
+      "ignored",
+      "## Context",
+      "kept",
+      "## Bogus",
+      "ignored-again",
+      "## Scope fence",
+      "scope",
+    ].join("\n");
+    const structure = scanIssueFormStructure(body);
+
+    expect(structure.lines).toEqual([
+      { index: 0, startOffset: 0, endOffset: 8, enteringFence: null, leavingFence: null },
+      { index: 1, startOffset: 9, endOffset: 16, enteringFence: null, leavingFence: null },
+      { index: 2, startOffset: 17, endOffset: 27, enteringFence: null, leavingFence: null },
+      { index: 3, startOffset: 28, endOffset: 32, enteringFence: null, leavingFence: null },
+      { index: 4, startOffset: 33, endOffset: 41, enteringFence: null, leavingFence: null },
+      { index: 5, startOffset: 42, endOffset: 55, enteringFence: null, leavingFence: null },
+      { index: 6, startOffset: 56, endOffset: 70, enteringFence: null, leavingFence: null },
+      { index: 7, startOffset: 71, endOffset: 76, enteringFence: null, leavingFence: null },
+    ]);
+    expect(structure.headings).toEqual([
+      { label: "Other", lineIndex: 0, startOffset: 0, endOffset: 8, accepted: false },
+      { label: "Context", lineIndex: 2, startOffset: 17, endOffset: 27, accepted: true },
+      { label: "Bogus", lineIndex: 4, startOffset: 33, endOffset: 41, accepted: false },
+      { label: "Scope fence", lineIndex: 6, startOffset: 56, endOffset: 70, accepted: true },
+    ]);
+    expect(parseIssueFormBody(body).fields).toMatchObject({ Context: "kept", "Scope fence": "scope" });
+  });
+
+  it("the returned structure record uses exact UTF-8 offsets and key order", () => {
+    const structure = scanIssueFormStructure("é\r\n## Context\n💩\n漢");
+
+    expect(Object.keys(structure)).toEqual(["lines", "headings", "terminalFence", "reasonCodes"]);
+    expect(structure.lines).toEqual([
+      { index: 0, startOffset: 0, endOffset: 2, enteringFence: null, leavingFence: null },
+      { index: 1, startOffset: 4, endOffset: 14, enteringFence: null, leavingFence: null },
+      { index: 2, startOffset: 15, endOffset: 19, enteringFence: null, leavingFence: null },
+      { index: 3, startOffset: 20, endOffset: 23, enteringFence: null, leavingFence: null },
+    ]);
+    expect(structure.headings).toEqual([
+      { label: "Context", lineIndex: 1, startOffset: 4, endOffset: 14, accepted: true },
+    ]);
+    expect(Object.keys(structure.lines[0])).toEqual([
+      "index",
+      "startOffset",
+      "endOffset",
+      "enteringFence",
+      "leavingFence",
+    ]);
+    expect(Object.keys(structure.headings[0])).toEqual(["label", "lineIndex", "startOffset", "endOffset", "accepted"]);
+  });
+
+  it("the returned structure record is not aliased", () => {
+    expect(scannerInvariantResult(scanIssueFormStructure)).toEqual({
+      payloadsDistinct: true,
+      terminalIsolated: true,
+      freshCallIsolated: true,
+    });
+  });
+
+  it("the collapsed payload mutant fails both record invariants", () => {
+    expect(scannerInvariantResult(scanIssueFormStructure)).toEqual({
+      payloadsDistinct: true,
+      terminalIsolated: true,
+      freshCallIsolated: true,
+    });
+    expect(scannerInvariantResult(collapsedPayloadScanner)).toEqual({
+      payloadsDistinct: false,
+      terminalIsolated: false,
+      freshCallIsolated: true,
+    });
+  });
+
+  it("the scanner stays linear against a prefix-re-encoding mutant", () => {
+    const fourThousandLines = scalingBody(4_000);
+    const sixteenThousandLines = scalingBody(16_000);
+    const candidateRatio =
+      bestElapsed(parseIssueFormBody, sixteenThousandLines, 3, 3) /
+      bestElapsed(parseIssueFormBody, fourThousandLines, 3, 3);
+    const mutantRatio =
+      bestElapsed(prefixReencodingParserMutant, sixteenThousandLines, 2) /
+      bestElapsed(prefixReencodingParserMutant, fourThousandLines, 2);
+
+    console.info(
+      `structural scanner scaling candidate=${candidateRatio.toFixed(3)} prefix-re-encoding-mutant=${mutantRatio.toFixed(3)}`,
+    );
+    expect(candidateRatio).toBeLessThan(8);
+    expect(mutantRatio).toBeGreaterThan(8);
+  }, 60_000);
+});
 
 describe("issue-readiness/v1 receipt and rule contract", () => {
   it("emits a complete ready receipt through the real main entrypoint", async () => {
@@ -1069,7 +1634,7 @@ describe("slice form and trusted-base workflow integration", () => {
     expect(fields["Review packet seed"].attributes.description).toContain("omission-revealing");
   });
 
-  it("slice-form fields other than the acceptance description are unchanged", () => {
+  it("slice-form fields other than the acceptance description and registered area options are unchanged", () => {
     const predecessorForm = parseYaml(
       execFileSync("git", ["show", "05afe2b107e922ee05c12be3bacecae108d01845:.github/ISSUE_TEMPLATE/slice.yml"], {
         cwd: repoRoot,
@@ -1077,7 +1642,7 @@ describe("slice form and trusted-base workflow integration", () => {
       }),
     );
     const differences = fieldDifferences(fieldProjection(predecessorForm), fieldProjection(form)).filter(
-      (key) => key !== "acceptance.description",
+      (key) => key !== "acceptance.description" && key !== "area.options",
     );
 
     expect(differences).toEqual([]);

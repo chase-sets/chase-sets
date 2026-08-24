@@ -71,6 +71,20 @@ describe("Stripe appearance helpers", () => {
     root.remove();
   });
 
+  it("renders placeholder text in the secondary ink role, which clears 4.5:1 where the muted role does not", () => {
+    const root = themedScope("light");
+    const appearance = createStripeElementsAppearance({ scope: root });
+
+    // --text-muted is a 3:1-class anchor. Placeholder text is normal-size text,
+    // so it reads from the secondary role instead; token-contrast.test.ts
+    // computes the ratios that make this binding mandatory.
+    expect(appearance.variables.colorTextPlaceholder).toBe(appearance.variables.colorTextSecondary);
+    expect(appearance.variables.colorTextPlaceholder).toBe("#334155");
+    expect(appearance.variables.colorTextPlaceholder).not.toBe("#64748b");
+
+    root.remove();
+  });
+
   it("can omit rules for Stripe surfaces that only accept variables", () => {
     const appearance = createStripeElementsAppearance({ includeRules: false });
 
@@ -90,7 +104,24 @@ describe("Stripe appearance helpers", () => {
     expect(appearance.variables.colorText).toBe("#f8fafc");
     expect(appearance.variables.colorBackground).toBe("#0f172a");
     expect(appearance.variables.formBackgroundColor).toBe("#0b1220");
+    expect(appearance.variables.formPlaceholderTextColor).toBe(appearance.variables.colorSecondaryText);
+    expect(appearance.variables.formPlaceholderTextColor).toBe("#cbd5e1");
+    expect(appearance.variables.formPlaceholderTextColor).not.toBe("#94a3b8");
     expect(appearance.variables.buttonLabelTextTransform).toBe("none");
+
+    root.remove();
+  });
+
+  it("binds the light Connect placeholder to secondary ink rather than the muted role", () => {
+    const root = themedScope("light");
+    const child = document.createElement("div");
+    root.appendChild(child);
+
+    const appearance = createStripeConnectAppearance({ scope: child });
+
+    expect(appearance.variables.formPlaceholderTextColor).toBe(appearance.variables.colorSecondaryText);
+    expect(appearance.variables.formPlaceholderTextColor).toBe("#334155");
+    expect(appearance.variables.formPlaceholderTextColor).not.toBe("#64748b");
 
     root.remove();
   });

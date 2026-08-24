@@ -508,13 +508,18 @@ const storageLocationStreamId = (storageLocationId: string) => `inventory.storag
 const inventoryItemStreamId = (itemId: string) => `inventory.item-${itemId}`;
 const inventoryHoldStreamId = (holdId: string) => `inventory.hold-${holdId}`;
 
-type SeedItemAdjustment = Readonly<{ quantityDelta: number; heldQuantity: number; reason: string }>;
+type SeedItemAdjustment = Readonly<{
+  quantityDelta: number;
+  heldQuantity: number;
+  reason: string;
+  reasonCode: "correction";
+}>;
 
 const itemAdjustments = (item: InventoryItemSeed): readonly SeedItemAdjustment[] =>
   item.itemId === inventorySeedIds.items.charizardBaseSetNearMint
     ? [
-        { quantityDelta: 1, heldQuantity: 0, reason: "Cycle count increase" },
-        { quantityDelta: -1, heldQuantity: 0, reason: "Reserve correction" },
+        { quantityDelta: 1, heldQuantity: 0, reason: "Cycle count increase", reasonCode: "correction" },
+        { quantityDelta: -1, heldQuantity: 0, reason: "Reserve correction", reasonCode: "correction" },
       ]
     : [];
 
@@ -771,6 +776,7 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
         quantityDelta: adjustment.quantityDelta,
         heldQuantity: adjustment.heldQuantity,
         reason: adjustment.reason,
+        reasonCode: adjustment.reasonCode,
       });
     }
 

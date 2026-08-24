@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "partitionDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "sites": [
+    {
+      "file": "probe.ts",
+      "owner": "probe",
+      "constructor": "authorizeConsentForActor",
+      "ordinal": 1,
+      "classification": "actor",
+      "reason": "probe",
+      "unexpected": true
+    }
+  ]
+}

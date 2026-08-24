@@ -229,12 +229,13 @@ jobs:
           fi
           admin_domain="$(terraform output -raw admin_domain)"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
-          if [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ]; then
-            echo "Required staging admin or marketplace domain was not present in Terraform outputs." >&2
+          landing_domain="$(terraform output -raw landing_domain)"
+          if [ -z "$admin_domain" ] || [ -z "$marketplace_domain" ] || [ -z "$landing_domain" ]; then
+            echo "Required staging admin, marketplace, or landing domain was not present in Terraform outputs." >&2
             exit 1
           fi
           cd ../../..
-          ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" pnpm run test:e2e:deployed
+          ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" PUBLIC_WEB_URL="https://${landing_domain}" pnpm run test:e2e:deployed
 
       - name: Summarize staging advisory evidence
         if: always()
@@ -277,10 +278,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: staging-advisory-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            artifacts/staging-advisory-evidence
-            artifacts/playwright/report
-            artifacts/playwright/test-results
+          path: artifacts/staging-advisory-evidence/summary.json
           if-no-files-found: error
           retention-days: 30
 

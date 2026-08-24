@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type {
   MarketplaceSalesFeeLineSnapshotPayload,
   PaymentCapturedPayload,
@@ -1282,37 +1283,28 @@ export function buildSettlementPaymentInputProjectionHandlers(
         );
       }
     },
-    "payments.payment-refunded": async (event) => {
-      const data = event.data as {
-        paymentId: string;
-        refundId?: string | null;
-        amount: string;
-        currencyCode: string;
-        processorStatus: string;
-        refundedAmount?: string;
-        sellerPayouts?: unknown;
-        orderRefundAmounts?: readonly OrderAmount[];
-        refundedOrderAmounts?: readonly OrderAmount[];
-        orderRefundCaps?: readonly OrderAmount[];
-        refundedAt: string;
-      };
+    ...defineProjectorHandlers<Pick<ChaseSetsEventPayloads, "payments.payment-refunded">>({
+      "payments.payment-refunded": async (event) => {
+        const { data } = event;
 
-      const existing = await db.query<{
-        amount: string;
-        seller_payouts: unknown;
-      }>(
-        `SELECT amount::text AS amount, seller_payouts
+        const existing = await db.query<{
+          amount: string;
+          seller_payouts: unknown;
+        }>(
+          `SELECT amount::text AS amount, seller_payouts
          FROM settlement_payment_sources
          WHERE payment_id = $1`,
-        [data.paymentId],
-      );
-      const paymentAmount = existing.rows[0]?.amount ?? data.amount;
-      const paymentStatus =
-        data.refundedAmount && compareMoney(data.refundedAmount, paymentAmount) < 0 ? "partially-refunded" : "refunded";
-      const sellerPayouts = normalizeSellerPayoutComponents(data.sellerPayouts ?? existing.rows[0]?.seller_payouts);
+          [data.paymentId],
+        );
+        const paymentAmount = existing.rows[0]?.amount ?? data.amount;
+        const paymentStatus =
+          data.refundedAmount && compareMoney(data.refundedAmount, paymentAmount) < 0
+            ? "partially-refunded"
+            : "refunded";
+        const sellerPayouts = normalizeSellerPayoutComponents(data.sellerPayouts ?? existing.rows[0]?.seller_payouts);
 
-      await db.query(
-        `UPDATE settlement_payment_sources
+        await db.query(
+          `UPDATE settlement_payment_sources
          SET processor_status = $2,
              status = $5,
              failure_code = NULL,
@@ -1322,40 +1314,41 @@ export function buildSettlementPaymentInputProjectionHandlers(
              last_stream_version = $4
          WHERE payment_id = $1
            AND last_stream_version < $4`,
-        [data.paymentId, data.processorStatus, data.refundedAt, event.streamVersion, paymentStatus],
-      );
+          [data.paymentId, data.processorStatus, data.refundedAt, event.streamVersion, paymentStatus],
+        );
 
-      await reconcileRefundLiability(
-        db,
-        wallets,
-        protectionCoverage,
-        {
-          paymentId: data.paymentId,
-          refundId: data.refundId ?? null,
-          paymentAmount,
-          refundAmount: data.amount,
-          currencyCode: data.currencyCode,
-          refundedAt: data.refundedAt,
-          sellerPayouts,
-          orderRefundAmounts: data.orderRefundAmounts,
-          refundedOrderAmounts: data.refundedOrderAmounts,
-          orderRefundCaps: data.orderRefundCaps,
-        },
-        event,
-      );
-      await recordProtectionReserveReversals(
-        db,
-        {
-          paymentId: data.paymentId,
-          refundedAt: data.refundedAt,
-          sellerPayouts,
-          orderRefundAmounts: data.orderRefundAmounts,
-          refundedOrderAmounts: data.refundedOrderAmounts,
-          orderRefundCaps: data.orderRefundCaps,
-        },
-        event,
-      );
-    },
+        await reconcileRefundLiability(
+          db,
+          wallets,
+          protectionCoverage,
+          {
+            paymentId: data.paymentId,
+            refundId: data.refundId ?? null,
+            paymentAmount,
+            refundAmount: data.amount,
+            currencyCode: data.currencyCode,
+            refundedAt: data.refundedAt,
+            sellerPayouts,
+            orderRefundAmounts: data.orderRefundAmounts,
+            refundedOrderAmounts: data.refundedOrderAmounts,
+            orderRefundCaps: data.orderRefundCaps,
+          },
+          event,
+        );
+        await recordProtectionReserveReversals(
+          db,
+          {
+            paymentId: data.paymentId,
+            refundedAt: data.refundedAt,
+            sellerPayouts,
+            orderRefundAmounts: data.orderRefundAmounts,
+            refundedOrderAmounts: data.refundedOrderAmounts,
+            orderRefundCaps: data.orderRefundCaps,
+          },
+          event,
+        );
+      },
+    }),
     "payments.payment-disputed": async (event) => {
       const data = event.data as {
         paymentId: string;
@@ -1420,36 +1413,20 @@ export function buildSettlementPaymentInputProjectionHandlers(
         event,
       );
     },
-    "payments.refund-requested": async (event) => {
-      const data = event.data as {
-        refundId: string;
-        paymentId: string;
-        orderIds: string[];
-        amount: string;
-        currencyCode: string;
-        reason: string;
-        processorName: string;
-        causation?: {
-          remedyId?: string;
-          coverageId?: string | null;
-          allocation?: {
-            sellerFundedAmount?: string;
-            platformFundedAmount?: string;
-            currencyCode?: string;
-            fundingKind?: "seller-funded" | "platform-funded" | "split";
-          };
-        } | null;
-        requestedAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<ChaseSetsEventPayloads, "payments.refund-requested" | "payments.refund-issued" | "payments.refund-failed">
+    >({
+      "payments.refund-requested": async (event) => {
+        const { data } = event;
 
-      await recordRefundCausationAllocation(
-        db,
-        { refundId: data.refundId, paymentId: data.paymentId, causation: data.causation },
-        event,
-      );
+        await recordRefundCausationAllocation(
+          db,
+          { refundId: data.refundId, paymentId: data.paymentId, causation: data.causation },
+          event,
+        );
 
-      await db.query(
-        `INSERT INTO settlement_refund_sources (
+        await db.query(
+          `INSERT INTO settlement_refund_sources (
            refund_id,
            payment_id,
            order_ids,
@@ -1482,29 +1459,24 @@ export function buildSettlementPaymentInputProjectionHandlers(
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE settlement_refund_sources.last_stream_version < EXCLUDED.last_stream_version`,
-        [
-          data.refundId,
-          data.paymentId,
-          JSON.stringify(data.orderIds),
-          data.amount,
-          data.currencyCode,
-          data.reason,
-          data.processorName,
-          data.requestedAt,
-          event.streamVersion,
-        ],
-      );
-    },
-    "payments.refund-issued": async (event) => {
-      const data = event.data as {
-        refundId: string;
-        processorStatus: string;
-        processorRefundReference: string;
-        issuedAt: string;
-      };
+          [
+            data.refundId,
+            data.paymentId,
+            JSON.stringify(data.orderIds),
+            data.amount,
+            data.currencyCode,
+            data.reason,
+            data.processorName,
+            data.requestedAt,
+            event.streamVersion,
+          ],
+        );
+      },
+      "payments.refund-issued": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE settlement_refund_sources
+        await db.query(
+          `UPDATE settlement_refund_sources
          SET processor_status = $2,
              processor_refund_reference = $3,
              status = 'issued',
@@ -1515,20 +1487,14 @@ export function buildSettlementPaymentInputProjectionHandlers(
              last_stream_version = $5
          WHERE refund_id = $1
            AND last_stream_version < $5`,
-        [data.refundId, data.processorStatus, data.processorRefundReference, data.issuedAt, event.streamVersion],
-      );
-    },
-    "payments.refund-failed": async (event) => {
-      const data = event.data as {
-        refundId: string;
-        processorStatus: string;
-        failureCode: string | null;
-        failureMessage: string | null;
-        failedAt: string;
-      };
+          [data.refundId, data.processorStatus, data.processorRefundReference, data.issuedAt, event.streamVersion],
+        );
+      },
+      "payments.refund-failed": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE settlement_refund_sources
+        await db.query(
+          `UPDATE settlement_refund_sources
          SET processor_status = $2,
              status = 'failed',
              failure_code = $3,
@@ -1538,15 +1504,16 @@ export function buildSettlementPaymentInputProjectionHandlers(
              last_stream_version = $6
          WHERE refund_id = $1
            AND last_stream_version < $6`,
-        [
-          data.refundId,
-          data.processorStatus,
-          data.failureCode,
-          data.failureMessage,
-          data.failedAt,
-          event.streamVersion,
-        ],
-      );
-    },
+          [
+            data.refundId,
+            data.processorStatus,
+            data.failureCode,
+            data.failureMessage,
+            data.failedAt,
+            event.streamVersion,
+          ],
+        );
+      },
+    }),
   };
 }

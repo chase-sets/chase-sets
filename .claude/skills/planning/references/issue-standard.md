@@ -14,8 +14,9 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
 - **Decisions already made.** Settled rulings with links (ADR, epic comment,
   decision issue). A worker never re-litigates a settled decision; a worker who
   hits an UNsettled one stops and escalates (see the delivery skill).
-- **Acceptance criteria — each with its evidence method.** Every AC names how it
-  is proven: a test name, a verifier script, a screenshot, an ops check. This is
+- **Acceptance criteria — each with its evidence method.** Every AC binds an
+  observable property and names the cheapest discriminating way it is proven:
+  a test name, a verifier script, a screenshot, an ops check. This is
   also the Closes-automation defense: structured ACs are what the orchestrator's
   bookkeeping verifies before treating the issue as done. An AC whose contract
   must be accepted by an **external provider** (payment-provider event sets,
@@ -47,6 +48,9 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   bootstrap, import, or reconciliation paths also invoke, the footprint
   enumerates **every caller** — the sibling-seed-path class is the ledger's top
   re-biter and its root cause is an incomplete caller inventory.
+  A zero-consumer surface freeze records its consuming issue as a native
+  **Blocks** dependency, or is parked with a stated un-park condition; "no
+  production consumer" alone is not a freeze rationale.
 - **Operator actions.** Enumerate credentials, sign-ins, approvals, and live
   watch windows, or state `none`. An
   operator dependency discovered mid-lane stalls delivery on human latency;
@@ -96,7 +100,11 @@ Stable rule IDs map to the checklist:
    it as that Epic's native sub-issue. A future parent-or-standalone gate
    (including any `status:standalone` label) would require a new fixed-scope
    change; [#6174](https://github.com/chase-sets/chase-sets/issues/6174)
-   records that it is not current controller behavior.
+   records that it is not current controller behavior. The delivery board's
+   Status is derived from these same facts, never hand-written: a native
+   **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only`
+   projects to `Tracking`, both non-executable
+   (`docs/contributing/backlog-model.md`).
    **`ready-00-dependencies-resolved`:** the complete native `Blocked by`
    collection contains no open blocker.
 1. **`ready-01-repo-evidence`:** repo evidence pointers present (≥2) and

@@ -1,10 +1,12 @@
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   batchE2eSuiteIds,
   e2eNoSuiteExclusionForChangedFile,
   e2eSuiteIdsForChangedFile,
+  e2eSuites,
+  isE2eSpecFile,
   isRouteFile,
 } from "./e2e-suites.mjs";
 import { buildSuiteGrep, parseSuiteArgs } from "./run-e2e-suite.mjs";
@@ -112,6 +114,38 @@ describe("run e2e suite", () => {
     expect(
       e2eNoSuiteExclusionForChangedFile("deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts"),
     ).toMatchObject({ reason: expect.stringContaining("Manual staging UAT") });
+  });
+
+  it("owns public-web specs as deployed-target coverage instead of a PR browser suite", () => {
+    const publicWebSpec = "deployables/public-web/e2e/privacy-policy.spec.ts";
+
+    expect(isE2eSpecFile(publicWebSpec)).toBe(true);
+    expect(e2eSuiteIdsForChangedFile(publicWebSpec)).toEqual([]);
+    expect(e2eNoSuiteExclusionForChangedFile(publicWebSpec)).toMatchObject({
+      reason: expect.stringContaining("PUBLIC_WEB_URL"),
+    });
+    // No catalog suite may claim public-web coverage: the PR browser-e2e system
+    // boots admin-web and marketplace only, so a selected public-web suite would
+    // grep for tests no running host can serve.
+    expect(e2eSuites.filter((suite) => suite.deployable === "public-web")).toEqual([]);
+  });
+
+  it("keeps the privacy policy candidate on the public-web host", () => {
+    // Negative control for the reroute: the spec must not exist under the
+    // marketplace deployable, and no marketplace spec may claim the /privacy
+    // route the marketplace host does not serve.
+    expect(existsSync("deployables/marketplace/e2e/privacy-policy.spec.ts")).toBe(false);
+    expect(existsSync("deployables/public-web/e2e/privacy-policy.spec.ts")).toBe(true);
+
+    const marketplaceSpecs = walkFiles("deployables/marketplace/e2e").filter((filePath) =>
+      filePath.endsWith(".spec.ts"),
+    );
+    const marketplaceSpecsVisitingPrivacy = marketplaceSpecs.filter((filePath) =>
+      /["'`]\/privacy(?:[?#/"'`]|$)/.test(readFileSync(filePath, "utf8")),
+    );
+
+    expect(marketplaceSpecsVisitingPrivacy).toEqual([]);
+    expect(readFileSync("deployables/public-web/e2e/privacy-policy.spec.ts", "utf8")).toContain("public-web-chromium");
   });
 
   it("routes shared auth changes to marketplace and admin auth coverage", () => {

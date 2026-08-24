@@ -18,6 +18,7 @@ import { PublicPresencePageShell } from "../../waitlist/ui/public-pages";
 import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
 import { ArticleTableOfContents, CompiledArticleBody, formatArticleReviewedAt } from "../../help/ui/help-pages";
 import { developerArticles, listDeveloperToolsByAvailability } from "../domain/developer-article-catalog";
+import { agentConnectorTermsDeveloperLink } from "../domain/developer-manifest";
 import type { DeveloperArticle, DeveloperMcpToolCatalogEntry } from "../domain/developer-article-model";
 
 export function DeveloperPortalPage() {
@@ -51,6 +52,9 @@ export function DeveloperPortalPage() {
           description={t("publicPresence.developers.machine.description")}
         >
           <Inline>
+            <LinkButton href={agentConnectorTermsDeveloperLink.href} tone="secondary">
+              {t(agentConnectorTermsDeveloperLink.portalLabelKey)}
+            </LinkButton>
             <LinkButton href="/developers/manifest.json" tone="secondary">
               {t("publicPresence.developers.machine.manifest")}
             </LinkButton>

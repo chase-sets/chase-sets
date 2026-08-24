@@ -66,6 +66,34 @@ describe("developer article compiler", () => {
     );
   });
 
+  it("publishes inventory adjustment reasonCode and note as optional catalog fields", () => {
+    const tool = compileMcpToolCatalog().find((candidate) => candidate.name === "inventory.adjust-item");
+
+    expect(tool?.inputSchema).toMatchObject({
+      additionalProperties: false,
+      required: ["accountId", "inventoryItemId", "quantityDelta", "reason", "idempotencyKey", "confirmationText"],
+      properties: {
+        reason: { type: "string" },
+        reasonCode: {
+          type: "string",
+          enum: ["sold-offline", "damaged", "lost", "found", "correction", "intake", "return-restocked"],
+        },
+        note: { type: "string" },
+      },
+    });
+    const inputSchema = tool?.inputSchema;
+    if (
+      !inputSchema ||
+      typeof inputSchema !== "object" ||
+      !("required" in inputSchema) ||
+      !Array.isArray(inputSchema.required)
+    ) {
+      throw new Error("inventory.adjust-item must publish an object schema with required fields");
+    }
+    expect(inputSchema.required).not.toContain("reasonCode");
+    expect(inputSchema.required).not.toContain("note");
+  });
+
   it("keeps the committed developer manifests in sync", async () => {
     await expect(
       execFileAsync(process.execPath, ["--experimental-strip-types", compilerPath, "--check"]),

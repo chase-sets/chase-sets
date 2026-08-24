@@ -1084,36 +1084,24 @@
     "reason": "UPDATE at bounded-contexts/fulfillment/features/shipments/read-model/schema.ts:53 directly synchronizes fulfillment_shipment_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:33:UPDATE:identity_accounts",
-    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:33 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:37:UPDATE:identity_accounts",
+    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:37 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:77:UPDATE:identity_accounts",
-    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:77 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:103:UPDATE:identity_accounts",
+    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:103 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:88:UPDATE:identity_accounts",
-    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:88 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:160:UPDATE:identity_accounts",
+    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:160 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:98:UPDATE:identity_accounts",
-    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:98 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:177:UPDATE:identity_accounts",
+    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:177 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:108:UPDATE:identity_accounts",
-    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:108 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:119:UPDATE:identity_accounts",
-    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:119 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:136:UPDATE:identity_accounts",
-    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:136 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
-  },
-  {
-    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:151:UPDATE:identity_accounts",
-    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:151 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/identity/features/accounts/read-model/projection.ts:192:UPDATE:identity_accounts",
+    "reason": "UPDATE at bounded-contexts/identity/features/accounts/read-model/projection.ts:192 directly synchronizes identity_accounts from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/identity/features/api-keys/read-model/projection.ts:72:UPDATE:identity_api_keys",

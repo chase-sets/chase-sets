@@ -1855,7 +1855,7 @@ jobs:
             exit 1
           fi
 
-      - name: Upload staging blocking probe Playwright artifacts
+      - name: Upload staging blocking probe release-health evidence
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1865,8 +1865,6 @@ jobs:
         with:
           name: staging-blocking-probe-playwright-artifacts
           path: |
-            artifacts/playwright/report
-            artifacts/playwright/test-results
             artifacts/release-health/guest-buy-now-freshness-probe.json
             artifacts/release-health/account-buy-now-freshness-probe.json
 

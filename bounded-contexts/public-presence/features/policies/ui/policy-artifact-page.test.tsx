@@ -6,13 +6,16 @@ import { authenticityServiceTermsPolicyArtifact } from "../domain/authenticity-s
 import { resolveUnresolvedPublicDisclosureText } from "../domain/canonical-claims";
 import { paymentsTermsPolicyArtifact } from "../domain/payments-terms";
 import type { PublicPolicyArtifact } from "../domain/policy-artifact";
+import { privacyPolicyArtifact } from "../domain/privacy-policy";
 import { sellerAgreementPolicyArtifact } from "../domain/seller-agreement";
 import { termsOfServicePolicyArtifact, type TermsOfServicePolicyArtifact } from "../domain/terms-of-service";
 import {
   AgentTermsRouteAdapter,
   AuthenticityTermsRouteAdapter,
   buildPolicyArtifactMeta,
+  buildPrivacyPolicyMeta,
   PaymentsTermsRouteAdapter,
+  PrivacyPolicyRouteAdapter,
   SellerAgreementRouteAdapter,
 } from "./policy-artifact-route-adapter";
 import { PolicyArtifactPage, resolvePolicyArtifactPublicationPosture } from "./policy-artifact-page";
@@ -44,6 +47,12 @@ const policyRouteAdapters = [
     artifact: paymentsTermsPolicyArtifact,
     pendingTitle: "Counsel review required before this document takes effect",
     render: (artifact?: PublicPolicyArtifact) => <PaymentsTermsRouteAdapter artifact={artifact} />,
+  },
+  {
+    path: "/privacy",
+    artifact: privacyPolicyArtifact,
+    pendingTitle: "Counsel review required before this document takes effect",
+    render: (artifact?: PublicPolicyArtifact) => <PrivacyPolicyRouteAdapter artifact={artifact} />,
   },
   {
     path: "/agent-terms",
@@ -124,6 +133,55 @@ describe("policy artifact page", () => {
     expect(pageCopyIsNotInjectable).toBe(true);
   });
 
+  it("renders every Privacy subject and its visible metadata from the canonical resolver on /privacy", () => {
+    const { container } = renderRouteAdapter((artifact) => <PrivacyPolicyRouteAdapter artifact={artifact} />);
+    const text = container.textContent ?? "";
+
+    for (const section of privacyPolicyArtifact.sections) {
+      expect(screen.getByRole("heading", { level: 2, name: section.title })).toBeTruthy();
+      expect(text, section.id).toContain(section.draftText);
+    }
+
+    const page = container.querySelector('[data-policy-key="privacy-policy"]');
+    expect(page?.getAttribute("data-policy-publication-status")).toBe("counsel-review-required");
+    expect(page?.getAttribute("data-policy-effective-at")).toBe("");
+    expect(buildPrivacyPolicyMeta()).toEqual(
+      expect.arrayContaining([
+        { name: "chase-sets:policy-key", content: "privacy-policy" },
+        { name: "chase-sets:policy-publication-status", content: "counsel-review-required" },
+      ]),
+    );
+    // /privacy stays indexable while pending: the notice must be findable, and
+    // the page's own posture already says it is not effective.
+    expect(buildPrivacyPolicyMeta()).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: "robots" })]));
+  });
+
+  it("direct-state bypass control: a published Privacy status without a valid effective time still renders pending", () => {
+    const bypass: PublicPolicyArtifact = {
+      ...privacyPolicyArtifact,
+      metadata: {
+        ...privacyPolicyArtifact.metadata,
+        publicationStatus: "published",
+        counselApprovalReference: "LEGAL-PRIVACY-TEST-2026-08-15",
+        rolloutJurisdictionsOrProductLimits: ["Test-only reviewed launch scope."],
+      },
+      sections: privacyPolicyArtifact.sections.map((section) => ({
+        ...section,
+        reviewStatus: "counsel-approved" as const,
+      })),
+    };
+    expect(resolvePolicyArtifactPublicationPosture(bypass)).toEqual({ kind: "counsel-pending" });
+
+    const { container } = renderRouteAdapter((artifact) => <PrivacyPolicyRouteAdapter artifact={artifact} />, bypass);
+    expect(screen.getByText("Counsel review required before this document takes effect")).toBeTruthy();
+    const page = container.querySelector('[data-policy-key="privacy-policy"]');
+    expect(page?.getAttribute("data-policy-publication-status")).toBe("counsel-review-required");
+    expect(page?.getAttribute("data-policy-effective-at")).toBe("");
+    expect(buildPrivacyPolicyMeta(bypass)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "chase-sets:policy-effective-at" })]),
+    );
+  });
+
   it("renders the Wallet's unresolved interest/deposit claim disclosures on the real /terms adapter, not a settled assertion", () => {
     const { container } = renderRouteAdapter((artifact) => (
       <TermsOfServiceRouteAdapter artifact={artifact as TermsOfServicePolicyArtifact | undefined} />
@@ -134,6 +192,51 @@ describe("policy artifact page", () => {
     expect(text).toContain(resolveUnresolvedPublicDisclosureText("wallet-deposit-and-fdic-posture"));
     expect(text.toLowerCase()).not.toContain("do not earn interest");
     expect(text.toLowerCase()).not.toContain("insured by the fdic");
+  });
+
+  it("renders the authorized-agent responsibility, access, and agent-caused Account-sanction disclosures on /terms", () => {
+    const { container } = renderRouteAdapter((artifact) => (
+      <TermsOfServiceRouteAdapter artifact={artifact as TermsOfServicePolicyArtifact | undefined} />
+    ));
+    const text = container.textContent ?? "";
+
+    const responsibilityDisclosure = resolveUnresolvedPublicDisclosureText(
+      "authorized-agent-principal-responsibility-and-liability-boundary",
+    );
+    const suspensionDisclosure = resolveUnresolvedPublicDisclosureText(
+      "agent-access-and-agent-caused-account-sanction-boundary",
+    );
+
+    expect(text).toContain(responsibilityDisclosure);
+    expect(text).toContain(suspensionDisclosure);
+    // The responsibility boundary is enrolled in two sections and renders
+    // through both, from the one registry entry.
+    expect(text.split(responsibilityDisclosure).length - 1).toBe(2);
+    expect(text.split(suspensionDisclosure).length - 1).toBe(1);
+  });
+
+  it("renders neither retired agent-responsibility clause as public draft text on the real /terms adapter", () => {
+    const { container } = renderRouteAdapter((artifact) => (
+      <TermsOfServiceRouteAdapter artifact={artifact as TermsOfServicePolicyArtifact | undefined} />
+    ));
+    const text = (container.textContent ?? "").toLowerCase();
+
+    expect(text).not.toContain("you remain responsible for actions your authorized agent takes");
+    expect(text).not.toContain("and for all activity conducted through your account");
+    for (const literal of [
+      "you are fully responsible for",
+      "you are solely responsible for",
+      "is liable for all",
+      "assumes all liability",
+      "accepts full liability",
+      "may suspend or revoke at any time",
+      "at chase sets' sole discretion",
+      "without notice or liability",
+      "immediately terminate agent access",
+      "reserves the right to revoke",
+    ]) {
+      expect(text, literal).not.toContain(literal);
+    }
   });
 
   for (const route of policyRouteAdapters) {

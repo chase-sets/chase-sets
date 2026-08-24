@@ -3,10 +3,14 @@ import { render as renderWithoutRouter, screen, waitFor, within, type RenderOpti
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CardProps } from "@chase-sets/design-system";
 
-const { mockUseLoaderData, mockUseLocation } = vi.hoisted(() => ({
+const { mockUseLoaderData, mockUseLocation, futureCardElevationDefault } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseLocation: vi.fn(),
+  // Baseline `undefined` preserves the real Card's current omitted-elevation
+  // behavior; tests flip this to prove the hub still pins an explicit elevation.
+  futureCardElevationDefault: { current: undefined as CardProps["elevation"] | undefined },
 }));
 
 vi.mock("react-router", async () => {
@@ -17,6 +21,25 @@ vi.mock("react-router", async () => {
     Outlet: () => <main>Nested admin route</main>,
     useLoaderData: mockUseLoaderData,
     useLocation: mockUseLocation,
+  };
+});
+
+vi.mock("@chase-sets/design-system", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/design-system")>("@chase-sets/design-system");
+
+  function FutureDefaultCard({ elevation, ...props }: React.ComponentProps<typeof actual.Card>) {
+    return <actual.Card {...props} elevation={elevation ?? futureCardElevationDefault.current} />;
+  }
+
+  return {
+    ...actual,
+    Card: Object.assign(FutureDefaultCard, {
+      Header: actual.Card.Header,
+      Title: actual.Card.Title,
+      Description: actual.Card.Description,
+      Body: actual.Card.Body,
+      Footer: actual.Card.Footer,
+    }),
   };
 });
 
@@ -55,6 +78,37 @@ const allSectionsActor = {
 // router context — exactly as they have in the production app tree.
 function ssr(ui: React.ReactElement) {
   return renderToString(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
+type AdminHubSection = Readonly<{
+  key: string;
+  label: string;
+  href: string;
+}>;
+
+function hubCardMarkup(html: string, section: AdminHubSection) {
+  const labelIndex = html.indexOf(`>${section.label}</h4>`);
+  expect(labelIndex).toBeGreaterThanOrEqual(0);
+
+  const cardStart = html.lastIndexOf('<div class="ds-glass', labelIndex);
+  expect(cardStart).toBeGreaterThanOrEqual(0);
+
+  const linkStart = html.indexOf(`href="${section.href}"`, labelIndex);
+  expect(linkStart).toBeGreaterThan(labelIndex);
+
+  const linkEnd = html.indexOf("</a>", linkStart);
+  expect(linkEnd).toBeGreaterThan(linkStart);
+
+  return html.slice(cardStart, linkEnd + "</a>".length);
+}
+
+function hubGridMarkup(html: string, firstSection: AdminHubSection) {
+  const firstCard = hubCardMarkup(html, firstSection);
+  const firstCardStart = html.indexOf(firstCard);
+  const gridClasses = html.lastIndexOf("grid-cols-1", firstCardStart);
+  expect(gridClasses).toBeGreaterThanOrEqual(0);
+
+  return html.slice(html.lastIndexOf("<div ", gridClasses), firstCardStart);
 }
 
 function render(ui: React.ReactNode, options?: RenderOptions) {
@@ -270,27 +324,65 @@ describe("admin web root hub", () => {
   });
 
   it("renders all actor-visible sections", () => {
+    const sections = [
+      { key: "access", label: "Access", href: "/access" },
+      { key: "catalog", label: "Catalog", href: "/catalog" },
+      { key: "commerce", label: "Commerce", href: "/commerce" },
+      { key: "growth", label: "Growth", href: "/growth" },
+      { key: "support", label: "Support", href: "/support" },
+      { key: "platform", label: "Platform", href: "/platform" },
+    ] as const;
     mockUseLoaderData.mockReturnValue({
       actor: allSectionsActor,
-      sections: [
-        { key: "access", label: "Access", href: "/access" },
-        { key: "catalog", label: "Catalog", href: "/catalog" },
-        { key: "commerce", label: "Commerce", href: "/commerce" },
-        { key: "growth", label: "Growth", href: "/growth" },
-        { key: "support", label: "Support", href: "/support" },
-        { key: "platform", label: "Platform", href: "/platform" },
-      ],
+      sections,
     });
 
     const html = ssr(<AdminIndex />);
+    const hubCards = sections.map((section) => hubCardMarkup(html, section));
+    const grid = hubGridMarkup(html, sections[0]);
 
     expect(html).toContain("Admin sections");
     expect(html).toContain('aria-label="Account menu"');
-    expect(html).toContain("/access");
-    expect(html).toContain("/commerce");
-    expect(html).toContain("/growth");
-    expect(html).toContain("/support");
-    expect(html).toContain("/platform");
+    expect(hubCards).toHaveLength(sections.length);
+    expect(grid).toContain("grid-cols-1");
+    expect(grid).toContain("md:grid-cols-2");
+    expect(grid).toContain("xl:grid-cols-3");
+    expect(grid).toContain("gap-4");
+    const labelPositions = sections.map((section) => html.indexOf(`>${section.label}</h4>`));
+    expect(labelPositions.every((position) => position >= 0)).toBe(true);
+    expect(labelPositions).toEqual([...labelPositions].sort((left, right) => left - right));
+
+    for (const [index, section] of sections.entries()) {
+      const card = hubCards[index];
+
+      expect(card).toContain(`>${section.label}</h4>`);
+      expect(card).toContain(`href="${section.href}"`);
+      expect(card).toContain("ds-glass");
+      expect(card).toContain("border border-muted");
+      expect(card).toContain("shadow-tokenSm");
+      expect(card).toContain("cursor-pointer transition");
+      expect(card).toContain('tabindex="0"');
+      expect(card).toContain(">Open</span>");
+    }
+  });
+
+  it("keeps hub Cards elevated when an omitted elevation defaults to outlined", () => {
+    mockUseLoaderData.mockReturnValue({
+      actor: allSectionsActor,
+      sections: [{ key: "catalog", label: "Catalog", href: "/catalog" }],
+    });
+
+    futureCardElevationDefault.current = "outlined";
+    try {
+      const html = ssr(<AdminIndex />);
+      const card = hubCardMarkup(html, { key: "catalog", label: "Catalog", href: "/catalog" });
+
+      expect(card).toContain("ds-glass");
+      expect(card).toContain("border border-muted");
+      expect(card).toContain("shadow-tokenSm");
+    } finally {
+      futureCardElevationDefault.current = undefined;
+    }
   });
 
   it("renders a no-access state when no sections are visible", () => {

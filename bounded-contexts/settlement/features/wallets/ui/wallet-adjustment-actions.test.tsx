@@ -91,7 +91,7 @@ function renderWithAction(element: React.ReactNode) {
 describe("wallet adjustment action forms", () => {
   afterEach(cleanup);
 
-  it("submits the route-owned preview and request intents through the rendered guided flow", async () => {
+  it("submits the guided flow with tinted form furniture and an elevated preview entity", async () => {
     const user = userEvent.setup();
     const { action, submissions } = renderWithAction(
       <WalletAdjustmentGuidedFlowForm
@@ -119,6 +119,12 @@ describe("wallet adjustment action forms", () => {
     await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
     expect(submissions[1]?.get("intent")).toBe("request-adjustment");
     expect(submissions[1]?.get("expectedBalanceRevision")).toBe("wbr_1");
+    expect(screen.getByTestId("wallet-adjustment-form-furniture").className).toBe(
+      "rounded-tokenLg overflow-hidden bg-surface-2 p-4",
+    );
+    expect(screen.getByTestId("wallet-adjustment-preview-entity").className).toBe(
+      "ds-glass rounded-tokenLg border border-muted shadow-tokenSm overflow-hidden p-4",
+    );
   });
 
   it("submits approve and reject intents only after explicit confirmation", async () => {

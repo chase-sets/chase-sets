@@ -28,7 +28,7 @@ export function AccountSelectionPage({
         </LiveRegion>
       ) : null}
       {memberships.map((membership) => (
-        <Card key={membership.accountId}>
+        <Card key={membership.accountId} elevation="elevated">
           <Form spacing="none" action={action} method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="accountId" value={membership.accountId} readOnly />

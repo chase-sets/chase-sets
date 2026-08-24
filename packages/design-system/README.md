@@ -35,9 +35,19 @@ Design-system props use one vocabulary across the canonical layer:
 
 - `tone` describes intent and semantic color, such as neutral, accent, success, warning, danger, or info.
 - `variant` describes structural kind, not semantic intent.
+- `Eyebrow` is the uppercase kicker above a heading: `variant` is the closed vocabulary `accent | primary` (default `accent`) naming the frozen per-site treatment, it always renders a `div`, and it accepts no `className`, `style`, or polymorphic `as`/`render`/`element` props.
+- `elevation` describes surface treatment on `Card` and `Surface` with the vocabulary `flush | tinted | outlined | elevated`. It is orthogonal to `variant`/`tone`: the semantic prop names the background family wherever a fill exists, while `elevation` decides whether a fill exists at all and owns the surface chrome (glass, border, shadow). Omitting `elevation` renders the legacy raised recipe unchanged.
 - `size` describes control scale.
 - `density` describes row scale and uses the canonical `comfortable | compact` vocabulary. Legacy `default` and `regular` inputs resolve to `comfortable`; marketplace components do not define a separate `focused` density.
 - Icon slots use DS Icon registry names. Prefer leading or trailing slot names such as `leadingIcon?: IconName` and `trailingIcon?: IconName`; single icon slots should also accept `IconName` strings and render through the design-system `Icon` component.
+
+### Surface-diet law: card = entity, furniture = flush
+
+A card is for an entity a user acts on; page furniture stays flush. Reserve `elevation="elevated"` (glass, border, shadow) for entity tiles such as a listing a buyer can open, and render surrounding furniture — filter rails, section wrappers, explanatory panels — with `elevation="flush"` (no glass, no border, no shadow, no fill) or, when a soft fill helps grouping, `elevation="tinted"`. Example: a search-results page renders each listing as `<Card variant="product" elevation="elevated">` while the filter sidebar around it is `<Surface tone="muted" elevation="flush">`; the entity earns the raised chrome, the furniture does not compete with it. `elevation="outlined"` sits between: a hairline border with today's fill and no shadow.
+
+### Brand foil vs holofoil
+
+"Brand foil" is the visual-identity term for the gold gradient carried by the `--chase-logo-start`/`--chase-logo-mid`/`--chase-logo-end` tokens (exposed through `ThemeTokens` as `chaseLogoStart`/`chaseLogoMid`/`chaseLogoEnd`). It is deliberately distinct from `holofoil`, the catalog finish value owned by the Catalog context (`bounded-contexts/catalog/GLOSSARY.md`, the `holofoil` option key under Provider Option Value Synonym). Design-system docs and code use "brand foil" only for the identity gradient and never for card finishes; catalog finish vocabulary stays in the Catalog glossary.
 
 ## Spacing Scale
 

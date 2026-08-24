@@ -42,7 +42,7 @@ The lock covers the formula, not a frozen dollar figure: if you edit the item pr
 
 The first 500 accounts to list an item or submit an offer after receiving beta access claim a founders place. A founders account pays a 0% marketplace sales fee for 60 days from the start of its beta access; listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.
 
-Founders also join the founders-circle Discord and help shape seller tools such as bulk listing, pricing, fulfillment, fee locks, and offers. The badge appears publicly on the account and its listings and stays permanently.
+Founders also join the founders-circle Discord and help shape seller tools such as bulk listing, pricing, fulfillment, fee locks, and offers. The first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed.
 
 ## Beta invite waves
 

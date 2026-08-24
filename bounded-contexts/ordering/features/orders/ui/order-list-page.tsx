@@ -142,7 +142,7 @@ export function OrderingOrderListPage({
                 .join(" · ");
 
               return (
-                <Surface key={order.order_id} elevated>
+                <Surface key={order.order_id} elevation="outlined">
                   <Stack gap={3}>
                     <Inline gap={3} align="center">
                       <Image

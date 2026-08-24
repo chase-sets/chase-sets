@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { canonicalClaimRegistry } from "./canonical-claims";
+import {
+  canonicalClaimRegistry,
+  resolveUnresolvedPublicDisclosureText,
+  type CanonicalClaimId,
+} from "./canonical-claims";
 import type { PublicPolicyRegistryEntry } from "./policy-registry";
 
 export type CanonicalClaimViolation = Readonly<{
@@ -9,6 +13,53 @@ export type CanonicalClaimViolation = Readonly<{
   claimId: string;
   reason: string;
 }>;
+
+export type CanonicalClaimReviewCorpusDisclosure = Readonly<{
+  claimId: CanonicalClaimId;
+  /** Resolved from the canonical registry, never from the section. */
+  disclosureText: string;
+}>;
+
+export type CanonicalClaimReviewCorpusRow = Readonly<{
+  policyKey: string;
+  sectionId: string;
+  /** Operative public prose, exactly as registered. */
+  draftText: string;
+  /** The section's structural disclosure segments, resolved. */
+  claimDisclosures: readonly CanonicalClaimReviewCorpusDisclosure[];
+}>;
+
+/**
+ * Read-only projection of the registered corpus for independent review: one
+ * row per registered section, with operative public prose and the resolved
+ * claim-disclosure segments as SEPARATE columns.
+ *
+ * Keeping the two columns apart is the whole point. A reviewer adjudicating
+ * whether some governed proposition is asserted in public draft text must be
+ * able to read that text alone: a disclosure segment DECLINES a proposition
+ * exactly where draftText would assert it, so folding both into one string
+ * would let a decline read as an assertion and hide the distinction the
+ * corpus is built on.
+ *
+ * This projects; it decides nothing. It adds no rule to
+ * `evaluateCanonicalClaimConsistency`, scores nothing, and classifies nothing.
+ * Its output is evidence a human reads, never a verdict.
+ */
+export function projectCanonicalClaimReviewCorpus(
+  registry: readonly PublicPolicyRegistryEntry[],
+): readonly CanonicalClaimReviewCorpusRow[] {
+  return registry.flatMap((entry) =>
+    entry.artifact.sections.map((section) => ({
+      policyKey: entry.artifact.metadata.policyKey,
+      sectionId: section.id,
+      draftText: section.draftText,
+      claimDisclosures: (section.claimDisclosures ?? []).map((disclosure) => ({
+        claimId: disclosure.claimId,
+        disclosureText: resolveUnresolvedPublicDisclosureText(disclosure.claimId),
+      })),
+    })),
+  );
+}
 
 const evidenceRefPattern = /^([\w./-]+):(\d+)(?:-(\d+))?$/;
 
@@ -108,6 +159,22 @@ export function evaluateCanonicalClaimConsistency(
         }
 
         if (definition.status === "settled") {
+          // One provenance identity per shared claim: a sibling artifact may
+          // not cite adjacent or narrower evidence for the same material
+          // claim, so cross-document drift fails structurally.
+          if (
+            claimRef.productTruthRefs.length !== definition.productTruthRefs.length ||
+            claimRef.productTruthRefs.some((ref, index) => ref !== definition.productTruthRefs[index])
+          ) {
+            violations.push({
+              policyKey,
+              sectionId: section.id,
+              claimId: claimRef.claimId,
+              reason:
+                "does not cite this canonical claim's exact product-truth provenance identity " +
+                `(${definition.productTruthRefs.join("; ")}).`,
+            });
+          }
           if (claimRef.productTruthRefs.length === 0) {
             violations.push({
               policyKey,

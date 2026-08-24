@@ -229,6 +229,40 @@ describe("MCP service catalog", () => {
     expect(flattenMcpTools().find((tool) => tool.name === "inventory.archive-location")?.availability).toBe("planned");
   });
 
+  it("widens inventory.adjust-item with optional closed reason fields", () => {
+    const schema = findMcpTool("inventory.adjust-item")?.inputSchema;
+    expect(schema).toBeDefined();
+    expect(schema?.required).toEqual([
+      "accountId",
+      "inventoryItemId",
+      "quantityDelta",
+      "reason",
+      "idempotencyKey",
+      "confirmationText",
+    ]);
+    expect(schema?.additionalProperties).toBe(false);
+    expect(schema?.properties.reasonCode).toMatchObject({
+      type: "string",
+      enum: ["sold-offline", "damaged", "lost", "found", "correction", "intake", "return-restocked"],
+    });
+    expect(schema?.properties.note).toMatchObject({ type: "string" });
+
+    const required = {
+      accountId: "acc_1",
+      inventoryItemId: "inv_1",
+      quantityDelta: 1,
+      reason: "Cycle count",
+      idempotencyKey: "adjust-1",
+      confirmationText: "Confirm adjustment",
+    };
+    expect(validateObject(required, schema!)).toEqual([]);
+    expect(validateObject({ ...required, reasonCode: "correction", note: "Counted twice" }, schema!)).toEqual([]);
+    expect(validateObject({ ...required, reasonCode: "other" }, schema!)).toContain(
+      "reasonCode expected one of sold-offline, damaged, lost, found, correction, intake, return-restocked but received other.",
+    );
+    expect(validateObject({ ...required, unexpected: true }, schema!)).toContain("unexpected is not allowed.");
+  });
+
   it("publishes output schemas for available MCP handler outputs", () => {
     const listSourcesOutput = {
       items: [
@@ -608,18 +642,28 @@ describe("MCP service catalog", () => {
   });
 
   it("classifies PII and financial write inputs as sensitive for redaction", () => {
-    expect(findMcpTool("identity.invite-member")?.audit.sensitiveInputFields).toEqual(["confirmationText", "email"]);
+    expect(findMcpTool("identity.invite-member")?.audit.sensitiveInputFields).toEqual([
+      "confirmationText",
+      "email",
+      "idempotencyKey",
+    ]);
     expect(findMcpTool("payments.request-refund")?.audit.sensitiveInputFields).toEqual([
       "amount",
       "confirmationText",
       "reason",
+      "idempotencyKey",
     ]);
     expect(findMcpTool("settlement.request-payout")?.audit.sensitiveInputFields).toEqual([
       "amount",
       "confirmationText",
       "reason",
+      "idempotencyKey",
     ]);
-    expect(findMcpTool("fulfillment.void-label")?.audit.sensitiveInputFields).toEqual(["confirmationText", "reason"]);
+    expect(findMcpTool("fulfillment.void-label")?.audit.sensitiveInputFields).toEqual([
+      "confirmationText",
+      "reason",
+      "idempotencyKey",
+    ]);
   });
 });
 
@@ -805,5 +849,15 @@ describe("MCP tool authorization", () => {
       "inventory.adjust-item must require confirmation.",
       "inventory.adjust-item must require an idempotency key.",
     ]);
+  });
+
+  it("issue-7171-key-hash-and-mcp-boundary marks every Fulfillment writer owner-authoritative and redacted", () => {
+    const tools = flattenMcpTools().filter((tool) => tool.serviceId === "fulfillment" && tool.risk !== "read");
+    expect(tools.length).toBeGreaterThan(0);
+    for (const tool of tools) {
+      expect(tool.guardrails.idempotencyAuthority).toBe("owner");
+      expect(tool.guardrails.idempotencyKey).toBe("required");
+      expect(tool.audit.sensitiveInputFields).toContain("idempotencyKey");
+    }
   });
 });

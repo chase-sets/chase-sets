@@ -5,7 +5,6 @@ import {
   Form,
   Badge,
   Button,
-  Card,
   Checkbox,
   DataTable,
   Inline,
@@ -161,31 +160,29 @@ export function PricingRecommendationListPage({
       <PageSection title={t("pricing.features.recommendations.ui.recommendationListPage.recommendations")}>
         <Form spacing="none" method="post">
           <Stack gap={4}>
-            <Card>
-              <Inline align="center">
-                <Text>{t("pricing.features.recommendations.ui.recommendationListPage.batch.notice")}</Text>
-                <Inline>
-                  <Button
-                    type="submit"
-                    name="intent"
-                    value="apply-recommendations"
-                    tone="primary"
-                    disabled={hasActiveMutation}
-                  >
-                    {t("pricing.features.recommendations.ui.recommendationListPage.apply.selected")}
-                  </Button>
-                  <Button
-                    type="submit"
-                    name="intent"
-                    value="dismiss-recommendations"
-                    tone="ghost"
-                    disabled={hasActiveMutation}
-                  >
-                    {t("pricing.features.recommendations.ui.recommendationListPage.dismiss.selected")}
-                  </Button>
-                </Inline>
+            <Inline data-testid="recommendation-batch-furniture" align="center">
+              <Text>{t("pricing.features.recommendations.ui.recommendationListPage.batch.notice")}</Text>
+              <Inline>
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="apply-recommendations"
+                  tone="primary"
+                  disabled={hasActiveMutation}
+                >
+                  {t("pricing.features.recommendations.ui.recommendationListPage.apply.selected")}
+                </Button>
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="dismiss-recommendations"
+                  tone="ghost"
+                  disabled={hasActiveMutation}
+                >
+                  {t("pricing.features.recommendations.ui.recommendationListPage.dismiss.selected")}
+                </Button>
               </Inline>
-            </Card>
+            </Inline>
             <DataTable
               rows={[...recommendations]}
               getRowId={(row) => row.recommendation_id}

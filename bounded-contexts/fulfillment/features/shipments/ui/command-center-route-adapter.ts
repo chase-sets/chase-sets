@@ -45,35 +45,47 @@ export async function runShipmentCommandCenterAction(
   formData: FormData,
 ): Promise<ShipmentCommandCenterActionOutcome> {
   const shipmentId = String(formData.get("shipmentId") ?? "");
+  const mutationAttemptId = String(formData.get("mutationAttemptId") ?? "");
+  formData.delete("mutationAttemptId");
   const current = currentStateFrom(formData);
 
   try {
     if (action === "buy-label" || action === "void-label") {
       assertShipmentActionAllowed(action, current);
       if (action === "buy-label") {
-        await api.purchaseUspsLabel(shipmentId, { serviceLevel: "USPS_GROUND_ADVANTAGE" });
+        await api.purchaseUspsLabel(shipmentId, { serviceLevel: "USPS_GROUND_ADVANTAGE" }, mutationAttemptId);
       } else {
-        await api.voidLabel(shipmentId);
+        await api.voidLabel(shipmentId, mutationAttemptId);
       }
       return { ok: true };
     }
 
     const dispatcher: ShipmentLifecycleDispatcher = {
-      startPacking: async () => shipmentResult(await api.startPackingShipment(shipmentId), shipmentId),
-      completePacking: async () => shipmentResult(await api.packShipment(shipmentId, { packageCount: 1 }), shipmentId),
-      dispatch: async () => shipmentResult(await api.dispatchShipment(shipmentId), shipmentId),
-      recordDelivery: async () => shipmentResult(await api.deliverShipment(shipmentId), shipmentId),
+      startPacking: async () =>
+        shipmentResult(await api.startPackingShipment(shipmentId, mutationAttemptId), shipmentId),
+      completePacking: async () =>
+        shipmentResult(await api.packShipment(shipmentId, { packageCount: 1 }, mutationAttemptId), shipmentId),
+      dispatch: async () => shipmentResult(await api.dispatchShipment(shipmentId, mutationAttemptId), shipmentId),
+      recordDelivery: async () => shipmentResult(await api.deliverShipment(shipmentId, mutationAttemptId), shipmentId),
       returnShipment: async () =>
         shipmentResult(
-          await api.returnShipment(shipmentId, { reason: String(formData.get("reason") ?? "") || null }),
+          await api.returnShipment(
+            shipmentId,
+            { reason: String(formData.get("reason") ?? "") || null },
+            mutationAttemptId,
+          ),
           shipmentId,
         ),
       raiseException: async () =>
         shipmentResult(
-          await api.raiseShipmentException(shipmentId, {
-            exceptionType: String(formData.get("exceptionType") ?? "") || "other",
-            notes: String(formData.get("notes") ?? "") || null,
-          }),
+          await api.raiseShipmentException(
+            shipmentId,
+            {
+              exceptionType: String(formData.get("exceptionType") ?? "") || "other",
+              notes: String(formData.get("notes") ?? "") || null,
+            },
+            mutationAttemptId,
+          ),
           shipmentId,
         ),
     };

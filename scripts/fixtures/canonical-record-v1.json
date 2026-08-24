@@ -1,0 +1,616 @@
+{
+  "schemaVersion": "canonical-record-v1",
+  "vectors": [
+    {
+      "id": "V1-empty-object",
+      "entryPoint": "emitRecord",
+      "fields": [],
+      "value": {},
+      "canonicalText": "{}",
+      "utf8Bytes": 2,
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "id": "V2-conserved-identity-body-only",
+      "entryPoint": "emitRecord",
+      "fields": [
+        {
+          "key": "briefMode",
+          "shape": "string"
+        },
+        {
+          "key": "manifestSha256",
+          "shape": "string"
+        },
+        {
+          "key": "partsDigest",
+          "shape": "string"
+        },
+        {
+          "key": "assembledSha256",
+          "shape": "string"
+        },
+        {
+          "key": "assembledBytes",
+          "shape": "integer"
+        },
+        {
+          "key": "receiptSchemaVersion",
+          "shape": "string"
+        },
+        {
+          "key": "allowedCommentIds",
+          "shape": "integerArray"
+        }
+      ],
+      "value": {
+        "briefMode": "body-only",
+        "manifestSha256": "d38a8ed26c8d14415617f103f1c73a0e5350eca3cd8dac3172d5fa563d7fc1c6",
+        "partsDigest": "4c6ca4f8d75641989d29c2423400b6881ab392c6bd978cb255497d2a45da59a5",
+        "assembledSha256": "9b7900d1aedb0e59bf1281f2c140acdcf14b1d5f838ec92a33bf8d9596e64e93",
+        "assembledBytes": 46587,
+        "receiptSchemaVersion": "issue-readiness/v1",
+        "allowedCommentIds": []
+      },
+      "canonicalText": "{\"briefMode\":\"body-only\",\"manifestSha256\":\"d38a8ed26c8d14415617f103f1c73a0e5350eca3cd8dac3172d5fa563d7fc1c6\",\"partsDigest\":\"4c6ca4f8d75641989d29c2423400b6881ab392c6bd978cb255497d2a45da59a5\",\"assembledSha256\":\"9b7900d1aedb0e59bf1281f2c140acdcf14b1d5f838ec92a33bf8d9596e64e93\",\"assembledBytes\":46587,\"receiptSchemaVersion\":\"issue-readiness/v1\",\"allowedCommentIds\":[]}",
+      "utf8Bytes": 365,
+      "sha256": "43938cad90af75d9246b21e737b5ad610bbec04bf14f214eff4ddee107d14b66"
+    },
+    {
+      "id": "V3-conserved-identity-multipart",
+      "entryPoint": "emitRecord",
+      "fields": [
+        {
+          "key": "briefMode",
+          "shape": "string"
+        },
+        {
+          "key": "manifestSha256",
+          "shape": "string"
+        },
+        {
+          "key": "partsDigest",
+          "shape": "string"
+        },
+        {
+          "key": "assembledSha256",
+          "shape": "string"
+        },
+        {
+          "key": "assembledBytes",
+          "shape": "integer"
+        },
+        {
+          "key": "receiptSchemaVersion",
+          "shape": "string"
+        },
+        {
+          "key": "allowedCommentIds",
+          "shape": "integerArray"
+        }
+      ],
+      "value": {
+        "briefMode": "multipart",
+        "manifestSha256": "2bd2bac5b319813613293cacc033891b8f142f80a119b46d6f2d3e2934d33ae7",
+        "partsDigest": "a7d8e2d3bfa75a857266241f23be451a99de606a4fc415be13bc510fa39c8ba5",
+        "assembledSha256": "62888bf58baea464f05437413f126f56695e38ea87d0d5a86ccda183cd7e3dc2",
+        "assembledBytes": 180000,
+        "receiptSchemaVersion": "issue-readiness/v1",
+        "allowedCommentIds": [5149842071, 5195823562]
+      },
+      "canonicalText": "{\"briefMode\":\"multipart\",\"manifestSha256\":\"2bd2bac5b319813613293cacc033891b8f142f80a119b46d6f2d3e2934d33ae7\",\"partsDigest\":\"a7d8e2d3bfa75a857266241f23be451a99de606a4fc415be13bc510fa39c8ba5\",\"assembledSha256\":\"62888bf58baea464f05437413f126f56695e38ea87d0d5a86ccda183cd7e3dc2\",\"assembledBytes\":180000,\"receiptSchemaVersion\":\"issue-readiness/v1\",\"allowedCommentIds\":[5149842071,5195823562]}",
+      "utf8Bytes": 387,
+      "sha256": "be0ef056ceccb7fbe9e267a8ba116dd8e4c4de81cc94eb8f74e2e09723982eef"
+    },
+    {
+      "id": "V4-escape-hostile-strings",
+      "entryPoint": "emitRecord",
+      "fields": [
+        {
+          "key": "plain",
+          "shape": "string"
+        },
+        {
+          "key": "withQuote",
+          "shape": "string"
+        },
+        {
+          "key": "withBackslash",
+          "shape": "string"
+        },
+        {
+          "key": "withBoth",
+          "shape": "string"
+        },
+        {
+          "key": "zero",
+          "shape": "integer"
+        },
+        {
+          "key": "max",
+          "shape": "integer"
+        }
+      ],
+      "value": {
+        "plain": "a b/c-d_e.f",
+        "withQuote": "he said \"hi\"",
+        "withBackslash": "C:\\lane\\path",
+        "withBoth": "\"\\\"",
+        "zero": 0,
+        "max": 9007199254740991
+      },
+      "canonicalText": "{\"plain\":\"a b/c-d_e.f\",\"withQuote\":\"he said \\\"hi\\\"\",\"withBackslash\":\"C:\\\\lane\\\\path\",\"withBoth\":\"\\\"\\\\\\\"\",\"zero\":0,\"max\":9007199254740991}",
+      "utf8Bytes": 137,
+      "sha256": "fe7e56697bd1ba5f6c828b7daa6c9054b754eaac95fb7754ee750ea199984256"
+    },
+    {
+      "id": "V5-manifest-zero-parts",
+      "entryPoint": "emitRecord",
+      "fields": [
+        {
+          "key": "schemaVersion",
+          "shape": "string"
+        },
+        {
+          "key": "issue",
+          "shape": "record",
+          "fields": [
+            {
+              "key": "repository",
+              "shape": "string"
+            },
+            {
+              "key": "number",
+              "shape": "integer"
+            },
+            {
+              "key": "nodeId",
+              "shape": "string"
+            }
+          ]
+        },
+        {
+          "key": "parts",
+          "shape": "recordArray",
+          "fields": [
+            {
+              "key": "order",
+              "shape": "integer"
+            },
+            {
+              "key": "databaseId",
+              "shape": "integer"
+            },
+            {
+              "key": "nodeId",
+              "shape": "string"
+            },
+            {
+              "key": "issueUrl",
+              "shape": "string"
+            },
+            {
+              "key": "authorLogin",
+              "shape": "string"
+            },
+            {
+              "key": "createdAt",
+              "shape": "string"
+            },
+            {
+              "key": "updatedAt",
+              "shape": "string"
+            },
+            {
+              "key": "utf8Bytes",
+              "shape": "integer"
+            },
+            {
+              "key": "sha256",
+              "shape": "string"
+            }
+          ]
+        },
+        {
+          "key": "partsDigest",
+          "shape": "string"
+        }
+      ],
+      "value": {
+        "schemaVersion": "dispatch-brief/v2",
+        "issue": {
+          "repository": "chase-sets/chase-sets",
+          "number": 6679,
+          "nodeId": "I_kwDORKgVcc8AAAABL9flPQ"
+        },
+        "parts": [],
+        "partsDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "canonicalText": "{\"schemaVersion\":\"dispatch-brief/v2\",\"issue\":{\"repository\":\"chase-sets/chase-sets\",\"number\":6679,\"nodeId\":\"I_kwDORKgVcc8AAAABL9flPQ\"},\"parts\":[],\"partsDigest\":\"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945\"}",
+      "utf8Bytes": 226,
+      "sha256": "94ad35b3c4c358c079e490946f4c3c4f5553117ade0a8e7fd915ffae2a821c4e"
+    },
+    {
+      "id": "V6-manifest-one-parts",
+      "entryPoint": "emitRecord",
+      "fields": [
+        {
+          "key": "schemaVersion",
+          "shape": "string"
+        },
+        {
+          "key": "issue",
+          "shape": "record",
+          "fields": [
+            {
+              "key": "repository",
+              "shape": "string"
+            },
+            {
+              "key": "number",
+              "shape": "integer"
+            },
+            {
+              "key": "nodeId",
+              "shape": "string"
+            }
+          ]
+        },
+        {
+          "key": "parts",
+          "shape": "recordArray",
+          "fields": [
+            {
+              "key": "order",
+              "shape": "integer"
+            },
+            {
+              "key": "databaseId",
+              "shape": "integer"
+            },
+            {
+              "key": "nodeId",
+              "shape": "string"
+            },
+            {
+              "key": "issueUrl",
+              "shape": "string"
+            },
+            {
+              "key": "authorLogin",
+              "shape": "string"
+            },
+            {
+              "key": "createdAt",
+              "shape": "string"
+            },
+            {
+              "key": "updatedAt",
+              "shape": "string"
+            },
+            {
+              "key": "utf8Bytes",
+              "shape": "integer"
+            },
+            {
+              "key": "sha256",
+              "shape": "string"
+            }
+          ]
+        },
+        {
+          "key": "partsDigest",
+          "shape": "string"
+        }
+      ],
+      "value": {
+        "schemaVersion": "dispatch-brief/v2",
+        "issue": {
+          "repository": "chase-sets/chase-sets",
+          "number": 6679,
+          "nodeId": "I_kwDORKgVcc8AAAABL9flPQ"
+        },
+        "parts": [
+          {
+            "order": 1,
+            "databaseId": 5261617634,
+            "nodeId": "IC_kwDORKgVcc8AAAABOZ3p4g",
+            "issueUrl": "https://api.github.com/repos/chase-sets/chase-sets/issues/6679",
+            "authorLogin": "todd-skelton",
+            "createdAt": "2026-08-12T02:52:27Z",
+            "updatedAt": "2026-08-12T02:52:27Z",
+            "utf8Bytes": 7062,
+            "sha256": "9d875faa278a2eb3891a871401888d81ac33ebcf19f93b2cc4551cb0440d804e"
+          }
+        ],
+        "partsDigest": "134702b9d7952e00611bab087bfe301c0cf8558bebbe8039d4663266fd6b6de0"
+      },
+      "canonicalText": "{\"schemaVersion\":\"dispatch-brief/v2\",\"issue\":{\"repository\":\"chase-sets/chase-sets\",\"number\":6679,\"nodeId\":\"I_kwDORKgVcc8AAAABL9flPQ\"},\"parts\":[{\"order\":1,\"databaseId\":5261617634,\"nodeId\":\"IC_kwDORKgVcc8AAAABOZ3p4g\",\"issueUrl\":\"https://api.github.com/repos/chase-sets/chase-sets/issues/6679\",\"authorLogin\":\"todd-skelton\",\"createdAt\":\"2026-08-12T02:52:27Z\",\"updatedAt\":\"2026-08-12T02:52:27Z\",\"utf8Bytes\":7062,\"sha256\":\"9d875faa278a2eb3891a871401888d81ac33ebcf19f93b2cc4551cb0440d804e\"}],\"partsDigest\":\"134702b9d7952e00611bab087bfe301c0cf8558bebbe8039d4663266fd6b6de0\"}",
+      "utf8Bytes": 566,
+      "sha256": "d78c2543b04182eca7154e3db3f55907487b68f20b989e04273d7f2d976927ed"
+    },
+    {
+      "id": "V7-manifest-two-parts",
+      "entryPoint": "emitRecord",
+      "fields": [
+        {
+          "key": "schemaVersion",
+          "shape": "string"
+        },
+        {
+          "key": "issue",
+          "shape": "record",
+          "fields": [
+            {
+              "key": "repository",
+              "shape": "string"
+            },
+            {
+              "key": "number",
+              "shape": "integer"
+            },
+            {
+              "key": "nodeId",
+              "shape": "string"
+            }
+          ]
+        },
+        {
+          "key": "parts",
+          "shape": "recordArray",
+          "fields": [
+            {
+              "key": "order",
+              "shape": "integer"
+            },
+            {
+              "key": "databaseId",
+              "shape": "integer"
+            },
+            {
+              "key": "nodeId",
+              "shape": "string"
+            },
+            {
+              "key": "issueUrl",
+              "shape": "string"
+            },
+            {
+              "key": "authorLogin",
+              "shape": "string"
+            },
+            {
+              "key": "createdAt",
+              "shape": "string"
+            },
+            {
+              "key": "updatedAt",
+              "shape": "string"
+            },
+            {
+              "key": "utf8Bytes",
+              "shape": "integer"
+            },
+            {
+              "key": "sha256",
+              "shape": "string"
+            }
+          ]
+        },
+        {
+          "key": "partsDigest",
+          "shape": "string"
+        }
+      ],
+      "value": {
+        "schemaVersion": "dispatch-brief/v2",
+        "issue": {
+          "repository": "chase-sets/chase-sets",
+          "number": 6679,
+          "nodeId": "I_kwDORKgVcc8AAAABL9flPQ"
+        },
+        "parts": [
+          {
+            "order": 1,
+            "databaseId": 5261617634,
+            "nodeId": "IC_kwDORKgVcc8AAAABOZ3p4g",
+            "issueUrl": "https://api.github.com/repos/chase-sets/chase-sets/issues/6679",
+            "authorLogin": "todd-skelton",
+            "createdAt": "2026-08-12T02:52:27Z",
+            "updatedAt": "2026-08-12T02:52:27Z",
+            "utf8Bytes": 7062,
+            "sha256": "9d875faa278a2eb3891a871401888d81ac33ebcf19f93b2cc4551cb0440d804e"
+          },
+          {
+            "order": 2,
+            "databaseId": 5261770812,
+            "nodeId": "IC_kwDORKgVcc8AAAABOaBAPA",
+            "issueUrl": "https://api.github.com/repos/chase-sets/chase-sets/issues/6679",
+            "authorLogin": "todd-skelton",
+            "createdAt": "2026-08-12T03:09:14Z",
+            "updatedAt": "2026-08-12T03:09:14Z",
+            "utf8Bytes": 1199,
+            "sha256": "10d8d68a4943db2a0d55fce5d1ed55cdd6ff78c3208046b08b1f7868091cdc85"
+          }
+        ],
+        "partsDigest": "37f181b8414fab6763a44cfc9d3b28122cb952bad907ddddd1ff6180015d59fe"
+      },
+      "canonicalText": "{\"schemaVersion\":\"dispatch-brief/v2\",\"issue\":{\"repository\":\"chase-sets/chase-sets\",\"number\":6679,\"nodeId\":\"I_kwDORKgVcc8AAAABL9flPQ\"},\"parts\":[{\"order\":1,\"databaseId\":5261617634,\"nodeId\":\"IC_kwDORKgVcc8AAAABOZ3p4g\",\"issueUrl\":\"https://api.github.com/repos/chase-sets/chase-sets/issues/6679\",\"authorLogin\":\"todd-skelton\",\"createdAt\":\"2026-08-12T02:52:27Z\",\"updatedAt\":\"2026-08-12T02:52:27Z\",\"utf8Bytes\":7062,\"sha256\":\"9d875faa278a2eb3891a871401888d81ac33ebcf19f93b2cc4551cb0440d804e\"},{\"order\":2,\"databaseId\":5261770812,\"nodeId\":\"IC_kwDORKgVcc8AAAABOaBAPA\",\"issueUrl\":\"https://api.github.com/repos/chase-sets/chase-sets/issues/6679\",\"authorLogin\":\"todd-skelton\",\"createdAt\":\"2026-08-12T03:09:14Z\",\"updatedAt\":\"2026-08-12T03:09:14Z\",\"utf8Bytes\":1199,\"sha256\":\"10d8d68a4943db2a0d55fce5d1ed55cdd6ff78c3208046b08b1f7868091cdc85\"}],\"partsDigest\":\"37f181b8414fab6763a44cfc9d3b28122cb952bad907ddddd1ff6180015d59fe\"}",
+      "utf8Bytes": 907,
+      "sha256": "3ad5852a51241159b9aac840705e2e9f225aefa393fb6206d167c526a16c9280"
+    },
+    {
+      "id": "V8-parts-array-zero",
+      "entryPoint": "emitRecordArray",
+      "fields": [
+        {
+          "key": "order",
+          "shape": "integer"
+        },
+        {
+          "key": "databaseId",
+          "shape": "integer"
+        },
+        {
+          "key": "nodeId",
+          "shape": "string"
+        },
+        {
+          "key": "issueUrl",
+          "shape": "string"
+        },
+        {
+          "key": "authorLogin",
+          "shape": "string"
+        },
+        {
+          "key": "createdAt",
+          "shape": "string"
+        },
+        {
+          "key": "updatedAt",
+          "shape": "string"
+        },
+        {
+          "key": "utf8Bytes",
+          "shape": "integer"
+        },
+        {
+          "key": "sha256",
+          "shape": "string"
+        }
+      ],
+      "value": [],
+      "canonicalText": "[]",
+      "utf8Bytes": 2,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "id": "V9-parts-array-one",
+      "entryPoint": "emitRecordArray",
+      "fields": [
+        {
+          "key": "order",
+          "shape": "integer"
+        },
+        {
+          "key": "databaseId",
+          "shape": "integer"
+        },
+        {
+          "key": "nodeId",
+          "shape": "string"
+        },
+        {
+          "key": "issueUrl",
+          "shape": "string"
+        },
+        {
+          "key": "authorLogin",
+          "shape": "string"
+        },
+        {
+          "key": "createdAt",
+          "shape": "string"
+        },
+        {
+          "key": "updatedAt",
+          "shape": "string"
+        },
+        {
+          "key": "utf8Bytes",
+          "shape": "integer"
+        },
+        {
+          "key": "sha256",
+          "shape": "string"
+        }
+      ],
+      "value": [
+        {
+          "order": 1,
+          "databaseId": 5261617634,
+          "nodeId": "IC_kwDORKgVcc8AAAABOZ3p4g",
+          "issueUrl": "https://api.github.com/repos/chase-sets/chase-sets/issues/6679",
+          "authorLogin": "todd-skelton",
+          "createdAt": "2026-08-12T02:52:27Z",
+          "updatedAt": "2026-08-12T02:52:27Z",
+          "utf8Bytes": 7062,
+          "sha256": "9d875faa278a2eb3891a871401888d81ac33ebcf19f93b2cc4551cb0440d804e"
+        }
+      ],
+      "canonicalText": "[{\"order\":1,\"databaseId\":5261617634,\"nodeId\":\"IC_kwDORKgVcc8AAAABOZ3p4g\",\"issueUrl\":\"https://api.github.com/repos/chase-sets/chase-sets/issues/6679\",\"authorLogin\":\"todd-skelton\",\"createdAt\":\"2026-08-12T02:52:27Z\",\"updatedAt\":\"2026-08-12T02:52:27Z\",\"utf8Bytes\":7062,\"sha256\":\"9d875faa278a2eb3891a871401888d81ac33ebcf19f93b2cc4551cb0440d804e\"}]",
+      "utf8Bytes": 342,
+      "sha256": "134702b9d7952e00611bab087bfe301c0cf8558bebbe8039d4663266fd6b6de0"
+    },
+    {
+      "id": "V10-parts-array-two",
+      "entryPoint": "emitRecordArray",
+      "fields": [
+        {
+          "key": "order",
+          "shape": "integer"
+        },
+        {
+          "key": "databaseId",
+          "shape": "integer"
+        },
+        {
+          "key": "nodeId",
+          "shape": "string"
+        },
+        {
+          "key": "issueUrl",
+          "shape": "string"
+        },
+        {
+          "key": "authorLogin",
+          "shape": "string"
+        },
+        {
+          "key": "createdAt",
+          "shape": "string"
+        },
+        {
+          "key": "updatedAt",
+          "shape": "string"
+        },
+        {
+          "key": "utf8Bytes",
+          "shape": "integer"
+        },
+        {
+          "key": "sha256",
+          "shape": "string"
+        }
+      ],
+      "value": [
+        {
+          "order": 1,
+          "databaseId": 5261617634,
+          "nodeId": "IC_kwDORKgVcc8AAAABOZ3p4g",
+          "issueUrl": "https://api.github.com/repos/chase-sets/chase-sets/issues/6679",
+          "authorLogin": "todd-skelton",
+          "createdAt": "2026-08-12T02:52:27Z",
+          "updatedAt": "2026-08-12T02:52:27Z",
+          "utf8Bytes": 7062,
+          "sha256": "9d875faa278a2eb3891a871401888d81ac33ebcf19f93b2cc4551cb0440d804e"
+        },
+        {
+          "order": 2,
+          "databaseId": 5261770812,
+          "nodeId": "IC_kwDORKgVcc8AAAABOaBAPA",
+          "issueUrl": "https://api.github.com/repos/chase-sets/chase-sets/issues/6679",
+          "authorLogin": "todd-skelton",
+          "createdAt": "2026-08-12T03:09:14Z",
+          "updatedAt": "2026-08-12T03:09:14Z",
+          "utf8Bytes": 1199,
+          "sha256": "10d8d68a4943db2a0d55fce5d1ed55cdd6ff78c3208046b08b1f7868091cdc85"
+        }
+      ],
+      "canonicalText": "[{\"order\":1,\"databaseId\":5261617634,\"nodeId\":\"IC_kwDORKgVcc8AAAABOZ3p4g\",\"issueUrl\":\"https://api.github.com/repos/chase-sets/chase-sets/issues/6679\",\"authorLogin\":\"todd-skelton\",\"createdAt\":\"2026-08-12T02:52:27Z\",\"updatedAt\":\"2026-08-12T02:52:27Z\",\"utf8Bytes\":7062,\"sha256\":\"9d875faa278a2eb3891a871401888d81ac33ebcf19f93b2cc4551cb0440d804e\"},{\"order\":2,\"databaseId\":5261770812,\"nodeId\":\"IC_kwDORKgVcc8AAAABOaBAPA\",\"issueUrl\":\"https://api.github.com/repos/chase-sets/chase-sets/issues/6679\",\"authorLogin\":\"todd-skelton\",\"createdAt\":\"2026-08-12T03:09:14Z\",\"updatedAt\":\"2026-08-12T03:09:14Z\",\"utf8Bytes\":1199,\"sha256\":\"10d8d68a4943db2a0d55fce5d1ed55cdd6ff78c3208046b08b1f7868091cdc85\"}]",
+      "utf8Bytes": 683,
+      "sha256": "37f181b8414fab6763a44cfc9d3b28122cb952bad907ddddd1ff6180015d59fe"
+    }
+  ]
+}

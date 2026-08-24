@@ -558,6 +558,9 @@ export async function collectMutationConsistencySurfaces(options) {
     }
 
     const contextName = contextNameForFile(relativeFile, contextManifests);
+    const contextRoot = contextRootForFile(relativeFile);
+    const completeRawFetchCensus =
+      contextRoot !== null && contextManifests.get(contextRoot)?.manifest.rawFetchCensus === "complete";
     const content = readFileSync(file, "utf8");
     const routeIds = [
       ...(routeIdsByFile.get(relativeFile) ??
@@ -565,6 +568,24 @@ export async function collectMutationConsistencySurfaces(options) {
         routeSupportRouteIds(relativeFile, contextManifests, routesById)),
     ].sort();
     const occurrenceCounts = new Map();
+
+    if (completeRawFetchCensus && !/(?:^|\/)(?:client|server)\.ts$/.test(relativeFile)) {
+      const rawFetchPattern = /\bfetch\s*\([\s\S]{0,1600}?\);/g;
+      for (const match of content.matchAll(rawFetchPattern)) {
+        const method =
+          match[0].match(/\bmethod\s*:\s*["'](GET|POST|PUT|PATCH|DELETE)["']/i)?.[1].toUpperCase() ?? "GET";
+        const detail = occurrenceDetail(occurrenceCounts, "raw-fetch", `${method} ${stableSnippetId(match[0])}`);
+        addMutationSurface(surfaces, {
+          id: buildMutationSurfaceId("raw-fetch", relativeFile, detail),
+          contextName: contextName ?? "deployable",
+          file: relativeFile,
+          kind: "raw-fetch",
+          routeIds,
+          location: `${relativeFile}:${lineNumberAt(content, match.index ?? 0)}`,
+          mutationSurface: `${method} raw fetch`,
+        });
+      }
+    }
 
     if (/^\s*export\s+(?:async\s+function|const)\s+action\b/m.test(content)) {
       addMutationSurface(surfaces, {

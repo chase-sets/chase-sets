@@ -8,7 +8,17 @@ import CheckoutStartRoute from "./checkout-start";
 type CheckoutStartLoaderData = {
   isSignedIn: boolean;
   isGuestBuyer: boolean;
-  source: null;
+  source: null | {
+    type: "offer-intent";
+    catalogItemId: string;
+    productId: string;
+    itemTitle: string;
+    itemSubtitle: string | null;
+    selectedOptions: readonly { dimensionId: string; optionId: string }[];
+    productSummary: string | null;
+    offerPriceAmount: string;
+    quantity: number;
+  };
   cartReadiness: null | {
     status: "ready" | "needs-resolution" | "blocked";
     lineCount: number;
@@ -86,6 +96,27 @@ function renderSignedInBlockedCartCheckoutStart() {
   return render(<Stub initialEntries={["/checkout/buy/readiness"]} />);
 }
 
+function renderCheckoutStart(data: CheckoutStartLoaderData) {
+  const Stub = createRoutesStub([
+    {
+      path: "/checkout/buy/readiness",
+      Component: CheckoutStartRoute,
+      loader: () => data,
+      action: () => null,
+    },
+  ]);
+
+  return render(<Stub initialEntries={["/checkout/buy/readiness"]} />);
+}
+
+function expectTintedSurface(root: Element | null, label: string) {
+  expect(root, `${label} root`).not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  expect(tokens.has("bg-surface-2"), `${label} includes bg-surface-2`).toBe(true);
+  for (const excluded of ["surface-border", "ds-glass", "border", "shadow-tokenSm", "shadow-tokenLg", "ds-glow"])
+    expect(tokens.has(excluded), `${label} excludes ${excluded}`).toBe(false);
+}
+
 describe("guest checkout start: existing account email", () => {
   afterEach(() => {
     cleanup();
@@ -97,6 +128,10 @@ describe("guest checkout start: existing account email", () => {
     const submit = await screen.findByRole("button", { name: "Continue as guest" });
     const nameField = screen.getByLabelText("Contact name") as HTMLInputElement;
     const emailField = screen.getByLabelText("Email") as HTMLInputElement;
+
+    expectTintedSurface(nameField.closest(".rounded-tokenLg"), "guest fast path");
+    const accountSection = screen.getByRole("heading", { name: "Account" }).closest("section");
+    expectTintedSurface(accountSection?.querySelector(".rounded-tokenLg") ?? null, "account sign-in");
 
     fireEvent.change(nameField, { target: { value: "Jane Smith" } });
     fireEvent.change(emailField, { target: { value: existingAccountEmail } });
@@ -131,5 +166,37 @@ describe("guest checkout start: existing account email", () => {
     expect(screen.getByRole("link", { name: "Review Buy Cart" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Continue to checkout" })).toBeNull();
     expect(screen.queryByText("0 items")).toBeNull();
+  });
+
+  it("renders account continue and offer registration as tinted furniture", async () => {
+    renderCheckoutStart({
+      ...guestStartLoaderData,
+      isSignedIn: true,
+      cartReadiness: { status: "ready", lineCount: 1, customerSafeFacts: [] },
+    });
+    expectTintedSurface(
+      (await screen.findByRole("button", { name: "Continue to checkout" })).closest(".rounded-tokenLg"),
+      "active account continue",
+    );
+
+    cleanup();
+    renderCheckoutStart({
+      ...guestStartLoaderData,
+      source: {
+        type: "offer-intent",
+        catalogItemId: "cat_charizard",
+        productId: "prod_charizard",
+        itemTitle: "Charizard",
+        itemSubtitle: "Base Set",
+        selectedOptions: [],
+        productSummary: "Raw / Near Mint",
+        offerPriceAmount: "350.00",
+        quantity: 1,
+      },
+    });
+    expectTintedSurface(
+      (await screen.findByRole("link", { name: "Register with passkey" })).closest(".rounded-tokenLg"),
+      "offer registration",
+    );
   });
 });

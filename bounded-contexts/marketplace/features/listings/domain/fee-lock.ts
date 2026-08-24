@@ -126,6 +126,10 @@ export function assertFeeLockTranchesPreserved(
     const currentLock = current[index]!;
     const nextLock = requoted[index]!;
     assert(currentLock.unitCount === nextLock.unitCount, "Price edits cannot move units between fee-lock tranches.");
+    assert(
+      sameMarketplaceListingFeeTerms(currentLock.terms, nextLock.terms),
+      "Price edits cannot replace fee-lock tranche terms.",
+    );
   }
 }
 

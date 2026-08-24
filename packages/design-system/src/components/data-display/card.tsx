@@ -9,15 +9,33 @@ export interface CardProps extends Omit<HTMLAttributes<HTMLDivElement>, "classNa
   media?: ReactNode;
   interactive?: boolean;
   variant?: "default" | "product" | "feature" | "stat";
+  elevation?: "flush" | "tinted" | "outlined" | "elevated";
   glow?: boolean;
   overflow?: "hidden" | "visible";
 }
+
+type CardVariant = NonNullable<CardProps["variant"]>;
+type CardElevation = NonNullable<CardProps["elevation"]>;
+
+/**
+ * `variant` names the background family wherever a fill exists; `elevation`
+ * decides whether a fill exists at all. Under `elevated` the `default` variant
+ * stays fill-less because `ds-glass` supplies the fill, exactly as the legacy
+ * recipe did.
+ */
+const cardFillClasses: Record<CardElevation, Record<CardVariant, string>> = {
+  flush: { default: "", product: "", feature: "", stat: "" },
+  tinted: { default: "bg-surface-2", product: "bg-surface-2", feature: "bg-surface-2", stat: "bg-surface-2" },
+  outlined: { default: "bg-surface", product: "bg-surface", feature: "bg-surface-2", stat: "bg-surface-2" },
+  elevated: { default: "", product: "bg-surface", feature: "bg-surface-2", stat: "bg-surface-2" },
+};
 
 function CardSurface({
   children,
   media,
   interactive = false,
   variant = "default",
+  elevation,
   glow = false,
   overflow = "hidden",
   ...rest
@@ -32,19 +50,27 @@ function CardSurface({
         }
       : undefined;
   const nativeProps = toMotionDomProps(rest);
+  // Omitted `elevation` must stay byte-identical to the pre-elevation recipe,
+  // so the legacy default resolves to the `elevated` treatment and the class
+  // pieces below join back into the exact legacy class order.
+  const resolvedElevation = elevation ?? "elevated";
+  const bordered = resolvedElevation === "outlined" || resolvedElevation === "elevated";
+  const raised = resolvedElevation === "elevated";
 
   return (
     <motion.div
       {...nativeProps}
       {...interactiveMotion}
       className={cx(
-        "ds-glass rounded-tokenLg border border-muted shadow-tokenSm",
+        raised && "ds-glass",
+        "rounded-tokenLg",
+        bordered && "border border-muted",
+        raised && "shadow-tokenSm",
         overflow === "visible" ? "overflow-visible" : "overflow-hidden",
-        variant === "product" && "bg-surface",
-        variant === "feature" && "bg-surface-2",
-        variant === "stat" && "bg-surface-2",
-        interactive && "cursor-pointer transition hover:border-accent hover:shadow-tokenMd",
-        glow && "ds-glow",
+        cardFillClasses[resolvedElevation][variant],
+        interactive && "cursor-pointer transition",
+        interactive && bordered && "hover:border-accent hover:shadow-tokenMd",
+        glow && raised && "ds-glow",
         !media && "p-4",
       )}
     >
@@ -121,7 +147,13 @@ function CardFooter({ children, ...rest }: CardFooterProps) {
 }
 
 /**
- * Canonical card surface with a compound slot API.
+ * Canonical card surface with a compound slot API and opt-in
+ * `flush`/`tinted`/`outlined`/`elevated` elevation intents.
+ *
+ * The `elevation` prop is orthogonal to the semantic `variant` enum: `variant`
+ * names the background family wherever a fill exists, while `elevation` owns
+ * fill presence and the surface chrome (glass, border, shadow). Omitting
+ * `elevation` renders the legacy raised recipe unchanged.
  *
  * Use the `media`/`children` props for the closed media-over-body layout, or
  * compose `Card.Header`, `Card.Title`, `Card.Description`, `Card.Body`, and

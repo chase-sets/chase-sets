@@ -57,8 +57,10 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/browser-e2e-probe.mjs",
     "scripts/check-structure/browser-e2e-disclosure-guard.mjs",
     "scripts/check-structure/provider-scope-picker-shape-guard.mjs",
+    "scripts/check-structure/regenerate-lockfile-bound-artifacts.mjs",
     "scripts/dev-system.mjs",
     "scripts/format-check.mjs",
+    "scripts/generate-brand-icons.mjs",
     "scripts/identity-creation-position-guard.mjs",
     "scripts/managed-postgres-authority-guard.mjs",
     "scripts/react-router-build.mjs",
@@ -66,7 +68,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 72);
+  assert.equal(result.entrypoints.length, 74);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
@@ -106,6 +108,44 @@ test("fails through real tracked-file discovery when a derived entry point loses
   writeFileSync(path.join(root, "scripts", "managed-postgres-authority-guard.mjs"), guarded);
   writeFileSync(path.join(root, "scripts", "run-workspaces.mjs"), guarded);
   assert.deepEqual(checkHeavySlotCoverage(root).violations, []);
+});
+
+test("names the lockfile-bound regenerator when its script-battery admission is removed", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "heavy-slot-regenerator-fixture-"));
+  temporaryRoots.push(root);
+  const regeneratorPath = "scripts/check-structure/regenerate-lockfile-bound-artifacts.mjs";
+  const guardedRegenerator = [
+    'import { acquireHeavySlot } from "../lib/heavy-slot.mjs";',
+    'acquireHeavySlot("script-battery");',
+    "",
+  ].join("\n");
+  initializeTrackedFixture(root, {
+    "package.json": JSON.stringify({
+      private: true,
+      scripts: {
+        "regenerate:lockfile-bound-artifacts": `node ./${regeneratorPath}`,
+      },
+    }),
+    [regeneratorPath]: guardedRegenerator,
+    "scripts/lib/heavy-slot.mjs": "export function acquireHeavySlot() {}\n",
+  });
+
+  assert.deepEqual(checkHeavySlotCoverage(root), {
+    entrypoints: [regeneratorPath],
+    unresolved: [],
+    violations: [],
+  });
+
+  const admissionRemoved = guardedRegenerator.replace('acquireHeavySlot("script-battery");\n', "");
+  assert.notEqual(admissionRemoved, guardedRegenerator);
+  writeFileSync(path.join(root, regeneratorPath), admissionRemoved);
+  const mutant = checkHeavySlotCoverage(root);
+  assert.deepEqual(mutant.entrypoints, [regeneratorPath]);
+  assert.deepEqual(mutant.unresolved, []);
+  assert.match(
+    mutant.violations.join("\n"),
+    /scripts\/check-structure\/regenerate-lockfile-bound-artifacts\.mjs does not activate/,
+  );
 });
 
 test("fails closed for an unreviewed tracked Node package-script entry point", () => {

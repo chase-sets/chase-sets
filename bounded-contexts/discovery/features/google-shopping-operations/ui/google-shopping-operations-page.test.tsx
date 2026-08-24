@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import type { ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GoogleShoppingOperationsPage } from "./google-shopping-operations-page";
@@ -43,6 +43,7 @@ describe("GoogleShoppingOperationsPage", () => {
   const originalEventSource = globalThis.EventSource;
 
   afterEach(() => {
+    cleanup();
     FakeEventSource.instances = [];
     Object.defineProperty(globalThis, "EventSource", {
       value: originalEventSource,
@@ -170,6 +171,75 @@ describe("GoogleShoppingOperationsPage", () => {
     expect(markup).not.toContain("/platform/projections?contextName=discovery");
     expect(markup).not.toContain("/access/accounts/acc_1");
     expect(markup).not.toContain("/catalog/catalog-items/cit_1");
+  });
+
+  const tintedSurfaceClassName = "min-w-0 max-w-full rounded-tokenLg bg-surface-2 p-4";
+  const elevatedSurfaceClassName =
+    "surface-border min-w-0 max-w-full rounded-tokenLg ds-glass bg-elevated p-4 shadow-tokenLg";
+
+  it("renders the live-gate and readiness-summary roots with the tinted furniture elevation", () => {
+    const { getByTestId } = render(
+      <GoogleShoppingOperationsPage
+        data={feedRows()}
+        filters={{
+          filter: "failed",
+          search: "lst_1",
+          limit: 25,
+          refreshWindowDays: 30,
+          selected: "",
+        }}
+      />,
+    );
+
+    expect(getByTestId("google-shopping-live-gate-surface").className).toBe(tintedSurfaceClassName);
+    expect(getByTestId("google-shopping-readiness-summary-surface").className).toBe(tintedSurfaceClassName);
+  });
+
+  it("renders the latest-job root with the elevated entity elevation when a job id is populated", () => {
+    const { getByTestId } = render(
+      <GoogleShoppingOperationsPage
+        data={feedRows()}
+        filters={{
+          filter: "failed",
+          search: "lst_1",
+          limit: 25,
+          refreshWindowDays: 30,
+          selected: "",
+        }}
+        latestJobIds={["job_sync"]}
+      />,
+    );
+
+    expect(getByTestId("google-shopping-latest-job-surface").className).toBe(elevatedSurfaceClassName);
+  });
+
+  const noticeStates: ReadonlyArray<{
+    name: string;
+    props: { unavailableMessage?: string; notice?: { tone: "success"; message: string }; actionError?: string };
+  }> = [
+    { name: "unavailable", props: { unavailableMessage: "Google Shopping feed is temporarily unavailable." } },
+    { name: "notice", props: { notice: { tone: "success", message: "Full sync dry-run queued as job_sync." } } },
+    { name: "action-error", props: { actionError: "Diagnostics refresh failed." } },
+  ];
+
+  it.each(noticeStates)("renders the shared Notice root tinted for the $name input", ({ props }) => {
+    const { getAllByTestId } = render(
+      <GoogleShoppingOperationsPage
+        data={feedRows()}
+        filters={{
+          filter: "failed",
+          search: "lst_1",
+          limit: 25,
+          refreshWindowDays: 30,
+          selected: "",
+        }}
+        {...props}
+      />,
+    );
+
+    const noticeSurfaces = getAllByTestId("google-shopping-notice-surface");
+    expect(noticeSurfaces).toHaveLength(1);
+    expect(noticeSurfaces[0]?.className).toBe(tintedSurfaceClassName);
   });
 });
 

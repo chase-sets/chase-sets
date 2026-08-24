@@ -123,7 +123,7 @@ export const VERIFY_STATIC_SURFACES = {
   "check:public-policies": {
     classification: ALWAYS_RUN,
     rule: "policy evidence citations resolve arbitrary repository paths and exact line ranges",
-    evidence: ["bounded-contexts/public-presence/features/policies/domain/canonical-claim-guard.ts:28-39"],
+    evidence: ["bounded-contexts/public-presence/features/policies/domain/canonical-claim-guard.ts:79-90"],
   },
   "check:developer-articles": {
     classification: ALWAYS_RUN,

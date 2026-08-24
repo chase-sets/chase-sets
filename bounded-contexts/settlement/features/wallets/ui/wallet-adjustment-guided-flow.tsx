@@ -142,7 +142,7 @@ export function WalletAdjustmentGuidedFlowForm({
         />
       ) : null}
 
-      <Card>
+      <Card data-testid="wallet-adjustment-form-furniture" elevation="tinted">
         <RouterForm
           method="post"
           spacing="md"
@@ -217,7 +217,7 @@ export function WalletAdjustmentGuidedFlowForm({
       </Card>
 
       {previewMatchesForm ? (
-        <Card>
+        <Card data-testid="wallet-adjustment-preview-entity" elevation="elevated">
           <Stack gap={3}>
             <Text weight="semibold">
               {t("settlement.features.wallets.ui.walletAdjustmentGuidedFlow.preview.title")}

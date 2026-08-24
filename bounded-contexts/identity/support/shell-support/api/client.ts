@@ -2,6 +2,11 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildIdentityApi } from "../../../api";
+import type {
+  CloseAccountRequest,
+  ReactivateAccountRequest,
+  SuspendAccountRequest,
+} from "../../../features/accounts/api/contracts";
 
 type IdentityApiApp = ReturnType<typeof buildIdentityApi>;
 
@@ -91,19 +96,19 @@ export function createIdentityApiClient({
     async updateAccount<T>(id: string, body: Record<string, unknown>): Promise<T> {
       return parseJsonResponse<T>(await client.accounts[":id"].$put({ param: { id }, json: body, header: headers }));
     },
-    async suspendAccount<T>(id: string): Promise<T> {
+    async suspendAccount<T>(id: string, body: SuspendAccountRequest | Record<string, never> = {}): Promise<T> {
       return parseJsonResponse<T>(
-        await client.accounts[":id"].suspend.$post({ param: { id }, json: {}, header: headers }),
+        await client.accounts[":id"].suspend.$post({ param: { id }, json: body, header: headers }),
       );
     },
-    async reactivateAccount<T>(id: string): Promise<T> {
+    async reactivateAccount<T>(id: string, body: ReactivateAccountRequest | Record<string, never> = {}): Promise<T> {
       return parseJsonResponse<T>(
-        await client.accounts[":id"].reactivate.$post({ param: { id }, json: {}, header: headers }),
+        await client.accounts[":id"].reactivate.$post({ param: { id }, json: body, header: headers }),
       );
     },
-    async closeAccount<T>(id: string): Promise<T> {
+    async closeAccount<T>(id: string, body: CloseAccountRequest | Record<string, never> = {}): Promise<T> {
       return parseJsonResponse<T>(
-        await client.accounts[":id"].close.$post({ param: { id }, json: {}, header: headers }),
+        await client.accounts[":id"].close.$post({ param: { id }, json: body, header: headers }),
       );
     },
     async assignAccountBadge<T = { badges: readonly string[] }>(id: string, badgeKey: string): Promise<T> {

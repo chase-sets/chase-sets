@@ -65,13 +65,13 @@ function CheckoutLinePrice({ item }: { item: CheckoutSummaryItem }) {
   }
 
   return (
-    <div className="text-right text-sm font-semibold tabular-nums text-foreground">
+    <div className="text-right text-sm font-semibold text-foreground">
       {state === "indicative" ? (
         <span className="mr-1 align-baseline text-xs font-medium text-secondary">
           {item.indicativePrefix ?? "from"}
         </span>
       ) : null}
-      {item.price}
+      <span className="font-mono tabular-nums">{item.price}</span>
     </div>
   );
 }

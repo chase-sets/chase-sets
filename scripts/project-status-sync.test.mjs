@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { classified } from "./backlog-classify.mjs";
 import {
   collectProjectItems,
+  DERIVED_STATUSES,
   deriveStatus,
   deriveTargetDate,
   isEpic,
@@ -17,6 +18,8 @@ import {
   planStatusUpdates,
   projectItemFromNode,
   readConfiguration,
+  REQUIRED_STATUS_OPTIONS,
+  TERMINAL_STATUSES,
   toBacklogInput,
 } from "./project-status-sync.mjs";
 
@@ -85,18 +88,40 @@ function itemPage(nodes, { totalCount = nodes.length, hasNextPage = false, endCu
   };
 }
 
+function optionIdFixture(overrides = {}) {
+  return {
+    Backlog: "backlog-id",
+    Refined: "refined-id",
+    Blocked: "blocked-id",
+    Epic: "epic-id",
+    Tracking: "tracking-id",
+    Landed: "landed-id",
+    Canceled: "canceled-id",
+    ...overrides,
+  };
+}
+
+// The exact live `DELIVERY_STATUS_OPTION_IDS` shape after the pre-merge
+// operator window: the seven repository-derived/terminal keys the script
+// requires plus the two lane-owned options it must tolerate but never write.
+const LIVE_EXPANDED_OPTION_IDS = Object.freeze({
+  Backlog: "f8e865e3",
+  Refined: "c436f1b6",
+  Blocked: "efd58962",
+  Epic: "170de2b0",
+  "In lane": "06f2b950",
+  "In review": "b4ffa6bc",
+  Landed: "7a091234",
+  Tracking: "339aa61a",
+  Canceled: "5c5ab919",
+});
+
 function validEnv(overrides = {}) {
   return {
     GITHUB_TOKEN: "test-token",
     PROJECT_ID: "project-id",
     STATUS_FIELD_ID: "status-field-id",
-    STATUS_OPTION_IDS: JSON.stringify({
-      Backlog: "backlog-id",
-      Refined: "refined-id",
-      Blocked: "blocked-id",
-      Landed: "landed-id",
-      Canceled: "canceled-id",
-    }),
+    STATUS_OPTION_IDS: JSON.stringify(optionIdFixture()),
     TARGET_DATE_FIELD_ID: "date-field-id",
     ...overrides,
   };
@@ -137,8 +162,7 @@ describe("project status derivation", () => {
     expect(deriveStatus(issue({ blockedBy: 2, milestone: null }))).toBe("Blocked");
   });
 
-  it("preserves Epic no-op behavior and native-type precedence", () => {
-    expect(deriveStatus(issue({ labels: [{ name: "kind:epic" }] }))).toBeNull();
+  it("keeps #6169 native-type precedence as the only Epic authority", () => {
     expect(isEpic(issue({ issueType: { name: "Epic" }, labels: [] }))).toBe(true);
     expect(isEpic(issue({ issueType: { name: "Slice" }, labels: [{ name: "kind:epic" }] }))).toBe(false);
     expect(isEpic(issue({ labels: [{ name: "kind:epic" }] }))).toBe(true);
@@ -244,7 +268,7 @@ describe("project status derivation", () => {
     ]);
   });
 
-  it("skips tracking-only items instead of deriving Backlog", () => {
+  it("projects a tracking-only continuity record to Tracking, never Refined or Blocked", () => {
     // Live counterexample #6058 is fully classified, parentless, and tracking-only.
     const trackingOnly = issue({
       number: 6058,
@@ -256,8 +280,10 @@ describe("project status derivation", () => {
         { name: "status:tracking-only" },
       ],
     });
-    expect(deriveStatus(trackingOnly)).toBeNull();
-    expect(planStatusUpdates([{ itemId: "a", status: "Refined", issue: trackingOnly }])).toEqual([]);
+    expect(deriveStatus(trackingOnly)).toBe("Tracking");
+    expect(planStatusUpdates([{ itemId: "a", status: "Refined", issue: trackingOnly }])).toEqual([
+      { itemId: "a", number: 6058, from: "Refined", to: "Tracking" },
+    ]);
   });
 
   it("derives truthful parent state through the board query path", () => {
@@ -287,6 +313,302 @@ describe("project status derivation", () => {
     expect(() => classified(toBacklogInput(projectItemFromNode(withoutType).issue))).toThrowError(
       expect.objectContaining({ name: "BacklogClassificationInputError", field: "issueTypeName" }),
     );
+  });
+});
+
+// The complete open-state contract published in docs/contributing/backlog-model.md.
+// Precedence is first match wins: Epic -> Tracking -> Blocked -> Refined -> Backlog.
+const OPEN_STATE_DECISION_TABLE = [
+  {
+    name: "native Epic",
+    subject: issue({ number: 5496, issueType: { name: "Epic" }, labels: [], milestone: null }),
+    expected: "Epic",
+  },
+  {
+    name: "native Epic that is fully labelled and milestoned",
+    subject: issue({ number: 5497, issueType: { name: "Epic" } }),
+    expected: "Epic",
+  },
+  {
+    name: "untyped legacy kind:epic issue",
+    subject: issue({ number: 4001, labels: [{ name: "kind:epic" }] }),
+    expected: "Epic",
+  },
+  {
+    name: "native Epic carrying an open blocking dependency",
+    subject: issue({ number: 5498, issueType: { name: "Epic" }, labels: [], blockedBy: 4 }),
+    expected: "Epic",
+  },
+  {
+    name: "native Epic that also carries status:tracking-only",
+    subject: issue({
+      number: 5499,
+      issueType: { name: "Epic" },
+      labels: [{ name: "status:tracking-only" }],
+    }),
+    expected: "Epic",
+  },
+  {
+    name: "pathological untyped legacy epic that also carries status:tracking-only",
+    subject: issue({ number: 4002, labels: [{ name: "kind:epic" }, { name: "status:tracking-only" }] }),
+    expected: "Epic",
+  },
+  {
+    name: "native Slice carrying the legacy kind:epic label but otherwise classified",
+    subject: issue({
+      number: 6001,
+      issueType: { name: "Slice" },
+      labels: [{ name: "priority:p1" }, { name: "area:catalog" }, { name: "kind:product" }, { name: "kind:epic" }],
+    }),
+    expected: "Refined",
+  },
+  {
+    name: "native Slice carrying the legacy kind:epic label and nothing else",
+    subject: issue({ number: 6002, issueType: { name: "Slice" }, labels: [{ name: "kind:epic" }] }),
+    expected: "Backlog",
+  },
+  {
+    name: "tracking-only non-Epic that is otherwise fully classified",
+    subject: issue({
+      number: 6058,
+      issueType: { name: "Slice" },
+      labels: [
+        { name: "priority:p1" },
+        { name: "area:identity" },
+        { name: "kind:test" },
+        { name: "status:tracking-only" },
+      ],
+    }),
+    expected: "Tracking",
+  },
+  {
+    name: "tracking-only non-Epic carrying an open blocking dependency",
+    subject: issue({
+      number: 6059,
+      issueType: { name: "Slice" },
+      labels: [{ name: "status:tracking-only" }],
+      blockedBy: 2,
+    }),
+    expected: "Tracking",
+  },
+  {
+    name: "open Slice with a blocking dependency",
+    subject: issue({ number: 6573, issueType: { name: "Slice" }, blockedBy: 1 }),
+    expected: "Blocked",
+  },
+  {
+    name: "classified open Slice",
+    subject: issue({ number: 6574, issueType: { name: "Slice" } }),
+    expected: "Refined",
+  },
+  {
+    name: "unclassified open Slice with no milestone",
+    subject: issue({ number: 6575, issueType: { name: "Slice" }, milestone: null }),
+    expected: "Backlog",
+  },
+  {
+    name: "open Slice in a non-executable milestone",
+    subject: issue({ number: 6576, issueType: { name: "Slice" }, milestone: { title: "Operations" } }),
+    expected: "Backlog",
+  },
+  {
+    name: "open Slice missing a kind:* label",
+    subject: issue({
+      number: 6577,
+      issueType: { name: "Slice" },
+      labels: [{ name: "priority:p1" }, { name: "area:catalog" }],
+    }),
+    expected: "Backlog",
+  },
+];
+
+const TERMINAL_DECISION_TABLE = [
+  {
+    name: "completed native Epic",
+    subject: issue({
+      number: 5496,
+      state: "closed",
+      stateReason: "completed",
+      issueType: { name: "Epic" },
+      labels: [],
+    }),
+    expected: "Landed",
+  },
+  {
+    name: "not-planned native Epic",
+    subject: issue({
+      number: 5497,
+      state: "closed",
+      stateReason: "not_planned",
+      issueType: { name: "Epic" },
+      labels: [],
+    }),
+    expected: "Canceled",
+  },
+  {
+    name: "duplicate untyped legacy epic",
+    subject: issue({ number: 4001, state: "closed", stateReason: "DUPLICATE", labels: [{ name: "kind:epic" }] }),
+    expected: "Canceled",
+  },
+  {
+    name: "completed tracking-only continuity record",
+    subject: issue({
+      number: 6058,
+      state: "closed",
+      stateReason: "completed",
+      issueType: { name: "Slice" },
+      labels: [{ name: "status:tracking-only" }],
+    }),
+    expected: "Landed",
+  },
+  {
+    name: "not-planned tracking-only continuity record",
+    subject: issue({
+      number: 6059,
+      state: "closed",
+      stateReason: "not-planned",
+      issueType: { name: "Slice" },
+      labels: [{ name: "status:tracking-only" }],
+    }),
+    expected: "Canceled",
+  },
+  {
+    name: "duplicate tracking-only continuity record",
+    subject: issue({
+      number: 6060,
+      state: "closed",
+      stateReason: "duplicate",
+      issueType: { name: "Slice" },
+      labels: [{ name: "status:tracking-only" }],
+    }),
+    expected: "Canceled",
+  },
+];
+
+describe("Epic and Tracking derivation contract", () => {
+  it.each(OPEN_STATE_DECISION_TABLE)("derives $expected for an open $name", ({ subject, expected }) => {
+    expect(deriveStatus(subject)).toBe(expected);
+  });
+
+  it.each(TERMINAL_DECISION_TABLE)("derives $expected for a $name", ({ subject, expected }) => {
+    expect(deriveStatus(subject)).toBe(expected);
+  });
+
+  it.each([
+    { name: "native Epic", overrides: { issueType: { name: "Epic" }, labels: [] } },
+    { name: "tracking-only record", overrides: { labels: [{ name: "status:tracking-only" }] } },
+  ])("still fails closed on a closed $name with an unsupported state reason", ({ overrides }) => {
+    for (const stateReason of [null, "", "   ", "stale", "reopened"]) {
+      expect(() => deriveStatus(issue({ number: 7000, state: "closed", stateReason, ...overrides }))).toThrowError(
+        expect.objectContaining({ name: "ProjectStatusSyncIssueError", number: 7000 }),
+      );
+    }
+  });
+
+  it("derives a status for every open row — there is no untouched arm left", () => {
+    for (const { name, subject } of OPEN_STATE_DECISION_TABLE) {
+      expect(deriveStatus(subject), `${name} derived no status`).not.toBeNull();
+    }
+  });
+
+  // Derived, not hand-listed: the option set the configuration demands must be
+  // exactly the set the derivation can emit. Adding a status to
+  // REQUIRED_STATUS_OPTIONS without deriving it — or deriving one without
+  // requiring its option id — fails here.
+  it("requires an option id for exactly the statuses the derivation emits", () => {
+    const emitted = new Set([...OPEN_STATE_DECISION_TABLE, ...TERMINAL_DECISION_TABLE].map((row) => row.expected));
+    expect([...emitted].sort()).toEqual([...REQUIRED_STATUS_OPTIONS].sort());
+  });
+
+  it("treats Epic and Tracking as repository-derived and correctable, never terminal", () => {
+    expect(DERIVED_STATUSES).toEqual(expect.arrayContaining(["Epic", "Tracking"]));
+    expect(TERMINAL_STATUSES).not.toContain("Epic");
+    expect(TERMINAL_STATUSES).not.toContain("Tracking");
+  });
+});
+
+describe("planner correction and lane ownership", () => {
+  const LANE_OWNED_STATUSES = ["In lane", "In review"];
+  const CURRENT_STATUSES = [null, "Backlog", "Refined", "Blocked", "Epic", "Tracking", ...LANE_OWNED_STATUSES];
+  const PLANNER_SUBJECTS = [
+    {
+      name: "native Epic",
+      subject: issue({ number: 5496, issueType: { name: "Epic" }, labels: [], milestone: null }),
+      derived: "Epic",
+    },
+    {
+      name: "tracking-only continuity record",
+      subject: issue({
+        number: 6058,
+        issueType: { name: "Slice" },
+        labels: [
+          { name: "priority:p1" },
+          { name: "area:identity" },
+          { name: "kind:test" },
+          { name: "status:tracking-only" },
+        ],
+      }),
+      derived: "Tracking",
+    },
+    {
+      name: "ordinary classified Slice wrongly parked in a non-executable status",
+      subject: issue({ number: 6574, issueType: { name: "Slice" } }),
+      derived: "Refined",
+    },
+  ];
+
+  it.each(PLANNER_SUBJECTS)(
+    "corrects every wrong repository-derived status and preserves lane ownership for a $name",
+    ({ subject, derived }) => {
+      const items = CURRENT_STATUSES.map((status, index) => ({ itemId: `item-${index}`, status, issue: subject }));
+      const expected = CURRENT_STATUSES.map((status, index) => ({ status, index }))
+        .filter(({ status }) => !LANE_OWNED_STATUSES.includes(status) && status !== derived)
+        .map(({ status, index }) => ({
+          itemId: `item-${index}`,
+          number: subject.number,
+          from: status,
+          to: derived,
+        }));
+
+      expect(planStatusUpdates(items)).toEqual(expected);
+    },
+  );
+
+  it.each([
+    {
+      name: "Epic",
+      node: boardNode({ number: 5496, issueType: { name: "Epic" }, status: null, labels: labelConnection([]) }),
+      optionId: "epic-id",
+    },
+    {
+      name: "Tracking",
+      node: boardNode({
+        number: 6058,
+        issueType: { name: "Slice" },
+        status: null,
+        labels: labelConnection(["priority:p1", "area:identity", "kind:test", "status:tracking-only"]),
+      }),
+      optionId: "tracking-id",
+    },
+  ])("writes the $name option id through the real main composition", async ({ name, node, optionId }) => {
+    const unassigned = { ...node, content: { ...node.content, milestone: null } };
+    const { request, requests } = scriptedRequest(({ query }) => {
+      if (query === ITEMS_QUERY) return itemPage([unassigned]);
+      if (query === LABELS_QUERY) throw new Error("labels were already complete");
+      return { mutation: { ok: true } };
+    });
+
+    const result = await main({ env: validEnv(), request, logger: { log: vi.fn() } });
+
+    expect(result.statusUpdates).toEqual([
+      { itemId: "item-1", number: unassigned.content.number, from: null, to: name },
+    ]);
+    expect(mutationRequests(requests)).toEqual([
+      expect.objectContaining({
+        query: expect.stringContaining("singleSelectOptionId: $o"),
+        variables: { p: "project-id", i: "item-1", f: "status-field-id", o: optionId },
+      }),
+    ]);
   });
 });
 
@@ -411,30 +733,63 @@ describe("fail-closed configuration", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("names every required status omitted from STATUS_OPTION_IDS before the first request", async () => {
-    for (const missing of ["Backlog", "Refined", "Blocked", "Landed", "Canceled"]) {
-      const optionIds = {
-        Backlog: "backlog",
-        Refined: "refined",
-        Blocked: "blocked",
-        Landed: "landed",
-        Canceled: "canceled",
-      };
-      delete optionIds[missing];
-      const request = vi.fn();
-      await expect(
-        main({
-          env: validEnv({ STATUS_OPTION_IDS: JSON.stringify(optionIds) }),
-          request,
-          logger: { log: vi.fn() },
-        }),
-      ).rejects.toMatchObject({
-        name: "ProjectStatusSyncConfigurationError",
-        variable: "STATUS_OPTION_IDS",
-        message: expect.stringContaining(missing),
-      });
-      expect(request).not.toHaveBeenCalled();
+  // Derived from REQUIRED_STATUS_OPTIONS so a newly derived status cannot be
+  // added without its fail-closed configuration case.
+  it.each([...REQUIRED_STATUS_OPTIONS])(
+    "names an omitted or blank %s option id before the first request",
+    async (missing) => {
+      for (const mode of ["missing", "empty", "whitespace"]) {
+        const optionIds = optionIdFixture();
+        if (mode === "missing") delete optionIds[missing];
+        else optionIds[missing] = mode === "empty" ? "" : "   ";
+        const request = vi.fn();
+        await expect(
+          main({
+            env: validEnv({ STATUS_OPTION_IDS: JSON.stringify(optionIds) }),
+            request,
+            logger: { log: vi.fn() },
+          }),
+        ).rejects.toMatchObject({
+          name: "ProjectStatusSyncConfigurationError",
+          variable: "STATUS_OPTION_IDS",
+          message: expect.stringContaining(`must contain a non-empty option id for ${missing}`),
+        });
+        expect(request, `${mode} ${missing} reached the network`).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it("accepts the expanded live variable and tolerates its lane-owned extras", () => {
+    const { optionIds } = readConfiguration(validEnv({ STATUS_OPTION_IDS: JSON.stringify(LIVE_EXPANDED_OPTION_IDS) }));
+
+    for (const status of REQUIRED_STATUS_OPTIONS) {
+      expect(optionIds[status], `the live variable carries no option id for ${status}`).toBe(
+        LIVE_EXPANDED_OPTION_IDS[status],
+      );
     }
+    expect(Object.keys(optionIds).filter((key) => !REQUIRED_STATUS_OPTIONS.includes(key))).toEqual([
+      "In lane",
+      "In review",
+    ]);
+  });
+
+  // The exact variable value read live on 2026-08-08, before the pre-merge
+  // operator window. Landing the derivation without expanding the variable
+  // must redden the very first scheduled run rather than sync partially.
+  it("rejects the pre-expansion variable that omits Epic and Tracking, with zero requests", async () => {
+    const preExpansion = { ...LIVE_EXPANDED_OPTION_IDS };
+    delete preExpansion.Epic;
+    delete preExpansion.Tracking;
+    const request = vi.fn();
+
+    await expect(
+      main({ env: validEnv({ STATUS_OPTION_IDS: JSON.stringify(preExpansion) }), request, logger: { log: vi.fn() } }),
+    ).rejects.toMatchObject({
+      name: "ProjectStatusSyncConfigurationError",
+      variable: "STATUS_OPTION_IDS",
+      message: expect.stringContaining("must contain a non-empty option id for Epic"),
+    });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("rejects syntactically valid but wrong-shaped STATUS_OPTION_IDS", () => {
@@ -572,6 +927,54 @@ describe("authoritative collection completeness", () => {
     expect(result.dateUpdates).toEqual([{ type: "clear", itemId: "item-1", number: 1, from: "2026-08-12", to: null }]);
     expect(mutationRequests(requests)).toEqual([]);
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining("DRY RUN: 1 project items verified"));
+  });
+});
+
+// scripts/check-structure/skill-mirror.test.mjs proves .agents and .claude stay
+// byte-identical; this proves the sentence they must both carry actually says
+// the ownership rule, in the repository contract and in both mirrored trees.
+describe("derived board-status ownership contract", () => {
+  const backlogModelPath = path.join(repoRoot, "docs", "contributing", "backlog-model.md");
+  const skillContractFiles = [".agents", ".claude"].flatMap((root) =>
+    ["skills/planning/SKILL.md", "skills/planning/references/issue-standard.md", "skills/delivery/SKILL.md"].map(
+      (file) => `${root}/${file}`,
+    ),
+  );
+  const contractFiles = ["docs/contributing/backlog-model.md", ...skillContractFiles];
+  const probes = [
+    { name: "native Epic projects to Epic", pattern: /a native \*\*Epic\*\* projects to `Epic`/i },
+    { name: "tracking-only projects to Tracking", pattern: /`status:tracking-only` projects to `Tracking`/ },
+    { name: "Status is never hand-written", pattern: /never hand-written/ },
+  ];
+
+  it.each(contractFiles)("%s states every status/authority pair", (file) => {
+    const text = readFileSync(path.join(repoRoot, ...file.split("/")), "utf8").replace(/\s+/g, " ");
+    for (const { name, pattern } of probes) {
+      expect(pattern.test(text), `${file} does not state: ${name}`).toBe(true);
+    }
+  });
+
+  it("documents a precedence row for exactly the statuses the derivation emits", () => {
+    const lines = readFileSync(backlogModelPath, "utf8").split("\n");
+    const start = lines.findIndex((line) => line.startsWith("## Delivery-board Status is derived"));
+    expect(start, "the derived-status section is missing from the backlog model").toBeGreaterThan(-1);
+    const end = lines.findIndex((line, index) => index > start && line.startsWith("## "));
+    const section = lines.slice(start, end === -1 ? lines.length : end);
+    const documented = section
+      .filter((line) => /^\| \d+ \|/.test(line))
+      .map((line) => line.split("|")[3].trim().replaceAll("`", ""));
+
+    expect(documented).toEqual(["Landed", "Canceled", "Epic", "Tracking", "Blocked", "Refined", "Backlog"]);
+    expect([...documented].sort()).toEqual([...REQUIRED_STATUS_OPTIONS].sort());
+  });
+
+  it("keeps the board's option ids out of the repository contract and both skill trees", () => {
+    for (const file of contractFiles) {
+      const text = readFileSync(path.join(repoRoot, ...file.split("/")), "utf8");
+      for (const optionId of Object.values(LIVE_EXPANDED_OPTION_IDS)) {
+        expect(text.includes(optionId), `${file} embeds board option id ${optionId}`).toBe(false);
+      }
+    }
   });
 });
 

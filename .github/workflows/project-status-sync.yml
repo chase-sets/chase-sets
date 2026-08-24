@@ -28,11 +28,16 @@ jobs:
 
       - uses: ./.github/actions/setup-pnpm-workspace
 
-      # Recomputes active derived states (Backlog / Refined / Blocked) from
-      # dependencies, milestone, and labels. Closed issues reconcile to Landed
-      # or Canceled from GitHub's closure reason; explicitly reopened terminal
-      # issues return to derived ownership. Active In lane / In review states
-      # remain lane-owned and are never overwritten.
+      # Recomputes every active derived state from native issue facts: an Epic
+      # (by native type, or the legacy kind:epic label on an untyped issue)
+      # projects to Epic, a non-Epic carrying status:tracking-only projects to
+      # Tracking, and everything else resolves to Blocked / Refined / Backlog
+      # from dependencies, milestone, and labels. Closed issues reconcile to
+      # Landed or Canceled from GitHub's closure reason; explicitly reopened
+      # terminal issues return to derived ownership. Active In lane / In review
+      # states remain lane-owned and are never overwritten. DELIVERY_STATUS_OPTION_IDS
+      # must map every derived and terminal status, including Epic and Tracking,
+      # or the script fails before it reads or writes anything.
       - name: Sync status
         env:
           GITHUB_TOKEN: ${{ secrets.PROJECTS_TOKEN }}

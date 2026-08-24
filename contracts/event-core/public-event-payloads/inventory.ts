@@ -125,12 +125,30 @@ export const inventoryRestockDecisionOutcomes = ["restocked", "written-off"] as 
 
 export type InventoryRestockDecisionOutcome = (typeof inventoryRestockDecisionOutcomes)[number];
 
+export const inventoryAdjustmentReasons = [
+  "sold-offline",
+  "damaged",
+  "lost",
+  "found",
+  "correction",
+  "intake",
+  "return-restocked",
+] as const;
+
+export type InventoryAdjustmentReason = (typeof inventoryAdjustmentReasons)[number];
+
+export function isInventoryAdjustmentReason(value: unknown): value is InventoryAdjustmentReason {
+  return inventoryAdjustmentReasons.includes(value as InventoryAdjustmentReason);
+}
+
 export type InventoryAdjustmentSourceRef = InventoryHoldSourceRef;
 
 export type InventoryItemAdjustedPayload = Readonly<{
   itemId: string;
   quantityDelta: number;
   reason: string;
+  reasonCode?: InventoryAdjustmentReason;
+  note?: string | null;
   sourceRef?: InventoryAdjustmentSourceRef;
 }>;
 

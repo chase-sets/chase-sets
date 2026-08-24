@@ -9,9 +9,16 @@ import { defineFormAction, type FormActionContext } from "@chase-sets/platform-r
 import { FulfillmentApiError, type FulfillmentShipmentDetail } from "../../support/request-support/api-client";
 import { createFulfillmentRequestApiClient } from "../../support/request-support/api-client";
 import { FulfillmentShipmentDetailPage } from "../../features/shipments/ui/shipment-detail-page";
+import { ShipmentMutationBoundary } from "../../features/shipments/ui/shipment-mutation-boundary";
 
 function formValue(formData: FormData, key: string) {
   return String(formData.get(key) ?? "");
+}
+
+function mutationAttemptId(formData: FormData) {
+  const value = formValue(formData, "mutationAttemptId");
+  formData.delete("mutationAttemptId");
+  return value;
 }
 
 function addressBody(formData: FormData, prefix: string) {
@@ -50,7 +57,7 @@ function packageBody(formData: FormData) {
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "fulfillment.view",
   });
@@ -60,6 +67,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     return {
       shipment: await api.getSellerShipment(params.shipmentId!),
       freshnessError: null,
+      recoveryScope: { tenantId: actor.tenantId, sellerAccountId: actor.accountId },
     };
   } catch (error) {
     const recovery = recoverFreshWriteReadError({
@@ -88,42 +96,59 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
   const api = createFulfillmentRequestApiClient(request);
   const shipmentId = params.shipmentId!;
+  const attemptId = mutationAttemptId(formData);
 
   try {
     let result: unknown = null;
     if (intent === "prepare-package") {
-      result = await api.packShipment(shipmentId, {
-        packageCount: Number(formValue(formData, "packageCount") || 1),
-      });
+      result = await api.packShipment(
+        shipmentId,
+        {
+          packageCount: Number(formValue(formData, "packageCount") || 1),
+        },
+        attemptId,
+      );
     }
     if (intent === "purchase-label") {
-      result = await api.purchaseUspsLabel(shipmentId, {
-        serviceLevel: formValue(formData, "serviceLevel"),
-        ...(hasAddressInput(formData, "sender") ? addressBody(formData, "sender") : {}),
-        ...(hasAddressInput(formData, "recipient") ? addressBody(formData, "recipient") : {}),
-        overrideReason: formValue(formData, "overrideReason"),
-        ...packageBody(formData),
-      });
+      result = await api.purchaseUspsLabel(
+        shipmentId,
+        {
+          serviceLevel: formValue(formData, "serviceLevel"),
+          ...(hasAddressInput(formData, "sender") ? addressBody(formData, "sender") : {}),
+          ...(hasAddressInput(formData, "recipient") ? addressBody(formData, "recipient") : {}),
+          overrideReason: formValue(formData, "overrideReason"),
+          ...packageBody(formData),
+        },
+        attemptId,
+      );
     }
     if (intent === "void-label") {
-      result = await api.voidLabel(shipmentId);
+      result = await api.voidLabel(shipmentId, attemptId);
     }
     if (intent === "dispatch-shipment") {
-      result = await api.dispatchShipment(shipmentId);
+      result = await api.dispatchShipment(shipmentId, attemptId);
     }
     if (intent === "deliver-shipment") {
-      result = await api.deliverShipment(shipmentId);
+      result = await api.deliverShipment(shipmentId, attemptId);
     }
     if (intent === "return-shipment") {
-      result = await api.returnShipment(shipmentId, {
-        reason: formValue(formData, "reason"),
-      });
+      result = await api.returnShipment(
+        shipmentId,
+        {
+          reason: formValue(formData, "reason"),
+        },
+        attemptId,
+      );
     }
     if (intent === "raise-exception") {
-      result = await api.raiseShipmentException(shipmentId, {
-        exceptionType: formValue(formData, "exceptionType"),
-        notes: formValue(formData, "notes"),
-      });
+      result = await api.raiseShipmentException(
+        shipmentId,
+        {
+          exceptionType: formValue(formData, "exceptionType"),
+          notes: formValue(formData, "notes"),
+        },
+        attemptId,
+      );
     }
 
     return redirect(navigateAfterWrite(result, `/account/sales/shipments/${shipmentId}`));
@@ -179,11 +204,13 @@ export default function MarketplaceAccountSaleShipmentRoute() {
   }
 
   return (
-    <FulfillmentShipmentDetailPage
-      role="seller"
-      backHref="/account/sales/shipments"
-      shipment={data.shipment as FulfillmentShipmentDetail}
-      errorMessage={actionData?.error ?? null}
-    />
+    <ShipmentMutationBoundary {...data.recoveryScope} defaultShipmentId={data.shipment.shipment_id}>
+      <FulfillmentShipmentDetailPage
+        role="seller"
+        backHref="/account/sales/shipments"
+        shipment={data.shipment as FulfillmentShipmentDetail}
+        errorMessage={actionData?.error ?? null}
+      />
+    </ShipmentMutationBoundary>
   );
 }

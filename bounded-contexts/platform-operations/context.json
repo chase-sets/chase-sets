@@ -23,6 +23,15 @@
     "remedy-approval"
   ],
   "streamPrefix": "platform-operations.",
+  "accountCapabilities": [
+    {
+      "key": "mcp.rate-tier",
+      "description": "Declares the Account's MCP rate tier.",
+      "kind": "tier",
+      "allowedValues": ["standard"],
+      "defaultValue": "standard"
+    }
+  ],
   "apiBasePath": "/api/platform",
   "slices": [
     "operations-attention-queue",

@@ -119,12 +119,14 @@ describe("SettlementWalletWorkbenchPage", () => {
     expect(screen.getByText(/unavailable/i)).toBeTruthy();
   });
 
-  it("renders an empty wallet with zero balances and empty tables", () => {
+  it("renders an empty wallet and flattens balance-summary furniture", () => {
     renderWorkbench({ wallet: wallet(), actorPermissions: ["wallet-adjustments.view"] });
 
     expect(screen.getAllByText("$0.00").length).toBeGreaterThan(0);
     expect(screen.getByText(/No adjustments/)).toBeTruthy();
     expect(screen.getByText(/No ledger/)).toBeTruthy();
+    const balanceSection = screen.getByTestId("wallet-balance-summary-furniture");
+    expect(balanceSection.querySelector(".ds-glass")).toBeNull();
   });
 
   it("surfaces negative-balance and collections consequences without implying promotional credit", () => {

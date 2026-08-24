@@ -122,7 +122,7 @@ export function MarketplaceOfferMatchDetailPage({
 
       <PageSection title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}>
         <Stack gap={4}>
-          <Card>
+          <Card elevation="elevated">
             <Stack gap={4}>
               <Stack gap={2}>
                 <Inline>

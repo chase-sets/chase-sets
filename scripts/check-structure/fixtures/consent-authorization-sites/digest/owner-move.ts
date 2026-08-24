@@ -1,0 +1,3 @@
+function movedDigestProbe() {
+  authorizeConsentForActor(context);
+}

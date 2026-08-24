@@ -25,11 +25,18 @@ export type OrderingOrderCreatedPayload = Readonly<{
   }>;
 }>;
 
+// `buyerAccountId` and `statusBeforeCancellation` are required on produce — both Ordering
+// emitters populate them from aggregate state — and optional on decode, because events
+// written before they existed are immutable and must still decode. `statusBeforeCancellation`
+// mirrors `reason` as an open string: a published payload must decode values a future
+// emitter writes, so the closed vocabulary stays inside the Ordering domain event type.
 export type OrderingOrderCancelledPayload = Readonly<{
   orderId: string;
   cancelledAt: string;
   reason?: string | null;
   buyerEmail?: string | null;
+  buyerAccountId?: string | null;
+  statusBeforeCancellation?: string | null;
   reservationRequests: readonly OrderingReservationRequestPayload[];
 }>;
 

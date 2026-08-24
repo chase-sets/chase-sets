@@ -3,10 +3,12 @@ import { extname, relative, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { scanPlaywrightArtifactUploads } from "./playwright-artifact-upload-fence.mjs";
+
 const executableProducerPattern = /(?:^|[\s;&|$(])(?:node|pnpm)\s/m;
 const bestEffortProducerPattern = /\|\|\s*true\b/;
 const uploadArtifactPattern = /uses:\s*actions\/upload-artifact@/;
-const baselineVersion = 1;
+const baselineVersion = 2;
 const defaultBaselinePath = "scripts/workflow-canonical-artifacts-baseline.json";
 const missingFileBehaviorSeverity = new Map([
   ["error", 0],
@@ -219,8 +221,9 @@ export function scanWorkflowCanonicalArtifacts({ root = process.cwd() } = {}) {
     surfaces.push(...result.surfaces);
     scannedFiles += 1;
   }
+  const playwrightUploadFence = scanPlaywrightArtifactUploads({ root });
   return {
-    passed: findings.length === 0,
+    passed: findings.length === 0 && playwrightUploadFence.passed,
     findings,
     violations: findings.map((finding) => finding.message),
     surfaces,
@@ -230,6 +233,7 @@ export function scanWorkflowCanonicalArtifacts({ root = process.cwd() } = {}) {
       scannedSurfaces: surfaces.length,
       totalSurfaces: surfaces.length,
     },
+    playwrightUploadFence,
   };
 }
 
@@ -239,6 +243,11 @@ export function createWorkflowCanonicalArtifactBaseline(result) {
     discovery: {
       scannedFiles: result.discovery.scannedFiles,
       scannedSurfaces: result.discovery.scannedSurfaces,
+    },
+    playwrightUploadFence: {
+      trackedFiles: result.playwrightUploadFence.discovery.trackedFiles,
+      workflowFiles: result.playwrightUploadFence.discovery.workflowFiles,
+      compositeActionFiles: result.playwrightUploadFence.discovery.compositeActionFiles,
     },
     surfaces: result.surfaces
       .map(({ workflowFile, outPath, uploadPath }) => ({ workflowFile, outPath, uploadPath }))
@@ -284,12 +293,31 @@ export function evaluateWorkflowCanonicalArtifactRatchet(result, baseline) {
     );
   }
 
+  const playwrightUploadFenceRegressions = [];
+  for (const finding of result.playwrightUploadFence.findings) {
+    playwrightUploadFenceRegressions.push(
+      `${finding.file}:${finding.owner}:${finding.step} upload '${finding.uploadPath}' ${finding.analysis}`,
+    );
+  }
+  for (const field of ["trackedFiles", "workflowFiles", "compositeActionFiles"]) {
+    if (result.playwrightUploadFence.discovery[field] < baseline.playwrightUploadFence[field]) {
+      playwrightUploadFenceRegressions.push(
+        `Playwright upload fence ${field} fell from ${baseline.playwrightUploadFence[field]} to ${result.playwrightUploadFence.discovery[field]}`,
+      );
+    }
+  }
+
   return {
-    passed: newOrRegressed.length === 0 && missingExpectedSurfaces.length === 0 && coverageRegressions.length === 0,
+    passed:
+      newOrRegressed.length === 0 &&
+      missingExpectedSurfaces.length === 0 &&
+      coverageRegressions.length === 0 &&
+      playwrightUploadFenceRegressions.length === 0,
     existingDebt,
     newOrRegressed,
     missingExpectedSurfaces,
     coverageRegressions,
+    playwrightUploadFenceRegressions,
   };
 }
 
@@ -300,7 +328,10 @@ function readBaseline(root, baselinePath) {
     !Array.isArray(baseline.surfaces) ||
     !Array.isArray(baseline.findings) ||
     !Number.isInteger(baseline.discovery?.scannedFiles) ||
-    !Number.isInteger(baseline.discovery?.scannedSurfaces)
+    !Number.isInteger(baseline.discovery?.scannedSurfaces) ||
+    !Number.isInteger(baseline.playwrightUploadFence?.trackedFiles) ||
+    !Number.isInteger(baseline.playwrightUploadFence?.workflowFiles) ||
+    !Number.isInteger(baseline.playwrightUploadFence?.compositeActionFiles)
   ) {
     throw new Error(`${baselinePath} is not a workflow canonical artifact baseline v${baselineVersion}.`);
   }
@@ -320,9 +351,17 @@ export function reportWorkflowCanonicalArtifactGuard(result, ratchet = null) {
   console.log(
     `workflow canonical artifact guard: scanned ${scannedFiles}/${totalFiles} workflow/action files; checked ${scannedSurfaces}/${totalSurfaces} discovered producer/upload surfaces.`,
   );
+  console.log(
+    `Playwright upload fence: parsed ${result.playwrightUploadFence.discovery.parsedFiles}/${result.playwrightUploadFence.discovery.trackedFiles} tracked workflow/action files; checked ${result.playwrightUploadFence.discovery.evaluatedUploadPaths} upload paths and ${result.playwrightUploadFence.discovery.localCompositeCalls} local composite calls.`,
+  );
   if (ratchet === null) {
     if (result.violations.length > 0) {
       for (const violation of result.violations) console.error(`- ${violation}`);
+    }
+    for (const finding of result.playwrightUploadFence.findings) {
+      console.error(
+        `- Playwright upload fence: ${finding.file}:${finding.owner}:${finding.step} upload '${finding.uploadPath}' ${finding.analysis}`,
+      );
     }
     return result.passed;
   }
@@ -339,6 +378,9 @@ export function reportWorkflowCanonicalArtifactGuard(result, ratchet = null) {
   for (const regression of ratchet.coverageRegressions) {
     console.error(`- reduced scan coverage: ${regression}`);
   }
+  for (const regression of ratchet.playwrightUploadFenceRegressions) {
+    console.error(`- Playwright upload fence: ${regression}`);
+  }
   return ratchet.passed;
 }
 
@@ -348,18 +390,25 @@ if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
   const baselinePath = cliOption(argv, "--baseline", defaultBaselinePath);
   const result = scanWorkflowCanonicalArtifacts({ root });
   if (argv.includes("--write-baseline")) {
-    writeFileSync(
-      resolve(root, baselinePath),
-      `${JSON.stringify(createWorkflowCanonicalArtifactBaseline(result), null, 2)}\n`,
-    );
-    reportWorkflowCanonicalArtifactGuard(result, {
-      passed: true,
-      existingDebt: result.findings,
-      newOrRegressed: [],
-      missingExpectedSurfaces: [],
-      coverageRegressions: [],
-    });
-    console.log(`wrote ${baselinePath}`);
+    if (!result.playwrightUploadFence.passed) {
+      reportWorkflowCanonicalArtifactGuard(result);
+      console.error("refusing to baseline a raw Playwright upload path");
+      process.exitCode = 1;
+    } else {
+      writeFileSync(
+        resolve(root, baselinePath),
+        `${JSON.stringify(createWorkflowCanonicalArtifactBaseline(result), null, 2)}\n`,
+      );
+      reportWorkflowCanonicalArtifactGuard(result, {
+        passed: true,
+        existingDebt: result.findings,
+        newOrRegressed: [],
+        missingExpectedSurfaces: [],
+        coverageRegressions: [],
+        playwrightUploadFenceRegressions: [],
+      });
+      console.log(`wrote ${baselinePath}`);
+    }
   } else {
     const ratchet = evaluateWorkflowCanonicalArtifactRatchet(result, readBaseline(root, baselinePath));
     if (!reportWorkflowCanonicalArtifactGuard(result, ratchet)) process.exitCode = 1;

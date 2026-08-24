@@ -12,6 +12,18 @@ function continueWithIdentifier(identifier: string) {
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
+function elevatedCardCount() {
+  return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenSm").length;
+}
+
+function containingCard(element: HTMLElement) {
+  const card = element.closest<HTMLElement>(".rounded-tokenLg.overflow-hidden");
+  if (!card) {
+    throw new Error("Expected element to be rendered inside a Card.");
+  }
+  return card;
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -29,6 +41,11 @@ describe("sign-in page two-step journey", () => {
     expect(screen.queryByRole("tab", { name: "Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
+    expect(elevatedCardCount()).toBe(1);
+    const socialCard = containingCard(screen.getByRole("link", { name: "Continue with Google" }));
+    expect(socialCard.classList.contains("bg-surface-2")).toBe(false);
+    expect(socialCard.classList.contains("shadow-tokenSm")).toBe(false);
+    expect(socialCard.classList.contains("ds-glass")).toBe(false);
   });
 
   it("shows contextual sign-in copy when the return path needs an account gate", () => {
@@ -92,6 +109,7 @@ describe("sign-in page two-step journey", () => {
     expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Password" }).getAttribute("aria-checked")).toBe("true");
     expect(document.querySelector('input[name="password"]')?.getAttribute("autocomplete")).toBe("current-password");
+    expect(elevatedCardCount()).toBe(1);
   });
 
   it("rehydrates the failed method step and focuses the announced error", () => {
@@ -157,6 +175,7 @@ describe("sign-in page two-step journey", () => {
     expect(screen.getByRole("radio", { name: "Magic Link" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Password" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Continue with Google" })).toBeNull();
+    expect(elevatedCardCount()).toBe(1);
   });
 
   it("uses phone code after a phone identifier", () => {
@@ -170,6 +189,7 @@ describe("sign-in page two-step journey", () => {
     expect(screen.getByLabelText("Phone Code").getAttribute("autocomplete")).toBe("one-time-code");
     expect(screen.queryByRole("radio", { name: "Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
+    expect(elevatedCardCount()).toBe(1);
   });
 
   it("binds the issued phone challenge to the verification form", () => {
@@ -197,6 +217,17 @@ describe("sign-in page two-step journey", () => {
 
     expect(screen.getByRole("button", { name: "Send Magic Link" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
+    expect(elevatedCardCount()).toBe(1);
+  });
+
+  it("keeps the no-compatible-methods state free of cards", () => {
+    render(<SignInPage signInMethods={[]} />);
+
+    continueWithIdentifier("buyer@example.com");
+
+    expect(screen.getByText("No sign-in method available")).toBeTruthy();
+    expect(elevatedCardCount()).toBe(0);
+    expect(document.querySelectorAll(".rounded-tokenLg.overflow-hidden")).toHaveLength(0);
   });
 });
 

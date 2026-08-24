@@ -867,7 +867,7 @@ export function loadConfig(): PlatformApiConfig {
       paymentsConfigured: stripeProvider.paymentProcessor.kind === "stripe",
       connectConfigured: stripeProvider.moneyMovement.kind === "stripe",
       fakeFallbackAllowed: !productionLike,
-      liveSecretKeyLikely: Boolean(stripeProvider.secretKey?.startsWith("sk_live")),
+      liveSecretKeyLikely: stripeProvider.keyClassification.serverKeyMode === "live",
     },
     catalogAssetStorage,
     tcgplayerAutomation: loadTcgplayerAutomationConfig(),

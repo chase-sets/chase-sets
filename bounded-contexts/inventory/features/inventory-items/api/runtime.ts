@@ -10,7 +10,10 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { JsonObject } from "@chase-sets/primitives/json";
-import type { InventoryAdjustmentSourceRef } from "@chase-sets/event-core/public-event-payloads";
+import type {
+  InventoryAdjustmentReason,
+  InventoryAdjustmentSourceRef,
+} from "@chase-sets/event-core/public-event-payloads";
 import type { InventoryCatalogItemServices } from "../integrations/catalog/runtime";
 import {
   createInventoryProductDescriptor,
@@ -81,6 +84,8 @@ export type InventoryItemServices = Readonly<{
       itemId: string;
       quantityDelta: number;
       reason: string;
+      reasonCode?: InventoryAdjustmentReason;
+      note?: string | null;
       idempotencyKey?: string | null;
       sourceRef?: InventoryAdjustmentSourceRef;
     }>,
@@ -241,11 +246,14 @@ export function createInventoryItemRuntime(
     },
     adjustItem: async (params, context) => {
       const idempotencyKey = normalizeIdempotencyKey(params.idempotencyKey);
+      const normalizedNote = params.note === undefined ? undefined : normalizeAdjustmentNote(params.note);
       const commandFingerprint = inventoryAdjustmentCommandFingerprint({
         accountId: params.accountId,
         itemId: params.itemId,
         quantityDelta: params.quantityDelta,
         reason: params.reason,
+        reasonCode: params.reasonCode,
+        note: normalizedNote,
         sourceRef: params.sourceRef ?? null,
       });
       if (idempotencyKey) {
@@ -272,6 +280,8 @@ export function createInventoryItemRuntime(
             itemId: params.itemId,
             quantityDelta: params.quantityDelta,
             reason: params.reason,
+            reasonCode: params.reasonCode,
+            note: normalizedNote,
             sourceRef: params.sourceRef ?? null,
           });
           if (recovered) {
@@ -313,6 +323,8 @@ export function createInventoryItemRuntime(
               quantityDelta: params.quantityDelta,
               heldQuantity: stock.heldQuantity,
               reason: params.reason,
+              ...(params.reasonCode !== undefined ? { reasonCode: params.reasonCode } : {}),
+              ...(normalizedNote !== undefined ? { note: normalizedNote } : {}),
               sourceRef: params.sourceRef ?? null,
             },
             context,
@@ -475,6 +487,7 @@ export function createInventoryItemRuntime(
             quantityDelta: adjustedQuantityBy,
             heldQuantity: existingItem?.held_quantity ?? 0,
             reason: "Automatic listing stock",
+            reasonCode: "intake",
           },
           context,
         });
@@ -531,6 +544,8 @@ async function appendAuthoritativeNegativeAdjustment(
       itemId: string;
       quantityDelta: number;
       reason: string;
+      reasonCode?: InventoryAdjustmentReason;
+      note?: string | null;
       sourceRef?: InventoryAdjustmentSourceRef;
     }>;
     context: EventStoreContext;
@@ -553,6 +568,8 @@ async function appendAuthoritativeNegativeAdjustment(
       quantityDelta: input.params.quantityDelta,
       heldQuantity: stock.heldQuantity,
       reason: input.params.reason,
+      ...(input.params.reasonCode !== undefined ? { reasonCode: input.params.reasonCode } : {}),
+      ...(input.params.note !== undefined ? { note: normalizeAdjustmentNote(input.params.note) } : {}),
       sourceRef: input.params.sourceRef ?? null,
     });
 
@@ -590,15 +607,29 @@ function normalizeIdempotencyKey(value: string | null | undefined): string | nul
   return normalized.length > 0 ? normalized : null;
 }
 
+function normalizeAdjustmentNote(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? "";
+  return normalized.length > 0 ? normalized : null;
+}
+
 function inventoryAdjustmentCommandFingerprint(
   input: Readonly<{
     accountId: string;
     itemId: string;
     quantityDelta: number;
     reason: string;
+    reasonCode?: InventoryAdjustmentReason;
+    note?: string | null;
     sourceRef?: InventoryAdjustmentSourceRef;
   }>,
 ): string {
+  const extendedReason =
+    input.reasonCode !== undefined || input.note !== undefined
+      ? {
+          reasonCode: input.reasonCode ?? null,
+          note: input.note === undefined ? null : normalizeAdjustmentNote(input.note),
+        }
+      : {};
   return createHash("sha256")
     .update(
       JSON.stringify({
@@ -607,6 +638,7 @@ function inventoryAdjustmentCommandFingerprint(
         quantityDelta: input.quantityDelta,
         reason: input.reason.trim(),
         sourceRef: input.sourceRef ?? null,
+        ...extendedReason,
       }),
     )
     .digest("hex");
@@ -657,6 +689,8 @@ async function recoverInventoryAdjustmentIdempotency(
     itemId: string;
     quantityDelta: number;
     reason: string;
+    reasonCode?: InventoryAdjustmentReason;
+    note?: string | null;
     sourceRef?: InventoryAdjustmentSourceRef;
   }>,
 ): Promise<{ itemId: string; version: number } | null> {
@@ -675,12 +709,20 @@ async function recoverInventoryAdjustmentIdempotency(
       itemId?: unknown;
       quantityDelta?: unknown;
       reason?: unknown;
+      reasonCode?: unknown;
+      note?: unknown;
       sourceRef?: unknown;
     };
+    const extendedReasonMatches =
+      input.reasonCode === undefined && input.note === undefined
+        ? true
+        : (payload.reasonCode ?? null) === (input.reasonCode ?? null) &&
+          (payload.note ?? null) === (input.note === undefined ? null : normalizeAdjustmentNote(input.note));
     return (
       payload.itemId === input.itemId &&
       payload.quantityDelta === input.quantityDelta &&
       payload.reason === normalizedReason &&
+      extendedReasonMatches &&
       JSON.stringify(payload.sourceRef ?? null) === JSON.stringify(input.sourceRef ?? null) &&
       event.forAccountId === input.accountId
     );

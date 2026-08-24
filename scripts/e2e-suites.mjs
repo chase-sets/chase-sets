@@ -236,6 +236,16 @@ export const e2eNoSuiteExclusions = Object.freeze([
     reason:
       "Manual staging UAT spec exercising the real Stripe embed -> confirm -> webhook path with live Stripe test-mode keys; it is intentionally outside the CI grep suite catalog.",
   },
+  {
+    pattern: /^deployables\/marketplace\/e2e\/payout-connect-appearance\.uat\.spec\.ts$/,
+    reason:
+      "Manual staging UAT spec exercising the real Stripe Connect embedded payout surface with live Stripe test-mode keys; it is intentionally outside the CI grep suite catalog.",
+  },
+  {
+    pattern: /^deployables\/public-web\/e2e\/.*\.spec\.ts$/,
+    reason:
+      "public-presence/public-web deployed-target spec: the public-web Playwright project only exists when PUBLIC_WEB_URL names a running public-web host, and the PR browser-e2e system boots admin-web and marketplace only. It runs through test:e2e:deployed in the staging advisory evidence lane.",
+  },
 ]);
 
 const marketplaceRouteSuiteOwnership = [
@@ -555,7 +565,7 @@ export function estimatedE2eSuiteDurationSeconds(suiteId) {
 }
 
 export function isE2eSpecFile(filePath) {
-  return /^deployables\/(?:marketplace|admin-web)\/e2e\/.*\.spec\.ts$/.test(normalizeFilePath(filePath));
+  return /^deployables\/(?:marketplace|admin-web|public-web)\/e2e\/.*\.spec\.ts$/.test(normalizeFilePath(filePath));
 }
 
 export function isRouteFile(filePath) {

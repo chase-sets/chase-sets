@@ -1,6 +1,13 @@
 import { definePolicy, type PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import {
+  centsToMoneyAmount,
+  compareMoneyAmounts,
+  tryMoneyToCents,
+  trySignedMoneyToCents,
+} from "@chase-sets/primitives/money";
+import {
+  assert,
   compareMoney,
   normalizeCurrencyCode,
   normalizeMoneyAmount,
@@ -64,14 +71,18 @@ export function capPayoutAmountToPolicy(
   amount: string,
   policy: Pick<SettlementPayoutBoundsPolicyValue, "maximumAmount"> = payoutAmountPolicy,
 ) {
-  const numericAmount = Number.parseFloat(amount);
-  const maximumAmount = Number.parseFloat(policy.maximumAmount);
+  const maximumCents = tryMoneyToCents(policy.maximumAmount);
+  assert(maximumCents !== null, "Payout maximum amount must be a valid decimal.");
+  assert(maximumCents > 0n, "Payout maximum amount must be greater than zero.");
 
-  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+  const requestedCents = trySignedMoneyToCents(amount);
+  if (requestedCents === null || requestedCents <= 0n) {
     return "0.00";
   }
 
-  return Math.min(numericAmount, maximumAmount).toFixed(2);
+  const normalizedAmount = centsToMoneyAmount(requestedCents);
+  const normalizedMaximum = centsToMoneyAmount(maximumCents);
+  return compareMoneyAmounts(normalizedAmount, normalizedMaximum) > 0 ? normalizedMaximum : normalizedAmount;
 }
 
 export function resolvePayoutAmountSelection(

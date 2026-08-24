@@ -1,5 +1,7 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import {
+  AddressBlock,
+  AlertDialog,
   Form,
   Badge,
   OrderProtectionModule,
@@ -7,6 +9,7 @@ import {
   CheckoutLayout,
   Divider,
   Grid,
+  HiddenInput,
   ImageGallery,
   LinkText,
   LinkButton,
@@ -22,9 +25,21 @@ import {
   Text,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import type { PurchaseDetail, SaleDetail } from "./contracts";
 import { OrderMoneyTimeline } from "./order-money-timeline";
+
+function destinationLines(order: PurchaseDetail | SaleDetail) {
+  const address = order.shipping_destination_snapshot;
+  return [
+    address.name,
+    address.company,
+    address.line1,
+    address.line2,
+    `${address.city}, ${address.state} ${address.postalCode}`,
+    address.country,
+  ].filter((line): line is string => Boolean(line));
+}
 
 function isPendingStatus(status: string) {
   return status === "pending-payment" || status === "pending-reservation";
@@ -88,7 +103,8 @@ export function OrderingOrderDetailPage({
       ? (order.seller_display_name ?? order.seller_account_id)
       : (order.buyer_display_name ?? order.buyer_account_id);
   const canPay = order.status === "pending-payment" && paymentHref;
-  const canCancel = role === "buyer" ? canSelfServiceCancel(order) : isPendingStatus(order.status);
+  const canCancel = canSelfServiceCancel(order);
+  const sellerCancellationIntentRef = useRef<HTMLInputElement>(null);
   const projectionLabel =
     role === "buyer"
       ? t("ordering.features.orders.ui.orderDetailPage.purchase")
@@ -98,6 +114,18 @@ export function OrderingOrderDetailPage({
   const canViewFulfillment =
     Boolean(fulfillmentHref) && order.status !== "pending-payment" && order.status !== "pending-reservation";
   const paymentDeadlineAt = order.status === "pending-payment" ? order.payment_deadline_at : null;
+  const cancellationWindowStatus =
+    order.status === "ready-for-fulfillment"
+      ? order.self_service_cancellation_available
+        ? t("ordering.features.orders.ui.orderDetailPage.cancellation.window.open", {
+            projectionLabel: projectionLabel.toLowerCase(),
+          })
+        : order.cancellation_unavailable_reason === "fulfillment-started"
+          ? t("ordering.features.orders.ui.orderDetailPage.cancellation.window.fulfillment.started", {
+              projectionLabel: projectionLabel.toLowerCase(),
+            })
+          : null
+      : null;
   const moneyTimeline = order.money_timeline ?? {
     refunds: [],
     support_cases: [],
@@ -109,7 +137,7 @@ export function OrderingOrderDetailPage({
     moneyTimeline.support_cases.some((supportCase) => supportCase.active_hold) ||
     Number.parseFloat(moneyTimeline.refunded_amount) > 0;
   const supportLabel =
-    role === "buyer" && order.cancellation_unavailable_reason === "fulfillment-started"
+    order.cancellation_unavailable_reason === "fulfillment-started"
       ? t("ordering.features.orders.ui.orderDetailPage.ask.to.cancel")
       : t("ordering.features.orders.ui.orderDetailPage.open.support");
   const statusLine = {
@@ -250,7 +278,7 @@ export function OrderingOrderDetailPage({
         }
       >
         <Stack gap={4}>
-          <Surface elevated glow>
+          <Surface elevation="elevated" glow>
             <Stack gap={4}>
               <Grid columns={{ base: 1, md: 4 }} gap={3}>
                 <Stack gap={1}>
@@ -290,6 +318,7 @@ export function OrderingOrderDetailPage({
                   })}
                 />
               ) : null}
+              {cancellationWindowStatus ? <MarketplaceNotice tone="info" title={cancellationWindowStatus} /> : null}
               <Stack gap={3} direction={{ base: "column", sm: "row" }}>
                 {canPay ? (
                   <LinkButton href={paymentHref}>{t("ordering.features.orders.ui.orderDetailPage.pay.now")}</LinkButton>
@@ -306,16 +335,43 @@ export function OrderingOrderDetailPage({
                 ) : null}
                 {canCancel ? (
                   <Form spacing="none" method="post">
-                    <Button type="submit" name="intent" value={cancelIntent} tone="danger">
-                      {t("ordering.features.orders.ui.orderDetailPage.cancel.projection", {
-                        projectionLabel: projectionLabel.toLowerCase(),
-                      })}
-                    </Button>
+                    {role === "seller" ? (
+                      <>
+                        <HiddenInput ref={sellerCancellationIntentRef} name="intent" value="cancel-sale" />
+                        <AlertDialog
+                          title={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.title")}
+                          description={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.description")}
+                          confirmLabel={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.confirm")}
+                          cancelLabel={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.cancel")}
+                          tone="danger"
+                          onConfirm={() => sellerCancellationIntentRef.current?.form?.requestSubmit()}
+                          trigger={
+                            <Button type="button" tone="danger">
+                              {t("ordering.features.orders.ui.orderDetailPage.cancel.projection", {
+                                projectionLabel: projectionLabel.toLowerCase(),
+                              })}
+                            </Button>
+                          }
+                        />
+                      </>
+                    ) : (
+                      <Button type="submit" name="intent" value={cancelIntent} tone="danger">
+                        {t("ordering.features.orders.ui.orderDetailPage.cancel.projection", {
+                          projectionLabel: projectionLabel.toLowerCase(),
+                        })}
+                      </Button>
+                    )}
                   </Form>
                 ) : null}
               </Stack>
             </Stack>
           </Surface>
+
+          <AddressBlock
+            aria-label={t("ordering.features.orders.ui.orderDetailPage.shipping.destination")}
+            title={t("ordering.features.orders.ui.orderDetailPage.shipping.destination")}
+            lines={destinationLines(order)}
+          />
 
           {supplementarySection ? (
             <PageSection title={supplementarySectionTitle}>{supplementarySection}</PageSection>
@@ -330,7 +386,7 @@ export function OrderingOrderDetailPage({
           <PageSection title={t("ordering.features.orders.ui.orderDetailPage.lines")}>
             <Stack gap={3}>
               {order.lines.map((line) => (
-                <Surface key={line.line_id} elevated>
+                <Surface key={line.line_id} elevation="outlined">
                   <Stack gap={4}>
                     {role === "buyer" && line.listing_evidence_gallery?.length ? (
                       <Stack gap={2}>
@@ -397,7 +453,7 @@ export function OrderingOrderDetailPage({
             <PageSection title={t("ordering.features.orders.ui.orderDetailPage.inventory.holds")}>
               <Stack gap={3}>
                 {order.inventory_holds.map((hold) => (
-                  <Surface key={hold.hold_id} elevated>
+                  <Surface key={hold.hold_id} elevation="tinted">
                     <Grid columns={{ base: 1, md: 3 }} gap={3}>
                       <Stack gap={1}>
                         <Text weight="semibold">{t("ordering.features.orders.ui.orderDetailPage.reserved.item")}</Text>

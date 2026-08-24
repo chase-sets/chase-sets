@@ -22,6 +22,7 @@ jobs:
       issues: write
     env:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_READONLY_TOKEN }}
+      DIGITALOCEAN_DRIFT_RESTORE_POINT_HOLD_NAMES: ${{ vars.PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES || '' }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -55,6 +56,7 @@ jobs:
           const fs = require("node:fs");
           const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
           const summary = record.summary ?? {};
+          const restorePointHolds = record.policies?.restorePointHolds ?? {};
           console.log("## DigitalOcean Drift Digest");
           console.log("");
           console.log(`- Result: ${record.result}`);
@@ -63,9 +65,15 @@ jobs:
           console.log(`- Terraform-managed resources: ${summary.terraformManagedResources ?? 0}`);
           console.log(`- Unknown Chase Sets resources: ${summary.unknownChaseSetsResources ?? 0}`);
           console.log(`- Cleanup candidates: ${summary.cleanupCandidates ?? 0}`);
+          console.log(`- Held restore points: ${summary.heldRestorePoints ?? 0}`);
           console.log(`- Advisory findings: ${summary.advisoryFindings ?? 0}`);
           console.log(`- Warning findings: ${summary.warningFindings ?? 0}`);
           console.log(`- Collection errors: ${summary.collectionErrors ?? 0}`);
+          console.log(`- Restore point hold authority: ${restorePointHolds.status ?? "absent"}`);
+          console.log(`- Restore point hold tokens: ${restorePointHolds.tokenCount ?? 0}`);
+          console.log(`- Restore point holds applied: ${restorePointHolds.appliedCount ?? 0}`);
+          console.log(`- Restore point holds unmatched: ${restorePointHolds.unmatchedCount ?? 0}`);
+          console.log(`- Restore point hold fingerprint: ${restorePointHolds.effectiveTokenSetSha256 ?? "none"}`);
           if (record.findings?.length) {
             console.log("");
             console.log("### Findings");

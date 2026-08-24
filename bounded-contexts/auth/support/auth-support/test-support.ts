@@ -94,6 +94,9 @@ export function createAuthServicesFake(overrides: AuthServicesFakeOverrides = {}
         storedEvents: [{ recordedAt: new Date().toISOString() }],
       })),
       getSession: vi.fn(async () => resolvedSession),
+      // Projection-miss fallback read (`getSessionForAuth`). These fakes always
+      // hit the projection above, so the default is the fail-closed answer.
+      readAuthenticatedSession: vi.fn(async () => null),
       ...sessions,
     },
     registrationAdmission: {

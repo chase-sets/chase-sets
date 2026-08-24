@@ -1,5 +1,8 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
-import type { InventoryAdjustmentSourceRef } from "@chase-sets/event-core/public-event-payloads";
+import type {
+  InventoryAdjustmentReason,
+  InventoryAdjustmentSourceRef,
+} from "@chase-sets/event-core/public-event-payloads";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { JsonObject } from "@chase-sets/primitives/json";
@@ -71,6 +74,8 @@ export type AdjustInventoryItemQuantityCommand = Readonly<{
   quantityDelta: number;
   heldQuantity: number;
   reason: string;
+  reasonCode?: InventoryAdjustmentReason;
+  note?: string | null;
   sourceRef?: InventoryAdjustmentSourceRef;
 }>;
 
@@ -108,6 +113,8 @@ export type InventoryItemAdjustedEvent = DomainEvent<
     itemId: InventoryItemId;
     quantityDelta: number;
     reason: string;
+    reasonCode?: InventoryAdjustmentReason;
+    note?: string | null;
     sourceRef?: InventoryAdjustmentSourceRef;
     csatOutcomeFact?: JsonObject;
   }>
@@ -174,6 +181,8 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             itemId: state.id!,
             quantityDelta: command.quantityDelta,
             reason: normalizeLabel(command.reason),
+            ...(command.reasonCode !== undefined ? { reasonCode: command.reasonCode } : {}),
+            ...(command.note !== undefined ? { note: normalizeOptionalText(command.note) } : {}),
             sourceRef: command.sourceRef ?? null,
             ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },

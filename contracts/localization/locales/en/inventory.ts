@@ -7,6 +7,11 @@ export const inventoryEnglishTranslations = {
     "Honor offline is only valid for stock reductions.",
   "inventory.features.inventoryItems.api.route.honor.offline.confirmation.required":
     "Confirm that affected orders will enter seller-cannot-fulfill support, buyers will be refunded, and account reputation may be affected.",
+  "inventory.features.inventoryItems.api.route.adjustment.reason.code.invalid":
+    "Choose a supported inventory adjustment reason.",
+  "inventory.features.inventoryItems.api.route.adjustment.note.invalid": "Adjustment note must be text.",
+  "inventory.features.inventoryItems.api.route.honor.offline.reason.code.invalid":
+    "Honor offline adjustments must use the sold offline reason.",
   "inventory.features.inventoryItems.api.route.protect.orders.affected": "Protected online orders: {orders}.",
   "inventory.features.inventoryItems.api.route.protect.orders.refused":
     "{count} units are committed and were not removed.",
@@ -20,6 +25,16 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.api.route.request.failed": "Request failed.",
   "inventory.features.inventoryItems.api.route.units.committed.to.open.orders":
     "{count} units are committed to open orders.",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.code": "Adjustment reason",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.placeholder": "Choose a reason",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.sold-offline": "Sold offline",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.damaged": "Damaged",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.lost": "Lost",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.found": "Found",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.correction": "Correction",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.intake": "Intake",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.return-restocked": "Return restocked",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.note": "Note (optional)",
   "inventory.features.inventoryItems.readModel.schema.create.table.if.not.exists.inventory":
     "\nCREATE TABLE IF NOT EXISTS inventory_items (\n  item_id text PRIMARY KEY,\n  account_id text NOT NULL,\n  catalog_catalog_item_id text NOT NULL,\n  product_id text NOT NULL,\n  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,\n  graded_card jsonb NULL,\n  storage_location_id text NOT NULL REFERENCES inventory_storage_locations(storage_location_id),\n  total_quantity integer NOT NULL CHECK (total_quantity >= 0),\n  last_stream_version bigint NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0),\n  acquisition_cost_amount numeric(12,2) NULL,\n  created_at timestamptz NOT NULL DEFAULT now(),\n  updated_at timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS inventory_items_account_idx\n  ON inventory_items (account_id, updated_at DESC);\n\nCREATE INDEX IF NOT EXISTS inventory_items_storage_location_idx\n  ON inventory_items (storage_location_id);\n\nCREATE INDEX IF NOT EXISTS inventory_items_catalog_version_idx\n  ON inventory_items (product_id);\n",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.1.or.5": "-1 or 5",

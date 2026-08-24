@@ -1,7 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ProviderPayoutReadiness } from "@chase-sets/money-movement";
-import { createPayoutReadinessRuntime } from "./runtime";
+import { createPayoutReadinessRuntime, PayoutAccountManagementError } from "./runtime";
+
+/**
+ * A session-authentication moment inside the default 15-minute
+ * account-management step-up window. Derived from the clock the runtime reads
+ * so the fixture cannot silently age past the window.
+ */
+function freshAuthenticatedAt(minutesAgo = 1) {
+  return new Date(Date.now() - minutesAgo * 60_000).toISOString();
+}
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -308,12 +317,11 @@ describe("payout readiness runtime", () => {
           operationEvents.push(event);
         },
       },
-      sensitiveActionVerifier: vi.fn(async (input) => input.token === "fresh-step-up"),
     });
 
     await expect(
       services.createPayoutAccountManagementSession(
-        { accountId: "acc_seller" as never, actorUserId: "usr_seller", sensitiveActionToken: "fresh-step-up" },
+        { accountId: "acc_seller" as never, authenticatedAt: freshAuthenticatedAt() },
         context,
       ),
     ).resolves.toMatchObject({
@@ -323,7 +331,7 @@ describe("payout readiness runtime", () => {
     });
     await expect(
       services.createPayoutAccountManagementSession(
-        { accountId: "acc_seller" as never, actorUserId: "usr_seller", sensitiveActionToken: "fresh-step-up" },
+        { accountId: "acc_seller" as never, authenticatedAt: freshAuthenticatedAt() },
         context,
       ),
     ).resolves.toMatchObject({
@@ -353,50 +361,257 @@ describe("payout readiness runtime", () => {
     expect(JSON.stringify(operationEvents)).not.toContain("provider_management_secret");
   });
 
-  it("requires step-up before creating embedded account management sessions", async () => {
-    const operationEvents: Record<string, unknown>[] = [];
-    const moneyMovementGateway = {
-      providerName: "stripe",
-      ensurePayoutAccount: vi.fn(),
-      refreshPayoutReadiness: vi.fn(),
-      createPayoutSetupSession: vi.fn(),
-      createPayoutAccountManagementSession: vi.fn(),
-      retrievePlatformBalance: vi.fn(),
-      transferPlatformBalanceToConnectedAccount: vi.fn(),
-      createConnectedAccountPayout: vi.fn(),
-      retrieveConnectedAccountPayout: vi.fn(),
-      parseMoneyMovementWebhook: vi.fn(),
-    };
-    const services = createPayoutReadinessRuntime({
-      eventStore: createEventStore() as never,
-      checkpointStore: {
-        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
-        saveCheckpoint: vi.fn(async () => {}),
-      },
-      db: {
-        query: vi.fn(async () => ({ rows: [] })),
-      } as never,
-      moneyMovementGateway: moneyMovementGateway as never,
-      operationsRecorder: {
-        record: (event) => {
-          operationEvents.push(event);
+  describe("embedded account management step-up", () => {
+    function createManagementServices(options: Readonly<{ providerReference?: string | null }> = {}) {
+      const operationEvents: Record<string, unknown>[] = [];
+      const moneyMovementGateway = {
+        providerName: "stripe",
+        ensurePayoutAccount: vi.fn(),
+        refreshPayoutReadiness: vi.fn(),
+        createPayoutSetupSession: vi.fn(),
+        createPayoutAccountManagementSession: vi.fn(async () => ({
+          providerReference: options.providerReference ?? "acct_existing",
+          clientSecret: "provider_management_secret",
+          expiresAt: "2026-06-01T15:00:00.000Z",
+          components: ["payout-account-management"],
+        })),
+        retrievePlatformBalance: vi.fn(),
+        transferPlatformBalanceToConnectedAccount: vi.fn(),
+        createConnectedAccountPayout: vi.fn(),
+        retrieveConnectedAccountPayout: vi.fn(),
+        parseMoneyMovementWebhook: vi.fn(),
+      };
+      const rows =
+        options.providerReference === null
+          ? []
+          : [
+              {
+                account_id: "acc_seller",
+                status: "restricted",
+                missing_requirements: ["external_account"],
+                provider_reference: options.providerReference ?? "acct_existing",
+                onboarding_status: "pending",
+                transfer_capability_status: "inactive",
+                payout_capability_status: "inactive",
+                payout_destination_status: "missing",
+                payout_account_dashboard: "none",
+                losses_collector: "application",
+                fees_collector: "application",
+                requirements_collector: "application",
+                updated_at: "2026-06-01T16:00:00.000Z",
+              },
+            ];
+      const db = { query: vi.fn(async () => ({ rows })) };
+      const services = createPayoutReadinessRuntime({
+        eventStore: createEventStore() as never,
+        checkpointStore: {
+          loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+          saveCheckpoint: vi.fn(async () => {}),
         },
-      },
+        db: db as never,
+        moneyMovementGateway: moneyMovementGateway as never,
+        operationsRecorder: {
+          record: (event) => {
+            operationEvents.push(event);
+          },
+        },
+      });
+      return { services, moneyMovementGateway, operationEvents, db };
+    }
+
+    async function captureRefusal(call: Promise<unknown>): Promise<PayoutAccountManagementError> {
+      let captured: unknown;
+      let refused = false;
+      try {
+        await call;
+      } catch (error) {
+        refused = true;
+        captured = error;
+      }
+      expect(refused).toBe(true);
+      expect(captured).toBeInstanceOf(PayoutAccountManagementError);
+      return captured as PayoutAccountManagementError;
+    }
+
+    async function expectStepUpRefusal(harness: ReturnType<typeof createManagementServices>, call: Promise<unknown>) {
+      const error = await captureRefusal(call);
+      expect(error.code).toBe("step_up_required");
+      expect(harness.moneyMovementGateway.createPayoutAccountManagementSession).not.toHaveBeenCalled();
+      expect(harness.operationEvents).toContainEqual(
+        expect.objectContaining({
+          kind: "payout-account-management-session-failed",
+          accountId: "acc_seller",
+          setupSurface: "embedded-account-management",
+          safeCategory: "step_up_required",
+        }),
+      );
+    }
+
+    it("refuses with step_up_required and never calls the provider when the session carries no authentication moment", async () => {
+      const harness = createManagementServices();
+
+      await expectStepUpRefusal(
+        harness,
+        harness.services.createPayoutAccountManagementSession({ accountId: "acc_seller" as never }, context),
+      );
     });
 
-    await expect(
-      services.createPayoutAccountManagementSession({ accountId: "acc_seller" as never }, context),
-    ).rejects.toThrow("Confirm it is you before managing payout account details.");
+    it("refuses with step_up_required when the session authenticated outside the policy window", async () => {
+      const harness = createManagementServices();
 
-    expect(moneyMovementGateway.createPayoutAccountManagementSession).not.toHaveBeenCalled();
-    expect(operationEvents).toContainEqual(
-      expect.objectContaining({
-        kind: "payout-account-management-session-failed",
+      await expectStepUpRefusal(
+        harness,
+        harness.services.createPayoutAccountManagementSession(
+          { accountId: "acc_seller" as never, authenticatedAt: freshAuthenticatedAt(16) },
+          context,
+        ),
+      );
+    });
+
+    it("refuses with step_up_required when the authentication moment is unparsable or in the future", async () => {
+      const unparsable = createManagementServices();
+      await expectStepUpRefusal(
+        unparsable,
+        unparsable.services.createPayoutAccountManagementSession(
+          { accountId: "acc_seller" as never, authenticatedAt: "not-a-timestamp" },
+          context,
+        ),
+      );
+
+      const future = createManagementServices();
+      await expectStepUpRefusal(
+        future,
+        future.services.createPayoutAccountManagementSession(
+          { accountId: "acc_seller" as never, authenticatedAt: freshAuthenticatedAt(-5) },
+          context,
+        ),
+      );
+    });
+
+    // Predecessor-shaped negative control: the retired contract accepted a
+    // caller-supplied `sensitiveActionToken` and a wired verifier. Neither
+    // exists now, so a caller replaying the old shape -- token present, no
+    // recent authentication -- must still be refused. A green assertion here
+    // proves the dead path cannot be revived by an old client.
+    it("ignores a predecessor sensitive-action token and still refuses without recent authentication", async () => {
+      const harness = createManagementServices();
+      // The exact params shape the retired contract accepted, cast at the
+      // boundary because the current signature no longer admits it.
+      const predecessorParams = {
         accountId: "acc_seller",
-        setupSurface: "embedded-account-management",
-        safeCategory: "step_up_required",
-      }),
-    );
+        actorUserId: "usr_seller",
+        sensitiveActionToken: "fresh-step-up",
+      } as unknown as Parameters<typeof harness.services.createPayoutAccountManagementSession>[0];
+
+      await expectStepUpRefusal(
+        harness,
+        harness.services.createPayoutAccountManagementSession(predecessorParams, context),
+      );
+    });
+
+    it("creates the session when the acting session authenticated inside the policy window", async () => {
+      const { services, moneyMovementGateway, operationEvents } = createManagementServices();
+
+      await expect(
+        services.createPayoutAccountManagementSession(
+          { accountId: "acc_seller" as never, authenticatedAt: freshAuthenticatedAt() },
+          context,
+        ),
+      ).resolves.toMatchObject({
+        providerReference: "acct_existing",
+        components: ["payout-account-management"],
+      });
+      expect(moneyMovementGateway.createPayoutAccountManagementSession).toHaveBeenCalledTimes(1);
+      expect(operationEvents).toContainEqual(
+        expect.objectContaining({
+          kind: "payout-account-management-session-created",
+          setupSurface: "embedded-account-management",
+        }),
+      );
+    });
+
+    it("honors a Settlement-owned window wider than the default", async () => {
+      const services = createPayoutReadinessRuntime({
+        eventStore: createEventStore() as never,
+        checkpointStore: {
+          loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+          saveCheckpoint: vi.fn(async () => {}),
+        },
+        db: {
+          query: vi.fn(async () => ({
+            rows: [
+              {
+                account_id: "acc_seller",
+                status: "restricted",
+                missing_requirements: ["external_account"],
+                provider_reference: "acct_existing",
+                onboarding_status: "pending",
+                transfer_capability_status: "inactive",
+                payout_capability_status: "inactive",
+                payout_destination_status: "missing",
+                payout_account_dashboard: "none",
+                losses_collector: "application",
+                fees_collector: "application",
+                requirements_collector: "application",
+                updated_at: "2026-06-01T16:00:00.000Z",
+              },
+            ],
+          })),
+        } as never,
+        moneyMovementGateway: {
+          providerName: "stripe",
+          ensurePayoutAccount: vi.fn(),
+          refreshPayoutReadiness: vi.fn(),
+          createPayoutSetupSession: vi.fn(),
+          createPayoutAccountManagementSession: vi.fn(async () => ({
+            providerReference: "acct_existing",
+            clientSecret: "provider_management_secret",
+            expiresAt: null,
+            components: ["payout-account-management"],
+          })),
+          retrievePlatformBalance: vi.fn(),
+          transferPlatformBalanceToConnectedAccount: vi.fn(),
+          createConnectedAccountPayout: vi.fn(),
+          retrieveConnectedAccountPayout: vi.fn(),
+          parseMoneyMovementWebhook: vi.fn(),
+        } as never,
+        payoutDestinationFrictionPolicy: { accountManagementRecentAuthMaxAgeMinutes: 60 },
+      });
+
+      await expect(
+        services.createPayoutAccountManagementSession(
+          { accountId: "acc_seller" as never, authenticatedAt: freshAuthenticatedAt(45) },
+          context,
+        ),
+      ).resolves.toMatchObject({ components: ["payout-account-management"] });
+    });
+
+    // Provider-authority failures stay a separate outcome: a recently
+    // authenticated seller with no provider account gets
+    // `missing_provider_account`, never `step_up_required`, so no client ever
+    // offers re-authentication as the remedy for it.
+    it("keeps a missing provider account distinct from step_up_required", async () => {
+      const { services, moneyMovementGateway, operationEvents } = createManagementServices({
+        providerReference: null,
+      });
+
+      const error = await captureRefusal(
+        services.createPayoutAccountManagementSession(
+          { accountId: "acc_seller" as never, authenticatedAt: freshAuthenticatedAt() },
+          context,
+        ),
+      );
+      expect(error.code).toBe("missing_provider_account");
+
+      expect(moneyMovementGateway.createPayoutAccountManagementSession).not.toHaveBeenCalled();
+      expect(operationEvents).toContainEqual(
+        expect.objectContaining({
+          kind: "payout-account-management-session-failed",
+          safeCategory: "missing_provider_account",
+        }),
+      );
+      expect(operationEvents).not.toContainEqual(expect.objectContaining({ safeCategory: "step_up_required" }));
+    });
   });
 
   it("records setup session failures by safe category without leaking provider messages", async () => {

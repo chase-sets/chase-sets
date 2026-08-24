@@ -312,23 +312,43 @@ function buildSeedPostagePolicyReconciler(ordering: OrderingServices, context: E
 }
 
 const seedOrderInventory = [
-  { id: orderingReservedSeedIds.orders.checkoutPending, key: "chk_seed_checkout_pending", expectedStatus: null },
-  { id: orderingReservedSeedIds.orders.cancelled, key: "chk_seed_cancelled", expectedStatus: "cancelled" },
+  {
+    id: orderingReservedSeedIds.orders.checkoutPending,
+    key: "chk_seed_checkout_pending",
+    expectedStatus: null,
+    reportSourceIdentity: null,
+  },
+  {
+    id: orderingReservedSeedIds.orders.cancelled,
+    key: "chk_seed_cancelled",
+    expectedStatus: "cancelled",
+    reportSourceIdentity: null,
+  },
   {
     id: orderingReservedSeedIds.orders.acceptedOfferReady,
     key: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerSubmitted,
     expectedStatus: null,
+    reportSourceIdentity: {
+      sourceType: "offer-acceptance",
+      sourceReferenceId: acceptedOfferSeed.offerId,
+    },
   },
   {
     id: reputationReservedSeedIds.orders.reviewEligibleDelivered,
     key: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerEncore,
     expectedStatus: null,
+    reportSourceIdentity: {
+      sourceType: "offer-acceptance",
+      sourceReferenceId: reviewEligibleOfferSeed.offerId,
+    },
   },
 ] as const;
 
 /**
  * Reports the Ordering seed's base aggregate state from the authoritative
- * `ordering.*` streams: the default postage policy plus each reserved order.
+ * `ordering.*` streams: the default postage policy plus each inventory order.
+ * Offer-acceptance rows resolve the order authored for their source identity;
+ * the reserved id remains only the absent-state diagnostic fallback.
  */
 export async function inspectOrderingSeedState(
   pool: PgTransactionalPool,
@@ -339,15 +359,36 @@ export async function inspectOrderingSeedState(
 
   const orderReports: BcSeedAggregateStateReport[] = [];
   for (const order of seedOrderInventory) {
-    const state = await loadSeedOrderState(ordering.db, order.id);
+    const sourceIdentity = order.reportSourceIdentity;
+    const sourceOrderIds = sourceIdentity
+      ? await listOrderStreamsForSource(ordering.db, sourceIdentity.sourceType, sourceIdentity.sourceReferenceId)
+      : [];
+    if (
+      sourceIdentity &&
+      sourceOrderIds.some((orderId) => typeof orderId !== "string" || orderId.trim().length === 0)
+    ) {
+      throw new Error(
+        `Ordering seed inspection found an order with no id for source identity ` +
+          `'${sourceIdentity.sourceType}:${sourceIdentity.sourceReferenceId}'.`,
+      );
+    }
+    if (sourceIdentity && sourceOrderIds.length > 1) {
+      throw new Error(
+        `Ordering seed inspection expected at most one order for source identity ` +
+          `'${sourceIdentity.sourceType}:${sourceIdentity.sourceReferenceId}', ` +
+          `but found ${sourceOrderIds.length}: ${sourceOrderIds.join(", ")}.`,
+      );
+    }
+    const reportedOrderId = sourceOrderIds[0] ?? order.id;
+    const state = await loadSeedOrderState(ordering.db, reportedOrderId);
     const complete =
       state.kind === "active" && (order.expectedStatus === null || state.status === order.expectedStatus);
     orderReports.push({
       contextName: "ordering",
       aggregateName: "Order",
-      id: order.id,
+      id: reportedOrderId,
       key: order.key,
-      streamId: orderStreamId(order.id),
+      streamId: orderStreamId(reportedOrderId),
       kind: state.kind === "absent" ? "absent" : complete ? "active" : "draft",
       status: state.status,
       eventCount: state.eventCount,

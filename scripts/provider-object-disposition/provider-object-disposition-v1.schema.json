@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:chase-sets:schema:provider-object-disposition:v1",
+  "title": "Chase Sets provider-object-disposition/v1 evidence receipt",
+  "description": "Structural documentation of the schema bound by Decision #6728 (Option B) and issue #6733. The checked-in validator at validate-provider-object-disposition.mjs is the executable source of truth for every invariant this document cannot express declaratively (B1-B4, P1, R1, N1, K1, digest recomputation); this file documents recursive key closure and the fixed Option B shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "instant": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "nullableInstant": {
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/instant" }]
+    },
+    "correlationSourceGeneral": {
+      "enum": ["creation-time-record", "creation-time-record-plus-provider-cross-check", "not-applicable"]
+    },
+    "correlationSourceAccountSession": {
+      "enum": ["creation-time-record", "not-applicable"]
+    },
+    "classEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "state",
+        "declaredBudget",
+        "budgetScope",
+        "observedCount",
+        "enumerationComplete",
+        "correlationSource",
+        "precedenceOrdinal",
+        "dispositionStartedAt",
+        "dispositionCompletedAt"
+      ],
+      "properties": {
+        "class": { "type": "string", "pattern": "^[a-z][a-z-]*$" },
+        "state": { "type": "string", "pattern": "^[a-z][a-z-]*$" },
+        "declaredBudget": { "type": "integer", "minimum": 0 },
+        "budgetScope": {
+          "enum": ["per-confirmation-window", "per-window", "per-e2e-identity-persistent", "per-connect-window"]
+        },
+        "observedCount": { "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 0, "maximum": 10000 }] },
+        "enumerationComplete": { "type": "boolean" },
+        "correlationSource": { "$ref": "#/$defs/correlationSourceGeneral" },
+        "precedenceOrdinal": { "type": "integer", "minimum": 1, "maximum": 6 },
+        "dispositionStartedAt": { "$ref": "#/$defs/nullableInstant" },
+        "dispositionCompletedAt": { "$ref": "#/$defs/nullableInstant" }
+      }
+    }
+  },
+  "properties": {
+    "version": { "const": "provider-object-disposition/v1" },
+    "variant": {
+      "enum": ["success", "pre-network-refusal", "post-network-failure", "cleanup-failure"]
+    },
+    "emittedBy": { "const": "executor" },
+    "startedAt": { "$ref": "#/$defs/instant" },
+    "finishedAt": { "$ref": "#/$defs/instant" },
+    "deploymentEnvironment": { "enum": ["dev", "test", "staging"] },
+    "providerMode": { "const": "test" },
+    "windowId": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "resultDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "refusal": {
+      "enum": ["invalid-input", "production-environment", "authority-unavailable", "journal-unavailable"]
+    },
+    "failure": {
+      "enum": [
+        "transport-failure",
+        "provider-rejected",
+        "provider-response-invalid",
+        "correlation-discrepancy",
+        "enumeration-incomplete",
+        "budget-exceeded",
+        "cleanup-incomplete"
+      ]
+    },
+    "lastCompletedPrecedenceOrdinal": {
+      "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 1, "maximum": 6 }]
+    },
+    "classes": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/classEntry" },
+            {
+              "properties": {
+                "class": { "const": "captured-payment-intent" },
+                "declaredBudget": { "const": 1 },
+                "budgetScope": { "const": "per-confirmation-window" },
+                "precedenceOrdinal": { "const": 5 },
+                "state": { "enum": ["unknown", "not-attempted", "budgeted-residue", "remedy-requested"] }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/classEntry" },
+            {
+              "properties": {
+                "class": { "const": "uncaptured-payment-intent" },
+                "declaredBudget": { "const": 0 },
+                "budgetScope": { "const": "per-window" },
+                "precedenceOrdinal": { "const": 1 },
+                "state": { "enum": ["unknown", "not-attempted", "cancelled", "already-terminal", "disposition-failed"] }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/classEntry" },
+            {
+              "properties": {
+                "class": { "const": "setup-intent" },
+                "declaredBudget": { "const": 0 },
+                "budgetScope": { "const": "per-window" },
+                "precedenceOrdinal": { "const": 2 },
+                "state": { "enum": ["unknown", "not-attempted", "cancelled", "already-terminal", "disposition-failed"] }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/classEntry" },
+            {
+              "properties": {
+                "class": { "const": "stripe-checkout-session" },
+                "declaredBudget": { "const": 0 },
+                "budgetScope": { "const": "per-window" },
+                "precedenceOrdinal": { "const": 3 },
+                "state": { "enum": ["unknown", "not-attempted", "not-created"] }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/classEntry" },
+            {
+              "properties": {
+                "class": { "const": "stripe-customer" },
+                "declaredBudget": { "const": 1 },
+                "budgetScope": { "const": "per-e2e-identity-persistent" },
+                "precedenceOrdinal": { "const": 6 },
+                "state": { "enum": ["unknown", "not-attempted", "retained-reused"] }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/classEntry" },
+            {
+              "properties": {
+                "class": { "const": "stripe-account-session" },
+                "declaredBudget": { "const": 2 },
+                "budgetScope": { "const": "per-connect-window" },
+                "precedenceOrdinal": { "const": 4 },
+                "state": { "enum": ["unknown", "not-attempted", "budgeted-residue"] },
+                "correlationSource": { "$ref": "#/$defs/correlationSourceAccountSession" }
+              }
+            }
+          ]
+        }
+      ],
+      "items": false
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "variant": { "const": "success" },
+        "refusal": false,
+        "failure": false,
+        "lastCompletedPrecedenceOrdinal": false
+      },
+      "required": [
+        "version",
+        "variant",
+        "emittedBy",
+        "startedAt",
+        "finishedAt",
+        "deploymentEnvironment",
+        "providerMode",
+        "windowId",
+        "classes",
+        "resultDigest"
+      ]
+    },
+    {
+      "properties": {
+        "variant": { "const": "pre-network-refusal" },
+        "failure": false,
+        "lastCompletedPrecedenceOrdinal": false
+      },
+      "required": [
+        "version",
+        "variant",
+        "emittedBy",
+        "startedAt",
+        "finishedAt",
+        "deploymentEnvironment",
+        "providerMode",
+        "windowId",
+        "classes",
+        "resultDigest",
+        "refusal"
+      ]
+    },
+    {
+      "properties": {
+        "variant": { "const": "post-network-failure" },
+        "refusal": false
+      },
+      "required": [
+        "version",
+        "variant",
+        "emittedBy",
+        "startedAt",
+        "finishedAt",
+        "deploymentEnvironment",
+        "providerMode",
+        "windowId",
+        "classes",
+        "resultDigest",
+        "failure",
+        "lastCompletedPrecedenceOrdinal"
+      ]
+    },
+    {
+      "properties": {
+        "variant": { "const": "cleanup-failure" },
+        "refusal": false,
+        "lastCompletedPrecedenceOrdinal": false
+      },
+      "required": [
+        "version",
+        "variant",
+        "emittedBy",
+        "startedAt",
+        "finishedAt",
+        "deploymentEnvironment",
+        "providerMode",
+        "windowId",
+        "classes",
+        "resultDigest",
+        "failure"
+      ]
+    }
+  ]
+}

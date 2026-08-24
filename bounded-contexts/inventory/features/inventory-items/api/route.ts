@@ -5,6 +5,10 @@ import type { InventoryHoldServices } from "../../holds/api/runtime";
 import type { InventoryItemServices } from "./runtime";
 import type { InventoryHoldCollisionServices } from "../../hold-collisions/api/runtime";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import {
+  isInventoryAdjustmentReason,
+  type InventoryAdjustmentReason,
+} from "@chase-sets/event-core/public-event-payloads";
 import { parseGradedCardShape } from "./graded-card-shape";
 
 function parseSelectedOptions(value: unknown) {
@@ -159,6 +163,35 @@ export function inventoryItemRoutes(
     const body = await c.req.json();
     const quantityDelta = Number(body.quantityDelta ?? 0);
     const collisionMode = body.collisionMode ?? "protect-orders";
+    const suppliedReasonCode = body.reasonCode;
+    if (
+      suppliedReasonCode !== undefined &&
+      suppliedReasonCode !== null &&
+      !isInventoryAdjustmentReason(suppliedReasonCode)
+    ) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("inventory.features.inventoryItems.api.route.adjustment.reason.code.invalid"),
+          },
+        },
+        400,
+      );
+    }
+    if (body.note !== undefined && body.note !== null && typeof body.note !== "string") {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("inventory.features.inventoryItems.api.route.adjustment.note.invalid"),
+          },
+        },
+        400,
+      );
+    }
+    let reasonCode = (suppliedReasonCode ?? undefined) as InventoryAdjustmentReason | undefined;
+    const note = body.note === undefined ? undefined : String(body.note ?? "").trim() || null;
     if (collisionMode !== "protect-orders" && collisionMode !== "honor-offline") {
       return c.json(
         {
@@ -182,6 +215,18 @@ export function inventoryItemRoutes(
       );
     }
     if (collisionMode === "honor-offline") {
+      if (reasonCode !== undefined && reasonCode !== "sold-offline") {
+        return c.json(
+          {
+            error: {
+              code: "validation_failed",
+              message: t("inventory.features.inventoryItems.api.route.honor.offline.reason.code.invalid"),
+            },
+          },
+          400,
+        );
+      }
+      reasonCode = "sold-offline";
       if (!actor.roleKey || !["manager", "owner", "platform-admin"].includes(actor.roleKey)) {
         return c.json(
           {
@@ -217,6 +262,8 @@ export function inventoryItemRoutes(
                 itemId: c.req.param("id"),
                 requestedQuantity: -quantityDelta,
                 reason: String(body.reason ?? ""),
+                ...(reasonCode !== undefined ? { reasonCode } : {}),
+                ...(note !== undefined ? { note } : {}),
                 mode: collisionMode,
                 actorRole: actor.roleKey ?? null,
               },
@@ -228,6 +275,8 @@ export function inventoryItemRoutes(
                 itemId: c.req.param("id"),
                 quantityDelta,
                 reason: String(body.reason ?? ""),
+                ...(reasonCode !== undefined ? { reasonCode } : {}),
+                ...(note !== undefined ? { note } : {}),
               },
               c.get("context"),
             );

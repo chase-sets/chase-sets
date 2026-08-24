@@ -3,6 +3,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import type {
   Stripe,
   StripeCheckoutElementsSdk,
+  StripeCheckoutLoadActionsResult,
   StripeCheckoutLoadActionsSuccess,
   StripeElements,
   StripePaymentElement,
@@ -47,6 +48,25 @@ const POLL_INTERVAL_MS = 2_000;
 const POLL_MAX_INTERVAL_MS = 30_000;
 const POLL_MAX_DURATION_MS = 5 * 60_000;
 
+// Stripe attaches no deadline of its own to `loadStripe()` or
+// `loadActions()`, so a provider-side stall leaves this surface busy forever.
+// The account-payment UAT holds the embed to a fixed 60-second readiness
+// ceiling (`deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts`);
+// terminate initialization at half of it — far longer than any healthy
+// Stripe.js load, and early enough that the safe error is on screen well
+// inside the ceiling instead of an indefinite skeleton.
+export const STRIPE_INITIALIZATION_DEADLINE_MS = 30_000;
+
+// Once a buyer's first captured payment attaches an email-bearing processor
+// customer to their account, every later Checkout Session already owns that
+// email and Stripe refuses a defaultValues email at load time with this exact
+// sentence. The load-actions error carries no code (`code` is always null in
+// @stripe/stripe-js), so the byte-exact observed sentence is the only contract
+// available to match; any reworded, partial, or near-match message fails
+// closed and surfaces unchanged instead of retrying.
+const SESSION_OWNED_EMAIL_REFUSAL =
+  "You cannot update the email because a `customer_email` or `customer` with an email is already set on the Checkout Session.";
+
 type ConfirmPhase = "idle" | "confirming" | "processing";
 
 export function StripeConfirmationCard({
@@ -62,7 +82,9 @@ export function StripeConfirmationCard({
   const checkoutRef = useRef<StripeCheckoutElementsSdk | null>(null);
   const checkoutActionsRef = useRef<StripeCheckoutLoadActionsSuccess | null>(null);
   const elementsRef = useRef<StripeElements | null>(null);
-  const elementRef = useRef<StripePaymentElement | null>(null);
+  // True when the mount fell back to the session-owned email because Stripe
+  // refused the defaultValues email; the confirm must then not resend it.
+  const sessionOwnsEmailRef = useRef(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [appearanceVersion, setAppearanceVersion] = useState(0);
   const [isReady, setIsReady] = useState(false);
@@ -103,12 +125,53 @@ export function StripeConfirmationCard({
     }
 
     let cancelled = false;
+    let timedOut = false;
+    // This run is abandoned once cleanup tears it down or the bounded deadline
+    // below expires. Every continuation re-checks it after each await, so a
+    // provider promise that settles late can never mount, publish refs, flip
+    // ready, or replace the terminal message the deadline already rendered.
+    const isAbandoned = () => cancelled || timedOut;
+    // Effect-owned record of whichever element this run currently has mounted,
+    // assigned immediately at mount so every exit path — load-result errors,
+    // load rejections, the bounded deadline, cancellation, and effect cleanup
+    // — destroys it through this one idempotent routine. Ownership clears
+    // before destroy so a stale async continuation can never destroy a newer
+    // run's mount, and no element is ever destroyed twice.
+    let mountedElement: StripePaymentElement | null = null;
+    const destroyMountedElement = () => {
+      const element = mountedElement;
+      mountedElement = null;
+      element?.destroy();
+    };
     setErrorMessage(null);
     setIsReady(false);
 
+    // One deadline over the whole chain rather than one per call: `loadStripe`
+    // below, the first `loadActions`, and the post-fallback `loadActions` can
+    // each stay pending forever, and every other exit path needs one of them
+    // to settle. Bounding the chain is what makes initialization total — it
+    // ends at ready or at this safe error no matter which leg hangs — and it
+    // keeps the worst case at one deadline instead of one per leg.
+    let deadlineTimeoutId: number | null = window.setTimeout(() => {
+      deadlineTimeoutId = null;
+      timedOut = true;
+      destroyMountedElement();
+      // Only the shipped recovery copy: whatever the provider eventually says
+      // about the stall never reaches the buyer.
+      setErrorMessage(t("payments.routes.marketplace.accountPayment.stripe.could.not.load"));
+    }, STRIPE_INITIALIZATION_DEADLINE_MS);
+    const clearInitializationDeadline = () => {
+      if (deadlineTimeoutId === null) {
+        return;
+      }
+
+      window.clearTimeout(deadlineTimeoutId);
+      deadlineTimeoutId = null;
+    };
+
     void loadStripe(payment.processor_publishable_key!)
       .then(async (stripe) => {
-        if (cancelled) {
+        if (isAbandoned()) {
           return;
         }
 
@@ -121,7 +184,7 @@ export function StripeConfirmationCard({
         const checkoutElementsAppearance = createStripeElementsAppearance({ includeRules: false, scope: container });
         // Custom Checkout (Checkout Session client secrets, prefixed `cs_`) carries buyer
         // defaultValues on the SDK itself; the Payment Element path carries them per-element.
-        const checkout = clientSecret.startsWith("cs_")
+        let checkout = clientSecret.startsWith("cs_")
           ? stripe.initCheckoutElementsSdk({
               clientSecret,
               elementsOptions: {
@@ -130,7 +193,7 @@ export function StripeConfirmationCard({
               defaultValues: buyerEmail ? { email: buyerEmail } : undefined,
             })
           : null;
-        if (cancelled) {
+        if (isAbandoned()) {
           return;
         }
 
@@ -144,22 +207,69 @@ export function StripeConfirmationCard({
           applePay: "auto",
           googlePay: "auto",
         };
-        const paymentElement = checkout
+        let paymentElement = checkout
           ? checkout.createPaymentElement({ wallets })
           : elements!.create("payment", {
               wallets,
               defaultValues: JSON.parse(defaultValuesKey) as PaymentElementDefaultValues,
             });
         paymentElement.mount(container);
+        mountedElement = paymentElement;
 
-        const checkoutActionsResult = checkout ? await checkout.loadActions() : null;
-        if (cancelled) {
-          paymentElement.destroy();
+        // The live provider delivers the session-owned-email refusal by
+        // REJECTING this promise (an IntegrationError alongside an unhandled
+        // `loaderror` event), not by resolving the typed { type: "error" }
+        // result. Normalize exactly that rejection — byte-exact sentence, and
+        // only when this mount actually sent a defaultValues email — into the
+        // result shape the single retry below pins against. Every other
+        // rejection propagates unchanged into the fail-closed catch.
+        let checkoutActionsResult: StripeCheckoutLoadActionsResult | null = null;
+        if (checkout) {
+          try {
+            checkoutActionsResult = await checkout.loadActions();
+          } catch (error) {
+            if (!(buyerEmail && error instanceof Error && error.message === SESSION_OWNED_EMAIL_REFUSAL)) {
+              throw error;
+            }
+            checkoutActionsResult = { type: "error", error: { message: error.message, code: null } };
+          }
+        }
+        if (isAbandoned()) {
+          destroyMountedElement();
           return;
         }
 
+        // The session already owns the buyer email (repeat buyer): retry the
+        // same mount exactly once without the defaultValues email and let the
+        // session-owned email stay authoritative. Every other load error —
+        // including this refusal persisting on the retry — still surfaces
+        // unchanged through the fail-closed branch below.
+        if (
+          checkout &&
+          buyerEmail &&
+          checkoutActionsResult?.type === "error" &&
+          checkoutActionsResult.error.message === SESSION_OWNED_EMAIL_REFUSAL
+        ) {
+          destroyMountedElement();
+          checkout = stripe.initCheckoutElementsSdk({
+            clientSecret,
+            elementsOptions: {
+              appearance: checkoutElementsAppearance,
+            },
+          });
+          paymentElement = checkout.createPaymentElement({ wallets });
+          paymentElement.mount(container);
+          mountedElement = paymentElement;
+          checkoutActionsResult = await checkout.loadActions();
+          if (isAbandoned()) {
+            destroyMountedElement();
+            return;
+          }
+          sessionOwnsEmailRef.current = true;
+        }
+
         if (checkoutActionsResult?.type === "error") {
-          paymentElement.destroy();
+          destroyMountedElement();
           throw new Error(
             checkoutActionsResult.error.message ||
               t("payments.routes.marketplace.accountPayment.stripe.could.not.load"),
@@ -168,7 +278,7 @@ export function StripeConfirmationCard({
 
         const checkoutActions = checkoutActionsResult?.type === "success" ? checkoutActionsResult.actions : null;
         if (checkout && !checkoutActions) {
-          paymentElement.destroy();
+          destroyMountedElement();
           throw new Error(t("payments.routes.marketplace.accountPayment.stripe.could.not.load"));
         }
 
@@ -176,27 +286,33 @@ export function StripeConfirmationCard({
         checkoutRef.current = checkout;
         checkoutActionsRef.current = checkoutActions;
         elementsRef.current = elements;
-        elementRef.current = paymentElement;
         setIsReady(true);
       })
       .catch((error) => {
-        if (!cancelled) {
+        // A loadActions rejection lands here with the element still mounted;
+        // destroy whatever this run still owns before surfacing the error.
+        destroyMountedElement();
+        if (!isAbandoned()) {
           setErrorMessage(
             error instanceof Error
               ? error.message
               : t("payments.routes.marketplace.accountPayment.stripe.could.not.load"),
           );
         }
-      });
+      })
+      // However the chain terminates, the deadline has already done its job;
+      // leaving it armed would tear down a surface that just became ready.
+      .finally(clearInitializationDeadline);
 
     return () => {
       cancelled = true;
-      elementRef.current?.destroy();
-      elementRef.current = null;
+      clearInitializationDeadline();
+      destroyMountedElement();
       checkoutRef.current = null;
       checkoutActionsRef.current = null;
       elementsRef.current = null;
       stripeRef.current = null;
+      sessionOwnsEmailRef.current = false;
       setIsReady(false);
     };
   }, [
@@ -302,7 +418,9 @@ export function StripeConfirmationCard({
       if (checkoutRef.current) {
         const confirmResult = await checkoutActionsRef.current!.confirm({
           redirect: "if_required",
-          email: buyerEmail ?? undefined,
+          // After the session-owned-email fallback the session is the email
+          // authority; resending the buyer email would hit the same refusal.
+          email: sessionOwnsEmailRef.current ? undefined : (buyerEmail ?? undefined),
         });
         if (confirmResult.type === "error") {
           setErrorMessage(confirmResult.error.message);
@@ -339,6 +457,11 @@ export function StripeConfirmationCard({
       setConfirmPhase("idle");
     }
   }
+
+  // Initialization is over the moment the surface is ready or a terminal error
+  // renders. Tying the skeleton and `aria-busy` to "not ready" alone left a
+  // stalled provider advertising work still in progress with no way out.
+  const isInitializingProvider = !isReady && !errorMessage;
 
   const confirmButtonLabel =
     confirmPhase === "processing"
@@ -383,10 +506,10 @@ export function StripeConfirmationCard({
           <Text>{t("payments.routes.marketplace.accountPayment.payment.is.ready.enter.your.payment")}</Text>
           <EmbeddedProviderSurface
             minHeight="md"
-            aria-busy={!isReady || undefined}
+            aria-busy={isInitializingProvider || undefined}
             data-testid="payment-element-container"
           >
-            {!isReady ? <Skeleton height="lg" data-testid="payment-element-skeleton" /> : null}
+            {isInitializingProvider ? <Skeleton height="lg" data-testid="payment-element-skeleton" /> : null}
             <MountPoint ref={containerRef} purpose="provider" />
           </EmbeddedProviderSurface>
           {missingBuyerEmail || errorMessage ? (

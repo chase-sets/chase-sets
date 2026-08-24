@@ -1,9 +1,9 @@
+import {
+  paymentChargebackRecoveryProductTruthRefs,
+  paymentChargeTimingAndCaptureProductTruthRefs,
+  payoutReleaseHoldProductTruthRefs,
+} from "./canonical-claims";
 import type { PublicPolicyArtifact } from "./policy-artifact";
-
-const chargeTimingProductTruthRefs = [
-  "bounded-contexts/payments/features/payments/api/runtime.ts:1890-1943",
-  "infrastructure/stripe-payments/index.ts:1464-1512",
-];
 
 export const requiredPaymentsTermsSubjectIds = [
   "processor-pass-through-and-collection-agent-role",
@@ -87,7 +87,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         productTruthRefs: [
           "infrastructure/stripe-connect/index.ts:879-917 (embedded Account Session onboarding surface)",
           "infrastructure/stripe-connect/index.ts:991-1010 (hosted Account Link onboarding surface)",
-          "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:63-110",
+          "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:62-109",
         ],
         openQuestions: [agreementSpecificGateOpenQuestion],
         assumptions: [
@@ -117,7 +117,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "Describe when a charge occurs and that the buyer's statement carries a Chase Sets/Stripe-identifying " +
           "descriptor, without inventing exact descriptor text or processing-time numbers.",
         decisionRefs: [5685],
-        productTruthRefs: chargeTimingProductTruthRefs,
+        productTruthRefs: paymentChargeTimingAndCaptureProductTruthRefs,
         openQuestions: [],
         assumptions: [
           {
@@ -128,13 +128,13 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
               "for a saved instrument, or creating the Checkout Session the buyer completes as part of the same " +
               "purchase for a new one), carrying the statement descriptor suffix, before the purchase is " +
               "recorded as created.",
-            evidenceRef: chargeTimingProductTruthRefs.join("; "),
+            evidenceRef: paymentChargeTimingAndCaptureProductTruthRefs.join("; "),
           },
         ],
         canonicalClaims: [
           {
             claimId: "payment-charge-timing-and-capture",
-            productTruthRefs: chargeTimingProductTruthRefs,
+            productTruthRefs: paymentChargeTimingAndCaptureProductTruthRefs,
           },
         ],
       },
@@ -208,7 +208,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         canonicalClaims: [
           {
             claimId: "payout-release-hold-mechanism",
-            productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:117-125"],
+            productTruthRefs: payoutReleaseHoldProductTruthRefs,
           },
         ],
       },
@@ -248,7 +248,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         canonicalClaims: [
           {
             claimId: "payment-chargeback-recovery-mechanism",
-            productTruthRefs: ["bounded-contexts/settlement/GLOSSARY.md:127-135"],
+            productTruthRefs: paymentChargebackRecoveryProductTruthRefs,
           },
         ],
       },

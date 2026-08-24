@@ -47,6 +47,17 @@ describe("fulfillment shipment schema", () => {
           ),
         ],
       }),
+      expect.objectContaining({
+        migrationId: "20260823_fulfillment_shipment_mutation_authority_v1",
+        statements: expect.arrayContaining([
+          expect.stringContaining("fulfillment_shipment_tenant_resolutions"),
+          expect.stringContaining("status IN ('reserved', 'invoking', 'ambiguous'"),
+          expect.stringContaining(
+            "DROP INDEX CONCURRENTLY IF EXISTS fulfillment_postage_label_operations_active_kind_idx",
+          ),
+          expect.stringContaining("fulfillment_postage_label_operations_active_target_v1_idx"),
+        ]),
+      }),
     ]);
   });
 

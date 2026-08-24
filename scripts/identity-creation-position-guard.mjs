@@ -483,6 +483,17 @@ export function runIdentityCreationPositionGuard(options = {}) {
   });
 }
 
+export function executeIdentityCreationPositionGuard(options = {}) {
+  const { json = false, ...guardOptions } = options;
+  const report = runIdentityCreationPositionGuard(guardOptions);
+  return {
+    exitCode: report.violations.length > 0 ? 1 : 0,
+    stdout: `${JSON.stringify(report, null, json ? 0 : 2)}\n`,
+    stderr: "",
+    report,
+  };
+}
+
 function readCliOptions(argv) {
   const options = { json: false };
   for (let index = 0; index < argv.length; index += 1) {
@@ -513,9 +524,9 @@ function main() {
   let options;
   try {
     options = readCliOptions(process.argv.slice(2));
-    const report = runIdentityCreationPositionGuard(options);
-    writeReport(report, options.json);
-    if (report.violations.length > 0) process.exitCode = 1;
+    const result = executeIdentityCreationPositionGuard(options);
+    process.stdout.write(result.stdout);
+    process.exitCode = result.exitCode;
   } catch {
     writeReport(
       createReport({

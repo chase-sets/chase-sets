@@ -28,6 +28,7 @@ function createServices(options: {
     sessions: {
       getSession: vi.fn(async () => options.session ?? null),
       getSessionState: vi.fn(async () => null),
+      readAuthenticatedSession: vi.fn(async () => null),
     },
   } as unknown as AuthServices;
 }
@@ -200,8 +201,8 @@ describe("Auth request actor resolution", () => {
           {
             token_id: "tok_guest",
             account_id: "acc_guest",
-            contact_email: "guest@example.test",
-            contact_name: "Guest Buyer",
+            contact_email: null,
+            contact_name: null,
             token_hash: "hashed:guest_token",
             expires_at: expiresAt,
             revoked_at: null,

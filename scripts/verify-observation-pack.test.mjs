@@ -35,7 +35,7 @@ afterEach(async () => {
 beforeAll(() => {
   const source = `
       import { register } from "node:module";
-      register("./scripts/typescript-extension-loader.mjs", import.meta.url);
+      register("./infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);
       const { SourceObservationIntegrationJobLifecycleCommandError } =
         await import("./bounded-contexts/catalog/features/source-observations/api/runtime.ts");
       const error = new SourceObservationIntegrationJobLifecycleCommandError("unsupported_state", "message");

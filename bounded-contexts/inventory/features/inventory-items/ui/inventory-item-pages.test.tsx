@@ -34,6 +34,12 @@ const inventoryItem: InventoryItemListItem = {
   updated_at: "2026-05-13T00:00:00.000Z",
 };
 
+const elevationRoleAttribute = ["data", "elevation", "role"].join("-");
+
+function markedRoleCount(markup: string, role: "entity" | "furniture") {
+  return markup.match(new RegExp(`${elevationRoleAttribute}="${role}"`, "g"))?.length ?? 0;
+}
+
 describe("inventory item pages", () => {
   it("renders inventory list language codes as localized labels", () => {
     const html = renderToString(<InventoryItemListPage data={{ items: [inventoryItem] }} locations={[]} />);
@@ -56,6 +62,19 @@ describe("inventory item pages", () => {
 
     expect(html).toContain("Japanese");
     expect(html).not.toContain(">ja<");
+  });
+
+  it("requires an operator adjustment reason and keeps free text plus an optional note", () => {
+    const detail: InventoryItemDetail = { ...inventoryItem, holds: [], ledger: [] };
+    const html = renderToString(<InventoryItemDetailPage item={detail} />);
+
+    expect(html).toMatch(/<select[^>]*name="reasonCode"[^>]*required/);
+    expect(html).toContain('<option value="damaged">Damaged</option>');
+    expect(html).toContain('<option value="lost">Lost</option>');
+    expect(html).toContain('<option value="found">Found</option>');
+    expect(html).toContain('<option value="correction">Correction</option>');
+    expect(html).toMatch(/<input(?=[^>]*name="reason")(?=[^>]*required)/);
+    expect(html).toMatch(/<textarea[^>]*name="note"/);
   });
 
   it("offers a list-from-inventory action when stock is available", () => {
@@ -123,5 +142,102 @@ describe("inventory item pages", () => {
     expect(html).toContain("View order ord_1");
     expect(html).toContain("Manual");
     expect(html.match(/name="intent" value="release-hold"/g) ?? []).toHaveLength(1);
+  });
+
+  it("renders one marked inventory entity with populated furniture sections", () => {
+    const detail: InventoryItemDetail = {
+      ...inventoryItem,
+      holds: [
+        {
+          hold_id: "hld_order",
+          account_id: "acc_1",
+          item_id: "inv_1",
+          quantity: 1,
+          reason: "Ordering commitment",
+          notes: null,
+          purpose: "order",
+          source_ref: { orderId: "ord_1", reservationRequestId: "rsv_1" },
+          expires_at: null,
+          status: "active",
+          created_at: "2026-05-13T00:00:00.000Z",
+          updated_at: "2026-05-13T00:00:00.000Z",
+          released_at: null,
+          release_reason: null,
+        },
+        {
+          hold_id: "hld_manual",
+          account_id: "acc_1",
+          item_id: "inv_1",
+          quantity: 1,
+          reason: "Shelf audit",
+          notes: null,
+          purpose: "manual",
+          source_ref: null,
+          expires_at: null,
+          status: "active",
+          created_at: "2026-05-13T00:00:00.000Z",
+          updated_at: "2026-05-13T00:00:00.000Z",
+          released_at: null,
+          release_reason: null,
+        },
+      ],
+      ledger: [
+        {
+          ledger_entry_id: "led_created",
+          item_id: "inv_1",
+          account_id: "acc_1",
+          occurred_at: "2026-05-13T00:00:00.000Z",
+          kind: "created",
+          quantity_delta: 3,
+          hold_quantity: null,
+          purpose: null,
+          reason: "Inventory item created",
+          reason_code: null,
+          note: null,
+          source_ref: null,
+          actor: "seller",
+          event_type: "inventory.item.created",
+          stream_id: "inventory-item-inv_1",
+          stream_version: 1,
+          recorded_at: "2026-05-13T00:00:00.000Z",
+        },
+        {
+          ledger_entry_id: "led_hold",
+          item_id: "inv_1",
+          account_id: "acc_1",
+          occurred_at: "2026-05-13T01:00:00.000Z",
+          kind: "hold-placed",
+          quantity_delta: null,
+          hold_quantity: 1,
+          purpose: "order",
+          reason: "Ordering commitment",
+          reason_code: null,
+          note: null,
+          source_ref: { orderId: "ord_1", reservationRequestId: "rsv_1" },
+          actor: "system",
+          event_type: "inventory.hold.placed",
+          stream_id: "inventory-item-inv_1",
+          stream_version: 2,
+          recorded_at: "2026-05-13T01:00:00.000Z",
+        },
+      ],
+    };
+
+    const html = renderToString(<InventoryItemDetailPage item={detail} />);
+
+    expect(markedRoleCount(html, "entity")).toBe(1);
+    expect(markedRoleCount(html, "furniture")).toBe(4);
+    expect(html).toContain("Inventory Item Summary");
+    expect(html).toContain("Ordering commitment");
+    expect(html).toContain("Shelf audit");
+    expect(html).toContain("Inventory item created");
+    expect(html).not.toContain("No holds have been created");
+    expect(html).not.toContain("No stock movements");
+    expect({
+      headings: (html.match(/<h[1-6]\b/g) ?? []).length,
+      forms: (html.match(/<form\b/g) ?? []).length,
+      buttons: (html.match(/<button\b/g) ?? []).length,
+      definitionLists: (html.match(/<dl\b/g) ?? []).length,
+    }).toEqual({ headings: 6, forms: 3, buttons: 8, definitionLists: 0 });
   });
 });

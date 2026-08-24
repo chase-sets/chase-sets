@@ -73,6 +73,10 @@ Examples:
 - Pending Payment
 - Cancelled
 
+Notes:
+
+- `ordering.order.cancelled` publishes the Order Status held immediately before the cancelled transition.
+
 ## Self-Service Purchase Cancellation
 
 **Self-Service Purchase Cancellation** is the buyer-initiated cancellation of a paid purchase while the Fulfillment-owned shipment is still awaiting package preparation.
@@ -83,6 +87,19 @@ Notes:
 - Fulfillment owns the operational cutoff.
 - Payments owns any refund created from the cancellation.
 - After package preparation starts, buyers use the Support-owned buyer cancellation request flow.
+- It shares the same pre-packing window as Self-Service Sale Cancellation.
+
+## Self-Service Sale Cancellation
+
+**Self-Service Sale Cancellation** is the seller-initiated cancellation of a paid sale while the Fulfillment-owned shipment is still awaiting package preparation.
+
+Notes:
+
+- Ordering owns the cancellation decision.
+- Fulfillment owns the operational cutoff.
+- Payments owns the buyer's full refund created from the cancellation.
+- The cancellation remains recorded as `seller-cancelled` for the seller cancellation rate.
+- After package preparation starts, sellers use the Support-owned cannot-fulfill flow.
 
 ## Order Split
 

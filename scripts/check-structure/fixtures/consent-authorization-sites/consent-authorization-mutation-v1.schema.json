@@ -1,0 +1,547 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Consent authorization mutation receipt",
+  "description": "One executed mutation case: the governing variable, the preserved variables, the executed candidate and mutant observations, and the proof that no earlier clause reached the same result. Provenance is recorded here and is never the expected side of an equality.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "caseId",
+    "acId",
+    "provenance",
+    "command",
+    "fixture",
+    "compilerBinding",
+    "target",
+    "rewriteCount",
+    "candidateEntryModuleSha256",
+    "mutantEntryModuleSha256",
+    "mutationActive",
+    "preservedVariableHashes",
+    "candidateSubrun",
+    "mutantSubrun",
+    "expected",
+    "firstFailingClauseId",
+    "noEarlierClause",
+    "timestamps",
+    "status"
+  ],
+  "properties": {
+    "contractVersion": {
+      "type": "string",
+      "enum": ["consent-authorization-mutation/v1"]
+    },
+    "caseId": {
+      "type": "string",
+      "pattern": "^MUT-[A-Z0-9-]+$"
+    },
+    "acId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment", "candidateHeadRole", "candidateHead", "analyzedTree", "baseTipAtAnalysis"],
+      "properties": {
+        "environment": {
+          "type": "string",
+          "enum": ["plain", "pull-request-merge-ref", "merge-group"]
+        },
+        "candidateHeadRole": {
+          "type": "string",
+          "enum": ["landingCandidate"]
+        },
+        "candidateHead": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "analyzedTree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "baseTipAtAnalysis": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "sha256"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "compilerBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactPath",
+        "artifactSha256",
+        "partitionSha256",
+        "sourceSha256",
+        "runtimeSetHash",
+        "namedEvaluationSetHash",
+        "dispositionSetHash"
+      ],
+      "properties": {
+        "artifactPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifactSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "partitionSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "runtimeSetHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "namedEvaluationSetHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "dispositionSetHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["symbol", "clauseId", "candidateFragmentSha256", "mutantFragmentSha256"],
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clauseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidateFragmentSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mutantFragmentSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "rewriteCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "candidateEntryModuleSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "mutantEntryModuleSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "mutationActive": {
+      "enum": [true]
+    },
+    "preservedVariableHashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate", "mutant"],
+      "properties": {
+        "candidate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry",
+            "schema",
+            "enumeration",
+            "censusCoverage",
+            "censusCoverageSchema",
+            "ownerContexts",
+            "ownerContextPartition",
+            "fixture"
+          ],
+          "properties": {
+            "registry": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "enumeration": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "censusCoverage": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "censusCoverageSchema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "ownerContexts": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "ownerContextPartition": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "fixture": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "mutant": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry",
+            "schema",
+            "enumeration",
+            "censusCoverage",
+            "censusCoverageSchema",
+            "ownerContexts",
+            "ownerContextPartition",
+            "fixture"
+          ],
+          "properties": {
+            "registry": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "enumeration": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "censusCoverage": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "censusCoverageSchema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "ownerContexts": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "ownerContextPartition": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "fixture": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "candidateSubrun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitCode", "result", "observation", "clauseTrace", "stdoutSha256", "stderrSha256"],
+      "properties": {
+        "exitCode": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "result": {
+          "type": "string",
+          "enum": ["pass"]
+        },
+        "observation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clauseTrace": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "stdoutSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stderrSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "mutantSubrun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitCode", "result", "observation", "clauseTrace", "stdoutSha256", "stderrSha256"],
+      "properties": {
+        "exitCode": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "result": {
+          "type": "string",
+          "enum": ["fail"]
+        },
+        "observation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clauseTrace": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "stdoutSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stderrSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["violation", "owner", "surface", "digest"],
+      "properties": {
+        "violation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner": {
+          "enum": [
+            null,
+            "untrackedProbe",
+            "ignoredProbe",
+            "seventhProbe",
+            "seventhModuleProbe",
+            "namespaceBindingProbe",
+            "digestProbe",
+            "movedDigestProbe",
+            "termsOfServiceConsentRoutes > POST /accept",
+            "AccessorMatrix.get authorization",
+            "neutralBox.inner.authorization",
+            "buildScenarioIdentityReconcilers > consentReconciler"
+          ]
+        },
+        "surface": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "executedGuard": {
+      "type": "object",
+      "description": "A real out-of-process execution of the guard and of the unchanged acceptance test, for the candidate and for the mutant. Every exit code, violation code and clause here is read back off a finished process; none of it is asserted about the run.",
+      "additionalProperties": false,
+      "required": ["command", "runner", "acceptanceClauseId", "candidate", "mutant"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "acceptanceClauseId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidate": {
+          "description": "The candidate side, written out in full rather than referenced so the schema stays recursively closed under the committed validator.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "guardExitCode",
+            "guardViolationCodes",
+            "guardFirstFailingClauseId",
+            "acceptanceExitCode",
+            "acceptanceResult",
+            "acceptanceFirstFailingClauseId",
+            "stdoutSha256",
+            "stderrSha256"
+          ],
+          "properties": {
+            "guardExitCode": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "guardViolationCodes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "guardFirstFailingClauseId": {
+              "type": "string"
+            },
+            "acceptanceExitCode": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "acceptanceResult": {
+              "type": "string",
+              "enum": ["pass", "fail"]
+            },
+            "acceptanceFirstFailingClauseId": {
+              "type": "string"
+            },
+            "stdoutSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "stderrSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "mutant": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "guardExitCode",
+            "guardViolationCodes",
+            "guardFirstFailingClauseId",
+            "acceptanceExitCode",
+            "acceptanceResult",
+            "acceptanceFirstFailingClauseId",
+            "stdoutSha256",
+            "stderrSha256"
+          ],
+          "properties": {
+            "guardExitCode": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "guardViolationCodes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "guardFirstFailingClauseId": {
+              "type": "string"
+            },
+            "acceptanceExitCode": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "acceptanceResult": {
+              "type": "string",
+              "enum": ["pass", "fail"]
+            },
+            "acceptanceFirstFailingClauseId": {
+              "type": "string"
+            },
+            "stdoutSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "stderrSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "firstFailingClauseId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "noEarlierClause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "proof", "differingPaths"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["clause-order", "data-substitution"]
+        },
+        "proof": {
+          "type": "string",
+          "minLength": 1
+        },
+        "differingPaths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "timestamps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startedAt", "finishedAt"],
+      "properties": {
+        "startedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+        },
+        "finishedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["valid"]
+    }
+  }
+}

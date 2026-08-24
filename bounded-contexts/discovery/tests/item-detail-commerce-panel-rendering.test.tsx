@@ -56,8 +56,14 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     const surface = container.querySelector("[data-product-options-surface]") as HTMLElement;
     const mobile = within(surface.querySelector("[data-product-options-mobile]") as HTMLElement);
     const trigger = mobile.getByRole("button", { name: /Chosen options/ });
+    const desktopPanel = surface.querySelector<HTMLElement>(
+      "[data-product-options-desktop] .rounded-tokenLg.overflow-hidden",
+    );
 
     expect(surface.getAttribute("data-product-id")).toBe("cat_charizard::form:raw");
+    expect(desktopPanel?.classList.contains("bg-surface-2")).toBe(true);
+    expect(desktopPanel?.classList.contains("shadow-tokenSm")).toBe(false);
+    expect(desktopPanel?.classList.contains("ds-glass")).toBe(false);
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(mobile.getAllByLabelText("Product options: Form Raw")).toHaveLength(1);
     expect(mobile.queryByRole("radiogroup", { name: "Form" })).toBeNull();
@@ -157,6 +163,31 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     expect(image.getAttribute("sizes")).toBe("(min-width: 768px) 308px, min(100vw, 276px)");
     expect(image.getAttribute("width")).toBe("480");
     expect(image.getAttribute("height")).toBe("672");
+  });
+
+  it("renders the empty-image well with the flush surface recipe", () => {
+    const { container } = render(
+      <ItemDetailPage
+        data={createItem({
+          image_urls: [],
+          product_asset_sets: [],
+          image_fallback: {
+            url: "/loading-only-fallback.webp",
+            alt: "Loading item image",
+            usage: "loading-only",
+            variants: {},
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Catalog imagery has not been added yet.")).toBeTruthy();
+    const imageWell = container.querySelector<HTMLElement>(".modern-surface .min-w-0.max-w-full.rounded-tokenLg.p-4");
+
+    expect(imageWell).not.toBeNull();
+    expect(imageWell?.classList.contains("bg-surface-2")).toBe(false);
+    expect(imageWell?.classList.contains("surface-border")).toBe(false);
+    expect(imageWell?.classList.contains("shadow-tokenLg")).toBe(false);
   });
 
   it("renders item detail language codes as localized labels", async () => {

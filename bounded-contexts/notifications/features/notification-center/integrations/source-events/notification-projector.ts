@@ -1,5 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type { FulfillmentShipmentDeliveredPayload } from "@chase-sets/event-core/public-event-payloads";
+import type { TransportEvent, TypedTransportEvent } from "@chase-sets/event-core/transport";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -46,17 +47,10 @@ type OrderCancelledEvent = TransportEvent &
     }>;
   }>;
 
-type ShipmentDeliveredEvent = TransportEvent &
-  Readonly<{
-    type: "fulfillment.shipment.delivered";
-    data: Readonly<{
-      shipmentId: string;
-      orderId: string;
-      buyerAccountId: AccountId;
-      trackingIdentifier: string | null;
-      shippingDestinationSnapshot: Readonly<{ email?: string | null }>;
-    }>;
-  }>;
+type ShipmentDeliveredEvent = TypedTransportEvent<
+  FulfillmentShipmentDeliveredPayload,
+  "fulfillment.shipment.delivered"
+>;
 
 type InventoryHoldConsumedEvent = TransportEvent &
   Readonly<{
@@ -164,7 +158,7 @@ export async function projectSourceEventToNotification(
   }
 
   if (event.type === "fulfillment.shipment.delivered") {
-    const data = event.data as ShipmentDeliveredEvent["data"];
+    const data = (event as ShipmentDeliveredEvent).data;
     const trackingNumber = data.trackingIdentifier ?? data.shipmentId;
     await outbox.enqueueNotification({
       message: mapShipmentDeliveredToNotification({

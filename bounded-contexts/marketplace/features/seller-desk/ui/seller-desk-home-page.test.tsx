@@ -111,6 +111,21 @@ describe("SellerDeskHomePage", () => {
       "listing-action:lst-1",
     ]);
 
+    for (const row of rows) {
+      const tokens = new Set((row as HTMLElement).className.split(/\s+/));
+      for (const included of ["border", "border-muted", "bg-surface"])
+        expect(tokens.has(included), `SellerDeskQueueRow includes ${included}`).toBe(true);
+      for (const excluded of [
+        "ds-glass",
+        "shadow-tokenSm",
+        "shadow-tokenLg",
+        "ds-glow",
+        "hover:border-accent",
+        "hover:shadow-tokenMd",
+      ])
+        expect(tokens.has(excluded), `SellerDeskQueueRow excludes ${excluded}`).toBe(false);
+    }
+
     // Each row deep-links straight into the owning surface.
     const shipRow = document.querySelector('[data-seller-desk-item="fulfillment-ship-by:ship-1"]');
     expect(

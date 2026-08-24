@@ -4,6 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import { buildIdentityApi, type IdentityApiEnv } from "../api";
+import { getAccount, listAccounts } from "../features/accounts/read-model/queries";
 import type { SignedRegistrationConsentResolution } from "../features/consents/domain/registration-consent";
 import { IdentityDomainError } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
@@ -240,6 +241,48 @@ async function requestJson(app: Hono<IdentityApiEnv>, path: string, init: Reques
 }
 
 describe("Identity API mutation snapshots", () => {
+  it("keeps internal account enforcement columns out of list and get query shapes", async () => {
+    const rawRow = {
+      account_id: "acc_1",
+      name: "Card Vault LLC",
+      display_name: "Card Vault",
+      account_type: "business",
+      status: "suspended",
+      badges: [],
+      founder_number: null,
+      founders_window_started_at: null,
+      founders_window_ends_at: null,
+      updated_at: "2026-08-19T00:00:00.000Z",
+      last_enforcement_action_id: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      last_enforcement_reason: "policy-violation",
+      last_enforcement_reference: null,
+      last_enforcement_at: "2026-08-19T00:00:00.000Z",
+      last_global_position: "42",
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => (sql.includes("COUNT(") ? { rows: [{ count: "1" }] } : { rows: [rawRow] })),
+    };
+
+    const account = await getAccount(db as never, "acc_1");
+    const accounts = await listAccounts(db as never);
+    const publicKeys = [
+      "account_id",
+      "account_type",
+      "badges",
+      "display_name",
+      "founder_number",
+      "founders_window_ends_at",
+      "founders_window_started_at",
+      "name",
+      "status",
+      "updated_at",
+    ];
+
+    expect(Object.keys(account ?? {}).sort()).toEqual(publicKeys);
+    expect(Object.keys(accounts.items[0] ?? {}).sort()).toEqual(publicKeys);
+    expect(db.query).toHaveBeenCalledWith(expect.not.stringContaining("SELECT *"), ["acc_1"]);
+  });
+
   it("returns command-local snapshots for internal Auth mutation routes", async () => {
     const services = createServices();
     const app = buildApp(services);
@@ -358,7 +401,8 @@ describe("Identity API mutation snapshots", () => {
   });
 
   it("returns id, version, and status receipts for account, user, membership, invitation, and shipping-address routes", async () => {
-    const app = buildApp(createServices(), { ...actor, roleKey: "platform-admin" });
+    const services = createServices();
+    const app = buildApp(services, { ...actor, roleKey: "platform-admin" });
 
     const accountCases = [
       {
@@ -414,7 +458,37 @@ describe("Identity API mutation snapshots", () => {
       });
       expect(response.status).toBe(testCase.status);
       expect(body).toMatchObject(testCase.expected);
+      if (/\/(suspend|reactivate|close)$/.test(testCase.path)) {
+        expect(body).toEqual(testCase.expected);
+      }
     }
+
+    const lifecycleCommands = vi
+      .mocked(services.accounts.commandHandler)
+      .mock.calls.map(([input]) => input.command)
+      .filter((command) => ["SuspendAccount", "ReactivateAccount", "CloseAccount"].includes(command.type));
+    expect(lifecycleCommands).toHaveLength(3);
+    expect(lifecycleCommands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "SuspendAccount",
+          enforcement: expect.objectContaining({
+            version: 1,
+            enforcementActionId: expect.stringMatching(/^enf_[0-9A-HJKMNP-TV-Z]{26}$/),
+            reason: "operator-other",
+            reference: null,
+          }),
+        }),
+        expect.objectContaining({
+          type: "ReactivateAccount",
+          enforcement: expect.objectContaining({ reason: "operator-other", reference: null }),
+        }),
+        expect.objectContaining({
+          type: "CloseAccount",
+          enforcement: expect.objectContaining({ reason: "operator-other", reference: null }),
+        }),
+      ]),
+    );
 
     const userCases = [
       {

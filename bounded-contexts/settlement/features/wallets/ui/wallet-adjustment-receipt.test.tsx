@@ -46,7 +46,7 @@ function adjustment(overrides: Partial<SettlementWalletAdjustment> = {}): Settle
 }
 
 describe("WalletAdjustmentReceiptCard", () => {
-  it("renders the posted receipt without raw JSON, ledger-entry id, or idempotency field", () => {
+  it("renders the posted receipt as an outlined entity without internal fields", () => {
     const html = renderToStaticMarkup(
       <WalletAdjustmentReceiptCard adjustment={adjustment()} targetAccountLabel="Account acc_target" />,
     );
@@ -54,6 +54,9 @@ describe("WalletAdjustmentReceiptCard", () => {
     expect(html).toContain("Account acc_target");
     expect(html).toContain("Order shipped late");
     expect(html).toContain("ord_1234");
+    expect(html).toContain(
+      'data-testid="wallet-adjustment-receipt-entity" class="rounded-tokenLg border border-muted overflow-hidden bg-surface p-4"',
+    );
     expect(html).not.toContain("led_1");
     expect(html).not.toContain("idempotency");
     expect(html).not.toContain("{");

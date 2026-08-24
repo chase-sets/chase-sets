@@ -56,7 +56,7 @@ export function CheckoutDeliverySection({
   }
 
   return (
-    <Surface elevated>
+    <Surface elevation="tinted">
       <CheckoutFormSection
         title={t("checkout.features.sessions.ui.checkoutPage.delivery")}
         description={

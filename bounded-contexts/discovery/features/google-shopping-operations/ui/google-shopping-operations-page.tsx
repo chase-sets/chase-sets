@@ -142,7 +142,7 @@ export function GoogleShoppingOperationsPage({
       {actionError ? <Notice tone="danger" message={actionError} /> : null}
       {latestJobId ? <GoogleShoppingJobSummary jobId={latestJobId} job={streamedJob} /> : null}
 
-      <Surface>
+      <Surface elevation="tinted" data-testid="google-shopping-live-gate-surface">
         <Cluster align="center" justify="between">
           <Inline gap={2}>
             <Badge tone="warning">{t(`${routeKey}.liveGateBadge`)}</Badge>
@@ -154,7 +154,7 @@ export function GoogleShoppingOperationsPage({
         </Cluster>
       </Surface>
 
-      <Surface>
+      <Surface elevation="tinted" data-testid="google-shopping-readiness-summary-surface">
         <Stack gap={4}>
           <Cluster align="center" justify="between">
             <Inline gap={2}>
@@ -257,7 +257,7 @@ function GoogleShoppingJobSummary({
   const progress = job?.progress;
 
   return (
-    <Surface>
+    <Surface elevation="elevated" data-testid="google-shopping-latest-job-surface">
       <Stack gap={3}>
         <Cluster align="center" justify="between">
           <Stack gap={1}>
@@ -298,7 +298,7 @@ function GoogleShoppingJobSummary({
 
 function Notice({ tone, message }: GoogleShoppingOperationsNotice) {
   return (
-    <Surface>
+    <Surface elevation="tinted" data-testid="google-shopping-notice-surface">
       <Inline gap={2}>
         <Badge tone={tone}>{tone}</Badge>
         <Text weight="semibold">{message}</Text>

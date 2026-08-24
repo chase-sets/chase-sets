@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { releaseSellerOrderCapacityClaim } from "../../api/order-capacity";
@@ -18,13 +19,19 @@ export function buildOrderingFulfillmentCancellationProjectionHandlers(
     ) => Promise<void>;
   }> = {},
 ): ProjectorHandlerMap {
-  return {
+  return defineProjectorHandlers<
+    Pick<
+      ChaseSetsEventPayloads,
+      | "fulfillment.shipment.created"
+      | "fulfillment.shipment.packing-started"
+      | "fulfillment.shipment.package-prepared"
+      | "fulfillment.shipment.label-attached"
+      | "fulfillment.shipment.dispatched"
+      | "fulfillment.shipment.cancelled"
+    >
+  >({
     "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        createdAt: string;
-      };
+      const { data } = event;
 
       await db.query(
         `INSERT INTO ordering_fulfillment_cancellation_inputs (
@@ -50,10 +57,7 @@ export function buildOrderingFulfillmentCancellationProjectionHandlers(
       );
     },
     "fulfillment.shipment.packing-started": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        startedAt: string;
-      };
+      const { data } = event;
 
       await db.query(
         `UPDATE ordering_fulfillment_cancellation_inputs
@@ -66,10 +70,7 @@ export function buildOrderingFulfillmentCancellationProjectionHandlers(
       );
     },
     "fulfillment.shipment.package-prepared": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        preparedAt: string;
-      };
+      const { data } = event;
 
       await db.query(
         `UPDATE ordering_fulfillment_cancellation_inputs
@@ -82,10 +83,7 @@ export function buildOrderingFulfillmentCancellationProjectionHandlers(
       );
     },
     "fulfillment.shipment.label-attached": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        attachedAt: string;
-      };
+      const { data } = event;
 
       await db.query(
         `UPDATE ordering_fulfillment_cancellation_inputs
@@ -97,10 +95,7 @@ export function buildOrderingFulfillmentCancellationProjectionHandlers(
       );
     },
     "fulfillment.shipment.dispatched": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        dispatchedAt: string;
-      };
+      const { data } = event;
 
       const updated = await db.query<{ order_id: string }>(
         `UPDATE ordering_fulfillment_cancellation_inputs
@@ -124,10 +119,7 @@ export function buildOrderingFulfillmentCancellationProjectionHandlers(
       }
     },
     "fulfillment.shipment.cancelled": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        cancelledAt: string;
-      };
+      const { data } = event;
 
       await db.query(
         `UPDATE ordering_fulfillment_cancellation_inputs
@@ -138,5 +130,5 @@ export function buildOrderingFulfillmentCancellationProjectionHandlers(
         [data.shipmentId, data.cancelledAt],
       );
     },
-  };
+  });
 }

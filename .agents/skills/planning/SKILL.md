@@ -87,6 +87,13 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
      and any `status:standalone` label require a new fixed-scope change;
      [#6174](https://github.com/chase-sets/chase-sets/issues/6174) records that
      this is not current behavior;
+   - the delivery board's **Status** is derived, never hand-written: a native
+     **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only`
+     projects to `Tracking`. Create the authoritative type or label and let
+     `scripts/project-status-sync.mjs` own the board value — a hand-set Status
+     is overwritten by the next sync. Never embed the board's option IDs
+     anywhere; they live only in the `DELIVERY_STATUS_OPTION_IDS` repository
+     variable. Full precedence: `docs/contributing/backlog-model.md`;
    - **no new label** unless it fits the four families in the backlog model.
      Sequencing inside a workstream is the epic's chain DAG — `phase:*`,
      `stage:*`, `series:*`, and `tier:*` families are banned, having produced
@@ -117,9 +124,11 @@ Then run the normal pipeline with three changes:
   for *sibling* issues; adjacency is not coverage. #6105 and #6106 replaced
   #6058, and reading them as covering #5684 would have silently dropped consent
   bundle content, activation authority, and the affirmation UI.
-- **Decomposition answers the findings explicitly.** Each blocking finding maps
-  to a slice, an accepted constraint written into the issue text, or a stated
-  reason it no longer applies at current main.
+- **Decomposition preserves the findings' properties.** Each blocking finding
+  maps to a slice, an accepted constraint written into the issue text, or a
+  stated reason it no longer applies at current main. A reviewer's prescribed
+  remedy is a correctness floor, not a mandated architecture; when the remedy
+  adds machinery, record the smaller alternative considered.
 - **The pressure test is mandatory**, not tier-dependent. This plan already
   failed once.
 

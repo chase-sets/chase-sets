@@ -32,6 +32,7 @@ import {
   recordProviderWebhookEvent as recordProviderWebhookInboxEvent,
 } from "@chase-sets/provider-webhook-inbox";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
+import { sumMoneyAmounts } from "@chase-sets/primitives/money";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
@@ -39,7 +40,9 @@ import {
   compareMoney,
   normalizeCurrencyCode,
   normalizeMoneyAmount,
+  normalizeSignedMoneyAmount,
   SettlementDomainError,
+  subtractMoney,
   type PayoutStatus,
 } from "../../../support/runtime-support/common";
 import { moneyStatusDetails } from "@chase-sets/http/money-status";
@@ -126,14 +129,34 @@ export type PayoutDestinationFrictionPolicy = Readonly<{
   enabled: boolean;
   coolingPeriodMs: number;
   requireStepUpForAccountManagement: boolean;
+  /**
+   * The recent-authentication ("step-up") window, in minutes, the embedded
+   * payout account-management session requires of the acting session.
+   * Settlement owns the window because Settlement owns the action it gates;
+   * the fact measured against it is Auth's own session-authentication moment
+   * (`ResolvedActor.authenticatedAt`, read through
+   * `resolveRecentAuthenticationStatus`), never a Settlement-minted token.
+   * The default matches ADR 0020's ratified money-surface step-up window.
+   */
+  accountManagementRecentAuthMaxAgeMinutes: number;
 }>;
 
+/**
+ * Verifies an out-of-band sensitive-action token for a payout **request** made
+ * inside the payout-destination cooling window. This is the only surviving
+ * consumer: the embedded account-management session no longer accepts a token
+ * at all and instead evaluates Auth's recent-authentication fact (see
+ * `createPayoutAccountManagementSession` in `../../payout-readiness/api/runtime`),
+ * so no action carries two competing step-up contracts. With no verifier wired,
+ * the cooling window is an unconditional block -- the shipped behavior this
+ * friction was designed to produce.
+ */
 export type SensitiveActionVerifier = (
   input: Readonly<{
     accountId: AccountId;
     userId?: string | null;
     token: string;
-    purpose: "payout-request" | "payout-account-management";
+    purpose: "payout-request";
   }>,
 ) => Promise<boolean>;
 
@@ -443,6 +466,7 @@ const DEFAULT_PAYOUT_DESTINATION_FRICTION_POLICY: PayoutDestinationFrictionPolic
   enabled: true,
   coolingPeriodMs: 24 * 60 * 60 * 1000,
   requireStepUpForAccountManagement: true,
+  accountManagementRecentAuthMaxAgeMinutes: 15,
 };
 
 function payoutDestinationFrictionPolicy(
@@ -505,8 +529,15 @@ function requirePayoutSnapshot(state: PayoutState, version: number): PayoutComma
   };
 }
 
-function subtractMoney(left: string, right: string) {
-  return (Number.parseFloat(left) - Number.parseFloat(right)).toFixed(2);
+function calculateCanonicalMoneyOrThrow<T>(message: string, calculate: () => T): T {
+  try {
+    return calculate();
+  } catch (error) {
+    if (error instanceof Error && error.name === "Error" && error.message.startsWith("Money ")) {
+      throw new SettlementDomainError(message);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -1432,18 +1463,32 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           filter: "in-transit",
         }),
       ]);
-      const pendingDemand = payouts
+      const platformAvailableAmount = normalizeSignedMoneyAmount(
+        platformBalance.availableAmount,
+        "Platform available amount",
+      );
+      const pendingAmounts = payouts
         .filter((payout) => payout.currency_code === currencyCode)
-        .reduce((sum, payout) => sum + Number.parseFloat(payout.amount), 0)
-        .toFixed(2);
+        .map((payout) =>
+          normalizeMoneyAmount(payout.amount, {
+            allowZero: true,
+            fieldName: "In-transit payout amount",
+          }),
+        );
+      const pendingDemand = calculateCanonicalMoneyOrThrow(
+        "Pending payout demand amount must be a valid decimal.",
+        () => sumMoneyAmounts(pendingAmounts),
+      );
+      const forecastAfterPendingDemand = calculateCanonicalMoneyOrThrow(
+        "Platform balance forecast must be a valid signed decimal.",
+        () => subtractMoney(platformAvailableAmount, pendingDemand),
+      );
 
       return {
         currency_code: currencyCode,
-        available_amount: platformBalance.availableAmount,
+        available_amount: platformAvailableAmount,
         pending_payout_demand_amount: pendingDemand,
-        forecast_after_pending_demand_amount: (
-          Number.parseFloat(platformBalance.availableAmount) - Number.parseFloat(pendingDemand)
-        ).toFixed(2),
+        forecast_after_pending_demand_amount: forecastAfterPendingDemand,
       };
     },
     async getProviderHealth() {
@@ -1480,13 +1525,18 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           getAccountActiveSpendHoldAmount(deps.db, params.accountId),
           resolvePayoutBoundsPolicy(deps),
         ]);
+      const platformAvailableAmount = normalizeSignedMoneyAmount(
+        platformBalance.availableAmount,
+        "Platform available amount",
+      );
       const unavailableReasons: string[] = [];
       // Buyer-spend holds reserve balance the account applied at checkout but
       // that has not yet debited at capture; it must not be payable meanwhile,
       // or the same funds could be both withdrawn and spent.
-      const payoutAvailableBalanceAmount = subtractMoney(
-        subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount),
-        activeSpendHoldAmount,
+      const payoutAvailableBalanceAmount = calculateCanonicalMoneyOrThrow(
+        "Payout available balance must be a valid signed decimal.",
+        () =>
+          subtractMoney(subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount), activeSpendHoldAmount),
       );
 
       if (payoutReadinessStalenessIsOnlySetupBlocker(readiness)) {
@@ -1535,7 +1585,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       if (compareMoney(activeSupportHoldAmount, "0.00") > 0) {
         unavailableReasons.push("support-hold-active");
       }
-      if (compareMoney(platformBalance.availableAmount, amount) < 0) {
+      if (compareMoney(platformAvailableAmount, amount) < 0) {
         unavailableReasons.push("platform-balance-insufficient");
       }
       if (riskSummary.failed_payout_count > 0) {
@@ -1551,10 +1601,12 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         requested_amount: amount,
         currency_code: currencyCode,
         available_balance_amount: payoutAvailableBalanceAmount,
-        platform_available_amount: platformBalance.availableAmount,
+        platform_available_amount: platformAvailableAmount,
         estimated_wallet_balance_after:
           compareMoney(payoutAvailableBalanceAmount, amount) >= 0
-            ? subtractMoney(payoutAvailableBalanceAmount, amount)
+            ? calculateCanonicalMoneyOrThrow("Payout available balance must be a valid signed decimal.", () =>
+                subtractMoney(payoutAvailableBalanceAmount, amount),
+              )
             : "0.00",
         can_request: uniqueReasons.length === 0,
         unavailable_reasons: uniqueReasons,
@@ -1692,9 +1744,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       ]);
       // Reserved buyer-spend credit (applied at checkout, not yet captured) is
       // not payable -- gate it out so the same funds can't be paid out and spent.
-      const payoutAvailableBalanceAmount = subtractMoney(
-        subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount),
-        activeSpendHoldAmount,
+      const payoutAvailableBalanceAmount = calculateCanonicalMoneyOrThrow(
+        "Payout available balance must be a valid signed decimal.",
+        () =>
+          subtractMoney(subtractMoney(wallet.available_balance_amount, activeSupportHoldAmount), activeSpendHoldAmount),
       );
       if (
         wallet.negative_balance_status !== "in-good-standing" ||
@@ -1714,13 +1767,17 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       const platformBalance = await deps.moneyMovementGateway.retrievePlatformBalance({
         currencyCode,
       });
-      if (compareMoney(platformBalance.availableAmount, amount) < 0) {
+      const platformAvailableAmount = normalizeSignedMoneyAmount(
+        platformBalance.availableAmount,
+        "Platform available amount",
+      );
+      if (compareMoney(platformAvailableAmount, amount) < 0) {
         await recordOperation({
           kind: "platform-balance-insufficient",
           accountId: params.accountId,
           amount,
           currencyCode,
-          reason: `Available platform balance ${platformBalance.availableAmount} is below requested payout amount.`,
+          reason: `Available platform balance ${platformAvailableAmount} is below requested payout amount.`,
         });
         throw new SettlementDomainError("Platform balance is too low for this payout.");
       }

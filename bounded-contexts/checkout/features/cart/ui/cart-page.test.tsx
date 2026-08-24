@@ -104,6 +104,14 @@ function submittedFormData(callIndex = 0) {
   return mockFetcherSubmit.mock.calls[callIndex]?.[0] as FormData;
 }
 
+function expectTintedSurface(root: Element | null, label: string) {
+  expect(root, `${label} root`).not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  expect(tokens.has("bg-surface-2"), `${label} includes bg-surface-2`).toBe(true);
+  for (const excluded of ["surface-border", "ds-glass", "border", "shadow-tokenSm", "shadow-tokenLg", "ds-glow"])
+    expect(tokens.has(excluded), `${label} excludes ${excluded}`).toBe(false);
+}
+
 describe("checkout cart page", () => {
   afterEach(() => {
     cleanup();
@@ -113,6 +121,28 @@ describe("checkout cart page", () => {
       data: null,
       submit: mockFetcherSubmit,
     }));
+  });
+
+  it("renders checkout error and pending fresh-write recovery as tinted furniture", () => {
+    render(<CheckoutCartPage cartLines={[cartLine]} errorMessage="Cart update failed." />);
+    expectTintedSurface(screen.getByText("Cart update failed.").closest(".rounded-tokenLg"), "checkout error");
+
+    cleanup();
+    render(
+      <CheckoutCartPage
+        cartLines={[]}
+        recoveryState={{
+          kind: "pending-fresh-write",
+          message: "We saved your cart change and are refreshing the cart view.",
+          refreshHref: "/account/cart?afterWrite=receipt",
+          isAutoRevalidating: true,
+        }}
+      />,
+    );
+    expectTintedSurface(
+      screen.getByText("We saved your cart change and are refreshing the cart view.").closest(".rounded-tokenLg"),
+      "pending fresh write",
+    );
   });
 
   it("renders a minimalist cart review with indicative pricing and a single deferred total", () => {

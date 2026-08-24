@@ -4,6 +4,14 @@
   "localeCatalogs": ["contracts/localization/locales/en/authenticity.ts"],
   "ownedNouns": ["authenticity-case"],
   "streamPrefix": "authenticity.",
+  "accountCapabilities": [
+    {
+      "key": "authenticity.seller-included",
+      "description": "Declares whether an Account may use seller-included authenticity evidence.",
+      "kind": "boolean",
+      "defaultValue": false
+    }
+  ],
   "apiBasePath": "/api/authenticity",
   "slices": ["cases"],
   "allowedSupportDirectories": ["runtime-support"],

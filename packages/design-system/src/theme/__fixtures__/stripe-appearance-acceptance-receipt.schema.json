@@ -1,0 +1,292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chase-sets.com/schemas/stripe-appearance-acceptance-receipt/v1.json",
+  "title": "Stripe appearance acceptance receipt",
+  "description": "Evidence that a real Stripe test-mode surface accepted the Ink & Foil candidate appearance at the lifecycle moments the product consumes it. A skipped, partial, control-mode, failing, or retention-scan-positive run emits nothing. Records environment variable names only, never values. The schema constrains shape; deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts and deployables/marketplace/e2e/payout-connect-appearance.uat.spec.ts produce each surface's receipt.",
+  "oneOf": [{ "$ref": "#/$defs/elementsReceipt" }, { "$ref": "#/$defs/connectReceipt" }],
+  "$defs": {
+    "elementsReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "surface",
+        "stripeMode",
+        "implementationHead",
+        "fixturePath",
+        "fixtureSha256",
+        "sourceDigests",
+        "capturedAt",
+        "host",
+        "environmentVariableNames",
+        "runSummary",
+        "retentionScan",
+        "moments",
+        "substitutionsApplied"
+      ],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/schemaVersion" },
+        "surface": { "const": "elements" },
+        "stripeMode": { "$ref": "#/$defs/stripeMode" },
+        "implementationHead": { "$ref": "#/$defs/implementationHead" },
+        "fixturePath": { "$ref": "#/$defs/fixturePath" },
+        "fixtureSha256": { "$ref": "#/$defs/sha256" },
+        "sourceDigests": { "$ref": "#/$defs/sourceDigests" },
+        "capturedAt": { "$ref": "#/$defs/timestamp" },
+        "host": { "const": "https://marketplace.staging.chasesets.com" },
+        "environmentVariableNames": { "$ref": "#/$defs/environmentVariableNames" },
+        "runSummary": { "$ref": "#/$defs/elementsRunSummary" },
+        "retentionScan": { "$ref": "#/$defs/retentionScan" },
+        "moments": { "$ref": "#/$defs/moments" },
+        "substitutionsApplied": { "$ref": "#/$defs/substitutionsApplied" }
+      }
+    },
+    "connectReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "surface",
+        "stripeMode",
+        "implementationHead",
+        "fixturePath",
+        "fixtureSha256",
+        "sourceDigests",
+        "capturedAt",
+        "host",
+        "environmentVariableNames",
+        "runSummary",
+        "retentionScan",
+        "moments",
+        "substitutionsApplied",
+        "componentMode",
+        "discoveryArtifact"
+      ],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/schemaVersion" },
+        "surface": { "const": "connect" },
+        "stripeMode": { "$ref": "#/$defs/stripeMode" },
+        "implementationHead": { "$ref": "#/$defs/implementationHead" },
+        "fixturePath": { "$ref": "#/$defs/fixturePath" },
+        "fixtureSha256": { "$ref": "#/$defs/sha256" },
+        "sourceDigests": { "$ref": "#/$defs/sourceDigests" },
+        "capturedAt": { "$ref": "#/$defs/timestamp" },
+        "host": { "const": "https://marketplace.staging.chasesets.com" },
+        "environmentVariableNames": { "$ref": "#/$defs/environmentVariableNames" },
+        "runSummary": { "$ref": "#/$defs/connectRunSummary" },
+        "retentionScan": { "$ref": "#/$defs/retentionScan" },
+        "moments": { "$ref": "#/$defs/moments" },
+        "substitutionsApplied": { "$ref": "#/$defs/substitutionsApplied" },
+        "componentMode": { "$ref": "#/$defs/componentMode" },
+        "discoveryArtifact": { "$ref": "#/$defs/discoveryArtifact" }
+      }
+    },
+    "schemaVersion": { "const": "stripe-appearance-acceptance-receipt/v1" },
+    "stripeMode": { "const": "test" },
+    "implementationHead": {
+      "description": "The 40-character commit the probe ran against. It must resolve to a reachable commit; only digest-bound governed paths must remain unchanged since it, while unrelated receipt and artifact paths may differ.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "fixturePath": {
+      "const": "packages/design-system/src/theme/__fixtures__/ink-foil-candidate-tokens.json"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sourceDigests": {
+      "description": "sha256 of every committed file that can change what the provider was sent or how evidence was retained.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 3,
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9/._-]*\\.(?:ts|json)$" },
+      "patternProperties": {
+        "^[a-z0-9][a-z0-9/._-]*\\.(?:ts|json)$": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+    },
+    "environmentVariableNames": {
+      "description": "Names only. A value here is a leak.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+    },
+    "elementsRunSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "workers", "collected", "passed", "failed", "skipped", "testTitles"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "workers": { "const": 1 },
+        "collected": { "type": "integer", "minimum": 3, "maximum": 2147483647 },
+        "passed": { "type": "integer", "minimum": 3, "maximum": 2147483647 },
+        "failed": { "const": 0 },
+        "skipped": { "const": 0 },
+        "testTitles": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "connectRunSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "workers", "collected", "passed", "failed", "skipped", "testTitles"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "workers": { "const": 1 },
+        "collected": { "const": 1 },
+        "passed": { "const": 1 },
+        "failed": { "const": 0 },
+        "skipped": { "const": 0 },
+        "testTitles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "retentionScan": {
+      "description": "Proof every retained artifact was compared against configured secrets, account identity, provider references, and session markers. Any hit refuses emission.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["textualArtifacts", "imageArtifacts", "redactionsApplied", "forbiddenMarkerHits"],
+      "properties": {
+        "textualArtifacts": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "imageArtifacts": { "type": "integer", "minimum": 2, "maximum": 2147483647 },
+        "redactionsApplied": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+        "forbiddenMarkerHits": { "const": 0 }
+      }
+    },
+    "moments": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "$ref": "#/$defs/moment" }
+    },
+    "moment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moment",
+        "colorMode",
+        "resolvedTokens",
+        "observations",
+        "consoleMessages",
+        "screenshotSha256",
+        "screenshotClip",
+        "screenshotMaskedRegions"
+      ],
+      "properties": {
+        "moment": {
+          "enum": [
+            "elements-mount-complete",
+            "elements-update-complete",
+            "setup-mount-complete",
+            "setup-update-complete",
+            "connect-mount-complete",
+            "connect-update-complete"
+          ]
+        },
+        "colorMode": { "enum": ["light", "dark"] },
+        "resolvedTokens": {
+          "description": "Every custom property the appearance factory consumed, resolved from the probed document at this moment.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^--[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "patternProperties": {
+            "^--[a-z0-9]+(?:-[a-z0-9]+)*$": { "type": "string", "minLength": 1 }
+          }
+        },
+        "observations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/observation" }
+        },
+        "consoleMessages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/consoleMessage" }
+        },
+        "screenshotSha256": { "$ref": "#/$defs/sha256" },
+        "screenshotClip": { "const": "stripe-frame" },
+        "screenshotMaskedRegions": { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+      }
+    },
+    "observation": {
+      "description": "One named frame-internal observable: what the provider rendered against an expectation read from the committed fixture.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observable", "sourceToken", "cssProperty", "expected", "computed", "matched", "mandatory"],
+      "properties": {
+        "observable": { "type": "string", "minLength": 1 },
+        "sourceToken": { "type": "string", "pattern": "^--[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "cssProperty": { "type": "string", "minLength": 1 },
+        "expected": { "type": "string", "minLength": 1 },
+        "computed": { "type": "string", "minLength": 1 },
+        "matched": { "type": "boolean" },
+        "mandatory": { "type": "boolean" },
+        "paintedOver": { "$ref": "#/$defs/paintedOver" }
+      }
+    },
+    "paintedOver": {
+      "description": "Required on border observations and forbidden elsewhere.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceToken", "expected", "compositedExpected"],
+      "properties": {
+        "sourceToken": { "type": "string", "pattern": "^--[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "expected": { "type": "string", "minLength": 1 },
+        "compositedExpected": { "type": "string", "minLength": 1 }
+      }
+    },
+    "consoleMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "text"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "text": { "type": "string" }
+      }
+    },
+    "substitutionsApplied": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/substitution" }
+    },
+    "substitution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["property", "mode", "from", "to", "reason"],
+      "properties": {
+        "property": { "type": "string", "pattern": "^--[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "mode": { "enum": ["light", "dark"] },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "componentMode": {
+      "enum": ["account-onboarding", "account-management"]
+    },
+    "discoveryArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "sessionNonce"],
+      "properties": {
+        "path": {
+          "const": "packages/design-system/src/theme/__fixtures__/stripe-connect-discovery.json"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sessionNonce": { "type": "string", "pattern": "^[0-9a-f]{32}$" }
+      }
+    }
+  }
+}

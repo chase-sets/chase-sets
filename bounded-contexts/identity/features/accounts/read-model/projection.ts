@@ -1,7 +1,11 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { extractIdFromStreamId } from "@chase-sets/event-core";
-import { accountBadgeKeys, type AccountBadgeKey } from "../domain/domain";
+import {
+  accountEnforcementReasonCodes,
+  accountEnforcementReversalReasonCodes,
+  extractIdFromStreamId,
+} from "@chase-sets/event-core";
+import { accountBadgeKeys, parseAccountEnforcementEventData, type AccountBadgeKey } from "../domain/domain";
 
 const STREAM_PREFIX = "identity.account-";
 
@@ -36,6 +40,28 @@ async function updateAccountBadges(
      WHERE account_id = $1`,
     [params.accountId, JSON.stringify(params.update(current)), params.recordedAt],
   );
+}
+
+function accountEnforcementProjectionValues<Reason extends string>(
+  event: Readonly<{
+    streamId: string;
+    data: unknown;
+    globalPosition: string;
+    timing: Readonly<{ recordedAt: string }>;
+  }>,
+  allowedReasons: readonly Reason[],
+) {
+  const accountId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
+  const enforcement = parseAccountEnforcementEventData(event.data, allowedReasons);
+  return [
+    accountId,
+    enforcement !== null,
+    enforcement?.enforcementActionId ?? null,
+    enforcement?.reason ?? null,
+    enforcement?.reference === null || enforcement === null ? null : JSON.stringify(enforcement.reference),
+    event.timing.recordedAt,
+    event.globalPosition,
+  ] as const;
 }
 
 export function buildAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -83,33 +109,48 @@ export function buildAccountProjectionHandlers(db: PgQueryable): ProjectorHandle
       );
     },
     "identity.account.suspended": async (event) => {
-      const accountId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       await db.query(
         `UPDATE identity_accounts
          SET status = 'suspended',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [accountId, event.timing.recordedAt],
+             last_enforcement_action_id = CASE WHEN $2::boolean THEN $3 ELSE last_enforcement_action_id END,
+             last_enforcement_reason = CASE WHEN $2::boolean THEN $4 ELSE last_enforcement_reason END,
+             last_enforcement_reference = CASE WHEN $2::boolean THEN $5::jsonb ELSE last_enforcement_reference END,
+             last_enforcement_at = CASE WHEN $2::boolean THEN $6::timestamptz ELSE last_enforcement_at END,
+             last_global_position = $7::bigint,
+             updated_at = $6
+         WHERE account_id = $1
+           AND (last_global_position IS NULL OR last_global_position < $7::bigint)`,
+        accountEnforcementProjectionValues(event, accountEnforcementReasonCodes),
       );
     },
     "identity.account.reactivated": async (event) => {
-      const accountId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       await db.query(
         `UPDATE identity_accounts
          SET status = 'active',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [accountId, event.timing.recordedAt],
+             last_enforcement_action_id = CASE WHEN $2::boolean THEN $3 ELSE last_enforcement_action_id END,
+             last_enforcement_reason = CASE WHEN $2::boolean THEN $4 ELSE last_enforcement_reason END,
+             last_enforcement_reference = CASE WHEN $2::boolean THEN $5::jsonb ELSE last_enforcement_reference END,
+             last_enforcement_at = CASE WHEN $2::boolean THEN $6::timestamptz ELSE last_enforcement_at END,
+             last_global_position = $7::bigint,
+             updated_at = $6
+         WHERE account_id = $1
+           AND (last_global_position IS NULL OR last_global_position < $7::bigint)`,
+        accountEnforcementProjectionValues(event, accountEnforcementReversalReasonCodes),
       );
     },
     "identity.account.closed": async (event) => {
-      const accountId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
       await db.query(
         `UPDATE identity_accounts
          SET status = 'closed',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [accountId, event.timing.recordedAt],
+             last_enforcement_action_id = CASE WHEN $2::boolean THEN $3 ELSE last_enforcement_action_id END,
+             last_enforcement_reason = CASE WHEN $2::boolean THEN $4 ELSE last_enforcement_reason END,
+             last_enforcement_reference = CASE WHEN $2::boolean THEN $5::jsonb ELSE last_enforcement_reference END,
+             last_enforcement_at = CASE WHEN $2::boolean THEN $6::timestamptz ELSE last_enforcement_at END,
+             last_global_position = $7::bigint,
+             updated_at = $6
+         WHERE account_id = $1
+           AND (last_global_position IS NULL OR last_global_position < $7::bigint)`,
+        accountEnforcementProjectionValues(event, accountEnforcementReasonCodes),
       );
     },
     "identity.account.founders-window-opened": async (event) => {
