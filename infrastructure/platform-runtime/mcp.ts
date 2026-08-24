@@ -164,6 +164,7 @@ type McpResourceReadParams = Readonly<{
 
 const JSON_RPC_VERSION = "2.0";
 const IDEMPOTENCY_PENDING_TTL_MS = 2 * 60 * 1000;
+const CANONICAL_OWNER_UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export const MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource";
 export const MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED = AGENT_OAUTH_SUPPORTED_SCOPES;
 export const MCP_OAUTH_BEARER_METHODS_SUPPORTED = ["header"] as const;
@@ -1351,6 +1352,23 @@ async function callTool(
   }
 
   const args = normalizeArguments(params.arguments);
+  if (
+    tool.guardrails.idempotencyAuthority === "owner" &&
+    (typeof args.idempotencyKey !== "string" || !CANONICAL_OWNER_UUID_V4.test(args.idempotencyKey))
+  ) {
+    const reason = "Owner-authoritative tools require a canonical UUIDv4 idempotency key.";
+    await audit(options.audit, {
+      outcome: "denied",
+      method: "tools/call",
+      toolName: tool.name,
+      ...mcpAuditActor(actor),
+      auditEventName: tool.audit.eventName,
+      targetType: tool.audit.targetType,
+      reason,
+      sensitiveInputFields: [...new Set([...tool.audit.sensitiveInputFields, "idempotencyKey"])],
+    });
+    return mcpToolErrorResult(reason);
+  }
   const confirmation = normalizeConfirmation(
     params.confirmation ?? {
       confirmed: args.confirmed,
@@ -1431,7 +1449,7 @@ async function callTool(
   }
 
   const idempotency =
-    tool.guardrails.idempotencyKey === "required"
+    tool.guardrails.idempotencyKey === "required" && tool.guardrails.idempotencyAuthority === "platform"
       ? {
           key: mcpIdempotencyKey(tool.name, args, actor),
           requestHash: mcpToolRequestHash(tool.name, args),
@@ -1557,6 +1575,7 @@ async function callTool(
     return response;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    const auditReason = tool.guardrails.idempotencyAuthority === "owner" ? "owner-command-failed" : reason;
     const response = mcpToolErrorResult(reason);
     if (reservedIdempotency) {
       await options.idempotencyStore.complete({
@@ -1573,7 +1592,7 @@ async function callTool(
       ...mcpAuditActor(actor),
       auditEventName: tool.audit.eventName,
       targetType: tool.audit.targetType,
-      reason,
+      reason: auditReason,
       sensitiveInputFields: tool.audit.sensitiveInputFields,
     });
 
@@ -1648,6 +1667,7 @@ async function readResource(
         required: false,
       },
       idempotencyKey: "not-applicable",
+      idempotencyAuthority: "platform",
       dryRunSupported: false,
       notes: [],
     },

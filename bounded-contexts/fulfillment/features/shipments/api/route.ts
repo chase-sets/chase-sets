@@ -4,6 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { FulfillmentApiEnv } from "../../../api";
 import type { FulfillmentShipmentServices } from "./runtime";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { assertCanonicalShipmentMutationId } from "../domain/mutation-attempt";
 
 const providerWebhookContext = {
   tenantId: "tnt_identity" as TenantId,
@@ -108,6 +109,12 @@ function parseShipmentIds(value: string | undefined) {
         .filter(Boolean),
     ),
   );
+}
+
+function readMutationAttemptId(c: { req: { header(name: string): string | undefined } }) {
+  const value = c.req.header("Idempotency-Key");
+  assertCanonicalShipmentMutationId(value);
+  return value;
 }
 
 export function createAccountShipmentRoutes(services: FulfillmentShipmentServices) {
@@ -236,7 +243,62 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
     return c.json(shipment);
   });
 
+  app.get("/sales/shipments/:id/mutation-recovery", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
+    const access = requireShipmentAccess(c, "fulfillment.view");
+    if (access.response) return access.response;
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.required"),
+          },
+        },
+        401,
+      );
+    }
+    try {
+      return c.json(
+        await services.recoverShipmentMutation(
+          { shipmentId: c.req.param("id"), sellerAccountId: access.actor.accountId, mutationAttemptId },
+          context,
+        ),
+      );
+    } catch (error) {
+      return c.json({ error: { code: "mutation_recovery_unavailable", message: errorMessage(error) } }, 409);
+    }
+  });
+
   app.post("/sales/shipments/:id/packing/start", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -260,6 +322,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
         {
           shipmentId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,
+          mutationAttemptId,
         },
         context,
       );
@@ -270,6 +333,20 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
   });
 
   app.post("/sales/shipments/:id/packing/lines/:lineId", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -300,6 +377,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
               sellerAccountId: access.actor.accountId,
               lineId: c.req.param("lineId"),
               confirmedQuantity: Number(body.confirmedQuantity),
+              mutationAttemptId,
             },
             context,
           )
@@ -309,6 +387,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
                 shipmentId: c.req.param("id"),
                 sellerAccountId: access.actor.accountId,
                 lineId: c.req.param("lineId"),
+                mutationAttemptId,
               },
               context,
             )
@@ -317,6 +396,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
                 shipmentId: c.req.param("id"),
                 sellerAccountId: access.actor.accountId,
                 lineId: c.req.param("lineId"),
+                mutationAttemptId,
               },
               context,
             );
@@ -332,6 +412,20 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
   });
 
   app.post("/sales/shipments/:id/pack", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -358,6 +452,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
           shipmentId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,
           packageCount: Number(body.packageCount ?? 1),
+          mutationAttemptId,
         },
         context,
       );
@@ -368,6 +463,20 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
   });
 
   app.post("/sales/shipments/:id/label", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -397,6 +506,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
           carrierName: String(body.carrierName ?? ""),
           labelReference: String(body.labelReference ?? ""),
           trackingIdentifier: String(body.trackingIdentifier ?? ""),
+          mutationAttemptId,
         },
         context,
       );
@@ -407,6 +517,20 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
   });
 
   app.post("/sales/shipments/:id/label/purchase", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -437,6 +561,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
           recipient: hasAddressInput(body, "recipient") ? readAddress(body, "recipient") : null,
           overrideReason: typeof body.overrideReason === "string" ? body.overrideReason : null,
           package: readPackageInput(body),
+          mutationAttemptId,
         },
         context,
       );
@@ -452,6 +577,20 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
   });
 
   app.post("/sales/shipments/:id/label/void", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -475,6 +614,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
         {
           shipmentId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,
+          mutationAttemptId,
         },
         context,
       );
@@ -485,6 +625,20 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
   });
 
   app.post("/sales/shipments/:id/dispatch", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -508,6 +662,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
         {
           shipmentId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,
+          mutationAttemptId,
         },
         context,
       );
@@ -518,6 +673,20 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
   });
 
   app.post("/sales/shipments/:id/deliver", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -541,6 +710,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
         {
           shipmentId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,
+          mutationAttemptId,
         },
         context,
       );
@@ -551,6 +721,20 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
   });
 
   app.post("/sales/shipments/:id/return", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -577,6 +761,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
           shipmentId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,
           reason: typeof body.reason === "string" ? body.reason : null,
+          mutationAttemptId,
         },
         context,
       );
@@ -587,6 +772,20 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
   });
 
   app.post("/sales/shipments/:id/exception", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {
       return access.response;
@@ -614,6 +813,7 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
           sellerAccountId: access.actor.accountId,
           exceptionType: String(body.exceptionType ?? "other"),
           notes: typeof body.notes === "string" ? body.notes : null,
+          mutationAttemptId,
         },
         context,
       );

@@ -16,6 +16,30 @@ import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { recordFulfillmentPostageLabelOperationPending } from "../read-model/queries";
 import { createFulfillmentShipmentRuntime } from "./runtime";
 
+function webhookReceiptQueryResult(sql: string, values: readonly unknown[] = []) {
+  if (sql.includes("WITH inserted AS") && sql.includes("fulfillment_postage_provider_events")) {
+    return {
+      rows: [
+        {
+          provider_event_id: values[0],
+          payload_hash: values[11],
+          handoff_state: "reserved",
+          processing_result: "reserved",
+          inserted: true,
+        },
+      ],
+      rowCount: 1,
+    };
+  }
+  if (sql.includes("SET claim_token") && sql.includes("fulfillment_postage_provider_events")) {
+    return { rows: [{ provider_event_id: values[0] }], rowCount: 1 };
+  }
+  if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
+    return { rows: [{ provider_event_id: values[0] }], rowCount: 1 };
+  }
+  return null;
+}
+
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
 
@@ -343,6 +367,79 @@ function createPostageOperationDb(shipmentRow = createPackedShipmentRow()) {
 }
 
 describe("fulfillment shipment runtime", () => {
+  it("validates internal cancellation identity, tenant history, and expected Shipment version", async () => {
+    const store = createInMemoryEventStore();
+    const appendToStream = vi.fn(store.eventStore.appendToStream);
+    const eventStore: EventStore = { ...store.eventStore, appendToStream };
+    const shipment = createPackedShipmentRow({ status: "awaiting-package", package_status: "awaiting-package" });
+    const db = {
+      query: vi.fn(async (sql: string) =>
+        sql.includes("FROM fulfillment_shipment_pages") ? { rows: [shipment] } : { rows: [] },
+      ),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_seller" as never },
+    };
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      context,
+      command: {
+        type: "CreateShipment",
+        shipmentId: "shp_1" as never,
+        orderId: "ord_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
+        lines: [
+          {
+            lineId: "spl_1" as never,
+            orderLineId: "oli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-08-24T00:00:00.000Z",
+      },
+    });
+    const cancellation = {
+      orderId: "ord_1",
+      cancelledAt: "2026-08-24T00:01:00.000Z",
+      context,
+      sourceIdentity: {
+        eventId: "evt_cancel_1",
+        streamId: "ordering.order-ord_1",
+        streamVersion: 2,
+        eventType: "ordering.order.cancelled",
+      },
+    };
+    await services.cancelShipmentForCancelledOrder(cancellation);
+    await services.cancelShipmentForCancelledOrder(cancellation);
+
+    const cancelledAppends = appendToStream.mock.calls
+      .map(([input]) => input)
+      .filter((input) => input.events.some((event) => event.eventType === "fulfillment.shipment.cancelled"));
+    expect(cancelledAppends).toHaveLength(1);
+    expect(cancelledAppends[0]?.expectedVersion).toBe(1);
+    await expect(
+      services.cancelShipmentForCancelledOrder({
+        ...cancellation,
+        sourceIdentity: { ...cancellation.sourceIdentity, streamVersion: 0 },
+      }),
+    ).rejects.toThrow("source identity is invalid");
+  });
+
   it("creates a shipment from a ready local order source", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = {
@@ -1849,12 +1946,15 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "label-attached",
                 tracking_identifier: "940000000000000000",
@@ -1862,13 +1962,6 @@ describe("fulfillment shipment runtime", () => {
               },
             ],
           };
-        }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          expect(sql).toContain("processing_result <> 'received'");
-          return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_tracker_1" }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -2005,12 +2098,15 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "awaiting-label",
                 label_status: "void-requested",
@@ -2023,13 +2119,6 @@ describe("fulfillment shipment runtime", () => {
               },
             ],
           };
-        }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          expect(sql).toContain("processing_result <> 'received'");
-          return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_refund_1" }], rowCount: 1 };
         }
         if (sql.includes("SET status = 'succeeded'")) {
           return { rows: [], rowCount: 1 };
@@ -2136,12 +2225,15 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "awaiting-label",
                 label_status: "void-requested",
@@ -2155,14 +2247,8 @@ describe("fulfillment shipment runtime", () => {
             ],
           };
         }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          return { rows: [], rowCount: 0 };
-        }
         if (sql.includes("SET status = 'failed'")) {
           return { rows: [], rowCount: 1 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_refund_rejected_1" }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -2256,12 +2342,15 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "label-attached",
                 label_status: "purchased",
@@ -2275,14 +2364,8 @@ describe("fulfillment shipment runtime", () => {
             ],
           };
         }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          return { rows: [], rowCount: 0 };
-        }
         if (sql.includes("SET status = 'failed'")) {
           return { rows: [], rowCount: 1 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_refund_after_rebuy_1" }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),

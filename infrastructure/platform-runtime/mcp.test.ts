@@ -1884,6 +1884,49 @@ describe("MCP runtime routes", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it("issue-7171-key-hash-and-mcp-boundary sends every owner-authoritative replay to Fulfillment without an outer reservation", async () => {
+    const reserve = vi.fn(async () => {
+      throw new Error("owner-authoritative tools must not reserve platform idempotency");
+    });
+    const handler = vi.fn(async (_input: McpToolHandlerInput) => ({
+      shipmentId: "shp_1",
+      version: 7,
+      status: "dispatched",
+    }));
+    const app = createActorApp(
+      { ...actor, permissions: [...actor.permissions, "fulfillment.manage"] },
+      {
+        idempotencyStore: {
+          reserve,
+          complete: vi.fn(async () => undefined),
+          abandon: vi.fn(async () => undefined),
+        } as never,
+        toolHandlers: { "fulfillment.dispatch-shipment": handler },
+      },
+    );
+    const idempotencyKey = "d7cc6b42-1aeb-4d9f-a62e-8f57225451d2";
+    const request = createRequest("tools/call", {
+      name: "fulfillment.dispatch-shipment",
+      arguments: {
+        accountId: "account_1",
+        shipmentId: "shp_1",
+        reason: "Carrier accepted custody.",
+        idempotencyKey,
+        confirmationText: "Dispatch Shipment.",
+      },
+      confirmation: { confirmed: true, text: "Dispatch Shipment." },
+    });
+
+    const first = await app.request("/", { method: "POST", body: JSON.stringify(request) });
+    const replay = await app.request("/", { method: "POST", body: JSON.stringify(request) });
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    expect(reserve).not.toHaveBeenCalled();
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(handler.mock.calls.every(([input]) => input.arguments.idempotencyKey === idempotencyKey)).toBe(true);
+  });
+
   it("stores and replays idempotent handler failures as MCP tool error results", async () => {
     const handler = vi.fn(async () => {
       throw new Error("provider timeout");
@@ -2122,7 +2165,7 @@ describe("MCP runtime routes", () => {
     await expect(response.json()).resolves.toEqual(
       toolErrorResponse(
         "request_1",
-        'No runtime handler is registered for MCP tool \'settlement.request-payout\'. Redacted arguments: {"accountId":"account_1","amount":"[redacted]","reason":"[redacted]","idempotencyKey":"idem_1","confirmationText":"[redacted]"}',
+        'No runtime handler is registered for MCP tool \'settlement.request-payout\'. Redacted arguments: {"accountId":"account_1","amount":"[redacted]","reason":"[redacted]","idempotencyKey":"[redacted]","confirmationText":"[redacted]"}',
       ),
     );
   });

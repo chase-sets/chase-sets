@@ -75,11 +75,21 @@ describe("fulfillment payment fraud source projection", () => {
       orderId: "ord_1",
       receivedAt: "2026-07-06T12:05:00.000Z",
       context: expect.objectContaining({ tenantId: "tnt_test" }),
+      sourceIdentity: expect.objectContaining({
+        eventId: "evt_1",
+        eventType: "payments.payment-fraud-warning-received",
+        streamVersion: 1,
+      }),
     });
     expect(onFraudWarningReceived).toHaveBeenNthCalledWith(2, {
       orderId: "ord_2",
       receivedAt: "2026-07-06T12:05:00.000Z",
       context: expect.objectContaining({ tenantId: "tnt_test" }),
+      sourceIdentity: expect.objectContaining({
+        eventId: "evt_1",
+        eventType: "payments.payment-fraud-warning-received",
+        streamVersion: 1,
+      }),
     });
     expect(db.query).not.toHaveBeenCalled();
   });

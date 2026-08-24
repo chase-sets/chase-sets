@@ -642,18 +642,28 @@ describe("MCP service catalog", () => {
   });
 
   it("classifies PII and financial write inputs as sensitive for redaction", () => {
-    expect(findMcpTool("identity.invite-member")?.audit.sensitiveInputFields).toEqual(["confirmationText", "email"]);
+    expect(findMcpTool("identity.invite-member")?.audit.sensitiveInputFields).toEqual([
+      "confirmationText",
+      "email",
+      "idempotencyKey",
+    ]);
     expect(findMcpTool("payments.request-refund")?.audit.sensitiveInputFields).toEqual([
       "amount",
       "confirmationText",
       "reason",
+      "idempotencyKey",
     ]);
     expect(findMcpTool("settlement.request-payout")?.audit.sensitiveInputFields).toEqual([
       "amount",
       "confirmationText",
       "reason",
+      "idempotencyKey",
     ]);
-    expect(findMcpTool("fulfillment.void-label")?.audit.sensitiveInputFields).toEqual(["confirmationText", "reason"]);
+    expect(findMcpTool("fulfillment.void-label")?.audit.sensitiveInputFields).toEqual([
+      "confirmationText",
+      "reason",
+      "idempotencyKey",
+    ]);
   });
 });
 
@@ -839,5 +849,15 @@ describe("MCP tool authorization", () => {
       "inventory.adjust-item must require confirmation.",
       "inventory.adjust-item must require an idempotency key.",
     ]);
+  });
+
+  it("issue-7171-key-hash-and-mcp-boundary marks every Fulfillment writer owner-authoritative and redacted", () => {
+    const tools = flattenMcpTools().filter((tool) => tool.serviceId === "fulfillment" && tool.risk !== "read");
+    expect(tools.length).toBeGreaterThan(0);
+    for (const tool of tools) {
+      expect(tool.guardrails.idempotencyAuthority).toBe("owner");
+      expect(tool.guardrails.idempotencyKey).toBe("required");
+      expect(tool.audit.sensitiveInputFields).toContain("idempotencyKey");
+    }
   });
 });

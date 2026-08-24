@@ -248,6 +248,7 @@ describe("fulfillment packing slip UI", () => {
         backHref="/account/sales/shipments"
         shipment={packingShipment}
         errorMessage={null}
+        recoveryScope={{ tenantId: "tenant_1", sellerAccountId: packingShipment.seller_account_id }}
       />,
     );
 

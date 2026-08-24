@@ -26,6 +26,11 @@ export const fulfillmentRetentionExemptions: readonly BcRetentionExemption[] = [
     reason: "Postage purchase/void operation history is reconciliation evidence and requires an archive decision.",
   },
   {
+    tableName: "fulfillment_shipment_tenant_resolutions",
+    owner: "fulfillment",
+    reason: "Shipment tenant bindings and quarantine decisions are permanent fail-closed authority evidence.",
+  },
+  {
     tableName: "fulfillment_return_shipment_label_operations",
     owner: "fulfillment",
     reason:

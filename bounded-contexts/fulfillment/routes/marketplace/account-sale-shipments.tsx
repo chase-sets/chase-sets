@@ -14,6 +14,7 @@ import {
   type FulfillmentCommandCenterShipmentInput,
   type ShipmentActionName,
 } from "../../features/shipments/ui/command-center-route-adapter";
+import { ShipmentMutationBoundary } from "../../features/shipments/ui/shipment-mutation-boundary";
 
 const DEFAULT_SHIPMENT_QUERY = "limit=100&offset=0";
 const COMMAND_CENTER_PATH = "/account/sales/shipments";
@@ -21,7 +22,7 @@ const COMMAND_CENTER_PATH = "/account/sales/shipments";
 type CommandCenterActionData = Readonly<{ error?: string }>;
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "fulfillment.view",
   });
@@ -32,6 +33,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     commandCenter: buildFulfillmentCommandCenter(shipments.items as readonly FulfillmentCommandCenterShipmentInput[]),
+    recoveryScope: { tenantId: actor.tenantId, sellerAccountId: actor.accountId },
   };
 }
 
@@ -67,12 +69,14 @@ export default function MarketplaceAccountSaleShipmentsRoute() {
   const actionData = useActionData() as CommandCenterActionData | undefined;
 
   return (
-    <FulfillmentCommandCenterPage
-      commandCenter={data.commandCenter}
-      actionBasePath={COMMAND_CENTER_PATH}
-      shipmentDetailBasePath={COMMAND_CENTER_PATH}
-      packingFlowBasePath={COMMAND_CENTER_PATH}
-      errorMessage={actionData?.error ?? null}
-    />
+    <ShipmentMutationBoundary {...data.recoveryScope}>
+      <FulfillmentCommandCenterPage
+        commandCenter={data.commandCenter}
+        actionBasePath={COMMAND_CENTER_PATH}
+        shipmentDetailBasePath={COMMAND_CENTER_PATH}
+        packingFlowBasePath={COMMAND_CENTER_PATH}
+        errorMessage={actionData?.error ?? null}
+      />
+    </ShipmentMutationBoundary>
   );
 }
