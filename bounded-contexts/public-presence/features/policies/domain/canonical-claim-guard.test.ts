@@ -231,7 +231,17 @@ const registeredCorpusSectionIds = {
     "errors-and-unauthorized-transactions",
     "termination-and-residual-obligations",
   ],
-  "agent-connector-terms": ["agent-connector-terms-scope"],
+  "agent-connector-terms": [
+    "scope-and-definitions",
+    "account-attribution-and-principal-liability",
+    "authentication-and-authorized-surfaces",
+    "permitted-purposes-and-rate-limits",
+    "market-data-use",
+    "agent-transactions",
+    "suspension-and-revocation",
+    "disclaimers-and-liability",
+    "changes-and-versioning",
+  ],
   "authenticity-service-terms": [
     "service-nature",
     "opt-in-and-fee",
@@ -271,6 +281,10 @@ const mustStayGreenReasons: Readonly<Record<string, string>> = {
     "The payments collection-agent role is Chase Sets' role and is a different referent from an authorized software agent.",
   "payments-terms#termination-and-residual-obligations":
     "Termination and residual obligations are actor-neutral and do not attribute an Account sanction to agent conduct.",
+  "agent-connector-terms#account-attribution-and-principal-liability":
+    "The draft states only the shipped actor, scope, permission, and Account attribution checks; the structural disclosure separately leaves principal responsibility and liability unresolved.",
+  "agent-connector-terms#suspension-and-revocation":
+    "The draft distinguishes consent revocation and runtime refusals from any unresolved contractual agent-access or agent-caused Account sanction authority.",
 };
 
 /**
@@ -962,7 +976,7 @@ describe("review-corpus projection", () => {
     }
   });
 
-  it("surfaces exactly the three agent-boundary enrollments across exactly two sections", () => {
+  it("surfaces exactly the five agent-boundary enrollments across exactly four sections", () => {
     const rows = projectCanonicalClaimReviewCorpus(publicPolicyRegistry);
     const enrolled = rows.flatMap((row) =>
       row.claimDisclosures
@@ -981,8 +995,16 @@ describe("review-corpus projection", () => {
         row: "terms-of-service#electronic-agents-and-automated-access",
         claimId: agentAccessAndAccountSanctionClaimId,
       },
+      {
+        row: "agent-connector-terms#account-attribution-and-principal-liability",
+        claimId: agentResponsibilityClaimId,
+      },
+      {
+        row: "agent-connector-terms#suspension-and-revocation",
+        claimId: agentAccessAndAccountSanctionClaimId,
+      },
     ]);
-    expect(new Set(enrolled.map((entry) => entry.row)).size).toBe(2);
+    expect(new Set(enrolled.map((entry) => entry.row)).size).toBe(4);
   });
 });
 
@@ -994,7 +1016,7 @@ describe("finite authorized-agent semantic adjudication matrix", () => {
     const matrixKeys = registeredCorpusAdjudicationMatrix.map((row) => row.row);
 
     expect(matrixKeys).toEqual(projectedKeys);
-    expect(matrixKeys).toHaveLength(66);
+    expect(matrixKeys).toHaveLength(74);
     expect(new Set(matrixKeys).size).toBe(matrixKeys.length);
     for (const row of registeredCorpusAdjudicationMatrix) {
       expect(row.principalResponsibility, row.row).toBe("green");
@@ -1003,7 +1025,7 @@ describe("finite authorized-agent semantic adjudication matrix", () => {
     }
   });
 
-  it("adjudicates all twelve must-stay-green rows explicitly with proposition-specific reasons", () => {
+  it("adjudicates all fourteen must-stay-green rows explicitly with proposition-specific reasons", () => {
     expect(Object.keys(mustStayGreenReasons)).toEqual([
       "terms-of-service#suspension-closure-and-holds",
       "terms-of-service#marketplace-role-and-limited-payments-agent",
@@ -1017,6 +1039,8 @@ describe("finite authorized-agent semantic adjudication matrix", () => {
       "seller-agreement#taxes",
       "payments-terms#processor-pass-through-and-collection-agent-role",
       "payments-terms#termination-and-residual-obligations",
+      "agent-connector-terms#account-attribution-and-principal-liability",
+      "agent-connector-terms#suspension-and-revocation",
     ]);
     for (const [rowKey, reason] of Object.entries(mustStayGreenReasons)) {
       const row = registeredCorpusAdjudicationMatrix.find((candidate) => candidate.row === rowKey);
@@ -1026,6 +1050,20 @@ describe("finite authorized-agent semantic adjudication matrix", () => {
         reason,
       });
     }
+  });
+
+  it("negative control: omitting one new Agent census row names the exact missing projection key", () => {
+    const omittedKey = "agent-connector-terms#changes-and-versioning";
+    const projectedKeys = projectCanonicalClaimReviewCorpus(publicPolicyRegistry).map(
+      (row) => `${row.policyKey}#${row.sectionId}`,
+    );
+    const omittedMutantKeys = registeredCorpusAdjudicationMatrix
+      .map((row) => row.row)
+      .filter((row) => row !== omittedKey);
+    const missing = projectedKeys.filter((row) => !omittedMutantKeys.includes(row));
+
+    expect(missing).toEqual([omittedKey]);
+    expect(omittedMutantKeys).not.toEqual(projectedKeys);
   });
 
   it("records the two restoration mutants, P1/P2 paraphrases, and isolated synthetic controls with exact verdict pairs", () => {
@@ -1347,6 +1385,47 @@ describe("line-keyed policy citation authority", () => {
     );
 
     expect(failures).toEqual([]);
+  });
+
+  it("proves the Terms developer-manifest citation entails portalUrl and the complete mcp block", () => {
+    const termsSection = termsSectionOf("electronic-agents-and-automated-access");
+    const reference = termsSection.reviewManifest.productTruthRefs.find((ref) =>
+      ref.startsWith("bounded-contexts/public-presence/features/developer-portal/domain/developer-manifest.ts:"),
+    );
+    expect(reference).toBe(
+      "bounded-contexts/public-presence/features/developer-portal/domain/developer-manifest.ts:24,41-45",
+    );
+
+    const parts = lineKeyedCitationParts(reference!);
+    const resolvedText = parts
+      .map((ref) => {
+        const slice = readCitedSourceSlice(repoRoot, ref);
+        expect(slice.error, ref).toBeUndefined();
+        return slice.text ?? "";
+      })
+      .join("\n");
+    for (const fragment of ["portalUrl", "endpoint", "protocolVersions", "tools"]) {
+      expect(resolvedText).toContain(fragment);
+    }
+
+    const shiftedText = parts
+      .map((ref) =>
+        ref.replace(/:(\d+)(?:-(\d+))?$/, (_match, startRaw: string, endRaw: string | undefined) => {
+          const start = Number(startRaw) + 1;
+          const end = endRaw === undefined ? start : Number(endRaw) + 1;
+          return `:${start}${endRaw === undefined ? "" : `-${end}`}`;
+        }),
+      )
+      .map((ref) => {
+        const slice = readCitedSourceSlice(repoRoot, ref);
+        expect(slice.error, ref).toBeUndefined();
+        return slice.text ?? "";
+      })
+      .join("\n");
+    const missingFragments = ["portalUrl", "endpoint", "protocolVersions", "tools"].filter(
+      (fragment) => !shiftedText.includes(fragment),
+    );
+    expect(missingFragments).toEqual(["portalUrl"]);
   });
 
   it("validates C1-C10 against independently derived identities, exact fragments, and minimal class-I edges", () => {

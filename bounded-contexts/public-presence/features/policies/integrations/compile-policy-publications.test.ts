@@ -57,6 +57,68 @@ function withEditedArtifacts(policyKeys: readonly string[]): readonly PublicPoli
   );
 }
 
+function preAgentTermsDraftBaselineRegistry(): readonly PublicPolicyRegistryEntry[] {
+  return publicPolicyRegistry.map((entry) => {
+    if (entry.artifact.metadata.policyKey === "agent-connector-terms") {
+      return {
+        ...entry,
+        requiredSubjectIds: ["agent-connector-terms-scope"],
+        artifact: {
+          ...entry.artifact,
+          title: "Agent connector terms",
+          description:
+            "This versioned artifact registers the Chase Sets agent connector terms in the public policy corpus. Its subject taxonomy and operative language are not yet drafted, and nothing in it takes effect before qualified counsel approves the final language, launch scope, and external approval reference.",
+          sections: [
+            {
+              id: "agent-connector-terms-scope",
+              title: "Agent connector terms scope",
+              draftText: "",
+              reviewStatus: "counsel-required" as const,
+              reviewManifest: {
+                scopeNote:
+                  "Reserve the scope of the operative Chase Sets agent connector terms, covering authorized machine access to the marketplace through the published connector surface. Counsel-approved language is required before any of it takes effect.",
+                decisionRefs: [],
+                productTruthRefs: [],
+                openQuestions: [
+                  "Subject taxonomy and draft language are owned by issue #5690 (agent connector terms document slice).",
+                ],
+                assumptions: [],
+              },
+            },
+          ],
+        },
+      } as unknown as PublicPolicyRegistryEntry;
+    }
+
+    if (entry.artifact.metadata.policyKey === "terms-of-service") {
+      return {
+        ...entry,
+        artifact: {
+          ...entry.artifact,
+          sections: entry.artifact.sections.map((section) =>
+            section.id === "electronic-agents-and-automated-access"
+              ? {
+                  ...section,
+                  reviewManifest: {
+                    ...section.reviewManifest,
+                    productTruthRefs: section.reviewManifest.productTruthRefs.map((ref) =>
+                      ref ===
+                      "bounded-contexts/public-presence/features/developer-portal/domain/developer-manifest.ts:24,41-45"
+                        ? "bounded-contexts/public-presence/features/developer-portal/domain/developer-manifest.ts:15,25-29"
+                        : ref,
+                    ),
+                  },
+                }
+              : section,
+          ),
+        },
+      } as PublicPolicyRegistryEntry;
+    }
+
+    return entry;
+  });
+}
+
 function withPublishedSellerArtifact(
   draftText: string,
   options: Readonly<{ includeUnreviewedExtra?: boolean }> = {},
@@ -340,16 +402,47 @@ describe("public policy corpus compiler", () => {
     expect(terms?.content).toContain("consentActivatable: false");
   });
 
-  it("keeps the Agent Connector Terms stub's generated record untouched by the Terms agent-boundary enrollment", async () => {
+  it("isolates the completed Agent draft and Terms citation re-pin to exactly their two generated records", async () => {
+    const baseline = await renderPublicPolicyPublicationContracts(preAgentTermsDraftBaselineRegistry());
     const modules = await renderPublicPolicyPublicationContracts();
-    const agentStub = modules.find((module) => module.relativePath === "agent-connector-terms-publication.ts");
-    const onDisk = readFileSync(
-      resolve(repoRoot, "contracts/public-docs/generated/agent-connector-terms-publication.ts"),
-      "utf8",
+    const changed = modules.filter(
+      (module) =>
+        baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content !== module.content,
     );
+    expect(changed.map(({ relativePath }) => relativePath)).toEqual([
+      "terms-of-service-publication.ts",
+      "agent-connector-terms-publication.ts",
+    ]);
 
-    expect(agentStub?.content).toBe(onDisk);
-    expect(agentStub?.content).toContain("consentActivatable: false");
+    const fingerprint = (content: string | undefined) =>
+      content?.match(/contentFingerprint: "(sha256:[a-f0-9]{64})"/)?.[1];
+    expect(
+      fingerprint(
+        baseline.find(({ relativePath }) => relativePath === "agent-connector-terms-publication.ts")?.content,
+      ),
+    ).toBe("sha256:c527cca70b8e0f5055e8fc480f2deefc61629a422af3249dd452a192b06c5c98");
+    expect(
+      fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
+    ).toBe("sha256:3f2930714f2f58cf68df0948999bb7d61e73b96e2b79af6719fcb15997ecea04");
+
+    for (const module of changed) {
+      const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
+      expect(fingerprint(module.content), module.relativePath).not.toBe(fingerprint(before));
+      expect(module.content, module.relativePath).toContain('publicationStatus: "counsel-review-required"');
+      expect(module.content, module.relativePath).toContain("effectiveAt: null");
+      expect(module.content, module.relativePath).toContain("counselApprovalReference: null");
+      expect(module.content, module.relativePath).toContain("consentActivatable: false");
+    }
+
+    for (const module of modules) {
+      const onDisk = readFileSync(resolve(repoRoot, "contracts/public-docs/generated", module.relativePath), "utf8");
+      expect(module.content, `${module.relativePath} on disk`).toBe(onDisk);
+      if (!changed.some(({ relativePath }) => relativePath === module.relativePath)) {
+        expect(module.content, `${module.relativePath} baseline isolation`).toBe(
+          baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content,
+        );
+      }
+    }
   });
 
   it("negative control: reverting each fingerprint-owning citation repair stales exactly its derived module", async () => {

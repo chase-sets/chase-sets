@@ -21,6 +21,9 @@ describe("developer portal pages", () => {
     expect(screen.getByRole("link", { name: "Open JSON manifest" }).getAttribute("href")).toBe(
       "/developers/manifest.json",
     );
+    expect(screen.getByRole("link", { name: "Review Agent Connector Terms" }).getAttribute("href")).toBe(
+      "/agent-terms",
+    );
   });
 
   it("renders available and planned generated MCP descriptors with schemas", () => {
