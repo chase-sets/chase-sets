@@ -61,6 +61,21 @@ describe("platform doctl authentication", () => {
     }
   });
 
+  it("recognizes only the closed captured parser partition", () => {
+    for (const name of ["s408", "s429", "s500", "s502", "s503", "s504"]) {
+      expect(classifyDoctlAuthTerminal(rawFixtures[name][1], `${fixtureAuthority}/${name}`)).toMatchObject({
+        class: "transient-http",
+      });
+    }
+    expect(classifyDoctlAuthTerminal(rawFixtures.refused[1], "http://127.0.0.1:28465").class).toBe("transient-transport");
+    expect(classifyDoctlAuthTerminal(rawFixtures.dns[1], "https://doctl-fixture-7458.invalid").class).toBe("transient-transport");
+    expect(classifyDoctlAuthTerminal(rawFixtures.tls[1], "https://127.0.0.1:28464").class).toBe("transient-transport");
+    for (const name of ["s404", "s409", "malformed"]) {
+      expect(classifyDoctlAuthTerminal(rawFixtures[name][1], `${fixtureAuthority}/${name}`).class).toBe("indeterminate");
+    }
+    expect(classifyDoctlAuthTerminal(`${fixedPrefix}/s504/v1/oauth/token/info: 504 synthetic\nextra\n`, `${fixtureAuthority}/s504`).class).toBe("transient-http");
+  });
+
   it("retries only the closed exact staged-doctl fixture partition and releases once", async () => {
     await withRunner(async (directory) => {
       const calls = [];
