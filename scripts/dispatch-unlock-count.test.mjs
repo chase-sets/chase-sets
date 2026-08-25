@@ -237,16 +237,19 @@ describe("dispatch dependency snapshot", () => {
     const cases = [
       {
         name: "root exhausted count",
+        guard: "exact-exhausted-count",
         reason: "exhausted-count-mismatch",
         response: rootResponse([], { totalCount: 1 }),
       },
       {
         name: "root cursor proof",
+        guard: "safe-new-cursor",
         reason: "unsafe-cursor",
         response: rootResponse([valid], { hasNextPage: true, endCursor: null }),
       },
       {
         name: "recursive label schema",
+        guard: "closed-provider-object",
         reason: "invalid-provider-schema",
         response: rootResponse([
           {
@@ -257,11 +260,13 @@ describe("dispatch dependency snapshot", () => {
       },
       {
         name: "incoming exhausted count",
+        guard: "exact-exhausted-count",
         reason: "exhausted-count-mismatch",
         response: rootResponse([{ ...valid, blockedBy: connection([], { totalCount: 1 }) }]),
       },
       {
         name: "outgoing page size",
+        guard: "page-size-bound",
         reason: "page-size-exceeded",
         response: rootResponse([
           {
@@ -273,13 +278,149 @@ describe("dispatch dependency snapshot", () => {
           },
         ]),
       },
+      {
+        name: "root total count changes after page one",
+        guard: "stable-total-count",
+        reason: "changed-total-count",
+        scope: "repository.issues",
+        request: vi.fn(async (query, variables) => {
+          if (query !== ISSUES_QUERY) throw new Error("unexpected nested query");
+          if (variables.after === null) {
+            return rootResponse([], { totalCount: 1, hasNextPage: true, endCursor: "root-page-2" });
+          }
+          if (variables.after === "root-page-2") return rootResponse([], { totalCount: 2 });
+          throw new Error(`unexpected root cursor ${variables.after}`);
+        }),
+      },
+      {
+        name: "nested total count changes after page one",
+        guard: "stable-total-count",
+        reason: "changed-total-count",
+        scope: "labels for issue local-1",
+        request: vi.fn(async (query, variables) => {
+          if (query === ISSUES_QUERY && variables.after === null) {
+            return rootResponse([
+              {
+                ...valid,
+                labels: connection([label("kind:ops", "label-first")], {
+                  totalCount: 2,
+                  hasNextPage: true,
+                  endCursor: "labels-page-2",
+                }),
+              },
+            ]);
+          }
+          if (query === LABELS_QUERY && variables.issue === "local-1" && variables.after === "labels-page-2") {
+            return nestedResponse("local-1", "labels", [label("area:ops", "label-second")], { totalCount: 3 });
+          }
+          throw new Error("unexpected request");
+        }),
+      },
+      {
+        name: "repeated label identity changes facts",
+        guard: "consistent-repeated-label-facts",
+        reason: "repeated-label-facts",
+        scope: "labels for issue local-2",
+        response: rootResponse([
+          issue({ id: "local-1", number: 1, labels: connection([label("kind:ops", "shared-label")]) }),
+          issue({ id: "local-2", number: 2, labels: connection([label("area:ops", "shared-label")]) }),
+        ]),
+      },
+      {
+        name: "repeated dependency identity changes facts",
+        guard: "consistent-repeated-target-facts",
+        reason: "repeated-target-facts",
+        scope: "dependencies for issue local-2",
+        response: rootResponse([
+          issue({
+            id: "local-1",
+            number: 1,
+            blocking: connection([edge({ id: "shared-target", number: 3, repository: "synthetic/external" })]),
+          }),
+          issue({
+            id: "local-2",
+            number: 2,
+            blockedBy: connection([
+              edge({ id: "shared-target", number: 3, state: "CLOSED", repository: "synthetic/external" }),
+            ]),
+          }),
+        ]),
+      },
+      {
+        name: "open local edge has no root",
+        guard: "local-edge-root-closure",
+        reason: "referential-closure",
+        scope: "blocking for issue local-1",
+        response: rootResponse([
+          issue({ id: "local-1", number: 1, blocking: connection([edge({ id: "missing-local", number: 2 })]) }),
+        ]),
+      },
+      {
+        name: "nested page changes parent identity",
+        guard: "nested-parent-identity",
+        reason: "invalid-provider-schema",
+        scope: "data.node.id",
+        request: vi.fn(async (query, variables) => {
+          if (query === ISSUES_QUERY && variables.after === null) {
+            return rootResponse([
+              {
+                ...valid,
+                labels: connection([], { totalCount: 1, hasNextPage: true, endCursor: "labels-page-2" }),
+              },
+            ]);
+          }
+          if (query === LABELS_QUERY && variables.issue === "local-1" && variables.after === "labels-page-2") {
+            return nestedResponse("different-parent", "labels", [label("kind:ops")], { totalCount: 1 });
+          }
+          throw new Error("unexpected request");
+        }),
+      },
+      {
+        name: "root repository identity changes",
+        guard: "root-repository-and-state",
+        reason: "invalid-provider-schema",
+        scope: "data.repository.nameWithOwner",
+        response: {
+          data: {
+            repository: { nameWithOwner: "synthetic/external", issues: connection([valid]) },
+          },
+        },
+      },
+      {
+        name: "root collection includes a closed issue",
+        guard: "root-repository-and-state",
+        reason: "invalid-provider-schema",
+        scope: "repository.issues.nodes[0].state",
+        response: rootResponse([{ ...valid, state: "CLOSED" }]),
+      },
+      {
+        name: "issue number is outside the provider scalar domain",
+        guard: "provider-scalar-domain",
+        reason: "invalid-provider-schema",
+        scope: "repository.issues.nodes[0].number",
+        response: rootResponse([{ ...valid, number: 0 }]),
+      },
+      {
+        name: "connection total is outside the provider scalar domain",
+        guard: "provider-scalar-domain",
+        reason: "invalid-provider-schema",
+        scope: "repository.issues.totalCount",
+        response: rootResponse([valid], { totalCount: -1 }),
+      },
+      {
+        name: "issue id is outside the provider scalar domain",
+        guard: "provider-scalar-domain",
+        reason: "invalid-provider-schema",
+        scope: "repository.issues.nodes[0].id",
+        response: rootResponse([{ ...valid, id: "" }]),
+      },
     ];
     for (const testCase of cases) {
       const unlockReducer = vi.fn();
       const blockerReducer = vi.fn();
       try {
         await collectStableDependencyFacts({
-          request: collectorErrorRequest(testCase.response),
+          request: testCase.request ?? collectorErrorRequest(testCase.response),
           owner: OWNER,
           repository: REPOSITORY,
           unlockReducer,
@@ -288,14 +429,33 @@ describe("dispatch dependency snapshot", () => {
         throw new Error(`${testCase.name} unexpectedly accepted`);
       } catch (error) {
         expectFailure(error, testCase.reason);
+        if (testCase.scope !== undefined) {
+          expect(error.scope).toBe(testCase.scope);
+          expect(error.message).toContain(`:${testCase.scope}]`);
+        }
       }
       expect(unlockReducer).not.toHaveBeenCalled();
       expect(blockerReducer).not.toHaveBeenCalled();
     }
 
-    // The inventory is deliberately stable. Each entry is a named governing
-    // guard, and every control above changes only the connection fact named by
-    // that guard while both reducers remain unreachable.
+    // The inventory is deliberately stable. The table above discriminates every
+    // connection-completeness, provider-scope, and scalar-domain guard it names;
+    // companion tests pin the envelope, identity, stability, and reducer guards.
+    expect(new Set(cases.map((testCase) => testCase.guard))).toEqual(
+      new Set([
+        "closed-provider-object",
+        "provider-scalar-domain",
+        "root-repository-and-state",
+        "page-size-bound",
+        "safe-new-cursor",
+        "stable-total-count",
+        "exact-exhausted-count",
+        "nested-parent-identity",
+        "consistent-repeated-label-facts",
+        "consistent-repeated-target-facts",
+        "local-edge-root-closure",
+      ]),
+    );
     expect(FAIL_CLOSED_GUARD_IDS).toEqual([
       "graphql-response-envelope",
       "closed-provider-object",
@@ -448,6 +608,7 @@ describe("dispatch dependency snapshot", () => {
   });
 
   it("executes LABELS and BLOCKING overflow queries on both complete passes", async () => {
+    const overflowTarget = issue({ id: "local-overflow-target", number: 3 });
     const firstPageIssue = issue({
       id: "local-overflow",
       number: 1,
@@ -470,17 +631,14 @@ describe("dispatch dependency snapshot", () => {
     ]);
     const request = vi.fn(async (query, variables) => {
       callsByQuery.set(query, (callsByQuery.get(query) ?? 0) + 1);
-      if (query === ISSUES_QUERY && variables.after === null) return rootResponse([firstPageIssue]);
+      if (query === ISSUES_QUERY && variables.after === null) return rootResponse([firstPageIssue, overflowTarget]);
       if (query === LABELS_QUERY && variables.issue === "local-overflow" && variables.after === "labels-page-2") {
         return nestedResponse("local-overflow", "labels", [label("area:ops", "label-second")], { totalCount: 2 });
       }
       if (query === BLOCKING_QUERY && variables.issue === "local-overflow" && variables.after === "blocking-page-2") {
-        return nestedResponse(
-          "local-overflow",
-          "blocking",
-          [edge({ id: "external-second", number: 3, repository: "synthetic/external" })],
-          { totalCount: 2 },
-        );
+        return nestedResponse("local-overflow", "blocking", [edge({ id: "local-overflow-target", number: 3 })], {
+          totalCount: 2,
+        });
       }
       throw new Error(`unexpected query ${query.slice(0, 40)} after ${variables.after}`);
     });
@@ -488,6 +646,7 @@ describe("dispatch dependency snapshot", () => {
     const result = await collectStableDependencyFacts({ request, owner: OWNER, repository: REPOSITORY });
 
     expect(result).toMatchObject({ attempts: 2, requestCount: 6, rootPageCount: 2, overflowRequestCount: 4 });
+    expect(result.unlockCounts.find((value) => value.issueId === "local-overflow")?.unlockCount).toBe(1);
     expect(callsByQuery).toEqual(
       new Map([
         [ISSUES_QUERY, 2],
@@ -497,10 +656,9 @@ describe("dispatch dependency snapshot", () => {
       ]),
     );
 
-    // Non-governing connections are empty and all pages otherwise agree. A
-    // LABELS-overflow or BLOCKING-overflow query bypass leaves the corresponding
-    // total unexhausted (or issues the wrong query), so this candidate-green
-    // control becomes red at that named clause.
+    // Non-governing connections are empty and all pages otherwise agree. The
+    // local outgoing target appears only on page 2, so a BLOCKING-overflow bypass
+    // loses an unlock; a LABELS-overflow bypass leaves its total unexhausted.
   });
 
   it("contains the complete GraphQL surface and rejects GraphQL errors or invalid JSON", async () => {
