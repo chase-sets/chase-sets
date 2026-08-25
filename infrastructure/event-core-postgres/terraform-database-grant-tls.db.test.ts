@@ -13,9 +13,8 @@ import {
   connectionUrlForGrant,
   main as runGrantScript,
   statementsForGrant as productionStatementsForGrant,
-} from
-// @ts-expect-error The production boundary is intentionally an ESM script without a declaration file.
-"../../scripts/apply-digitalocean-database-grant.mjs";
+  // @ts-expect-error The production boundary is intentionally an ESM script without a declaration file.
+} from "../../scripts/apply-digitalocean-database-grant.mjs";
 
 const { Client } = pg;
 const execFileAsync = promisify(execFile);
