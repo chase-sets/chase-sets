@@ -2209,6 +2209,61 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
+  it("verifies and uploads the exact production Kubernetes transition before every failure handler and marker", () => {
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const promoteStep = workflowStep(productionJob, "Promote production Argo Rollouts");
+    const verifyStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
+    const uploadStep = workflowStep(productionJob, "Upload production Kubernetes deployment transition");
+    const abortStep = workflowStep(productionJob, "Abort production Argo Rollouts");
+    const diagnosticsStep = workflowStep(productionJob, "Capture post-cutover production Kubernetes diagnostics");
+    const rollbackStep = workflowStep(productionJob, "Roll back production Kubernetes release");
+    const markerStep = workflowStep(productionJob, "Mark production release");
+    const releaseHealthUpload = workflowStep(productionJob, "Upload release health summary");
+
+    const orderedSteps = [promoteStep, verifyStep, uploadStep, abortStep, diagnosticsStep, rollbackStep, markerStep];
+    expect(orderedSteps.map((step) => productionJob.indexOf(step))).toEqual(
+      [...orderedSteps].map((step) => productionJob.indexOf(step)).sort((left, right) => left - right),
+    );
+    expect(productionJob.indexOf('echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"')).toBeLessThan(
+      productionJob.indexOf(verifyStep),
+    );
+
+    expect(verifyStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
+    expect(verifyStep).not.toContain("ARGO_ROLLOUTS_ENABLED == 'true'");
+    expect(verifyStep).toContain("verify-deployment-transition");
+    expect(verifyStep).toContain('--rollback-target "artifacts/release-health/production-rollback-target.json"');
+    expect(verifyStep).toContain('--out "artifacts/release-health/production-kubernetes-deployment-transition.json"');
+    expect(verifyStep).not.toMatch(/DIGITALOCEAN_ACCESS_TOKEN|SPACES_ACCESS_ID|SPACES_SECRET_KEY|TF_VAR_/);
+
+    expect(uploadStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
+    expect(uploadStep).not.toContain("ARGO_ROLLOUTS_ENABLED == 'true'");
+    expect(uploadStep).toContain("uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(uploadStep).toContain("name: production-kubernetes-deployment-transition");
+    expect(uploadStep).toContain("path: artifacts/release-health/production-kubernetes-deployment-transition.json");
+    expect(uploadStep).toContain("if-no-files-found: error");
+    expect(uploadStep).not.toMatch(/DIGITALOCEAN_ACCESS_TOKEN|SPACES_ACCESS_ID|SPACES_SECRET_KEY|TF_VAR_/);
+    expect(releaseHealthUpload).toContain("artifacts/release-health/production-kubernetes-deployment-transition.json");
+  });
+
+  it("keeps deployment-transition verification out of staging, rollback, and incident-resolution call sites", () => {
+    for (const workflow of [
+      platformStagingHelmRecoveryWorkflow,
+      platformStagingRollbackDrillWorkflow,
+      platformRollbackReadinessWorkflow,
+    ]) {
+      expect(workflow).not.toContain("verify-deployment-transition");
+    }
+
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const rollbackStep = workflowStep(productionJob, "Roll back production Kubernetes release");
+    expect(rollbackStep).toContain("platform:kubernetes-deployment -- rollback");
+    expect(rollbackStep).not.toContain("verify-deployment-transition");
+
+    const incidentJob = workflowJob(platformProductionWorkflow, "close-resolved-deploy-incidents");
+    expect(incidentJob).toContain('startswith("Incident: Platform Deploy ")');
+    expect(incidentJob).not.toContain("verify-deployment-transition");
+  });
+
   it("runs the database restore drill as a confirmed staging-only monthly workflow", () => {
     const restoreJob = workflowJob(platformDatabaseRestoreDrillWorkflow, "restore-drill");
     const restoreStep = workflowStep(platformDatabaseRestoreDrillWorkflow, "Run staging database restore drill");

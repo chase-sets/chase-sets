@@ -1826,6 +1826,25 @@ describe("change-scope", () => {
     });
   });
 
+  it("requires deployment for the isolated Kubernetes deployment helper and test pair", () => {
+    const scope = classifyChanges({
+      changedFiles: ["scripts/platform-kubernetes-deployment.mjs", "scripts/platform-kubernetes-deployment.test.mjs"],
+    });
+
+    expect(scope).toMatchObject({
+      deployRequired: true,
+      clusterPreviewRequired: true,
+      dockerImageRequired: false,
+      buildRequired: false,
+    });
+  });
+
+  it("does not require deployment for an unrelated scripts path", () => {
+    expect(classifyChanges({ changedFiles: ["scripts/synthetic-unrelated-maintenance.mjs"] }).deployRequired).toBe(
+      false,
+    );
+  });
+
   it("does not expand bounded-context unit test changes to runtime dependents or E2E", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({

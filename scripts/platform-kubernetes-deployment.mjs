@@ -15,6 +15,7 @@ import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v2";
+export const PLATFORM_KUBERNETES_DEPLOYMENT_TRANSITION_VERSION = "platform-kubernetes-deployment-transition/v1";
 export const PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION = "platform-kubernetes-scenario-seed/v1";
 export const managedRegistryPullSecretName = "chase-sets";
 export const scenarioSeedMaxActiveDeadlineSeconds = 3_300;
@@ -624,6 +625,36 @@ export function buildKubernetesRollbackTarget(options = {}) {
     observedDigest: options.observedDigest ?? digest,
     ...(options.imageIdentityProof ? { imageIdentityProof: options.imageIdentityProof } : {}),
     workloadIdentities: options.workloadIdentities ?? [],
+    ...(options.historyHeadRevision != null ? { historyHeadRevision: options.historyHeadRevision } : {}),
+    ...(options.terminalFailedSuffix
+      ? { terminalFailedSuffix: options.terminalFailedSuffix.map((entry) => ({ ...entry })) }
+      : {}),
+    ...(options.preDeployHistory ? { preDeployHistory: options.preDeployHistory.map((entry) => ({ ...entry })) } : {}),
+  };
+}
+
+export function selectStableDeployedHelmSource(history) {
+  const deployed = history.filter((entry) => entry.status === "deployed");
+  if (deployed.length !== 1) {
+    throw new Error(
+      `Rollback target capture requires exactly one deployed Helm revision; observed ${deployed.length}.`,
+    );
+  }
+
+  const source = deployed[0];
+  const sourceIndex = history.indexOf(source);
+  const terminalFailedSuffix = history.slice(sourceIndex + 1);
+  const rejectedEntry = terminalFailedSuffix.find((entry) => entry.status !== "failed");
+  if (rejectedEntry) {
+    throw new Error(
+      `Rollback target capture requires every Helm revision after deployed source ${source.revision} to have status "failed"; revision ${rejectedEntry.revision} has status ${JSON.stringify(rejectedEntry.status)}.`,
+    );
+  }
+
+  return {
+    source,
+    historyHead: history.at(-1),
+    terminalFailedSuffix,
   };
 }
 
@@ -638,19 +669,7 @@ export async function captureKubernetesRollbackTarget(options = {}) {
   }
   requiredOption(options.releaseTag, "releaseTag");
   const initialHistory = await readHelmHistory(options);
-  const deployed = initialHistory.filter((entry) => entry.status === "deployed");
-  if (deployed.length !== 1) {
-    throw new Error(
-      `Rollback target capture requires exactly one deployed Helm revision; observed ${deployed.length}.`,
-    );
-  }
-  const source = deployed[0];
-  const historyHead = initialHistory.at(-1);
-  if (!historyHead || historyHead.revision !== source.revision) {
-    throw new Error(
-      `Deployed Helm revision ${source.revision} is not the current history head ${historyHead?.revision ?? "absent"}.`,
-    );
-  }
+  const { source, historyHead, terminalFailedSuffix } = selectStableDeployedHelmSource(initialHistory);
 
   const values = await readHelmRevisionValues({ ...options, revision: source.revision });
   const observedIdentity = platformImageIdentityFromValues(values);
@@ -679,8 +698,102 @@ export async function captureKubernetesRollbackTarget(options = {}) {
     observedDigest: observedIdentity.digest,
     imageIdentityProof,
     workloadIdentities,
+    historyHeadRevision: historyHead.revision,
+    terminalFailedSuffix,
+    preDeployHistory: initialHistory,
     values,
   });
+}
+
+function capturedTransitionHistory(rollbackTarget) {
+  if (!rollbackTarget || typeof rollbackTarget !== "object" || Array.isArray(rollbackTarget)) {
+    throw new Error("Deployment transition verification requires a rollback target record.");
+  }
+  if (rollbackTarget.schemaVersion !== PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION) {
+    throw new Error(
+      `Deployment transition verification requires ${PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION}; observed ${JSON.stringify(rollbackTarget.schemaVersion)}.`,
+    );
+  }
+  const history = rollbackTarget.preDeployHistory;
+  if (!Array.isArray(history) || history.length === 0) {
+    throw new Error("Deployment transition rollback target must contain a non-empty preDeployHistory array.");
+  }
+
+  for (const [index, entry] of history.entries()) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Deployment transition preDeployHistory entry ${index} must be an object.`);
+    }
+    positiveHelmRevision(entry.revision, `Deployment transition preDeployHistory entry ${index} revision`);
+    const status = requiredOption(entry.status, `Deployment transition preDeployHistory entry ${index} status`);
+    if (status !== status.trim().toLowerCase()) {
+      throw new Error(`Deployment transition preDeployHistory entry ${index} status must already be normalized.`);
+    }
+    if (typeof entry.description !== "string" || entry.description !== entry.description.trim()) {
+      throw new Error(`Deployment transition preDeployHistory entry ${index} description must already be normalized.`);
+    }
+    if (index > 0 && history[index - 1].revision >= entry.revision) {
+      throw new Error("Deployment transition preDeployHistory revisions must be strictly increasing.");
+    }
+  }
+
+  const capturedHeadRevision = positiveHelmRevision(
+    rollbackTarget.historyHeadRevision,
+    "rollback target historyHeadRevision",
+  );
+  if (history.at(-1).revision !== capturedHeadRevision) {
+    throw new Error(
+      `Deployment transition rollback target history head ${history.at(-1).revision} does not match captured head ${capturedHeadRevision}.`,
+    );
+  }
+
+  const { source, terminalFailedSuffix } = selectStableDeployedHelmSource(history);
+  if (rollbackTarget.sourceRevision !== source.revision || rollbackTarget.sourceStatus !== source.status) {
+    throw new Error(
+      `Deployment transition rollback target source ${rollbackTarget.sourceRevision ?? "absent"}/${JSON.stringify(rollbackTarget.sourceStatus)} does not match captured history source ${source.revision}/${JSON.stringify(source.status)}.`,
+    );
+  }
+  if (JSON.stringify(rollbackTarget.terminalFailedSuffix) !== JSON.stringify(terminalFailedSuffix)) {
+    throw new Error("Deployment transition rollback target terminalFailedSuffix does not match captured history.");
+  }
+  return { history, capturedHeadRevision };
+}
+
+export async function verifyKubernetesDeploymentTransition(options = {}) {
+  const { history: capturedHistory, capturedHeadRevision } = capturedTransitionHistory(options.rollbackTarget);
+  const observedHistory = await readHelmHistory(options);
+  const newRevisionCount = observedHistory.length - capturedHistory.length;
+  if (newRevisionCount !== 1) {
+    throw new Error(`Deployment transition requires exactly one new Helm revision; observed ${newRevisionCount}.`);
+  }
+  assertHelmHistoryUnchanged(
+    capturedHistory,
+    observedHistory.slice(0, capturedHistory.length),
+    "deployment transition captured prefix",
+  );
+
+  const resultingHead = observedHistory.at(-1);
+  const expectedRevision = capturedHeadRevision + 1;
+  if (resultingHead.revision !== expectedRevision) {
+    throw new Error(
+      `Deployment transition requires resulting Helm revision ${expectedRevision}; observed ${resultingHead.revision}.`,
+    );
+  }
+  if (resultingHead.status !== "deployed") {
+    throw new Error(
+      `Deployment transition requires resulting Helm revision ${resultingHead.revision} to have status "deployed"; observed ${JSON.stringify(resultingHead.status)}.`,
+    );
+  }
+
+  return {
+    schemaVersion: PLATFORM_KUBERNETES_DEPLOYMENT_TRANSITION_VERSION,
+    checkedAt: options.checkedAt ?? new Date().toISOString(),
+    release: options.release ?? defaultRelease,
+    namespace: options.namespace ?? defaultNamespace,
+    capturedHeadRevision,
+    resultingHeadRevision: resultingHead.revision,
+    capturedHistory: capturedHistory.map((entry) => ({ ...entry })),
+    observedHistory,
+  };
 }
 
 function expectedRollbackImageIdentity(options) {
@@ -1957,11 +2070,12 @@ export function parseArgs(argv, env = process.env) {
       "diagnostics",
       "plan",
       "capture-rollback-target",
+      "verify-deployment-transition",
       "teardown",
     ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollback-target <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|verify-deployment-transition|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollback-target <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -2140,6 +2254,17 @@ async function main(argv, env = process.env) {
       last_known_good_commit: target.lastKnownGoodCommit,
     });
     console.log(JSON.stringify(target, null, 2));
+    return 0;
+  }
+
+  if (options.command === "verify-deployment-transition") {
+    const rollbackTargetPath = requiredOption(options.rollbackTargetPath, "rollback-target");
+    const rollbackTarget = parseJsonCommandOutput(readFileSync(rollbackTargetPath, "utf8"), "rollback target file");
+    const transition = await verifyKubernetesDeploymentTransition({ ...options, rollbackTarget });
+    if (options.outPath) {
+      await writeJsonRecord(options.outPath, transition);
+    }
+    console.log(JSON.stringify(transition, null, 2));
     return 0;
   }
 
