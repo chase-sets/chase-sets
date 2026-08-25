@@ -225,11 +225,7 @@ describe("dispatch dependency snapshot", () => {
     const recovery = rootCaptureRequest([
       [first, target3, target4],
       [target3, target4, { ...first, issueDependenciesSummary: { ...first.issueDependenciesSummary, blockedBy: 99 } }],
-      [
-        target4,
-        { ...first, issueDependenciesSummary: { ...first.issueDependenciesSummary, blockedBy: 99 } },
-        target3,
-      ],
+      [target4, { ...first, issueDependenciesSummary: { ...first.issueDependenciesSummary, blockedBy: 99 } }, target3],
     ]);
     await expect(
       collectStableDependencyFacts({ request: recovery, owner: OWNER, repository: REPOSITORY }),
@@ -319,6 +315,74 @@ describe("dispatch dependency snapshot", () => {
     ]);
   });
 
+  it("keeps case-sensitive identities and every consumed fact fail-closed", async () => {
+    const duplicateLabelId = "synthetic-label";
+    const duplicateIdentity = issue({
+      id: "local-duplicate",
+      number: 1,
+      labels: connection([label("kind:ops", duplicateLabelId), label("kind:ops", duplicateLabelId)], {
+        totalCount: 2,
+      }),
+    });
+    const duplicateUnlockReducer = vi.fn();
+    const duplicateBlockerReducer = vi.fn();
+
+    await expect(
+      collectStableDependencyFacts({
+        request: collectorErrorRequest(rootResponse([duplicateIdentity])),
+        owner: OWNER,
+        repository: REPOSITORY,
+        unlockReducer: duplicateUnlockReducer,
+        blockerReducer: duplicateBlockerReducer,
+      }),
+    ).rejects.toMatchObject({ reason: "duplicate-node-identity" });
+    expect(duplicateUnlockReducer).not.toHaveBeenCalled();
+    expect(duplicateBlockerReducer).not.toHaveBeenCalled();
+
+    const caseDistinctIdentity = issue({
+      id: "local-case-distinct",
+      number: 2,
+      labels: connection([label("kind:ops", "Label-A"), label("area:ops", "label-a")], { totalCount: 2 }),
+    });
+    await expect(
+      collectStableDependencyFacts({
+        request: rootCaptureRequest([[caseDistinctIdentity], [caseDistinctIdentity]]),
+        owner: OWNER,
+        repository: REPOSITORY,
+      }),
+    ).resolves.toMatchObject({ attempts: 2 });
+
+    const base = issue({ id: "local-retention", number: 3 });
+    const changedSummary = {
+      ...base,
+      issueDependenciesSummary: { ...base.issueDependenciesSummary, blocking: 1 },
+    };
+    const changedAgain = {
+      ...base,
+      issueDependenciesSummary: { ...base.issueDependenciesSummary, blocking: 2 },
+    };
+    const retentionUnlockReducer = vi.fn();
+    const retentionBlockerReducer = vi.fn();
+
+    await expect(
+      collectStableDependencyFacts({
+        request: rootCaptureRequest([[base], [changedSummary], [changedAgain]]),
+        owner: OWNER,
+        repository: REPOSITORY,
+        unlockReducer: retentionUnlockReducer,
+        blockerReducer: retentionBlockerReducer,
+      }),
+    ).rejects.toMatchObject({ code: "unstable-authority" });
+    expect(retentionUnlockReducer).not.toHaveBeenCalled();
+    expect(retentionBlockerReducer).not.toHaveBeenCalled();
+
+    // These controls deliberately freeze every other provider fact. A bypass
+    // mutant that removes unique-case-sensitive-identity accepts the duplicate
+    // label, while one that folds identity case rejects the distinct pair. A
+    // canonical-retention mutant that drops this consumed summary scalar accepts
+    // the first two captures. Every named mutant makes this test red.
+  });
+
   it("binds summaries without treating them as bidirectional edge authority", async () => {
     const current = issue({
       id: "local-2",
@@ -368,9 +432,12 @@ describe("dispatch dependency snapshot", () => {
         return rootResponse([firstPageIssue]);
       }
       if (query === BLOCKED_BY_QUERY && variables.issue === "local-1" && variables.after === "blockedBy-page-2") {
-        return nestedResponse("local-1", "blockedBy", [
-          edge({ id: "external-2", number: 2, repository: "synthetic/external" }),
-        ], { totalCount: 2 });
+        return nestedResponse(
+          "local-1",
+          "blockedBy",
+          [edge({ id: "external-2", number: 2, repository: "synthetic/external" })],
+          { totalCount: 2 },
+        );
       }
       throw new Error("unexpected overflow request");
     });
@@ -378,6 +445,62 @@ describe("dispatch dependency snapshot", () => {
     expect(rootCalls).toBe(2);
     expect(result).toMatchObject({ attempts: 2, requestCount: 4, rootPageCount: 2, overflowRequestCount: 2 });
     expect(result.blockerFacts[0].openBlockerCount).toBe(2);
+  });
+
+  it("executes LABELS and BLOCKING overflow queries on both complete passes", async () => {
+    const firstPageIssue = issue({
+      id: "local-overflow",
+      number: 1,
+      labels: connection([label("kind:ops", "label-first")], {
+        totalCount: 2,
+        hasNextPage: true,
+        endCursor: "labels-page-2",
+      }),
+      blocking: connection([edge({ id: "external-first", number: 2, repository: "synthetic/external" })], {
+        totalCount: 2,
+        hasNextPage: true,
+        endCursor: "blocking-page-2",
+      }),
+    });
+    const callsByQuery = new Map([
+      [ISSUES_QUERY, 0],
+      [LABELS_QUERY, 0],
+      [BLOCKING_QUERY, 0],
+      [BLOCKED_BY_QUERY, 0],
+    ]);
+    const request = vi.fn(async (query, variables) => {
+      callsByQuery.set(query, (callsByQuery.get(query) ?? 0) + 1);
+      if (query === ISSUES_QUERY && variables.after === null) return rootResponse([firstPageIssue]);
+      if (query === LABELS_QUERY && variables.issue === "local-overflow" && variables.after === "labels-page-2") {
+        return nestedResponse("local-overflow", "labels", [label("area:ops", "label-second")], { totalCount: 2 });
+      }
+      if (query === BLOCKING_QUERY && variables.issue === "local-overflow" && variables.after === "blocking-page-2") {
+        return nestedResponse(
+          "local-overflow",
+          "blocking",
+          [edge({ id: "external-second", number: 3, repository: "synthetic/external" })],
+          { totalCount: 2 },
+        );
+      }
+      throw new Error(`unexpected query ${query.slice(0, 40)} after ${variables.after}`);
+    });
+
+    const result = await collectStableDependencyFacts({ request, owner: OWNER, repository: REPOSITORY });
+
+    expect(result).toMatchObject({ attempts: 2, requestCount: 6, rootPageCount: 2, overflowRequestCount: 4 });
+    expect(callsByQuery).toEqual(
+      new Map([
+        [ISSUES_QUERY, 2],
+        [LABELS_QUERY, 2],
+        [BLOCKING_QUERY, 2],
+        [BLOCKED_BY_QUERY, 0],
+      ]),
+    );
+
+    // Non-governing connections are empty and all pages otherwise agree. A
+    // LABELS-overflow or BLOCKING-overflow query bypass leaves the corresponding
+    // total unexhausted (or issues the wrong query), so this candidate-green
+    // control becomes red at that named clause.
   });
 
   it("contains the complete GraphQL surface and rejects GraphQL errors or invalid JSON", async () => {
