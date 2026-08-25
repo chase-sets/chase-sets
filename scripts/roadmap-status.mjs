@@ -709,8 +709,6 @@ function validWindowIssue(node) {
     isNonNegativeSafeInteger(node.issueDependenciesSummary.blockedBy) &&
     isNonNegativeSafeInteger(node.issueDependenciesSummary.totalBlockedBy);
   if (!validBase) return false;
-  validateWindowPage(node.labels, "ROADMAP_DISPATCH_WINDOW_AUTHORITY_LABEL_PAGE_INVALID");
-  validateWindowPage(node.blockedBy, "ROADMAP_DISPATCH_WINDOW_AUTHORITY_BLOCKED_BY_PAGE_INVALID");
   return true;
 }
 

@@ -2040,14 +2040,14 @@ describe("prioritization hygiene authority", () => {
       code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_LABEL_PAGE_INVALID",
       loaders: () =>
         pagedWindowLoaders({
-          labelPages: { root: { totalCount: 1, pageInfo: { hasNextPage: true, endCursor: null }, nodes: [] } },
+          labelPages: { root: { totalCount: 0, pageInfo: { hasNextPage: true, endCursor: null }, nodes: [] } },
         }),
     },
     {
       code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_BLOCKED_BY_PAGE_INVALID",
       loaders: () =>
         pagedWindowLoaders({
-          blockedByPages: { root: { totalCount: 1, pageInfo: { hasNextPage: true, endCursor: null }, nodes: [] } },
+          blockedByPages: { root: { totalCount: 0, pageInfo: { hasNextPage: true, endCursor: null }, nodes: [] } },
         }),
     },
     {
