@@ -68,6 +68,20 @@ describe("dispatch pull window", () => {
 
   it("derives runnable status from native open blocker nodes", () => {
     const candidate = issue(1, wave1, ["priority:p1", "area:ops", "kind:ops"]);
+    const summaryClaimsBlocked = {
+      ...candidate,
+      id: "synthetic-summary-claims-blocked",
+      issueDependenciesSummary: { blockedBy: 3, totalBlockedBy: 3 },
+      blockedBy: [],
+    };
+    const nativeNodeClaimsBlocked = {
+      ...candidate,
+      id: "synthetic-native-node-claims-blocked",
+      issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+      blockedBy: [{ id: "synthetic-open-blocker", state: "open" }],
+    };
+    expect(isRunnableRefined(summaryClaimsBlocked)).toBe(true);
+    expect(isRunnableRefined(nativeNodeClaimsBlocked)).toBe(false);
     expect(isRunnableRefined({ ...candidate, blockedBy: [{ state: "closed" }] })).toBe(true);
     expect(isRunnableRefined({ ...candidate, blockedBy: [{ state: "open" }] })).toBe(false);
   });
