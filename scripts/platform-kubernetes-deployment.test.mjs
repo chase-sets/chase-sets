@@ -1727,12 +1727,13 @@ describe("platform Kubernetes deployment", () => {
 
   it("verifies one exact deployed Helm transition", async () => {
     const capturedHistory = [
-      { revision: 700, status: "deployed", description: "Synthetic source" },
-      { revision: 701, status: "failed", description: "Synthetic failure" },
+      { revision: 308, status: "deployed", description: "Synthetic source" },
+      { revision: 309, status: "failed", description: "Synthetic failure" },
     ];
     const observedHistory = [
-      ...capturedHistory,
-      { revision: 702, status: "deployed", description: "Synthetic upgrade complete" },
+      { ...capturedHistory[0], status: "superseded" },
+      capturedHistory[1],
+      { revision: 310, status: "deployed", description: "Synthetic upgrade complete" },
     ];
     const transition = await verifyKubernetesDeploymentTransition({
       release: "proof",
@@ -1740,9 +1741,9 @@ describe("platform Kubernetes deployment", () => {
       checkedAt: "2026-08-25T20:10:00.000Z",
       rollbackTarget: {
         schemaVersion: "platform-kubernetes-rollback-target/v2",
-        sourceRevision: 700,
+        sourceRevision: 308,
         sourceStatus: "deployed",
-        historyHeadRevision: 701,
+        historyHeadRevision: 309,
         terminalFailedSuffix: [capturedHistory[1]],
         preDeployHistory: capturedHistory,
       },
@@ -1754,8 +1755,41 @@ describe("platform Kubernetes deployment", () => {
       checkedAt: "2026-08-25T20:10:00.000Z",
       release: "proof",
       namespace: "production",
-      capturedHeadRevision: 701,
-      resultingHeadRevision: 702,
+      capturedHeadRevision: 309,
+      resultingHeadRevision: 310,
+      capturedHistory,
+      observedHistory,
+    });
+  });
+
+  it("verifies one exact deployed Helm transition when saturated history prunes the oldest revision", async () => {
+    const capturedHistory = Array.from({ length: 10 }, (_, index) => ({
+      revision: 300 + index,
+      status: index === 8 ? "deployed" : index === 9 ? "failed" : "superseded",
+      description: `Synthetic revision ${300 + index}`,
+    }));
+    const observedHistory = [
+      ...capturedHistory.slice(1, 8),
+      { ...capturedHistory[8], status: "superseded" },
+      capturedHistory[9],
+      { revision: 310, status: "deployed", description: "Synthetic upgrade complete" },
+    ];
+
+    const transition = await verifyKubernetesDeploymentTransition({
+      rollbackTarget: {
+        schemaVersion: "platform-kubernetes-rollback-target/v2",
+        sourceRevision: 308,
+        sourceStatus: "deployed",
+        historyHeadRevision: 309,
+        terminalFailedSuffix: [capturedHistory[9]],
+        preDeployHistory: capturedHistory,
+      },
+      spawn: completedSpawn([], [{ code: 0, stdout: helmHistory(observedHistory) }]),
+    });
+
+    expect(transition).toMatchObject({
+      capturedHeadRevision: 309,
+      resultingHeadRevision: 310,
       capturedHistory,
       observedHistory,
     });
@@ -1765,10 +1799,10 @@ describe("platform Kubernetes deployment", () => {
     {
       name: "missing revision",
       observed: [
-        { revision: 700, status: "deployed", description: "Synthetic source" },
+        { revision: 700, status: "superseded", description: "Synthetic source" },
         { revision: 701, status: "failed", description: "Synthetic failure" },
       ],
-      message: "exactly one new Helm revision; observed 0",
+      message: "expected only revision 702; observed none",
     },
     {
       name: "extra revisions",
@@ -1778,7 +1812,7 @@ describe("platform Kubernetes deployment", () => {
         { revision: 702, status: "superseded", description: "Synthetic first result" },
         { revision: 703, status: "deployed", description: "Synthetic second result" },
       ],
-      message: "exactly one new Helm revision; observed 2",
+      message: "expected only revision 702; observed 702, 703",
     },
     {
       name: "nonconsecutive revision",
@@ -1787,7 +1821,7 @@ describe("platform Kubernetes deployment", () => {
         { revision: 701, status: "failed", description: "Synthetic failure" },
         { revision: 703, status: "deployed", description: "Synthetic gap" },
       ],
-      message: "requires resulting Helm revision 702; observed 703",
+      message: "expected only revision 702; observed 703",
     },
     {
       name: "non-deployed result",
@@ -1799,6 +1833,52 @@ describe("platform Kubernetes deployment", () => {
       message: 'status "deployed"; observed "failed"',
     },
   ])("refuses a $name deployment transition", async ({ observed, message }) => {
+    await expect(
+      verifyKubernetesDeploymentTransition({
+        rollbackTarget: {
+          schemaVersion: "platform-kubernetes-rollback-target/v2",
+          sourceRevision: 700,
+          sourceStatus: "deployed",
+          historyHeadRevision: 701,
+          terminalFailedSuffix: [{ revision: 701, status: "failed", description: "Synthetic failure" }],
+          preDeployHistory: [
+            { revision: 700, status: "deployed", description: "Synthetic source" },
+            { revision: 701, status: "failed", description: "Synthetic failure" },
+          ],
+        },
+        spawn: completedSpawn([], [{ code: 0, stdout: helmHistory(observed) }]),
+      }),
+    ).rejects.toThrow(message);
+  });
+
+  it.each([
+    {
+      name: "missing terminal failed suffix",
+      observed: [
+        { revision: 700, status: "superseded", description: "Synthetic source" },
+        { revision: 702, status: "deployed", description: "Synthetic upgrade complete" },
+      ],
+      message: "Captured terminal failed revision 701 moved or disappeared",
+    },
+    {
+      name: "changed terminal failed suffix status",
+      observed: [
+        { revision: 700, status: "superseded", description: "Synthetic source" },
+        { revision: 701, status: "superseded", description: "Synthetic failure" },
+        { revision: 702, status: "deployed", description: "Synthetic upgrade complete" },
+      ],
+      message: "Captured Helm revision 701 moved during deployment transition",
+    },
+    {
+      name: "changed captured description",
+      observed: [
+        { revision: 700, status: "superseded", description: "Synthetic source changed" },
+        { revision: 701, status: "failed", description: "Synthetic failure" },
+        { revision: 702, status: "deployed", description: "Synthetic upgrade complete" },
+      ],
+      message: "Captured Helm revision 700 moved during deployment transition",
+    },
+  ])("refuses a $name during revision-keyed reconciliation", async ({ observed, message }) => {
     await expect(
       verifyKubernetesDeploymentTransition({
         rollbackTarget: {

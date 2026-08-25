@@ -755,29 +755,71 @@ function capturedTransitionHistory(rollbackTarget) {
   if (JSON.stringify(rollbackTarget.terminalFailedSuffix) !== JSON.stringify(terminalFailedSuffix)) {
     throw new Error("Deployment transition rollback target terminalFailedSuffix does not match captured history.");
   }
-  return { history, capturedHeadRevision };
+  return { history, capturedHeadRevision, source, terminalFailedSuffix };
+}
+
+function reconcileCapturedTransitionHistory({
+  capturedHistory,
+  observedHistory,
+  capturedHeadRevision,
+  source,
+  terminalFailedSuffix,
+}) {
+  const capturedByRevision = new Map(capturedHistory.map((entry) => [entry.revision, entry]));
+  const observedByRevision = new Map(observedHistory.map((entry) => [entry.revision, entry]));
+
+  for (const observedEntry of observedHistory) {
+    if (observedEntry.revision > capturedHeadRevision) {
+      continue;
+    }
+    const capturedEntry = capturedByRevision.get(observedEntry.revision);
+    if (!capturedEntry) {
+      throw new Error(
+        `Observed Helm revision ${observedEntry.revision} was not present in the captured deployment transition history.`,
+      );
+    }
+    const preservesStatus =
+      observedEntry.status === capturedEntry.status ||
+      (capturedEntry.revision === source.revision &&
+        capturedEntry.status === "deployed" &&
+        observedEntry.status === "superseded");
+    if (!preservesStatus || observedEntry.description !== capturedEntry.description) {
+      throw new Error(`Captured Helm revision ${capturedEntry.revision} moved during deployment transition.`);
+    }
+  }
+
+  for (const failedEntry of terminalFailedSuffix) {
+    const observedEntry = observedByRevision.get(failedEntry.revision);
+    if (!observedEntry || observedEntry.status !== "failed" || observedEntry.description !== failedEntry.description) {
+      throw new Error(`Captured terminal failed revision ${failedEntry.revision} moved or disappeared.`);
+    }
+  }
 }
 
 export async function verifyKubernetesDeploymentTransition(options = {}) {
-  const { history: capturedHistory, capturedHeadRevision } = capturedTransitionHistory(options.rollbackTarget);
+  const {
+    history: capturedHistory,
+    capturedHeadRevision,
+    source,
+    terminalFailedSuffix,
+  } = capturedTransitionHistory(options.rollbackTarget);
   const observedHistory = await readHelmHistory(options);
-  const newRevisionCount = observedHistory.length - capturedHistory.length;
-  if (newRevisionCount !== 1) {
-    throw new Error(`Deployment transition requires exactly one new Helm revision; observed ${newRevisionCount}.`);
-  }
-  assertHelmHistoryUnchanged(
-    capturedHistory,
-    observedHistory.slice(0, capturedHistory.length),
-    "deployment transition captured prefix",
-  );
-
-  const resultingHead = observedHistory.at(-1);
   const expectedRevision = capturedHeadRevision + 1;
-  if (resultingHead.revision !== expectedRevision) {
+  const newEntries = observedHistory.filter((entry) => entry.revision > capturedHeadRevision);
+  if (newEntries.length !== 1 || newEntries[0].revision !== expectedRevision) {
     throw new Error(
-      `Deployment transition requires resulting Helm revision ${expectedRevision}; observed ${resultingHead.revision}.`,
+      `Deployment transition expected only revision ${expectedRevision}; observed ${newEntries.map((entry) => entry.revision).join(", ") || "none"}.`,
     );
   }
+  reconcileCapturedTransitionHistory({
+    capturedHistory,
+    observedHistory,
+    capturedHeadRevision,
+    source,
+    terminalFailedSuffix,
+  });
+
+  const resultingHead = newEntries[0];
   if (resultingHead.status !== "deployed") {
     throw new Error(
       `Deployment transition requires resulting Helm revision ${resultingHead.revision} to have status "deployed"; observed ${JSON.stringify(resultingHead.status)}.`,
