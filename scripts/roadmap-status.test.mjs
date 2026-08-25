@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { classified } from "./backlog-classify.mjs";
 import {
@@ -2057,12 +2057,18 @@ describe("prioritization hygiene authority", () => {
     {
       code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_TOTAL_CHANGED",
       loaders: () => {
-        const labels = [{ id: "synthetic-label-priority", name: "priority:p1" }];
+        const labels = [
+          { id: "synthetic-label-priority", name: "priority:p1" },
+          { id: "synthetic-label-area", name: "area:ops" },
+        ];
         return pagedWindowLoaders({
-          labels,
           labelPages: {
-            root: { totalCount: 1, pageInfo: { hasNextPage: true, endCursor: "synthetic-total-page-2" }, nodes: [] },
-            next: new Map([["synthetic-total-page-2", completePage(labels, 2)]]),
+            root: {
+              totalCount: 2,
+              pageInfo: { hasNextPage: true, endCursor: "synthetic-total-page-2" },
+              nodes: [labels[0]],
+            },
+            next: new Map([["synthetic-total-page-2", completePage([labels[1]], 3)]]),
           },
         });
       },
@@ -2134,6 +2140,91 @@ describe("prioritization hygiene authority", () => {
     await expect(collectRoadmapWindowAuthority(loaders())).rejects.toMatchObject({ code });
   });
 
+  it.each([
+    [
+      "zero-total label page",
+      () =>
+        pagedWindowLoaders({
+          labelPages: {
+            root: {
+              totalCount: 0,
+              pageInfo: { hasNextPage: true, endCursor: "synthetic-empty-label-page" },
+              nodes: [],
+            },
+          },
+        }),
+      "loadLabels",
+    ],
+    [
+      "positive-total blockedBy page",
+      () =>
+        pagedWindowLoaders({
+          blockedByPages: {
+            root: {
+              totalCount: 1,
+              pageInfo: { hasNextPage: true, endCursor: "synthetic-empty-blocker-page" },
+              nodes: [],
+            },
+          },
+        }),
+      "loadBlockedBy",
+    ],
+  ])("refuses a continuing %s without a continuation call", async (_description, createLoaders, loaderName) => {
+    const loaders = createLoaders();
+    let continuationCalls = 0;
+    const original = loaders[loaderName];
+    loaders[loaderName] = async (...args) => {
+      continuationCalls += 1;
+      return original(...args);
+    };
+
+    await expect(collectRoadmapWindowAuthority(loaders)).rejects.toMatchObject({
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH",
+    });
+    expect(continuationCalls).toBe(0);
+  });
+
+  it("reaches the synthetic continuation sentinel only when the new non-progress guard is bypassed", async () => {
+    const guard =
+      'if (nodes.length === nodesBeforePage || nodes.length >= expectedTotal) {\n        throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH");\n      }';
+    const backlogClassifyImport = ['from "./backlog-classify', '.mjs"'].join("");
+    const dispatchWindowImport = ['from "./dispatch-window', '.mjs"'].join("");
+    const source = readFileSync(path.join(repoRoot, "scripts", "roadmap-status.mjs"), "utf8");
+    expect(source).toContain(guard);
+
+    const loaders = pagedWindowLoaders({
+      labelPages: {
+        root: { totalCount: 0, pageInfo: { hasNextPage: true, endCursor: "synthetic-bypass-page" }, nodes: [] },
+      },
+    });
+    let continuationCalls = 0;
+    loaders.loadLabels = async () => {
+      continuationCalls += 1;
+      throw new Error("SYNTHETIC_NON_PROGRESS_CONTINUATION_SENTINEL");
+    };
+    await expect(collectRoadmapWindowAuthority(loaders)).rejects.toMatchObject({
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH",
+    });
+    expect(continuationCalls).toBe(0);
+
+    const mutantSource = source
+      .replace(guard, "if (false) {}")
+      .replaceAll(
+        backlogClassifyImport,
+        `from "${pathToFileURL(path.join(repoRoot, "scripts", "backlog-classify.mjs")).href}"`,
+      )
+      .replaceAll(
+        dispatchWindowImport,
+        `from "${pathToFileURL(path.join(repoRoot, "scripts", "dispatch-window.mjs")).href}"`,
+      );
+    const mutant = await import(`data:text/javascript;base64,${Buffer.from(mutantSource).toString("base64")}`);
+    continuationCalls = 0;
+    await expect(mutant.collectRoadmapWindowAuthority(loaders)).rejects.toThrow(
+      "SYNTHETIC_NON_PROGRESS_CONTINUATION_SENTINEL",
+    );
+    expect(continuationCalls).toBe(1);
+  });
+
   it("collects a decisive page-two label before accepting the authority", async () => {
     const loaders = windowLoaders();
     const rootPage = await loaders.loadIssues(null);
@@ -2164,6 +2255,44 @@ describe("prioritization hygiene authority", () => {
     expect(accepted.authority.issues.nodes[0].labels.nodes.map(({ name }) => name)).toEqual([
       "kind:ops",
       "priority:p1",
+    ]);
+  });
+
+  it("collects a decisive page-two blockedBy node before accepting the authority", async () => {
+    const first = {
+      id: "synthetic-blocker-one",
+      number: 10,
+      state: "OPEN",
+      repository: { nameWithOwner: "synthetic/one" },
+    };
+    const second = {
+      id: "synthetic-blocker-two",
+      number: 11,
+      state: "CLOSED",
+      repository: { nameWithOwner: "synthetic/two" },
+    };
+    const loaders = pagedWindowLoaders({
+      blockedByPages: {
+        root: {
+          totalCount: 2,
+          pageInfo: { hasNextPage: true, endCursor: "synthetic-blocked-by-page-two" },
+          nodes: [first],
+        },
+        next: new Map([["synthetic-blocked-by-page-two", completePage([second], 2)]]),
+      },
+    });
+    let continuationCalls = 0;
+    const original = loaders.loadBlockedBy;
+    loaders.loadBlockedBy = async (...args) => {
+      continuationCalls += 1;
+      return original(...args);
+    };
+
+    const accepted = await collectRoadmapWindowAuthority(loaders);
+    expect(continuationCalls).toBe(1);
+    expect(accepted.authority.issues.nodes[0].blockedBy.nodes.map(({ id }) => id)).toEqual([
+      "synthetic-blocker-one",
+      "synthetic-blocker-two",
     ]);
   });
 
@@ -2367,6 +2496,40 @@ describe("prioritization hygiene authority", () => {
       noWindowFamilies: ["Mobile"],
     });
     expect(hygiene.candidates).toHaveLength(2);
+  });
+
+  it("diagnoses a present Mobile family without coupling it to priority claims", () => {
+    const wave1 = { id: "synthetic-wave-runnable", number: 1, title: "Wave 1", state: "OPEN" };
+    const mobile1 = { id: "synthetic-mobile-present", number: 2, title: "Mobile 1", state: "OPEN" };
+    const issue = (id, number, milestone, labels) => ({
+      id,
+      number,
+      state: "OPEN",
+      issueType: { name: "Slice" },
+      milestone,
+      issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+      labels: { totalCount: labels.length, nodes: labels.map((name, index) => ({ id: `${id}-label-${index}`, name })) },
+      blockedBy: { totalCount: 0, nodes: [] },
+    });
+    const authority = {
+      milestones: { totalCount: 2, nodes: [wave1, mobile1] },
+      issues: {
+        totalCount: 3,
+        nodes: [
+          issue("synthetic-wave-runnable-issue", 1, wave1, ["priority:p1", "area:ops", "kind:ops"]),
+          issue("synthetic-mobile-non-priority", 2, mobile1, ["area:ops", "kind:ops"]),
+          issue("synthetic-mobile-tracking-only", 3, mobile1, ["status:tracking-only"]),
+        ],
+      },
+    };
+
+    const hygiene = summarizePrioritizationHygiene(authority);
+    expect(hygiene.selected).toMatchObject([{ id: wave1.id }]);
+    expect(hygiene.noWindowFamilies).toEqual(["Mobile"]);
+    expect(hygiene.candidates).toEqual([]);
+    expect(renderRoadmapStatus({ rows: [], windowDays: 7, prioritizationHygiene: hygiene })).toContain(
+      "Mobile: no runnable refined milestone",
+    );
   });
 
   it("renders stale preemption counts, identities, and zero states", () => {

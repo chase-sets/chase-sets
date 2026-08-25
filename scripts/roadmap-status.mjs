@@ -619,6 +619,7 @@ async function collectWindowConnection({ loadPage, firstPage = null, validateNod
   do {
     const page = pageFromRoot ?? (await loadPage(after));
     pageFromRoot = null;
+    const nodesBeforePage = nodes.length;
     validateWindowPage(page, code);
     if (expectedTotal === null) expectedTotal = page.totalCount;
     if (page.totalCount !== expectedTotal) {
@@ -633,6 +634,9 @@ async function collectWindowConnection({ loadPage, firstPage = null, validateNod
       nodes.push(node);
     }
     if (page.pageInfo.hasNextPage) {
+      if (nodes.length === nodesBeforePage || nodes.length >= expectedTotal) {
+        throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH");
+      }
       if (cursors.has(page.pageInfo.endCursor)) {
         throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_CURSOR_REPEATED");
       }
@@ -849,7 +853,9 @@ export function summarizePrioritizationHygiene(authority) {
   const facts = authorityFacts(authority);
   const selected = derivePullWindow(facts);
   const selectedByFamily = new Map(selected.map((milestone) => [seriesIdentity(milestone.title).family, milestone.id]));
-  const noWindowFamilies = new Set();
+  const noWindowFamilies = facts.milestones
+    .map((milestone) => seriesIdentity(milestone.title)?.family)
+    .filter((family) => family && !selectedByFamily.has(family));
   const candidates = [];
   for (const issue of facts.issues) {
     const series = seriesIdentity(issue.milestone?.title);
@@ -868,7 +874,6 @@ export function summarizePrioritizationHygiene(authority) {
     if (classifiedEpic(input) || priorityLabels.length !== 1) continue;
     const selectedMilestoneId = selectedByFamily.get(series.family);
     if (!selectedMilestoneId) {
-      noWindowFamilies.add(series.family);
       continue;
     }
     if (selectedMilestoneId !== issue.milestone.id) {
@@ -880,7 +885,7 @@ export function summarizePrioritizationHygiene(authority) {
     p0: candidates.filter((candidate) => candidate.priority === "priority:p0"),
     p1: candidates.filter((candidate) => candidate.priority === "priority:p1"),
   };
-  return { selected, candidates, byPriority, noWindowFamilies: [...noWindowFamilies].sort() };
+  return { selected, candidates, byPriority, noWindowFamilies: [...new Set(noWindowFamilies)].sort() };
 }
 
 export function toBacklogInput(issue) {
