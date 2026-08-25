@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import {
   BLOCKED_BY_QUERY,
@@ -84,6 +85,35 @@ function rootCaptureRequest(captures) {
 
 function collectorErrorRequest(payload) {
   return vi.fn(async () => payload);
+}
+
+function rootTotalChangedRequest(issuesQuery) {
+  const first = issue({ id: "local-1", number: 1 });
+  const second = issue({ id: "local-2", number: 2 });
+  return vi.fn(async (query, variables) => {
+    if (query !== issuesQuery) throw new Error("unexpected nested query");
+    if (variables.after === null) {
+      return rootResponse([first], { totalCount: 2, hasNextPage: true, endCursor: "root-page-2" });
+    }
+    if (variables.after === "root-page-2") return rootResponse([second], { totalCount: 3 });
+    throw new Error(`unexpected root cursor ${variables.after}`);
+  });
+}
+
+function negativeSummaryScalarResponse() {
+  const valid = issue({ id: "local-1", number: 1 });
+  return rootResponse([
+    {
+      ...valid,
+      issueDependenciesSummary: { ...valid.issueDependenciesSummary, blocking: -1 },
+    },
+  ]);
+}
+
+async function importGuardMutant(needle, replacement) {
+  const source = await readFile(new URL("./dispatch-unlock-count.mjs", import.meta.url), "utf8");
+  expect(source).toContain(needle);
+  return import(`data:text/javascript;base64,${Buffer.from(source.replace(needle, replacement)).toString("base64")}`);
 }
 
 function expectFailure(error, reason) {
@@ -283,14 +313,7 @@ describe("dispatch dependency snapshot", () => {
         guard: "stable-total-count",
         reason: "changed-total-count",
         scope: "repository.issues",
-        request: vi.fn(async (query, variables) => {
-          if (query !== ISSUES_QUERY) throw new Error("unexpected nested query");
-          if (variables.after === null) {
-            return rootResponse([], { totalCount: 1, hasNextPage: true, endCursor: "root-page-2" });
-          }
-          if (variables.after === "root-page-2") return rootResponse([], { totalCount: 2 });
-          throw new Error(`unexpected root cursor ${variables.after}`);
-        }),
+        request: rootTotalChangedRequest(ISSUES_QUERY),
       },
       {
         name: "nested total count changes after page one",
@@ -401,11 +424,11 @@ describe("dispatch dependency snapshot", () => {
         response: rootResponse([{ ...valid, number: 0 }]),
       },
       {
-        name: "connection total is outside the provider scalar domain",
+        name: "diagnostic summary scalar is outside the provider scalar domain",
         guard: "provider-scalar-domain",
         reason: "invalid-provider-schema",
-        scope: "repository.issues.totalCount",
-        response: rootResponse([valid], { totalCount: -1 }),
+        scope: "repository.issues.nodes[0].issueDependenciesSummary.blocking",
+        response: negativeSummaryScalarResponse(),
       },
       {
         name: "issue id is outside the provider scalar domain",
@@ -473,6 +496,48 @@ describe("dispatch dependency snapshot", () => {
       "consecutive-digest-stability",
       "accepted-snapshot-reducer-boundary",
     ]);
+  });
+
+  it("makes corrected root-total and summary-scalar controls mutation-discriminating", async () => {
+    const stableTotalMutant = await importGuardMutant(
+      `const page = rootPage(data, expectedRepository).issues;
+    totalCount ??= page.totalCount;
+    if (page.totalCount !== totalCount) {`,
+      `const page = rootPage(data, expectedRepository).issues;
+    totalCount ??= page.totalCount;
+    if (false) {`,
+    );
+    const stableTotalUnlockReducer = vi.fn();
+    const stableTotalBlockerReducer = vi.fn();
+    await expect(
+      stableTotalMutant.collectStableDependencyFacts({
+        request: rootTotalChangedRequest(stableTotalMutant.ISSUES_QUERY),
+        owner: OWNER,
+        repository: REPOSITORY,
+        unlockReducer: stableTotalUnlockReducer,
+        blockerReducer: stableTotalBlockerReducer,
+      }),
+    ).resolves.toMatchObject({ attempts: 2 });
+    expect(stableTotalUnlockReducer).toHaveBeenCalledTimes(1);
+    expect(stableTotalBlockerReducer).toHaveBeenCalledTimes(1);
+
+    const nonNegativeIntegerMutant = await importGuardMutant(
+      'if (!Number.isSafeInteger(value) || value < 0) failSchema(scope, "expected a non-negative safe integer");',
+      'if (!Number.isSafeInteger(value)) failSchema(scope, "expected a non-negative safe integer");',
+    );
+    const summaryScalarUnlockReducer = vi.fn();
+    const summaryScalarBlockerReducer = vi.fn();
+    await expect(
+      nonNegativeIntegerMutant.collectStableDependencyFacts({
+        request: collectorErrorRequest(negativeSummaryScalarResponse()),
+        owner: OWNER,
+        repository: REPOSITORY,
+        unlockReducer: summaryScalarUnlockReducer,
+        blockerReducer: summaryScalarBlockerReducer,
+      }),
+    ).resolves.toMatchObject({ attempts: 2 });
+    expect(summaryScalarUnlockReducer).toHaveBeenCalledTimes(1);
+    expect(summaryScalarBlockerReducer).toHaveBeenCalledTimes(1);
   });
 
   it("keeps case-sensitive identities and every consumed fact fail-closed", async () => {
