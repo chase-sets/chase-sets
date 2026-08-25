@@ -2738,13 +2738,27 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
           install -m 0755 artifacts/deploy-tools/doctl/doctl "$RUNNER_TEMP/doctl"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/doctl" version
-          "$RUNNER_TEMP/doctl" auth init --access-token "$DIGITALOCEAN_ACCESS_TOKEN"
+
+      - name: Validate staged doctl authentication
+        id: doctl_auth
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: node ./scripts/platform-doctl-auth.mjs --doctl "$RUNNER_TEMP/doctl"
+
+      - name: Upload production doctl authentication validation
+        if: always() && env.SHOULD_DEPLOY != 'false' && steps.doctl_auth.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-doctl-auth-validation
+          path: artifacts/release-health/production-doctl-auth-validation.json
+          if-no-files-found: error
+          retention-days: 30
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         env:
@@ -3025,7 +3039,8 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Configure production Kubernetes context
-        if: env.SHOULD_DEPLOY != 'false'
+        id: production_kubernetes_context
+        if: env.SHOULD_DEPLOY != 'false' && steps.doctl_auth.outcome == 'success'
         working-directory: infrastructure/digitalocean/doks
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -3455,7 +3470,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        if: failure() && env.SHOULD_DEPLOY != 'false'
+        if: failure() && env.SHOULD_DEPLOY != 'false' && steps.production_kubernetes_context.outcome == 'success'
         run: |
           set -euo pipefail
           mkdir -p artifacts/release-health
@@ -4099,6 +4114,7 @@ jobs:
           node ./scripts/platform-deploy-incident.mjs \
             --command classify-root-cause \
             --phase production-deploy \
+            --diagnostics artifacts/release-health/production-doctl-auth-validation.json \
             --diagnostics artifacts/release-health/production-terraform-diagnostics.txt \
             --diagnostics artifacts/release-health/production-kubernetes-deploy-diagnostics.json \
             --diagnostics artifacts/release-health/production-readiness-gate.json \
@@ -4205,6 +4221,7 @@ jobs:
             artifacts/release-health/production-rollback.json
             artifacts/release-health/production-rollback-target.json
             artifacts/release-health/production-rollback-readiness.json
+            artifacts/release-health/production-doctl-auth-validation.json
             artifacts/release-health/production-kubernetes-deploy-diagnostics.json
             artifacts/release-health/production-deploy-root-cause.json
           if-no-files-found: ignore
