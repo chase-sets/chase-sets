@@ -1,11 +1,16 @@
 import { createServer, type ServerResponse } from "node:http";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { encodeCommitReceipt } from "@chase-sets/http/responses";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createSyntheticMarketplaceAccount,
   privilegedRequest,
   projectionCheckpointResponseBodyLimitBytes,
+  registrationSuccessResponseBodyLimitBytes,
   registerOrSignInSyntheticAccount,
   signInWithPassword,
+  syntheticMarketplaceAccountFor,
 } from "../e2e/support/auth";
 
 type RequestCall = Readonly<{
@@ -20,8 +25,9 @@ type FakeRoute = (call: RequestCall) => FakeResponse | Promise<FakeResponse>;
 class FakeResponse {
   public constructor(
     private readonly statusCode: number,
-    private readonly body: unknown = {},
+    private readonly responseBody: unknown = {},
     private readonly responseHeaders: Record<string, string> = {},
+    private readonly rawBody?: string,
   ) {}
 
   public status() {
@@ -29,7 +35,11 @@ class FakeResponse {
   }
 
   public async json() {
-    return this.body;
+    return this.responseBody;
+  }
+
+  public async body() {
+    return Buffer.from(this.rawBody ?? JSON.stringify(this.responseBody));
   }
 
   public headers() {
@@ -37,7 +47,7 @@ class FakeResponse {
   }
 
   public toFetchResponse() {
-    return new Response(JSON.stringify(this.body), {
+    return new Response(JSON.stringify(this.responseBody), {
       status: this.statusCode,
       headers: { "content-type": "application/json", ...this.responseHeaders },
     });
@@ -99,6 +109,13 @@ const account = {
   displayName: "Critical Flow Run",
 };
 
+const registrationFailureCases: readonly (readonly [string, FakeResponse, string])[] = [
+  ["malformed-success", new FakeResponse(201, {}), "invalid-response"],
+  ["invalid-json", new FakeResponse(201, {}, {}, "{secret-json-marker"), "invalid-json"],
+  ["oversize-token", new FakeResponse(201, { sessionToken: `session_${"x".repeat(37)}` }), "invalid-response"],
+  ["unexpected-status", new FakeResponse(500, { token: "secret-token-marker" }), "unexpected-status"],
+];
+
 function withPlatformAdminEnv() {
   process.env.PLATFORM_ADMIN_EMAIL = "platform-admin@example.test";
   process.env.PLATFORM_ADMIN_PASSWORD = "platform-admin-password";
@@ -109,10 +126,113 @@ afterEach(() => {
   delete process.env.PLATFORM_ADMIN_PASSWORD;
   delete process.env.TF_VAR_platform_admin_email;
   delete process.env.TF_VAR_platform_admin_password;
+  delete process.env.GITHUB_RUN_ID;
+  delete process.env.GITHUB_RUN_ATTEMPT;
+  delete process.env.CHASE_SETS_E2E_INVOCATION_NAMESPACE;
   vi.unstubAllGlobals();
 });
 
 describe("marketplace smoke auth support", () => {
+  it("synthetic account identity uses the complete test identity and invocation namespace", () => {
+    const identity = {
+      invocationNamespace: "run-100:1",
+      projectName: "marketplace-chromium",
+      specPath: "deployables\\marketplace\\e2e\\buy-funnel-redesign.spec.ts",
+      titlePath: ["buy funnel redesign", "authenticated buy cart satisfies all redesign acceptance signals"],
+    } as const;
+    const candidate = createSyntheticMarketplaceAccount(identity);
+    const retryOne = createSyntheticMarketplaceAccount(identity);
+    const workerOne = createSyntheticMarketplaceAccount(identity);
+    const differentTitle = createSyntheticMarketplaceAccount({
+      ...identity,
+      titlePath: ["buy funnel redesign", "authenticated buy checkout confirmation satisfies redesign contracts"],
+    });
+    const differentInvocation = createSyntheticMarketplaceAccount({
+      ...identity,
+      invocationNamespace: "run-100:2",
+    });
+
+    expect(retryOne).toEqual(candidate);
+    expect(workerOne).toEqual(candidate);
+    for (const field of ["email", "password", "displayName"] as const) {
+      expect(differentTitle[field]).not.toBe(candidate[field]);
+      expect(differentInvocation[field]).not.toBe(candidate[field]);
+      expect(candidate[field]).toContain(candidate.identityDigest);
+    }
+    expect(candidate.identityDigest).toMatch(/^[0-9a-f]{64}$/);
+
+    const predecessorDisplayName = (runId: string, nonce: string, workerIndex: number, retry: number) =>
+      `Buy Funnel ${runId} ${nonce} ${workerIndex} ${retry}`;
+    const predecessorPassword = (_title: string, runId: string, workerIndex: number, retry: number) =>
+      `buy-funnel-${runId}-${workerIndex}-${retry}`;
+    const reservedDisplayNames = new Set<string>();
+    const reserve = (displayName: string) => {
+      if (reservedDisplayNames.has(displayName)) {
+        return { status: 409, body: { error: { code: "display_name_already_taken" } } };
+      }
+      reservedDisplayNames.add(displayName);
+      return { status: 201, body: {} };
+    };
+    const firstPredecessorDisplayName = predecessorDisplayName("run-100", "nonce", 0, 0);
+    const secondPredecessorDisplayName = predecessorDisplayName("run-100", "nonce", 0, 0);
+
+    expect(reserve(firstPredecessorDisplayName).status).toBe(201);
+    expect(reserve(secondPredecessorDisplayName)).toEqual({
+      status: 409,
+      body: { error: { code: "display_name_already_taken" } },
+    });
+    const predecessorFirstTitle = "authenticated buy cart satisfies all redesign acceptance signals";
+    const predecessorSecondTitle = "authenticated buy checkout confirmation satisfies redesign contracts";
+    expect(predecessorFirstTitle).not.toBe(predecessorSecondTitle);
+    expect(predecessorPassword(predecessorFirstTitle, "run-100", 0, 0)).toBe(
+      predecessorPassword(predecessorSecondTitle, "run-100", 0, 0),
+    );
+  });
+
+  it("fails closed when a local invocation namespace is absent", () => {
+    expect(() =>
+      syntheticMarketplaceAccountFor({
+        file: "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+        project: { name: "marketplace-chromium" },
+        titlePath: ["checkout"],
+      } as never),
+    ).toThrow("synthetic account setup failed (missing-local-invocation-namespace)");
+  });
+
+  it("derives the complete helper caller census from repository source", () => {
+    const census = marketplaceAuthCallerCensus();
+
+    expect(census.synthetic).toEqual([
+      "account-payment.spec.ts",
+      "buy-funnel-redesign.spec.ts",
+      "critical-flows.spec.ts",
+      "sell-list-evidence.spec.ts",
+      "support/auth-trace-artifact.probe.spec.ts",
+    ]);
+    expect(census.directOnly).toEqual([
+      "account-payment-stripe-embed.uat.spec.ts",
+      "listing-evidence-readiness.spec.ts",
+      "payout-connect-appearance.uat.spec.ts",
+      "seller-desk-journey.uat.spec.ts",
+      "support-case-detail.spec.ts",
+    ]);
+    expect(census.synthetic).not.toContain("seller-desk-journey.uat.spec.ts");
+
+    const e2eRoot = join(process.cwd(), "e2e");
+    const sellListSource = readFileSync(join(e2eRoot, "sell-list-evidence.spec.ts"), "utf8");
+    const sellerDeskSource = readFileSync(join(e2eRoot, "seller-desk-journey.uat.spec.ts"), "utf8");
+    expect(sellListSource).toContain("syntheticMarketplaceAccountFor(testInfo");
+    expect(sellListSource).toContain('invocationNamespace: "marketplace-sell-list-evidence-seed/v1"');
+    expect(sellerDeskSource).not.toContain("registerOrSignInSyntheticAccount");
+
+    expect(
+      authCallsInSource(`
+        import { registerOrSignInSyntheticAccount as registerSynthetic } from "./support/auth";
+        registerSynthetic(page, origin, account);
+      `),
+    ).toEqual({ synthetic: true, password: false });
+  });
+
   it("reports a bounded account fingerprint and status without credential or response markers", async () => {
     const adversarialAccount = {
       email: "email-secret-marker@example.test",
@@ -296,6 +416,7 @@ describe("marketplace smoke auth support", () => {
           email: account.email,
           roleKey: "viewer",
         });
+        expect(call.data).toMatchObject({ invitationId: expect.stringMatching(/^ivt_e2e_[0-9a-f]{64}$/) });
         return new FakeResponse(
           201,
           { id: "ivt_smoke", status: "pending" },
@@ -351,7 +472,78 @@ describe("marketplace smoke auth support", () => {
     expect(cookies).toContainEqual(expect.objectContaining({ name: "chase_sets_session", value: "synthetic_session" }));
   });
 
-  it("keeps the existing-account sign-in fallback after invitation provisioning", async () => {
+  it.each(["pending", "accepted", "cancelled", "declined", "expired"])(
+    "refuses a previously %s invitation aggregate without registration or sign-in",
+    async () => {
+      withPlatformAdminEnv();
+      const privilegedCalls = stubPrivilegedFetch((call) => {
+        if (call.url.endsWith("/api/auth/password-sign-in")) {
+          return new FakeResponse(200, { sessionToken: "admin_session" });
+        }
+        if (call.url.endsWith("/api/identity/current-actor-display")) {
+          return new FakeResponse(200, { account: { account_id: "acc_platform" } });
+        }
+        if (call.url.endsWith("/api/identity/invitations")) {
+          return new FakeResponse(400, { error: { code: "validation_failed", message: "secret-body-marker" } });
+        }
+        throw new Error(`Unexpected privileged request: ${call.method} ${call.url}`);
+      });
+      const { calls, cookies, page } = createFakePage(() => {
+        throw new Error("Registration and password sign-in must not be reached");
+      });
+
+      const error = await registerOrSignInSyntheticAccount(page, "https://marketplace.test", account).catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(readErrorMessage(error)).toBe("synthetic invitation failed (invitation-already-authored)");
+      expect(readErrorMessage(error)).not.toContain("secret-body-marker");
+      expect(calls).toEqual([]);
+      expect(cookies).toEqual([]);
+      expect(privilegedCalls.filter((call) => call.url.endsWith("/api/identity/invitations"))).toHaveLength(1);
+    },
+  );
+
+  it("uses one invitation aggregate after an interruption following the authoritative commit", async () => {
+    withPlatformAdminEnv();
+    let invitationAttempt = 0;
+    const invitationIds: unknown[] = [];
+    const privilegedCalls = stubPrivilegedFetch((call) => {
+      if (call.url.endsWith("/api/auth/password-sign-in")) {
+        return new FakeResponse(200, { sessionToken: "admin_session" });
+      }
+      if (call.url.endsWith("/api/identity/current-actor-display")) {
+        return new FakeResponse(200, { account: { account_id: "acc_platform" } });
+      }
+      if (call.url.endsWith("/api/identity/invitations")) {
+        invitationAttempt += 1;
+        invitationIds.push((call.data as { invitationId?: unknown }).invitationId);
+        return invitationAttempt === 1
+          ? new FakeResponse(201, { id: invitationIds[0], status: "pending" })
+          : new FakeResponse(400, { error: { code: "validation_failed" } });
+      }
+      throw new Error(`Unexpected privileged request: ${call.method} ${call.url}`);
+    });
+    const { calls, page } = createFakePage(() => {
+      throw new Error("Registration must not be reached after an incomplete invitation receipt");
+    });
+
+    await expect(registerOrSignInSyntheticAccount(page, "https://marketplace.test", account)).rejects.toThrow(
+      "synthetic invitation failed (missing-identity-commit-receipt)",
+    );
+    await expect(registerOrSignInSyntheticAccount(page, "https://marketplace.test", account)).rejects.toThrow(
+      "synthetic invitation failed (invitation-already-authored)",
+    );
+
+    expect(invitationIds).toHaveLength(2);
+    expect(new Set(invitationIds).size).toBe(1);
+    expect(calls).toEqual([]);
+    expect(privilegedCalls.filter((call) => call.url.endsWith("/api/platform/projections/refresh-checkpoint"))).toEqual(
+      [],
+    );
+  });
+
+  it("registration conflict cannot fall through to password sign-in", async () => {
     withPlatformAdminEnv();
     const invitationReceipt = encodeCommitReceipt([
       {
@@ -381,7 +573,7 @@ describe("marketplace smoke auth support", () => {
       }
       throw new Error(`Unexpected privileged request: ${call.method} ${call.url}`);
     });
-    const { cookies, page } = createFakePage((call) => {
+    const { calls, cookies, page } = createFakePage((call) => {
       if (call.url.endsWith("/api/auth/registration-consent")) {
         return new FakeResponse(200, {
           bundleKey: "registration",
@@ -393,19 +585,82 @@ describe("marketplace smoke auth support", () => {
       if (call.url.endsWith("/api/auth/register")) {
         return new FakeResponse(409, { error: "User exists." });
       }
-      if (call.url.endsWith("/api/auth/password-sign-in")) {
-        expect(call.data).toMatchObject({ email: account.email, password: account.password });
-        return new FakeResponse(200, { sessionToken: "synthetic_session" });
-      }
       throw new Error(`Unexpected request: ${call.method} ${call.url}`);
     });
 
-    await expect(registerOrSignInSyntheticAccount(page, "https://marketplace.test", account)).resolves.toBe(
-      "synthetic_session",
+    await expect(registerOrSignInSyntheticAccount(page, "https://marketplace.test", account)).rejects.toThrow(
+      "synthetic registration failed (registration-conflict)",
     );
 
-    expect(cookies).toContainEqual(expect.objectContaining({ name: "chase_sets_session", value: "synthetic_session" }));
+    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
+      "/api/auth/registration-consent",
+      "/api/auth/register",
+    ]);
+    expect(cookies).toEqual([]);
   });
+
+  it("accepts the largest valid registration projection and rejects cap plus one", async () => {
+    const sessionToken = `session_${"a".repeat(36)}`;
+    const success = JSON.stringify({ sessionToken });
+    const largestValid = success + " ".repeat(registrationSuccessResponseBodyLimitBytes - Buffer.byteLength(success));
+    const makePage = (rawBody: string) =>
+      createFakePage((call) => {
+        if (call.url.endsWith("/api/auth/registration-consent")) {
+          return new FakeResponse(200, { bundleKey: "registration", requirements: [], signature: "server-minted" });
+        }
+        if (call.url.endsWith("/api/auth/register")) {
+          return new FakeResponse(201, {}, {}, rawBody);
+        }
+        throw new Error(`Unexpected request: ${call.method} ${call.url}`);
+      });
+
+    const valid = makePage(largestValid);
+    await expect(registerOrSignInSyntheticAccount(valid.page, "https://marketplace.test", account)).resolves.toBe(
+      sessionToken,
+    );
+    expect(valid.cookies).toContainEqual(expect.objectContaining({ value: sessionToken }));
+
+    const oversize = makePage(`${largestValid} `);
+    const oversizeError = await registerOrSignInSyntheticAccount(
+      oversize.page,
+      "https://marketplace.test",
+      account,
+    ).catch((caught: unknown) => caught);
+    expect(readErrorMessage(oversizeError)).toBe("synthetic registration failed (response-too-large)");
+    expect(readErrorMessage(oversizeError)).not.toContain(sessionToken);
+    expect(oversize.cookies).toEqual([]);
+  });
+
+  it.each(registrationFailureCases)(
+    "classifies %s without body or credential disclosure",
+    async (_name, registrationResponse, classification) => {
+      const { calls, cookies, page } = createFakePage((call) => {
+        if (call.url.endsWith("/api/auth/registration-consent")) {
+          return new FakeResponse(200, { bundleKey: "registration", requirements: [], signature: "server-minted" });
+        }
+        if (call.url.endsWith("/api/auth/register")) {
+          return registrationResponse;
+        }
+        throw new Error(`Unexpected request: ${call.method} ${call.url}`);
+      });
+
+      const error = await registerOrSignInSyntheticAccount(page, "https://marketplace.test", account).catch(
+        (caught: unknown) => caught,
+      );
+      const message = readErrorMessage(error);
+
+      expect(message).toBe(`synthetic registration failed (${classification})`);
+      expect(message).not.toContain(account.email);
+      expect(message).not.toContain(account.password);
+      expect(message).not.toContain("secret-json-marker");
+      expect(message).not.toContain("secret-token-marker");
+      expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
+        "/api/auth/registration-consent",
+        "/api/auth/register",
+      ]);
+      expect(cookies).toEqual([]);
+    },
+  );
 
   it("uses Terraform deploy admin credentials to provision gated synthetic accounts", async () => {
     process.env.TF_VAR_platform_admin_email = "platform-admin@example.test";
@@ -501,8 +756,8 @@ describe("marketplace smoke auth support", () => {
     ]);
   });
 
-  it("signs in an already-provisioned account when a gated environment lacks admin credentials", async () => {
-    const { cookies, page } = createFakePage((call) => {
+  it("refuses registration admission failures without password sign-in", async () => {
+    const { calls, cookies, page } = createFakePage((call) => {
       if (call.url.endsWith("/api/auth/registration-consent")) {
         return new FakeResponse(200, {
           bundleKey: "registration",
@@ -514,17 +769,18 @@ describe("marketplace smoke auth support", () => {
       if (call.url.endsWith("/api/auth/register")) {
         return new FakeResponse(403, { error: { code: "registration_admission_required" } });
       }
-      if (call.url.endsWith("/api/auth/password-sign-in")) {
-        return new FakeResponse(200, { sessionToken: "synthetic_session" });
-      }
       throw new Error(`Unexpected request: ${call.method} ${call.url}`);
     });
 
-    await expect(registerOrSignInSyntheticAccount(page, "https://marketplace.test", account)).resolves.toBe(
-      "synthetic_session",
+    await expect(registerOrSignInSyntheticAccount(page, "https://marketplace.test", account)).rejects.toThrow(
+      "synthetic registration failed (registration-admission-required)",
     );
 
-    expect(cookies).toContainEqual(expect.objectContaining({ name: "chase_sets_session", value: "synthetic_session" }));
+    expect(calls.map((call) => call.url.replace("https://marketplace.test", ""))).toEqual([
+      "/api/auth/registration-consent",
+      "/api/auth/register",
+    ]);
+    expect(cookies).toEqual([]);
   });
 });
 
@@ -636,4 +892,61 @@ function waitForSignal(signal: Promise<void>, timeoutMs: number) {
       },
     );
   });
+}
+
+function marketplaceAuthCallerCensus() {
+  const e2eRoot = join(process.cwd(), "e2e");
+  const sourceRows = readSpecSources(e2eRoot);
+  const classified = sourceRows.map((row) => ({ path: row.path, ...authCallsInSource(row.source) }));
+  return {
+    synthetic: classified
+      .filter((row) => row.synthetic)
+      .map((row) => row.path)
+      .sort(),
+    directOnly: classified
+      .filter((row) => row.password && !row.synthetic)
+      .map((row) => row.path)
+      .sort(),
+  };
+}
+
+function readSpecSources(root: string, directory = root): ReadonlyArray<Readonly<{ path: string; source: string }>> {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const absolutePath = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      return readSpecSources(root, absolutePath);
+    }
+    if (!entry.isFile() || !entry.name.endsWith(".spec.ts")) {
+      return [];
+    }
+    return [
+      {
+        path: absolutePath.slice(root.length + 1).replaceAll("\\", "/"),
+        source: readFileSync(absolutePath, "utf8"),
+      },
+    ];
+  });
+}
+
+function authCallsInSource(source: string) {
+  const localNames = new Map<string, string>();
+  for (const match of source.matchAll(/import\s*{([^}]+)}\s*from\s*["'][^"']*(?:support\/auth|\.\/auth)["']/g)) {
+    for (const binding of (match[1] ?? "").split(",")) {
+      const [imported, local = imported] = binding
+        .trim()
+        .split(/\s+as\s+/)
+        .map((value) => value.trim());
+      if (imported && local) {
+        localNames.set(imported, local);
+      }
+    }
+  }
+  const calls = (imported: string) => {
+    const local = localNames.get(imported);
+    return local ? new RegExp(`\\b${local}\\s*\\(`).test(source) : false;
+  };
+  return {
+    synthetic: calls("registerOrSignInSyntheticAccount"),
+    password: calls("signInWithPassword"),
+  };
 }

@@ -1,10 +1,21 @@
 import { createHash } from "node:crypto";
-import { expect, type APIResponse, type Page } from "@playwright/test";
+import { relative } from "node:path";
+import { expect, type APIResponse, type Page, type TestInfo } from "@playwright/test";
 import { CHASE_SETS_COMMIT_RECEIPT_HEADER, decodeCommitReceipt } from "@chase-sets/http/responses";
 
 const privilegedRequestTimeoutMs = 15_000;
 const privilegedResponseBodyLimitBytes = 64 * 1024;
-const privilegedSessionTokenLimitCharacters = 8 * 1024;
+// Auth's authoritative opaque-token adapter emits `session_` followed by 18
+// random bytes encoded as lowercase hex. The response projection consumed here
+// needs only that field; the remaining success-schema fields fit inside the
+// explicit 16 KiB evolution headroom.
+const sessionTokenMaximumCharacters = "session_".length + 18 * 2;
+const registrationSuccessProjectionMaxBytes = new TextEncoder().encode(
+  JSON.stringify({ sessionToken: "x".repeat(sessionTokenMaximumCharacters) }),
+).byteLength;
+const registrationSuccessResponseHeadroomBytes = 16 * 1024;
+export const registrationSuccessResponseBodyLimitBytes =
+  registrationSuccessProjectionMaxBytes + registrationSuccessResponseHeadroomBytes;
 // Event-store global positions are non-negative PostgreSQL bigint values. The
 // endpoint emits exactly this object, so the largest valid body is the 19-digit
 // signed-bigint maximum; 64 additional bytes leave explicit encoding headroom.
@@ -21,7 +32,94 @@ export type MarketplaceE2EAccount = {
   password: string;
   displayName: string;
   shouldRegister: boolean;
+  identityDigest?: string;
 };
+
+export type SyntheticMarketplaceAccountIdentity = Readonly<{
+  invocationNamespace: string;
+  projectName: string;
+  specPath: string;
+  titlePath: readonly string[];
+}>;
+
+export function createSyntheticMarketplaceAccount(
+  identity: SyntheticMarketplaceAccountIdentity,
+): MarketplaceE2EAccount {
+  const digest = digestSyntheticMarketplaceAccountIdentity(identity);
+  return {
+    email: `marketplace-e2e-${digest}@chasesets.test`,
+    password: `Marketplace-E2E-${digest}-aA1!`,
+    displayName: `Marketplace E2E ${digest}`,
+    shouldRegister: true,
+    identityDigest: digest,
+  };
+}
+
+export function syntheticMarketplaceAccountFor(
+  testInfo: Pick<TestInfo, "file" | "project" | "titlePath">,
+  options: Readonly<{ invocationNamespace?: string }> = {},
+) {
+  return createSyntheticMarketplaceAccount({
+    invocationNamespace: options.invocationNamespace ?? readSyntheticInvocationNamespace(),
+    projectName: testInfo.project.name,
+    specPath: testInfo.file,
+    titlePath: testInfo.titlePath,
+  });
+}
+
+function readSyntheticInvocationNamespace() {
+  const runId = process.env.GITHUB_RUN_ID?.trim() ?? "";
+  const runAttempt = process.env.GITHUB_RUN_ATTEMPT?.trim() ?? "";
+  if (runId || runAttempt) {
+    if (!runId || !runAttempt) {
+      throw new Error("synthetic account setup failed (incomplete-hosted-invocation-namespace)");
+    }
+    return `${runId}:${runAttempt}`;
+  }
+
+  const localNamespace = process.env.CHASE_SETS_E2E_INVOCATION_NAMESPACE?.trim() ?? "";
+  if (!localNamespace) {
+    throw new Error("synthetic account setup failed (missing-local-invocation-namespace)");
+  }
+  return localNamespace;
+}
+
+function digestSyntheticMarketplaceAccountIdentity(identity: SyntheticMarketplaceAccountIdentity) {
+  const invocationNamespace = identity.invocationNamespace.trim();
+  const projectName = identity.projectName.trim();
+  const normalizedSpecPath = normalizeSpecPath(identity.specPath);
+  if (!invocationNamespace || !projectName || !normalizedSpecPath || identity.titlePath.length === 0) {
+    throw new Error("synthetic account setup failed (invalid-logical-identity)");
+  }
+
+  const hash = createHash("sha256");
+  hashLengthDelimited(hash, "marketplace-synthetic-account/v1");
+  hashLengthDelimited(hash, invocationNamespace);
+  hashLengthDelimited(hash, projectName);
+  hashLengthDelimited(hash, normalizedSpecPath);
+  hashLengthDelimited(hash, String(identity.titlePath.length));
+  for (const title of identity.titlePath) {
+    hashLengthDelimited(hash, title);
+  }
+  return hash.digest("hex");
+}
+
+function hashLengthDelimited(hash: ReturnType<typeof createHash>, value: string) {
+  const bytes = Buffer.from(value, "utf8");
+  const length = Buffer.allocUnsafe(4);
+  length.writeUInt32BE(bytes.byteLength);
+  hash.update(length);
+  hash.update(bytes);
+}
+
+function normalizeSpecPath(specPath: string) {
+  const candidate = specPath.trim();
+  if (!candidate) {
+    return "";
+  }
+  const repositoryRelative = candidate.startsWith(process.cwd()) ? relative(process.cwd(), candidate) : candidate;
+  return repositoryRelative.replaceAll("\\", "/").replace(/^\.\//, "");
+}
 
 export async function addSessionCookie(page: Page, origin: string, sessionToken: string) {
   await page.context().addCookies([
@@ -85,9 +183,9 @@ export async function resolveRegistrationConsentSubmission(page: Page, origin: s
 export async function registerOrSignInSyntheticAccount(
   page: Page,
   origin: string,
-  account: Pick<MarketplaceE2EAccount, "displayName" | "email" | "password">,
+  account: Pick<MarketplaceE2EAccount, "displayName" | "email" | "password" | "identityDigest">,
 ) {
-  await provisionSyntheticAccountInvitation(origin, account.email);
+  await provisionSyntheticAccountInvitation(origin, account);
 
   const response = await page.request.post(`${origin}/api/auth/register`, {
     data: {
@@ -98,22 +196,20 @@ export async function registerOrSignInSyntheticAccount(
     },
   });
 
-  if (response.status() === 409) {
-    return signInWithPassword(page, origin, account);
-  }
-
   if (response.status() === 403) {
-    const body = await parseJsonResponse(response);
-    if (body?.error?.code === "registration_admission_required") {
-      return signInWithPassword(page, origin, account);
-    }
+    throw new Error("synthetic registration failed (registration-admission-required)");
+  }
+  if (response.status() === 409) {
+    throw new Error("synthetic registration failed (registration-conflict)");
+  }
+  if (response.status() !== 201) {
+    throw new Error("synthetic registration failed (unexpected-status)");
   }
 
-  expect(response.status(), "marketplace registration should start a session").toBe(201);
-  const body = (await response.json()) as { sessionToken?: string };
-  expect(body.sessionToken, "marketplace registration should return a session token").toBeTruthy();
-  await addSessionCookie(page, origin, body.sessionToken!);
-  return body.sessionToken!;
+  const body = await readBoundedApiJson(response, registrationSuccessResponseBodyLimitBytes);
+  const sessionToken = readRegistrationSessionToken(body);
+  await addSessionCookie(page, origin, sessionToken);
+  return sessionToken;
 }
 
 async function startPasswordSession(
@@ -137,7 +233,10 @@ async function startPasswordSession(
   return (await response.json()) as { sessionToken: string };
 }
 
-async function provisionSyntheticAccountInvitation(origin: string, email: string) {
+async function provisionSyntheticAccountInvitation(
+  origin: string,
+  account: Pick<MarketplaceE2EAccount, "displayName" | "email" | "password" | "identityDigest">,
+) {
   const adminEmail = firstConfiguredEnvValue("PLATFORM_ADMIN_EMAIL", "TF_VAR_platform_admin_email");
   const adminPassword = firstConfiguredEnvValue("PLATFORM_ADMIN_PASSWORD", "TF_VAR_platform_admin_password");
   if (!adminEmail || !adminPassword) {
@@ -155,17 +254,21 @@ async function provisionSyntheticAccountInvitation(origin: string, email: string
   const invitationResponse = await privilegedRequest(origin, "/api/identity/invitations", {
     method: "POST",
     headers: { Cookie: adminCookie },
-    expectedStatus: 201,
+    expectedStatus: [201, 400],
     operation: "platform admin invitation",
     discardResponseBody: true,
     data: {
-      invitationId: createSmokeInvitationId(),
+      invitationId: createSyntheticInvitationId(account),
       accountId: actor.account.account_id,
-      email,
+      email: account.email,
       roleKey: "viewer",
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     },
   });
+
+  if (invitationResponse.status === 400) {
+    throw new Error("synthetic invitation failed (invitation-already-authored)");
+  }
 
   await waitForAuthInvitationProjection(origin, adminCookie, invitationResponse.headers);
 }
@@ -186,11 +289,16 @@ async function getCurrentActorDisplay(origin: string, adminCookie: string) {
 }
 
 async function waitForAuthInvitationProjection(origin: string, adminCookie: string, headers: Headers) {
-  const identityCommit = decodeCommitReceipt(headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)).find(
-    (source) => source.sourceContextName === "identity",
-  );
+  let identityCommit: ReturnType<typeof decodeCommitReceipt>[number] | undefined;
+  try {
+    identityCommit = decodeCommitReceipt(headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)).find(
+      (source) => source.sourceContextName === "identity",
+    );
+  } catch {
+    throw new Error("synthetic invitation failed (missing-identity-commit-receipt)");
+  }
   if (!identityCommit) {
-    return;
+    throw new Error("synthetic invitation failed (missing-identity-commit-receipt)");
   }
 
   let lastObservedPosition = "0";
@@ -221,7 +329,7 @@ type PrivilegedRequestOptions = {
   method: "GET" | "POST";
   headers?: Readonly<Record<string, string>>;
   data?: unknown;
-  expectedStatus: number;
+  expectedStatus: number | readonly number[];
   operation: PrivilegedOperation;
   discardResponseBody?: boolean;
   responseBodyLimitBytes?: number;
@@ -258,7 +366,8 @@ export async function privilegedRequest(origin: string, path: string, options: P
   }
 
   try {
-    if (response.status !== options.expectedStatus) {
+    const expectedStatuses = Array.isArray(options.expectedStatus) ? options.expectedStatus : [options.expectedStatus];
+    if (!expectedStatuses.includes(response.status)) {
       try {
         await response.body?.cancel();
       } catch {
@@ -274,7 +383,7 @@ export async function privilegedRequest(origin: string, path: string, options: P
           controller.signal,
           options.responseBodyLimitBytes ?? privilegedResponseBodyLimitBytes,
         );
-    return { body, headers: response.headers };
+    return { body, headers: response.headers, status: response.status };
   } finally {
     clearTimeout(timeout);
   }
@@ -352,7 +461,7 @@ function readPrivilegedSessionToken(body: unknown) {
     !isRecord(body) ||
     typeof body.sessionToken !== "string" ||
     body.sessionToken.length === 0 ||
-    body.sessionToken.length > privilegedSessionTokenLimitCharacters
+    body.sessionToken.length > sessionTokenMaximumCharacters
   ) {
     throw new Error("platform-admin password sign-in failed (invalid-response)");
   }
@@ -377,8 +486,21 @@ function readProjectionCheckpoint(body: unknown) {
   return position;
 }
 
-function createSmokeInvitationId() {
-  return `ivt_smoke_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+function createSyntheticInvitationId(
+  account: Pick<MarketplaceE2EAccount, "displayName" | "email" | "password" | "identityDigest">,
+) {
+  const identityDigest =
+    account.identityDigest ??
+    digestSyntheticMarketplaceAccountIdentity({
+      invocationNamespace: "legacy-synthetic-helper/v1",
+      projectName: account.email,
+      specPath: account.password,
+      titlePath: [account.displayName],
+    });
+  if (!/^[0-9a-f]{64}$/.test(identityDigest)) {
+    throw new Error("synthetic account setup failed (invalid-identity-digest)");
+  }
+  return `ivt_e2e_${identityDigest}`;
 }
 
 function firstConfiguredEnvValue(...names: readonly string[]) {
@@ -392,10 +514,31 @@ function firstConfiguredEnvValue(...names: readonly string[]) {
   return "";
 }
 
-async function parseJsonResponse(response: APIResponse) {
+async function readBoundedApiJson(response: APIResponse, bodyLimitBytes: number): Promise<unknown> {
+  let bytes: Buffer;
   try {
-    return (await response.json()) as { error?: { code?: string } };
+    bytes = await response.body();
   } catch {
-    return null;
+    throw new Error("synthetic registration failed (response-read)");
   }
+  if (bytes.byteLength > bodyLimitBytes) {
+    throw new Error("synthetic registration failed (response-too-large)");
+  }
+  try {
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
+  } catch {
+    throw new Error("synthetic registration failed (invalid-json)");
+  }
+}
+
+function readRegistrationSessionToken(body: unknown) {
+  const sessionToken = isRecord(body) ? body.sessionToken : undefined;
+  if (
+    typeof sessionToken !== "string" ||
+    sessionToken.length === 0 ||
+    sessionToken.length > sessionTokenMaximumCharacters
+  ) {
+    throw new Error("synthetic registration failed (invalid-response)");
+  }
+  return sessionToken;
 }

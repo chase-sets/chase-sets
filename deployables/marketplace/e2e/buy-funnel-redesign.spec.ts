@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
+import { registerOrSignInSyntheticAccount, signInWithPassword, syntheticMarketplaceAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 import { logMarketplaceSeedContractGap } from "./support/seed-contract-gap";
 
@@ -33,11 +33,6 @@ const configuredMarketplaceAccount = {
   password: process.env.MARKETPLACE_E2E_PASSWORD?.trim() ?? "",
 };
 
-const syntheticAccountRunId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}-${process.pid}`)
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, "-")
-  .slice(0, 12);
-const syntheticAccountNonce = Math.random().toString(36).slice(2, 8);
 const authProjectionTimeoutMs = 90_000;
 
 const screenshotDir = path.join("artifacts", "playwright", "buy-funnel-screenshots");
@@ -61,17 +56,7 @@ function marketplaceAccountFor(testInfo: TestInfo) {
       shouldRegister: false,
     };
   }
-  const titleSlug = testInfo.title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 20);
-  return {
-    email: `buy-funnel-${syntheticAccountRunId}-${syntheticAccountNonce}-${testInfo.workerIndex}-${testInfo.retry}-${titleSlug}@chasesets.test`,
-    password: `buy-funnel-${syntheticAccountRunId}-${testInfo.workerIndex}-${testInfo.retry}`,
-    displayName: `Buy Funnel ${syntheticAccountRunId} ${syntheticAccountNonce} ${testInfo.workerIndex} ${testInfo.retry}`,
-    shouldRegister: true,
-  };
+  return syntheticMarketplaceAccountFor(testInfo);
 }
 
 async function authenticateAccount(page: Page, testInfo: TestInfo) {

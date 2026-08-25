@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
+import { registerOrSignInSyntheticAccount, signInWithPassword, syntheticMarketplaceAccountFor } from "./support/auth";
 
 const evidenceListingId = process.env.MARKETPLACE_E2E_EVIDENCE_LISTING_ID?.trim();
 const configuredEmail = process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "";
@@ -25,12 +25,9 @@ test.describe("marketplace Sell List offer evidence", () => {
           displayName: "Marketplace evidence E2E account",
           shouldRegister: false,
         }
-      : {
-          email: `evidence-${testInfo.workerIndex}-${testInfo.retry}@chasesets.test`,
-          password: `evidence-${testInfo.workerIndex}-${testInfo.retry}`,
-          displayName: "Marketplace evidence E2E account",
-          shouldRegister: true,
-        };
+      : syntheticMarketplaceAccountFor(testInfo, {
+          invocationNamespace: "marketplace-sell-list-evidence-seed/v1",
+        });
 
     if (account.shouldRegister) {
       await registerOrSignInSyntheticAccount(page, origin, account);
