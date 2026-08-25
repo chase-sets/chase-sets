@@ -198,24 +198,31 @@ describeDb("Terraform database-grant script real PostgreSQL/TLS integration", ()
     expectSafeOutput(stdout.splice(0), stderr.splice(0));
   });
 
-  it("rejects a wrong CA and a wrong hostname through the real TLS/Postgres client seam", async () => {
+  it("rejects ordinary and hostile-environment wrong CAs plus a hostile-environment wrong hostname through the real TLS/Postgres client seam", async () => {
     provider.setCertificate(await readFile(certificates.wrongCaCertificate, "utf8"));
-    await expect(runGrants([grants(databases.databases, databases.owners, "owner")[0]])).resolves.toBe(1);
-    const wrongCaOutput = stderr.shift()!;
-    const wrongCaFailure = JSON.parse(wrongCaOutput);
-    expect(["certificate-authority-untrusted", "self-signed-certificate-in-certificate-chain"]).toContain(
-      wrongCaFailure.classification,
-    );
+    const grant = grants(databases.databases, databases.owners, "owner")[0];
+    const wrongCaOutputs: string[] = [];
+    for (const tlsSetting of [undefined, "0"]) {
+      await withNodeTlsRejectUnauthorized(tlsSetting, async () => {
+        await expect(runGrants([grant])).resolves.toBe(1);
+      });
+      wrongCaOutputs.push(stderr.shift()!);
+    }
+    for (const output of wrongCaOutputs) {
+      expect(["certificate-authority-untrusted", "self-signed-certificate-in-certificate-chain"]).toContain(
+        JSON.parse(output).classification,
+      );
+    }
 
     provider.setCertificate(await readFile(certificates.caCertificate, "utf8"));
-    await expect(
-      runGrants([grants(databases.databases, databases.owners, "owner")[0]], {}, hostnameMismatchProxy.port),
-    ).resolves.toBe(1);
+    await withNodeTlsRejectUnauthorized("0", async () => {
+      await expect(runGrants([grant], {}, hostnameMismatchProxy.port)).resolves.toBe(1);
+    });
     const wrongHostnameOutput = stderr.shift()!;
     expect(JSON.parse(wrongHostnameOutput)).toMatchObject({ classification: "certificate-hostname-mismatch" });
     expect(stdout.splice(0)).toEqual([]);
     expect(sentinel.connections()).toBe(0);
-    expectSafeOutput([], [wrongCaOutput, wrongHostnameOutput]);
+    expectSafeOutput([], [...wrongCaOutputs, wrongHostnameOutput]);
   });
 
   async function runGrants(grantSet: readonly Grant[], dependencies = {}, port = tlsProxy.port): Promise<number> {
@@ -334,6 +341,24 @@ function grants(
   kind: "owner" | "wake-listener",
 ): Grant[] {
   return databaseNames.map((database, index) => ({ database, user: roleNames[index], kind }));
+}
+
+async function withNodeTlsRejectUnauthorized(value: string | undefined, callback: () => Promise<void>): Promise<void> {
+  const previous = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  if (value === undefined) {
+    delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  } else {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = value;
+  }
+  try {
+    await callback();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    } else {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = previous;
+    }
+  }
 }
 
 function completePrivilegeOracle() {

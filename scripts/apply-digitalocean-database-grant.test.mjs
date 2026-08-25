@@ -1,6 +1,7 @@
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   GRANT_KINDS,
@@ -22,6 +23,7 @@ const SECRET_MARKERS = [
   "sentinel-host-secret-marker",
 ];
 const temporaryRoots = [];
+const { Client } = pg;
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -112,38 +114,40 @@ describe("managed Postgres trust boundary", () => {
   it("fetches one cluster CA and creates one verified client for each grant database despite hostile ambient selectors", async () => {
     const root = await createTemporaryRoot();
     const observed = { fetches: [], clients: [], modes: null };
-    const result = await runScript(
-      trustedEnvironment({
-        PGHOSTADDR: "sentinel-host-secret-marker",
-        PGSERVICE: "hostile-service",
-        PGDATABASE: "hostile-database",
-        PGSSLMODE: "disable",
-        PGSSLROOTCERT: "hostile-ca-path",
-        NODE_TLS_REJECT_UNAUTHORIZED: "0",
-      }),
-      root,
-      {
-        fetch: async (url, init) => {
-          observed.fetches.push({ url, init });
-          return providerResponse(TEST_CA);
+    const result = await withNodeTlsRejectUnauthorized("0", () =>
+      runScript(
+        trustedEnvironment({
+          PGHOSTADDR: "sentinel-host-secret-marker",
+          PGSERVICE: "hostile-service",
+          PGDATABASE: "hostile-database",
+          PGSSLMODE: "disable",
+          PGSSLROOTCERT: "hostile-ca-path",
+        }),
+        root,
+        {
+          fetch: async (url, init) => {
+            observed.fetches.push({ url, init });
+            return providerResponse(TEST_CA);
+          },
+          createClient: (config) => {
+            const pgClient = new Client(config);
+            observed.clients.push({ config: pgClient.connectionParameters, statements: [] });
+            const current = observed.clients.at(-1);
+            return {
+              connect: async () => {
+                const [directory] = await readdir(root);
+                const directoryPath = join(root, directory);
+                observed.modes = {
+                  directory: (await stat(directoryPath)).mode,
+                  ca: (await stat(join(directoryPath, "ca.pem"))).mode,
+                };
+              },
+              query: async (statement) => current.statements.push(statement),
+              end: async () => undefined,
+            };
+          },
         },
-        createClient: (config) => {
-          observed.clients.push({ config, statements: [] });
-          const current = observed.clients.at(-1);
-          return {
-            connect: async () => {
-              const [directory] = await readdir(root);
-              const directoryPath = join(root, directory);
-              observed.modes = {
-                directory: (await stat(directoryPath)).mode,
-                ca: (await stat(join(directoryPath, "ca.pem"))).mode,
-              };
-            },
-            query: async (statement) => current.statements.push(statement),
-            end: async () => undefined,
-          };
-        },
-      },
+      ),
     );
 
     expect(result.code).toBe(0);
@@ -151,13 +155,15 @@ describe("managed Postgres trust boundary", () => {
     expect(observed.fetches[0].url).toBe("http://127.0.0.1:41731/v2/databases/cluster-id/ca");
     expect(observed.fetches[0].init.headers.Authorization).toBe("Bearer provider-token-secret-marker");
     expect(observed.clients).toHaveLength(2);
-    expect(observed.clients.map(({ config }) => new URL(config.connectionString).pathname)).toEqual(["/db_a", "/db_b"]);
     for (const { config, statements } of observed.clients) {
-      const url = new URL(config.connectionString);
-      expect(url.hostname).toBe("localhost");
-      expect(url.searchParams.get("sslmode")).toBe("verify-full");
-      expect(url.searchParams.get("uselibpqcompat")).toBe("true");
+      expect(config.host).toBe("localhost");
+      expect(config.port).toBe(5432);
+      expect(config.database).toMatch(/^db_[ab]$/);
+      expect(config.user).toBe("admin");
+      expect(config.password).toBe("admin-password-secret-marker");
+      expect(config.connectionString).toBeUndefined();
       expect(config.ssl).toEqual({ rejectUnauthorized: true, ca: TEST_CA });
+      expect(Object.hasOwn(config.ssl, "rejectUnauthorized")).toBe(true);
       expect(statements.length).toBeGreaterThan(0);
     }
     if (process.platform !== "win32") {
@@ -350,6 +356,24 @@ async function runScript(env, root, overrides = {}) {
     ...overrides,
   });
   return { code, stdout, stderr };
+}
+
+async function withNodeTlsRejectUnauthorized(value, callback) {
+  const previous = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  if (value === undefined) {
+    delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  } else {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = value;
+  }
+  try {
+    return await callback();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    } else {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = previous;
+    }
+  }
 }
 
 function providerResponse(certificate) {

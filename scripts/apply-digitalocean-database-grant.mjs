@@ -74,8 +74,7 @@ export function statementsForGrant({ database, user, kind }) {
 }
 
 async function applyGrant(grant, connectionUrl, dependencies = {}) {
-  assertVerifiedGrantConnection(connectionUrl, grant.database);
-  const config = postgresClientConfig(connectionUrl, Object.create(null), dependencies.readFileSync);
+  const config = grantClientConfig(connectionUrl, grant.database, dependencies.readFileSync);
   const client = (dependencies.createClient ?? ((clientConfig) => new Client(clientConfig)))(config);
   let operationError;
   try {
@@ -105,6 +104,23 @@ async function applyGrant(grant, connectionUrl, dependencies = {}) {
       }
     }
   }
+}
+
+function grantClientConfig(connectionString, database, readFileSync) {
+  const url = assertVerifiedGrantConnection(connectionString, database);
+  // Keep the verify-full URL as the canonical CA authority, but do not hand it
+  // to pg.Client: pg reparses SSL-bearing connection strings after explicit
+  // options and can replace this verified object with environment-controlled
+  // TLS defaults.
+  const { ssl } = postgresClientConfig(connectionString, Object.create(null), readFileSync);
+  return {
+    host: url.hostname,
+    port: Number(url.port || "5432"),
+    database: decodeURIComponent(url.pathname.slice(1)),
+    user: decodeURIComponent(url.username),
+    password: decodeURIComponent(url.password),
+    ssl: { ...ssl, rejectUnauthorized: true },
+  };
 }
 
 export function readManagedPostgresGrantOptions(env = process.env) {
@@ -187,6 +203,7 @@ function assertVerifiedGrantConnection(connectionString, database) {
   ) {
     throw classifiedError("managed-postgres-connection-url-invalid");
   }
+  return url;
 }
 
 export function readGrants(env = process.env) {
