@@ -1,15 +1,11 @@
 import { parseCatalogIntegrationUnitKey } from "../../source-observations/api/integration-unit";
+import type { CatalogProviderIngestionUnitProductDomain } from "../../source-observations/api/provider-integration-mapping-contract";
 import {
   catalogProviderProfileVersionIngestionUnitKey,
   type CatalogProviderIntegrationProfileVersionRecord,
   type CatalogProviderOptionQuery,
   type CatalogProviderScope,
 } from "../../source-observations/api/provider-integration-profiles";
-import {
-  catalogScopeProductDomainContracts,
-  normalizeCatalogScopeProductDomain,
-  type CatalogScopeProductDomain,
-} from "../../scope-registry/domain/contract";
 
 // A scope-discovery target is one provider option query the scheduled refresh
 // executes to learn which scope options (series, expansions, sets, product
@@ -21,7 +17,7 @@ export type ProviderScopeDiscoveryTarget = Readonly<{
   providerKey: string;
   profileKey: string;
   ingestionUnitKey: string;
-  productDomain: CatalogScopeProductDomain | null;
+  productDomain: ProviderScopeDiscoveryProductDomain | null;
   queryKind: string;
   providerScope: CatalogProviderScope;
   parentScope: CatalogProviderScope | null;
@@ -31,6 +27,20 @@ export type ProviderScopeDiscoveryTarget = Readonly<{
 }>;
 
 export type ProviderScopeObservationKind = "language" | "product-line" | "series" | "expansion" | "set";
+
+export type ProviderScopeDiscoveryProductDomain = Exclude<CatalogProviderIngestionUnitProductDomain, "mtg"> | "magic";
+
+export type ProviderScopeDiscoveryTargetClassification = Readonly<{
+  productDomain: ProviderScopeDiscoveryProductDomain;
+  scopeKind: ProviderScopeObservationKind;
+}>;
+
+export type ProviderScopeDiscoveryTargetClassifier = (
+  input: Readonly<{
+    productDomain: string | null;
+    providerScope: CatalogProviderScope;
+  }>,
+) => ProviderScopeDiscoveryTargetClassification | null;
 
 const SCOPE_DISCOVERY_QUERY_SCOPES: readonly CatalogProviderScope[] = [
   "language",
@@ -44,6 +54,7 @@ const DEFAULT_DISCOVERY_LANGUAGE = "en";
 
 export function listProviderScopeDiscoveryTargets(
   profileVersions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+  classifyTarget: ProviderScopeDiscoveryTargetClassifier,
 ): readonly ProviderScopeDiscoveryTarget[] {
   const targets = new Map<string, ProviderScopeDiscoveryTarget>();
 
@@ -62,9 +73,11 @@ export function listProviderScopeDiscoveryTargets(
 
       const providerKey = version.providerKey.trim().toLowerCase();
       const unitKey = catalogProviderProfileVersionIngestionUnitKey(version);
-      const productDomain = normalizeCatalogScopeProductDomain(productDomainForUnitKey(unitKey));
-      const scopeKind = scopeKindForQuery(query, productDomain);
-      if (!scopeKind) {
+      const classification = classifyTarget({
+        productDomain: productDomainForUnitKey(unitKey),
+        providerScope: query.scope,
+      });
+      if (!classification) {
         continue;
       }
       const key = `${providerKey}:${unitKey}:${query.queryKind}:${DEFAULT_DISCOVERY_LANGUAGE}`;
@@ -76,12 +89,12 @@ export function listProviderScopeDiscoveryTargets(
         providerKey,
         profileKey: version.profileKey,
         ingestionUnitKey: unitKey,
-        productDomain,
+        productDomain: classification.productDomain,
         queryKind: query.queryKind,
         providerScope: query.scope,
         parentScope: query.parentScope,
         parentRequired: query.parentValue?.required === true,
-        scopeKind,
+        scopeKind: classification.scopeKind,
         languageCode: DEFAULT_DISCOVERY_LANGUAGE,
       });
     }
@@ -90,29 +103,9 @@ export function listProviderScopeDiscoveryTargets(
   return [...targets.values()];
 }
 
-function scopeKindForQuery(
-  query: CatalogProviderOptionQuery,
-  productDomain: CatalogScopeProductDomain | null,
-): ProviderScopeObservationKind | null {
-  switch (query.scope) {
-    case "language":
-      return "language";
-    case "product-line/category":
-      return "product-line";
-    case "series":
-      return "series";
-    case "expansion":
-      return "expansion";
-    case "set-name":
-      return productDomain ? catalogScopeProductDomainContracts[productDomain].leafReferenceTypeKey : null;
-    default:
-      throw new Error(`Provider option query '${query.queryKind}' is not a scope-discovery query.`);
-  }
-}
-
-function productDomainForUnitKey(unitKey: string): string | null {
+function productDomainForUnitKey(unitKey: string): CatalogProviderIngestionUnitProductDomain | null {
   try {
-    return parseCatalogIntegrationUnitKey(unitKey).productDomain;
+    return parseCatalogIntegrationUnitKey(unitKey).productDomain as CatalogProviderIngestionUnitProductDomain;
   } catch {
     return null;
   }

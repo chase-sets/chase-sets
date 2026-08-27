@@ -8,9 +8,13 @@ import {
   normalizeCatalogScopeProductDomain,
 } from "../../scope-registry/domain/contract";
 import { listProviderScopeDiscoveryTargets } from "./discovery-targets";
+import { classifyProviderScopeDiscoveryTarget } from "./scope-observation-matcher";
 
 describe("provider scope discovery targets", () => {
-  const targets = listProviderScopeDiscoveryTargets(catalogProviderIntegrationProfileVersions);
+  const targets = listProviderScopeDiscoveryTargets(
+    catalogProviderIntegrationProfileVersions,
+    classifyProviderScopeDiscoveryTarget,
+  );
 
   it("derives scope-level option queries from active provider profiles", () => {
     const tcgdexTargets = targets.filter((target) => target.providerKey === "tcgdex");
@@ -72,6 +76,6 @@ describe("provider scope discovery targets", () => {
       active: false,
     }));
 
-    expect(listProviderScopeDiscoveryTargets(inactiveOnly)).toHaveLength(0);
+    expect(listProviderScopeDiscoveryTargets(inactiveOnly, classifyProviderScopeDiscoveryTarget)).toHaveLength(0);
   });
 });

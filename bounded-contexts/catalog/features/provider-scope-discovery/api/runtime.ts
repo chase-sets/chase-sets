@@ -35,6 +35,7 @@ import {
   type CanonicalScopeRecordProposalReviewStatus,
 } from "./scope-record-proposal-store";
 import {
+  classifyProviderScopeDiscoveryTarget,
   matchScopeObservationsToScopeRecords,
   resolveProviderScopeDiscoveryCascadeParent,
 } from "./scope-observation-matcher";
@@ -319,7 +320,7 @@ function groupTargetsByProvider(
   profileVersions: readonly CatalogProviderIntegrationProfileVersionRecord[],
 ): ReadonlyMap<string, readonly ProviderScopeDiscoveryTarget[]> {
   const grouped = new Map<string, ProviderScopeDiscoveryTarget[]>();
-  for (const target of listProviderScopeDiscoveryTargets(profileVersions)) {
+  for (const target of listProviderScopeDiscoveryTargets(profileVersions, classifyProviderScopeDiscoveryTarget)) {
     const bucket = grouped.get(target.providerKey);
     if (bucket) {
       bucket.push(target);

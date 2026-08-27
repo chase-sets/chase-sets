@@ -12,7 +12,11 @@ import {
   type CatalogScopeProductDomain,
   type CatalogScopeRecordKind,
 } from "../../scope-registry/domain/contract";
-import type { ProviderScopeDiscoveryTarget } from "./discovery-targets";
+import type {
+  ProviderScopeDiscoveryTarget,
+  ProviderScopeDiscoveryTargetClassification,
+  ProviderScopeDiscoveryTargetClassifier,
+} from "./discovery-targets";
 import type { ProviderScopeObservationRecord } from "./refresh-schedule-store";
 import {
   listCanonicalScopeRecordProposals,
@@ -58,6 +62,33 @@ type MatchableScopeRecord = Readonly<{
 }>;
 
 const MATCHABLE_SCOPE_KINDS = new Set<CatalogScopeRecordKind>(["product-line", "series", "expansion", "set"]);
+
+export const classifyProviderScopeDiscoveryTarget: ProviderScopeDiscoveryTargetClassifier = (
+  input,
+): ProviderScopeDiscoveryTargetClassification | null => {
+  const productDomain = normalizeCatalogScopeProductDomain(input.productDomain);
+  if (!productDomain) {
+    return null;
+  }
+
+  switch (input.providerScope) {
+    case "language":
+      return { productDomain, scopeKind: "language" };
+    case "product-line/category":
+      return { productDomain, scopeKind: "product-line" };
+    case "series":
+      return { productDomain, scopeKind: "series" };
+    case "expansion":
+      return { productDomain, scopeKind: "expansion" };
+    case "set-name":
+      return {
+        productDomain,
+        scopeKind: catalogScopeProductDomainContracts[productDomain].leafReferenceTypeKey,
+      };
+    default:
+      return null;
+  }
+};
 
 export type ProviderScopeDiscoveryCascadeParent = Readonly<{
   parentValue: string;

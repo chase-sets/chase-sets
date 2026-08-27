@@ -32,7 +32,11 @@ import {
 import { listProviderScopeDiscoveryTargets, type ProviderScopeDiscoveryTarget } from "./discovery-targets";
 import { createProviderScopeDiscoveryRuntime, type ProviderScopeDiscoveryPorts } from "./runtime";
 import type { ProviderRefreshCadenceConfig } from "./provider-refresh-cadence";
-import { matchScopeObservationsToScopeRecords, providerScopeMappingCoordinates } from "./scope-observation-matcher";
+import {
+  classifyProviderScopeDiscoveryTarget,
+  matchScopeObservationsToScopeRecords,
+  providerScopeMappingCoordinates,
+} from "./scope-observation-matcher";
 import type { ProviderScopeObservationRecord } from "./refresh-schedule-store";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -405,7 +409,7 @@ INSERT INTO catalog_provider_scope_observations (
     const version = activeTcgplayerProfileVersions().find(
       (candidate) => candidate.profileKey === "pokemon-single-card-product-sku",
     )!;
-    const target = listProviderScopeDiscoveryTargets([version]).find(
+    const target = listProviderScopeDiscoveryTargets([version], classifyProviderScopeDiscoveryTarget).find(
       (candidate) => candidate.queryKind === "set-names",
     )!;
     const [mappedOption] = await listCatalogProviderIntegrationOptionsFromProfiles({
@@ -489,7 +493,7 @@ INSERT INTO catalog_provider_scope_observations (
         ],
       },
     });
-    const target = listProviderScopeDiscoveryTargets([version]).find(
+    const target = listProviderScopeDiscoveryTargets([version], classifyProviderScopeDiscoveryTarget).find(
       (candidate) => candidate.queryKind === "expansions",
     )!;
     const observation = observationRecord(target, mappedOption!, "tcgdex-coordinate-candidate");
@@ -508,7 +512,7 @@ INSERT INTO catalog_provider_scope_observations (
       (candidate) => candidate.profileKey === "pokemon-single-card-product-sku",
     )!;
     const fact = (await loadTcgplayerFixtureFacts([version]))[0]!;
-    const target = listProviderScopeDiscoveryTargets([version]).find(
+    const target = listProviderScopeDiscoveryTargets([version], classifyProviderScopeDiscoveryTarget).find(
       (candidate) => candidate.queryKind === "set-names",
     )!;
     const page = await tcgplayerFixtureOptionPage(
@@ -944,7 +948,7 @@ async function loadTcgplayerFixtureFacts(
       if (!mapped.observation || mapped.diagnostics.length > 0) {
         throw new Error(`Executable TCGplayer fixture mapper rejected ${version.profileKey}.`);
       }
-      const target = listProviderScopeDiscoveryTargets([version]).find(
+      const target = listProviderScopeDiscoveryTargets([version], classifyProviderScopeDiscoveryTarget).find(
         (candidate) => candidate.queryKind === "set-names",
       );
       const normalized = mapped.observation.normalized as unknown as Record<string, unknown>;

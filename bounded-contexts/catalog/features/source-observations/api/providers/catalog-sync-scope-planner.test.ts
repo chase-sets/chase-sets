@@ -15,7 +15,10 @@ import { unitKeyForCatalogProviderProfileVersion } from "../governance/catalog-i
 import { LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY } from "../provider-adapters/lorcanajson";
 import { createCatalogIntegrationRolloutControlPolicy } from "../governance/catalog-integration-rollout-controls";
 import { listProviderScopeDiscoveryTargets } from "../../../provider-scope-discovery/api/discovery-targets";
-import { providerScopeMappingCoordinates } from "../../../provider-scope-discovery/api/scope-observation-matcher";
+import {
+  classifyProviderScopeDiscoveryTarget,
+  providerScopeMappingCoordinates,
+} from "../../../provider-scope-discovery/api/scope-observation-matcher";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
 import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures.test-data";
 
@@ -192,7 +195,7 @@ describe("Catalog sync scope planner", () => {
   it("resolves a fully mapped scope with no manually supplied provider coordinates", async () => {
     const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
-    const target = listProviderScopeDiscoveryTargets([tcgplayer]).find(
+    const target = listProviderScopeDiscoveryTargets([tcgplayer], classifyProviderScopeDiscoveryTarget).find(
       (candidate) => candidate.queryKind === "set-names",
     )!;
     const [mappedOption] = await listCatalogProviderIntegrationOptionsFromProfiles({
