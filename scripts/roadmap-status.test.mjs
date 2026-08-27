@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { classified } from "./backlog-classify.mjs";
 import {
@@ -8,6 +9,7 @@ import {
   classifyForecastDrift,
   collectEpicChildren,
   collectRoadmapIssueFacts,
+  collectRoadmapWindowAuthority,
   collectScopeGrowth,
   createForecastPresentation,
   deriveForecastInputs,
@@ -31,6 +33,8 @@ import {
   spliceIntoBody,
   START_MARKER,
   summarizeWaves,
+  summarizePrioritizationHygiene,
+  stabilizeRoadmapWindowAuthority,
   timelineFetchRequired,
   toBacklogInput,
 } from "./roadmap-status.mjs";
@@ -123,6 +127,53 @@ function issueFactNode(issue) {
   };
 }
 
+function windowMilestoneNode(milestone) {
+  return {
+    id: `SYNTHETIC_MILESTONE_${milestone.number}`,
+    number: milestone.number,
+    title: milestone.title,
+    state: "OPEN",
+  };
+}
+
+function windowIssueNode(issue) {
+  const labels = issue.labels.map((label, index) => ({
+    id: `SYNTHETIC_LABEL_${issue.number}_${index}`,
+    name: label.name,
+  }));
+  const blockedBy = (issue.blockedBy ?? []).map((blocker) => ({
+    id: blocker.id,
+    number: blocker.number,
+    state: blocker.state.toUpperCase(),
+    repository: { nameWithOwner: blocker.repository.nameWithOwner },
+  }));
+  return {
+    id: `SYNTHETIC_ISSUE_${issue.number}`,
+    number: issue.number,
+    state: "OPEN",
+    issueType: issue.issueTypeName === null ? null : { name: issue.issueTypeName },
+    milestone:
+      issue.milestone === null
+        ? null
+        : {
+            id: `SYNTHETIC_MILESTONE_${issue.milestone.number}`,
+            number: issue.milestone.number,
+            title: issue.milestone.title,
+            state: issue.milestone.state.toUpperCase(),
+          },
+    issueDependenciesSummary: {
+      blockedBy: issue.blockedByCount,
+      totalBlockedBy: issue.blockedByCount,
+    },
+    labels: windowPage(labels),
+    blockedBy: windowPage(blockedBy),
+  };
+}
+
+function windowPage(nodes) {
+  return { totalCount: nodes.length, pageInfo: { hasNextPage: false, endCursor: null }, nodes };
+}
+
 function createMainRequest({
   issues = [],
   milestones = [WAVE_1],
@@ -138,6 +189,35 @@ function createMainRequest({
     requests.push({ method, url: parsed.href, body: init.body ?? null });
 
     if (parsed.pathname === "/graphql") {
+      const { query, variables } = JSON.parse(init.body);
+      if (query.includes("WINDOW_MILESTONES_SENTINEL")) {
+        return jsonResponse({ data: { repository: { milestones: windowPage(milestones.map(windowMilestoneNode)) } } });
+      }
+      if (query.includes("WINDOW_ISSUES_SENTINEL")) {
+        return jsonResponse({
+          data: {
+            repository: { issues: windowPage(issues.filter((issue) => issue.state === "open").map(windowIssueNode)) },
+          },
+        });
+      }
+      if (query.includes("WINDOW_LABELS_SENTINEL")) {
+        const issue = issues.find((candidate) => `SYNTHETIC_ISSUE_${candidate.number}` === variables.id);
+        const nodes = (issue?.labels ?? []).map((label, index) => ({
+          id: `SYNTHETIC_LABEL_${issue?.number}_${index}`,
+          name: label.name,
+        }));
+        return jsonResponse({ data: { node: { labels: windowPage(nodes) } } });
+      }
+      if (query.includes("WINDOW_BLOCKED_BY_SENTINEL")) {
+        const issue = issues.find((candidate) => `SYNTHETIC_ISSUE_${candidate.number}` === variables.id);
+        const nodes = (issue?.blockedBy ?? []).map((blocker) => ({
+          id: blocker.id,
+          number: blocker.number,
+          state: blocker.state.toUpperCase(),
+          repository: { nameWithOwner: blocker.repository.nameWithOwner },
+        }));
+        return jsonResponse({ data: { node: { blockedBy: windowPage(nodes) } } });
+      }
       return jsonResponse({
         data: {
           repository: {
@@ -1593,6 +1673,33 @@ describe("epic child reconciliation", () => {
 });
 
 describe("real main composition", () => {
+  it("publishes the collected pull-window summary identically to stdout, step summary, and PATCH", async () => {
+    const wave1Runnable = slice(701, WAVE_1, "open", ["priority:p1", "area:ops", "kind:ops"]);
+    const staleP0 = slice(702, WAVE_2, "open", ["priority:p0"]);
+    const staleP1 = slice(703, WAVE_2, "open", ["priority:p1"]);
+    const result = await runMainFixture({
+      milestones: [WAVE_1, WAVE_2, { number: 138, title: "Mobile 1", state: "open", due_on: null }],
+      issues: [wave1Runnable, staleP1, staleP0],
+    });
+    const patches = result.requests.filter(({ method }) => method === "PATCH");
+    const patchedBody = JSON.parse(patches[0].body).body;
+    const patchBlock = patchedBody.slice(
+      patchedBody.indexOf(START_MARKER),
+      patchedBody.indexOf(END_MARKER) + END_MARKER.length,
+    );
+
+    expect(result.code).toBe(0);
+    expect(patches).toHaveLength(1);
+    expect(result.generated).toHaveLength(1);
+    expect(result.summaries).toEqual(result.generated);
+    expect(patchBlock).toBe(result.generated[0]);
+    expect(result.generated[0]).toContain("## Prioritization hygiene");
+    expect(result.generated[0]).toContain("Pull window: Wave 1.");
+    expect(result.generated[0]).toContain("Stale preemption/tie claims: **2 total** — **1 p0**, **1 p1**.");
+    expect(result.generated[0]).toContain("- #702 priority:p0 — Wave 2");
+    expect(result.generated[0]).toContain("- #703 priority:p1 — Wave 2");
+  });
+
   it("returns 1 with a named marker diagnostic and zero PATCH requests for a marker anomaly", async () => {
     const { request, requests } = createMainRequest({
       roadmapBody: `${START_MARKER}\n${START_MARKER}\nstale\n${END_MARKER}`,
@@ -1816,6 +1923,700 @@ describe("real main composition", () => {
     });
     expect(code).toBe(2);
     expect(diagnostics).toEqual(["ROADMAP_ENV_REQUIRED: GITHUB_REPOSITORY and GITHUB_TOKEN are required."]);
+  });
+});
+
+describe("prioritization hygiene authority", () => {
+  function completePage(nodes, totalCount = nodes.length) {
+    return { totalCount, pageInfo: { hasNextPage: false, endCursor: null }, nodes };
+  }
+
+  function windowLoaders({ reverse = false, labelTotal = 3 } = {}) {
+    const milestone = { id: "synthetic-milestone-wave-1", number: 1, title: "Wave 1", state: "OPEN" };
+    const labels = [
+      { id: "synthetic-label-priority", name: "priority:p1" },
+      { id: "synthetic-label-area", name: "area:ops" },
+      { id: "synthetic-label-kind", name: "kind:ops" },
+    ];
+    const issue = {
+      id: "synthetic-issue-1",
+      number: 1,
+      state: "OPEN",
+      issueType: { name: "Slice" },
+      milestone,
+      issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+      labels: completePage(reverse ? labels.slice().reverse() : labels, labelTotal),
+      blockedBy: completePage([]),
+    };
+    return {
+      loadMilestones: async () => completePage(reverse ? [milestone].reverse() : [milestone]),
+      loadIssues: async () => completePage([issue]),
+      loadLabels: async () => completePage(reverse ? labels.slice().reverse() : labels, labelTotal),
+      loadBlockedBy: async () => completePage([]),
+    };
+  }
+
+  function pagedWindowLoaders({ labels, blockedBy = [], labelPages = null, blockedByPages = null } = {}) {
+    const milestone = { id: "synthetic-milestone-wave-1", number: 1, title: "Wave 1", state: "OPEN" };
+    const completeLabels = labels ?? [
+      { id: "synthetic-label-priority", name: "priority:p1" },
+      { id: "synthetic-label-area", name: "area:ops" },
+      { id: "synthetic-label-kind", name: "kind:ops" },
+    ];
+    const issue = {
+      id: "synthetic-issue-1",
+      number: 1,
+      state: "OPEN",
+      issueType: { name: "Slice" },
+      milestone,
+      issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+      labels: labelPages?.root ?? completePage(completeLabels),
+      blockedBy: blockedByPages?.root ?? completePage(blockedBy),
+    };
+    return {
+      loadMilestones: async () => completePage([milestone]),
+      loadIssues: async () => completePage([issue]),
+      loadLabels: async (_id, after) => labelPages?.next?.get(after) ?? completePage(completeLabels),
+      loadBlockedBy: async (_id, after) => blockedByPages?.next?.get(after) ?? completePage(blockedBy),
+    };
+  }
+
+  it("stabilizes complete window authority before deriving or publishing", async () => {
+    const attempts = [
+      () => collectRoadmapWindowAuthority(windowLoaders({ reverse: false })),
+      () => collectRoadmapWindowAuthority(windowLoaders({ reverse: true })),
+    ];
+    const accepted = await stabilizeRoadmapWindowAuthority(async () => attempts.shift()());
+    expect(accepted.authority.issues.nodes[0].labels.nodes.map(({ name }) => name)).toEqual([
+      "area:ops",
+      "kind:ops",
+      "priority:p1",
+    ]);
+  });
+
+  it("binds same-count label replacements and permits only attempts two and three to recover", async () => {
+    const firstLoaders = windowLoaders();
+    const firstRoot = await firstLoaders.loadIssues(null);
+    firstRoot.nodes[0].labels.nodes[0] = { id: "synthetic-label-priority", name: "priority:p0" };
+    firstLoaders.loadIssues = async () => firstRoot;
+    const first = await collectRoadmapWindowAuthority(firstLoaders);
+    const second = await collectRoadmapWindowAuthority(windowLoaders());
+    expect(first.digest).not.toBe(second.digest);
+    const attempts = [
+      async () => first,
+      async () => second,
+      async () => collectRoadmapWindowAuthority(windowLoaders()),
+    ];
+    await expect(stabilizeRoadmapWindowAuthority(async () => attempts.shift()())).resolves.toMatchObject({
+      digest: second.digest,
+    });
+  });
+
+  it("refuses three changing digests after exactly three attempts", async () => {
+    const first = await collectRoadmapWindowAuthority(windowLoaders());
+    const secondLoaders = windowLoaders();
+    (await secondLoaders.loadIssues()).nodes[0].labels.nodes[0].name = "priority:p0";
+    const second = await collectRoadmapWindowAuthority(secondLoaders);
+    const thirdLoaders = windowLoaders();
+    (await thirdLoaders.loadIssues()).nodes[0].labels.nodes[1].name = "area:changed";
+    const third = await collectRoadmapWindowAuthority(thirdLoaders);
+    const attempts = [first, second, third];
+    await expect(stabilizeRoadmapWindowAuthority(async () => attempts.shift())).rejects.toMatchObject({
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_UNSTABLE",
+    });
+    expect(attempts).toEqual([]);
+  });
+
+  it.each([
+    {
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_MILESTONE_PAGE_INVALID",
+      loaders: () => ({ ...windowLoaders(), loadMilestones: async () => null }),
+    },
+    {
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_ISSUE_PAGE_INVALID",
+      loaders: () => ({ ...windowLoaders(), loadIssues: async () => null }),
+    },
+    {
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_LABEL_PAGE_INVALID",
+      loaders: () =>
+        pagedWindowLoaders({
+          labelPages: { root: { totalCount: 0, pageInfo: { hasNextPage: true, endCursor: null }, nodes: [] } },
+        }),
+    },
+    {
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_BLOCKED_BY_PAGE_INVALID",
+      loaders: () =>
+        pagedWindowLoaders({
+          blockedByPages: { root: { totalCount: 0, pageInfo: { hasNextPage: true, endCursor: null }, nodes: [] } },
+        }),
+    },
+    {
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH",
+      loaders: () => pagedWindowLoaders({ labels: [], labelPages: { root: completePage([], 1) } }),
+    },
+    {
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_TOTAL_CHANGED",
+      loaders: () => {
+        const labels = [
+          { id: "synthetic-label-priority", name: "priority:p1" },
+          { id: "synthetic-label-area", name: "area:ops" },
+        ];
+        return pagedWindowLoaders({
+          labelPages: {
+            root: {
+              totalCount: 2,
+              pageInfo: { hasNextPage: true, endCursor: "synthetic-total-page-2" },
+              nodes: [labels[0]],
+            },
+            next: new Map([["synthetic-total-page-2", completePage([labels[1]], 3)]]),
+          },
+        });
+      },
+    },
+    {
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_SCHEMA_INVALID",
+      loaders: () =>
+        pagedWindowLoaders({ labels: [{ id: "synthetic-label-invalid", name: "priority:p1", extra: true }] }),
+    },
+    {
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_DUPLICATE_IDENTITY",
+      loaders: () => {
+        const label = { id: "synthetic-label-priority", name: "priority:p1" };
+        return pagedWindowLoaders({
+          labelPages: {
+            root: {
+              totalCount: 2,
+              pageInfo: { hasNextPage: true, endCursor: "synthetic-duplicate-page-2" },
+              nodes: [label],
+            },
+            next: new Map([["synthetic-duplicate-page-2", completePage([label], 2)]]),
+          },
+        });
+      },
+    },
+    {
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_CURSOR_REPEATED",
+      loaders: () => {
+        const labels = [
+          { id: "synthetic-label-priority", name: "priority:p1" },
+          { id: "synthetic-label-area", name: "area:ops" },
+        ];
+        return pagedWindowLoaders({
+          labelPages: {
+            root: {
+              totalCount: 3,
+              pageInfo: { hasNextPage: true, endCursor: "synthetic-repeated-cursor" },
+              nodes: [labels[0]],
+            },
+            next: new Map([
+              [
+                "synthetic-repeated-cursor",
+                {
+                  totalCount: 3,
+                  pageInfo: { hasNextPage: true, endCursor: "synthetic-repeated-cursor" },
+                  nodes: [labels[1]],
+                },
+              ],
+            ]),
+          },
+        });
+      },
+    },
+    {
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_MILESTONE_REFERENCE_INVALID",
+      loaders: () => {
+        const loaders = windowLoaders();
+        return {
+          ...loaders,
+          loadIssues: async () => {
+            const page = await loaders.loadIssues();
+            page.nodes[0].milestone = { ...page.nodes[0].milestone, id: "synthetic-unlisted-milestone" };
+            return page;
+          },
+        };
+      },
+    },
+  ])("refuses %s when only its governing authority fact changes", async ({ code, loaders }) => {
+    await expect(collectRoadmapWindowAuthority(loaders())).rejects.toMatchObject({ code });
+  });
+
+  it.each([
+    [
+      "zero-total label page",
+      () =>
+        pagedWindowLoaders({
+          labelPages: {
+            root: {
+              totalCount: 0,
+              pageInfo: { hasNextPage: true, endCursor: "synthetic-empty-label-page" },
+              nodes: [],
+            },
+          },
+        }),
+      "loadLabels",
+    ],
+    [
+      "positive-total blockedBy page",
+      () =>
+        pagedWindowLoaders({
+          blockedByPages: {
+            root: {
+              totalCount: 1,
+              pageInfo: { hasNextPage: true, endCursor: "synthetic-empty-blocker-page" },
+              nodes: [],
+            },
+          },
+        }),
+      "loadBlockedBy",
+    ],
+  ])("refuses a continuing %s without a continuation call", async (_description, createLoaders, loaderName) => {
+    const loaders = createLoaders();
+    let continuationCalls = 0;
+    const original = loaders[loaderName];
+    loaders[loaderName] = async (...args) => {
+      continuationCalls += 1;
+      return original(...args);
+    };
+
+    await expect(collectRoadmapWindowAuthority(loaders)).rejects.toMatchObject({
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH",
+    });
+    expect(continuationCalls).toBe(0);
+  });
+
+  it("reaches the synthetic continuation sentinel only when the new non-progress guard is bypassed", async () => {
+    const guard =
+      'if (nodes.length === nodesBeforePage || nodes.length >= expectedTotal) {\n        throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH");\n      }';
+    const backlogClassifyImport = ['from "./backlog-classify', '.mjs"'].join("");
+    const dispatchWindowImport = ['from "./dispatch-window', '.mjs"'].join("");
+    const source = readFileSync(path.join(repoRoot, "scripts", "roadmap-status.mjs"), "utf8");
+    expect(source).toContain(guard);
+
+    const loaders = pagedWindowLoaders({
+      labelPages: {
+        root: { totalCount: 0, pageInfo: { hasNextPage: true, endCursor: "synthetic-bypass-page" }, nodes: [] },
+      },
+    });
+    let continuationCalls = 0;
+    loaders.loadLabels = async () => {
+      continuationCalls += 1;
+      throw new Error("SYNTHETIC_NON_PROGRESS_CONTINUATION_SENTINEL");
+    };
+    await expect(collectRoadmapWindowAuthority(loaders)).rejects.toMatchObject({
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH",
+    });
+    expect(continuationCalls).toBe(0);
+
+    const mutantSource = source
+      .replace(guard, "if (false) {}")
+      .replaceAll(
+        backlogClassifyImport,
+        `from "${pathToFileURL(path.join(repoRoot, "scripts", "backlog-classify.mjs")).href}"`,
+      )
+      .replaceAll(
+        dispatchWindowImport,
+        `from "${pathToFileURL(path.join(repoRoot, "scripts", "dispatch-window.mjs")).href}"`,
+      );
+    const mutant = await import(`data:text/javascript;base64,${Buffer.from(mutantSource).toString("base64")}`);
+    continuationCalls = 0;
+    await expect(mutant.collectRoadmapWindowAuthority(loaders)).rejects.toThrow(
+      "SYNTHETIC_NON_PROGRESS_CONTINUATION_SENTINEL",
+    );
+    expect(continuationCalls).toBe(1);
+  });
+
+  it("collects a decisive page-two label before accepting the authority", async () => {
+    const loaders = windowLoaders();
+    const rootPage = await loaders.loadIssues(null);
+    rootPage.nodes[0].labels = {
+      totalCount: 2,
+      pageInfo: { hasNextPage: true, endCursor: "synthetic-page-two" },
+      nodes: [{ id: "synthetic-label-priority", name: "priority:p1" }],
+    };
+    loaders.loadIssues = async () => rootPage;
+    let labelCalls = 0;
+    loaders.loadLabels = async (_id, after) => {
+      labelCalls += 1;
+      if (after === null) {
+        return {
+          totalCount: 2,
+          pageInfo: { hasNextPage: true, endCursor: "synthetic-page-two" },
+          nodes: [{ id: "synthetic-label-priority", name: "priority:p1" }],
+        };
+      }
+      return {
+        totalCount: 2,
+        pageInfo: { hasNextPage: false, endCursor: null },
+        nodes: [{ id: "synthetic-label-kind", name: "kind:ops" }],
+      };
+    };
+    const accepted = await collectRoadmapWindowAuthority(loaders);
+    expect(labelCalls).toBe(1);
+    expect(accepted.authority.issues.nodes[0].labels.nodes.map(({ name }) => name)).toEqual([
+      "kind:ops",
+      "priority:p1",
+    ]);
+  });
+
+  it("collects a decisive page-two blockedBy node before accepting the authority", async () => {
+    const first = {
+      id: "synthetic-blocker-one",
+      number: 10,
+      state: "OPEN",
+      repository: { nameWithOwner: "synthetic/one" },
+    };
+    const second = {
+      id: "synthetic-blocker-two",
+      number: 11,
+      state: "CLOSED",
+      repository: { nameWithOwner: "synthetic/two" },
+    };
+    const loaders = pagedWindowLoaders({
+      blockedByPages: {
+        root: {
+          totalCount: 2,
+          pageInfo: { hasNextPage: true, endCursor: "synthetic-blocked-by-page-two" },
+          nodes: [first],
+        },
+        next: new Map([["synthetic-blocked-by-page-two", completePage([second], 2)]]),
+      },
+    });
+    let continuationCalls = 0;
+    const original = loaders.loadBlockedBy;
+    loaders.loadBlockedBy = async (...args) => {
+      continuationCalls += 1;
+      return original(...args);
+    };
+
+    const accepted = await collectRoadmapWindowAuthority(loaders);
+    expect(continuationCalls).toBe(1);
+    expect(accepted.authority.issues.nodes[0].blockedBy.nodes.map(({ id }) => id)).toEqual([
+      "synthetic-blocker-one",
+      "synthetic-blocker-two",
+    ]);
+  });
+
+  it("keeps a roadmap PATCH unreachable when the exact completeness guard refuses", async () => {
+    const base = createMainRequest({ issues: [slice(1, WAVE_1, "open", ["priority:p1", "area:ops", "kind:ops"])] });
+    const request = async (url, init = {}) => {
+      if (new URL(url).pathname === "/graphql" && JSON.parse(init.body).query.includes("WINDOW_ISSUES_SENTINEL")) {
+        const response = await base.request(url, init);
+        const payload = await response.json();
+        payload.data.repository.issues.nodes[0].labels = {
+          totalCount: 1,
+          pageInfo: { hasNextPage: true, endCursor: null },
+          nodes: [{ id: "synthetic-label", name: "priority:p1" }],
+        };
+        return jsonResponse(payload);
+      }
+      return base.request(url, init);
+    };
+    const diagnostics = [];
+    const code = await main({
+      env: mainEnv(),
+      request,
+      nowMs: NOW,
+      writeOutput: () => {},
+      writeError: (message) => diagnostics.push(message),
+    });
+    expect(code).toBe(1);
+    expect(diagnostics).toEqual([expect.stringMatching(/^ROADMAP_DISPATCH_WINDOW_AUTHORITY_LABEL_PAGE_INVALID:/)]);
+    expect(base.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+  });
+
+  it("keeps PATCH unreachable when all three live window-authority digests differ", async () => {
+    const base = createMainRequest();
+    let attempt = 0;
+    const request = async (url, init = {}) => {
+      if (new URL(url).pathname === "/graphql" && JSON.parse(init.body).query.includes("WINDOW_MILESTONES_SENTINEL")) {
+        attempt += 1;
+        const response = await base.request(url, init);
+        const payload = await response.json();
+        payload.data.repository.milestones.nodes.push({
+          id: `synthetic-unstable-milestone-${attempt}`,
+          number: 900 + attempt,
+          title: `Wave ${900 + attempt}`,
+          state: "OPEN",
+        });
+        payload.data.repository.milestones.totalCount += 1;
+        return jsonResponse(payload);
+      }
+      return base.request(url, init);
+    };
+    const diagnostics = [];
+    const code = await main({
+      env: mainEnv(),
+      request,
+      nowMs: NOW,
+      writeOutput: () => {},
+      writeError: (message) => diagnostics.push(message),
+    });
+    expect(code).toBe(1);
+    expect(attempt).toBe(3);
+    expect(diagnostics).toEqual([expect.stringMatching(/^ROADMAP_DISPATCH_WINDOW_AUTHORITY_UNSTABLE:/)]);
+    expect(base.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+  });
+
+  it("flags only ruled stale claims and fails bounded when a series has no window", () => {
+    const authority = {
+      version: "roadmap-dispatch-window-authority/v1",
+      milestones: {
+        totalCount: 5,
+        nodes: [
+          { id: "synthetic-wave-1", number: 1, title: "Wave 1", state: "OPEN" },
+          { id: "synthetic-wave-2", number: 2, title: "Wave 2", state: "OPEN" },
+          { id: "synthetic-mobile-1", number: 3, title: "Mobile 1", state: "OPEN" },
+          { id: "synthetic-operations", number: 4, title: "Operations", state: "OPEN" },
+          { id: "synthetic-future", number: 5, title: "Future planning", state: "OPEN" },
+        ],
+      },
+      issues: {
+        totalCount: 8,
+        nodes: [
+          {
+            id: "synthetic-runnable",
+            number: 1,
+            state: "OPEN",
+            issueType: { name: "Slice" },
+            milestone: { id: "synthetic-wave-1", number: 1, title: "Wave 1", state: "OPEN" },
+            // Deliberately synthetic disagreement: native nodes, not this diagnostic summary, govern runnability.
+            issueDependenciesSummary: { blockedBy: 3, totalBlockedBy: 3 },
+            labels: {
+              totalCount: 3,
+              nodes: [
+                { id: "l1", name: "priority:p1" },
+                { id: "l2", name: "area:ops" },
+                { id: "l3", name: "kind:ops" },
+              ],
+            },
+            blockedBy: { totalCount: 0, nodes: [] },
+          },
+          {
+            id: "synthetic-stale",
+            number: 2,
+            state: "OPEN",
+            issueType: { name: "Slice" },
+            milestone: { id: "synthetic-wave-2", number: 2, title: "Wave 2", state: "OPEN" },
+            issueDependenciesSummary: { blockedBy: 1, totalBlockedBy: 1 },
+            labels: { totalCount: 1, nodes: [{ id: "l4", name: "priority:p0" }] },
+            blockedBy: {
+              totalCount: 1,
+              nodes: [
+                { id: "synthetic-blocker", number: 9, state: "OPEN", repository: { nameWithOwner: "synthetic/local" } },
+              ],
+            },
+          },
+          {
+            id: "synthetic-tracking",
+            number: 3,
+            state: "OPEN",
+            issueType: { name: "Slice" },
+            milestone: { id: "synthetic-wave-2", number: 2, title: "Wave 2", state: "OPEN" },
+            issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+            labels: {
+              totalCount: 2,
+              nodes: [
+                { id: "l5", name: "priority:p1" },
+                { id: "l6", name: "status:tracking-only" },
+              ],
+            },
+            blockedBy: { totalCount: 0, nodes: [] },
+          },
+          {
+            id: "synthetic-mobile-unrunnable",
+            number: 4,
+            state: "OPEN",
+            issueType: { name: "Slice" },
+            milestone: { id: "synthetic-mobile-1", number: 3, title: "Mobile 1", state: "OPEN" },
+            // Deliberately synthetic inverse disagreement: the native OPEN node blocks despite this summary.
+            issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+            labels: { totalCount: 1, nodes: [{ id: "l7", name: "priority:p1" }] },
+            blockedBy: {
+              totalCount: 1,
+              nodes: [
+                {
+                  id: "synthetic-native-open-blocker",
+                  number: 99,
+                  state: "OPEN",
+                  repository: { nameWithOwner: "synthetic/native-authority" },
+                },
+              ],
+            },
+          },
+          {
+            id: "synthetic-epic-excluded",
+            number: 5,
+            state: "OPEN",
+            issueType: { name: "Epic" },
+            milestone: { id: "synthetic-wave-2", number: 2, title: "Wave 2", state: "OPEN" },
+            issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+            labels: { totalCount: 1, nodes: [{ id: "l8", name: "priority:p0" }] },
+            blockedBy: { totalCount: 0, nodes: [] },
+          },
+          {
+            id: "synthetic-operations-excluded",
+            number: 6,
+            state: "OPEN",
+            issueType: { name: "Slice" },
+            milestone: { id: "synthetic-operations", number: 4, title: "Operations", state: "OPEN" },
+            issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+            labels: { totalCount: 1, nodes: [{ id: "l9", name: "priority:p0" }] },
+            blockedBy: { totalCount: 0, nodes: [] },
+          },
+          {
+            id: "synthetic-nonmatching-excluded",
+            number: 7,
+            state: "OPEN",
+            issueType: { name: "Slice" },
+            milestone: { id: "synthetic-future", number: 5, title: "Future planning", state: "OPEN" },
+            issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+            labels: { totalCount: 1, nodes: [{ id: "l10", name: "priority:p0" }] },
+            blockedBy: { totalCount: 0, nodes: [] },
+          },
+          {
+            id: "synthetic-unmilestoned-excluded",
+            number: 8,
+            state: "OPEN",
+            issueType: { name: "Slice" },
+            milestone: null,
+            issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+            labels: { totalCount: 1, nodes: [{ id: "l11", name: "priority:p0" }] },
+            blockedBy: { totalCount: 0, nodes: [] },
+          },
+        ],
+      },
+    };
+    const hygiene = summarizePrioritizationHygiene(authority);
+    expect(hygiene).toMatchObject({
+      selected: [{ id: "synthetic-wave-1", number: 1, title: "Wave 1" }],
+      candidates: [
+        { number: 2, priority: "priority:p0", milestone: "Wave 2" },
+        { number: 3, priority: "priority:p1", milestone: "Wave 2" },
+      ],
+      noWindowFamilies: ["Mobile"],
+    });
+    expect(hygiene.candidates).toHaveLength(2);
+  });
+
+  it("diagnoses a present Mobile family without coupling it to priority claims", () => {
+    const wave1 = { id: "synthetic-wave-runnable", number: 1, title: "Wave 1", state: "OPEN" };
+    const mobile1 = { id: "synthetic-mobile-present", number: 2, title: "Mobile 1", state: "OPEN" };
+    const issue = (id, number, milestone, labels) => ({
+      id,
+      number,
+      state: "OPEN",
+      issueType: { name: "Slice" },
+      milestone,
+      issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+      labels: { totalCount: labels.length, nodes: labels.map((name, index) => ({ id: `${id}-label-${index}`, name })) },
+      blockedBy: { totalCount: 0, nodes: [] },
+    });
+    const authority = {
+      milestones: { totalCount: 2, nodes: [wave1, mobile1] },
+      issues: {
+        totalCount: 3,
+        nodes: [
+          issue("synthetic-wave-runnable-issue", 1, wave1, ["priority:p1", "area:ops", "kind:ops"]),
+          issue("synthetic-mobile-non-priority", 2, mobile1, ["area:ops", "kind:ops"]),
+          issue("synthetic-mobile-tracking-only", 3, mobile1, ["status:tracking-only"]),
+        ],
+      },
+    };
+
+    const hygiene = summarizePrioritizationHygiene(authority);
+    expect(hygiene.selected).toMatchObject([{ id: wave1.id }]);
+    expect(hygiene.noWindowFamilies).toEqual(["Mobile"]);
+    expect(hygiene.candidates).toEqual([]);
+    expect(renderRoadmapStatus({ rows: [], windowDays: 7, prioritizationHygiene: hygiene })).toContain(
+      "Mobile: no runnable refined milestone",
+    );
+  });
+
+  it("renders stale preemption counts, identities, and zero states", () => {
+    const zeroMarkdown = renderRoadmapStatus({
+      rows: [],
+      windowDays: 7,
+      prioritizationHygiene: { selected: [], candidates: [], byPriority: { p0: [], p1: [] }, noWindowFamilies: [] },
+    });
+    const zeroLines = zeroMarkdown.split("\n");
+    const zeroCountLine = "Stale preemption/tie claims: **0 total** — **0 p0**, **0 p1**.";
+    expect(zeroMarkdown).toContain("## Prioritization hygiene");
+    expect(zeroLines[zeroLines.indexOf(zeroCountLine) + 1]).toBe("none");
+
+    const milestone = (id, number, title) => ({ id, number, title, state: "OPEN" });
+    const wave1 = milestone("synthetic-render-wave-1", 1, "Wave 1");
+    const wave2 = milestone("synthetic-render-wave-2", 2, "Wave 2");
+    const mobile1 = milestone("synthetic-render-mobile-1", 3, "Mobile 1");
+    const issue = (number, activeMilestone, priority, blocked = false) => ({
+      id: `synthetic-render-issue-${number}`,
+      number,
+      state: "OPEN",
+      issueType: { name: "Slice" },
+      milestone: activeMilestone,
+      issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
+      labels: {
+        totalCount: priority ? 1 : 3,
+        nodes: priority
+          ? [{ id: `l-${number}`, name: priority }]
+          : [
+              { id: `l-${number}-p`, name: "priority:p1" },
+              { id: `l-${number}-a`, name: "area:ops" },
+              { id: `l-${number}-k`, name: "kind:ops" },
+            ],
+      },
+      blockedBy: blocked
+        ? {
+            totalCount: 1,
+            nodes: [
+              { id: `b-${number}`, number: 999, state: "OPEN", repository: { nameWithOwner: "synthetic/render" } },
+            ],
+          }
+        : { totalCount: 0, nodes: [] },
+    });
+    const hygiene = summarizePrioritizationHygiene({
+      milestones: { totalCount: 3, nodes: [wave1, wave2, mobile1] },
+      // Candidates arrive out of numeric order; the summary sorts before the renderer consumes them.
+      issues: {
+        totalCount: 6,
+        nodes: [
+          issue(30, wave1, null),
+          issue(104, wave2, "priority:p1"),
+          issue(101, wave2, "priority:p0"),
+          issue(103, wave2, "priority:p1"),
+          issue(102, wave2, "priority:p0"),
+          issue(105, mobile1, "priority:p1", true),
+        ],
+      },
+    });
+    const markdown = renderRoadmapStatus({ rows: [], windowDays: 7, prioritizationHygiene: hygiene });
+    expect(markdown).toContain("Pull window: Wave 1.");
+    expect(markdown).toContain("Stale preemption/tie claims: **4 total** — **2 p0**, **2 p1**.");
+    expect(markdown).toContain(
+      [
+        "- #101 priority:p0 — Wave 2",
+        "- #102 priority:p0 — Wave 2",
+        "- #103 priority:p1 — Wave 2",
+        "- #104 priority:p1 — Wave 2",
+      ].join("\n"),
+    );
+    expect(markdown).toContain("Pull-window diagnostics: Mobile: no runnable refined milestone.");
+  });
+});
+
+describe("dispatch-window module boundary", () => {
+  it("derives the tracked importer inventory and keeps the helper source network- and mutation-free", () => {
+    const trackedScripts = execFileSync("git", ["ls-files", "scripts"], { cwd: repoRoot, encoding: "utf8" })
+      .split(/\r?\n/)
+      .filter((file) => file.endsWith(".mjs"));
+    const importers = trackedScripts.filter((file) =>
+      /from\s+["']\.\/dispatch-window\.mjs["']/.test(readFileSync(path.join(repoRoot, file), "utf8")),
+    );
+    const source = readFileSync(path.join(repoRoot, "scripts/dispatch-window.mjs"), "utf8");
+
+    expect(importers).toEqual(["scripts/dispatch-window.test.mjs", "scripts/roadmap-status.mjs"]);
+    expect(source).not.toMatch(/\bfetch\s*\(/);
+    expect(source).not.toContain("method:");
+    expect(source).not.toMatch(/graphql/i);
   });
 });
 

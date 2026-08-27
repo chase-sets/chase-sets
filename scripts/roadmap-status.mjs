@@ -1,5 +1,7 @@
 import process from "node:process";
+import { createHash } from "node:crypto";
 import { classified, isEpic as classifiedEpic, isTrackingOnly } from "./backlog-classify.mjs";
+import { derivePullWindow, seriesIdentity } from "./dispatch-window.mjs";
 
 // Generated status for the program roadmap issue. The contract this reports
 // against lives in docs/contributing/backlog-model.md. Numbers are generated
@@ -573,6 +575,319 @@ export class RoadmapIssueEnumerationError extends Error {
   }
 }
 
+const WINDOW_AUTHORITY_VERSION = "roadmap-dispatch-window-authority/v1";
+
+function windowAuthorityError(code, message = code) {
+  return new RoadmapIssueEnumerationError(code, message);
+}
+
+function hasOnlyKeys(value, keys) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === keys.length &&
+    keys.every((key) => Object.hasOwn(value, key))
+  );
+}
+
+function requiredString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+function validateWindowPage(page, code) {
+  if (
+    !hasOnlyKeys(page, ["totalCount", "pageInfo", "nodes"]) ||
+    !isNonNegativeSafeInteger(page.totalCount) ||
+    !Array.isArray(page.nodes) ||
+    !hasOnlyKeys(page.pageInfo, ["hasNextPage", "endCursor"]) ||
+    typeof page.pageInfo.hasNextPage !== "boolean" ||
+    !(page.pageInfo.endCursor === null || requiredString(page.pageInfo.endCursor)) ||
+    (page.pageInfo.hasNextPage && !requiredString(page.pageInfo.endCursor))
+  ) {
+    throw windowAuthorityError(code, "Roadmap pull-window authority returned an invalid connection page.");
+  }
+}
+
+async function collectWindowConnection({ loadPage, firstPage = null, validateNode, identity, code }) {
+  const nodes = [];
+  const identities = new Set();
+  const cursors = new Set();
+  let expectedTotal = null;
+  let after = null;
+  let pageFromRoot = firstPage;
+  do {
+    const page = pageFromRoot ?? (await loadPage(after));
+    pageFromRoot = null;
+    const nodesBeforePage = nodes.length;
+    validateWindowPage(page, code);
+    if (expectedTotal === null) expectedTotal = page.totalCount;
+    if (page.totalCount !== expectedTotal) {
+      throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_TOTAL_CHANGED");
+    }
+    for (const node of page.nodes) {
+      const valid = validateNode(node);
+      if (!valid) throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_SCHEMA_INVALID");
+      const key = identity(node);
+      if (identities.has(key)) throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_DUPLICATE_IDENTITY");
+      identities.add(key);
+      nodes.push(node);
+    }
+    if (page.pageInfo.hasNextPage) {
+      if (nodes.length === nodesBeforePage || nodes.length >= expectedTotal) {
+        throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH");
+      }
+      if (cursors.has(page.pageInfo.endCursor)) {
+        throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_CURSOR_REPEATED");
+      }
+      cursors.add(page.pageInfo.endCursor);
+      after = page.pageInfo.endCursor;
+    } else {
+      after = null;
+    }
+  } while (after !== null);
+  if (expectedTotal === null || nodes.length !== expectedTotal) {
+    throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH");
+  }
+  return { totalCount: expectedTotal, nodes };
+}
+
+function validMilestone(node) {
+  return (
+    hasOnlyKeys(node, ["id", "number", "title", "state"]) &&
+    requiredString(node.id) &&
+    isPositiveSafeInteger(node.number) &&
+    requiredString(node.title) &&
+    node.state === "OPEN"
+  );
+}
+
+function validLabel(node) {
+  return hasOnlyKeys(node, ["id", "name"]) && requiredString(node.id) && requiredString(node.name);
+}
+
+function validBlockedBy(node) {
+  return (
+    hasOnlyKeys(node, ["id", "number", "state", "repository"]) &&
+    requiredString(node.id) &&
+    isPositiveSafeInteger(node.number) &&
+    (node.state === "OPEN" || node.state === "CLOSED") &&
+    hasOnlyKeys(node.repository, ["nameWithOwner"]) &&
+    requiredString(node.repository.nameWithOwner)
+  );
+}
+
+function validNullableIssueType(value) {
+  return value === null || (hasOnlyKeys(value, ["name"]) && requiredString(value.name));
+}
+
+function validNullableMilestone(value) {
+  return (
+    value === null ||
+    (hasOnlyKeys(value, ["id", "number", "title", "state"]) &&
+      requiredString(value.id) &&
+      isPositiveSafeInteger(value.number) &&
+      requiredString(value.title) &&
+      (value.state === "OPEN" || value.state === "CLOSED"))
+  );
+}
+
+function validWindowIssue(node) {
+  const validBase =
+    hasOnlyKeys(node, [
+      "id",
+      "number",
+      "state",
+      "issueType",
+      "milestone",
+      "issueDependenciesSummary",
+      "labels",
+      "blockedBy",
+    ]) &&
+    requiredString(node.id) &&
+    isPositiveSafeInteger(node.number) &&
+    node.state === "OPEN" &&
+    validNullableIssueType(node.issueType) &&
+    validNullableMilestone(node.milestone) &&
+    hasOnlyKeys(node.issueDependenciesSummary, ["blockedBy", "totalBlockedBy"]) &&
+    isNonNegativeSafeInteger(node.issueDependenciesSummary.blockedBy) &&
+    isNonNegativeSafeInteger(node.issueDependenciesSummary.totalBlockedBy);
+  if (!validBase) return false;
+  return true;
+}
+
+function canonicalWindowAuthority({ milestones, issues }) {
+  return {
+    version: WINDOW_AUTHORITY_VERSION,
+    milestones: {
+      totalCount: milestones.totalCount,
+      nodes: milestones.nodes
+        .map((node) => ({ id: node.id, number: node.number, title: node.title, state: node.state }))
+        .sort((left, right) => left.id.localeCompare(right.id)),
+    },
+    issues: {
+      totalCount: issues.totalCount,
+      nodes: issues.nodes
+        .map((issue) => ({
+          id: issue.id,
+          number: issue.number,
+          state: issue.state,
+          issueType: issue.issueType === null ? null : { name: issue.issueType.name },
+          milestone:
+            issue.milestone === null
+              ? null
+              : {
+                  id: issue.milestone.id,
+                  number: issue.milestone.number,
+                  title: issue.milestone.title,
+                  state: issue.milestone.state,
+                },
+          issueDependenciesSummary: {
+            blockedBy: issue.issueDependenciesSummary.blockedBy,
+            totalBlockedBy: issue.issueDependenciesSummary.totalBlockedBy,
+          },
+          labels: issue.labels,
+          blockedBy: issue.blockedBy,
+        }))
+        .sort((left, right) => left.id.localeCompare(right.id)),
+    },
+  };
+}
+
+function digestWindowAuthority(authority) {
+  const serialized = JSON.stringify(authority);
+  return createHash("sha256").update(serialized, "utf8").digest("hex");
+}
+
+export async function collectRoadmapWindowAuthority({ loadMilestones, loadIssues, loadLabels, loadBlockedBy }) {
+  const milestones = await collectWindowConnection({
+    loadPage: loadMilestones,
+    validateNode: validMilestone,
+    identity: (node) => node.id,
+    code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_MILESTONE_PAGE_INVALID",
+  });
+  const roots = await collectWindowConnection({
+    loadPage: loadIssues,
+    validateNode: validWindowIssue,
+    identity: (node) => node.id,
+    code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_ISSUE_PAGE_INVALID",
+  });
+  const openMilestonesById = new Map(milestones.nodes.map((milestone) => [milestone.id, milestone]));
+  const issues = [];
+  for (const root of roots.nodes) {
+    if (root.milestone?.state === "OPEN") {
+      const known = openMilestonesById.get(root.milestone.id);
+      if (
+        !known ||
+        known.number !== root.milestone.number ||
+        known.title !== root.milestone.title ||
+        known.state !== root.milestone.state
+      ) {
+        throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_MILESTONE_REFERENCE_INVALID");
+      }
+    }
+    const labels = await collectWindowConnection({
+      loadPage: (after) => loadLabels(root.id, after),
+      firstPage: root.labels,
+      validateNode: validLabel,
+      identity: (node) => `${node.id}\0${node.name}`,
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_LABEL_PAGE_INVALID",
+    });
+    const blockedBy = await collectWindowConnection({
+      loadPage: (after) => loadBlockedBy(root.id, after),
+      firstPage: root.blockedBy,
+      validateNode: validBlockedBy,
+      identity: (node) => `${node.repository.nameWithOwner}\0${node.id}\0${node.number}`,
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_BLOCKED_BY_PAGE_INVALID",
+    });
+    issues.push({
+      ...root,
+      labels: {
+        totalCount: labels.totalCount,
+        nodes: labels.nodes.sort((left, right) =>
+          `${left.id}\0${left.name}`.localeCompare(`${right.id}\0${right.name}`),
+        ),
+      },
+      blockedBy: {
+        totalCount: blockedBy.totalCount,
+        nodes: blockedBy.nodes.sort((left, right) =>
+          `${left.repository.nameWithOwner}\0${left.id}\0${left.number}`.localeCompare(
+            `${right.repository.nameWithOwner}\0${right.id}\0${right.number}`,
+          ),
+        ),
+      },
+    });
+  }
+  const authority = canonicalWindowAuthority({ milestones, issues: { totalCount: roots.totalCount, nodes: issues } });
+  return { authority, digest: digestWindowAuthority(authority) };
+}
+
+export async function stabilizeRoadmapWindowAuthority(collectAttempt) {
+  const first = await collectAttempt();
+  const second = await collectAttempt();
+  if (first.digest === second.digest) return second;
+  const third = await collectAttempt();
+  if (second.digest === third.digest) return third;
+  throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_UNSTABLE");
+}
+
+function authorityFacts(authority) {
+  return {
+    milestones: authority.milestones.nodes.map((milestone) => ({
+      ...milestone,
+      state: milestone.state.toLowerCase(),
+    })),
+    issues: authority.issues.nodes.map((issue) => ({
+      id: issue.id,
+      number: issue.number,
+      state: issue.state.toLowerCase(),
+      issueTypeName: issue.issueType?.name ?? null,
+      milestone: issue.milestone && { ...issue.milestone, state: issue.milestone.state.toLowerCase() },
+      labels: issue.labels.nodes,
+      blockedBy: issue.blockedBy.nodes.map((node) => ({ ...node, state: node.state.toLowerCase() })),
+    })),
+  };
+}
+
+export function summarizePrioritizationHygiene(authority) {
+  const facts = authorityFacts(authority);
+  const selected = derivePullWindow(facts);
+  const selectedByFamily = new Map(selected.map((milestone) => [seriesIdentity(milestone.title).family, milestone.id]));
+  const noWindowFamilies = facts.milestones
+    .map((milestone) => seriesIdentity(milestone.title)?.family)
+    .filter((family) => family && !selectedByFamily.has(family));
+  const candidates = [];
+  for (const issue of facts.issues) {
+    const series = seriesIdentity(issue.milestone?.title);
+    if (!series || issue.milestone?.state !== "open") continue;
+    const labels = issue.labels.map((label) => label.name);
+    const priorityLabels = labels.filter((label) => label === "priority:p0" || label === "priority:p1");
+    const input = {
+      number: issue.number,
+      state: issue.state,
+      labels,
+      issueTypeName: issue.issueTypeName,
+      milestoneTitle: issue.milestone.title,
+      blockedByCount: issue.blockedBy.filter((node) => node.state === "open").length,
+      hasParent: false,
+    };
+    if (classifiedEpic(input) || priorityLabels.length !== 1) continue;
+    const selectedMilestoneId = selectedByFamily.get(series.family);
+    if (!selectedMilestoneId) {
+      continue;
+    }
+    if (selectedMilestoneId !== issue.milestone.id) {
+      candidates.push({ number: issue.number, priority: priorityLabels[0], milestone: issue.milestone.title });
+    }
+  }
+  candidates.sort((left, right) => left.number - right.number);
+  const byPriority = {
+    p0: candidates.filter((candidate) => candidate.priority === "priority:p0"),
+    p1: candidates.filter((candidate) => candidate.priority === "priority:p1"),
+  };
+  return { selected, candidates, byPriority, noWindowFamilies: [...new Set(noWindowFamilies)].sort() };
+}
+
 export function toBacklogInput(issue) {
   return {
     number: issue.number,
@@ -1005,6 +1320,29 @@ export function renderRoadmapStatus(summary) {
   );
   if (forecast.priorDiagnostic) lines.push("", `Drift diagnostics: ${forecast.priorDiagnostic}.`);
 
+  const hygiene = summary.prioritizationHygiene;
+  if (hygiene) {
+    lines.push(
+      "",
+      "## Prioritization hygiene",
+      "",
+      `Pull window: ${hygiene.selected.length > 0 ? hygiene.selected.map((milestone) => milestone.title).join("; ") : "none"}.`,
+      `Stale preemption/tie claims: **${hygiene.candidates.length} total** — **${hygiene.byPriority.p0.length} p0**, **${hygiene.byPriority.p1.length} p1**.`,
+    );
+    if (hygiene.candidates.length === 0) lines.push("none");
+    else {
+      for (const candidate of hygiene.candidates) {
+        lines.push(`- #${candidate.number} ${candidate.priority} — ${candidate.milestone}`);
+      }
+    }
+    if (hygiene.noWindowFamilies.length > 0) {
+      lines.push(
+        "",
+        `Pull-window diagnostics: ${hygiene.noWindowFamilies.map((family) => `${family}: no runnable refined milestone`).join("; ")}.`,
+      );
+    }
+  }
+
   const executable = summary.rows.filter((row) => row.executable);
   const totalOpen = executable.reduce((sum, row) => sum + row.open, 0);
   const totalRefined = executable.reduce((sum, row) => sum + row.refinedOpen, 0);
@@ -1151,6 +1489,75 @@ query($owner:String!, $name:String!, $after:String) {
   }
 }`;
 
+const WINDOW_MILESTONES_QUERY = `
+# WINDOW_MILESTONES_SENTINEL
+query($owner:String!, $name:String!, $after:String) {
+  repository(owner:$owner, name:$name) {
+    milestones(first:100, after:$after, states:[OPEN]) {
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes { id number title state }
+    }
+  }
+}`;
+
+const WINDOW_ISSUES_QUERY = `
+# WINDOW_ISSUES_SENTINEL
+query($owner:String!, $name:String!, $after:String) {
+  repository(owner:$owner, name:$name) {
+    issues(first:100, after:$after, states:[OPEN]) {
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id
+        number
+        state
+        issueType { name }
+        milestone { id number title state }
+        issueDependenciesSummary { blockedBy totalBlockedBy }
+        labels(first:100) {
+          totalCount
+          pageInfo { hasNextPage endCursor }
+          nodes { id name }
+        }
+        blockedBy(first:100) {
+          totalCount
+          pageInfo { hasNextPage endCursor }
+          nodes { id number state repository { nameWithOwner } }
+        }
+      }
+    }
+  }
+}`;
+
+const WINDOW_LABELS_QUERY = `
+# WINDOW_LABELS_SENTINEL
+query($id:ID!, $after:String) {
+  node(id:$id) {
+    ... on Issue {
+      labels(first:100, after:$after) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes { id name }
+      }
+    }
+  }
+}`;
+
+const WINDOW_BLOCKED_BY_QUERY = `
+# WINDOW_BLOCKED_BY_SENTINEL
+query($id:ID!, $after:String) {
+  node(id:$id) {
+    ... on Issue {
+      blockedBy(first:100, after:$after) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes { id number state repository { nameWithOwner } }
+      }
+    }
+  }
+}`;
+
 async function graphql(query, variables, token, request) {
   const response = await gh(
     "https://api.github.com/graphql",
@@ -1165,6 +1572,22 @@ async function graphql(query, variables, token, request) {
   const payload = await response.json();
   if (payload.errors) throw new Error(`GraphQL failed: ${JSON.stringify(payload.errors)}`);
   return payload.data;
+}
+
+async function collectLiveRoadmapWindowAuthority({ owner, name, token, request }) {
+  const load = async (query, variables, path) => {
+    const data = await graphql(query, variables, token, request);
+    return path(data);
+  };
+  return stabilizeRoadmapWindowAuthority(() =>
+    collectRoadmapWindowAuthority({
+      loadMilestones: (after) =>
+        load(WINDOW_MILESTONES_QUERY, { owner, name, after }, (data) => data.repository?.milestones),
+      loadIssues: (after) => load(WINDOW_ISSUES_QUERY, { owner, name, after }, (data) => data.repository?.issues),
+      loadLabels: (id, after) => load(WINDOW_LABELS_QUERY, { id, after }, (data) => data.node?.labels),
+      loadBlockedBy: (id, after) => load(WINDOW_BLOCKED_BY_QUERY, { id, after }, (data) => data.node?.blockedBy),
+    }),
+  );
 }
 
 async function appendStepSummary(env, block) {
@@ -1245,7 +1668,6 @@ export async function main({
     writeError(`${error.code}: ${error.message}`);
     return 1;
   }
-
   const summary = summarizeWaves({
     milestones,
     issues,
@@ -1263,6 +1685,15 @@ export async function main({
     writeError(`${error.code}: ${error.message}`);
     return 1;
   }
+  let windowAuthority;
+  try {
+    windowAuthority = await collectLiveRoadmapWindowAuthority({ owner, name, token, request });
+  } catch (error) {
+    if (!(error instanceof RoadmapIssueEnumerationError)) throw error;
+    writeError(`${error.code}: ${error.message}`);
+    return 1;
+  }
+  summary.prioritizationHygiene = summarizePrioritizationHygiene(windowAuthority.authority);
   summary.forecast = createForecastPresentation({ current: currentForecast, drift, nowMs });
   const block = renderRoadmapStatus(summary);
   writeOutput(block);
