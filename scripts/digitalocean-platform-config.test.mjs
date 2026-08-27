@@ -52,6 +52,10 @@ const environmentDnsVariables = readFileSync(
 );
 const environmentDnsProjects = readFileSync(resolve("infrastructure/digitalocean/environment-dns/projects.tf"), "utf8");
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+const platformProductionStaleHelmRecoveryWorkflow = readFileSync(
+  resolve(".github/workflows/platform-production-stale-helm-recovery.yml"),
+  "utf8",
+);
 const exportManagedPostgresAuthorityAction = readFileSync(
   resolve(".github/actions/export-managed-postgres-authority/action.yml"),
   "utf8",
@@ -2169,6 +2173,68 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformEmergencyRecoveryWorkflow).toContain("rollback_revision");
     expect(platformEmergencyRecoveryWorkflow).toContain(
       "CHASE_SETS_HELM_ROLLBACK_REVISION: ${{ inputs.rollback_revision }}",
+    );
+  });
+
+  it("bounds production stale pending-upgrade recovery to the exact #7504 main workflow", () => {
+    const recoveryJob = workflowJob(
+      platformProductionStaleHelmRecoveryWorkflow,
+      "recover-production-stale-helm-upgrade",
+    );
+    const authenticateStep = workflowStep(recoveryJob, "Authenticate immutable recovery identities");
+    const contextStep = workflowStep(recoveryJob, "Configure production Kubernetes context");
+    const ociStep = workflowStep(recoveryJob, "Authenticate production OCI identity");
+    const recoverStep = workflowStep(recoveryJob, "Recover exact stable stale pending-upgrade frontier");
+    const verifyIdentitiesStep = workflowStep(recoveryJob, "Verify immutable identities after recovery");
+    const uploadStep = workflowStep(recoveryJob, "Upload production stale Helm recovery evidence");
+
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("group: platform-registry-mutation");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("cancel-in-progress: false");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("actions: read");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("recover issue 7504 stale pending upgrade");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain(
+      "https://github.com/chase-sets/chase-sets/issues/7504",
+    );
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("github.ref != 'refs/heads/main'");
+    expect(recoveryJob).toContain("environment: production");
+    expect(recoveryJob).not.toMatch(/branches\/main\/protection|deployment-branch-policies|can_admins_bypass/);
+    expect(recoveryJob).not.toMatch(/recovery-authority|recovery-retry|prevent_self_review|required_reviewers/);
+
+    expect(authenticateStep).toContain("git/ref/heads/main");
+    expect(authenticateStep).toContain('if [ "$GITHUB_SHA" != "$current_main" ]');
+    expect(authenticateStep).toContain('marker_commit="$(git rev-parse origin/production)"');
+    expect(authenticateStep).toContain('if [ "$marker_commit" != "$RECOVERY_MARKER_COMMIT" ]');
+    expect(authenticateStep).toContain('tag_commit="$(git rev-list -n 1 "$RECOVERY_RELEASE_TAG")"');
+    expect(contextStep).toContain("doks/production.tfstate");
+    expect(contextStep).toContain("terraform output -raw cluster_id");
+    expect(contextStep).toContain("terraform output -raw cluster_name");
+    expect(contextStep).not.toMatch(/terraform\s+(?:apply|destroy)|helm\s+(?:rollback|upgrade|uninstall)/);
+
+    expect(ociStep).toContain('if [ "$registry_name" != "chase-sets" ]');
+    expect(ociStep).toContain('if [ "$index_digest" != "$RECOVERY_OCI_INDEX_DIGEST" ]');
+    expect(ociStep).toContain("docker buildx imagetools inspect");
+    expect(recoverStep).toContain("recover-stale-pending-upgrade");
+    expect(recoverStep).toContain('--revision "$RECOVERY_SOURCE_REVISION"');
+    expect(recoverStep).toContain('--pending-revision "$RECOVERY_PENDING_REVISION"');
+    expect(recoverStep).toContain('--source-description "$RECOVERY_SOURCE_DESCRIPTION"');
+    expect(recoverStep).toContain('--pending-description "$RECOVERY_PENDING_DESCRIPTION"');
+    expect(recoverStep).toContain('--admission-out "$evidence_dir/admission.json"');
+    expect(recoverStep).toContain('--out "$evidence_dir/recovery.json"');
+    expect(recoverStep).not.toMatch(/helm\s+(?:rollback|upgrade|uninstall)|kubectl\s+(?:patch|delete)/);
+    expect(verifyIdentitiesStep).toContain('if [ "$marker_commit" != "$RECOVERY_MARKER_COMMIT" ]');
+    expect(verifyIdentitiesStep).toContain('[ "$index_digest" != "$RECOVERY_OCI_INDEX_DIGEST" ]');
+    expect(verifyIdentitiesStep).toContain(
+      '[ "${{ steps.recover.outputs.recovery_observed_digest }}" != "$RECOVERY_PLATFORM_DIGEST" ]',
+    );
+
+    const orderedSteps = [authenticateStep, contextStep, ociStep, recoverStep, verifyIdentitiesStep, uploadStep];
+    expect(orderedSteps.map((step) => recoveryJob.indexOf(step))).toEqual(
+      [...orderedSteps].map((step) => recoveryJob.indexOf(step)).sort((left, right) => left - right),
+    );
+    expect(uploadStep).toContain("if: always()");
+    expect(uploadStep).toContain("if-no-files-found: error");
+    expect(uploadStep).toContain(
+      "platform-production-stale-helm-recovery-${{ github.run_id }}-${{ github.run_attempt }}",
     );
   });
 

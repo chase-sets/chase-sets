@@ -50,6 +50,7 @@ const schedulerOwnedArtifacts = new Set([
   "scripts/fixtures/workspace-unit-duration-replay-v1.json",
 ]);
 const deploymentScriptPatterns = [
+  /^\.github\/workflows\/platform-production-stale-helm-recovery\.yml$/,
   /^scripts\/digitalocean-/,
   /^scripts\/platform-kubernetes-deployment\.mjs$/,
   /^scripts\/platform-smoke/,

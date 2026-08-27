@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   abortPlatformRollouts,
   assertOciIndexPlatformManifestMembership,
@@ -31,13 +31,18 @@ import {
   platformValuesPathForEnvironment,
   platformKubernetesWorkloads,
   promotePlatformRollouts,
+  readGitHubProductionWriterCensus,
+  readHelmOperationCensus,
+  recoverStableStalePendingUpgrade,
   rollbackPlatformOnKubernetes,
   runScenarioSeedOnKubernetes,
   sanitizeCopiedSecretManifest,
   scenarioSeedMaxActiveDeadlineSeconds,
   selectStableDeployedHelmSource,
+  selectStableStalePendingUpgrade,
   teardownPlatformKubernetesNamespace,
   verifyKubernetesDeploymentTransition,
+  verifyStalePendingRecoveryTransition,
 } from "./platform-kubernetes-deployment.mjs";
 
 const sampleValues = {
@@ -1324,6 +1329,28 @@ describe("platform Kubernetes deployment", () => {
     });
   });
 
+  it("refuses when exact admitted history moves before the rollback mutation", async () => {
+    const admitted = [
+      { revision: 308, status: "deployed", description: "Upgrade complete" },
+      { revision: 309, status: "pending-upgrade", description: "Preparing upgrade" },
+    ];
+    const moved = [...admitted, { revision: 310, status: "failed", description: "Concurrent mutation" }];
+    const calls = [];
+    const result = await rollbackPlatformOnKubernetes({
+      release: "proof",
+      namespace: "production",
+      revision: 308,
+      expectedPreRollbackHistory: admitted,
+      spawn: completedSpawn(calls, [
+        { code: 0, stdout: '{"name":"proof"}' },
+        { code: 0, stdout: helmHistory(moved) },
+      ]),
+    });
+
+    expect(result).toMatchObject({ result: "failure", reason: expect.stringContaining("exact pre-rollback compare") });
+    expect(calls.some((call) => call.command === "helm" && call.args[0] === "rollback")).toBe(false);
+  });
+
   it("ignores a retained failed Helm hook Job while binding recovery to the captured successful LKG revision", async () => {
     const captureCalls = [];
     const capturedHistory = [{ revision: 228, status: "deployed", description: "Upgrade complete" }];
@@ -1480,6 +1507,524 @@ describe("platform Kubernetes deployment", () => {
       terminalFailedSuffix: [history[1]],
       preDeployHistory: history,
     });
+  });
+
+  it("collects the complete bounded active workflow census before selecting Helm writers", async () => {
+    const requestedUrls = [];
+    const fetch = vi.fn(async (url) => {
+      requestedUrls.push(url);
+      const status = new URL(url).searchParams.get("status");
+      const workflowRuns =
+        status === "in_progress"
+          ? [
+              {
+                id: 7504,
+                name: "Platform Production Stale Helm Recovery",
+                status,
+                event: "workflow_dispatch",
+                head_sha: "a".repeat(40),
+                head_branch: "main",
+                run_attempt: 1,
+                actor: { login: "synthetic-operator" },
+                created_at: "2026-08-27T07:30:00Z",
+                run_started_at: "2026-08-27T07:30:01Z",
+                updated_at: "2026-08-27T07:30:02Z",
+                html_url: "https://example.invalid/runs/7504",
+              },
+            ]
+          : status === "pending"
+            ? [
+                {
+                  id: 7400,
+                  name: "Platform Production Restore Point Cleanup",
+                  status,
+                  event: "schedule",
+                  head_sha: "b".repeat(40),
+                  head_branch: "main",
+                  run_attempt: 1,
+                  actor: { login: "synthetic-scheduler" },
+                  created_at: "2026-08-27T07:00:00Z",
+                  run_started_at: "2026-08-27T07:00:01Z",
+                  updated_at: "2026-08-27T07:00:02Z",
+                  html_url: "https://example.invalid/runs/7400",
+                },
+              ]
+            : [];
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ total_count: workflowRuns.length, workflow_runs: workflowRuns }),
+      };
+    });
+
+    const census = await readGitHubProductionWriterCensus({
+      fetch,
+      checkedAt: "2026-08-27T07:31:00Z",
+      env: {
+        GITHUB_TOKEN: "synthetic-token",
+        GITHUB_REPOSITORY: "synthetic/repository",
+        GITHUB_RUN_ID: "7504",
+        GITHUB_API_URL: "https://api.example.invalid",
+      },
+    });
+
+    expect(requestedUrls).toHaveLength(5);
+    expect(requestedUrls.map((url) => new URL(url).searchParams.get("status"))).toEqual([
+      "requested",
+      "pending",
+      "queued",
+      "in_progress",
+      "waiting",
+    ]);
+    expect(census).toMatchObject({
+      schemaVersion: "github-actions-production-writer-census/v1",
+      currentRunId: "7504",
+      runs: [{ id: 7400 }, { id: 7504 }],
+      writerRuns: [{ id: 7504, name: "Platform Production Stale Helm Recovery", status: "in_progress" }],
+    });
+  });
+
+  it("records and rejects an active Helm hook operation without confusing application pods", async () => {
+    const calls = [];
+    const census = await readHelmOperationCensus({
+      release: "proof",
+      namespace: "production",
+      checkedAt: "2026-08-27T07:31:00Z",
+      spawn: completedSpawn(calls, [
+        {
+          code: 0,
+          stdout: JSON.stringify({
+            items: [
+              {
+                kind: "Job",
+                metadata: {
+                  name: "proof-pre-upgrade",
+                  creationTimestamp: "2026-08-27T07:30:00Z",
+                  annotations: { "helm.sh/hook": "pre-upgrade" },
+                },
+                status: { active: 1, conditions: [] },
+              },
+              {
+                kind: "Pod",
+                metadata: { name: "proof-application" },
+                status: { phase: "Running" },
+              },
+            ],
+          }),
+        },
+      ]),
+    });
+
+    expect(calls[0]).toMatchObject({
+      command: "kubectl",
+      args: [
+        "get",
+        "jobs,pods",
+        "--namespace",
+        "production",
+        "--selector",
+        "app.kubernetes.io/instance=proof",
+        "--output",
+        "json",
+      ],
+    });
+    expect(census).toMatchObject({
+      schemaVersion: "platform-kubernetes-helm-operation-census/v1",
+      hooks: [{ kind: "Job", name: "proof-pre-upgrade", active: true }],
+      activeOperations: [{ kind: "Job", name: "proof-pre-upgrade" }],
+    });
+  });
+
+  it("recovers only the exact stable stale pending-upgrade frontier and refuses duplicate admission", async () => {
+    const rawIndex = JSON.stringify(productionIndex);
+    const capturedIndexDigest = `sha256:${createHash("sha256").update(rawIndex).digest("hex")}`;
+    const admittedHistory = [
+      {
+        revision: 307,
+        status: "superseded",
+        description: "Synthetic older release",
+        updated: "2026-08-24T15:00:00Z",
+        chart: "proof-1.0.0",
+        app_version: "1.0.0",
+      },
+      {
+        revision: 308,
+        status: "deployed",
+        description: "Upgrade complete",
+        updated: "2026-08-24T15:35:51Z",
+        chart: "proof-1.0.0",
+        app_version: "1.0.0",
+      },
+      {
+        revision: 309,
+        status: "pending-upgrade",
+        description: "Preparing upgrade",
+        updated: "2026-08-24T16:57:26Z",
+        chart: "proof-1.0.0",
+        app_version: "1.0.0",
+      },
+    ];
+    const recoveredHistory = [
+      admittedHistory[0],
+      { ...admittedHistory[1], status: "superseded" },
+      admittedHistory[2],
+      {
+        revision: 310,
+        status: "deployed",
+        description: "Rollback to 308",
+        updated: "2026-08-27T08:00:00Z",
+        chart: "proof-1.0.0",
+        app_version: "1.0.0",
+      },
+    ];
+    const census = {
+      schemaVersion: "github-actions-production-writer-census/v1",
+      capturedAt: "2026-08-27T07:30:00Z",
+      currentRunId: "7504",
+      runs: [],
+      writerRuns: [
+        {
+          id: 7504,
+          name: "Platform Production Stale Helm Recovery",
+          status: "in_progress",
+        },
+      ],
+    };
+    const rollback = vi.fn(async (options) => ({
+      action: "rollback",
+      result: "success",
+      rollbackIdentity: {
+        sourceRevision: Number(options.revision),
+        resultingRevision: 310,
+        observedTag: rollbackTag,
+        observedDigest: rollbackDigest,
+        workloadIdentities: [],
+      },
+    }));
+    const admissions = [];
+    const calls = [];
+    const result = await recoverStableStalePendingUpgrade({
+      release: "proof",
+      namespace: "production",
+      sourceRevision: 308,
+      pendingRevision: 309,
+      sourceDescription: "Upgrade complete",
+      pendingDescription: "Preparing upgrade",
+      issueNumber: 7504,
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: capturedIndexDigest,
+      indexManifest: rawIndex,
+      platform: "linux/amd64",
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-proof",
+      checkedAt: "2026-08-27T07:30:00Z",
+      env: { GITHUB_RUN_ID: "7504" },
+      readWriterCensus: async () => structuredClone(census),
+      readOperationCensus: async () => ({
+        schemaVersion: "platform-kubernetes-helm-operation-census/v1",
+        activeOperations: [],
+      }),
+      rollback,
+      onAdmission: async (admission) => admissions.push(admission),
+      spawn: completedSpawn(calls, [
+        { code: 0, stdout: helmHistory(admittedHistory) },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        { code: 0, stdout: rollbackWorkloadList() },
+        { code: 0, stdout: helmHistory(admittedHistory) },
+        { code: 0, stdout: helmHistory(recoveredHistory) },
+        { code: 0, stdout: helmHistory(recoveredHistory) },
+      ]),
+    });
+
+    expect(result).toMatchObject({
+      schemaVersion: "platform-kubernetes-stale-pending-recovery/v1",
+      result: "success",
+      admission: {
+        schemaVersion: "platform-kubernetes-stale-pending-recovery-admission/v1",
+        sourceRevision: 308,
+        pendingRevision: 309,
+        sourceUpdated: "2026-08-24T15:35:51Z",
+        pendingUpdated: "2026-08-24T16:57:26Z",
+      },
+      rollback: { result: "success", rollbackIdentity: { resultingRevision: 310 } },
+    });
+    expect(admissions).toHaveLength(1);
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(rollback.mock.calls[0][0].expectedPreRollbackHistory).toEqual(
+      admittedHistory.map(({ revision, status, description }) => ({ revision, status, description })),
+    );
+
+    const duplicateCalls = [];
+    const duplicate = await recoverStableStalePendingUpgrade({
+      release: "proof",
+      namespace: "production",
+      sourceRevision: 308,
+      pendingRevision: 309,
+      sourceDescription: "Upgrade complete",
+      pendingDescription: "Preparing upgrade",
+      issueNumber: 7504,
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: capturedIndexDigest,
+      indexManifest: rawIndex,
+      platform: "linux/amd64",
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-proof",
+      env: { GITHUB_RUN_ID: "7504" },
+      readWriterCensus: async () => structuredClone(census),
+      readOperationCensus: async () => ({
+        schemaVersion: "platform-kubernetes-helm-operation-census/v1",
+        activeOperations: [],
+      }),
+      rollback,
+      spawn: completedSpawn(duplicateCalls, [{ code: 0, stdout: helmHistory(recoveredHistory) }]),
+    });
+    expect(duplicate).toMatchObject({ result: "refused" });
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(duplicateCalls).toHaveLength(1);
+  });
+
+  it("refuses active writers and moved or extended pending-upgrade history before rollback", async () => {
+    const history = [
+      {
+        revision: 308,
+        status: "deployed",
+        description: "Upgrade complete",
+        updated: "2026-08-24T15:35:51Z",
+      },
+      {
+        revision: 309,
+        status: "pending-upgrade",
+        description: "Preparing upgrade",
+        updated: "2026-08-24T16:57:26Z",
+      },
+    ];
+    const baseCensus = {
+      schemaVersion: "github-actions-production-writer-census/v1",
+      currentRunId: "7504",
+      writerRuns: [{ id: 7504, name: "Platform Production Stale Helm Recovery", status: "in_progress" }],
+    };
+    const baseOptions = {
+      release: "proof",
+      namespace: "production",
+      sourceRevision: 308,
+      pendingRevision: 309,
+      sourceDescription: "Upgrade complete",
+      pendingDescription: "Preparing upgrade",
+      issueNumber: 7504,
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-proof",
+      env: { GITHUB_RUN_ID: "7504" },
+      readOperationCensus: async () => ({
+        schemaVersion: "platform-kubernetes-helm-operation-census/v1",
+        activeOperations: [],
+      }),
+    };
+    const rollback = vi.fn();
+
+    const activeWriterCalls = [];
+    const activeWriter = await recoverStableStalePendingUpgrade({
+      ...baseOptions,
+      readWriterCensus: async () => ({
+        ...baseCensus,
+        writerRuns: [...baseCensus.writerRuns, { id: 7505, name: "Platform Deploy", status: "in_progress" }],
+      }),
+      rollback,
+      spawn: completedSpawn(activeWriterCalls, []),
+    });
+    expect(activeWriter).toMatchObject({ result: "refused", reason: expect.stringContaining("only active writer") });
+    expect(activeWriterCalls).toHaveLength(0);
+
+    const activeOperationCalls = [];
+    const activeOperation = await recoverStableStalePendingUpgrade({
+      ...baseOptions,
+      readWriterCensus: async () => structuredClone(baseCensus),
+      readOperationCensus: async () => ({
+        schemaVersion: "platform-kubernetes-helm-operation-census/v1",
+        activeOperations: [{ kind: "Job", name: "proof-pre-upgrade" }],
+      }),
+      rollback,
+      spawn: completedSpawn(activeOperationCalls, []),
+    });
+    expect(activeOperation).toMatchObject({
+      result: "refused",
+      reason: expect.stringContaining("Job/proof-pre-upgrade"),
+    });
+    expect(activeOperationCalls).toHaveLength(0);
+
+    const movedCalls = [];
+    const moved = await recoverStableStalePendingUpgrade({
+      ...baseOptions,
+      readWriterCensus: async () => structuredClone(baseCensus),
+      rollback,
+      spawn: completedSpawn(movedCalls, [
+        { code: 0, stdout: helmHistory(history) },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        { code: 0, stdout: rollbackWorkloadList() },
+        {
+          code: 0,
+          stdout: helmHistory([
+            ...history,
+            {
+              revision: 310,
+              status: "failed",
+              description: "Concurrent revision",
+              updated: "2026-08-27T07:31:00Z",
+            },
+          ]),
+        },
+      ]),
+    });
+    expect(moved).toMatchObject({ result: "refused", reason: expect.stringContaining("history moved") });
+
+    const extraCalls = [];
+    const extra = await recoverStableStalePendingUpgrade({
+      ...baseOptions,
+      readWriterCensus: async () => structuredClone(baseCensus),
+      rollback,
+      spawn: completedSpawn(extraCalls, [
+        {
+          code: 0,
+          stdout: helmHistory([
+            ...history,
+            {
+              revision: 310,
+              status: "failed",
+              description: "Existing extra revision",
+              updated: "2026-08-27T07:29:00Z",
+            },
+          ]),
+        },
+      ]),
+    });
+    expect(extra).toMatchObject({ result: "refused", reason: expect.stringContaining("exactly one revision") });
+    expect(rollback).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["wrong source revision", { sourceRevision: 307 }],
+    ["wrong source status", { sourceStatus: "superseded" }],
+    ["wrong source description", { sourceDescription: "Install complete" }],
+    ["wrong pending status", { pendingStatus: "failed" }],
+    ["unknown pending state", { pendingStatus: "unknown" }],
+    ["wrong pending description", { pendingDescription: "Upgrade failed" }],
+  ])("refuses the stale pending-upgrade one-factor mutant: %s", (_label, mutant) => {
+    const history = [
+      {
+        revision: 308,
+        status: mutant.sourceStatus ?? "deployed",
+        description: mutant.sourceDescription ?? "Upgrade complete",
+        updated: "2026-08-24T15:35:51Z",
+      },
+      {
+        revision: 309,
+        status: mutant.pendingStatus ?? "pending-upgrade",
+        description: mutant.pendingDescription ?? "Preparing upgrade",
+        updated: "2026-08-24T16:57:26Z",
+      },
+    ];
+    expect(() =>
+      selectStableStalePendingUpgrade(history, {
+        sourceRevision: mutant.sourceRevision ?? 308,
+        pendingRevision: 309,
+        sourceDescription: "Upgrade complete",
+        pendingDescription: "Preparing upgrade",
+      }),
+    ).toThrow(/Stale pending-upgrade recovery/);
+  });
+
+  it("verifies only the exact post-recovery revision and preserved pending frontier", () => {
+    const before = [
+      {
+        revision: 308,
+        status: "deployed",
+        description: "Upgrade complete",
+        updated: "2026-08-24T15:35:51Z",
+      },
+      {
+        revision: 309,
+        status: "pending-upgrade",
+        description: "Preparing upgrade",
+        updated: "2026-08-24T16:57:26Z",
+      },
+    ];
+    const after = [
+      { ...before[0], status: "superseded" },
+      before[1],
+      {
+        revision: 310,
+        status: "deployed",
+        description: "Rollback to 308",
+        updated: "2026-08-27T08:00:00Z",
+      },
+    ];
+    expect(verifyStalePendingRecoveryTransition(before, after, { sourceRevision: 308, pendingRevision: 309 })).toEqual(
+      after[2],
+    );
+    expect(() =>
+      verifyStalePendingRecoveryTransition(before, [...after, { ...after[2], revision: 311 }], {
+        sourceRevision: 308,
+        pendingRevision: 309,
+      }),
+    ).toThrow("exactly resulting revision 310");
+    expect(() =>
+      verifyStalePendingRecoveryTransition(before, [after[0], { ...before[1], status: "failed" }, after[2]], {
+        sourceRevision: 308,
+        pendingRevision: 309,
+      }),
+    ).toThrow('revision 309 must have status "pending-upgrade"');
+  });
+
+  it("verifies a stale pending-upgrade recovery across a saturated Helm history window", () => {
+    const before = Array.from({ length: 10 }, (_, index) => {
+      const revision = 300 + index;
+      return {
+        revision,
+        status: revision === 308 ? "deployed" : revision === 309 ? "pending-upgrade" : "superseded",
+        description: revision === 309 ? "Preparing upgrade" : `Revision ${revision}`,
+        updated: `2026-08-24T15:${revision - 300}0:00Z`,
+      };
+    });
+    const after = [
+      ...before.slice(1, 8),
+      { ...before[8], status: "superseded" },
+      before[9],
+      {
+        revision: 310,
+        status: "deployed",
+        description: "Rollback to 308",
+        updated: "2026-08-27T08:00:00Z",
+      },
+    ];
+    const verify = (observedHistory) =>
+      verifyStalePendingRecoveryTransition(before, observedHistory, {
+        sourceRevision: 308,
+        pendingRevision: 309,
+      });
+    const replaceRevision = (revision, replacement) =>
+      after.map((entry) => (entry.revision === revision ? { ...entry, ...replacement } : entry));
+
+    expect(verify(after)).toEqual(after.at(-1));
+    expect(() => verify([...after, { ...after.at(-1), revision: 311 }])).toThrow("exactly resulting revision 310");
+    expect(() => verify(after.filter((entry) => entry.revision !== 308))).toThrow("removed required revision 308");
+    expect(() => verify(after.filter((entry) => entry.revision !== 309))).toThrow("removed required revision 309");
+    expect(() => verify(replaceRevision(301, { description: "Changed retained revision" }))).toThrow(
+      "moved revision 301",
+    );
+    expect(() => verify(replaceRevision(301, { status: "failed" }))).toThrow(
+      'revision 301 must have status "superseded"',
+    );
+    expect(() => verify(replaceRevision(310, { status: "failed" }))).toThrow("resulting revision 310 must be deployed");
+    expect(() => verify(replaceRevision(310, { description: "Rollback to 307" }))).toThrow(
+      "resulting revision 310 must be deployed",
+    );
   });
 
   it.each([
@@ -2021,6 +2566,31 @@ describe("platform Kubernetes deployment", () => {
       digest: rollbackIndexDigest,
       indexManifestPath: "artifacts/production-rollback-index.json",
       platform: "linux/amd64",
+    });
+  });
+
+  it("parses the closed stale pending-upgrade recovery command grammar", () => {
+    expect(
+      parseArgs(
+        [
+          "recover-stale-pending-upgrade",
+          "--revision=308",
+          "--pending-revision=309",
+          "--source-description=Upgrade complete",
+          "--pending-description=Preparing upgrade",
+          "--issue-number=7504",
+          "--admission-out=artifacts/admission.json",
+        ],
+        { GITHUB_RUN_ID: "7504" },
+      ),
+    ).toMatchObject({
+      command: "recover-stale-pending-upgrade",
+      sourceRevision: "308",
+      pendingRevision: "309",
+      sourceDescription: "Upgrade complete",
+      pendingDescription: "Preparing upgrade",
+      issueNumber: "7504",
+      admissionOutPath: "artifacts/admission.json",
     });
   });
 

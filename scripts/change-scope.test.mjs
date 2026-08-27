@@ -1839,6 +1839,22 @@ describe("change-scope", () => {
     });
   });
 
+  it("requires deployment for the exact production stale Helm recovery workflow", () => {
+    const scope = classifyChanges({
+      changedFiles: [".github/workflows/platform-production-stale-helm-recovery.yml"],
+    });
+
+    expect(scope).toMatchObject({
+      deployRequired: true,
+      clusterPreviewRequired: true,
+      dockerImageRequired: false,
+      buildRequired: false,
+    });
+    expect(
+      classifyChanges({ changedFiles: [".github/workflows/synthetic-unrelated-advisory.yml"] }).deployRequired,
+    ).toBe(false);
+  });
+
   it("does not require deployment for an unrelated scripts path", () => {
     expect(classifyChanges({ changedFiles: ["scripts/synthetic-unrelated-maintenance.mjs"] }).deployRequired).toBe(
       false,
