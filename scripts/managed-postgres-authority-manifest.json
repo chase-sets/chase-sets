@@ -4510,6 +4510,48 @@
       "purpose": "terraform-infra"
     },
     {
+      "file": ".github/workflows/platform-production-stale-helm-recovery.yml",
+      "jobId": "recover-production-stale-helm-upgrade",
+      "stepAnchor": "name:Authenticate production OCI identity#7",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production-stale-helm-recovery.yml",
+      "jobId": "recover-production-stale-helm-upgrade",
+      "stepAnchor": "name:Configure production Kubernetes context#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production-stale-helm-recovery.yml",
+      "jobId": "recover-production-stale-helm-upgrade",
+      "stepAnchor": "name:Configure production Kubernetes context#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production-stale-helm-recovery.yml",
+      "jobId": "recover-production-stale-helm-upgrade",
+      "stepAnchor": "name:Configure production Kubernetes context#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production-stale-helm-recovery.yml",
+      "jobId": "recover-production-stale-helm-upgrade",
+      "stepAnchor": "name:Verify immutable identities after recovery#9",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production-stale-helm-recovery.yml",
+      "jobId": "recover-production-stale-helm-upgrade",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
       "file": ".github/workflows/platform-production-stripe-webhook-endpoint-create.yml",
       "jobId": "create",
       "stepAnchor": "name:Create and verify production Stripe webhook endpoint#3",
