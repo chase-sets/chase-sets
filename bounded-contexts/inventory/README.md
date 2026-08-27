@@ -61,6 +61,7 @@ CSV import row formats and examples are documented in [Inventory CSV Import Exam
 - `InventoryReleased`
 - `inventory.hold-collision-recorded`
 - `InventoryItemAdjusted`
+- `inventory.item.offline-sale-recorded`
 - `inventory.recovered-item.authenticity-review-required.v1`
 - `inventory.recovered-item.sellable.v1`
 - `inventory.recovered-item.transferred.v1`
@@ -95,6 +96,10 @@ The producer registry is closed and owned here:
 - Inventory seed corrections use `correction`.
 
 The separate Restock Decision Outcome `written-off` records the seller's decision without changing quantity, so it emits no inventory adjustment.
+
+## Offline Sales
+
+`inventory.item.offline-sale-recorded` preserves the applied quantity, optional per-unit sale price, Inventory-owned channel, Storage Location, per-unit Acquisition Cost snapshot, and server-recorded time. The companion `inventory.item.adjusted` event remains the only quantity truth.
 
 ## Recovered Returns
 

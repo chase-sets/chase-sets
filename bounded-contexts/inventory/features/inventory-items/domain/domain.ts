@@ -2,7 +2,11 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import type {
   InventoryAdjustmentReason,
   InventoryAdjustmentSourceRef,
+  InventoryItemOfflineSaleRecordedPayload,
+  InventoryOfflineSaleChannel,
 } from "@chase-sets/event-core/public-event-payloads";
+import { inventoryOfflineSaleChannels } from "@chase-sets/event-core/public-event-payloads";
+import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { JsonObject } from "@chase-sets/primitives/json";
@@ -79,6 +83,17 @@ export type AdjustInventoryItemQuantityCommand = Readonly<{
   sourceRef?: InventoryAdjustmentSourceRef;
 }>;
 
+export type RecordOfflineSaleCommand = Readonly<{
+  type: "RecordOfflineSale";
+  csatOutcomeFact?: JsonObject;
+  quantity: number;
+  heldQuantity: number;
+  salePriceAmount?: string | null;
+  channel: InventoryOfflineSaleChannel;
+  note?: string | null;
+  recordedAt: string;
+}>;
+
 export type ClaimInventoryStockAuthorityCommand = Readonly<{
   type: "ClaimInventoryStockAuthority";
   authorityRef: string;
@@ -89,6 +104,7 @@ export type ClaimInventoryStockAuthorityCommand = Readonly<{
 export type InventoryItemCommand =
   | CreateInventoryItemCommand
   | AdjustInventoryItemQuantityCommand
+  | RecordOfflineSaleCommand
   | ClaimInventoryStockAuthorityCommand;
 
 export type InventoryItemCreatedEvent = DomainEvent<
@@ -130,9 +146,15 @@ export type InventoryItemStockAuthorityClaimedEvent = DomainEvent<
   }>
 >;
 
+export type InventoryItemOfflineSaleRecordedEvent = DomainEvent<
+  "inventory.item.offline-sale-recorded",
+  InventoryItemOfflineSaleRecordedPayload
+>;
+
 export type InventoryItemEvent =
   | InventoryItemCreatedEvent
   | InventoryItemAdjustedEvent
+  | InventoryItemOfflineSaleRecordedEvent
   | InventoryItemStockAuthorityClaimedEvent;
 
 export const decideInventoryItem: AggregateDecider<InventoryItemState, InventoryItemCommand, InventoryItemEvent> = (
@@ -188,6 +210,51 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
           },
         },
       ];
+    case "RecordOfflineSale": {
+      requireCreatedInventoryItem(state);
+      ensurePositiveInteger(command.quantity, "Offline sales require a positive whole-number quantity.");
+      ensureInteger(command.heldQuantity, "Offline sales require a whole-number held quantity.");
+      assert(command.heldQuantity >= 0, "Inventory held quantity cannot be negative.");
+      assert(state.totalQuantity - command.quantity >= 0, "Inventory quantity cannot fall below zero.");
+      assert(
+        state.totalQuantity - command.quantity >= command.heldQuantity,
+        `${command.heldQuantity} units are committed to open orders.`,
+      );
+      assert(inventoryOfflineSaleChannels.includes(command.channel), "Offline sales require a supported channel.");
+      const salePriceAmount =
+        command.salePriceAmount === undefined || command.salePriceAmount === null
+          ? null
+          : normalizeMoneyAmount(command.salePriceAmount);
+      const recordedAt = new Date(command.recordedAt);
+      assert(!Number.isNaN(recordedAt.getTime()), "Offline sales require a valid server-recorded time.");
+
+      return [
+        {
+          type: "inventory.item.adjusted",
+          data: {
+            itemId: state.id!,
+            quantityDelta: -command.quantity,
+            reason: "Offline sale",
+            reasonCode: "sold-offline",
+            ...(command.note !== undefined ? { note: normalizeOptionalText(command.note) } : {}),
+            sourceRef: null,
+            ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
+          },
+        },
+        {
+          type: "inventory.item.offline-sale-recorded",
+          data: {
+            itemId: state.id!,
+            quantity: command.quantity,
+            salePriceAmount,
+            channel: command.channel,
+            storageLocationId: state.storageLocationId!,
+            acquisitionCostAmount: state.acquisitionCostAmount,
+            recordedAt: recordedAt.toISOString(),
+          },
+        },
+      ];
+    }
     case "ClaimInventoryStockAuthority":
       requireCreatedInventoryItem(state);
       ensurePositiveInteger(command.quantity, "Inventory stock authority requires a positive quantity.");
@@ -226,6 +293,8 @@ export const evolveInventoryItem: AggregateEvolver<InventoryItemState, Inventory
         ...state,
         totalQuantity: state.totalQuantity + event.data.quantityDelta,
       };
+    case "inventory.item.offline-sale-recorded":
+      return state;
     case "inventory.item.stock-authority-claimed":
       return state;
     default:

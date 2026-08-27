@@ -6,6 +6,7 @@ import {
   accountEnforcementReversalReasonCodes,
   inventoryHoldPurposes,
   inventoryHoldReleaseReasons,
+  inventoryOfflineSaleChannels,
   inventoryRestockDecisionOutcomes,
 } from "@chase-sets/event-core/public-event-payloads";
 import type {
@@ -25,6 +26,7 @@ import type {
   IdentityAccountSuspendedPayload,
   IdentityFounderNumberClaimedPayload,
   InventoryHoldPlacedPayload,
+  InventoryItemOfflineSaleRecordedPayload,
   MarketplaceEventPayloads,
   MarketplaceListingCreatedPayload,
   MarketplaceSalesFeeLineSnapshotPayload,
@@ -185,6 +187,10 @@ describe("public event payload runtime value exports", () => {
   it("exports the inventory restock decision outcomes unchanged through the aggregate", () => {
     expect(inventoryRestockDecisionOutcomes).toEqual(["restocked", "written-off"]);
   });
+
+  it("exports the closed Inventory offline-sale channels", () => {
+    expect(inventoryOfflineSaleChannels).toEqual(["in-store", "card-show", "other"]);
+  });
 });
 
 /** Mutual-assignability identity: assignable-in-both-directions is not enough to catch a narrowed union. */
@@ -225,6 +231,10 @@ const aggregateTypeIdentity = {
   "inventory.hold.placed": true satisfies IsExactly<
     ChaseSetsEventPayloads["inventory.hold.placed"],
     InventoryHoldPlacedPayload
+  >,
+  "inventory.item.offline-sale-recorded": true satisfies IsExactly<
+    ChaseSetsEventPayloads["inventory.item.offline-sale-recorded"],
+    InventoryItemOfflineSaleRecordedPayload
   >,
   "ordering.order.created": true satisfies IsExactly<
     ChaseSetsEventPayloads["ordering.order.created"],
@@ -414,7 +424,7 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(28);
+    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(29);
   });
 
   it("preserves the historical optionality of the unversioned dispatch fact", () => {

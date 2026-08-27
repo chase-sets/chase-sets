@@ -152,6 +152,24 @@ export type InventoryItemAdjustedPayload = Readonly<{
   sourceRef?: InventoryAdjustmentSourceRef;
 }>;
 
+export const inventoryOfflineSaleChannels = ["in-store", "card-show", "other"] as const;
+
+export type InventoryOfflineSaleChannel = (typeof inventoryOfflineSaleChannels)[number];
+
+export function isInventoryOfflineSaleChannel(value: unknown): value is InventoryOfflineSaleChannel {
+  return inventoryOfflineSaleChannels.includes(value as InventoryOfflineSaleChannel);
+}
+
+export type InventoryItemOfflineSaleRecordedPayload = Readonly<{
+  itemId: string;
+  quantity: number;
+  salePriceAmount: string | null;
+  channel: InventoryOfflineSaleChannel;
+  storageLocationId: string;
+  acquisitionCostAmount: string | null;
+  recordedAt: string;
+}>;
+
 export type InventoryRestockDecisionPendingPayload = Readonly<{
   decisionId: string;
   accountId: AccountId;
@@ -230,6 +248,7 @@ export type InventoryRecoveredItemValueReportedPayload = Readonly<{
 
 export type InventoryEventPayloads = Readonly<{
   "inventory.item.adjusted": InventoryItemAdjustedPayload;
+  "inventory.item.offline-sale-recorded": InventoryItemOfflineSaleRecordedPayload;
   "inventory.hold.placed": InventoryHoldPlacedPayload;
   "inventory.hold.released": InventoryHoldReleasedPayload;
   "inventory.hold.converted": InventoryHoldConvertedPayload;

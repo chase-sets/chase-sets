@@ -41,6 +41,7 @@ export type InventoryItemDetailRow = InventoryItemListRow &
 export type InventoryItemLedgerKind =
   | "created"
   | "adjusted"
+  | "offline-sale"
   | "hold-placed"
   | "hold-converted"
   | "hold-consumed"
@@ -60,6 +61,8 @@ export type InventoryItemLedgerRow = Readonly<{
   reason: string;
   reason_code: InventoryAdjustmentReason | null;
   note: string | null;
+  sale_price_amount: string | null;
+  channel: string | null;
   source_ref: unknown;
   actor: "seller" | "system";
   event_type: string;
@@ -390,6 +393,8 @@ export async function getInventoryItem(db: PgQueryable, itemId: string, accountI
        reason,
        CASE WHEN kind = 'adjusted' THEN COALESCE(reason_code, 'correction') ELSE reason_code END AS reason_code,
        note,
+       sale_price_amount,
+       channel,
        source_ref,
        actor,
        event_type,

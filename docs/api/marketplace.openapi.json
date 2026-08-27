@@ -132,6 +132,89 @@
     "/api/inventory/items": { "get": { "tags": ["Inventory"], "summary": "List inventory items.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Inventory"], "summary": "Create inventory item.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/inventory/items/{id}": {"get":{"tags":["Inventory"],"summary":"Get inventory item.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/inventory/items/{id}/adjustments": { "post": { "tags": ["Inventory"], "summary": "Adjust inventory item quantity.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/inventory/items/{id}/offline-sales": {
+      "post": {
+        "tags": ["Inventory"],
+        "summary": "Record an offline sale with a per-unit price and Inventory-owned channel.",
+        "description": "Records the applied stock reduction and one immutable offline-sale fact. Price and acquisition-cost values are per unit; the server stamps the recorded time. Currency and caller-supplied sale times are not accepted.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["quantity", "channel", "idempotencyKey"],
+                "properties": {
+                  "quantity": { "type": "integer", "minimum": 1 },
+                  "salePriceAmount": { "type": "string", "nullable": true, "pattern": "^(0|[1-9][0-9]{0,9})\\.[0-9]{2}$", "description": "Optional canonical per-unit sale price amount." },
+                  "channel": { "type": "string", "enum": ["in-store", "card-show", "other"] },
+                  "note": { "type": "string", "nullable": true },
+                  "collisionMode": { "type": "string", "enum": ["protect-orders", "honor-offline"], "default": "protect-orders" },
+                  "confirmSellerCannotFulfill": { "type": "boolean" },
+                  "idempotencyKey": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The first committed full, partial, or refused offline-sale result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["itemId", "version", "requestedQuantity", "appliedQuantity", "refusedQuantity", "collision"],
+                  "properties": {
+                    "itemId": { "type": "string" },
+                    "version": { "type": "integer", "minimum": 0 },
+                    "requestedQuantity": { "type": "integer", "minimum": 1 },
+                    "appliedQuantity": { "type": "integer", "minimum": 0 },
+                    "refusedQuantity": { "type": "integer", "minimum": 0 },
+                    "collision": {
+                      "type": "object",
+                      "nullable": true,
+                      "additionalProperties": false,
+                      "required": ["mode", "authorizedByRole", "requestedQuantity", "appliedQuantity", "refusedQuantity", "heldQuantity", "availableQuantity", "releasedHoldQuantity", "affectedOrders"],
+                      "properties": {
+                        "mode": { "type": "string", "enum": ["protect-orders", "honor-offline"] },
+                        "authorizedByRole": { "type": "string", "nullable": true, "enum": ["manager", "owner", "platform-admin"] },
+                        "requestedQuantity": { "type": "integer" },
+                        "appliedQuantity": { "type": "integer" },
+                        "refusedQuantity": { "type": "integer" },
+                        "heldQuantity": { "type": "integer" },
+                        "availableQuantity": { "type": "integer" },
+                        "releasedHoldQuantity": { "type": "integer" },
+                        "affectedOrders": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["holdId", "orderId", "reservationRequestId", "quantity", "disposition"],
+                            "properties": {
+                              "holdId": { "type": "string" },
+                              "orderId": { "type": "string" },
+                              "reservationRequestId": { "type": "string" },
+                              "quantity": { "type": "integer" },
+                              "disposition": { "type": "string", "enum": ["protected", "released"] }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ValidationFailed" },
+          "401": { "$ref": "#/components/responses/AuthenticationRequired" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
     "/api/inventory/items/{id}/holds": { "post": { "tags": ["Inventory"], "summary": "Place inventory hold.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/inventory/holds/{id}/release": { "post": { "tags": ["Inventory"], "summary": "Release inventory hold.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
 

@@ -106,6 +106,8 @@ function ledger(
     reason,
     reason_code: kind === "adjusted" ? "correction" : null,
     note: kind === "adjusted" ? "Counted twice" : null,
+    sale_price_amount: null,
+    channel: null,
     source_ref: orderId ? { orderId, reservationRequestId: `rsv_${orderId}` } : null,
     actor: kind === "adjusted" ? "seller" : "system",
     event_type: `inventory.${kind}`,

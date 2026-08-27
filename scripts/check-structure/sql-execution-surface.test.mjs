@@ -820,8 +820,8 @@ describe("repository-wide SQL execution partition", () => {
     const legacyPartition = partitionFromFiles(repoRoot, legacyModules);
     const partition = partitionFromFiles(repoRoot, governedModules);
 
-    expect(legacyModules).toHaveLength(2275);
-    expect(governedModules).toHaveLength(2270);
+    expect(legacyModules).toHaveLength(2276);
+    expect(governedModules).toHaveLength(2271);
     expect(removedModules).toEqual(exactRemovedModules);
     expect(removedClassification.modules.map(({ file, outcome }) => ({ file, outcome }))).toEqual(
       exactRemovedModules.map((file) => ({ file, outcome: "not-sql" })),
@@ -829,7 +829,7 @@ describe("repository-wide SQL execution partition", () => {
     expect(removedClassification.violations).toEqual([]);
     expect(removedClassification.unresolvedMemberRoots).toEqual({ count: 0, fileList: [] });
 
-    expect(legacyPartition.sqlExecuting).toHaveLength(376);
+    expect(legacyPartition.sqlExecuting).toHaveLength(377);
     expect(legacyPartition.unprovableForm).toHaveLength(3);
     expect(legacyPartition.notSql).toHaveLength(1896);
     expect(legacyPartition.unresolvedMemberRoots.count).toBe(263);
@@ -844,7 +844,7 @@ describe("repository-wide SQL execution partition", () => {
       governedModules.length,
     );
     console.log(
-      `SQL module inventory 2275 -> ${governedModules.length}; partition 376/3/1896 -> ` +
+      `SQL module inventory 2276 -> ${governedModules.length}; partition 377/3/1896 -> ` +
         `${partition.sqlExecuting.length}/${partition.unprovableForm.length}/${partition.notSql.length}; ` +
         `unresolvedMemberRoots=${partition.unresolvedMemberRoots.count}; removed=${removedModules.join(",")}`,
     );

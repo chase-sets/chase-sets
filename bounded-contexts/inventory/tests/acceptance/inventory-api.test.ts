@@ -27,6 +27,11 @@ import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { type InventoryApiEnv, buildInventoryApi } from "../../api";
 import { InventoryDomainError } from "../../support/runtime-support/common";
+import {
+  claimInventoryAdjustmentIdempotency,
+  completeInventoryAdjustmentIdempotency,
+  releaseInventoryAdjustmentIdempotency,
+} from "../../support/runtime-support/inventory-adjustment-idempotency";
 import { createInventoryServices } from "../../support/runtime-support/services";
 import { reserveOrderInventoryRequest } from "../../features/reservations/api/order-reservation-workflow";
 import { buildInventoryItemLedgerProjectionHandlers } from "../../features/inventory-items/read-model/ledger-projection";
@@ -884,6 +889,178 @@ describe("inventory api", () => {
     });
   });
 
+  it("records partial and refused offline sales without creating a second quantity source", async () => {
+    const createItem = async (name: string) => {
+      const location = await services.storageLocations.createStorageLocation(
+        {
+          accountId: "acc_inventory" as never,
+          name,
+          shipFromCode: name.toUpperCase().replaceAll(" ", "-").slice(0, 20),
+          shipFromAddress,
+        },
+        inventoryContext,
+      );
+      await drainContextProcesses({ subscriptionRunners });
+      const item = await services.items.createItem(
+        {
+          accountId: "acc_inventory" as never,
+          catalogItemId: catalogSeedIds.items.charizardBaseSet,
+          selectedOptions: [
+            {
+              dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+              optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+            },
+            {
+              dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+              optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+            },
+          ],
+          storageLocationId: location.storageLocationId,
+          totalQuantity: 3,
+          acquisitionCostAmount: "75.00",
+        },
+        inventoryContext,
+      );
+      await drainContextProcesses({ subscriptionRunners });
+      return item;
+    };
+
+    const partialItem = await createItem("Partial sale shelf");
+    await services.holds.createHold(
+      {
+        accountId: "acc_inventory" as never,
+        itemId: partialItem.itemId,
+        quantity: 1,
+        reason: "Protected unit",
+        purpose: "manual",
+        sourceRef: null,
+        expiresAt: null,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    const partial = await app.request(`/api/inventory/items/${partialItem.itemId}/offline-sales`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 3,
+        salePriceAmount: "125.00",
+        channel: "card-show",
+        idempotencyKey: "acceptance-partial-sale",
+      }),
+    });
+    expect(partial.status).toBe(200);
+    await expect(partial.json()).resolves.toMatchObject({
+      itemId: partialItem.itemId,
+      requestedQuantity: 3,
+      appliedQuantity: 2,
+      refusedQuantity: 1,
+      collision: { mode: "protect-orders", appliedQuantity: 2, refusedQuantity: 1 },
+    });
+    const partialEvents = await pools.inventory.query<{ event_type: string; payload: Record<string, unknown> }>(
+      `SELECT event_type, payload
+       FROM event_store_events
+       WHERE stream_id = $1
+       ORDER BY stream_version`,
+      [`inventory.item-${partialItem.itemId}`],
+    );
+    expect(partialEvents.rows.slice(-2)).toEqual([
+      expect.objectContaining({
+        event_type: "inventory.item.adjusted",
+        payload: expect.objectContaining({ quantityDelta: -2, reasonCode: "sold-offline" }),
+      }),
+      expect.objectContaining({
+        event_type: "inventory.item.offline-sale-recorded",
+        payload: expect.objectContaining({
+          quantity: 2,
+          salePriceAmount: "125.00",
+          acquisitionCostAmount: "75.00",
+          channel: "card-show",
+        }),
+      }),
+    ]);
+    const partialLedger = await pools.inventory.query<{
+      kind: string;
+      quantity_delta: number;
+      sale_price_amount: string | null;
+      channel: string | null;
+    }>(
+      `SELECT kind, quantity_delta, sale_price_amount, channel
+       FROM inventory_item_ledger
+       WHERE item_id = $1 AND kind IN ('adjusted', 'offline-sale')
+       ORDER BY stream_version`,
+      [partialItem.itemId],
+    );
+    expect(partialLedger.rows).toEqual([
+      { kind: "adjusted", quantity_delta: -2, sale_price_amount: null, channel: null },
+      { kind: "offline-sale", quantity_delta: -2, sale_price_amount: "125.00", channel: "card-show" },
+    ]);
+    const partialEventCount = partialEvents.rows.length;
+    const replay = await app.request(`/api/inventory/items/${partialItem.itemId}/offline-sales`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 3,
+        salePriceAmount: "125.00",
+        channel: "card-show",
+        collisionMode: "protect-orders",
+        idempotencyKey: "acceptance-partial-sale",
+      }),
+    });
+    expect(replay.status).toBe(200);
+    await expect(countStreamEvents(pools.inventory, `inventory.item-${partialItem.itemId}`)).resolves.toBe(
+      partialEventCount,
+    );
+
+    const refusedItem = await createItem("Refused sale shelf");
+    await services.holds.createHold(
+      {
+        accountId: "acc_inventory" as never,
+        itemId: refusedItem.itemId,
+        quantity: 3,
+        reason: "All units protected",
+        purpose: "manual",
+        sourceRef: null,
+        expiresAt: null,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+    const refused = await app.request(`/api/inventory/items/${refusedItem.itemId}/offline-sales`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 3,
+        channel: "in-store",
+        idempotencyKey: "acceptance-refused-sale",
+      }),
+    });
+    expect(refused.status).toBe(200);
+    await expect(refused.json()).resolves.toMatchObject({
+      requestedQuantity: 3,
+      appliedQuantity: 0,
+      refusedQuantity: 3,
+    });
+    await expect(
+      countStreamEventsByType(
+        pools.inventory,
+        `inventory.item-${refusedItem.itemId}`,
+        "inventory.item.offline-sale-recorded",
+      ),
+    ).resolves.toBe(0);
+    await expect(
+      countStreamEventsByType(pools.inventory, `inventory.item-${refusedItem.itemId}`, "inventory.item.adjusted"),
+    ).resolves.toBe(0);
+    const refusedLedger = await pools.inventory.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM inventory_item_ledger
+       WHERE item_id = $1 AND kind IN ('adjusted', 'offline-sale')`,
+      [refusedItem.itemId],
+    );
+    expect(Number(refusedLedger.rows[0]?.count ?? 0)).toBe(0);
+  });
+
   it("honors an explicit manager override by atomically releasing affected order commitments", async () => {
     const location = await services.storageLocations.createStorageLocation(
       {
@@ -928,14 +1105,16 @@ describe("inventory api", () => {
     });
     await drainContextProcesses({ subscriptionRunners });
 
-    const response = await app.request(`/api/inventory/items/${item.itemId}/adjustments`, {
+    const response = await app.request(`/api/inventory/items/${item.itemId}/offline-sales`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        quantityDelta: -4,
-        reason: "Counter sale",
+        quantity: 4,
+        salePriceAmount: "125.00",
+        channel: "in-store",
         collisionMode: "honor-offline",
         confirmSellerCannotFulfill: true,
+        idempotencyKey: "acceptance-honor-sale",
       }),
     });
     expect(response.status).toBe(200);
@@ -983,6 +1162,14 @@ describe("inventory api", () => {
         mode: "honor-offline",
         affected_orders: [expect.objectContaining({ orderId: "ord_collision_1" })],
       }),
+    ]);
+    const saleLedger = await pools.inventory.query<{ kind: string; reason_code: string | null }>(
+      "SELECT kind, reason_code FROM inventory_item_ledger WHERE item_id = $1 AND kind IN ('adjusted', 'offline-sale') ORDER BY stream_version",
+      [item.itemId],
+    );
+    expect(saleLedger.rows).toEqual([
+      { kind: "adjusted", reason_code: "sold-offline" },
+      { kind: "offline-sale", reason_code: null },
     ]);
   });
 
@@ -1208,6 +1395,56 @@ describe("inventory api", () => {
       }),
     });
     expect(writeResponse.status).toBe(403);
+    const offlineSaleResponse = await unauthorizedApp.request("/api/inventory/items/inv_1/offline-sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quantity: 1, channel: "in-store", idempotencyKey: "forbidden-sale" }),
+    });
+    expect(offlineSaleResponse.status).toBe(403);
+  });
+
+  it("does not let a released claim owner complete a reclaimed idempotency row", async () => {
+    await claimInventoryAdjustmentIdempotency(pools.inventory, {
+      idempotencyKey: "stale-completion",
+      accountId: "acc_inventory",
+      itemId: "inv_a",
+      commandFingerprint: "fingerprint-a",
+    });
+    await releaseInventoryAdjustmentIdempotency(pools.inventory, "stale-completion");
+    await claimInventoryAdjustmentIdempotency(pools.inventory, {
+      idempotencyKey: "stale-completion",
+      accountId: "acc_inventory",
+      itemId: "inv_b",
+      commandFingerprint: "fingerprint-b",
+    });
+
+    await expect(
+      completeInventoryAdjustmentIdempotency(pools.inventory, {
+        idempotencyKey: "stale-completion",
+        commandFingerprint: "fingerprint-a",
+        resultItemId: "inv_a",
+        resultVersion: 2,
+        resultCollision: null,
+      }),
+    ).resolves.toBe(false);
+    const row = await pools.inventory.query<{
+      status: string;
+      command_fingerprint: string;
+      result_version: string | null;
+      result_collision: unknown;
+    }>(
+      `SELECT status, command_fingerprint, result_version, result_collision
+       FROM inventory_item_adjustment_idempotency
+       WHERE idempotency_key = 'stale-completion'`,
+    );
+    expect(row.rows).toEqual([
+      {
+        status: "in_progress",
+        command_fingerprint: "fingerprint-b",
+        result_version: null,
+        result_collision: null,
+      },
+    ]);
   });
 
   it("hides cross-account inventory items", async () => {

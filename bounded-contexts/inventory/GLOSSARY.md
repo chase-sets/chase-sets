@@ -147,6 +147,28 @@ Values:
 
 An **Adjustment Note** is optional operator context attached to an Inventory adjustment. A blank note is stored as no note, and it never replaces or derives from the required free-text reason.
 
+## Offline Sale
+
+An **Offline Sale** is an immutable Inventory fact that records stock sold in person or outside a connected marketplace channel. It preserves sale provenance while the companion Inventory Item adjustment remains the quantity source of truth.
+
+## Offline Sale Channel
+
+An **Offline Sale Channel** identifies where an Offline Sale occurred.
+
+Values:
+
+- `in-store`: sold at the account's store or counter.
+- `card-show`: sold at a card show or similar in-person event.
+- `other`: sold through another non-connected offline channel.
+
+## Sale Price Amount
+
+**Sale Price Amount** is the optional canonical per-unit amount recorded on an Offline Sale. It is sales provenance without currency, payment, settlement, or provider-receipt meaning.
+
+## Cost Basis Snapshot
+
+A **Cost Basis Snapshot** is the Inventory Item's per-unit Acquisition Cost captured when an Offline Sale is recorded. It remains part of the immutable sale fact even if the item's current cost later changes.
+
 ## Storage Location
 
 A **Storage Location** is a seller-defined place where stock is stored.
@@ -190,7 +212,7 @@ Notes:
 
 ## Acquisition Cost
 
-**Acquisition Cost** is the seller's recorded cost to acquire stock in inventory.
+**Acquisition Cost** is the seller's recorded per-unit cost to acquire stock in inventory.
 
 ## Recovered Item
 
@@ -319,7 +341,3 @@ A **Channel Inventory Snapshot** is the planned channel-reported quantity state 
 ### Channel Fulfillment Rule
 
 A **Channel Fulfillment Rule** is the planned Inventory-owned rule that decides which stock can satisfy channel demand.
-
-### Offline Sale
-
-An **Offline Sale** is the planned Inventory fact that stock left availability through an in-person or non-channel sale.

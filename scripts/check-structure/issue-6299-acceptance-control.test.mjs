@@ -9,7 +9,10 @@ const repoRoot = path.resolve(import.meta.dirname, "../..");
 const expectedInventory = [
   ["bounded-contexts/settlement/features/payouts/api/runtime.ts", "getCommittedPayoutLedgerEntry"],
   ["bounded-contexts/checkout/features/sessions/api/runtime.ts", "existingStartedSession"],
-  ["bounded-contexts/inventory/features/inventory-items/api/runtime.ts", "recoverInventoryAdjustmentIdempotency"],
+  [
+    "bounded-contexts/inventory/support/runtime-support/inventory-adjustment-idempotency.ts",
+    "recoverInventoryAdjustmentIdempotency",
+  ],
   ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", "resolveCatalogItemMeasures"],
   ["bounded-contexts/catalog/features/product-contents/api/runtime.ts", "replaceProductContents"],
   ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "findReplayedListingMutation"],
