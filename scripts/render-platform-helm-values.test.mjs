@@ -7,6 +7,7 @@ import {
   buildPlatformHelmValues,
   buildPlatformHelmStagingValues,
   buildPreviewDoksIngressValues,
+  componentUsesDatabaseSecret,
   chartValuesRelativePath,
   doksStagingApiOverrides,
   doksStagingWorkerAutoscaling,
@@ -116,6 +117,30 @@ describe("render platform Helm values", () => {
     });
     expect(values.global.imagePullSecrets).toEqual([{ name: "chase-sets" }]);
     expect(values.global.envOverrides).toEqual({});
+    expect(
+      Object.entries(values.components)
+        .filter(([, component]) => component.managedPostgresCa)
+        .map(([name]) => name)
+        .sort(),
+    ).toEqual(["marketplace", "platform-api", "platform-bootstrap", "platform-worker"]);
+  });
+
+  it("auto-enrolls database Secret consumers and rejects unknown composer shapes", () => {
+    expect(
+      componentUsesDatabaseSecret(
+        { kind: "service", env: [{ name: "DATABASE_URL_SYNTHETIC", secret: true }] },
+        "synthetic-api",
+      ),
+    ).toBe(true);
+    expect(
+      componentUsesDatabaseSecret(
+        { kind: "service", env: [{ name: "DATABASE_URL_SYNTHETIC", value: "not-a-secret" }] },
+        "synthetic-web",
+      ),
+    ).toBe(false);
+    expect(() => componentUsesDatabaseSecret({ kind: "cron", env: [] }, "unknown")).toThrow(
+      "unsupported Kubernetes composer shape",
+    );
   });
 
   it("pins commands, ports, and source count expressions in the DOKS runtime values", () => {

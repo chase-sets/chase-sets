@@ -866,6 +866,54 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("artifacts/release-health/production-readiness-gate.json");
   });
 
+  it("reconciles managed Postgres CA trust exactly once per staging and production deploy before Helm selection", () => {
+    const credentialNames = [
+      "TF_VAR_digitalocean_token",
+      "TF_VAR_spaces_access_id",
+      "TF_VAR_spaces_secret_key",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "DIGITALOCEAN_ACCESS_TOKEN",
+    ];
+    const stagingTrust = workflowStep(platformProductionWorkflow, "Reconcile staging managed Postgres CA trust");
+    const productionTrust = workflowStep(platformProductionWorkflow, "Reconcile production managed Postgres CA trust");
+    const stagingUrlExport = workflowStep(platformProductionWorkflow, "Export staging Kubernetes database URLs");
+    const productionUrlExport = workflowStep(platformProductionWorkflow, "Export production Kubernetes database URLs");
+
+    for (const [environment, step] of [
+      ["staging", stagingTrust],
+      ["production", productionTrust],
+    ]) {
+      expect(step).toContain("uses: ./.github/actions/export-managed-postgres-authority");
+      expect(step).toContain("mode: trust-only-kubernetes-secret");
+      expect(step).toContain(`environment: ${environment}`);
+      expect(step).toContain("namespace: ${{ env.CHASE_SETS_KUBERNETES_NAMESPACE }}");
+      for (const credential of credentialNames) expect(step).toContain(`${credential}:`);
+      expect(step).not.toContain("contexts:");
+      expect(step).not.toContain("connection-mode:");
+    }
+    expect(workflowSteps(platformProductionWorkflow, "Reconcile staging managed Postgres CA trust")).toHaveLength(1);
+    expect(workflowSteps(platformProductionWorkflow, "Reconcile production managed Postgres CA trust")).toHaveLength(1);
+    expect(stagingUrlExport).not.toContain("DIGITALOCEAN_ACCESS_TOKEN:");
+    expect(productionUrlExport).not.toContain("DIGITALOCEAN_ACCESS_TOKEN:");
+
+    const stagingSecret = platformProductionWorkflow.indexOf("- name: Apply staging Kubernetes runtime secrets");
+    const stagingTrustIndex = platformProductionWorkflow.indexOf("- name: Reconcile staging managed Postgres CA trust");
+    const stagingHelm = platformProductionWorkflow.indexOf("- name: Deploy staging Kubernetes release");
+    expect(stagingSecret).toBeLessThan(stagingTrustIndex);
+    expect(stagingTrustIndex).toBeLessThan(stagingHelm);
+
+    const productionSecret = platformProductionWorkflow.indexOf("- name: Apply production Kubernetes runtime secrets");
+    const productionTrustIndex = platformProductionWorkflow.indexOf(
+      "- name: Reconcile production managed Postgres CA trust",
+    );
+    const productionRollbackTarget = platformProductionWorkflow.indexOf("- name: Capture production rollback target");
+    const productionHelm = platformProductionWorkflow.indexOf("- name: Deploy production Kubernetes release");
+    expect(productionSecret).toBeLessThan(productionTrustIndex);
+    expect(productionTrustIndex).toBeLessThan(productionRollbackTarget);
+    expect(productionRollbackTarget).toBeLessThan(productionHelm);
+  });
+
   it("captures staging wake drill worker status through the internal DOKS worker endpoint", () => {
     const wakeDrillJob = workflowJob(platformStagingWakeDrillsWorkflow, "staging-wake-drill");
     const kubeconfigStep = workflowStep(wakeDrillJob, "Configure staging Kubernetes context");

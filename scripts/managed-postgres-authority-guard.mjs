@@ -406,12 +406,16 @@ function enforceBoundaryInvariants({ discovery, manifest, violations }) {
   }
   for (const consumer of boundaryJobs.values()) {
     const jobSteps = discovery.steps.filter(({ file, jobId }) => file === consumer.file && jobId === consumer.jobId);
+    const boundaryActionSteps = jobSteps.filter(({ target }) => target === CANONICAL_BOUNDARY_ACTION);
+    const isTrustOnlyJob =
+      boundaryActionSteps.length > 0 &&
+      boundaryActionSteps.every(({ step }) => step.with?.mode === "trust-only-kubernetes-secret");
     const hasCleanup = jobSteps.some(({ step }) => {
       const condition = typeof step.if === "string" ? step.if : "";
       const command = typeof step.run === "string" ? step.run : "";
       return /\balways\s*\(\s*\)/.test(condition) && CA_CLEANUP.test(command);
     });
-    if (!hasCleanup) {
+    if (!hasCleanup && !isTrustOnlyJob) {
       violations.push(violation("missing-ca-cleanup", consumer));
     }
 

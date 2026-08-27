@@ -7,6 +7,11 @@ import {
   buildDoksIngressValues,
   buildPlatformHelmValues,
   buildPreviewDoksIngressValues,
+  managedPostgresCaDigestAnnotation,
+  managedPostgresCaItemPath,
+  managedPostgresCaMountPath,
+  managedPostgresCaSecretKey,
+  managedPostgresCaVolumeName,
   previewWildcardTlsSecretName,
   previewWildcardTlsSecretNamespace,
 } from "./render-platform-helm-values.mjs";
@@ -116,6 +121,10 @@ export function buildHelmUpgradeArgs(options = {}) {
   const imagePullSecret = managedRegistryPullSecret(options.imagePullSecret);
   const requestedEnvOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
   const deploymentEnvironment = requestedEnvOverrides.DEPLOYMENT_ENVIRONMENT;
+  const managedPostgresCaSha256 =
+    deploymentEnvironment === "staging" || deploymentEnvironment === "production"
+      ? requiredLowercaseSha256(options.managedPostgresCaSha256, "managed-postgres-ca-sha256")
+      : null;
   const observabilityEnabled =
     (deploymentEnvironment === "staging" || deploymentEnvironment === "production") &&
     requestedEnvOverrides.OBSERVABILITY_ENABLED !== "false";
@@ -222,6 +231,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...rolloutSetArgs,
     ...waveExposureSetArgs,
     ...previewSchedulingSetArgs,
+    ...(managedPostgresCaSha256 ? ["--set-string", `global.managedPostgresCaSha256=${managedPostgresCaSha256}`] : []),
     "--set-string",
     `global.image.registry=${image.registry}`,
     "--set-string",
@@ -238,6 +248,27 @@ export function buildHelmUpgradeArgs(options = {}) {
       "--set-string",
       `global.envOverrides.${name}=${escapeHelmSetStringValue(value)}`,
     ]),
+  ];
+}
+
+export function buildManagedPostgresCaReconcileArgs(options = {}) {
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const timeout = requiredOption(options.timeout ?? defaultTimeout, "timeout");
+  const digest = requiredLowercaseSha256(options.managedPostgresCaSha256, "managed-postgres-ca-sha256");
+  return [
+    "upgrade",
+    release,
+    chartPath,
+    "--namespace",
+    namespace,
+    "--reuse-values",
+    "--wait",
+    "--timeout",
+    timeout,
+    "--atomic",
+    "--set-string",
+    `global.managedPostgresCaSha256=${digest}`,
   ];
 }
 
@@ -1670,6 +1701,29 @@ export async function deployPlatformToKubernetes(options = {}) {
   });
 }
 
+export async function reconcileManagedPostgresCaOnKubernetes(options = {}) {
+  const helmPath = options.helmPath ?? "helm";
+  const kubectlPath = options.kubectlPath ?? "kubectl";
+  const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+  await runProcess({
+    command: helmPath,
+    args: buildManagedPostgresCaReconcileArgs(options),
+    spawn: options.spawn,
+  });
+  await waitForPlatformWorkloads({
+    ...options,
+    kubectlPath,
+    workloads,
+    acceptedRolloutPhases: ["Paused", "Healthy"],
+  });
+  return buildDeploymentEvidence({
+    ...options,
+    action: "managed-postgres-ca-reconcile",
+    result: "success",
+    workloads,
+  });
+}
+
 export function buildScenarioSeedJobManifest(options = {}) {
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
   const release = requiredOption(options.release ?? defaultRelease, "release");
@@ -1679,10 +1733,14 @@ export function buildScenarioSeedJobManifest(options = {}) {
   if (envOverrides.DEPLOYMENT_ENVIRONMENT !== "staging") {
     throw new Error("The post-deploy scenario seed Job is staging-only; DEPLOYMENT_ENVIRONMENT must be staging.");
   }
+  const managedPostgresCaSha256 = requiredLowercaseSha256(
+    options.managedPostgresCaSha256,
+    "managed-postgres-ca-sha256",
+  );
 
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
   const component = values.components?.["platform-bootstrap"];
-  if (!component || component.kind !== "job") {
+  if (!component || component.kind !== "job" || component.managedPostgresCa !== true) {
     throw new Error("The platform-bootstrap Job definition is required to build the post-deploy scenario seed Job.");
   }
 
@@ -1760,6 +1818,9 @@ export function buildScenarioSeedJobManifest(options = {}) {
             "app.kubernetes.io/instance": release,
             "app.kubernetes.io/component": "scenario-seed",
           },
+          annotations: {
+            [managedPostgresCaDigestAnnotation]: managedPostgresCaSha256,
+          },
         },
         spec: {
           restartPolicy: "Never",
@@ -1777,9 +1838,25 @@ export function buildScenarioSeedJobManifest(options = {}) {
                   : component.command,
               ],
               env,
+              volumeMounts: [
+                {
+                  name: managedPostgresCaVolumeName,
+                  mountPath: managedPostgresCaMountPath,
+                  readOnly: true,
+                },
+              ],
               ...(component.resources && Object.keys(component.resources).length > 0
                 ? { resources: component.resources }
                 : {}),
+            },
+          ],
+          volumes: [
+            {
+              name: managedPostgresCaVolumeName,
+              secret: {
+                secretName,
+                items: [{ key: managedPostgresCaSecretKey, path: managedPostgresCaItemPath }],
+              },
             },
           ],
         },
@@ -2468,6 +2545,14 @@ function requiredSha256Digest(value, name) {
   return String(normalized).toLowerCase();
 }
 
+function requiredLowercaseSha256(value, name) {
+  const normalized = requiredOption(value, name);
+  if (!/^[0-9a-f]{64}$/.test(String(normalized))) {
+    throw new Error(`${name} must be a lowercase SHA-256 digest.`);
+  }
+  return String(normalized);
+}
+
 function runProcess(options) {
   const spawnImpl = options.spawn ?? spawn;
 
@@ -2553,6 +2638,7 @@ export function parseArgs(argv, env = process.env) {
     !command ||
     ![
       "deploy",
+      "reconcile-managed-postgres-ca",
       "scenario-seed",
       "promote",
       "abort",
@@ -2566,7 +2652,7 @@ export function parseArgs(argv, env = process.env) {
     ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|verify-deployment-transition|recover-stale-pending-upgrade|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--pending-revision <n>] [--source-description <text>] [--pending-description <text>] [--issue-number <n>] [--admission-out <path>] [--rollback-target <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|reconcile-managed-postgres-ca|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|verify-deployment-transition|recover-stale-pending-upgrade|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--pending-revision <n>] [--source-description <text>] [--pending-description <text>] [--issue-number <n>] [--admission-out <path>] [--rollback-target <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--managed-postgres-ca-sha256 <digest>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -2588,6 +2674,7 @@ export function parseArgs(argv, env = process.env) {
     quiesceWorkers: readBooleanOption(rest, "--quiesce-workers", env.CHASE_SETS_SCENARIO_SEED_QUIESCE_WORKERS),
     betaWaveSize: readOption(rest, "--beta-wave-size", env.BETA_WAVE_SIZE),
     betaWaveRolloutExposure: readOption(rest, "--beta-wave-rollout-exposure", env.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT),
+    managedPostgresCaSha256: readOption(rest, "--managed-postgres-ca-sha256", env.MANAGED_POSTGRES_CA_SHA256),
     revision: readOption(rest, "--revision", env.CHASE_SETS_HELM_ROLLBACK_REVISION),
     sourceRevision: readOption(rest, "--revision", env.CHASE_SETS_HELM_ROLLBACK_REVISION),
     pendingRevision: readOption(rest, "--pending-revision", env.CHASE_SETS_HELM_PENDING_REVISION),
@@ -2687,6 +2774,11 @@ async function main(argv, env = process.env) {
 
   if (options.command === "deploy") {
     console.log(JSON.stringify(await deployPlatformToKubernetes(options), null, 2));
+    return 0;
+  }
+
+  if (options.command === "reconcile-managed-postgres-ca") {
+    console.log(JSON.stringify(await reconcileManagedPostgresCaOnKubernetes(options), null, 2));
     return 0;
   }
 

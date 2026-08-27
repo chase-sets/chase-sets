@@ -144,6 +144,7 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- define "chase-sets-platform.podSpec" -}}
 {{- $root := .root -}}
 {{- $component := .component -}}
+{{- $managedPostgresCa := and $component.managedPostgresCa $root.Values.global.managedPostgresCaSha256 -}}
 {{- $isQuiesceJob := and (eq $component.kind "job") $component.job.quiesce.enabled -}}
 {{- if $isQuiesceJob }}
 serviceAccountName: {{ include "chase-sets-platform.bootstrapQuiesceServiceAccountName" $root }}
@@ -184,6 +185,12 @@ containers:
     {{- end }}
     env:
 {{ include "chase-sets-platform.env" . | nindent 6 }}
+    {{- if $managedPostgresCa }}
+    volumeMounts:
+      - name: "managed-postgres-ca"
+        mountPath: "/var/run/secrets/chase-sets/managed-postgres"
+        readOnly: true
+    {{- end }}
     {{- /*
       Probe wiring is intentionally decoupled and each path has exactly one
       source of truth:
@@ -229,4 +236,13 @@ containers:
     resources:
 {{ toYaml . | nindent 6 }}
     {{- end }}
+{{- if $managedPostgresCa }}
+volumes:
+  - name: "managed-postgres-ca"
+    secret:
+      secretName: {{ $root.Values.global.existingSecretName | quote }}
+      items:
+        - key: "managed-postgres-ca.crt"
+          path: "ca.crt"
+{{- end }}
 {{- end -}}

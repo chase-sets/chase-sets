@@ -30,6 +30,11 @@ const previewPostgresSecretName = "chase-sets-preview-postgres";
 // than derived from the preview identifier.
 export const previewWildcardTlsSecretName = "preview-wildcard-tls";
 export const previewWildcardTlsSecretNamespace = "cert-manager";
+export const managedPostgresCaVolumeName = "managed-postgres-ca";
+export const managedPostgresCaSecretKey = "managed-postgres-ca.crt";
+export const managedPostgresCaItemPath = "ca.crt";
+export const managedPostgresCaMountPath = "/var/run/secrets/chase-sets/managed-postgres";
+export const managedPostgresCaDigestAnnotation = "chase-sets.com/managed-postgres-ca-sha256";
 
 // Exported so scripts/platform-compose-ingress.mjs (the CI compose
 // boot+smoke job's ingress stand-in) routes requests by the exact same path
@@ -420,7 +425,45 @@ export function buildPlatformHelmValues(options = {}) {
   const runtimeValues = readPlatformRuntimeValues(rootDir);
 
   const { schemaVersion: _schemaVersion, productionEnvOverrides: _productionEnvOverrides, ...values } = runtimeValues;
-  return values;
+  const components = Object.fromEntries(
+    Object.entries(values.components ?? {}).map(([name, component]) => [
+      name,
+      {
+        ...component,
+        managedPostgresCa: componentUsesDatabaseSecret(component, name),
+      },
+    ]),
+  );
+  const digest = options.managedPostgresCaSha256 ?? "";
+  if (digest && !/^[0-9a-f]{64}$/.test(digest)) {
+    throw new Error("managedPostgresCaSha256 must be a lowercase SHA-256 digest.");
+  }
+  return {
+    ...values,
+    global: {
+      ...values.global,
+      managedPostgresCaSha256: digest,
+    },
+    components,
+  };
+}
+
+export function isDatabaseSecretKey(value) {
+  return (
+    value === "DATABASE_URL" ||
+    value === "PLATFORM_CONTROL_DATABASE_URL" ||
+    value === "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL" ||
+    value === "PLATFORM_WORK_SIGNAL_DATABASE_URL" ||
+    /^(?:BOOTSTRAP_)?DATABASE_URL_[A-Z0-9_]+(?:_WAITER)?$/.test(value) ||
+    /^WORKER_LISTENER_DATABASE_URL_[A-Z0-9_]+$/.test(value)
+  );
+}
+
+export function componentUsesDatabaseSecret(component, name = "component") {
+  if (!component || !["service", "worker", "job"].includes(component.kind) || !Array.isArray(component.env)) {
+    throw new Error(`Component '${name}' has an unsupported Kubernetes composer shape.`);
+  }
+  return component.env.some((entry) => entry?.secret === true && isDatabaseSecretKey(entry.secretKey ?? entry.name));
 }
 
 /*
