@@ -344,6 +344,108 @@ INSERT INTO catalog_provider_scope_observations (
     expect(await runtime.listCanonicalScopeRecordProposals()).toEqual([]);
   });
 
+  it("fails a TCGplayer target closed before writes when distinct synthetic facts share one durable observation identity", async () => {
+    const version = activeTcgplayerProfileVersions().find(
+      (candidate) => candidate.profileKey === "pokemon-single-card-product-sku",
+    )!;
+    const fact = (await loadTcgplayerFixtureFacts([version]))[0]!;
+    const factsByUnit = new Map([[fact.unitKey, fact]]);
+    const contract = catalogScopeProductDomainContracts.pokemon;
+    await insertScopeRecord({
+      id: "scope-parent-synthetic-identity-control",
+      productDomain: "pokemon",
+      scopeKind: "product-line",
+      referenceRecordKey: contract.productLineReferenceRecordKey,
+      name: "Synthetic Pokemon product-line identity control",
+      officialSetCode: null,
+    });
+    await insertScopeRecord({
+      id: "scope-leaf-synthetic-identity-control",
+      productDomain: "pokemon",
+      scopeKind: "expansion",
+      name: "Synthetic Provider Scope Success Control",
+      officialSetCode: null,
+    });
+    const baseLeafPage = await tcgplayerFixtureOptionPage(
+      queryInput(version, "set-names", String(fact.productLineId)),
+      [version],
+      factsByUnit,
+    );
+    const baseLeaf = baseLeafPage.items[0]!;
+    const sharedExternalId = "synthetic-duplicate-durable-identity";
+    const syntheticCollisionFacts = [
+      {
+        ...baseLeaf,
+        value: sharedExternalId,
+        label: "Synthetic Provider Fact Alpha",
+        metadata: { syntheticProviderFactId: "synthetic-provider-fact-alpha" },
+      },
+      {
+        ...baseLeaf,
+        value: sharedExternalId,
+        label: "Synthetic Provider Fact Beta",
+        metadata: { syntheticProviderFactId: "synthetic-provider-fact-beta" },
+      },
+    ];
+    const syntheticSuccessControl = {
+      ...baseLeaf,
+      value: sharedExternalId,
+      label: "Synthetic Provider Scope Success Control",
+      metadata: { syntheticProviderFactId: "synthetic-provider-fact-success-control" },
+    };
+    let returnCollision = true;
+    const { runtime, queryRequests } = buildRuntime({
+      optionPagesByQueryKind: {},
+      profileVersions: [version],
+      cadenceConfig: [cadence("tcgplayer")],
+      queryIntegrationOptions: (query) =>
+        query.queryKind === "set-names"
+          ? Promise.resolve(optionPage(returnCollision ? syntheticCollisionFacts : [syntheticSuccessControl]))
+          : tcgplayerFixtureOptionPage(query, [version], factsByUnit),
+    });
+
+    const failed = await runtime.runProviderRefreshNow({ providerKey: "tcgplayer", context: TEST_CONTEXT });
+
+    expect(failed).toMatchObject({
+      status: "failed",
+      observationCount: 0,
+      newObservationCount: 0,
+      mappingsProposed: 0,
+    });
+    expect(failed.errorMessage).toContain("Duplicate Provider Scope Observation identity");
+    expect(queryRequests.filter((query) => query.queryKind === "product-lines")).toHaveLength(1);
+    expect(queryRequests.filter((query) => query.queryKind === "set-names")).toHaveLength(1);
+    expect(await runtime.listScopeObservations({ providerKey: "tcgplayer", scopeKind: "expansion" })).toEqual([]);
+    expect(await runtime.listCanonicalScopeRecordProposals()).toEqual([]);
+    const eventsAfterCollision = await pools.catalog.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM event_store_events WHERE stream_id LIKE 'catalog.provider-scope-mapping-%'`,
+    );
+    expect(eventsAfterCollision.rows[0]?.count).toBe("0");
+
+    returnCollision = false;
+    const succeeded = await runtime.runProviderRefreshNow({ providerKey: "tcgplayer", context: TEST_CONTEXT });
+
+    expect(succeeded).toMatchObject({
+      status: "succeeded",
+      observationCount: 2,
+      newObservationCount: 2,
+      mappingsProposed: 2,
+    });
+    expect(queryRequests.filter((query) => query.queryKind === "product-lines")).toHaveLength(2);
+    expect(queryRequests.filter((query) => query.queryKind === "set-names")).toHaveLength(2);
+    expect(await runtime.listScopeObservations({ providerKey: "tcgplayer", scopeKind: "expansion" })).toEqual([
+      expect.objectContaining({
+        externalId: sharedExternalId,
+        label: "Synthetic Provider Scope Success Control",
+      }),
+    ]);
+    expect(await runtime.listCanonicalScopeRecordProposals()).toEqual([]);
+    const eventsAfterSuccessControl = await pools.catalog.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM event_store_events WHERE stream_id LIKE 'catalog.provider-scope-mapping-%'`,
+    );
+    expect(eventsAfterSuccessControl.rows[0]?.count).toBe("2");
+  });
+
   it.each([
     { caseName: "zero", extraParent: false, omitParent: true },
     { caseName: "multiple", extraParent: true, omitParent: false },

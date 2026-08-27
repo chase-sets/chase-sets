@@ -265,6 +265,118 @@ describe("Catalog sync scope planner", () => {
     expect(preview.scope.reference).toEqual({ kind: "expansion", scopeRecordId: BASE_SET_SCOPE_RECORD_ID });
   });
 
+  it("plans canonical Magic through an active raw TCGplayer MTG unit and its accepted mapping", async () => {
+    const tcgplayer = activeProfile("tcgplayer", "mtg-single-card-product-sku");
+    const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
+    const scopeRecordId = "scope_magic_synthetic_ready_control";
+    const mapping = acceptedMapping({
+      scopeRecordId,
+      providerKey: "tcgplayer",
+      unitKey: tcgplayerUnitKey,
+      productLineId: "1",
+      setName: "Synthetic Magic Ready Control",
+      mappingId: "mapping_magic_tcgplayer_mtg_ready_control",
+    });
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v2",
+        productDomain: "magic",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "expansion", scopeRecordId },
+        providerParticipation: { requiredUnitKeys: [tcgplayerUnitKey] },
+      },
+      acceptedScopeMappings: [mapping],
+      providerProfileVersions: [tcgplayer],
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(1)))]),
+    });
+
+    expect(tcgplayerUnitKey).toBe("tcgplayer:mtg:single-card:source-observation-import");
+    expect(preview.status).toBe("ready");
+    expect(preview.startAllowed).toBe(true);
+    expect(preview.scope.productDomain).toBe("magic");
+    expect(preview.units[0]).toMatchObject({
+      unitKey: tcgplayerUnitKey,
+      eligibility: "eligible",
+      blockers: [],
+      childExecutionScope: {
+        ingestionUnitKey: tcgplayerUnitKey,
+        productLineId: "1",
+        setName: "Synthetic Magic Ready Control",
+      },
+    });
+    expect(preview.units[0]?.childExecutionScope?.planningFingerprint).toContain(mapping.mappingId);
+  });
+
+  it("fails closed when either the canonical scope domain or raw unit-key domain is unknown", async () => {
+    const tcgplayer = activeProfile("tcgplayer", "mtg-single-card-product-sku");
+    const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
+    const scopeRecordId = "scope_magic_synthetic_unknown_domain_control";
+    const canonicalUnknown = await previewCatalogSyncProviderParticipation({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v2",
+        productDomain: "synthetic-unknown-domain",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "expansion", scopeRecordId },
+        providerParticipation: { requiredUnitKeys: [tcgplayerUnitKey] },
+      },
+      acceptedScopeMappings: [
+        acceptedMapping({
+          scopeRecordId,
+          providerKey: "tcgplayer",
+          unitKey: tcgplayerUnitKey,
+          productLineId: "1",
+          setName: "Synthetic Unknown Canonical Domain Control",
+        }),
+      ],
+      providerProfileVersions: [tcgplayer],
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(1)))]),
+    });
+    if (!tcgplayer.ingestionUnitIdentity) {
+      throw new Error("The active TCGplayer MTG profile must declare its ingestion-unit identity.");
+    }
+    const unknownUnitKey = "tcgplayer:synthetic-unknown-domain:single-card:source-observation-import";
+    const unknownUnitProfile: CatalogProviderIntegrationProfileVersionRecord = {
+      ...tcgplayer,
+      ingestionUnitIdentity: {
+        ...tcgplayer.ingestionUnitIdentity,
+        unitKey: unknownUnitKey,
+      },
+    };
+    const rawUnknown = await previewCatalogSyncProviderParticipation({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v2",
+        productDomain: "magic",
+        productForm: "single-card",
+        languageCode: "en",
+        reference: { kind: "expansion", scopeRecordId },
+        providerParticipation: { requiredUnitKeys: [unknownUnitKey] },
+      },
+      acceptedScopeMappings: [
+        acceptedMapping({
+          scopeRecordId,
+          providerKey: "tcgplayer",
+          unitKey: unknownUnitKey,
+          productLineId: "1",
+          setName: "Synthetic Unknown Raw Domain Control",
+        }),
+      ],
+      providerProfileVersions: [unknownUnitProfile],
+      providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(1)))]),
+    });
+
+    expect(canonicalUnknown.status).toBe("blocked");
+    expect(canonicalUnknown.units[0]?.blockers).toContainEqual(
+      expect.objectContaining({ code: "scope-product-domain-mismatch" }),
+    );
+    expect(rawUnknown.status).toBe("blocked");
+    expect(rawUnknown.units[0]?.unitKey).toBe(unknownUnitKey);
+    expect(rawUnknown.units[0]?.blockers).toContainEqual(
+      expect.objectContaining({ code: "scope-product-domain-mismatch" }),
+    );
+  });
+
   it("blocks a partially mapped scope, pointing at the unmapped-scope inbox", async () => {
     const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);

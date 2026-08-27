@@ -154,6 +154,13 @@ export function createProviderScopeDiscoveryRuntime(
       let newObservationCount = 0;
       let mappingsProposed = 0;
       const currentScanObservations = new Map<string, ProviderScopeObservationRecord[]>();
+      const pendingTargets: Array<
+        Readonly<{
+          target: ProviderScopeDiscoveryTarget;
+          observations: readonly ProviderScopeObservationInput[];
+        }>
+      > = [];
+      const durableObservationIdentities = new Set<string>();
 
       for (const target of input.targets) {
         let parentValue: string | null = null;
@@ -169,19 +176,27 @@ export function createProviderScopeDiscoveryRuntime(
         }
 
         const options = await collectTargetOptions(ports, target, parentValue);
+        assertUniqueDurableObservationIdentities(options, durableObservationIdentities);
+        pendingTargets.push({ target, observations: options });
+        const scanKey = currentScanKey(target, target.providerScope);
+        currentScanObservations.set(scanKey, [
+          ...(currentScanObservations.get(scanKey) ?? []),
+          ...options.map((option) => stagedObservationRecord(option, input.scanId, input.now)),
+        ]);
+      }
+
+      for (const pending of pendingTargets) {
         const written = await upsertProviderScopeObservations(db, {
           scanId: input.scanId,
           scannedAt: input.now,
-          observations: options,
+          observations: pending.observations,
         });
-        const scanKey = currentScanKey(target, target.providerScope);
-        currentScanObservations.set(scanKey, [...(currentScanObservations.get(scanKey) ?? []), ...written]);
         observationCount += written.length;
         newObservationCount += written.filter((record) => record.newlyObserved).length;
         mappingsProposed += await proposeMappingsForTarget({
           db,
           ports,
-          target,
+          target: pending.target,
           written,
           scanId: input.scanId,
           context: input.context,
@@ -376,6 +391,58 @@ async function collectTargetOptions(
   }
 
   return observations;
+}
+
+function assertUniqueDurableObservationIdentities(
+  observations: readonly ProviderScopeObservationInput[],
+  seenIdentities: Set<string>,
+): void {
+  for (const observation of observations) {
+    const identity = durableObservationIdentity(observation);
+    if (seenIdentities.has(identity)) {
+      throw new Error(`Duplicate Provider Scope Observation identity '${identity}'.`);
+    }
+    seenIdentities.add(identity);
+  }
+}
+
+function durableObservationIdentity(observation: ProviderScopeObservationInput): string {
+  return JSON.stringify(normalizedDurableObservationIdentity(observation));
+}
+
+function normalizedDurableObservationIdentity(
+  observation: ProviderScopeObservationInput,
+): readonly [string, string, ProviderScopeObservationInput["scopeKind"], string, string] {
+  return [
+    observation.providerKey.trim().toLowerCase(),
+    observation.unitKey.trim().toLowerCase(),
+    observation.scopeKind,
+    observation.languageCode.trim().toLowerCase(),
+    observation.externalId.trim(),
+  ];
+}
+
+function stagedObservationRecord(
+  observation: ProviderScopeObservationInput,
+  scanId: string,
+  scannedAt: Date,
+): ProviderScopeObservationRecord {
+  const [providerKey, unitKey, scopeKind, languageCode, externalId] = normalizedDurableObservationIdentity(observation);
+  const timestamp = scannedAt.toISOString();
+  return {
+    ...observation,
+    providerKey,
+    unitKey,
+    scopeKind,
+    languageCode,
+    externalId,
+    scanId,
+    scannedAt: timestamp,
+    firstObservedAt: timestamp,
+    observationHash: "unpersisted-current-scan-observation",
+    newlyObserved: false,
+    changed: false,
+  };
 }
 
 function currentScanKey(
