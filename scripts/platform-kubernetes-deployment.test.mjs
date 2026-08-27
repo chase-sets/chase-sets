@@ -2021,9 +2021,7 @@ describe("platform Kubernetes deployment", () => {
     expect(() => verify(replaceRevision(301, { status: "failed" }))).toThrow(
       'revision 301 must have status "superseded"',
     );
-    expect(() => verify(replaceRevision(310, { status: "failed" }))).toThrow(
-      "resulting revision 310 must be deployed",
-    );
+    expect(() => verify(replaceRevision(310, { status: "failed" }))).toThrow("resulting revision 310 must be deployed");
     expect(() => verify(replaceRevision(310, { description: "Rollback to 307" }))).toThrow(
       "resulting revision 310 must be deployed",
     );
