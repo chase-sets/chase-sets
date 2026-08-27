@@ -138,25 +138,21 @@ afterEach(async () => {
 });
 
 function runPlatformSmoke(baseUrl) {
-  const child = spawn(
-    process.execPath,
-    ["--experimental-strip-types", "./scripts/platform-smoke.mjs", baseUrl, baseUrl],
-    {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        NO_COLOR: "1",
-        SMOKE_REQUIRE_ADMIN: "false",
-        SMOKE_REQUIRE_FULFILLMENT_POSTAGE: "false",
-        SMOKE_REQUIRE_LANDING: "true",
-        SMOKE_REQUIRE_MARKETPLACE: "false",
-        SMOKE_REQUIRE_NATIVE_MCP: "false",
-        SMOKE_REQUIRE_SOCIAL_LOGIN: "false",
-        SMOKE_WRITE_WAITLIST: "false",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
+  const child = spawn(process.execPath, ["./scripts/platform-smoke.mjs", baseUrl, baseUrl], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      NO_COLOR: "1",
+      SMOKE_REQUIRE_ADMIN: "false",
+      SMOKE_REQUIRE_FULFILLMENT_POSTAGE: "false",
+      SMOKE_REQUIRE_LANDING: "true",
+      SMOKE_REQUIRE_MARKETPLACE: "false",
+      SMOKE_REQUIRE_NATIVE_MCP: "false",
+      SMOKE_REQUIRE_SOCIAL_LOGIN: "false",
+      SMOKE_WRITE_WAITLIST: "false",
     },
-  );
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8");
