@@ -6,20 +6,27 @@ import {
   type CatalogProviderOptionQuery,
   type CatalogProviderScope,
 } from "../../source-observations/api/provider-integration-profiles";
+import {
+  catalogScopeProductDomainContracts,
+  normalizeCatalogScopeProductDomain,
+  type CatalogScopeProductDomain,
+} from "../../scope-registry/domain/contract";
 
 // A scope-discovery target is one provider option query the scheduled refresh
 // executes to learn which scope options (series, expansions, sets, product
-// lines) the provider currently exposes. Only scope-level list queries with no
-// required parent are eligible: product/card/SKU-level queries are per-set
-// imports the sync planner owns, and parent-required queries (e.g. TCGplayer
-// set-names under a product line) would need a coordinate the registry is the
-// one trying to learn.
+// lines) the provider currently exposes. Product/card/SKU-level queries are
+// per-set imports the sync planner owns. A parent-required scope query remains
+// eligible, but the runtime expands it only from the uniquely classified
+// current-scan parent declared by the profile.
 export type ProviderScopeDiscoveryTarget = Readonly<{
   providerKey: string;
   profileKey: string;
   ingestionUnitKey: string;
-  productDomain: CatalogProviderIngestionUnitProductDomain | null;
+  productDomain: CatalogScopeProductDomain | null;
   queryKind: string;
+  providerScope: CatalogProviderScope;
+  parentScope: CatalogProviderScope | null;
+  parentRequired: boolean;
   scopeKind: ProviderScopeObservationKind;
   languageCode: string;
 }>;
@@ -56,6 +63,11 @@ export function listProviderScopeDiscoveryTargets(
 
       const providerKey = version.providerKey.trim().toLowerCase();
       const unitKey = catalogProviderProfileVersionIngestionUnitKey(version);
+      const productDomain = normalizeCatalogScopeProductDomain(productDomainForUnitKey(unitKey));
+      const scopeKind = scopeKindForQuery(query, productDomain);
+      if (!scopeKind) {
+        continue;
+      }
       const key = `${providerKey}:${unitKey}:${query.queryKind}:${DEFAULT_DISCOVERY_LANGUAGE}`;
       if (targets.has(key)) {
         continue;
@@ -65,9 +77,12 @@ export function listProviderScopeDiscoveryTargets(
         providerKey,
         profileKey: version.profileKey,
         ingestionUnitKey: unitKey,
-        productDomain: productDomainForUnitKey(unitKey),
+        productDomain,
         queryKind: query.queryKind,
-        scopeKind: scopeKindForQuery(query),
+        providerScope: query.scope,
+        parentScope: query.parentScope,
+        parentRequired: query.parentValue?.required === true,
+        scopeKind,
         languageCode: DEFAULT_DISCOVERY_LANGUAGE,
       });
     }
@@ -76,7 +91,10 @@ export function listProviderScopeDiscoveryTargets(
   return [...targets.values()];
 }
 
-function scopeKindForQuery(query: CatalogProviderOptionQuery): ProviderScopeObservationKind {
+function scopeKindForQuery(
+  query: CatalogProviderOptionQuery,
+  productDomain: CatalogScopeProductDomain | null,
+): ProviderScopeObservationKind | null {
   switch (query.scope) {
     case "language":
       return "language";
@@ -87,7 +105,7 @@ function scopeKindForQuery(query: CatalogProviderOptionQuery): ProviderScopeObse
     case "expansion":
       return "expansion";
     case "set-name":
-      return "set";
+      return productDomain ? catalogScopeProductDomainContracts[productDomain].leafReferenceTypeKey : null;
     default:
       throw new Error(`Provider option query '${query.queryKind}' is not a scope-discovery query.`);
   }
@@ -102,8 +120,5 @@ function productDomainForUnitKey(unitKey: string): CatalogProviderIngestionUnitP
 }
 
 function isScopeDiscoveryQuery(query: CatalogProviderOptionQuery): boolean {
-  if (!SCOPE_DISCOVERY_QUERY_SCOPES.includes(query.scope)) {
-    return false;
-  }
-  return !query.parentValue?.required;
+  return SCOPE_DISCOVERY_QUERY_SCOPES.includes(query.scope);
 }

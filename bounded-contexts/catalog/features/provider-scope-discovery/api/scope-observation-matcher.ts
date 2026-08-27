@@ -7,6 +7,7 @@ import {
   type ProviderScopeMappingReviewStatus,
 } from "../../provider-scope-mapping/domain/mapping";
 import {
+  catalogScopeProductDomainContracts,
   normalizeCatalogScopeProductDomain,
   type CatalogScopeProductDomain,
   type CatalogScopeRecordKind,
@@ -26,6 +27,7 @@ export type ScopeObservationMatchMethod =
   | "normalized-name"
   | "accepted-alias"
   | "release-date-proximity"
+  | "product-domain-contract"
   | "new-canonical-scope";
 
 export type ScopeObservationMappingCandidate = Readonly<{
@@ -57,6 +59,11 @@ type MatchableScopeRecord = Readonly<{
 
 const MATCHABLE_SCOPE_KINDS = new Set<CatalogScopeRecordKind>(["product-line", "series", "expansion", "set"]);
 
+export type ProviderScopeDiscoveryCascadeParent = Readonly<{
+  parentValue: string;
+  scopeRecordId: string;
+}>;
+
 export async function matchScopeObservationsToScopeRecords(
   db: PgQueryable,
   input: Readonly<{
@@ -70,14 +77,34 @@ export async function matchScopeObservationsToScopeRecords(
     return [];
   }
 
-  const observations = input.observations.filter(
-    (observation) => observation.changed && MATCHABLE_SCOPE_KINDS.has(observation.scopeKind as CatalogScopeRecordKind),
+  const currentObservations = input.observations.filter((observation) =>
+    MATCHABLE_SCOPE_KINDS.has(observation.scopeKind as CatalogScopeRecordKind),
   );
-  if (observations.length === 0) {
+  if (currentObservations.length === 0) {
     return [];
   }
 
   const canonicalRecords = await loadCanonicalScopeRecords(db, productDomain);
+  if (input.target.providerScope === "product-line/category") {
+    const binding = contractProductLineBinding(input.target, currentObservations, canonicalRecords);
+    if (!binding || !binding.observation.changed) {
+      return [];
+    }
+    const candidate = mappingCandidate({
+      observation: binding.observation,
+      target: input.target,
+      record: binding.record,
+      matchedBy: "product-domain-contract",
+      reviewStatus: "auto-accepted",
+    });
+    return candidate ? [{ matchedBy: "product-domain-contract", candidate }] : [];
+  }
+
+  const observations = currentObservations.filter((observation) => observation.changed);
+  if (observations.length === 0) {
+    return [];
+  }
+
   const proposals = await listCanonicalScopeRecordProposals(db, { productDomain, limit: 2_000 });
   const matchableRecords: MatchableScopeRecord[] = [
     ...canonicalRecords.map(toMatchableCanonicalRecord),
@@ -95,15 +122,19 @@ export async function matchScopeObservationsToScopeRecords(
         if (record.proposalStatus === "rejected") {
           continue;
         }
+        const candidate = mappingCandidate({
+          observation,
+          target: input.target,
+          record,
+          matchedBy: match.matchedBy,
+          reviewStatus: record.proposalStatus === null && !match.wasAmbiguous ? "auto-accepted" : "proposed",
+        });
+        if (!candidate) {
+          continue;
+        }
         candidates.push({
           matchedBy: match.matchedBy,
-          candidate: mappingCandidate({
-            observation,
-            target: input.target,
-            record,
-            matchedBy: match.matchedBy,
-            reviewStatus: record.proposalStatus === null && !match.wasAmbiguous ? "auto-accepted" : "proposed",
-          }),
+          candidate,
         });
       }
       continue;
@@ -124,19 +155,67 @@ export async function matchScopeObservationsToScopeRecords(
     if (proposal.reviewStatus === "rejected") {
       continue;
     }
+    const candidate = mappingCandidate({
+      observation,
+      target: input.target,
+      record: toMatchableProposal(proposal),
+      matchedBy: "new-canonical-scope",
+      reviewStatus: "proposed",
+    });
+    if (!candidate) {
+      continue;
+    }
     candidates.push({
       matchedBy: "new-canonical-scope",
-      candidate: mappingCandidate({
-        observation,
-        target: input.target,
-        record: toMatchableProposal(proposal),
-        matchedBy: "new-canonical-scope",
-        reviewStatus: "proposed",
-      }),
+      candidate,
     });
   }
 
   return candidates;
+}
+
+export async function resolveProviderScopeDiscoveryCascadeParent(
+  db: PgQueryable,
+  input: Readonly<{
+    target: ProviderScopeDiscoveryTarget;
+    parentObservations: readonly ProviderScopeObservationRecord[];
+  }>,
+): Promise<ProviderScopeDiscoveryCascadeParent | null> {
+  if (!input.target.parentRequired || input.target.parentScope !== "product-line/category") {
+    return null;
+  }
+  const productDomain = normalizeCatalogScopeProductDomain(input.target.productDomain);
+  if (!productDomain) {
+    return null;
+  }
+  const canonicalRecords = await loadCanonicalScopeRecords(db, productDomain);
+  const binding = contractProductLineBinding(input.target, input.parentObservations, canonicalRecords);
+  return binding ? { parentValue: binding.observation.externalId, scopeRecordId: binding.record.scopeRecordId } : null;
+}
+
+function contractProductLineBinding(
+  target: ProviderScopeDiscoveryTarget,
+  observations: readonly ProviderScopeObservationRecord[],
+  canonicalRecords: readonly ScopeRecordRow[],
+): Readonly<{ observation: ProviderScopeObservationRecord; record: MatchableScopeRecord }> | null {
+  const productDomain = normalizeCatalogScopeProductDomain(target.productDomain);
+  if (!productDomain) {
+    return null;
+  }
+  const contractKey = catalogScopeProductDomainContracts[productDomain].productLineReferenceRecordKey;
+  const records = canonicalRecords.filter(
+    (record) => record.scope_kind === "product-line" && record.reference_record_key === contractKey,
+  );
+  const eligibleObservations = observations.filter(
+    (observation) =>
+      observation.providerKey === target.providerKey &&
+      observation.unitKey === target.ingestionUnitKey &&
+      observation.scopeKind === "product-line",
+  );
+  if (records.length !== 1 || eligibleObservations.length !== 1) {
+    return null;
+  }
+  return { observation: eligibleObservations[0]!, record: toMatchableCanonicalRecord(records[0]!) };
 }
 
 async function loadCanonicalScopeRecords(
@@ -249,12 +328,16 @@ function mappingCandidate(input: {
   record: MatchableScopeRecord;
   matchedBy: ScopeObservationMatchMethod;
   reviewStatus: ProviderScopeMappingReviewStatus;
-}): ProviderScopeMappingCandidate {
+}): ProviderScopeMappingCandidate | null {
+  const coordinates = providerScopeMappingCoordinates(input.target, input.observation);
+  if (!coordinates) {
+    return null;
+  }
   return buildProviderScopeMappingCandidate({
     scopeRecordId: input.record.scopeRecordId,
     providerKey: input.observation.providerKey,
     unitKey: input.observation.unitKey,
-    coordinates: providerCoordinates(input.observation),
+    coordinates,
     confidence:
       input.reviewStatus === "auto-accepted"
         ? "exact"
@@ -283,27 +366,48 @@ function mappingCandidate(input: {
   });
 }
 
-function providerCoordinates(
+export function providerScopeMappingCoordinates(
+  target: ProviderScopeDiscoveryTarget,
   observation: ProviderScopeObservationRecord,
-): BuildProviderScopeMappingCandidateInput["coordinates"] {
-  const language = { languageCode: observation.languageCode };
-  switch (observation.scopeKind) {
-    case "product-line":
-      return { productLineId: observation.externalId, language };
+): BuildProviderScopeMappingCandidateInput["coordinates"] | null {
+  const parentValue = observation.parents.length === 1 ? observation.parents[0]! : null;
+  if (target.parentRequired && !parentValue) {
+    return null;
+  }
+  const parentCoordinates = coordinatesForDeclaredParent(target.parentScope, parentValue);
+  const language = null;
+  switch (target.providerScope) {
+    case "product-line/category":
+      return { productLineId: observation.externalId, seriesId: null, setId: null, setName: null, language };
     case "series":
-      return { productLineId: observation.parents[0] ?? null, seriesId: observation.externalId, language };
+      return { ...parentCoordinates, seriesId: observation.externalId, setId: null, setName: null, language };
     case "expansion":
-    case "set":
       return {
-        productLineId: observation.parents[1] ?? null,
-        seriesId: observation.parents[0] ?? null,
+        ...parentCoordinates,
         setId: observation.externalId,
-        setName: observation.label,
+        setName: null,
         language,
       };
-    case "language":
-      return { language: { languageCode: observation.externalId } };
+    case "set-name":
+      return {
+        ...parentCoordinates,
+        setId: null,
+        setName: observation.externalId,
+        language,
+      };
+    default:
+      return null;
   }
+}
+
+function coordinatesForDeclaredParent(
+  parentScope: ProviderScopeDiscoveryTarget["parentScope"],
+  parentValue: string | null,
+): Readonly<{ productLineId: string | null; seriesId: string | null }> {
+  return {
+    productLineId: parentScope === "product-line/category" ? parentValue : null,
+    seriesId: parentScope === "series" ? parentValue : null,
+  };
 }
 
 function toMatchableCanonicalRecord(row: ScopeRecordRow): MatchableScopeRecord {

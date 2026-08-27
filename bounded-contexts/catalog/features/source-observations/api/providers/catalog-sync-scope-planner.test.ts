@@ -14,6 +14,10 @@ import {
 import { unitKeyForCatalogProviderProfileVersion } from "../governance/catalog-integration-impact-analysis";
 import { LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY } from "../provider-adapters/lorcanajson";
 import { createCatalogIntegrationRolloutControlPolicy } from "../governance/catalog-integration-rollout-controls";
+import { listProviderScopeDiscoveryTargets } from "../../../provider-scope-discovery/api/discovery-targets";
+import { providerScopeMappingCoordinates } from "../../../provider-scope-discovery/api/scope-observation-matcher";
+import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
+import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures.test-data";
 
 const BASE_SET_SCOPE_RECORD_ID = "scope_pokemon_base_set";
 
@@ -188,9 +192,57 @@ describe("Catalog sync scope planner", () => {
   it("resolves a fully mapped scope with no manually supplied provider coordinates", async () => {
     const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
+    const target = listProviderScopeDiscoveryTargets([tcgplayer]).find(
+      (candidate) => candidate.queryKind === "set-names",
+    )!;
+    const [mappedOption] = await listCatalogProviderIntegrationOptionsFromProfiles({
+      profiles: [tcgplayer.profile],
+      providerKey: "tcgplayer",
+      queryKind: "set-names",
+      languageCode: "en",
+      parentValue: "3",
+      defaultProviderKey: "tcgplayer",
+      transports: {
+        listTcgplayerSetNames: async () => tcgplayerAutomationResponseFixtures.catalogSetNames.results,
+      },
+    });
+    const coordinates = providerScopeMappingCoordinates(target, {
+      providerKey: "tcgplayer",
+      unitKey: tcgplayerUnitKey,
+      scopeKind: target.scopeKind,
+      sourceQueryKind: target.queryKind,
+      languageCode: "en",
+      externalId: mappedOption!.value,
+      label: mappedOption!.label,
+      parents: [mappedOption!.parentValue!],
+      imageUrl: mappedOption!.imageUrl,
+      metadata: mappedOption!.metadata,
+      scanId: "scan-planner-coordinate-proof",
+      scannedAt: "2026-08-27T00:00:00.000Z",
+      firstObservedAt: "2026-08-27T00:00:00.000Z",
+      observationHash: "planner-coordinate-proof",
+      newlyObserved: true,
+      changed: true,
+    });
+    expect(coordinates).toEqual({
+      productLineId: "3",
+      seriesId: null,
+      setId: null,
+      setName: "Prismatic Evolutions",
+      language: null,
+    });
     const preview = await previewCatalogSyncProviderParticipation({
       scope: pokemonBaseSetScope({ selectedUnitKeys: [tcgplayerUnitKey] }),
-      acceptedScopeMappings: [tcgplayerBaseSetMapping(tcgplayerUnitKey)],
+      acceptedScopeMappings: [
+        acceptedMapping({
+          providerKey: "tcgplayer",
+          unitKey: tcgplayerUnitKey,
+          productLineId: coordinates!.productLineId,
+          seriesId: coordinates!.seriesId,
+          setId: coordinates!.setId,
+          setName: coordinates!.setName,
+        }),
+      ],
       providerProfileVersions: [tcgplayer],
       providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(205)))]),
     });
@@ -203,7 +255,7 @@ describe("Catalog sync scope planner", () => {
       childExecutionScope: {
         provider: "tcgplayer",
         productLineId: "3",
-        setName: "Base Set",
+        setName: "Prismatic Evolutions",
       },
     });
     // The scope reference carries no raw provider coordinates or names.
@@ -214,10 +266,10 @@ describe("Catalog sync scope planner", () => {
     const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
     const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
     const preview = await previewCatalogSyncProviderParticipation({
-      // TCGplayer needs both a product-line/category id and a set name; supply
-      // only the set name so the mapping is present but incomplete.
+      // TCGplayer needs both a product-line/category id and a set name; keep
+      // the product-line coordinate but remove the set name.
       scope: pokemonBaseSetScope({ requiredUnitKeys: [tcgplayerUnitKey] }),
-      acceptedScopeMappings: [tcgplayerBaseSetMapping(tcgplayerUnitKey, { productLineId: null })],
+      acceptedScopeMappings: [tcgplayerBaseSetMapping(tcgplayerUnitKey, { setName: null })],
       providerProfileVersions: [tcgplayer],
       providerAdapterRegistry: new ProviderAdapterRegistry([fakeAdapter("tcgplayer", vi.fn(fakePlanImport(205)))]),
     });
@@ -234,7 +286,7 @@ describe("Catalog sync scope planner", () => {
         }),
       ],
     });
-    expect(preview.units[0]?.blockers[0]?.message).toContain("product-line/category");
+    expect(preview.units[0]?.blockers[0]?.message).toContain("set-name");
   });
 
   it("blocks an unmapped scope with an actionable provider-scope-mapping-missing blocker", async () => {
