@@ -892,28 +892,41 @@ export function verifyStalePendingRecoveryTransition(admissionHistory, observedH
   const sourceRevision = positiveHelmRevision(options.sourceRevision, "sourceRevision");
   const pendingRevision = positiveHelmRevision(options.pendingRevision, "pendingRevision");
   const resultingRevision = pendingRevision + 1;
+  const admissionByRevision = new Map(admissionHistory.map((entry) => [entry.revision, entry]));
   const observedByRevision = new Map(observedHistory.map((entry) => [entry.revision, entry]));
-  if (
-    observedHistory.length !== admissionHistory.length + 1 ||
-    observedHistory.at(-1)?.revision !== resultingRevision
-  ) {
+  const newEntries = observedHistory.filter((entry) => entry.revision > pendingRevision);
+  if (newEntries.length !== 1 || newEntries[0].revision !== resultingRevision) {
     throw new Error(
-      `Stale pending-upgrade recovery requires exactly resulting revision ${resultingRevision}; observed head ${observedHistory.at(-1)?.revision ?? "absent"}.`,
+      `Stale pending-upgrade recovery requires exactly resulting revision ${resultingRevision}; observed ${newEntries.map((entry) => entry.revision).join(", ") || "none"}.`,
     );
   }
-  for (const entry of admissionHistory) {
-    const observed = observedByRevision.get(entry.revision);
-    if (!observed || observed.description !== entry.description) {
-      throw new Error(`Stale pending-upgrade recovery moved or removed revision ${entry.revision}.`);
+
+  for (const requiredRevision of [sourceRevision, pendingRevision]) {
+    if (!observedByRevision.has(requiredRevision)) {
+      throw new Error(`Stale pending-upgrade recovery removed required revision ${requiredRevision}.`);
     }
-    const expectedStatus = entry.revision === sourceRevision ? "superseded" : entry.status;
+  }
+
+  for (const observed of observedHistory) {
+    if (observed.revision > pendingRevision) {
+      continue;
+    }
+    const admitted = admissionByRevision.get(observed.revision);
+    if (!admitted) {
+      throw new Error(`Stale pending-upgrade recovery observed unadmitted revision ${observed.revision}.`);
+    }
+    if (observed.description !== admitted.description) {
+      throw new Error(`Stale pending-upgrade recovery moved revision ${admitted.revision}.`);
+    }
+    const expectedStatus =
+      admitted.revision === sourceRevision && admitted.status === "deployed" ? "superseded" : admitted.status;
     if (observed.status !== expectedStatus) {
       throw new Error(
-        `Stale pending-upgrade recovery revision ${entry.revision} must have status ${JSON.stringify(expectedStatus)}; observed ${JSON.stringify(observed.status)}.`,
+        `Stale pending-upgrade recovery revision ${admitted.revision} must have status ${JSON.stringify(expectedStatus)}; observed ${JSON.stringify(observed.status)}.`,
       );
     }
   }
-  const resulting = observedByRevision.get(resultingRevision);
+  const resulting = newEntries[0];
   if (!resulting || resulting.status !== "deployed" || resulting.description !== `Rollback to ${sourceRevision}`) {
     throw new Error(
       `Stale pending-upgrade recovery resulting revision ${resultingRevision} must be deployed with description ${JSON.stringify(`Rollback to ${sourceRevision}`)}.`,

@@ -1982,6 +1982,53 @@ describe("platform Kubernetes deployment", () => {
     ).toThrow('revision 309 must have status "pending-upgrade"');
   });
 
+  it("verifies a stale pending-upgrade recovery across a saturated Helm history window", () => {
+    const before = Array.from({ length: 10 }, (_, index) => {
+      const revision = 300 + index;
+      return {
+        revision,
+        status: revision === 308 ? "deployed" : revision === 309 ? "pending-upgrade" : "superseded",
+        description: revision === 309 ? "Preparing upgrade" : `Revision ${revision}`,
+        updated: `2026-08-24T15:${revision - 300}0:00Z`,
+      };
+    });
+    const after = [
+      ...before.slice(1, 8),
+      { ...before[8], status: "superseded" },
+      before[9],
+      {
+        revision: 310,
+        status: "deployed",
+        description: "Rollback to 308",
+        updated: "2026-08-27T08:00:00Z",
+      },
+    ];
+    const verify = (observedHistory) =>
+      verifyStalePendingRecoveryTransition(before, observedHistory, {
+        sourceRevision: 308,
+        pendingRevision: 309,
+      });
+    const replaceRevision = (revision, replacement) =>
+      after.map((entry) => (entry.revision === revision ? { ...entry, ...replacement } : entry));
+
+    expect(verify(after)).toEqual(after.at(-1));
+    expect(() => verify([...after, { ...after.at(-1), revision: 311 }])).toThrow("exactly resulting revision 310");
+    expect(() => verify(after.filter((entry) => entry.revision !== 308))).toThrow("removed required revision 308");
+    expect(() => verify(after.filter((entry) => entry.revision !== 309))).toThrow("removed required revision 309");
+    expect(() => verify(replaceRevision(301, { description: "Changed retained revision" }))).toThrow(
+      "moved revision 301",
+    );
+    expect(() => verify(replaceRevision(301, { status: "failed" }))).toThrow(
+      'revision 301 must have status "superseded"',
+    );
+    expect(() => verify(replaceRevision(310, { status: "failed" }))).toThrow(
+      "resulting revision 310 must be deployed",
+    );
+    expect(() => verify(replaceRevision(310, { description: "Rollback to 307" }))).toThrow(
+      "resulting revision 310 must be deployed",
+    );
+  });
+
   it.each([
     ["superseded"],
     ["uninstalled"],
