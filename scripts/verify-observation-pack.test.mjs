@@ -56,11 +56,10 @@ beforeAll(() => {
         ownEnumerableFields: Object.keys(error).sort(),
       }));
     `;
-  stripTypesRuntimeProbe = spawnSync(
-    process.execPath,
-    ["--input-type=module", "--eval", source],
-    { cwd: path.resolve("."), encoding: "utf8" },
-  );
+  stripTypesRuntimeProbe = spawnSync(process.execPath, ["--input-type=module", "--eval", source], {
+    cwd: path.resolve("."),
+    encoding: "utf8",
+  });
 });
 
 describe("verify-observation-pack real entrypoint", () => {

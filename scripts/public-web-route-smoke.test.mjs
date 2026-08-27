@@ -111,15 +111,7 @@ function startCli(baseUrl, mode, extraArgs = [], executablePath = checkerPath) {
   ].flatMap(([option, value]) => (extraArgs.includes(option) ? [] : [option, value]));
   const child = spawn(
     process.execPath,
-    [
-      executablePath,
-      "--base-url",
-      baseUrl,
-      "--mode",
-      mode,
-      ...boundedDefaults,
-      ...extraArgs,
-    ],
+    [executablePath, "--base-url", baseUrl, "--mode", mode, ...boundedDefaults, ...extraArgs],
     {
       cwd: repoRoot,
       env: { ...process.env, NO_COLOR: "1" },

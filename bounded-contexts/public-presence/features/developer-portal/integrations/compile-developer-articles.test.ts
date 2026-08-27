@@ -95,8 +95,6 @@ describe("developer article compiler", () => {
   });
 
   it("keeps the committed developer manifests in sync", async () => {
-    await expect(
-      execFileAsync(process.execPath, [compilerPath, "--check"]),
-    ).resolves.toMatchObject({ stderr: "" });
+    await expect(execFileAsync(process.execPath, [compilerPath, "--check"])).resolves.toMatchObject({ stderr: "" });
   });
 });
