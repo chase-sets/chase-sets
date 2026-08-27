@@ -3724,6 +3724,25 @@ jobs:
             --rollouts-enabled true \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
 
+      - name: Verify production Kubernetes deployment transition
+        if: env.SHOULD_DEPLOY != 'false'
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- verify-deployment-transition \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --rollback-target "artifacts/release-health/production-rollback-target.json" \
+            --out "artifacts/release-health/production-kubernetes-deployment-transition.json"
+
+      - name: Upload production Kubernetes deployment transition
+        if: env.SHOULD_DEPLOY != 'false'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-kubernetes-deployment-transition
+          path: artifacts/release-health/production-kubernetes-deployment-transition.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Abort production Argo Rollouts
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -4206,6 +4225,7 @@ jobs:
             artifacts/release-health/production-rollback-target.json
             artifacts/release-health/production-rollback-readiness.json
             artifacts/release-health/production-kubernetes-deploy-diagnostics.json
+            artifacts/release-health/production-kubernetes-deployment-transition.json
             artifacts/release-health/production-deploy-root-cause.json
           if-no-files-found: ignore
           retention-days: 30

@@ -51,6 +51,7 @@ const schedulerOwnedArtifacts = new Set([
 ]);
 const deploymentScriptPatterns = [
   /^scripts\/digitalocean-/,
+  /^scripts\/platform-kubernetes-deployment\.mjs$/,
   /^scripts\/platform-smoke/,
   /^scripts\/stripe-money-smoke-test/,
   /^scripts\/apply-digitalocean-database-grant\.mjs$/,

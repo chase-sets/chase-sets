@@ -35,7 +35,9 @@ import {
   runScenarioSeedOnKubernetes,
   sanitizeCopiedSecretManifest,
   scenarioSeedMaxActiveDeadlineSeconds,
+  selectStableDeployedHelmSource,
   teardownPlatformKubernetesNamespace,
+  verifyKubernetesDeploymentTransition,
 } from "./platform-kubernetes-deployment.mjs";
 
 const sampleValues = {
@@ -1409,6 +1411,507 @@ describe("platform Kubernetes deployment", () => {
       "30s",
     ]);
     expect(helmRollback.args).not.toContain("229");
+  });
+
+  it("captures an ordinary deployed head unchanged", async () => {
+    const history = [{ revision: 700, status: "deployed", description: "Synthetic upgrade complete" }];
+    const target = await captureKubernetesRollbackTarget({
+      values: rollbackValues,
+      release: "proof",
+      namespace: "production",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-proof",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 0, stdout: helmHistory(history) },
+          { code: 0, stdout: JSON.stringify(rollbackValues) },
+          { code: 0, stdout: rollbackWorkloadList() },
+          { code: 0, stdout: helmHistory(history) },
+        ],
+      ),
+    });
+
+    expect(target).toMatchObject({
+      sourceRevision: 700,
+      sourceStatus: "deployed",
+      sourceDescription: "Synthetic upgrade complete",
+      historyHeadRevision: 700,
+      terminalFailedSuffix: [],
+      preDeployHistory: history,
+    });
+  });
+
+  it("captures a deployed source behind only failed history", async () => {
+    const history = [
+      { revision: 700, status: "deployed", description: "Synthetic upgrade complete" },
+      { revision: 701, status: "failed", description: "Synthetic hook failure" },
+    ];
+    const target = await captureKubernetesRollbackTarget({
+      values: rollbackValues,
+      release: "proof",
+      namespace: "production",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-proof",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 0, stdout: helmHistory(history) },
+          { code: 0, stdout: JSON.stringify(rollbackValues) },
+          { code: 0, stdout: rollbackWorkloadList() },
+          { code: 0, stdout: helmHistory(history) },
+        ],
+      ),
+    });
+
+    expect(target).toMatchObject({
+      sourceRevision: 700,
+      sourceStatus: "deployed",
+      sourceDescription: "Synthetic upgrade complete",
+      historyHeadRevision: 701,
+      terminalFailedSuffix: [history[1]],
+      preDeployHistory: history,
+    });
+  });
+
+  it.each([
+    ["superseded"],
+    ["uninstalled"],
+    ["uninstalling"],
+    ["pending-install"],
+    ["pending-upgrade"],
+    ["pending-rollback"],
+    ["unknown"],
+    ["failed-hook"],
+  ])("refuses every non-terminal or ambiguous Helm history status: %s", (status) => {
+    expect(() =>
+      selectStableDeployedHelmSource([
+        { revision: 700, status: "deployed", description: "Synthetic source" },
+        { revision: 701, status, description: "Synthetic refusal" },
+      ]),
+    ).toThrow(`status "${status}"`);
+  });
+
+  it("refuses zero or multiple deployed revisions and admits unknown history strictly before the source", () => {
+    expect(() =>
+      selectStableDeployedHelmSource([{ revision: 700, status: "failed", description: "Synthetic failure" }]),
+    ).toThrow("observed 0");
+    expect(() =>
+      selectStableDeployedHelmSource([
+        { revision: 700, status: "deployed", description: "Synthetic first source" },
+        { revision: 701, status: "deployed", description: "Synthetic later source" },
+      ]),
+    ).toThrow("observed 2");
+    expect(
+      selectStableDeployedHelmSource([
+        { revision: 698, status: "unknown-old-status", description: "Synthetic retained history" },
+        { revision: 700, status: "deployed", description: "Synthetic source" },
+        { revision: 701, status: "failed", description: "Synthetic failure" },
+      ]).source.revision,
+    ).toBe(700);
+  });
+
+  it("admits a failed suffix from raw Helm history output", async () => {
+    const rawHistory = [
+      { revision: "705", status: " FAILED ", description: " Synthetic failure " },
+      { revision: "700", status: " DEPLOYED ", description: " Synthetic source " },
+      { revision: "690", status: " UNRECOGNIZED-OLD ", description: " Synthetic old history " },
+    ];
+    const normalizedHistory = [
+      { revision: 690, status: "unrecognized-old", description: "Synthetic old history" },
+      { revision: 700, status: "deployed", description: "Synthetic source" },
+      { revision: 705, status: "failed", description: "Synthetic failure" },
+    ];
+    const target = await captureKubernetesRollbackTarget({
+      values: rollbackValues,
+      release: "proof",
+      namespace: "production",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-proof",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 0, stdout: helmHistory(rawHistory) },
+          { code: 0, stdout: JSON.stringify(rollbackValues) },
+          { code: 0, stdout: rollbackWorkloadList() },
+          { code: 0, stdout: helmHistory(rawHistory) },
+        ],
+      ),
+    });
+    expect(target.preDeployHistory).toEqual(normalizedHistory);
+
+    for (const invalidHistory of [
+      [{ revision: 700, status: " ", description: "Synthetic blank" }],
+      [
+        { revision: 700, status: "deployed", description: "Synthetic source" },
+        { revision: 700, status: "failed", description: "Synthetic duplicate" },
+      ],
+    ]) {
+      await expect(
+        captureKubernetesRollbackTarget({
+          registryName: "chase-sets",
+          repository: "chase-sets-platform",
+          tag: rollbackTag,
+          digest: rollbackDigest,
+          lastKnownGoodCommit: rollbackTag,
+          releaseTag: "release-synthetic-proof",
+          spawn: completedSpawn([], [{ code: 0, stdout: helmHistory(invalidHistory) }]),
+        }),
+      ).rejects.toThrow(/required|duplicate revisions/);
+    }
+  });
+
+  it("keeps every identity and stability proof on a failed-suffix capture", async () => {
+    const history = [
+      { revision: 700, status: "deployed", description: "Synthetic source" },
+      { revision: 701, status: "failed", description: "Synthetic failure" },
+    ];
+    const baseOptions = {
+      values: rollbackValues,
+      release: "proof",
+      namespace: "production",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-proof",
+    };
+    const calls = [];
+    await captureKubernetesRollbackTarget({
+      ...baseOptions,
+      spawn: completedSpawn(calls, [
+        { code: 0, stdout: helmHistory(history) },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        { code: 0, stdout: rollbackWorkloadList() },
+        { code: 0, stdout: helmHistory(history) },
+      ]),
+    });
+    expect(calls.map((call) => [call.command, call.args[0]])).toEqual([
+      ["helm", "history"],
+      ["helm", "get"],
+      ["kubectl", "get"],
+      ["helm", "history"],
+    ]);
+    expect(calls[1].args).toContain("700");
+
+    await expect(
+      captureKubernetesRollbackTarget({ ...baseOptions, tag: "f".repeat(40), spawn: completedSpawn([], []) }),
+    ).rejects.toThrow("must equal lastKnownGoodCommit");
+
+    const wrongValues = structuredClone(rollbackValues);
+    wrongValues.global.image.digest = `sha256:${"4".repeat(64)}`;
+    await expect(
+      captureKubernetesRollbackTarget({
+        ...baseOptions,
+        spawn: completedSpawn(
+          [],
+          [
+            { code: 0, stdout: helmHistory(history) },
+            { code: 0, stdout: JSON.stringify(wrongValues) },
+          ],
+        ),
+      }),
+    ).rejects.toThrow("platform is required");
+
+    await expect(
+      captureKubernetesRollbackTarget({
+        ...baseOptions,
+        spawn: completedSpawn(
+          [],
+          [
+            { code: 0, stdout: helmHistory(history) },
+            { code: 0, stdout: JSON.stringify(rollbackValues) },
+            { code: 0, stdout: '{"items":[]}' },
+          ],
+        ),
+      }),
+    ).rejects.toThrow("does not match the Helm revision");
+
+    await expect(
+      captureKubernetesRollbackTarget({
+        ...baseOptions,
+        spawn: completedSpawn(
+          [],
+          [
+            { code: 0, stdout: helmHistory(history) },
+            { code: 0, stdout: JSON.stringify(rollbackValues) },
+            { code: 0, stdout: rollbackWorkloadList() },
+            {
+              code: 0,
+              stdout: helmHistory([...history, { revision: 702, status: "failed", description: "Synthetic drift" }]),
+            },
+          ],
+        ),
+      }),
+    ).rejects.toThrow("Helm history moved during rollback target capture");
+  });
+
+  it("records the observed head, failed suffix, and pre-deploy history without changing the rollback target contract", async () => {
+    const history = [
+      { revision: 700, status: "deployed", description: "Synthetic source" },
+      { revision: 701, status: "failed", description: "Synthetic failure" },
+    ];
+    const target = await captureKubernetesRollbackTarget({
+      values: rollbackValues,
+      release: "proof",
+      namespace: "production",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-proof",
+      checkedAt: "2026-08-25T20:00:00.000Z",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 0, stdout: helmHistory(history) },
+          { code: 0, stdout: JSON.stringify(rollbackValues) },
+          { code: 0, stdout: rollbackWorkloadList() },
+          { code: 0, stdout: helmHistory(history) },
+        ],
+      ),
+    });
+
+    expect(target).toEqual({
+      schemaVersion: "platform-kubernetes-rollback-target/v2",
+      capturedAt: "2026-08-25T20:00:00.000Z",
+      release: "proof",
+      namespace: "production",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      imageRef: rollbackImageRef,
+      componentNames: ["proof-chase-sets-platform-platform-bootstrap", "proof-chase-sets-platform-platform-worker"],
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-proof",
+      sourceRevision: 700,
+      sourceStatus: "deployed",
+      sourceDescription: "Synthetic source",
+      observedTag: rollbackTag,
+      observedDigest: rollbackDigest,
+      imageIdentityProof: { kind: "exact-digest", digest: rollbackDigest },
+      workloadIdentities: [
+        {
+          kind: "Deployment",
+          name: "proof-chase-sets-platform-platform-worker",
+          component: "platform-worker",
+          images: [
+            {
+              container: "platform-worker",
+              containerType: "application",
+              image: rollbackImageRef,
+            },
+          ],
+        },
+      ],
+      historyHeadRevision: 701,
+      terminalFailedSuffix: [history[1]],
+      preDeployHistory: history,
+    });
+  });
+
+  it("verifies one exact deployed Helm transition", async () => {
+    const capturedHistory = [
+      { revision: 308, status: "deployed", description: "Synthetic source" },
+      { revision: 309, status: "failed", description: "Synthetic failure" },
+    ];
+    const observedHistory = [
+      { ...capturedHistory[0], status: "superseded" },
+      capturedHistory[1],
+      { revision: 310, status: "deployed", description: "Synthetic upgrade complete" },
+    ];
+    const transition = await verifyKubernetesDeploymentTransition({
+      release: "proof",
+      namespace: "production",
+      checkedAt: "2026-08-25T20:10:00.000Z",
+      rollbackTarget: {
+        schemaVersion: "platform-kubernetes-rollback-target/v2",
+        sourceRevision: 308,
+        sourceStatus: "deployed",
+        historyHeadRevision: 309,
+        terminalFailedSuffix: [capturedHistory[1]],
+        preDeployHistory: capturedHistory,
+      },
+      spawn: completedSpawn([], [{ code: 0, stdout: helmHistory(observedHistory) }]),
+    });
+
+    expect(transition).toEqual({
+      schemaVersion: "platform-kubernetes-deployment-transition/v1",
+      checkedAt: "2026-08-25T20:10:00.000Z",
+      release: "proof",
+      namespace: "production",
+      capturedHeadRevision: 309,
+      resultingHeadRevision: 310,
+      capturedHistory,
+      observedHistory,
+    });
+  });
+
+  it("verifies one exact deployed Helm transition when saturated history prunes the oldest revision", async () => {
+    const capturedHistory = Array.from({ length: 10 }, (_, index) => ({
+      revision: 300 + index,
+      status: index === 8 ? "deployed" : index === 9 ? "failed" : "superseded",
+      description: `Synthetic revision ${300 + index}`,
+    }));
+    const observedHistory = [
+      ...capturedHistory.slice(1, 8),
+      { ...capturedHistory[8], status: "superseded" },
+      capturedHistory[9],
+      { revision: 310, status: "deployed", description: "Synthetic upgrade complete" },
+    ];
+
+    const transition = await verifyKubernetesDeploymentTransition({
+      rollbackTarget: {
+        schemaVersion: "platform-kubernetes-rollback-target/v2",
+        sourceRevision: 308,
+        sourceStatus: "deployed",
+        historyHeadRevision: 309,
+        terminalFailedSuffix: [capturedHistory[9]],
+        preDeployHistory: capturedHistory,
+      },
+      spawn: completedSpawn([], [{ code: 0, stdout: helmHistory(observedHistory) }]),
+    });
+
+    expect(transition).toMatchObject({
+      capturedHeadRevision: 309,
+      resultingHeadRevision: 310,
+      capturedHistory,
+      observedHistory,
+    });
+  });
+
+  it.each([
+    {
+      name: "missing revision",
+      observed: [
+        { revision: 700, status: "superseded", description: "Synthetic source" },
+        { revision: 701, status: "failed", description: "Synthetic failure" },
+      ],
+      message: "expected only revision 702; observed none",
+    },
+    {
+      name: "extra revisions",
+      observed: [
+        { revision: 700, status: "deployed", description: "Synthetic source" },
+        { revision: 701, status: "failed", description: "Synthetic failure" },
+        { revision: 702, status: "superseded", description: "Synthetic first result" },
+        { revision: 703, status: "deployed", description: "Synthetic second result" },
+      ],
+      message: "expected only revision 702; observed 702, 703",
+    },
+    {
+      name: "nonconsecutive revision",
+      observed: [
+        { revision: 700, status: "deployed", description: "Synthetic source" },
+        { revision: 701, status: "failed", description: "Synthetic failure" },
+        { revision: 703, status: "deployed", description: "Synthetic gap" },
+      ],
+      message: "expected only revision 702; observed 703",
+    },
+    {
+      name: "non-deployed result",
+      observed: [
+        { revision: 700, status: "deployed", description: "Synthetic source" },
+        { revision: 701, status: "failed", description: "Synthetic failure" },
+        { revision: 702, status: "failed", description: "Synthetic result failure" },
+      ],
+      message: 'status "deployed"; observed "failed"',
+    },
+  ])("refuses a $name deployment transition", async ({ observed, message }) => {
+    await expect(
+      verifyKubernetesDeploymentTransition({
+        rollbackTarget: {
+          schemaVersion: "platform-kubernetes-rollback-target/v2",
+          sourceRevision: 700,
+          sourceStatus: "deployed",
+          historyHeadRevision: 701,
+          terminalFailedSuffix: [{ revision: 701, status: "failed", description: "Synthetic failure" }],
+          preDeployHistory: [
+            { revision: 700, status: "deployed", description: "Synthetic source" },
+            { revision: 701, status: "failed", description: "Synthetic failure" },
+          ],
+        },
+        spawn: completedSpawn([], [{ code: 0, stdout: helmHistory(observed) }]),
+      }),
+    ).rejects.toThrow(message);
+  });
+
+  it.each([
+    {
+      name: "missing terminal failed suffix",
+      observed: [
+        { revision: 700, status: "superseded", description: "Synthetic source" },
+        { revision: 702, status: "deployed", description: "Synthetic upgrade complete" },
+      ],
+      message: "Captured terminal failed revision 701 moved or disappeared",
+    },
+    {
+      name: "changed terminal failed suffix status",
+      observed: [
+        { revision: 700, status: "superseded", description: "Synthetic source" },
+        { revision: 701, status: "superseded", description: "Synthetic failure" },
+        { revision: 702, status: "deployed", description: "Synthetic upgrade complete" },
+      ],
+      message: "Captured Helm revision 701 moved during deployment transition",
+    },
+    {
+      name: "changed captured description",
+      observed: [
+        { revision: 700, status: "superseded", description: "Synthetic source changed" },
+        { revision: 701, status: "failed", description: "Synthetic failure" },
+        { revision: 702, status: "deployed", description: "Synthetic upgrade complete" },
+      ],
+      message: "Captured Helm revision 700 moved during deployment transition",
+    },
+  ])("refuses a $name during revision-keyed reconciliation", async ({ observed, message }) => {
+    await expect(
+      verifyKubernetesDeploymentTransition({
+        rollbackTarget: {
+          schemaVersion: "platform-kubernetes-rollback-target/v2",
+          sourceRevision: 700,
+          sourceStatus: "deployed",
+          historyHeadRevision: 701,
+          terminalFailedSuffix: [{ revision: 701, status: "failed", description: "Synthetic failure" }],
+          preDeployHistory: [
+            { revision: 700, status: "deployed", description: "Synthetic source" },
+            { revision: 701, status: "failed", description: "Synthetic failure" },
+          ],
+        },
+        spawn: completedSpawn([], [{ code: 0, stdout: helmHistory(observed) }]),
+      }),
+    ).rejects.toThrow(message);
+  });
+
+  it("parses the read-only deployment transition verifier command", () => {
+    expect(
+      parseArgs(
+        [
+          "verify-deployment-transition",
+          "--rollback-target=artifacts/release-health/production-rollback-target.json",
+          "--out=artifacts/release-health/production-kubernetes-deployment-transition.json",
+        ],
+        {},
+      ),
+    ).toMatchObject({
+      command: "verify-deployment-transition",
+      rollbackTargetPath: "artifacts/release-health/production-rollback-target.json",
+      outPath: "artifacts/release-health/production-kubernetes-deployment-transition.json",
+    });
   });
 
   it("accepts the production index digest and amd64 manifest digest only when the manifest is a platform member", () => {
