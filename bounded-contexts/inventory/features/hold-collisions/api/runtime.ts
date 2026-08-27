@@ -528,12 +528,14 @@ async function recoverOfflineSaleResult(
   }
   const appliedQuantity = collision?.appliedQuantity ?? input.requestedQuantity;
   const createdAt = new Date(input.existing.created_at).getTime();
-  const events = await readCompleteStream(deps.eventStore, { streamId: `inventory.item-${input.itemId}` });
-  const committed = [...events].reverse().find((event) => {
-    if (Number.isFinite(createdAt) && new Date(event.recordedAt).getTime() < createdAt) {
-      return false;
-    }
-    if (appliedQuantity === 0) {
+  const itemStreamId = `inventory.item-${input.itemId}`;
+  const events = await readCompleteStream(deps.eventStore, { streamId: itemStreamId });
+  let committed: (typeof events)[number] | undefined;
+  if (appliedQuantity === 0) {
+    committed = [...events].reverse().find((event) => {
+      if (Number.isFinite(createdAt) && new Date(event.recordedAt).getTime() < createdAt) {
+        return false;
+      }
       const payload = event.payload as { itemId?: unknown; operation?: unknown; quantity?: unknown };
       return (
         event.eventType === "inventory.item.stock-authority-claimed" &&
@@ -542,22 +544,64 @@ async function recoverOfflineSaleResult(
         payload.quantity === input.requestedQuantity &&
         event.forAccountId === input.accountId
       );
+    });
+  } else {
+    if (!Number.isFinite(createdAt)) {
+      return null;
     }
-    const payload = event.payload as {
-      itemId?: unknown;
-      quantity?: unknown;
-      salePriceAmount?: unknown;
-      channel?: unknown;
-    };
-    return (
-      event.eventType === "inventory.item.offline-sale-recorded" &&
-      payload.itemId === input.itemId &&
-      payload.quantity === appliedQuantity &&
-      (payload.salePriceAmount ?? null) === input.salePriceAmount &&
-      payload.channel === input.channel &&
-      event.forAccountId === input.accountId
-    );
-  });
+    const matchingAdjustedIndexes = events.flatMap((event, index) => {
+      const recordedAt = new Date(event.recordedAt).getTime();
+      if (event.eventType !== "inventory.item.adjusted" || !Number.isFinite(recordedAt) || recordedAt < createdAt) {
+        return [];
+      }
+      const payload = event.payload as { csatOutcomeFact?: unknown };
+      const csatOutcomeFact = payload.csatOutcomeFact;
+      return csatOutcomeFact &&
+        typeof csatOutcomeFact === "object" &&
+        !Array.isArray(csatOutcomeFact) &&
+        (csatOutcomeFact as { idempotencyKey?: unknown }).idempotencyKey === input.idempotencyKey
+        ? [index]
+        : [];
+    });
+    if (matchingAdjustedIndexes.length !== 1) {
+      return null;
+    }
+
+    const adjusted = events[matchingAdjustedIndexes[0]];
+    const offlineSale = events[matchingAdjustedIndexes[0] + 1];
+    if (!adjusted) {
+      return null;
+    }
+    const adjustedPayload = adjusted.payload as { itemId?: unknown; quantityDelta?: unknown };
+    const offlineSalePayload = offlineSale?.payload as
+      | {
+          itemId?: unknown;
+          quantity?: unknown;
+          salePriceAmount?: unknown;
+          channel?: unknown;
+        }
+      | undefined;
+    if (
+      adjusted.streamId !== itemStreamId ||
+      adjusted.forAccountId !== input.accountId ||
+      adjustedPayload.itemId !== input.itemId ||
+      adjustedPayload.quantityDelta !== -appliedQuantity ||
+      !offlineSale ||
+      offlineSale.streamId !== itemStreamId ||
+      offlineSale.streamVersion !== adjusted.streamVersion + 1 ||
+      offlineSale.eventType !== "inventory.item.offline-sale-recorded" ||
+      !Number.isFinite(new Date(offlineSale.recordedAt).getTime()) ||
+      new Date(offlineSale.recordedAt).getTime() < createdAt ||
+      offlineSale.forAccountId !== input.accountId ||
+      offlineSalePayload?.itemId !== input.itemId ||
+      offlineSalePayload.quantity !== appliedQuantity ||
+      (offlineSalePayload.salePriceAmount ?? null) !== input.salePriceAmount ||
+      offlineSalePayload.channel !== input.channel
+    ) {
+      return null;
+    }
+    committed = offlineSale;
+  }
   if (!committed) {
     return null;
   }

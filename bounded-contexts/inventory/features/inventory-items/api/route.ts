@@ -439,11 +439,11 @@ function parseOfflineSaleRequest(value: unknown): InventoryOfflineSaleRequest {
   if (body.salePriceAmount === null) {
     salePriceAmount = null;
   } else if (body.salePriceAmount !== undefined) {
-    if (typeof body.salePriceAmount !== "string") {
+    if (typeof body.salePriceAmount !== "string" || !isCanonicalMoneyAmount(body.salePriceAmount)) {
       throw new InventoryDomainError("Offline sale price must be a canonical per-unit amount.");
     }
     const normalized = normalizeMoneyAmount(body.salePriceAmount);
-    if (!isCanonicalMoneyAmount(body.salePriceAmount) || normalized !== body.salePriceAmount) {
+    if (normalized !== body.salePriceAmount) {
       throw new InventoryDomainError("Offline sale price must be a canonical per-unit amount.");
     }
     salePriceAmount = normalized;

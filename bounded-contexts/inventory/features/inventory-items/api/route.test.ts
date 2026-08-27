@@ -412,10 +412,63 @@ describe("inventory item routes", () => {
     );
   });
 
+  it.each(["125", "abc", "-1.00", "1e5", "", "99999999999.00"])(
+    "rejects malformed canonical money %j before offline-sale reduction",
+    async (salePriceAmount) => {
+      const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>();
+      const app = buildApp(createItemServices(), { holdCollisions: { reduceItem, projectors: [] } });
+
+      const response = await app.request("/items/inv_1/offline-sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quantity: 1,
+          salePriceAmount,
+          channel: "in-store",
+          idempotencyKey: "sale-1",
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(reduceItem).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["null", { salePriceAmount: null }],
+    ["absent", {}],
+  ])("preserves %s offline-sale price behavior", async (_name, priceFields) => {
+    const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>(async (params) => ({
+      itemId: params.itemId,
+      version: 2,
+      requestedQuantity: params.requestedQuantity,
+      appliedQuantity: params.requestedQuantity,
+      refusedQuantity: 0,
+      collision: null,
+    }));
+    const app = buildApp(createItemServices(), { holdCollisions: { reduceItem, projectors: [] } });
+
+    const response = await app.request("/items/inv_1/offline-sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 1,
+        ...priceFields,
+        channel: "in-store",
+        idempotencyKey: "sale-1",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(reduceItem).toHaveBeenCalledWith(
+      expect.objectContaining({ offlineSale: expect.objectContaining({ salePriceAmount: null }) }),
+      context,
+    );
+  });
+
   it.each([
     ["zero quantity", { quantity: 0, channel: "in-store", idempotencyKey: "sale-1" }],
     ["fractional quantity", { quantity: 1.5, channel: "in-store", idempotencyKey: "sale-1" }],
-    ["noncanonical price", { quantity: 1, salePriceAmount: "125", channel: "in-store", idempotencyKey: "sale-1" }],
     ["unknown channel", { quantity: 1, channel: "other-marketplace", idempotencyKey: "sale-1" }],
     ["blank key", { quantity: 1, channel: "other", idempotencyKey: " " }],
     ["caller sold time", { quantity: 1, channel: "other", idempotencyKey: "sale-1", soldAt: "2026-01-01" }],
