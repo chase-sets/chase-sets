@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   closeMultiContextTestPools,
@@ -42,6 +43,7 @@ import type { ProviderScopeObservationRecord } from "./refresh-schedule-store";
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const contextNames = ["catalog"] as const;
+const repositoryRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../../../../..");
 
 const TEST_CONTEXT = {
   tenantId: "tnt_identity" as never,
@@ -466,7 +468,7 @@ INSERT INTO catalog_provider_scope_observations (
       throw new Error("Missing executable TCGdex source-observation contract.");
     }
     const payload = JSON.parse(
-      await readFile(path.resolve(contract.fixtures.fixtureRoot, "normal.json"), "utf8"),
+      await readFile(path.resolve(repositoryRoot, contract.fixtures.fixtureRoot, "normal.json"), "utf8"),
     ) as JsonObject;
     const mapped = normalizeCatalogProviderSourceObservation({
       contract: contract as CatalogProviderSourceObservationMappingContract,
@@ -938,7 +940,7 @@ async function loadTcgplayerFixtureFacts(
         throw new Error(`Missing executable TCGplayer source-observation contract for ${version.profileKey}.`);
       }
       const payload = JSON.parse(
-        await readFile(path.resolve(contract.fixtures.fixtureRoot, "normal.json"), "utf8"),
+        await readFile(path.resolve(repositoryRoot, contract.fixtures.fixtureRoot, "normal.json"), "utf8"),
       ) as JsonObject;
       const mapped = normalizeCatalogProviderSourceObservation({
         contract: contract as CatalogProviderSourceObservationMappingContract,
