@@ -14,6 +14,7 @@ import {
 import {
   EVENT_STORE_READ_PAGE_SIZE_MAX,
   ZERO_GLOBAL_POSITION,
+  compareGlobalPosition,
   globalPositionFromBigInt,
   parseGlobalPosition,
 } from "@chase-sets/event-core/storage";
@@ -433,6 +434,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
     },
 
     readAll: async (input?: ReadAllInput) => {
+      const atOrBeforeGlobalPosition =
+        input?.atOrBeforeGlobalPosition === undefined ? undefined : parseGlobalPosition(input.atOrBeforeGlobalPosition);
       const afterGlobalPosition = input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION;
       const limit = assertEventStoreReadPageSize(input?.limit ?? EVENT_STORE_READ_PAGE_SIZE_DEFAULT);
 
@@ -445,12 +448,28 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
           stream_prefix_filter: input?.streamPrefixes?.length ? "filtered" : "all",
         },
         async () => {
+          let safeHeadGlobalPosition: GlobalPosition;
           try {
-            const safeHeadGlobalPosition = await readGapSafeEventStoreHead(pool, eventsTable);
+            safeHeadGlobalPosition = await readGapSafeEventStoreHead(pool, eventsTable);
+          } catch (error) {
+            throw normalizeEventStoreError(error, "Failed to read the gap-safe Event Store head.");
+          }
+
+          if (
+            atOrBeforeGlobalPosition !== undefined &&
+            compareGlobalPosition(atOrBeforeGlobalPosition, safeHeadGlobalPosition) > 0
+          ) {
+            throw new Error(
+              `Event store read horizon ${atOrBeforeGlobalPosition} exceeds available global position ${safeHeadGlobalPosition}.`,
+            );
+          }
+
+          try {
             const result = await pool.query<DbEventRow>(
               buildReadAllSql(eventsTable, input),
               buildReadAllParams({
                 afterGlobalPosition,
+                atOrBeforeGlobalPosition,
                 safeHeadGlobalPosition,
                 limit,
                 tenantId: input?.tenantId,
@@ -524,6 +543,7 @@ type AppendStreamsIndependentlyInTransactionArgs = AppendStreamsInTransactionArg
 
 type ReadAllQueryInput = Readonly<{
   afterGlobalPosition: GlobalPosition;
+  atOrBeforeGlobalPosition?: GlobalPosition;
   safeHeadGlobalPosition: GlobalPosition;
   limit: number;
   tenantId?: ReadAllInput["tenantId"];
@@ -539,16 +559,21 @@ type NormalizedEventStoreWakeNotificationConfig = Readonly<{
 }>;
 
 function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): string {
-  const predicates = ["global_position > $1::bigint", "global_position <= $2::bigint"];
+  const predicates = ["events.global_position > $1::bigint", "events.global_position <= $2::bigint"];
   let nextParam = 3;
 
+  if (input?.atOrBeforeGlobalPosition !== undefined) {
+    predicates.push(`events.global_position <= $${nextParam}::bigint`);
+    nextParam += 1;
+  }
+
   if (input?.tenantId) {
-    predicates.push(`tenant_id = $${nextParam}`);
+    predicates.push(`events.tenant_id = $${nextParam}`);
     nextParam += 1;
   }
 
   if (input?.eventTypes?.length) {
-    predicates.push(`event_type = ANY($${nextParam}::text[])`);
+    predicates.push(`events.event_type = ANY($${nextParam}::text[])`);
     nextParam += 1;
   }
 
@@ -562,15 +587,19 @@ function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): 
 
   return `
     SELECT ${EVENT_COLUMNS}
-    FROM ${eventsTable}
+    FROM ${eventsTable} AS events
     WHERE ${predicates.join("\n      AND ")}
-    ORDER BY global_position ASC
+    ORDER BY events.global_position ASC
     LIMIT $${nextParam}
   `;
 }
 
 function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
   const params: unknown[] = [input.afterGlobalPosition, input.safeHeadGlobalPosition];
+
+  if (input.atOrBeforeGlobalPosition !== undefined) {
+    params.push(input.atOrBeforeGlobalPosition);
+  }
 
   if (input.tenantId) {
     params.push(input.tenantId);

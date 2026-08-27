@@ -74,6 +74,12 @@ describe("postgres event store", () => {
     await expect(store.readAll({ limit: EVENT_STORE_READ_PAGE_SIZE_LIMIT + 1 })).rejects.toThrow(
       "Event store read limit must be an integer between 1 and 500.",
     );
+    await expect(
+      store.readAll({
+        atOrBeforeGlobalPosition: "0" as never,
+        limit: EVENT_STORE_READ_PAGE_SIZE_LIMIT + 1,
+      }),
+    ).rejects.toThrow("Event store read limit must be an integer between 1 and 500.");
 
     expect(calls).toEqual([]);
   });
@@ -183,13 +189,14 @@ describe("postgres event store", () => {
       pool: {
         query: async (sql: string, params: readonly unknown[] = []) => {
           queries.push({ sql, params });
-          return { rows: [] };
+          return { rows: sql.includes("append_fence") ? [{ head: "100" }] : [] };
         },
       } as never,
     });
 
     await store.readAll({
       afterGlobalPosition: "42" as never,
+      atOrBeforeGlobalPosition: "50" as never,
       tenantId: "tenant_1" as never,
       eventTypes: ["catalog.catalog-item.published", "catalog.catalog-item.published"],
       streamPrefixes: ["catalog.item-", "catalog.category-"],
@@ -198,18 +205,22 @@ describe("postgres event store", () => {
 
     expect(queries).toHaveLength(2);
     expect(queries[0].sql).toContain("append_fence");
-    expect(queries[1].sql).toContain("global_position > $1::bigint");
-    expect(queries[1].sql).toContain("global_position <= $2::bigint");
-    expect(queries[1].sql).toContain("tenant_id = $3");
-    expect(queries[1].sql).toContain("event_type = ANY($4::text[])");
+    expect(queries[1].sql).toContain("FROM event_store_events AS events");
+    expect(queries[1].sql).toContain("events.global_position > $1::bigint");
+    expect(queries[1].sql).toContain("events.global_position <= $2::bigint");
+    expect(queries[1].sql).toContain("events.global_position <= $3::bigint");
+    expect(queries[1].sql).toContain("events.tenant_id = $4");
+    expect(queries[1].sql).toContain("events.event_type = ANY($5::text[])");
     expect(queries[1].sql).toContain(
-      "((stream_context_name = $5 AND stream_id LIKE $6 || '%' ESCAPE '\\') OR (stream_context_name = $7 AND stream_id LIKE $8 || '%' ESCAPE '\\'))",
+      "((stream_context_name = $6 AND stream_id LIKE $7 || '%' ESCAPE '\\') OR (stream_context_name = $8 AND stream_id LIKE $9 || '%' ESCAPE '\\'))",
     );
     expect(queries[1].sql).not.toContain("stream_category = ANY");
-    expect(queries[1].sql).toContain("LIMIT $9");
+    expect(queries[1].sql).toContain("ORDER BY events.global_position ASC");
+    expect(queries[1].sql).toContain("LIMIT $10");
     expect(queries[1].params).toEqual([
       "42",
-      "0",
+      "100",
+      "50",
       "tenant_1",
       ["catalog.catalog-item.published"],
       "catalog",
@@ -218,6 +229,30 @@ describe("postgres event store", () => {
       "catalog.category-",
       25,
     ]);
+  });
+
+  it.each(["", "007", "-1", "1.0", "not-a-position"])(
+    "refuses malformed readAll horizon %j before querying Postgres",
+    async (malformedHorizon) => {
+      const { pool, calls } = createReadPool();
+      const store = createPostgresEventStore({ pool });
+
+      await expect(store.readAll({ atOrBeforeGlobalPosition: malformedHorizon as never, limit: 10 })).rejects.toThrow(
+        "GlobalPosition must be a canonical unsigned base-10 string.",
+      );
+      expect(calls).toEqual([]);
+    },
+  );
+
+  it("refuses a readAll horizon above the gap-safe head without issuing the page query", async () => {
+    const { pool, calls } = createReadPool({ safeHeadGlobalPosition: "12" });
+    const store = createPostgresEventStore({ pool });
+
+    await expect(store.readAll({ atOrBeforeGlobalPosition: "13" as never, limit: 10 })).rejects.toThrow(
+      "Event store read horizon 13 exceeds available global position 12.",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toContain("append_fence");
   });
 
   it("keeps mixed stream-prefix shapes local to each OR arm", async () => {
@@ -964,13 +999,18 @@ function isEventInsertCall(call: QueryCall): boolean {
   return call.sql.includes("INSERT INTO event_store_events");
 }
 
-function createReadPool(): Readonly<{ pool: PgTransactionalPool; calls: QueryCall[] }> {
+function createReadPool(
+  options: Readonly<{ safeHeadGlobalPosition?: string }> = {},
+): Readonly<{ pool: PgTransactionalPool; calls: QueryCall[] }> {
   const calls: QueryCall[] = [];
 
   return {
     pool: {
       query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql: sql.trim(), ...(params ? { params } : {}) });
+        if (sql.includes("append_fence")) {
+          return { rows: [{ head: options.safeHeadGlobalPosition ?? "0" }], rowCount: 1 };
+        }
         return { rows: [], rowCount: 0 };
       },
       connect: async () => {
