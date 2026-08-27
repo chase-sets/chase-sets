@@ -410,6 +410,7 @@
         "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/commit",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/adjustments",
+        "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/offline-sales",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/holds",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /listing-stock/ensure",
         "api-route:bounded-contexts/inventory/features/storage-locations/api/route.ts:PATCH /:id",

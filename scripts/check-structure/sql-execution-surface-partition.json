@@ -210,6 +210,7 @@
     "bounded-contexts/inventory/features/restock-decisions/read-model/queries.ts",
     "bounded-contexts/inventory/features/storage-locations/read-model/projection.ts",
     "bounded-contexts/inventory/features/storage-locations/read-model/queries.ts",
+    "bounded-contexts/inventory/support/runtime-support/inventory-adjustment-idempotency.ts",
     "bounded-contexts/inventory/support/runtime-support/stock-snapshot.ts",
     "bounded-contexts/marketplace/features/listing-evidence-policy/api/runtime.ts",
     "bounded-contexts/marketplace/features/listing-evidence-policy/integrations/seed.ts",

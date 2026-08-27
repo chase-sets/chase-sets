@@ -78,7 +78,14 @@ function services(): InventoryItemServices {
 
 function collisionServices(): InventoryHoldCollisionServices {
   return {
-    reduceItem: vi.fn(async (params) => ({ itemId: params.itemId, version: 3, collision: null })),
+    reduceItem: vi.fn(async (params) => ({
+      itemId: params.itemId,
+      version: 3,
+      requestedQuantity: params.requestedQuantity,
+      appliedQuantity: params.requestedQuantity,
+      refusedQuantity: 0,
+      collision: null,
+    })),
     projectors: [],
   };
 }
@@ -198,6 +205,9 @@ describe("inventory item MCP handlers", () => {
     vi.mocked(collisions.reduceItem).mockResolvedValue({
       itemId: "inv_1",
       version: 3,
+      requestedQuantity: 1,
+      appliedQuantity: 0,
+      refusedQuantity: 1,
       collision: {
         mode: "protect-orders",
         authorizedByRole: null,

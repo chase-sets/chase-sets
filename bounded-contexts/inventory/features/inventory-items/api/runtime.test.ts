@@ -51,6 +51,7 @@ describe("inventory item runtime", () => {
         status: "in_progress" | "completed";
         result_item_id: string | null;
         result_version: number | null;
+        result_collision: unknown;
         created_at: string;
       }
     >();
@@ -86,6 +87,7 @@ describe("inventory item runtime", () => {
             status: "in_progress" as const,
             result_item_id: null,
             result_version: null,
+            result_collision: null,
             created_at: new Date().toISOString(),
           };
           ledger.set(key, row);
@@ -98,16 +100,20 @@ describe("inventory item runtime", () => {
             failNextIdempotencyComplete = false;
             throw new Error("ledger complete failed");
           }
-          if (existing) {
+          if (existing?.status === "in_progress" && existing.command_fingerprint === String(values[1])) {
             ledger.set(key, {
               ...existing,
               inserted: false,
               status: "completed",
-              result_item_id: String(values[1]),
-              result_version: Number(values[2]),
+              result_item_id: String(values[2]),
+              result_version: Number(values[3]),
+              result_collision: JSON.parse(String(values[4])),
             });
           }
-          return { rows: [], rowCount: existing ? 1 : 0 };
+          return {
+            rows: [],
+            rowCount: existing?.status === "in_progress" && existing.command_fingerprint === String(values[1]) ? 1 : 0,
+          };
         }
         if (sql.includes("DELETE FROM inventory_item_adjustment_idempotency")) {
           ledger.delete(String(values[0]));
