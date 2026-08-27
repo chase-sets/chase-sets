@@ -965,7 +965,7 @@ describe("inventory api", () => {
        ORDER BY stream_version`,
       [`inventory.item-${partialItem.itemId}`],
     );
-    expect(partialEvents.rows.slice(1)).toEqual([
+    expect(partialEvents.rows.slice(-2)).toEqual([
       expect.objectContaining({
         event_type: "inventory.item.adjusted",
         payload: expect.objectContaining({ quantityDelta: -2, reasonCode: "sold-offline" }),

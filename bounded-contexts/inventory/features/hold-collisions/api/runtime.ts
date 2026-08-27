@@ -332,6 +332,7 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
             }
 
             const results = await appendToStreams(appends);
+            claimOwned = false;
             const stored = results.flatMap((result) => result.storedEvents);
             recordCommittedEvents(stored);
             const itemStored = results.find((result) => result.streamId === `inventory.item-${params.itemId}`);
@@ -352,12 +353,10 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
                 resultCollision: result.collision,
               });
               if (!completed) {
-                claimOwned = false;
                 throw new InventoryDomainError(
                   "Inventory offline sale idempotency claim was replaced before completion.",
                 );
               }
-              claimOwned = false;
             }
             return result;
           } catch (error) {
@@ -609,7 +608,17 @@ function parseInventoryHoldCollisionPlan(value: unknown): InventoryHoldCollision
   ) {
     return null;
   }
-  return plan as InventoryHoldCollisionPlan;
+  return {
+    mode: plan.mode,
+    authorizedByRole: plan.authorizedByRole ?? null,
+    requestedQuantity: plan.requestedQuantity,
+    appliedQuantity: plan.appliedQuantity,
+    refusedQuantity: plan.refusedQuantity,
+    heldQuantity: plan.heldQuantity,
+    availableQuantity: plan.availableQuantity,
+    releasedHoldQuantity: plan.releasedHoldQuantity,
+    affectedOrders: plan.affectedOrders,
+  } as InventoryHoldCollisionPlan;
 }
 
 function isConcurrencyConflict(error: unknown) {
