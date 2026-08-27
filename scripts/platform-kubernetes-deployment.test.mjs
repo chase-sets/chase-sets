@@ -509,6 +509,7 @@ describe("platform Kubernetes deployment", () => {
       "--timeout",
       "15m",
       "--atomic",
+      "--no-hooks",
       "--set-string",
       `global.managedPostgresCaSha256=${managedPostgresCaSha256}`,
     ]);

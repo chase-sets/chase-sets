@@ -643,7 +643,7 @@ jobs:
     permissions:
       contents: read
     strategy:
-      fail-fast: false
+      fail-fast: true
       max-parallel: 1
       matrix:
         environment: [staging, production]
@@ -702,6 +702,13 @@ jobs:
           KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null
           echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
 
+      - name: Require successful staging managed Postgres CA reconciliation
+        if: matrix.environment == 'production'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: managed-postgres-ca-staging-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/managed-postgres-ca-staging
+
       - name: Reconcile day-after managed Postgres CA trust
         id: managed_postgres_ca
         uses: ./.github/actions/export-managed-postgres-authority
@@ -717,7 +724,27 @@ jobs:
           environment: ${{ matrix.environment }}
           namespace: ${{ env.CHASE_SETS_KUBERNETES_NAMESPACE }}
 
+      - name: Evaluate managed Postgres CA pod-template reconciliation
+        id: managed_postgres_ca_rollout
+        run: |
+          set -euo pipefail
+          deployed="$(
+            helm get values "$CHASE_SETS_HELM_RELEASE" \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              --output json \
+              | jq -r '.global.managedPostgresCaSha256 // empty'
+          )"
+          desired="${{ steps.managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}"
+          if [ "$deployed" = "$desired" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Managed Postgres CA digest is unchanged; skipping pod-template reconciliation."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Managed Postgres CA digest changed; reconciling pod templates."
+          fi
+
       - name: Reconcile managed Postgres CA pod templates
+        if: steps.managed_postgres_ca_rollout.outputs.changed == 'true'
         run: |
           set -euo pipefail
           pnpm run platform:kubernetes-deployment -- reconcile-managed-postgres-ca \
@@ -727,6 +754,24 @@ jobs:
             --runtime-env "DEPLOYMENT_ENVIRONMENT=${{ matrix.environment }}" \
             --managed-postgres-ca-sha256 "${{ steps.managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}" \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+
+      - name: Record successful staging managed Postgres CA reconciliation
+        if: matrix.environment == 'staging'
+        run: |
+          set -euo pipefail
+          receipt_dir="${RUNNER_TEMP}/managed-postgres-ca-staging"
+          mkdir -p "$receipt_dir"
+          printf '%s\n' "${{ steps.managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}" \
+            > "$receipt_dir/sha256"
+
+      - name: Publish successful staging managed Postgres CA reconciliation
+        if: matrix.environment == 'staging'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: managed-postgres-ca-staging-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/managed-postgres-ca-staging/sha256
+          if-no-files-found: error
+          retention-days: 1
 
   deploy-staging:
     name: Deploy Staging
@@ -3272,6 +3317,80 @@ jobs:
             kubectl -n keda rollout status deployment/keda-operator --timeout=300s
           fi
 
+      - name: Capture production rollback target
+        if: env.SHOULD_DEPLOY != 'false'
+        id: rollback_target
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin production --tags
+          last_known_good_commit="$(git rev-parse origin/production)"
+          release_tag="$(
+            git tag --points-at "$last_known_good_commit" --list 'release-*' \
+              | sort \
+              | tail -n 1
+          )"
+          if [ -z "$release_tag" ]; then
+            echo "Production marker ${last_known_good_commit} has no release-* tag; refusing mutation without rollback identity." >&2
+            exit 1
+          fi
+
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            echo "DigitalOcean Container Registry does not exist; refusing cutover without rollback image evidence." >&2
+            exit 1
+          fi
+
+          doctl registry login --expiry-seconds 3600
+          release_image_ref="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${release_tag}"
+          rollback_digest="$(docker buildx imagetools inspect "$release_image_ref" --format '{{.Manifest.Digest}}')"
+          if ! [[ "$rollback_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Last-known-good release image ${release_image_ref} did not resolve to an immutable sha256 digest." >&2
+            exit 1
+          fi
+          rollback_index_ref="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}@${rollback_digest}"
+          rollback_index_json="$(docker buildx imagetools inspect "$rollback_index_ref" --raw)"
+          rollback_index_path="${RUNNER_TEMP}/production-rollback-index.json"
+          printf '%s' "$rollback_index_json" > "$rollback_index_path"
+
+          mkdir -p artifacts/release-health
+          target_path="artifacts/release-health/production-rollback-target.json"
+          node ./scripts/platform-kubernetes-deployment.mjs capture-rollback-target \
+            --registry-name="$registry_name" \
+            --repository="$PLATFORM_IMAGE_REPOSITORY" \
+            --tag="$last_known_good_commit" \
+            --digest="$rollback_digest" \
+            --index-manifest="$rollback_index_path" \
+            --platform="linux/amd64" \
+            --last-known-good-commit="$last_known_good_commit" \
+            --release-tag="$release_tag" \
+            --namespace="$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release="$CHASE_SETS_HELM_RELEASE" \
+            --out="$target_path" \
+            --github-output="$GITHUB_OUTPUT"
+
+          image_exists=true
+
+          smoke_verified=false
+          if [ -n "$release_tag" ] && git rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            tag_commit="$(git rev-list -n 1 "$release_tag")"
+            if [ "$tag_commit" = "$last_known_good_commit" ]; then
+              smoke_verified=true
+            fi
+          fi
+
+          {
+            echo "image_exists=${image_exists}"
+            echo "smoke_verified=${smoke_verified}"
+            echo "last_known_good_commit=${last_known_good_commit}"
+            echo "rollback_release_tag=${release_tag}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Terraform apply
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
@@ -3403,80 +3522,6 @@ jobs:
           mode: trust-only-kubernetes-secret
           environment: production
           namespace: ${{ env.CHASE_SETS_KUBERNETES_NAMESPACE }}
-
-      - name: Capture production rollback target
-        if: env.SHOULD_DEPLOY != 'false'
-        id: rollback_target
-        env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          git fetch origin production --tags
-          last_known_good_commit="$(git rev-parse origin/production)"
-          release_tag="$(
-            git tag --points-at "$last_known_good_commit" --list 'release-*' \
-              | sort \
-              | tail -n 1
-          )"
-          if [ -z "$release_tag" ]; then
-            echo "Production marker ${last_known_good_commit} has no release-* tag; refusing mutation without rollback identity." >&2
-            exit 1
-          fi
-
-          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
-          if [ -z "$registry_name" ]; then
-            echo "DigitalOcean Container Registry does not exist; refusing cutover without rollback image evidence." >&2
-            exit 1
-          fi
-
-          doctl registry login --expiry-seconds 3600
-          release_image_ref="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${release_tag}"
-          rollback_digest="$(docker buildx imagetools inspect "$release_image_ref" --format '{{.Manifest.Digest}}')"
-          if ! [[ "$rollback_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "Last-known-good release image ${release_image_ref} did not resolve to an immutable sha256 digest." >&2
-            exit 1
-          fi
-          rollback_index_ref="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}@${rollback_digest}"
-          rollback_index_json="$(docker buildx imagetools inspect "$rollback_index_ref" --raw)"
-          rollback_index_path="${RUNNER_TEMP}/production-rollback-index.json"
-          printf '%s' "$rollback_index_json" > "$rollback_index_path"
-
-          mkdir -p artifacts/release-health
-          target_path="artifacts/release-health/production-rollback-target.json"
-          node ./scripts/platform-kubernetes-deployment.mjs capture-rollback-target \
-            --registry-name="$registry_name" \
-            --repository="$PLATFORM_IMAGE_REPOSITORY" \
-            --tag="$last_known_good_commit" \
-            --digest="$rollback_digest" \
-            --index-manifest="$rollback_index_path" \
-            --platform="linux/amd64" \
-            --last-known-good-commit="$last_known_good_commit" \
-            --release-tag="$release_tag" \
-            --namespace="$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --release="$CHASE_SETS_HELM_RELEASE" \
-            --out="$target_path" \
-            --github-output="$GITHUB_OUTPUT"
-
-          image_exists=true
-
-          smoke_verified=false
-          if [ -n "$release_tag" ] && git rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
-            tag_commit="$(git rev-list -n 1 "$release_tag")"
-            if [ "$tag_commit" = "$last_known_good_commit" ]; then
-              smoke_verified=true
-            fi
-          fi
-
-          {
-            echo "image_exists=${image_exists}"
-            echo "smoke_verified=${smoke_verified}"
-            echo "last_known_good_commit=${last_known_good_commit}"
-            echo "rollback_release_tag=${release_tag}"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Evaluate production rollback readiness
         if: env.SHOULD_DEPLOY != 'false'

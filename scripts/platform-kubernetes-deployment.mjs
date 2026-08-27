@@ -267,6 +267,7 @@ export function buildManagedPostgresCaReconcileArgs(options = {}) {
     "--timeout",
     timeout,
     "--atomic",
+    "--no-hooks",
     "--set-string",
     `global.managedPostgresCaSha256=${digest}`,
   ];

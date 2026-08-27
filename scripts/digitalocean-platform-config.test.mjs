@@ -908,10 +908,62 @@ describe("DigitalOcean platform configuration", () => {
       "- name: Reconcile production managed Postgres CA trust",
     );
     const productionRollbackTarget = platformProductionWorkflow.indexOf("- name: Capture production rollback target");
+    const productionTerraformApply = platformProductionWorkflow.indexOf(
+      "- name: Terraform apply",
+      productionRollbackTarget,
+    );
+    const productionRollbackReadiness = platformProductionWorkflow.indexOf(
+      "- name: Evaluate production rollback readiness",
+    );
     const productionHelm = platformProductionWorkflow.indexOf("- name: Deploy production Kubernetes release");
+    expect(productionRollbackTarget).toBeLessThan(productionTerraformApply);
     expect(productionSecret).toBeLessThan(productionTrustIndex);
-    expect(productionTrustIndex).toBeLessThan(productionRollbackTarget);
-    expect(productionRollbackTarget).toBeLessThan(productionHelm);
+    expect(productionTrustIndex).toBeLessThan(productionRollbackReadiness);
+    expect(productionRollbackReadiness).toBeLessThan(productionHelm);
+  });
+
+  it("rolls day-after managed Postgres CA changes through staging before production", () => {
+    const job = workflowJob(platformProductionWorkflow, "reconcile-managed-postgres-ca");
+    const stagingGate = workflowStep(job, "Require successful staging managed Postgres CA reconciliation");
+    const trustStep = workflowStep(job, "Reconcile day-after managed Postgres CA trust");
+    const rolloutEvaluation = workflowStep(job, "Evaluate managed Postgres CA pod-template reconciliation");
+    const rolloutStep = workflowStep(job, "Reconcile managed Postgres CA pod templates");
+    const stagingReceipt = workflowStep(job, "Record successful staging managed Postgres CA reconciliation");
+    const stagingPublish = workflowStep(job, "Publish successful staging managed Postgres CA reconciliation");
+
+    expect(job).toContain("fail-fast: true");
+    expect(job).toContain("max-parallel: 1");
+    expect(job).toContain("environment: [staging, production]");
+    expect(stagingGate).toContain("if: matrix.environment == 'production'");
+    expect(stagingGate).toContain("uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131");
+    expect(stagingGate).toContain("name: managed-postgres-ca-staging-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(
+      job.indexOf(workflowStep(job, "Configure managed Postgres CA reconciliation Kubernetes context")),
+    ).toBeLessThan(job.indexOf(stagingGate));
+    expect(job.indexOf(stagingGate)).toBeLessThan(job.indexOf(trustStep));
+    expect(trustStep).toContain("uses: ./.github/actions/export-managed-postgres-authority");
+    expect(trustStep).toContain("mode: trust-only-kubernetes-secret");
+    expect(trustStep).toContain("environment: ${{ matrix.environment }}");
+    expect(rolloutEvaluation).toContain('helm get values "$CHASE_SETS_HELM_RELEASE"');
+    expect(rolloutEvaluation).toContain(".global.managedPostgresCaSha256 // empty");
+    expect(rolloutEvaluation).toContain(
+      'desired="${{ steps.managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}"',
+    );
+    expect(rolloutEvaluation).toContain('if [ "$deployed" = "$desired" ]; then');
+    expect(rolloutEvaluation).toContain('echo "changed=false"');
+    expect(rolloutEvaluation).toContain('echo "changed=true"');
+    expect(rolloutStep).toContain("if: steps.managed_postgres_ca_rollout.outputs.changed == 'true'");
+    expect(stagingReceipt).toContain("if: matrix.environment == 'staging'");
+    expect(stagingPublish).toContain("if: matrix.environment == 'staging'");
+    expect(stagingPublish).toContain("uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(stagingPublish).toContain(
+      "name: managed-postgres-ca-staging-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
+    expect(stagingPublish).toContain("if-no-files-found: error");
+    expect(job.indexOf(trustStep)).toBeLessThan(job.indexOf(rolloutEvaluation));
+    expect(job.indexOf(rolloutEvaluation)).toBeLessThan(job.indexOf(rolloutStep));
+    expect(job.indexOf(rolloutStep)).toBeLessThan(job.indexOf(stagingReceipt));
+    expect(job.indexOf(stagingReceipt)).toBeLessThan(job.indexOf(stagingPublish));
   });
 
   it("captures staging wake drill worker status through the internal DOKS worker endpoint", () => {
@@ -2294,8 +2346,11 @@ describe("DigitalOcean platform configuration", () => {
     const releaseStateStep = workflowStep(productionJob, "Resolve terminal release state");
     const releaseHealthStep = workflowStep(productionJob, "Write release health summary");
 
-    expect(platformProductionWorkflow.indexOf("- name: Capture production rollback target")).toBeLessThan(
-      platformProductionWorkflow.indexOf("- name: Deploy production Kubernetes release"),
+    expect(productionJob.indexOf("- name: Capture production rollback target")).toBeLessThan(
+      productionJob.indexOf("- name: Terraform apply"),
+    );
+    expect(productionJob.indexOf("- name: Reconcile production managed Postgres CA trust")).toBeLessThan(
+      productionJob.indexOf("- name: Evaluate production rollback readiness"),
     );
     expect(captureStep).toContain("capture-rollback-target");
     expect(captureStep).toContain('--tag="$last_known_good_commit"');
