@@ -255,6 +255,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-pr.yml": "release",
     "platform-preview-cleanup.yml": "release",
     "platform-production-restore-point-cleanup.yml": "release",
+    "platform-production-stale-helm-recovery.yml": "release",
     "platform-production-stripe-webhook-endpoint-create.yml": "release",
     "platform-production-stripe-webhook-endpoint-verify.yml": "release",
     "platform-production.yml": "release",
