@@ -1,5 +1,4 @@
 import { parseCatalogIntegrationUnitKey } from "../../source-observations/api/integration-unit";
-import type { CatalogProviderIngestionUnitProductDomain } from "../../source-observations/api/provider-integration-mapping-contract";
 import {
   catalogProviderProfileVersionIngestionUnitKey,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -111,9 +110,9 @@ function scopeKindForQuery(
   }
 }
 
-function productDomainForUnitKey(unitKey: string): CatalogProviderIngestionUnitProductDomain | null {
+function productDomainForUnitKey(unitKey: string): string | null {
   try {
-    return parseCatalogIntegrationUnitKey(unitKey).productDomain as CatalogProviderIngestionUnitProductDomain;
+    return parseCatalogIntegrationUnitKey(unitKey).productDomain;
   } catch {
     return null;
   }
