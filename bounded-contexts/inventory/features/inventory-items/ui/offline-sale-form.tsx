@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import {
   Button,
   Checkbox,
@@ -30,12 +31,17 @@ export function createOfflineSaleFormToken() {
 }
 
 export function offlineSaleRequestFromForm(formData: FormData): InventoryOfflineSaleRequest {
-  const salePriceAmount = String(formData.get("salePriceAmount") ?? "").trim();
+  const rawSalePriceAmount = String(formData.get("salePriceAmount") ?? "").trim();
+  const salePriceCents = rawSalePriceAmount ? tryMoneyToCents(rawSalePriceAmount) : null;
   const note = String(formData.get("note") ?? "").trim();
 
   return {
     quantity: Number(formData.get("quantity") ?? 0),
-    salePriceAmount: salePriceAmount || null,
+    salePriceAmount: rawSalePriceAmount
+      ? salePriceCents === null
+        ? rawSalePriceAmount
+        : centsToMoneyAmount(salePriceCents)
+      : null,
     channel: String(formData.get("channel") ?? "") as InventoryOfflineSaleChannel,
     note: note || null,
     collisionMode: String(formData.get("collisionMode") ?? "protect-orders") as "protect-orders" | "honor-offline",
@@ -114,6 +120,7 @@ export function OfflineSaleForm({
   confirmedResult,
   itemId,
   authoritativeAvailableQuantity,
+  verificationState,
   errorMessage,
 }: {
   initialIdempotencyKey: string;
@@ -122,6 +129,7 @@ export function OfflineSaleForm({
   confirmedResult?: InventoryOfflineSaleResult | null;
   itemId?: string;
   authoritativeAvailableQuantity?: number;
+  verificationState?: "fresh" | "pending" | "unverified";
   errorMessage?: string | null;
 }) {
   const navigation = useNavigation();
@@ -245,7 +253,11 @@ export function OfflineSaleForm({
         <Button type="submit" disabled={isSubmitting}>
           {t("inventory.features.inventoryItems.ui.offlineSaleForm.submit")}
         </Button>
-        <OfflineSaleResult result={result} authoritativeAvailableQuantity={authoritativeAvailableQuantity} />
+        <OfflineSaleResult
+          result={result}
+          authoritativeAvailableQuantity={authoritativeAvailableQuantity}
+          verificationState={verificationState}
+        />
       </Stack>
     </RouterForm>
   );

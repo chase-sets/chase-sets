@@ -1291,6 +1291,77 @@ describe("marketplace inventory routes", () => {
     },
   );
 
+  it.each([
+    ["detail", inventoryItemAction, "http://localhost/account/inventory/items/inv_1", { itemId: "inv_1" }],
+    ["list", inventoryAction, "http://localhost/account/inventory", {}],
+  ])(
+    "retains the typed %s offline-sale result when HTTP 200 has no consistency receipt",
+    async (_surface, routeAction, url, params) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: string | URL | Request) => {
+          const requestUrl = String(input);
+          if (requestUrl.includes("/api/auth/session")) {
+            return Promise.resolve(
+              jsonResponse({
+                actor: {
+                  sessionId: "ses_1",
+                  tenantId: "tnt_identity",
+                  userId: "usr_1",
+                  accountId: "acc_1",
+                  membershipId: "mbr_1",
+                  roleKey: "owner",
+                  permissions: ["inventory.view", "inventory.manage"],
+                },
+              }),
+            );
+          }
+          return Promise.resolve(
+            jsonResponse({
+              itemId: "inv_1",
+              version: 3,
+              requestedQuantity: 2,
+              appliedQuantity: 2,
+              refusedQuantity: 0,
+              collision: null,
+            }),
+          );
+        }),
+      );
+
+      const form = new URLSearchParams({
+        intent: "record-offline-sale",
+        itemId: "inv_1",
+        quantity: "2",
+        salePriceAmount: "12.50",
+        channel: "card-show",
+        collisionMode: "protect-orders",
+        idempotencyKey: "sale-replay",
+      });
+      const result = await routeAction({
+        request: new Request(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        }),
+        params,
+        context: undefined,
+      } as never);
+
+      expect(result).toEqual({
+        offlineSale: {
+          itemId: "inv_1",
+          version: 3,
+          requestedQuantity: 2,
+          appliedQuantity: 2,
+          refusedQuantity: 0,
+          collision: null,
+        },
+        commandReceipt: null,
+      });
+    },
+  );
+
   it("keeps the selected inventory page and reconciles only the receipt-gated offline-sale row from a fresh item read", async () => {
     const requests: { url: string; headers: Headers }[] = [];
     const staleItem = {

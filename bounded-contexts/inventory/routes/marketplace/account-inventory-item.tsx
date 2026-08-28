@@ -97,12 +97,7 @@ export const action = defineFormAction({
         formData,
       );
       const commandReceipt = getMutationResultCommandReceipt(offlineSale);
-      return commandReceipt
-        ? { offlineSale, commandReceipt }
-        : {
-            error: t("inventory.features.inventoryItems.ui.offlineSaleForm.result.unverified"),
-            intent: "record-offline-sale" as const,
-          };
+      return { offlineSale, commandReceipt };
     },
     "create-hold": async ({ request, params, formData }) =>
       formActionRedirect(
@@ -142,6 +137,14 @@ export default function MarketplaceInventoryItemRoute() {
   const offlineSaleAction = isOfflineSaleActionData(actionData) ? actionData : null;
   const currentPath = `${location.pathname}${location.search}`;
   const stateResult = (location.state as { offlineSaleResult?: InventoryOfflineSaleResult } | null)?.offlineSaleResult;
+  const visibleOfflineSaleResult = stateResult ?? offlineSaleAction?.offlineSale ?? null;
+  const offlineSaleVerificationState = stateResult
+    ? "fresh"
+    : offlineSaleAction
+      ? offlineSaleAction.commandReceipt
+        ? "pending"
+        : "unverified"
+      : undefined;
   const actionFeedback = inventoryItemActionFeedback(actionData);
 
   useEffect(() => {
@@ -167,7 +170,8 @@ export default function MarketplaceInventoryItemRoute() {
       canRecordOfflineSale={data.canRecordOfflineSale}
       canHonorOffline={data.canHonorOffline}
       offlineSaleFormToken={data.offlineSaleFormToken}
-      offlineSaleResult={stateResult ?? null}
+      offlineSaleResult={visibleOfflineSaleResult}
+      offlineSaleVerificationState={offlineSaleVerificationState}
       errorMessage={actionFeedback.pageErrorMessage}
       offlineSaleErrorMessage={actionFeedback.offlineSaleErrorMessage}
     />

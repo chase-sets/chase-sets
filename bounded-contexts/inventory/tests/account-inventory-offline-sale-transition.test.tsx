@@ -9,6 +9,10 @@ import MarketplaceInventoryRoute, {
   action as inventoryAction,
   loader as inventoryLoader,
 } from "../routes/marketplace/account-inventory";
+import MarketplaceInventoryItemRoute, {
+  action as inventoryItemAction,
+  loader as inventoryItemLoader,
+} from "../routes/marketplace/account-inventory-item";
 
 afterEach(() => {
   cleanup();
@@ -70,23 +74,27 @@ const pageItem = {
   available_quantity: 4,
 };
 
+function stubMobileViewport() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
+
 describe("account inventory offline-sale router transition", () => {
   it("survives action serialization, revalidates with the outer receipt, and preserves the selected list location", async () => {
     const requests: { url: string; method: string; headers: Headers }[] = [];
     let listReads = 0;
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn((query: string) => ({
-        matches: false,
-        media: query,
-        onchange: null,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      })),
-    );
+    stubMobileViewport();
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -205,5 +213,137 @@ describe("account inventory offline-sale router transition", () => {
       expect(result?.textContent).toContain("Authoritative available quantity: 2");
     });
     expect(listReads).toBeGreaterThanOrEqual(2);
+  });
+
+  it("retains a receiptless list replay as unverified without navigating or claiming completion", async () => {
+    stubMobileViewport();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+        if (url.includes("/api/inventory/items/inv_1/offline-sales")) {
+          return Promise.resolve(
+            jsonResponse({
+              itemId: "inv_1",
+              version: 2,
+              requestedQuantity: 1,
+              appliedQuantity: 1,
+              refusedQuantity: 0,
+              collision: null,
+            }),
+          );
+        }
+        if (url.includes("/api/inventory/storage-locations")) {
+          return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+        }
+        return Promise.resolve(jsonResponse({ items: [staleSaleItem], total: 1, count: 1, limit: 25, offset: 0 }));
+      }),
+    );
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/account/inventory",
+          loader: inventoryLoader,
+          action: async (args) => JSON.parse(JSON.stringify(await inventoryAction(args))),
+          element: <MarketplaceInventoryRoute />,
+        },
+      ],
+      { initialEntries: ["/account/inventory"] },
+    );
+    render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+    const mobileCards = await waitFor(() => {
+      const branch = document.querySelector('[role="list"]');
+      expect(branch).not.toBeNull();
+      return branch as HTMLElement;
+    });
+
+    await user.click(within(mobileCards).getByRole("button", { name: "Record sale" }));
+    await user.type(screen.getByLabelText("Quantity sold"), "1");
+    await user.selectOptions(screen.getByLabelText("Sale channel"), "card-show");
+    await user.click(screen.getByRole("button", { name: "Record sale" }));
+
+    const presentation = await screen.findByText(/could not be verified/i);
+    expect(presentation.closest('[role="alert"]')?.textContent).not.toContain("Completed:");
+    expect(presentation.closest('[role="alert"]')?.textContent).not.toContain("Authoritative available quantity");
+    expect(router.state.location.search).not.toContain("afterWrite");
+    expect(router.state.location.search).not.toContain("offlineSaleItemId");
+  });
+
+  it("retains a receiptless detail replay as unverified without navigating or claiming completion", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+        if (url.includes("/api/inventory/items/inv_1/offline-sales")) {
+          return Promise.resolve(
+            jsonResponse({
+              itemId: "inv_1",
+              version: 2,
+              requestedQuantity: 1,
+              appliedQuantity: 1,
+              refusedQuantity: 0,
+              collision: null,
+            }),
+          );
+        }
+        return Promise.resolve(jsonResponse({ ...staleSaleItem, holds: [], ledger: [] }));
+      }),
+    );
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/account/inventory/items/:itemId",
+          loader: inventoryItemLoader,
+          action: async (args) => JSON.parse(JSON.stringify(await inventoryItemAction(args))),
+          element: <MarketplaceInventoryItemRoute />,
+        },
+      ],
+      { initialEntries: ["/account/inventory/items/inv_1"] },
+    );
+    render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+
+    await screen.findByText("Sold item");
+    await user.type(screen.getByLabelText("Quantity sold"), "1");
+    await user.selectOptions(screen.getByLabelText("Sale channel"), "card-show");
+    await user.click(screen.getByRole("button", { name: "Record sale" }));
+
+    const presentation = await screen.findByText(/could not be verified/i);
+    expect(presentation.closest('[role="alert"]')?.textContent).not.toContain("Completed:");
+    expect(presentation.closest('[role="alert"]')?.textContent).not.toContain("Authoritative available quantity");
+    expect(router.state.location.search).not.toContain("afterWrite");
   });
 });

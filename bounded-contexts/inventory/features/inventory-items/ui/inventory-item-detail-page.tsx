@@ -171,6 +171,7 @@ export function InventoryItemDetailPage({
   canHonorOffline = false,
   offlineSaleFormToken,
   offlineSaleResult,
+  offlineSaleVerificationState,
   offlineSaleErrorMessage,
 }: {
   item: InventoryItemDetail;
@@ -180,6 +181,7 @@ export function InventoryItemDetailPage({
   canHonorOffline?: boolean;
   offlineSaleFormToken?: string;
   offlineSaleResult?: import("../../../client").InventoryOfflineSaleResult | null;
+  offlineSaleVerificationState?: "fresh" | "pending" | "unverified";
   offlineSaleErrorMessage?: string | null;
 }) {
   const selectedKind = selectedLedgerKind(currentPath);
@@ -253,6 +255,7 @@ export function InventoryItemDetailPage({
               itemId={item.item_id}
               result={offlineSaleResult}
               authoritativeAvailableQuantity={item.available_quantity}
+              verificationState={offlineSaleVerificationState}
               errorMessage={offlineSaleErrorMessage}
             />
           </Card>

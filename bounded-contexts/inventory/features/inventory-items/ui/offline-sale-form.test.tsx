@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider, useActionData } from "react-router";
+import { isCanonicalMoneyAmount } from "@chase-sets/primitives/money";
 import { afterEach, describe, expect, it } from "vitest";
 import type { InventoryOfflineSaleResult } from "../../../client";
 import { OfflineSaleForm, OfflineSaleResult, offlineSaleRequestFromForm } from "./offline-sale-form";
@@ -148,6 +149,35 @@ describe("OfflineSaleForm", () => {
     });
   });
 
+  it.each(["12.50", "20.00"])(
+    "canonicalizes the CurrencyInput numeric string for a typed %s sale price",
+    async (typedAmount) => {
+      const user = userEvent.setup();
+      const requests: ReturnType<typeof offlineSaleRequestFromForm>[] = [];
+      renderOfflineSaleActionRoute(async (formData) => {
+        requests.push(offlineSaleRequestFromForm(formData));
+        return { error: "Captured sale." };
+      });
+
+      await user.type(screen.getByLabelText(/Quantity sold/), "1");
+      await user.type(screen.getByLabelText(/Sale price per item/), typedAmount);
+      await user.selectOptions(screen.getByLabelText(/Sale channel/), "card-show");
+      await user.click(screen.getByRole("button", { name: "Record sale" }));
+      await screen.findByText("Captured sale.");
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0]!.salePriceAmount).toBe(typedAmount);
+      expect(isCanonicalMoneyAmount(requests[0]!.salePriceAmount ?? "")).toBe(true);
+    },
+  );
+
+  it("preserves malformed nonblank money for the API's fail-closed validator", () => {
+    const formData = new FormData();
+    formData.set("salePriceAmount", "not-money");
+
+    expect(offlineSaleRequestFromForm(formData).salePriceAmount).toBe("not-money");
+  });
+
   it("renders partial and refused outcomes without completed wording and links every affected order", () => {
     const { rerender } = render(<OfflineSaleResult result={partialResult} authoritativeAvailableQuantity={5} />);
 
@@ -281,10 +311,17 @@ describe("OfflineSaleForm", () => {
     });
     expect((screen.getByLabelText(/Note/) as HTMLTextAreaElement).value).toBe("Saturday table");
 
-    await user.selectOptions(screen.getByLabelText(/Sale channel/), "other");
-    await user.click(screen.getByRole("button", { name: "Record sale" }));
-    await waitFor(() => expect(attempts).toHaveLength(2));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Record sale" }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    const channel = screen.getByLabelText(/Sale channel/) as HTMLSelectElement;
+    const submit = screen.getByRole("button", { name: "Record sale" }) as HTMLButtonElement;
+    await user.selectOptions(channel, "other");
+    expect(channel.value).toBe("other");
+    await user.click(submit);
+    await screen.findByText("This token already records different sale details.");
 
+    expect(attempts).toHaveLength(2);
     expect(attempts[1]).toMatchObject({
       idempotencyKey: "sale-token",
       channel: "other",

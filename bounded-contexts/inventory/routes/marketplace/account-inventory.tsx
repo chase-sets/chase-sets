@@ -254,12 +254,7 @@ export const action = defineFormAction({
         formData,
       );
       const commandReceipt = getMutationResultCommandReceipt(offlineSale);
-      return commandReceipt
-        ? { offlineSale, commandReceipt }
-        : {
-            error: t("inventory.features.inventoryItems.ui.offlineSaleForm.result.unverified"),
-            intent: "record-offline-sale" as const,
-          };
+      return { offlineSale, commandReceipt };
     },
   },
   onUnknownIntent: () => formActionRedirect(null, "/account/inventory"),
@@ -292,7 +287,10 @@ export default function MarketplaceInventoryRoute() {
   const visibleOfflineSaleFreshness = stateResult
     ? data.offlineSaleFreshness
     : offlineSaleAction
-      ? { itemId: offlineSaleAction.offlineSale.itemId, state: "pending" as const }
+      ? {
+          itemId: offlineSaleAction.offlineSale.itemId,
+          state: offlineSaleAction.commandReceipt ? ("pending" as const) : ("unverified" as const),
+        }
       : data.offlineSaleFreshness;
 
   useEffect(() => {

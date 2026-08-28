@@ -215,6 +215,23 @@ describe("inventory item pages", () => {
     expect(listHtml).not.toContain("/account/inventory/items/inv_1/offline-sales");
   });
 
+  it("renders a receiptless detail result as unverified without completed or authoritative wording", () => {
+    const detail: InventoryItemDetail = { ...inventoryItem, holds: [], ledger: [] };
+    const html = renderInventoryRoute(
+      <InventoryItemDetailPage
+        item={detail}
+        canRecordOfflineSale={true}
+        offlineSaleFormToken="detail-sale-token"
+        offlineSaleResult={completedSale}
+        offlineSaleVerificationState="unverified"
+      />,
+    );
+
+    expect(html).toContain("could not be verified");
+    expect(html).not.toContain("Completed:");
+    expect(html).not.toContain("Authoritative available quantity");
+  });
+
   it.each([
     { intent: "record-offline-sale", pageErrorMessage: null, offlineSaleErrorMessage: "Sale failed." },
     { intent: "adjust-item", pageErrorMessage: "Adjustment failed.", offlineSaleErrorMessage: null },
