@@ -62,6 +62,125 @@ export type BcRouteModule = Readonly<{
   readonly section?: string;
 }>;
 
+export type RouteDelivery = "portable" | "web-resource-only" | "server-only";
+
+export type RouteAuthorization = Readonly<
+  | {
+      readonly kind: "public";
+    }
+  | {
+      readonly kind: "authenticated";
+      readonly requiredPermissions: readonly string[];
+    }
+>;
+
+export type RouteCanonicalLinkIntent = Readonly<
+  | {
+      readonly kind: "route-derived";
+    }
+  | {
+      readonly kind: "not-applicable";
+      readonly reason: string;
+    }
+>;
+
+export type RouteAvailability = Readonly<{
+  readonly web: true;
+  readonly mobile: boolean;
+}>;
+
+export type PortableDataOperations = Readonly<{
+  readonly load: true;
+  readonly mutation: boolean;
+}>;
+
+export type UnsupportedMobileRoute = Readonly<{
+  readonly owner: string;
+  readonly followUp: string;
+  readonly reason: string;
+}>;
+
+export type BcPortableRouteModule = BcRouteModule &
+  Readonly<{
+    readonly delivery: "portable";
+    readonly authorization: RouteAuthorization;
+    readonly canonicalLink: RouteCanonicalLinkIntent;
+    readonly availability: Readonly<{ web: true; mobile: true }>;
+    readonly pageComponentExport: string;
+    readonly portableDataOperations: PortableDataOperations;
+    readonly unsupportedMobile?: never;
+  }>;
+
+export type BcUnsupportedRouteModule = BcRouteModule &
+  Readonly<{
+    readonly delivery: "server-only" | "web-resource-only";
+    readonly authorization: RouteAuthorization;
+    readonly canonicalLink: RouteCanonicalLinkIntent;
+    readonly availability: Readonly<{ web: true; mobile: false }>;
+    readonly pageComponentExport: string;
+    readonly portableDataOperations?: never;
+    readonly unsupportedMobile: UnsupportedMobileRoute;
+  }>;
+
+export type BcMarketplaceRouteModule = Readonly<BcPortableRouteModule | BcUnsupportedRouteModule>;
+
+export type PortableRouteInput = Readonly<{
+  readonly url: URL;
+  readonly params: Readonly<Record<string, string | undefined>>;
+}>;
+
+export type PortableRouteMutationInput = PortableRouteInput &
+  Readonly<{
+    readonly formData: FormData;
+  }>;
+
+export type PortableRouteOutcome<TData = unknown, TValidationError = unknown> = Readonly<
+  | { kind: "data"; data: TData }
+  | { kind: "validation-error"; error: TValidationError }
+  | { kind: "navigate"; to: string; replace?: boolean }
+  | { kind: "unauthorized" }
+  | { kind: "forbidden"; requiredPermissions: readonly string[] }
+  | { kind: "not-found" }
+  | { kind: "transient-error"; retryAfterMs?: number }
+  | { kind: "client-upgrade-required"; minimumContractVersion: number; destination: string }
+>;
+
+export type PortableRouteOperationContext<TFetch> = Readonly<{
+  readonly apiOrigin: string;
+  readonly fetch: TFetch;
+}>;
+
+export type PortableRouteLoadOperation<TFetch, TData = unknown> = (
+  input: PortableRouteInput,
+  context: PortableRouteOperationContext<TFetch>,
+) => Promise<PortableRouteOutcome<TData>>;
+
+export type PortableRouteMutationOperation<TFetch, TData = unknown, TValidationError = unknown> = (
+  input: PortableRouteMutationInput,
+  context: PortableRouteOperationContext<TFetch>,
+) => Promise<PortableRouteOutcome<TData, TValidationError>>;
+
+export type PortableRouteModule<
+  TFetch,
+  TPageComponent = unknown,
+  TData = unknown,
+  TMutationData = unknown,
+  TValidationError = unknown,
+> = Readonly<{
+  readonly routeId: string;
+  readonly pageComponent: TPageComponent;
+  readonly load: PortableRouteLoadOperation<TFetch, TData>;
+  readonly mutate?: PortableRouteMutationOperation<TFetch, TMutationData, TValidationError>;
+}>;
+
+export type PortableContextRegistryEntry<TFetch> = Readonly<{
+  readonly contextName: string;
+  readonly manifest: Readonly<{
+    readonly deployableContributions?: readonly BcDeployableContribution[];
+  }>;
+  readonly portableRoutes: readonly PortableRouteModule<TFetch>[];
+}>;
+
 export type BcDeployableContribution = Readonly<{
   readonly deployable: string;
   readonly routes: readonly BcRouteModule[];

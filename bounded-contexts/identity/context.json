@@ -1623,35 +1623,129 @@
           "routePath": "account",
           "fileExport": "./routes/marketplace/account",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "delivery": "portable",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": ["accounts.view"]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Authenticated account pages are not canonical public documents."
+          },
+          "availability": {
+            "web": true,
+            "mobile": true
+          },
+          "pageComponentExport": "AccountProfilePage",
+          "portableDataOperations": {
+            "load": true,
+            "mutation": true
+          }
         },
         {
           "routeId": "account-consents",
           "routePath": "account/consents",
           "fileExport": "./routes/marketplace/account-consents",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-shipping-addresses",
           "routePath": "account/shipping-addresses",
           "fileExport": "./routes/marketplace/account-shipping-addresses",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-security",
           "routePath": "account/security",
           "fileExport": "./routes/marketplace/account-security",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-team",
           "routePath": "account/team",
           "fileExport": "./routes/marketplace/account-team",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     }

@@ -1008,21 +1008,73 @@
           "routePath": "account/product-alerts",
           "fileExport": "./routes/account-product-alerts",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Authenticated account pages are not canonical public documents."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "category",
           "routePath": "categories/:categorySlug",
           "fileExport": "./routes/search",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "portable",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": true
+          },
+          "pageComponentExport": "SearchPage",
+          "portableDataOperations": {
+            "load": true,
+            "mutation": false
+          }
         },
         {
           "routeId": "item-detail",
           "routePath": "items/:id",
           "fileExport": "./routes/item-detail",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "item-detail-market-history",
@@ -1030,35 +1082,120 @@
           "fileExport": "./routes/item-detail-market-history",
           "routeType": "route",
           "placement": "root",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "The nested market-history response is not a standalone canonical document."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "public-listing",
           "routePath": "listings/:listingSlug",
           "fileExport": "./routes/public-listing",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "public-account",
           "routePath": "accounts/:accountSlug",
           "fileExport": "./routes/public-account",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "set",
           "routePath": "sets/:setSlug",
           "fileExport": "./routes/set",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "search",
           "routePath": "search",
           "fileExport": "./routes/search",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "portable",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": true
+          },
+          "pageComponentExport": "SearchPage",
+          "portableDataOperations": {
+            "load": true,
+            "mutation": false
+          }
         }
       ]
     },
