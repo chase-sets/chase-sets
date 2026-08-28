@@ -171,6 +171,7 @@ export function InventoryItemDetailPage({
   canHonorOffline = false,
   offlineSaleFormToken,
   offlineSaleResult,
+  offlineSaleErrorMessage,
 }: {
   item: InventoryItemDetail;
   errorMessage?: string | null;
@@ -179,6 +180,7 @@ export function InventoryItemDetailPage({
   canHonorOffline?: boolean;
   offlineSaleFormToken?: string;
   offlineSaleResult?: import("../../../client").InventoryOfflineSaleResult | null;
+  offlineSaleErrorMessage?: string | null;
 }) {
   const selectedKind = selectedLedgerKind(currentPath);
   const ledgerEntries = selectedKind ? item.ledger.filter((entry) => entry.kind === selectedKind) : item.ledger;
@@ -251,7 +253,7 @@ export function InventoryItemDetailPage({
               itemId={item.item_id}
               result={offlineSaleResult}
               authoritativeAvailableQuantity={item.available_quantity}
-              errorMessage={errorMessage}
+              errorMessage={offlineSaleErrorMessage}
             />
           </Card>
         </PageSection>

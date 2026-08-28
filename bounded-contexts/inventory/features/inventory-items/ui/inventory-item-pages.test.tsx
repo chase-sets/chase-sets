@@ -126,6 +126,30 @@ describe("inventory item pages", () => {
     expect(listHtml).not.toContain("/account/inventory/items/inv_1/offline-sales");
   });
 
+  it.each([
+    { intent: "record-offline-sale", pageErrorMessage: null, offlineSaleErrorMessage: "Sale failed." },
+    { intent: "adjust-item", pageErrorMessage: "Adjustment failed.", offlineSaleErrorMessage: null },
+    { intent: "create-hold", pageErrorMessage: "Create hold failed.", offlineSaleErrorMessage: null },
+    { intent: "release-hold", pageErrorMessage: "Release hold failed.", offlineSaleErrorMessage: null },
+  ])(
+    "renders the $intent error exactly once in its owned detail surface",
+    ({ pageErrorMessage, offlineSaleErrorMessage }) => {
+      const detail: InventoryItemDetail = { ...inventoryItem, holds: [], ledger: [] };
+      const message = pageErrorMessage ?? offlineSaleErrorMessage!;
+      const html = renderInventoryRoute(
+        <InventoryItemDetailPage
+          item={detail}
+          canRecordOfflineSale={true}
+          offlineSaleFormToken="detail-sale-token"
+          errorMessage={pageErrorMessage}
+          offlineSaleErrorMessage={offlineSaleErrorMessage}
+        />,
+      );
+
+      expect(html.match(new RegExp(message.replaceAll(".", "\\."), "g"))).toHaveLength(1);
+    },
+  );
+
   it("renders order hold provenance without a seller release affordance", () => {
     const detail: InventoryItemDetail = {
       ...inventoryItem,

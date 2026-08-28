@@ -601,7 +601,7 @@
       "visibleDestination": {
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
-        "description": "Record sale from /account/inventory/items/:itemId stays on that item detail and fresh-reads the written item. Record sale from the paginated /account/inventory list stays on the selected limit/offset page, carries the command receipt with the written item id, then fresh-reads and reconciles only that row; no stale list quantity receives completed wording.",
+        "description": "Record sale from /account/inventory/items/:itemId stays on that item detail and fresh-reads the written item. Record sale from the paginated /account/inventory list stays on the selected limit/offset page, carries the command receipt with the written item id, then fresh-reads that item. The list reconciles the row only when it remains on the selected page; otherwise rows, count, total, and pagination stay unchanged while the result uses the separately returned fresh item. No stale list quantity receives completed wording.",
         "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",

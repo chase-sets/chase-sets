@@ -17,8 +17,38 @@ type OfflineSaleActionData = Readonly<{
   commandReceipt: ReturnType<typeof getMutationResultCommandReceipt>;
 }>;
 
+type InventoryItemActionIntent = "adjust-item" | "record-offline-sale" | "create-hold" | "release-hold";
+
+export type InventoryItemActionErrorData = Readonly<{
+  error: string;
+  intent: InventoryItemActionIntent;
+}>;
+
 function isOfflineSaleActionData(value: unknown): value is OfflineSaleActionData {
   return typeof value === "object" && value !== null && "offlineSale" in value && "commandReceipt" in value;
+}
+
+function isInventoryItemActionErrorData(value: unknown): value is InventoryItemActionErrorData {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "error" in value &&
+    "intent" in value &&
+    ["adjust-item", "record-offline-sale", "create-hold", "release-hold"].includes(String(value.intent))
+  );
+}
+
+export function inventoryItemActionFeedback(actionData: unknown) {
+  const actionError = isInventoryItemActionErrorData(actionData) ? actionData : null;
+  const message =
+    typeof actionData === "object" && actionData !== null && "message" in actionData
+      ? String(actionData.message ?? "")
+      : null;
+
+  return {
+    offlineSaleErrorMessage: actionError?.intent === "record-offline-sale" ? actionError.error : null,
+    pageErrorMessage: actionError?.intent !== "record-offline-sale" ? (actionError?.error ?? message) : null,
+  };
 }
 
 export const loader = defineResourceRoute({
@@ -43,6 +73,10 @@ export const loader = defineResourceRoute({
 export const action = defineFormAction({
   authorization: { permission: "inventory.manage" },
   errorAdapter: inventoryApiErrorAdapter,
+  onApiError: (error, { intent }) => ({
+    error: inventoryApiErrorAdapter.getMessage(error),
+    intent: intent as InventoryItemActionIntent,
+  }),
   intents: {
     "adjust-item": async ({ request, params, formData }) => {
       const result = await createInventoryRequestApiClient(request).adjustItem(params.itemId!, {
@@ -65,7 +99,10 @@ export const action = defineFormAction({
       const commandReceipt = getMutationResultCommandReceipt(offlineSale);
       return commandReceipt
         ? { offlineSale, commandReceipt }
-        : { error: t("inventory.features.inventoryItems.ui.offlineSaleForm.result.unverified") };
+        : {
+            error: t("inventory.features.inventoryItems.ui.offlineSaleForm.result.unverified"),
+            intent: "record-offline-sale" as const,
+          };
     },
     "create-hold": async ({ request, params, formData }) =>
       formActionRedirect(
@@ -95,7 +132,8 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceInventoryItemRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as
-    | { error?: string; message?: string }
+    | InventoryItemActionErrorData
+    | { message?: string }
     | OfflineSaleActionData
     | undefined;
   const location = useLocation();
@@ -104,6 +142,7 @@ export default function MarketplaceInventoryItemRoute() {
   const offlineSaleAction = isOfflineSaleActionData(actionData) ? actionData : null;
   const currentPath = `${location.pathname}${location.search}`;
   const stateResult = (location.state as { offlineSaleResult?: InventoryOfflineSaleResult } | null)?.offlineSaleResult;
+  const actionFeedback = inventoryItemActionFeedback(actionData);
 
   useEffect(() => {
     if (!offlineSaleAction?.commandReceipt) {
@@ -129,13 +168,8 @@ export default function MarketplaceInventoryItemRoute() {
       canHonorOffline={data.canHonorOffline}
       offlineSaleFormToken={data.offlineSaleFormToken}
       offlineSaleResult={stateResult ?? null}
-      errorMessage={
-        actionData && "error" in actionData
-          ? actionData.error
-          : actionData && "message" in actionData
-            ? actionData.message
-            : null
-      }
+      errorMessage={actionFeedback.pageErrorMessage}
+      offlineSaleErrorMessage={actionFeedback.offlineSaleErrorMessage}
     />
   );
 }

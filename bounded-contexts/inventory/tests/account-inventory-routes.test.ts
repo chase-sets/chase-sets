@@ -13,6 +13,7 @@ import {
 } from "../routes/marketplace/account-inventory-imports";
 import {
   action as inventoryItemAction,
+  inventoryItemActionFeedback,
   loader as inventoryItemLoader,
 } from "../routes/marketplace/account-inventory-item";
 import {
@@ -295,7 +296,7 @@ describe("marketplace inventory routes", () => {
       context: undefined,
     } as never);
 
-    expect(result).toEqual({ error: "Bad inventory input." });
+    expect(result).toEqual({ error: "Bad inventory input.", intent: "create-item" });
   });
 
   it("carries inventory item create receipts into the detail redirect", async () => {
@@ -1138,7 +1139,30 @@ describe("marketplace inventory routes", () => {
     expect(result.loadError).toBe("Storage locations are still updating. Reload this page in a moment.");
   });
 
-  it("surfaces inventory item action validation errors", async () => {
+  it.each([
+    [
+      "adjust-item",
+      {
+        intent: "adjust-item",
+        quantityDelta: "-1",
+        reasonCode: "correction",
+        reason: "Count correction",
+      },
+    ],
+    [
+      "record-offline-sale",
+      {
+        intent: "record-offline-sale",
+        itemId: "inv_1",
+        quantity: "1",
+        channel: "card-show",
+        collisionMode: "protect-orders",
+        idempotencyKey: "sale-error",
+      },
+    ],
+    ["create-hold", { intent: "create-hold", quantity: "5", reason: "Checkout" }],
+    ["release-hold", { intent: "release-hold", holdId: "hld_1" }],
+  ] as const)("preserves %s ownership on inventory item action validation errors", async (intent, fields) => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -1160,14 +1184,11 @@ describe("marketplace inventory routes", () => {
           );
         }
 
-        return Promise.resolve(jsonResponse({ error: "Hold exceeds availability." }, 400));
+        return Promise.resolve(jsonResponse({ error: `${intent} failed.` }, 400));
       }),
     );
 
-    const form = new URLSearchParams();
-    form.set("intent", "create-hold");
-    form.set("quantity", "5");
-    form.set("reason", "Checkout");
+    const form = new URLSearchParams(fields);
 
     const result = await inventoryItemAction({
       request: new Request("http://localhost/account/inventory/items/inv_1", {
@@ -1179,8 +1200,23 @@ describe("marketplace inventory routes", () => {
       context: undefined,
     } as never);
 
-    expect(result).toEqual({ error: "Hold exceeds availability." });
+    expect(result).toEqual({ error: `${intent} failed.`, intent });
   });
+
+  it.each(["adjust-item", "record-offline-sale", "create-hold", "release-hold"] as const)(
+    "assigns the %s error to exactly one detail-page owner",
+    (intent) => {
+      const feedback = inventoryItemActionFeedback({ error: `${intent} failed.`, intent });
+
+      expect(
+        [feedback.pageErrorMessage, feedback.offlineSaleErrorMessage].filter(
+          (message) => message === `${intent} failed.`,
+        ),
+      ).toHaveLength(1);
+      expect(feedback.offlineSaleErrorMessage).toBe(intent === "record-offline-sale" ? `${intent} failed.` : null);
+      expect(feedback.pageErrorMessage).toBe(intent === "record-offline-sale" ? null : `${intent} failed.`);
+    },
+  );
 
   it.each([
     ["detail", inventoryItemAction, "http://localhost/account/inventory/items/inv_1", { itemId: "inv_1" }],
@@ -1332,7 +1368,141 @@ describe("marketplace inventory routes", () => {
     expect(freshItemRequest?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
     expect(result.items).toMatchObject({ total: 31, count: 1, limit: 25, offset: 50 });
     expect(result.items.items[0]?.available_quantity).toBe(5);
+    expect(result.offlineSaleFreshItem?.available_quantity).toBe(5);
     expect(result.offlineSaleFreshness).toEqual({ itemId: "inv_1", state: "fresh" });
+  });
+
+  it("keeps page rows, totals, and pagination unchanged when the receipt-gated sale item moved off-page", async () => {
+    const requests: { url: string; headers: Headers }[] = [];
+    const pageItem = {
+      item_id: "inv_page",
+      account_id: "acc_1",
+      catalog_catalog_item_id: "cat_page",
+      product_id: "cat_page::raw",
+      item_title: "Page item",
+      item_subtitle: null,
+      selected_options: [],
+      product_summary: null,
+      graded_card: null,
+      storage_location_id: "loc_1",
+      storage_location_name: "Main shelf",
+      ship_from_code: "STL",
+      ship_from_address: null,
+      total_quantity: 4,
+      held_quantity: 0,
+      available_quantity: 4,
+      acquisition_cost_amount: null,
+      created_at: "2026-03-31T00:00:00.000Z",
+      updated_at: "2026-03-31T00:00:00.000Z",
+    };
+    const freshSaleItem = {
+      ...pageItem,
+      item_id: "inv_1",
+      catalog_catalog_item_id: "cat_sale",
+      product_id: "cat_sale::raw",
+      item_title: "Sold item",
+      total_quantity: 2,
+      available_quantity: 2,
+      holds: [],
+      ledger: [],
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, headers: new Headers(init?.headers) });
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+        if (url.includes("/api/inventory/items/inv_1")) {
+          return Promise.resolve(jsonResponse(freshSaleItem));
+        }
+        if (url.includes("/api/inventory/storage-locations")) {
+          return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+        }
+        return Promise.resolve(jsonResponse({ items: [pageItem], total: 100, count: 1, limit: 25, offset: 50 }));
+      }),
+    );
+
+    const result = await inventoryLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/account/inventory?query=bulba&limit=25&offset=50&offlineSaleItemId=inv_1",
+          inventoryCommit("80"),
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.items).toMatchObject({ items: [pageItem], total: 100, count: 1, limit: 25, offset: 50 });
+    expect(result.offlineSaleFreshItem).toMatchObject({ item_id: "inv_1", available_quantity: 2 });
+    expect(result.offlineSaleFreshness).toEqual({ itemId: "inv_1", state: "fresh" });
+    expect(
+      requests
+        .find((request) => request.url.includes("/api/inventory/items/inv_1"))
+        ?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER),
+    ).toBeTruthy();
+  });
+
+  it("keeps a failed receipt-gated off-page read bounded as unverified without changing the page", async () => {
+    const pageItem = { item_id: "inv_page", available_quantity: 4 };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+        if (url.includes("/api/inventory/items/inv_1")) {
+          return Promise.resolve(jsonResponse({ error: "Fresh item unavailable." }, 503));
+        }
+        if (url.includes("/api/inventory/storage-locations")) {
+          return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+        }
+        return Promise.resolve(jsonResponse({ items: [pageItem], total: 100, count: 1, limit: 25, offset: 50 }));
+      }),
+    );
+
+    const result = await inventoryLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/account/inventory?limit=25&offset=50&offlineSaleItemId=inv_1",
+          inventoryCommit("81"),
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.items).toMatchObject({ items: [pageItem], total: 100, count: 1, limit: 25, offset: 50 });
+    expect(result.offlineSaleFreshItem).toBeNull();
+    expect(result.offlineSaleFreshness).toEqual({ itemId: "inv_1", state: "unverified" });
   });
 
   it("keeps the form hidden for a viewer and refuses a forged offline-sale form before calling Inventory", async () => {

@@ -1,13 +1,13 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation, useNavigate } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
 import {
   getMutationResultCommandReceipt,
   navigateAfterWrite,
   readFreshWriteToken,
   type ListResponse,
 } from "@chase-sets/http/responses";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -36,8 +36,25 @@ type OfflineSaleActionData = Readonly<{
   commandReceipt: ReturnType<typeof getMutationResultCommandReceipt>;
 }>;
 
+type InventoryListActionIntent = "create-item" | "record-offline-sale";
+
+type InventoryListActionErrorData = Readonly<{
+  error: string;
+  intent: InventoryListActionIntent;
+}>;
+
 function isOfflineSaleActionData(value: unknown): value is OfflineSaleActionData {
   return typeof value === "object" && value !== null && "offlineSale" in value && "commandReceipt" in value;
+}
+
+function isInventoryListActionErrorData(value: unknown): value is InventoryListActionErrorData {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "error" in value &&
+    "intent" in value &&
+    (value.intent === "create-item" || value.intent === "record-offline-sale")
+  );
 }
 
 function parseSelectedOptionsParam(value: string | null) {
@@ -92,9 +109,9 @@ function pageBoundsFromQuery(query: string): { limit: number; offset: number } {
   };
 }
 
-function offlineSaleListDestination(offlineSale: InventoryOfflineSaleResult, currentPath: string) {
-  const destination = new URL(navigateAfterWrite(offlineSale, currentPath), "http://localhost");
-  destination.searchParams.set(OFFLINE_SALE_ITEM_QUERY_PARAMETER, offlineSale.itemId);
+function offlineSaleListDestination(actionData: OfflineSaleActionData, currentPath: string) {
+  const destination = new URL(navigateAfterWrite(actionData, currentPath), "http://localhost");
+  destination.searchParams.set(OFFLINE_SALE_ITEM_QUERY_PARAMETER, actionData.offlineSale.itemId);
   return `${destination.pathname}${destination.search}${destination.hash}`;
 }
 
@@ -102,17 +119,15 @@ function reconcileFreshOfflineSaleItem(
   items: ListResponse<InventoryItemListItem> & { limit: number; offset: number },
   freshItem: InventoryItemDetail,
 ) {
-  let found = false;
   const reconciledItems = items.items.map((item) => {
     if (item.item_id !== freshItem.item_id) {
       return item;
     }
 
-    found = true;
     return freshItem;
   });
 
-  return found ? { ...items, items: reconciledItems } : null;
+  return { ...items, items: reconciledItems };
 }
 
 function isTemporaryInventoryReadError(error: unknown) {
@@ -172,6 +187,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const readModels = await loadAccountInventoryReadModels(api, inventoryItemPageQuery(request));
   const writtenItemId = url.searchParams.get(OFFLINE_SALE_ITEM_QUERY_PARAMETER)?.trim() || null;
   let items = readModels.items;
+  let offlineSaleFreshItem: InventoryItemDetail | null = null;
   let offlineSaleFreshness: { itemId: string; state: "fresh" | "unverified" } | null = null;
 
   if (writtenItemId) {
@@ -179,13 +195,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
       offlineSaleFreshness = { itemId: writtenItemId, state: "unverified" };
     } else {
       try {
-        const reconciled = reconcileFreshOfflineSaleItem(items, await api.getItem(writtenItemId));
-        if (reconciled) {
-          items = reconciled;
-          offlineSaleFreshness = { itemId: writtenItemId, state: "fresh" };
-        } else {
-          offlineSaleFreshness = { itemId: writtenItemId, state: "unverified" };
-        }
+        offlineSaleFreshItem = await api.getItem(writtenItemId);
+        items = reconcileFreshOfflineSaleItem(items, offlineSaleFreshItem);
+        offlineSaleFreshness = { itemId: writtenItemId, state: "fresh" };
       } catch {
         offlineSaleFreshness = { itemId: writtenItemId, state: "unverified" };
       }
@@ -195,6 +207,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return {
     ...readModels,
     items,
+    offlineSaleFreshItem,
     offlineSaleFreshness,
     createItemDraft: {
       catalogItemId: url.searchParams.get("catalogItemId")?.trim() ?? "",
@@ -212,6 +225,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 export const action = defineFormAction({
   authorization: { permission: "inventory.manage" },
   errorAdapter: inventoryApiErrorAdapter,
+  onApiError: (error, { intent }) => ({
+    error: inventoryApiErrorAdapter.getMessage(error),
+    intent: intent as InventoryListActionIntent,
+  }),
   intents: {
     "create-item": async ({ request, formData }) => {
       const result = (await createInventoryRequestApiClient(request).createItem({
@@ -239,7 +256,10 @@ export const action = defineFormAction({
       const commandReceipt = getMutationResultCommandReceipt(offlineSale);
       return commandReceipt
         ? { offlineSale, commandReceipt }
-        : { error: t("inventory.features.inventoryItems.ui.offlineSaleForm.result.unverified") };
+        : {
+            error: t("inventory.features.inventoryItems.ui.offlineSaleForm.result.unverified"),
+            intent: "record-offline-sale" as const,
+          };
     },
   },
   onUnknownIntent: () => formActionRedirect(null, "/account/inventory"),
@@ -253,19 +273,33 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceInventoryRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as { error?: string } | OfflineSaleActionData | undefined;
+  const actionData = useActionData<typeof action>() as InventoryListActionErrorData | OfflineSaleActionData | undefined;
   const location = useLocation();
   const navigate = useNavigate();
+  const navigation = useNavigation();
   const handledReceipt = useRef<string | null>(null);
   const offlineSaleAction = isOfflineSaleActionData(actionData) ? actionData : null;
+  const actionError = isInventoryListActionErrorData(actionData) ? actionData : null;
   const currentPath = `${location.pathname}${location.search}`;
-  const stateResult = (location.state as { offlineSaleResult?: InventoryOfflineSaleResult } | null)?.offlineSaleResult;
+  const locationState = useMemo(
+    () =>
+      typeof location.state === "object" && location.state !== null ? (location.state as Record<string, unknown>) : {},
+    [location.state],
+  );
+  const stateResult = locationState.offlineSaleResult as InventoryOfflineSaleResult | undefined;
+  const preservedLocationState = useRef(locationState);
   const visibleOfflineSaleResult = stateResult ?? offlineSaleAction?.offlineSale ?? null;
   const visibleOfflineSaleFreshness = stateResult
     ? data.offlineSaleFreshness
     : offlineSaleAction
       ? { itemId: offlineSaleAction.offlineSale.itemId, state: "pending" as const }
       : data.offlineSaleFreshness;
+
+  useEffect(() => {
+    if (navigation.state === "idle" && !offlineSaleAction) {
+      preservedLocationState.current = locationState;
+    }
+  }, [locationState, navigation.state, offlineSaleAction]);
 
   useEffect(() => {
     if (!offlineSaleAction?.commandReceipt) {
@@ -277,9 +311,9 @@ export default function MarketplaceInventoryRoute() {
       return;
     }
     handledReceipt.current = receiptKey;
-    navigate(offlineSaleListDestination(offlineSaleAction.offlineSale, currentPath), {
+    navigate(offlineSaleListDestination(offlineSaleAction, currentPath), {
       replace: true,
-      state: { offlineSaleResult: offlineSaleAction.offlineSale },
+      state: { ...preservedLocationState.current, offlineSaleResult: offlineSaleAction.offlineSale },
     });
   }, [currentPath, navigate, offlineSaleAction]);
 
@@ -296,9 +330,14 @@ export default function MarketplaceInventoryRoute() {
       canHonorOffline={data.canHonorOffline}
       offlineSaleFormTokens={data.offlineSaleFormTokens}
       offlineSaleResult={visibleOfflineSaleResult}
-      errorMessage={data.loadError ?? null}
-      offlineSaleErrorMessage={(actionData && "error" in actionData ? actionData.error : null) ?? null}
+      errorMessage={actionError?.intent === "create-item" ? actionError.error : (data.loadError ?? null)}
+      offlineSaleErrorMessage={actionError?.intent === "record-offline-sale" ? actionError.error : null}
       offlineSaleFreshness={visibleOfflineSaleFreshness}
+      offlineSaleAuthoritativeAvailableQuantity={
+        visibleOfflineSaleResult && data.offlineSaleFreshItem?.item_id === visibleOfflineSaleResult.itemId
+          ? data.offlineSaleFreshItem.available_quantity
+          : undefined
+      }
     />
   );
 }

@@ -29,6 +29,14 @@ const partialResult: InventoryOfflineSaleResult = {
   },
 };
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 function renderOfflineSaleForm(
   props: Omit<Parameters<typeof OfflineSaleForm>[0], "initialIdempotencyKey" | "canHonorOffline"> & {
     initialIdempotencyKey?: string;
@@ -155,27 +163,96 @@ describe("OfflineSaleForm", () => {
     expect(screen.queryByText(/Completed:/)).toBeNull();
   });
 
-  it("withholds completed wording until a receipt-gated item read verifies the resulting quantity", () => {
-    const completeResult: InventoryOfflineSaleResult = {
-      ...partialResult,
-      requestedQuantity: 2,
-      appliedQuantity: 2,
-      refusedQuantity: 0,
-      collision: null,
-    };
-    const { rerender } = render(
-      <OfflineSaleResult result={completeResult} authoritativeAvailableQuantity={7} verificationState="unverified" />,
-    );
+  it.each([
+    {
+      outcome: "full",
+      state: "fresh" as const,
+      result: { ...partialResult, requestedQuantity: 2, appliedQuantity: 2, refusedQuantity: 0, collision: null },
+      expected: "Completed: 2 units recorded as sold. Authoritative available quantity: 5.",
+      verification: null,
+      role: "status",
+    },
+    {
+      outcome: "full",
+      state: "pending" as const,
+      result: { ...partialResult, requestedQuantity: 2, appliedQuantity: 2, refusedQuantity: 0, collision: null },
+      expected: null,
+      verification: "Verifying the recorded sale",
+      role: "alert",
+    },
+    {
+      outcome: "full",
+      state: "unverified" as const,
+      result: { ...partialResult, requestedQuantity: 2, appliedQuantity: 2, refusedQuantity: 0, collision: null },
+      expected: null,
+      verification: "could not be verified",
+      role: "alert",
+    },
+    {
+      outcome: "partial",
+      state: "fresh" as const,
+      result: partialResult,
+      expected: "Recorded 2 units. 1 units were not recorded.",
+      verification: null,
+      role: "alert",
+    },
+    {
+      outcome: "partial",
+      state: "pending" as const,
+      result: partialResult,
+      expected: "Recorded 2 units. 1 units were not recorded.",
+      verification: "Verifying the recorded sale",
+      role: "alert",
+    },
+    {
+      outcome: "partial",
+      state: "unverified" as const,
+      result: partialResult,
+      expected: "Recorded 2 units. 1 units were not recorded.",
+      verification: "could not be verified",
+      role: "alert",
+    },
+    {
+      outcome: "refused",
+      state: "fresh" as const,
+      result: { ...partialResult, appliedQuantity: 0, refusedQuantity: 3 },
+      expected: "No units were recorded. 3 units were refused.",
+      verification: null,
+      role: "alert",
+    },
+    {
+      outcome: "refused",
+      state: "pending" as const,
+      result: { ...partialResult, appliedQuantity: 0, refusedQuantity: 3 },
+      expected: "No units were recorded. 3 units were refused.",
+      verification: "Verifying the recorded sale",
+      role: "alert",
+    },
+    {
+      outcome: "refused",
+      state: "unverified" as const,
+      result: { ...partialResult, appliedQuantity: 0, refusedQuantity: 3 },
+      expected: "No units were recorded. 3 units were refused.",
+      verification: "could not be verified",
+      role: "alert",
+    },
+  ])("renders $outcome facts with $state freshness ownership", ({ state, result, expected, verification, role }) => {
+    render(<OfflineSaleResult result={result} authoritativeAvailableQuantity={5} verificationState={state} />);
 
-    expect(screen.getByRole("alert").textContent).toContain("could not be verified");
-    expect(screen.queryByText(/Completed:/)).toBeNull();
-
-    rerender(
-      <OfflineSaleResult result={completeResult} authoritativeAvailableQuantity={5} verificationState="fresh" />,
-    );
-    expect(screen.getByRole("status").textContent).toContain(
-      "Completed: 2 units recorded as sold. Authoritative available quantity: 5.",
-    );
+    const announcement = screen.getByRole(role);
+    if (expected) {
+      expect(announcement.textContent).toContain(expected);
+    } else {
+      expect(announcement.textContent).not.toContain("Completed:");
+    }
+    if (verification) {
+      expect(announcement.textContent).toContain(verification);
+    }
+    if (state !== "fresh") {
+      expect(announcement.textContent).not.toContain("Authoritative available quantity");
+    }
+    expect(document.activeElement).toBe(announcement);
+    expect(screen.queryAllByRole("link", { name: "View affected order ord_1" })).toHaveLength(result.collision ? 1 : 0);
   });
 
   it("keeps one idempotency token and every submitted value through retryable and changed-field conflicts", async () => {
@@ -219,13 +296,11 @@ describe("OfflineSaleForm", () => {
 
   it("disables a pending route-aware submission so a double submit reaches one logical sale", async () => {
     const user = userEvent.setup();
-    let resolveAction: ((value: unknown) => void) | null = null;
+    const actionResult = deferred<unknown>();
     let calls = 0;
     renderOfflineSaleActionRoute(async () => {
       calls += 1;
-      return await new Promise((resolve) => {
-        resolveAction = resolve;
-      });
+      return await actionResult.promise;
     });
 
     await user.type(screen.getByLabelText(/Quantity sold/), "2");
@@ -236,7 +311,7 @@ describe("OfflineSaleForm", () => {
 
     await waitFor(() => expect(calls).toBe(1));
     expect((screen.getByRole("button", { name: "Record sale" }) as HTMLButtonElement).disabled).toBe(true);
-    resolveAction?.({ error: "Retry this sale." });
+    actionResult.resolve({ error: "Retry this sale." });
     await screen.findByRole("alert");
   });
 });

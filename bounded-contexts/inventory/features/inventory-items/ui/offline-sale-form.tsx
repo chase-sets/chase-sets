@@ -74,26 +74,30 @@ export function OfflineSaleResult({
   const isComplete = result.appliedQuantity === result.requestedQuantity;
   const isRefused = result.appliedQuantity === 0;
   const isVerifiedComplete = isComplete && verificationState === "fresh";
+  const verificationMessage =
+    verificationState === "pending"
+      ? t("inventory.features.inventoryItems.ui.offlineSaleForm.result.pending")
+      : verificationState === "unverified"
+        ? t("inventory.features.inventoryItems.ui.offlineSaleForm.result.unverified")
+        : null;
+  const outcomeMessage = isComplete
+    ? isVerifiedComplete
+      ? t("inventory.features.inventoryItems.ui.offlineSaleForm.completed", {
+          count: result.appliedQuantity,
+          available: authoritativeAvailableQuantity ?? 0,
+        })
+      : null
+    : isRefused
+      ? t("inventory.features.inventoryItems.ui.offlineSaleForm.refused", { count: result.refusedQuantity })
+      : t("inventory.features.inventoryItems.ui.offlineSaleForm.partial", {
+          applied: result.appliedQuantity,
+          refused: result.refusedQuantity,
+        });
 
   return (
     <Stack ref={resultRef} gap={2} role={isVerifiedComplete ? "status" : "alert"} tabIndex={-1}>
-      <Text weight="semibold">
-        {verificationState === "pending"
-          ? t("inventory.features.inventoryItems.ui.offlineSaleForm.result.pending")
-          : verificationState === "unverified"
-            ? t("inventory.features.inventoryItems.ui.offlineSaleForm.result.unverified")
-            : isComplete
-              ? t("inventory.features.inventoryItems.ui.offlineSaleForm.completed", {
-                  count: result.appliedQuantity,
-                  available: authoritativeAvailableQuantity ?? 0,
-                })
-              : isRefused
-                ? t("inventory.features.inventoryItems.ui.offlineSaleForm.refused", { count: result.refusedQuantity })
-                : t("inventory.features.inventoryItems.ui.offlineSaleForm.partial", {
-                    applied: result.appliedQuantity,
-                    refused: result.refusedQuantity,
-                  })}
-      </Text>
+      {verificationMessage ? <Text weight="semibold">{verificationMessage}</Text> : null}
+      {outcomeMessage ? <Text weight="semibold">{outcomeMessage}</Text> : null}
       {result.collision?.affectedOrders.map((order) => (
         <LinkButton key={order.orderId} href={`/account/sales/${order.orderId}`} tone="secondary" size="sm">
           {t("inventory.features.inventoryItems.ui.offlineSaleForm.affected.order", { orderId: order.orderId })}
