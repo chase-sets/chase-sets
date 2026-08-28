@@ -64,7 +64,7 @@ function duplicateViolation(requirement) {
 }
 
 function registrationContractViolations(skill) {
-  const section = activeMarkdown(registrationSection(skill));
+  const section = registrationSection(activeMarkdown(skill));
   const missing = Object.entries(parentageRule)
     .filter(([, clause]) => occurrenceCount(section, clause) === 0)
     .map(([requirement]) => requirement);
@@ -99,6 +99,11 @@ describe("planning decomposition contract", () => {
 
     const commented = skill.replace(rule, `<!--\n${rule}\n-->`);
     expect(registrationContractViolations(commented)).toEqual(Object.keys(parentageRule));
+
+    const wholeSectionCommented = skill.replace(registrationSection(skill), `<!--\n${registrationSection(skill)}\n-->`);
+    expect(() => registrationContractViolations(wholeSectionCommented)).toThrow(
+      "registration-section-start-anchor-must-be-unique",
+    );
 
     const duplicated = skill.replace(rule, `${rule}\n${rule}`);
     expect(registrationContractViolations(duplicated)).toEqual(Object.keys(parentageRule).map(duplicateViolation));
