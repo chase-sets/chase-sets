@@ -93,6 +93,32 @@ describe("inventory item pages", () => {
     expect(html).not.toContain("List it");
   });
 
+  it("renders one stay-in-context offline-sale form on detail and one responsive-sheet trigger per list row", () => {
+    const detail: InventoryItemDetail = { ...inventoryItem, holds: [], ledger: [] };
+    const detailHtml = renderToString(
+      <InventoryItemDetailPage
+        item={detail}
+        canRecordOfflineSale={true}
+        canHonorOffline={true}
+        offlineSaleFormToken="detail-sale-token"
+      />,
+    );
+    const listHtml = renderToString(
+      <InventoryItemListPage
+        data={{ items: [inventoryItem] }}
+        locations={[]}
+        canRecordOfflineSale={true}
+        offlineSaleFormTokens={{ inv_1: "list-sale-token" }}
+      />,
+    );
+
+    expect(detailHtml.match(/name="intent" value="record-offline-sale"/g)).toHaveLength(1);
+    expect(detailHtml).toContain("Record offline sale");
+    // DataTable renders one responsive representation for each breakpoint; each has the single row trigger.
+    expect(listHtml.match(/Record sale/g)).toHaveLength(2);
+    expect(listHtml).not.toContain("/account/inventory/items/inv_1/offline-sales");
+  });
+
   it("renders order hold provenance without a seller release affordance", () => {
     const detail: InventoryItemDetail = {
       ...inventoryItem,

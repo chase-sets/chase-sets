@@ -1,7 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation } from "react-router";
-import { type ListResponse } from "@chase-sets/http/responses";
+import { redirect, useActionData, useLoaderData, useLocation, useNavigate } from "react-router";
+import { getMutationResultCommandReceipt, navigateAfterWrite, type ListResponse } from "@chase-sets/http/responses";
+import { useEffect, useRef } from "react";
 import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -14,12 +15,23 @@ import { createInventoryRequestApiClient } from "../../support/request-support/a
 import { InventoryItemListPage } from "../../features/inventory-items/ui/inventory-item-list-page";
 import { inventoryItemPageQuery } from "../../support/request-support/list-pagination";
 import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
+import { createOfflineSaleFormToken, submitOfflineSaleForm } from "../../features/inventory-items/ui/offline-sale-form";
+import type { InventoryOfflineSaleResult } from "../../client";
 
 const ACCOUNT_INVENTORY_READ_TIMEOUT_MS = 10_000;
 const TEMPORARY_INVENTORY_ITEMS_LOAD_ERROR =
   "Inventory items are taking longer than expected. Reload this page in a moment.";
 const TEMPORARY_STORAGE_LOCATIONS_LOAD_ERROR =
   "Storage locations are taking longer than expected. Reload this page in a moment.";
+
+type OfflineSaleActionData = Readonly<{
+  offlineSale: InventoryOfflineSaleResult;
+  commandReceipt: ReturnType<typeof getMutationResultCommandReceipt>;
+}>;
+
+function isOfflineSaleActionData(value: unknown): value is OfflineSaleActionData {
+  return typeof value === "object" && value !== null && "offlineSale" in value && "commandReceipt" in value;
+}
 
 function parseSelectedOptionsParam(value: string | null) {
   if (!value) {
@@ -118,7 +130,7 @@ async function loadAccountInventoryReadModels(
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "inventory.view",
   });
@@ -136,6 +148,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
       selectedOptions: parseSelectedOptionsParam(url.searchParams.get("selectedOptions")),
       returnTo: safeAccountReturnTo(url.searchParams.get("returnTo")),
     },
+    canRecordOfflineSale: actor.permissions.includes("inventory.manage"),
+    canHonorOffline: actor.roleKey === "owner" || actor.roleKey === "manager",
+    offlineSaleFormTokens: Object.fromEntries(
+      readModels.items.items.map((item) => [item.item_id, createOfflineSaleFormToken()]),
+    ),
   };
 }
 
@@ -160,6 +177,18 @@ export const action = defineFormAction({
       }
       return formActionRedirect(null, "/account/inventory");
     },
+    // #7317 keeps the form boundary shared while each marketplace route owns its intent.
+    "record-offline-sale": async ({ request, formData }) => {
+      const offlineSale = await submitOfflineSaleForm(
+        createInventoryRequestApiClient(request),
+        String(formData.get("itemId") ?? ""),
+        formData,
+      );
+      const commandReceipt = getMutationResultCommandReceipt(offlineSale);
+      return commandReceipt
+        ? { offlineSale, commandReceipt }
+        : { error: t("inventory.features.inventoryItems.ui.offlineSaleForm.result.unverified") };
+    },
   },
   onUnknownIntent: () => formActionRedirect(null, "/account/inventory"),
 });
@@ -172,8 +201,29 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceInventoryRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData<typeof action>() as { error?: string } | OfflineSaleActionData | undefined;
   const location = useLocation();
+  const navigate = useNavigate();
+  const handledReceipt = useRef<string | null>(null);
+  const offlineSaleAction = isOfflineSaleActionData(actionData) ? actionData : null;
+  const currentPath = `${location.pathname}${location.search}`;
+  const stateResult = (location.state as { offlineSaleResult?: InventoryOfflineSaleResult } | null)?.offlineSaleResult;
+
+  useEffect(() => {
+    if (!offlineSaleAction?.commandReceipt) {
+      return;
+    }
+
+    const receiptKey = JSON.stringify(offlineSaleAction.commandReceipt);
+    if (handledReceipt.current === receiptKey) {
+      return;
+    }
+    handledReceipt.current = receiptKey;
+    navigate(navigateAfterWrite(offlineSaleAction, currentPath), {
+      replace: true,
+      state: { offlineSaleResult: offlineSaleAction.offlineSale },
+    });
+  }, [currentPath, navigate, offlineSaleAction]);
 
   const items = data.items as ListResponse<InventoryItemListItem> & { limit: number; offset: number };
 
@@ -183,8 +233,12 @@ export default function MarketplaceInventoryRoute() {
       pagination={{ limit: items.limit, offset: items.offset, total: items.total }}
       locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
       createItemDraft={data.createItemDraft}
-      currentPath={`${location.pathname}${location.search}`}
-      errorMessage={actionData?.error ?? data.loadError ?? null}
+      currentPath={currentPath}
+      canRecordOfflineSale={data.canRecordOfflineSale}
+      canHonorOffline={data.canHonorOffline}
+      offlineSaleFormTokens={data.offlineSaleFormTokens}
+      offlineSaleResult={stateResult ?? null}
+      errorMessage={(actionData && "error" in actionData ? actionData.error : null) ?? data.loadError ?? null}
     />
   );
 }

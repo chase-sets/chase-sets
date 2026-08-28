@@ -1181,4 +1181,125 @@ describe("marketplace inventory routes", () => {
 
     expect(result).toEqual({ error: "Hold exceeds availability." });
   });
+
+  it.each([
+    ["detail", inventoryItemAction, "http://localhost/account/inventory/items/inv_1", { itemId: "inv_1" }],
+    ["list", inventoryAction, "http://localhost/account/inventory", {}],
+  ])(
+    "submits an offline sale through the landed client from the %s route",
+    async (_surface, routeAction, url, params) => {
+      const requests: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: string | URL | Request) => {
+          const requestUrl = String(input);
+          requests.push(requestUrl);
+          if (requestUrl.includes("/api/auth/session")) {
+            return Promise.resolve(
+              jsonResponse({
+                actor: {
+                  sessionId: "ses_1",
+                  tenantId: "tnt_identity",
+                  userId: "usr_1",
+                  accountId: "acc_1",
+                  membershipId: "mbr_1",
+                  roleKey: "owner",
+                  permissions: ["inventory.view", "inventory.manage"],
+                },
+              }),
+            );
+          }
+          return Promise.resolve(
+            jsonResponse(
+              {
+                itemId: "inv_1",
+                version: 3,
+                requestedQuantity: 2,
+                appliedQuantity: 2,
+                refusedQuantity: 0,
+                collision: null,
+              },
+              200,
+              commitHeaders("77"),
+            ),
+          );
+        }),
+      );
+
+      const form = new URLSearchParams({
+        intent: "record-offline-sale",
+        itemId: "inv_1",
+        quantity: "2",
+        salePriceAmount: "12.50",
+        channel: "card-show",
+        note: "Saturday table",
+        collisionMode: "protect-orders",
+        idempotencyKey: "sale-77",
+      });
+      const result = await routeAction({
+        request: new Request(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        }),
+        params,
+        context: undefined,
+      } as never);
+
+      expect(requests.filter((requestUrl) => requestUrl.includes("/offline-sales"))).toHaveLength(1);
+      expect(requests.some((requestUrl) => requestUrl.includes("/adjustments"))).toBe(false);
+      expect(result).toMatchObject({
+        offlineSale: { itemId: "inv_1", appliedQuantity: 2, refusedQuantity: 0 },
+        commandReceipt: { commitPosition: "77" },
+      });
+    },
+  );
+
+  it("keeps the form hidden for a viewer and refuses a forged offline-sale form before calling Inventory", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        requests.push(url);
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "viewer",
+                permissions: ["inventory.view"],
+              },
+            }),
+          );
+        }
+        return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+      }),
+    );
+
+    const loaderResult = await inventoryLoader({
+      request: new Request("http://localhost/account/inventory"),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(loaderResult.canRecordOfflineSale).toBe(false);
+
+    const form = new URLSearchParams({ intent: "record-offline-sale", itemId: "inv_1", quantity: "1" });
+    await expect(
+      inventoryAction({
+        request: new Request("http://localhost/account/inventory", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        }),
+        params: {},
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(requests.some((url) => url.includes("/offline-sales"))).toBe(false);
+  });
 });

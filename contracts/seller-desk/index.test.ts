@@ -82,6 +82,7 @@ describe("Action vocabulary", () => {
     const currentSellerIntents = [
       "create-item",
       "adjust-item",
+      "record-offline-sale",
       "restock",
       "create-hold",
       "release-hold",
