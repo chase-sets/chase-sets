@@ -1059,48 +1059,83 @@ describe("gate-stable forecast contract", () => {
       "evidence available only after its prerequisite has landed",
       "at the exact lifecycle boundary where the observed state exists",
     ];
-    const authoritativeProbeRow = (markdown) => {
-      const ladderStart = markdown.indexOf("## The ladder");
-      const ladderEnd = markdown.indexOf("\n## ", ladderStart + 1);
-      const rows = [...markdown.slice(ladderStart, ladderEnd).matchAll(/^\|\s*\*\*Probe\*\*\s*\|.*$/gm)];
+    const authoritativeProbeContract = (markdown) => {
+      const visibleMarkdown = markdown.replace(/<!--[\s\S]*?-->/g, "");
+      const ladder = visibleMarkdown.match(/^## The ladder\s*$[\s\S]*?(?=^## |(?![\s\S]))/m)?.[0];
+      expect(ladder).toBeDefined();
+      const rows = [...ladder.matchAll(/^\|\s*\*\*Probe\*\*\s*\|.*$/gm)];
       expect(rows).toHaveLength(1);
-      return rows[0][0];
+      const probeRow = rows[0][0];
+      const paragraphs = ladder.split(/\r?\n\r?\n/).map((paragraph) => paragraph.trim());
+      const authorityClosureParagraphs = paragraphs.filter((paragraph) =>
+        paragraph.startsWith("The **native GitHub issue type is the form of the work and is authoritative.**"),
+      );
+      expect(authorityClosureParagraphs).toHaveLength(1);
+      const authorityClosureParagraph = authorityClosureParagraphs[0];
+      const adjacentParagraph = ladder
+        .slice(rows[0].index + probeRow.length)
+        .match(/^\r?\n\r?\n([^\r\n]+(?:\r?\n(?!\r?\n)[^\r\n]+)*)/)?.[1]
+        ?.trim();
+      expect(adjacentParagraph).toBe(authorityClosureParagraph);
+      return { probeRow, authorityClosureParagraph };
     };
-    const expectProbeLifecycleContract = (markdown) => {
-      const probeRow = authoritativeProbeRow(markdown);
+    const expectProbeContract = (markdown) => {
+      const { probeRow, authorityClosureParagraph } = authoritativeProbeContract(markdown);
       for (const requirement of lifecycleRequirements) expect(probeRow).toContain(requirement);
+
+      for (const literal of [
+        "do not authorize an",
+        "implementation result, staging/deploy verification, a provider or operator",
+        "claim, or an ongoing-monitoring result",
+        "exact authority, captured artifact, lifecycle moment, and bounded",
+        "unknown/failure behavior",
+        "post-landing evidence is not collected before the",
+        "landed/deployed state it observes exists",
+        "independent operator acceptance may close a Probe without a pull request only",
+        "after that Probe's own acceptance criteria are met",
+      ])
+        expect(authorityClosureParagraph).toContain(literal);
+
+      expect(authorityClosureParagraph).toMatch(/operator acceptance is a\s+closure control, not evidence authority/);
+      expect(probeRow).not.toContain("what evidence a slice needs before dispatch | as surfaced");
+      for (const forbiddenConflation of [
+        "a generic Probe authorizes an implementation result",
+        "post-landing evidence is collected before the landed/deployed state it observes exists",
+      ])
+        expect(authorityClosureParagraph).not.toContain(forbiddenConflation);
+      expect(authorityClosureParagraph).not.toMatch(/operator acceptance is\s+evidence authority/);
     };
 
-    expectProbeLifecycleContract(docs);
-    const probeRow = authoritativeProbeRow(docs);
+    expectProbeContract(docs);
+    const { probeRow, authorityClosureParagraph } = authoritativeProbeContract(docs);
     for (const requirement of lifecycleRequirements) {
       const withoutRequirement = docs.replace(probeRow, probeRow.replace(requirement, ""));
-      expect(() => expectProbeLifecycleContract(withoutRequirement)).toThrow();
-      expect(() => expectProbeLifecycleContract(`${withoutRequirement}\n<!-- ${requirement} -->`)).toThrow();
+      expect(() => expectProbeContract(withoutRequirement)).toThrow();
+      expect(() => expectProbeContract(`${withoutRequirement}\n<!-- ${requirement} -->`)).toThrow();
     }
-
-    for (const literal of [
-      "do not authorize an",
-      "implementation result, staging/deploy verification, a provider or operator",
-      "claim, or an ongoing-monitoring result",
-      "exact authority, captured artifact, lifecycle moment, and bounded",
-      "unknown/failure behavior",
-      "post-landing evidence is not collected before the",
-      "landed/deployed state it observes exists",
-      "independent operator acceptance may close a Probe without a pull request only",
-      "after that Probe's own acceptance criteria are met",
-    ])
-      expect(docs).toContain(literal);
-
-    expect(docs).toMatch(/operator acceptance is a\s+closure control, not evidence authority/);
-
-    for (const forbiddenConflation of [
-      "what evidence a slice needs before dispatch | as surfaced",
-      "a generic Probe authorizes an implementation result",
-      "post-landing evidence is collected before the landed/deployed state it observes exists",
-    ])
-      expect(docs).not.toContain(forbiddenConflation);
-    expect(docs).not.toMatch(/operator acceptance is\s+evidence authority/);
+    expect(() => expectProbeContract(docs.replace(probeRow, probeRow.replace("**Probe**", "**Decision**")))).toThrow();
+    expect(() => expectProbeContract(docs.replace(probeRow, `${probeRow}\n${probeRow}`))).toThrow();
+    expect(() =>
+      expectProbeContract(
+        docs
+          .replace(probeRow, "")
+          .replace("\n## What each GitHub primitive means", `\n${probeRow}\n\n## What each GitHub primitive means`),
+      ),
+    ).toThrow();
+    expect(() => expectProbeContract(docs.replace(probeRow, `<!--\n${probeRow}\n-->`))).toThrow();
+    expect(() =>
+      expectProbeContract(docs.replace(authorityClosureParagraph, `<!--\n${authorityClosureParagraph}\n-->`)),
+    ).toThrow();
+    expect(() =>
+      expectProbeContract(
+        docs
+          .replace(authorityClosureParagraph, "")
+          .replace(
+            "\n## What each GitHub primitive means",
+            `\n${authorityClosureParagraph}\n\n## What each GitHub primitive means`,
+          ),
+      ),
+    ).toThrow();
   });
 
   it("exhausts every forecast authority before rendering or patching", async () => {
