@@ -77,6 +77,11 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    - every child **attached as a sub-issue** of its epic (one parent per slice);
    - every chain link recorded as a **GitHub issue dependency**, not only as a
      `Blocked by #N` line;
+   - when a replacement round dispositions a predecessor, first attach every
+     successor that carries the parent's acceptance as a child of that parent;
+     only after every attached successor carries that parentage, detach the
+     predecessor from the parent in the same registration pass. If no successor
+     is attached to the parent, keep the predecessor's parent link;
    - every open slice classified (`refined ≡ classified`) with a wave milestone
      + `priority:*` + `area:*` + `kind:*`, excluding Epics,
      `status:tracking-only`, `Deferred / Incubation`, and `Operations` (the
