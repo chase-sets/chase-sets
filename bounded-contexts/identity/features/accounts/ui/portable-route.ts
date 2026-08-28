@@ -3,6 +3,12 @@ import type {
   PortableRouteMutationInput,
   PortableRouteOutcome,
 } from "@chase-sets/bounded-context-module";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  encodeFreshWriteReceipt,
+  navigateAfterWriteFromSources,
+  readFreshWriteToken,
+} from "@chase-sets/http/responses";
 import type { PortableClientFetch } from "@chase-sets/platform-runtime/portable-client";
 import { createIdentityApiClient, IdentityApiError } from "../../../support/shell-support/api/client";
 import type { Account } from "./contracts";
@@ -61,16 +67,17 @@ function requirePermission(actor: PortableActor, permission: string): PortableRo
   return actor.permissions.includes(permission) ? null : { kind: "forbidden", requiredPermissions: [permission] };
 }
 
-function identityClient(apiOrigin: string, fetch: PortableClientFetch) {
+function identityClient(apiOrigin: string, fetch: PortableClientFetch, headers?: HeadersInit) {
   return createIdentityApiClient({
     baseUrl: new URL("/api/identity", apiOrigin).toString(),
     fetch,
+    headers,
     credentials: "include",
   });
 }
 
 export async function loadPortableAccountRoute(
-  _input: PortableRouteInput,
+  input: PortableRouteInput,
   context: Readonly<{ apiOrigin: string; fetch: PortableClientFetch }>,
 ): Promise<PortableRouteOutcome<PortableAccountRouteData>> {
   const actorResult = await resolvePortableActor(context.apiOrigin, context.fetch);
@@ -78,7 +85,12 @@ export async function loadPortableAccountRoute(
   const forbidden = requirePermission(actorResult.data, "accounts.view");
   if (forbidden) return forbidden;
 
-  const api = identityClient(context.apiOrigin, context.fetch);
+  const receipt = readFreshWriteToken(input.url);
+  const api = identityClient(
+    context.apiOrigin,
+    context.fetch,
+    receipt ? { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt) } : undefined,
+  );
   try {
     const [account, actorDisplay] = await Promise.all([
       api.getAccount<Account>(actorResult.data.accountId),
@@ -111,11 +123,11 @@ export async function mutatePortableAccountRoute(
     return { kind: "navigate", to: "/account" };
   }
   try {
-    await identityClient(context.apiOrigin, context.fetch).updateAccount(actorResult.data.accountId, {
+    const result = await identityClient(context.apiOrigin, context.fetch).updateAccount(actorResult.data.accountId, {
       name: String(input.formData.get("name") ?? ""),
       displayName: String(input.formData.get("displayName") ?? ""),
     });
-    return { kind: "navigate", to: "/account" };
+    return { kind: "navigate", to: navigateAfterWriteFromSources([result], "/account") };
   } catch (error) {
     if (error instanceof IdentityApiError) {
       if (error.status === 400 || error.status === 422) {
