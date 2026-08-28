@@ -21,9 +21,18 @@ Five levels. Only three are GitHub objects.
 | **Slice** | GitHub issue, type **Slice**, normally a sub-issue of its epic | what one lane delivers | daily |
 | **Bug** | GitHub issue, type **Bug** | what is broken now | as found |
 | **Decision** | GitHub issue, type **Decision** | what blocks a slice from starting | as surfaced |
-| **Probe** | GitHub issue, type **Probe** | what evidence a slice needs before dispatch | as surfaced |
+| **Probe** | GitHub issue, type **Probe** | time-boxed evidence gathering: either what a slice needs before dispatch, or evidence available only after its prerequisite has landed, at the exact lifecycle boundary where the observed state exists | as surfaced |
 
-The **native GitHub issue type is the form of the work and is authoritative.**
+The **native GitHub issue type is the form of the work and is authoritative.** A
+Probe's type and no-pull-request closure pattern do not authorize an
+implementation result, staging/deploy verification, a provider or operator
+claim, or an ongoing-monitoring result. Each Probe acceptance criterion names
+its exact authority, captured artifact, lifecycle moment, and bounded
+unknown/failure behavior; post-landing evidence is not collected before the
+landed/deployed state it observes exists. A marked evidence comment plus
+independent operator acceptance may close a Probe without a pull request only
+after that Probe's own acceptance criteria are met; operator acceptance is a
+closure control, not evidence authority.
 `kind:*` remains the *nature* of the work (`product`, `tech-debt`, `security`,
 `test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The legacy
 `kind:epic` label is kept only as a fallback for tooling that predates types;

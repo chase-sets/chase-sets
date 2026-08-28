@@ -1051,6 +1051,35 @@ describe("gate-stable forecast contract", () => {
     expect(FORECAST_TABLE_HEADER).toContain("Forecast | Drift");
   });
 
+  it("binds Probe ladder lifecycle and authority boundaries to the documentation contract", () => {
+    const docs = readFileSync(path.join(repoRoot, "docs", "contributing", "backlog-model.md"), "utf8");
+    for (const literal of [
+      "what a slice needs before dispatch",
+      "evidence available only after its prerequisite has landed",
+      "at the exact lifecycle boundary where the observed state exists",
+      "do not authorize an",
+      "implementation result, staging/deploy verification, a provider or operator",
+      "claim, or an ongoing-monitoring result",
+      "exact authority, captured artifact, lifecycle moment, and bounded",
+      "unknown/failure behavior",
+      "post-landing evidence is not collected before the",
+      "landed/deployed state it observes exists",
+      "independent operator acceptance may close a Probe without a pull request only",
+      "after that Probe's own acceptance criteria are met",
+    ])
+      expect(docs).toContain(literal);
+
+    expect(docs).toMatch(/operator acceptance is a\s+closure control, not evidence authority/);
+
+    for (const forbiddenConflation of [
+      "what evidence a slice needs before dispatch | as surfaced",
+      "a generic Probe authorizes an implementation result",
+      "post-landing evidence is collected before the landed/deployed state it observes exists",
+    ])
+      expect(docs).not.toContain(forbiddenConflation);
+    expect(docs).not.toMatch(/operator acceptance is\s+evidence authority/);
+  });
+
   it("exhausts every forecast authority before rendering or patching", async () => {
     const seen = [];
     const pages = new Map([
