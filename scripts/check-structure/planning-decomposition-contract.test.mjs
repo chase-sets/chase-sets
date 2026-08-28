@@ -23,12 +23,12 @@ const parentageRule = Object.freeze({
 });
 
 function registrationSection(skill) {
-  const anchors = skill.match(/^7\. \*\*Registration\.\*\*/gm) ?? [];
+  const anchors = [...skill.matchAll(/^7\. \*\*Registration\.\*\*/gm)];
   if (anchors.length !== 1) {
     throw new Error("registration-section-start-anchor-must-be-unique");
   }
 
-  const sectionStart = skill.indexOf(registrationAnchor);
+  const sectionStart = anchors[0].index;
   const afterStart = skill.slice(sectionStart + registrationAnchor.length);
   const nextHeadingOffset = afterStart.search(/^## /m);
   if (nextHeadingOffset === -1) {
@@ -51,12 +51,27 @@ function removeRegistrationParentageRule(skill) {
   };
 }
 
+function activeMarkdown(markdown) {
+  return markdown.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
+}
+
+function occurrenceCount(source, value) {
+  return source.split(value).length - 1;
+}
+
+function duplicateViolation(requirement) {
+  return `duplicate${requirement[0].toUpperCase()}${requirement.slice(1)}`;
+}
+
 function registrationContractViolations(skill) {
-  const section = registrationSection(skill);
+  const section = activeMarkdown(registrationSection(skill));
   const missing = Object.entries(parentageRule)
-    .filter(([, clause]) => !section.includes(clause))
+    .filter(([, clause]) => occurrenceCount(section, clause) === 0)
     .map(([requirement]) => requirement);
-  if (missing.length > 0) return missing;
+  const duplicated = Object.entries(parentageRule)
+    .filter(([, clause]) => occurrenceCount(section, clause) > 1)
+    .map(([requirement]) => duplicateViolation(requirement));
+  if (missing.length > 0 || duplicated.length > 0) return [...missing, ...duplicated];
 
   return section.indexOf(parentageRule.attachSuccessors) < section.indexOf(parentageRule.detachInSamePass)
     ? []
@@ -74,6 +89,19 @@ describe("planning decomposition contract", () => {
     expect(relocated).toContain(rule);
     expect(registrationSection(relocated)).not.toContain(rule);
     expect(registrationContractViolations(relocated)).toEqual(Object.keys(parentageRule));
+
+    const preAnchorRelocated = withoutRule.replace(
+      registrationAnchor,
+      `Incidental prose mentions ${registrationAnchor} but is not the Stage 7 line.\n${rule}\n${registrationAnchor}`,
+    );
+    expect(registrationSection(preAnchorRelocated)).not.toContain(rule);
+    expect(registrationContractViolations(preAnchorRelocated)).toEqual(Object.keys(parentageRule));
+
+    const commented = skill.replace(rule, `<!--\n${rule}\n-->`);
+    expect(registrationContractViolations(commented)).toEqual(Object.keys(parentageRule));
+
+    const duplicated = skill.replace(rule, `${rule}\n${rule}`);
+    expect(registrationContractViolations(duplicated)).toEqual(Object.keys(parentageRule).map(duplicateViolation));
   });
 
   it("fails closed when the Stage 7 boundaries are ambiguous or absent", () => {
