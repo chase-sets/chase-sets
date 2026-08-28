@@ -248,6 +248,7 @@ export function InventoryItemDetailPage({
             <OfflineSaleForm
               initialIdempotencyKey={offlineSaleFormToken}
               canHonorOffline={canHonorOffline}
+              itemId={item.item_id}
               result={offlineSaleResult}
               authoritativeAvailableQuantity={item.available_quantity}
               errorMessage={errorMessage}

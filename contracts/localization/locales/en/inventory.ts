@@ -49,6 +49,8 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.offlineSaleForm.honor.offline": "Honor this offline sale",
   "inventory.features.inventoryItems.ui.offlineSaleForm.note": "Note (optional)",
   "inventory.features.inventoryItems.ui.offlineSaleForm.order.commitments": "Order commitments",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.result.pending":
+    "Verifying the recorded sale against current Inventory availability.",
   "inventory.features.inventoryItems.ui.offlineSaleForm.partial":
     "Recorded {applied} units. {refused} units were not recorded.",
   "inventory.features.inventoryItems.ui.offlineSaleForm.price.per.item": "Sale price per item (optional)",
