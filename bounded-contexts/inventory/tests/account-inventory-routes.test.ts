@@ -1255,6 +1255,86 @@ describe("marketplace inventory routes", () => {
     },
   );
 
+  it("keeps the selected inventory page and reconciles only the receipt-gated offline-sale row from a fresh item read", async () => {
+    const requests: { url: string; headers: Headers }[] = [];
+    const staleItem = {
+      item_id: "inv_1",
+      account_id: "acc_1",
+      catalog_catalog_item_id: "cat_1",
+      product_id: "cat_1::condition:near_mint",
+      item_title: "Charizard ex",
+      item_subtitle: null,
+      selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+      product_summary: "Condition: Near Mint",
+      graded_card: null,
+      storage_location_id: "loc_1",
+      storage_location_name: "North shelf",
+      ship_from_code: "CHI-WH-1",
+      ship_from_address: {
+        name: "Chase Sets",
+        line1: "100 Market St",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
+      total_quantity: 8,
+      held_quantity: 1,
+      available_quantity: 7,
+      acquisition_cost_amount: "4.25",
+      created_at: "2026-03-31T00:00:00.000Z",
+      updated_at: "2026-03-31T00:00:00.000Z",
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, headers: new Headers(init?.headers) });
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        if (url.includes("/api/inventory/items/inv_1")) {
+          return Promise.resolve(jsonResponse({ ...staleItem, available_quantity: 5, holds: [], ledger: [] }));
+        }
+
+        if (url.includes("/api/inventory/storage-locations")) {
+          return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+        }
+
+        return Promise.resolve(jsonResponse({ items: [staleItem], total: 31, count: 1, limit: 25, offset: 50 }));
+      }),
+    );
+
+    const request = new Request(
+      `http://localhost${appendFreshWriteToken(
+        "/account/inventory?limit=25&offset=50&offlineSaleItemId=inv_1",
+        inventoryCommit("79"),
+      )}`,
+    );
+    const result = await inventoryLoader({ request, params: {}, context: undefined } as never);
+    const freshItemRequest = requests.find((candidate) => candidate.url.includes("/api/inventory/items/inv_1"));
+
+    expect(freshItemRequest?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(result.items).toMatchObject({ total: 31, count: 1, limit: 25, offset: 50 });
+    expect(result.items.items[0]?.available_quantity).toBe(5);
+    expect(result.offlineSaleFreshness).toEqual({ itemId: "inv_1", state: "fresh" });
+  });
+
   it("keeps the form hidden for a viewer and refuses a forged offline-sale form before calling Inventory", async () => {
     const requests: string[] = [];
     vi.stubGlobal(

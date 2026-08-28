@@ -1,5 +1,6 @@
 import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigation } from "react-router";
 import {
   HiddenInput,
   Form,
@@ -75,6 +76,7 @@ export function InventoryItemListPage({
   pagination,
   locations,
   errorMessage,
+  offlineSaleErrorMessage,
   catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
   createItemDraft,
   currentPath,
@@ -82,11 +84,13 @@ export function InventoryItemListPage({
   canHonorOffline = false,
   offlineSaleFormTokens = {},
   offlineSaleResult,
+  offlineSaleFreshness,
 }: {
   data: { items: readonly InventoryItemListItem[] };
   pagination?: Readonly<{ limit: number; offset: number; total: number }>;
   locations: readonly InventoryStorageLocation[];
   errorMessage?: string | null;
+  offlineSaleErrorMessage?: string | null;
   catalogItemApiBaseUrl?: string;
   createItemDraft?: {
     catalogItemId?: string | null;
@@ -98,7 +102,9 @@ export function InventoryItemListPage({
   canHonorOffline?: boolean;
   offlineSaleFormTokens?: Readonly<Record<string, string>>;
   offlineSaleResult?: import("../../../client").InventoryOfflineSaleResult | null;
+  offlineSaleFreshness?: Readonly<{ itemId: string; state: "fresh" | "pending" | "unverified" }> | null;
 }) {
+  const navigation = useNavigation();
   const pageSize = pagination?.limit ?? data.items.length;
   const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
   const totalPages = pagination && pageSize > 0 ? Math.max(1, Math.ceil(pagination.total / pageSize)) : 1;
@@ -112,6 +118,32 @@ export function InventoryItemListPage({
   const [catalogLookupError, setCatalogLookupError] = useState<string | null>(null);
   const [catalogLookupPending, setCatalogLookupPending] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
+  const [openOfflineSaleItemId, setOpenOfflineSaleItemId] = useState<string | null>(null);
+  const [invokingOfflineSaleItemId, setInvokingOfflineSaleItemId] = useState<string | null>(null);
+  const offlineSaleTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  useEffect(() => {
+    if (navigation.state !== "submitting") {
+      return;
+    }
+
+    if (navigation.formData?.get("intent") !== "record-offline-sale") {
+      setInvokingOfflineSaleItemId(null);
+      return;
+    }
+
+    setInvokingOfflineSaleItemId(String(navigation.formData.get("itemId") ?? ""));
+  }, [navigation.formData, navigation.state]);
+
+  useEffect(() => {
+    if (!offlineSaleResult) {
+      return;
+    }
+
+    setOpenOfflineSaleItemId(null);
+    const trigger = offlineSaleTriggerRefs.current[offlineSaleResult.itemId];
+    trigger?.focus();
+  }, [offlineSaleResult]);
 
   useEffect(() => {
     const search = catalogItemSearch.trim();
@@ -436,13 +468,27 @@ export function InventoryItemListPage({
                   {canRecordOfflineSale && offlineSaleFormTokens[row.item_id] ? (
                     <>
                       <ResponsiveEditSheet
+                        open={openOfflineSaleItemId === row.item_id}
+                        onOpenChange={(open) => {
+                          setOpenOfflineSaleItemId(open ? row.item_id : null);
+                          if (!open) {
+                            offlineSaleTriggerRefs.current[row.item_id]?.focus();
+                          }
+                        }}
                         title={t("inventory.features.inventoryItems.ui.offlineSaleForm.title")}
                         description={t("inventory.features.inventoryItems.ui.offlineSaleForm.sheet.description", {
                           item: displayItemLabel(row),
                         })}
                         closeLabel={t("inventory.features.inventoryItems.ui.offlineSaleForm.close")}
                         trigger={
-                          <Button size="sm" tone="secondary">
+                          <Button
+                            ref={(element) => {
+                              offlineSaleTriggerRefs.current[row.item_id] = element;
+                            }}
+                            size="sm"
+                            tone="secondary"
+                            onClick={() => setOpenOfflineSaleItemId(row.item_id)}
+                          >
                             {t("inventory.features.inventoryItems.ui.offlineSaleForm.trigger")}
                           </Button>
                         }
@@ -451,14 +497,22 @@ export function InventoryItemListPage({
                           initialIdempotencyKey={offlineSaleFormTokens[row.item_id]}
                           canHonorOffline={canHonorOffline}
                           result={null}
+                          confirmedResult={offlineSaleResult?.itemId === row.item_id ? offlineSaleResult : null}
                           itemId={row.item_id}
-                          errorMessage={errorMessage}
+                          errorMessage={invokingOfflineSaleItemId === row.item_id ? offlineSaleErrorMessage : null}
                         />
                       </ResponsiveEditSheet>
                       {offlineSaleResult?.itemId === row.item_id ? (
                         <OfflineSaleResult
                           result={offlineSaleResult}
-                          authoritativeAvailableQuantity={row.available_quantity}
+                          authoritativeAvailableQuantity={
+                            offlineSaleFreshness?.itemId === row.item_id && offlineSaleFreshness.state === "fresh"
+                              ? row.available_quantity
+                              : undefined
+                          }
+                          verificationState={
+                            offlineSaleFreshness?.itemId === row.item_id ? offlineSaleFreshness.state : "unverified"
+                          }
                         />
                       ) : null}
                     </>

@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { createMemoryRouter, RouterProvider, useActionData } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import type { InventoryOfflineSaleResult } from "../../../client";
 import { OfflineSaleForm, OfflineSaleResult, offlineSaleRequestFromForm } from "./offline-sale-form";
@@ -27,9 +29,61 @@ const partialResult: InventoryOfflineSaleResult = {
   },
 };
 
+function renderOfflineSaleForm(
+  props: Omit<Parameters<typeof OfflineSaleForm>[0], "initialIdempotencyKey" | "canHonorOffline"> & {
+    initialIdempotencyKey?: string;
+    canHonorOffline?: boolean;
+  },
+) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/",
+        element: (
+          <OfflineSaleForm
+            initialIdempotencyKey={props.initialIdempotencyKey ?? "sale-token"}
+            canHonorOffline={props.canHonorOffline ?? false}
+            {...props}
+          />
+        ),
+      },
+    ],
+    { initialEntries: ["/"] },
+  );
+
+  return render(<RouterProvider router={router} />);
+}
+
+function OfflineSaleFormActionRoute() {
+  const actionData = useActionData() as { error?: string } | undefined;
+  return (
+    <OfflineSaleForm
+      initialIdempotencyKey="sale-token"
+      canHonorOffline={false}
+      itemId="inv_1"
+      errorMessage={actionData?.error ?? null}
+    />
+  );
+}
+
+function renderOfflineSaleActionRoute(action: (formData: FormData) => Promise<unknown>) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/",
+        element: <OfflineSaleFormActionRoute />,
+        action: async ({ request }) => action(await request.formData()),
+      },
+    ],
+    { initialEntries: ["/"] },
+  );
+
+  return render(<RouterProvider router={router} />);
+}
+
 describe("OfflineSaleForm", () => {
   it("keeps the landed request vocabulary to quantity, per-unit price, channel, note, collision controls, and token", () => {
-    render(<OfflineSaleForm initialIdempotencyKey="sale-token" canHonorOffline={true} />);
+    renderOfflineSaleForm({ canHonorOffline: true });
 
     const form = document.querySelector('form[method="post"]');
     expect(form?.querySelector('input[name="intent"][value="record-offline-sale"]')).not.toBeNull();
@@ -43,7 +97,7 @@ describe("OfflineSaleForm", () => {
   });
 
   it("shows confirmation only after an honor-offline actor selects that mode", () => {
-    render(<OfflineSaleForm initialIdempotencyKey="sale-token" canHonorOffline={true} />);
+    renderOfflineSaleForm({ canHonorOffline: true });
 
     expect(document.querySelector('input[name="confirmSellerCannotFulfill"]')).toBeNull();
     fireEvent.change(screen.getByLabelText("Order commitments"), { target: { value: "honor-offline" } });
@@ -51,7 +105,7 @@ describe("OfflineSaleForm", () => {
   });
 
   it("does not expose honor-offline controls to a normal inventory manager", () => {
-    render(<OfflineSaleForm initialIdempotencyKey="sale-token" canHonorOffline={false} />);
+    renderOfflineSaleForm({ canHonorOffline: false });
 
     expect(document.querySelector('select[name="collisionMode"]')).toBeNull();
     expect(document.querySelector('input[name="collisionMode"][value="protect-orders"]')).not.toBeNull();
@@ -59,7 +113,7 @@ describe("OfflineSaleForm", () => {
   });
 
   it("keeps the keyboard sequence on sale fields before conditional controls and submit", () => {
-    render(<OfflineSaleForm initialIdempotencyKey="sale-token" canHonorOffline={true} />);
+    renderOfflineSaleForm({ canHonorOffline: true });
 
     const form = document.querySelector("form")!;
     const namedControls = [...form.querySelectorAll("input[name], select[name], textarea[name], button[type=submit]")]
@@ -99,5 +153,90 @@ describe("OfflineSaleForm", () => {
     rerender(<OfflineSaleResult result={{ ...partialResult, appliedQuantity: 0, refusedQuantity: 3 }} />);
     expect(screen.getByRole("alert").textContent).toContain("No units were recorded. 3 units were refused.");
     expect(screen.queryByText(/Completed:/)).toBeNull();
+  });
+
+  it("withholds completed wording until a receipt-gated item read verifies the resulting quantity", () => {
+    const completeResult: InventoryOfflineSaleResult = {
+      ...partialResult,
+      requestedQuantity: 2,
+      appliedQuantity: 2,
+      refusedQuantity: 0,
+      collision: null,
+    };
+    const { rerender } = render(
+      <OfflineSaleResult result={completeResult} authoritativeAvailableQuantity={7} verificationState="unverified" />,
+    );
+
+    expect(screen.getByRole("alert").textContent).toContain("could not be verified");
+    expect(screen.queryByText(/Completed:/)).toBeNull();
+
+    rerender(
+      <OfflineSaleResult result={completeResult} authoritativeAvailableQuantity={5} verificationState="fresh" />,
+    );
+    expect(screen.getByRole("status").textContent).toContain(
+      "Completed: 2 units recorded as sold. Authoritative available quantity: 5.",
+    );
+  });
+
+  it("keeps one idempotency token and every submitted value through retryable and changed-field conflicts", async () => {
+    const user = userEvent.setup();
+    const attempts: Record<string, string>[] = [];
+    renderOfflineSaleActionRoute(async (formData) => {
+      attempts.push(Object.fromEntries([...formData.entries()].map(([key, value]) => [key, String(value)])));
+      return {
+        error: attempts.length === 1 ? "Retry this sale." : "This token already records different sale details.",
+      };
+    });
+
+    await user.type(screen.getByLabelText(/Quantity sold/), "2");
+    await user.type(screen.getByLabelText(/Sale price per item/), "12.50");
+    await user.selectOptions(screen.getByLabelText(/Sale channel/), "card-show");
+    await user.type(screen.getByLabelText(/Note/), "Saturday table");
+    await user.click(screen.getByRole("button", { name: "Record sale" }));
+    await screen.findByRole("alert");
+
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({
+      idempotencyKey: "sale-token",
+      quantity: "2",
+      salePriceAmount: "12.5",
+      note: "Saturday table",
+    });
+    expect((screen.getByLabelText(/Note/) as HTMLTextAreaElement).value).toBe("Saturday table");
+
+    await user.selectOptions(screen.getByLabelText(/Sale channel/), "other");
+    await user.click(screen.getByRole("button", { name: "Record sale" }));
+    await waitFor(() => expect(attempts).toHaveLength(2));
+
+    expect(attempts[1]).toMatchObject({
+      idempotencyKey: "sale-token",
+      channel: "other",
+      quantity: "2",
+      salePriceAmount: "12.5",
+    });
+    expect(screen.getByText("This token already records different sale details.")).toBeTruthy();
+  });
+
+  it("disables a pending route-aware submission so a double submit reaches one logical sale", async () => {
+    const user = userEvent.setup();
+    let resolveAction: ((value: unknown) => void) | null = null;
+    let calls = 0;
+    renderOfflineSaleActionRoute(async () => {
+      calls += 1;
+      return await new Promise((resolve) => {
+        resolveAction = resolve;
+      });
+    });
+
+    await user.type(screen.getByLabelText(/Quantity sold/), "2");
+    await user.selectOptions(screen.getByLabelText(/Sale channel/), "card-show");
+    const form = document.querySelector("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(calls).toBe(1));
+    expect((screen.getByRole("button", { name: "Record sale" }) as HTMLButtonElement).disabled).toBe(true);
+    resolveAction?.({ error: "Retry this sale." });
+    await screen.findByRole("alert");
   });
 });

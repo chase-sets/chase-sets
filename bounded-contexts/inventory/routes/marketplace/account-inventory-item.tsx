@@ -56,7 +56,6 @@ export const action = defineFormAction({
       }
       return formActionRedirect(result, new URL(request.url).pathname);
     },
-    // #7317 keeps the form boundary shared while each marketplace route owns its intent.
     "record-offline-sale": async ({ request, params, formData }) => {
       const offlineSale = await submitOfflineSaleForm(
         createInventoryRequestApiClient(request),

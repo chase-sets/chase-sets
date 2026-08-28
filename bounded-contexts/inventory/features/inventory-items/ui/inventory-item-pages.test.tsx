@@ -1,4 +1,6 @@
 import { renderToString } from "react-dom/server";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { InventoryItemDetailPage } from "./inventory-item-detail-page";
 import { InventoryItemListPage } from "./inventory-item-list-page";
@@ -40,16 +42,21 @@ function markedRoleCount(markup: string, role: "entity" | "furniture") {
   return markup.match(new RegExp(`${elevationRoleAttribute}="${role}"`, "g"))?.length ?? 0;
 }
 
+function renderInventoryRoute(element: ReactNode) {
+  const router = createMemoryRouter([{ path: "/", element }], { initialEntries: ["/"] });
+  return renderToString(<RouterProvider router={router} />);
+}
+
 describe("inventory item pages", () => {
   it("renders inventory list language codes as localized labels", () => {
-    const html = renderToString(<InventoryItemListPage data={{ items: [inventoryItem] }} locations={[]} />);
+    const html = renderInventoryRoute(<InventoryItemListPage data={{ items: [inventoryItem] }} locations={[]} />);
 
     expect(html).toContain("Japanese");
     expect(html).not.toContain(">ja<");
   });
 
   it("renders catalog item creation as a visible search and selection flow", () => {
-    const html = renderToString(<InventoryItemListPage data={{ items: [] }} locations={[]} />);
+    const html = renderInventoryRoute(<InventoryItemListPage data={{ items: [] }} locations={[]} />);
 
     expect(html).toContain("Search catalog");
     expect(html).toMatch(/<select[^>]*name="catalogItemId"/);
@@ -95,7 +102,7 @@ describe("inventory item pages", () => {
 
   it("renders one stay-in-context offline-sale form on detail and one responsive-sheet trigger per list row", () => {
     const detail: InventoryItemDetail = { ...inventoryItem, holds: [], ledger: [] };
-    const detailHtml = renderToString(
+    const detailHtml = renderInventoryRoute(
       <InventoryItemDetailPage
         item={detail}
         canRecordOfflineSale={true}
@@ -103,7 +110,7 @@ describe("inventory item pages", () => {
         offlineSaleFormToken="detail-sale-token"
       />,
     );
-    const listHtml = renderToString(
+    const listHtml = renderInventoryRoute(
       <InventoryItemListPage
         data={{ items: [inventoryItem] }}
         locations={[]}
