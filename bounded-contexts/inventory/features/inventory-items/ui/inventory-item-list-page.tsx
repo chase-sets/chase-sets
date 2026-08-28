@@ -21,6 +21,7 @@ import {
   NumberField,
   NativeSelect,
   ProductOptions,
+  ResponsiveEditSheet,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { InventoryCatalogItemSnapshot } from "../integrations/catalog/queries";
@@ -32,6 +33,7 @@ import {
 import type { InventoryStorageLocation } from "../../storage-locations/ui/contracts";
 import type { InventoryItemListItem } from "./contracts";
 import { inventoryListingHref } from "./listing-handoff";
+import { OfflineSaleForm, OfflineSaleResult } from "./offline-sale-form";
 
 const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
 
@@ -76,6 +78,10 @@ export function InventoryItemListPage({
   catalogItemApiBaseUrl = DEFAULT_CATALOG_ITEM_API_BASE_URL,
   createItemDraft,
   currentPath,
+  canRecordOfflineSale = false,
+  canHonorOffline = false,
+  offlineSaleFormTokens = {},
+  offlineSaleResult,
 }: {
   data: { items: readonly InventoryItemListItem[] };
   pagination?: Readonly<{ limit: number; offset: number; total: number }>;
@@ -88,6 +94,10 @@ export function InventoryItemListPage({
     returnTo?: string | null;
   } | null;
   currentPath?: string | null;
+  canRecordOfflineSale?: boolean;
+  canHonorOffline?: boolean;
+  offlineSaleFormTokens?: Readonly<Record<string, string>>;
+  offlineSaleResult?: import("../../../client").InventoryOfflineSaleResult | null;
 }) {
   const pageSize = pagination?.limit ?? data.items.length;
   const currentPage = pagination && pageSize > 0 ? Math.floor(pagination.offset / pageSize) + 1 : 1;
@@ -422,6 +432,36 @@ export function InventoryItemListPage({
                     <LinkButton href={inventoryListingHref(row.item_id, currentPath)} tone="ghost" size="sm">
                       {t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.listing")}
                     </LinkButton>
+                  ) : null}
+                  {canRecordOfflineSale && offlineSaleFormTokens[row.item_id] ? (
+                    <>
+                      <ResponsiveEditSheet
+                        title={t("inventory.features.inventoryItems.ui.offlineSaleForm.title")}
+                        description={t("inventory.features.inventoryItems.ui.offlineSaleForm.sheet.description", {
+                          item: displayItemLabel(row),
+                        })}
+                        closeLabel={t("inventory.features.inventoryItems.ui.offlineSaleForm.close")}
+                        trigger={
+                          <Button size="sm" tone="secondary">
+                            {t("inventory.features.inventoryItems.ui.offlineSaleForm.trigger")}
+                          </Button>
+                        }
+                      >
+                        <OfflineSaleForm
+                          initialIdempotencyKey={offlineSaleFormTokens[row.item_id]}
+                          canHonorOffline={canHonorOffline}
+                          result={null}
+                          itemId={row.item_id}
+                          errorMessage={errorMessage}
+                        />
+                      </ResponsiveEditSheet>
+                      {offlineSaleResult?.itemId === row.item_id ? (
+                        <OfflineSaleResult
+                          result={offlineSaleResult}
+                          authoritativeAvailableQuantity={row.available_quantity}
+                        />
+                      ) : null}
+                    </>
                   ) : null}
                 </Stack>
               ),
