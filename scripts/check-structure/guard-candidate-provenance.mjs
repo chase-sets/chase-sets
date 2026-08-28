@@ -177,11 +177,14 @@ export function deriveGuardCandidateProvenance({
   }
 
   const analyzedTreeSha = requireSha(gitText(execGit, ["rev-parse", "HEAD"], "git-head"), "git-head", "git HEAD");
-  const resolvedBaseRef = requireSha(
-    gitText(execGit, ["rev-parse", qualifiedBaseRef], "qualified-base-ref"),
-    "qualified-base-ref",
-    qualifiedBaseRef,
-  );
+  const resolvedBaseRef =
+    environment === "merge-group"
+      ? null
+      : requireSha(
+          gitText(execGit, ["rev-parse", qualifiedBaseRef], "qualified-base-ref"),
+          "qualified-base-ref",
+          qualifiedBaseRef,
+        );
 
   let roles;
   if (environment === "plain") {
@@ -235,7 +238,7 @@ export function deriveGuardCandidateProvenance({
     };
   }
 
-  if (environment !== "plain" && resolvedBaseRef !== roles.baseTipAtAnalysis.sha) {
+  if (environment === "pull-request-merge-ref" && resolvedBaseRef !== roles.baseTipAtAnalysis.sha) {
     throw failure(
       "guard-provenance-invalid",
       "base-tip-parentage",
@@ -243,8 +246,9 @@ export function deriveGuardCandidateProvenance({
     );
   }
 
+  const forkPointBase = environment === "merge-group" ? roles.baseTipAtAnalysis.sha : qualifiedBaseRef;
   const forkPointSha = requireSha(
-    gitText(execGit, ["merge-base", roles.landingCandidate.sha, qualifiedBaseRef], "fork-point-resolution"),
+    gitText(execGit, ["merge-base", roles.landingCandidate.sha, forkPointBase], "fork-point-resolution"),
     "fork-point-resolution",
     "fork point",
   );

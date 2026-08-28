@@ -18,7 +18,7 @@
     {
       "args": ["rev-parse", "refs/remotes/origin/main"],
       "status": 0,
-      "stdout": "538181c915ba18a6cc0aa3b36e6906889beb2b89\n"
+      "stdout": "84ddea0bfde7cf5d4280a0a1a619d246c777af35\n"
     },
     {
       "args": ["rev-list", "--parents", "-n", "1", "248637f04e86b3282ea92a5eee7bc269bdb6fd1d"],
@@ -26,7 +26,7 @@
       "stdout": "248637f04e86b3282ea92a5eee7bc269bdb6fd1d 538181c915ba18a6cc0aa3b36e6906889beb2b89\n"
     },
     {
-      "args": ["merge-base", "248637f04e86b3282ea92a5eee7bc269bdb6fd1d", "refs/remotes/origin/main"],
+      "args": ["merge-base", "248637f04e86b3282ea92a5eee7bc269bdb6fd1d", "538181c915ba18a6cc0aa3b36e6906889beb2b89"],
       "status": 0,
       "stdout": "538181c915ba18a6cc0aa3b36e6906889beb2b89\n"
     },
