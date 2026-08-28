@@ -2040,6 +2040,7 @@
     "deployables/marketplace/app/host-route-inventory.ts",
     "deployables/marketplace/app/host.ts",
     "deployables/marketplace/app/observability.server.ts",
+    "deployables/marketplace/app/portable-client.type-contract.ts",
     "deployables/marketplace/app/pwa/register-service-worker.ts",
     "deployables/marketplace/app/pwa/service-worker-source.ts",
     "deployables/marketplace/app/routes.ts",
