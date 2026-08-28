@@ -8207,91 +8207,182 @@
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "jobId": "reconcile-managed-postgres-ca-production",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "jobId": "reconcile-managed-postgres-ca-production",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "jobId": "reconcile-managed-postgres-ca-production",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "jobId": "reconcile-managed-postgres-ca-production",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "jobId": "reconcile-managed-postgres-ca-production",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
-      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "jobId": "reconcile-managed-postgres-ca-production",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#6",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
-      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
-      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
-      "purpose": "managed-postgres-boundary"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
+      "jobId": "reconcile-managed-postgres-ca-production",
       "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "managed-postgres-boundary"
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
+      "jobId": "reconcile-managed-postgres-ca-production",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-production",
       "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "managed-postgres-boundary"
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
+      "jobId": "reconcile-managed-postgres-ca-production",
       "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "managed-postgres-boundary"
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
+      "jobId": "reconcile-managed-postgres-ca-production",
       "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "managed-postgres-boundary"
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
+      "jobId": "reconcile-managed-postgres-ca-production",
       "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "managed-postgres-boundary"
     },
     {
       "file": ".github/workflows/platform-production.yml",
-      "jobId": "reconcile-managed-postgres-ca",
+      "jobId": "reconcile-managed-postgres-ca-production",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "name:Configure managed Postgres CA reconciliation Kubernetes context#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "reconcile-managed-postgres-ca-staging",
       "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"

@@ -368,7 +368,7 @@ export function classifyChanges({
   const runtimeChanged = runtimeAffectedWorkspaces.length > 0 || rootRuntimeChanged;
   const dockerImageRequired = runtimeChanged || dockerChanged;
   const terraformRequired = terraformChanged || deploymentScriptChanged;
-  const deployRequired = dockerImageRequired || deploymentScriptChanged || previewDeployTerraformChanged;
+  const deployRequired = dockerImageRequired || deploymentScriptChanged || previewDeployTerraformChanged || helmChanged;
   // Cluster-preview scoping: narrower than `deployRequired` above.
   // Deploy surfaces (Helm, preview-relevant Terraform, the Dockerfile,
   // deployment/DOKS/ingress/secret scripts, and platform-*.yml workflows)

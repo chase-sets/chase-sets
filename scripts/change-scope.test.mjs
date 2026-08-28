@@ -2165,7 +2165,7 @@ describe("change-scope", () => {
     expect(scope.composeSmokeRequired).toBe(false);
   });
 
-  it("routes Helm chart changes through manifest validation and a cluster preview without a docker image", () => {
+  it("routes Helm chart changes through ordinary staged deployment without a docker image", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -2175,13 +2175,21 @@ describe("change-scope", () => {
 
     expect(scope.workflowLintRequired).toBe(true);
     expect(scope.terraformRequired).toBe(false);
-    expect(scope.deployRequired).toBe(false);
+    expect(scope.deployRequired).toBe(true);
     expect(scope.dockerImageRequired).toBe(false);
     // #4864: Helm changes are a deploy surface in their own right, even
     // without a docker image, because they alter what the cluster preview
     // (and staging/production) actually deploys.
     expect(scope.clusterPreviewRequired).toBe(true);
     expect(scope.composeSmokeRequired).toBe(false);
+
+    const docsScope = classifyChanges({
+      baseDir,
+      changedFiles: ["docs/runbooks/digitalocean-platform-deployment.md"],
+      workspaces: [workspace(baseDir, "deployables", "public-web", "@test/public-web")],
+    });
+    expect(docsScope.docsOnly).toBe(true);
+    expect(docsScope.deployRequired).toBe(false);
   });
 
   it("routes the platform Kubernetes Secret helper through workflow lint and a cluster preview without deploying", () => {
