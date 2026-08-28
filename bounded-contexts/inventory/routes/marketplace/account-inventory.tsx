@@ -7,7 +7,7 @@ import {
   readFreshWriteToken,
   type ListResponse,
 } from "@chase-sets/http/responses";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -283,21 +283,24 @@ export default function MarketplaceInventoryRoute() {
   );
   const stateResult = locationState.offlineSaleResult as InventoryOfflineSaleResult | undefined;
   const preservedLocationState = useRef(locationState);
-  const visibleOfflineSaleResult = stateResult ?? offlineSaleAction?.offlineSale ?? null;
-  const visibleOfflineSaleFreshness = stateResult
-    ? data.offlineSaleFreshness
-    : offlineSaleAction
-      ? {
-          itemId: offlineSaleAction.offlineSale.itemId,
-          state: offlineSaleAction.commandReceipt ? ("pending" as const) : ("unverified" as const),
-        }
-      : data.offlineSaleFreshness;
+  const [preservedOfflineSaleFormTokens, setPreservedOfflineSaleFormTokens] = useState(data.offlineSaleFormTokens);
+  const visibleOfflineSaleResult = offlineSaleAction?.offlineSale ?? stateResult ?? null;
+  const visibleOfflineSaleFreshness = offlineSaleAction
+    ? {
+        itemId: offlineSaleAction.offlineSale.itemId,
+        state: offlineSaleAction.commandReceipt ? ("pending" as const) : ("unverified" as const),
+      }
+    : stateResult
+      ? data.offlineSaleFreshness
+      : null;
+  const visibleOfflineSaleFormTokens = offlineSaleAction ? preservedOfflineSaleFormTokens : data.offlineSaleFormTokens;
 
   useEffect(() => {
     if (navigation.state === "idle" && !offlineSaleAction) {
       preservedLocationState.current = locationState;
+      setPreservedOfflineSaleFormTokens(data.offlineSaleFormTokens);
     }
-  }, [locationState, navigation.state, offlineSaleAction]);
+  }, [data.offlineSaleFormTokens, locationState, navigation.state, offlineSaleAction]);
 
   useEffect(() => {
     if (!offlineSaleAction?.commandReceipt) {
@@ -326,7 +329,7 @@ export default function MarketplaceInventoryRoute() {
       currentPath={currentPath}
       canRecordOfflineSale={data.canRecordOfflineSale}
       canHonorOffline={data.canHonorOffline}
-      offlineSaleFormTokens={data.offlineSaleFormTokens}
+      offlineSaleFormTokens={visibleOfflineSaleFormTokens}
       offlineSaleResult={visibleOfflineSaleResult}
       errorMessage={actionError?.intent === "create-item" ? actionError.error : (data.loadError ?? null)}
       offlineSaleErrorMessage={actionError?.intent === "record-offline-sale" ? actionError.error : null}

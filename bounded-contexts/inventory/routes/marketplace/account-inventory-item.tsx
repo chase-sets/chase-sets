@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { MetaFunction } from "react-router";
 import { getMutationResultCommandReceipt, navigateAfterWrite } from "@chase-sets/http/responses";
 import { useActionData, useLoaderData, useLocation, useNavigate } from "react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import contextManifest from "../../context.json";
@@ -135,17 +135,25 @@ export default function MarketplaceInventoryItemRoute() {
   const navigate = useNavigate();
   const handledReceipt = useRef<string | null>(null);
   const offlineSaleAction = isOfflineSaleActionData(actionData) ? actionData : null;
+  const [preservedOfflineSaleFormToken, setPreservedOfflineSaleFormToken] = useState(data.offlineSaleFormToken);
   const currentPath = `${location.pathname}${location.search}`;
   const stateResult = (location.state as { offlineSaleResult?: InventoryOfflineSaleResult } | null)?.offlineSaleResult;
-  const visibleOfflineSaleResult = stateResult ?? offlineSaleAction?.offlineSale ?? null;
-  const offlineSaleVerificationState = stateResult
-    ? "fresh"
-    : offlineSaleAction
-      ? offlineSaleAction.commandReceipt
-        ? "pending"
-        : "unverified"
+  const visibleOfflineSaleResult = offlineSaleAction?.offlineSale ?? stateResult ?? null;
+  const offlineSaleVerificationState = offlineSaleAction
+    ? offlineSaleAction.commandReceipt
+      ? "pending"
+      : "unverified"
+    : stateResult
+      ? "fresh"
       : undefined;
+  const visibleOfflineSaleFormToken = offlineSaleAction ? preservedOfflineSaleFormToken : data.offlineSaleFormToken;
   const actionFeedback = inventoryItemActionFeedback(actionData);
+
+  useEffect(() => {
+    if (!offlineSaleAction) {
+      setPreservedOfflineSaleFormToken(data.offlineSaleFormToken);
+    }
+  }, [data.offlineSaleFormToken, offlineSaleAction]);
 
   useEffect(() => {
     if (!offlineSaleAction?.commandReceipt) {
@@ -169,7 +177,7 @@ export default function MarketplaceInventoryItemRoute() {
       currentPath={currentPath}
       canRecordOfflineSale={data.canRecordOfflineSale}
       canHonorOffline={data.canHonorOffline}
-      offlineSaleFormToken={data.offlineSaleFormToken}
+      offlineSaleFormToken={visibleOfflineSaleFormToken}
       offlineSaleResult={visibleOfflineSaleResult}
       offlineSaleVerificationState={offlineSaleVerificationState}
       errorMessage={actionFeedback.pageErrorMessage}

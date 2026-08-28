@@ -4,7 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CHASE_SETS_READ_AFTER_WRITE_HEADER, encodeCommitReceipt } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  encodeCommitReceipt,
+} from "@chase-sets/http/responses";
 import MarketplaceInventoryRoute, {
   action as inventoryAction,
   loader as inventoryLoader,
@@ -40,6 +44,41 @@ function commitHeaders(position: string) {
     ]),
   };
 }
+
+function inventoryCommit(position: string) {
+  return {
+    commandReceipt: {
+      mode: "eventual",
+      commitPosition: position,
+      commitEventIds: [`evt_inventory_${position}`],
+      commitPositions: [
+        {
+          sourceContextName: "inventory",
+          maxGlobalPosition: position,
+          eventIds: [`evt_inventory_${position}`],
+        },
+      ],
+    },
+  };
+}
+
+const priorFreshSale = {
+  itemId: "inv_1",
+  version: 2,
+  requestedQuantity: 1,
+  appliedQuantity: 1,
+  refusedQuantity: 0,
+  collision: null,
+};
+
+const laterReceiptlessSale = {
+  itemId: "inv_1",
+  version: 3,
+  requestedQuantity: 3,
+  appliedQuantity: 2,
+  refusedQuantity: 1,
+  collision: null,
+};
 
 const staleSaleItem = {
   item_id: "inv_1",
@@ -213,6 +252,182 @@ describe("account inventory offline-sale router transition", () => {
       expect(result?.textContent).toContain("Authoritative available quantity: 2");
     });
     expect(listReads).toBeGreaterThanOrEqual(2);
+  });
+
+  it("selects a later receiptless list result over prior fresh location state without rotating its token", async () => {
+    const actionBodies: Record<string, unknown>[] = [];
+    let actionCalls = 0;
+    let itemReads = 0;
+    stubMobileViewport();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url.includes("/api/auth/session")) {
+          return jsonResponse({
+            actor: {
+              sessionId: "ses_1",
+              tenantId: "tnt_identity",
+              userId: "usr_1",
+              accountId: "acc_1",
+              membershipId: "mbr_1",
+              roleKey: "owner",
+              permissions: ["inventory.view", "inventory.manage"],
+            },
+          });
+        }
+        if (url.includes("/api/inventory/items/inv_1/offline-sales")) {
+          actionCalls += 1;
+          const request =
+            input instanceof Request ? input.clone() : new Request(new URL(String(input), "http://localhost"), init);
+          actionBodies.push((await request.json()) as Record<string, unknown>);
+          return jsonResponse(laterReceiptlessSale);
+        }
+        if (url.includes("/api/inventory/items/inv_1")) {
+          itemReads += 1;
+          return jsonResponse({ ...staleSaleItem, total_quantity: 2, available_quantity: 2, holds: [], ledger: [] });
+        }
+        if (url.includes("/api/inventory/storage-locations")) {
+          return jsonResponse({ items: [], total: 0, count: 0 });
+        }
+        return jsonResponse({ items: [staleSaleItem], total: 1, count: 1, limit: 25, offset: 0 });
+      }),
+    );
+
+    const initialPath = appendFreshWriteToken("/account/inventory?offlineSaleItemId=inv_1", inventoryCommit("92"));
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/account/inventory",
+          loader: inventoryLoader,
+          action: async (args) => JSON.parse(JSON.stringify(await inventoryAction(args))),
+          element: <MarketplaceInventoryRoute />,
+        },
+      ],
+      {
+        initialEntries: [
+          {
+            pathname: "/account/inventory",
+            search: new URL(initialPath, "http://localhost").search,
+            state: { offlineSaleResult: priorFreshSale },
+          },
+        ],
+      },
+    );
+    render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+
+    await screen.findByText(/Completed: 1 units recorded as sold/);
+    expect(screen.getByText(/Authoritative available quantity: 2/)).toBeTruthy();
+    const mobileCards = await waitFor(() => {
+      const branch = document.querySelector('[role="list"]');
+      expect(branch).not.toBeNull();
+      return branch as HTMLElement;
+    });
+    await user.click(within(mobileCards).getByRole("button", { name: "Record sale" }));
+    const tokenInput = document.querySelector('input[name="idempotencyKey"]') as HTMLInputElement;
+    const activeToken = tokenInput.value;
+    const priorLocation = router.state.location;
+    await user.type(screen.getByLabelText("Quantity sold"), "3");
+    await user.selectOptions(screen.getByLabelText("Sale channel"), "card-show");
+    await router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
+      formMethod: "post",
+      formData: new FormData(tokenInput.form!),
+      state: priorLocation.state,
+    });
+
+    expect(await screen.findByText("Recorded 2 units. 1 units were not recorded.")).toBeTruthy();
+    expect(screen.getByText(/could not be verified/i)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText(/Completed:/)).toBeNull());
+    expect(screen.queryByText(/Authoritative available quantity/)).toBeNull();
+    expect(actionCalls).toBe(1);
+    expect(actionBodies).toEqual([expect.objectContaining({ idempotencyKey: activeToken, quantity: 3 })]);
+    expect(router.state.location.pathname).toBe(priorLocation.pathname);
+    expect(router.state.location.search).toBe(priorLocation.search);
+    expect(router.state.location.state).toEqual(priorLocation.state);
+    const currentMobileCards = document.querySelector('[role="list"]') as HTMLElement;
+    await user.click(within(currentMobileCards).getByRole("button", { name: "Record sale" }));
+    expect((document.querySelector('input[name="idempotencyKey"]') as HTMLInputElement).value).toBe(activeToken);
+    expect(itemReads).toBeGreaterThanOrEqual(2);
+  });
+
+  it("selects a later receiptless detail result over prior fresh location state without rotating its token", async () => {
+    const actionBodies: Record<string, unknown>[] = [];
+    let actionCalls = 0;
+    let itemReads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url.includes("/api/auth/session")) {
+          return jsonResponse({
+            actor: {
+              sessionId: "ses_1",
+              tenantId: "tnt_identity",
+              userId: "usr_1",
+              accountId: "acc_1",
+              membershipId: "mbr_1",
+              roleKey: "owner",
+              permissions: ["inventory.view", "inventory.manage"],
+            },
+          });
+        }
+        if (url.includes("/api/inventory/items/inv_1/offline-sales")) {
+          actionCalls += 1;
+          const request =
+            input instanceof Request ? input.clone() : new Request(new URL(String(input), "http://localhost"), init);
+          actionBodies.push((await request.json()) as Record<string, unknown>);
+          return jsonResponse(laterReceiptlessSale);
+        }
+        itemReads += 1;
+        return jsonResponse({ ...staleSaleItem, total_quantity: 2, available_quantity: 2, holds: [], ledger: [] });
+      }),
+    );
+
+    const initialPath = appendFreshWriteToken("/account/inventory/items/inv_1", inventoryCommit("93"));
+    const initialUrl = new URL(initialPath, "http://localhost");
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/account/inventory/items/:itemId",
+          loader: inventoryItemLoader,
+          action: async (args) => JSON.parse(JSON.stringify(await inventoryItemAction(args))),
+          element: <MarketplaceInventoryItemRoute />,
+        },
+      ],
+      {
+        initialEntries: [
+          { pathname: initialUrl.pathname, search: initialUrl.search, state: { offlineSaleResult: priorFreshSale } },
+        ],
+      },
+    );
+    render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+
+    await screen.findByText(/Completed: 1 units recorded as sold/);
+    expect(screen.getByText(/Authoritative available quantity: 2/)).toBeTruthy();
+    const tokenInput = document.querySelector('input[name="idempotencyKey"]') as HTMLInputElement;
+    const activeToken = tokenInput.value;
+    const priorLocation = router.state.location;
+    await user.type(screen.getByLabelText("Quantity sold"), "3");
+    await user.selectOptions(screen.getByLabelText("Sale channel"), "card-show");
+    await router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
+      formMethod: "post",
+      formData: new FormData(tokenInput.form!),
+      state: priorLocation.state,
+    });
+
+    expect(await screen.findByText("Recorded 2 units. 1 units were not recorded.")).toBeTruthy();
+    expect(screen.getByText(/could not be verified/i)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText(/Completed:/)).toBeNull());
+    expect(screen.queryByText(/Authoritative available quantity/)).toBeNull();
+    expect(actionCalls).toBe(1);
+    expect(actionBodies).toEqual([expect.objectContaining({ idempotencyKey: activeToken, quantity: 3 })]);
+    expect((document.querySelector('input[name="idempotencyKey"]') as HTMLInputElement).value).toBe(activeToken);
+    expect(router.state.location.pathname).toBe(priorLocation.pathname);
+    expect(router.state.location.search).toBe(priorLocation.search);
+    expect(router.state.location.state).toEqual(priorLocation.state);
+    expect(itemReads).toBeGreaterThanOrEqual(2);
   });
 
   it("retains a receiptless list replay as unverified without navigating or claiming completion", async () => {
