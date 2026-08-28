@@ -152,7 +152,26 @@
           "routePath": "account/notifications",
           "fileExport": "./routes/account-notifications",
           "routeType": "route",
-          "sourceContext": "notifications"
+          "sourceContext": "notifications",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "notifications",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     }

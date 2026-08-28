@@ -711,6 +711,9 @@
       "@chase-sets/platform-runtime/meta": [
         "./infrastructure/platform-runtime/meta.ts"
       ],
+      "@chase-sets/platform-runtime/portable-client": [
+        "./infrastructure/platform-runtime/portable-client.ts"
+      ],
       "@chase-sets/platform-runtime/post-write-consistency": [
         "./infrastructure/platform-runtime/post-write-consistency.ts"
       ],

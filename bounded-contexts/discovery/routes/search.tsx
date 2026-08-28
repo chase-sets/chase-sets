@@ -17,11 +17,7 @@ import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtim
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { defineFormAction, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
-import type {
-  CategoryListResponse,
-  DiscoveryBulkCartPreview,
-  DiscoverySearchResponse,
-} from "../support/request-support/api-client";
+import type { DiscoveryBulkCartPreview, DiscoverySearchResponse } from "../support/request-support/api-client";
 import {
   appendAnonymousCartCookie,
   createCheckoutRequestApiClient,
@@ -29,6 +25,7 @@ import {
 } from "@chase-sets/checkout/server";
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
+import { EMPTY_CATEGORY_LIST, EMPTY_DISCOVERY_SEARCH_RESPONSE } from "../features/search/ui/route-data-defaults";
 import {
   buildSearchResultSetKey,
   persistSearchRestoration,
@@ -74,23 +71,6 @@ const EMPTY_SEARCH_RESULT = {
   homeMerchandising: null,
   savedListClaim: { preparation: null, error: null },
 } as const;
-const EMPTY_CATEGORY_LIST: CategoryListResponse = {
-  items: [],
-  total: 0,
-  count: 0,
-};
-const EMPTY_DISCOVERY_SEARCH_RESPONSE: DiscoverySearchResponse = {
-  items: [],
-  facets: [],
-  category_counts: [],
-  total: 0,
-  count: 0,
-  nextCursor: null,
-  retrievalMode: "lexical",
-  lexicalCount: 0,
-  queryHash: "",
-  resultSetKey: "",
-};
 const EMPTY_EXTRA_PAGES: readonly DiscoverySearchResponse[] = [];
 
 type DynamicSearchFilterSelection = Readonly<{

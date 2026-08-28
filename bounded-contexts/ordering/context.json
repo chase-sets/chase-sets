@@ -747,28 +747,104 @@
           "routePath": "account/purchases/:purchaseId",
           "fileExport": "./routes/account-purchase",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-purchases",
           "routePath": "account/purchases",
           "fileExport": "./routes/account-purchases",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-sale",
           "routePath": "account/sales/:orderId",
           "fileExport": "./routes/account-sale",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-sales",
           "routePath": "account/sales",
           "fileExport": "./routes/account-sales",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     }

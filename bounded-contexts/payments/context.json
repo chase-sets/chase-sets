@@ -493,28 +493,103 @@
           "routePath": "account/payments/:paymentId",
           "fileExport": "./routes/marketplace/account-payment",
           "routeType": "route",
-          "sourceContext": "payments"
+          "sourceContext": "payments",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "payments",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-payment-new",
           "routePath": "account/payments/new",
           "fileExport": "./routes/marketplace/account-payment-new",
           "routeType": "route",
-          "sourceContext": "payments"
+          "sourceContext": "payments",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "payments",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-payment-methods",
           "routePath": "account/payment-methods",
           "fileExport": "./routes/marketplace/account-payment-methods",
           "routeType": "route",
-          "sourceContext": "payments"
+          "sourceContext": "payments",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "payments",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "checkout-payment",
           "routePath": "checkout/payments/:paymentId",
           "fileExport": "./routes/marketplace/checkout-payment",
           "routeType": "route",
-          "sourceContext": "payments"
+          "sourceContext": "payments",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "payments",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     }
