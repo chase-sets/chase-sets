@@ -1051,6 +1051,325 @@ describe("gate-stable forecast contract", () => {
     expect(FORECAST_TABLE_HEADER).toContain("Forecast | Drift");
   });
 
+  it("binds Probe ladder lifecycle and authority boundaries to the documentation contract", () => {
+    const docs = readFileSync(path.join(repoRoot, "docs", "contributing", "backlog-model.md"), "utf8");
+    const lifecycleRequirements = [
+      "time-boxed evidence gathering",
+      "what a slice needs before dispatch",
+      "evidence available only after its prerequisite has landed",
+      "at the exact lifecycle boundary where the observed state exists",
+    ];
+    const authoritativeProbeContract = (markdown) => {
+      const lines = markdown.split(/\r?\n/);
+      const structuralLines = [];
+      const rawHtmlUntilBlankTags = new Set(
+        "address article aside blockquote body caption center col colgroup dd details dialog dir div dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu menuitem nav noframes ol optgroup option p param search section summary table tbody td tfoot th thead title tr track ul".split(
+          " ",
+        ),
+      );
+      let commentOpen = false;
+      let fence;
+      let rawHtmlClosingTag;
+      let rawHtmlUntilBlank = false;
+
+      const stripHtmlComments = (line) => {
+        let visible = "";
+        let cursor = 0;
+        while (cursor < line.length) {
+          if (commentOpen) {
+            const close = line.indexOf("-->", cursor);
+            if (close === -1) return visible;
+            commentOpen = false;
+            cursor = close + 3;
+            continue;
+          }
+
+          const open = line.indexOf("<!--", cursor);
+          const close = line.indexOf("-->", cursor);
+          if (close !== -1 && (open === -1 || close < open)) throw new Error("Unmatched HTML comment close");
+          if (open === -1) return visible + line.slice(cursor);
+          visible += line.slice(cursor, open);
+          commentOpen = true;
+          cursor = open + 4;
+        }
+        return visible;
+      };
+      const closingFence = (line, activeFence) => {
+        const match = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+        return match?.[1][0] === activeFence.marker && match[1].length >= activeFence.length;
+      };
+
+      for (const raw of lines) {
+        if (fence) {
+          structuralLines.push({ kind: "code", raw, visible: "" });
+          if (closingFence(raw, fence)) fence = undefined;
+          continue;
+        }
+        if (rawHtmlClosingTag) {
+          structuralLines.push({ kind: "raw-html", raw, visible: "" });
+          if (new RegExp(`</${rawHtmlClosingTag}\\s*>`, "i").test(raw)) rawHtmlClosingTag = undefined;
+          continue;
+        }
+        if (rawHtmlUntilBlank) {
+          if (raw.trim() === "") {
+            rawHtmlUntilBlank = false;
+            structuralLines.push({ kind: "normal", raw, visible: "" });
+          } else {
+            structuralLines.push({ kind: "raw-html", raw, visible: "" });
+          }
+          continue;
+        }
+
+        const visible = stripHtmlComments(raw);
+        if (commentOpen && visible === "") {
+          structuralLines.push({ kind: "invisible", raw, visible });
+          continue;
+        }
+        const openingFence = visible.match(/^ {0,3}(`{3,}|~{3,})(?:[^`~]*)$/);
+        if (openingFence) {
+          fence = { marker: openingFence[1][0], length: openingFence[1].length };
+          structuralLines.push({ kind: "code", raw, visible: "" });
+          continue;
+        }
+        const closingTagBlock = visible.match(/^ {0,3}<(pre|script|style|textarea|code)(?=[\s>])/i)?.[1];
+        if (closingTagBlock) {
+          structuralLines.push({ kind: "raw-html", raw, visible: "" });
+          if (!new RegExp(`</${closingTagBlock}\\s*>`, "i").test(visible)) rawHtmlClosingTag = closingTagBlock;
+          continue;
+        }
+        const untilBlankTag = visible.match(/^ {0,3}<([A-Za-z][\w-]*)(?=[\s>])/i)?.[1]?.toLowerCase();
+        const completeTagBlock = /^ {0,3}<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[^>]*)?\/?>[ \t]*$/.test(visible);
+        if (rawHtmlUntilBlankTags.has(untilBlankTag) || completeTagBlock) {
+          rawHtmlUntilBlank = true;
+          structuralLines.push({ kind: "raw-html", raw, visible: "" });
+          continue;
+        }
+        if (/^(?: {4}|\t)/.test(visible)) {
+          structuralLines.push({ kind: "code", raw, visible: "" });
+          continue;
+        }
+        structuralLines.push({
+          kind: visible.trim() === "" && raw.trim() !== "" ? "invisible" : "normal",
+          raw,
+          visible,
+        });
+      }
+      if (commentOpen) throw new Error("Unclosed HTML comment");
+
+      const headingText = ({ kind, visible }) =>
+        kind === "normal" ? visible.match(/^ {0,3}##(?!#)[ \t]+(.+?)[ \t]*#*[ \t]*$/)?.[1] : undefined;
+      const ladderHeadings = structuralLines
+        .map((line, index) => ({ index, text: headingText(line) }))
+        .filter(({ text }) => text === "The ladder");
+      expect(ladderHeadings).toHaveLength(1);
+      const ladderStart = ladderHeadings[0].index;
+      const nextLevelTwoHeading = structuralLines.findIndex(
+        (line, index) => index > ladderStart && headingText(line) !== undefined,
+      );
+      const ladderEnd = nextLevelTwoHeading === -1 ? structuralLines.length : nextLevelTwoHeading;
+
+      const pipeCells = ({ kind, visible }) => {
+        if (kind !== "normal") return undefined;
+        const trimmed = visible.trim();
+        if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) return undefined;
+        return trimmed
+          .slice(1, -1)
+          .split(/(?<!\\)\|/)
+          .map((cell) => cell.trim());
+      };
+      const probeRows = [];
+      for (let index = ladderStart + 1; index + 1 < ladderEnd; index += 1) {
+        const headerCells = pipeCells(structuralLines[index]);
+        const delimiterCells = pipeCells(structuralLines[index + 1]);
+        if (
+          !headerCells ||
+          !delimiterCells ||
+          headerCells.length !== delimiterCells.length ||
+          !delimiterCells.every((cell) => /^:?-{3,}:?$/.test(cell))
+        )
+          continue;
+
+        let tableEnd = index + 1;
+        const tableProbeRows = [];
+        for (let rowIndex = index + 2; rowIndex < ladderEnd; rowIndex += 1) {
+          const cells = pipeCells(structuralLines[rowIndex]);
+          if (!cells || cells.length !== headerCells.length) break;
+          tableEnd = rowIndex;
+          if (cells[0] === "**Probe**") tableProbeRows.push(rowIndex);
+        }
+        probeRows.push(...tableProbeRows.map((rowIndex) => ({ index: rowIndex, tableEnd })));
+        index = tableEnd;
+      }
+      expect(probeRows).toHaveLength(1);
+      const probe = probeRows[0];
+      expect(probe.index).toBe(probe.tableEnd);
+      const probeRow = structuralLines[probe.index].visible.trim();
+
+      const paragraphAt = (start) => {
+        if (structuralLines[start]?.kind !== "normal" || structuralLines[start].visible.trim() === "") return undefined;
+        let end = start;
+        while (
+          end + 1 < ladderEnd &&
+          structuralLines[end + 1].kind === "normal" &&
+          structuralLines[end + 1].visible.trim() !== ""
+        )
+          end += 1;
+        return {
+          end,
+          text: structuralLines
+            .slice(start, end + 1)
+            .map(({ visible: paragraphLine }) => paragraphLine)
+            .join("\n")
+            .trim(),
+        };
+      };
+      const paragraphs = [];
+      for (let index = ladderStart + 1; index < ladderEnd; index += 1) {
+        const paragraph = paragraphAt(index);
+        if (!paragraph) continue;
+        paragraphs.push(paragraph);
+        index = paragraph.end;
+      }
+      const authorityClosureParagraphs = paragraphs.filter(({ text: paragraph }) =>
+        paragraph.startsWith("The **native GitHub issue type is the form of the work and is authoritative.**"),
+      );
+      expect(authorityClosureParagraphs).toHaveLength(1);
+      const authorityClosureParagraph = authorityClosureParagraphs[0];
+      let adjacentIndex = probe.index + 1;
+      while (
+        adjacentIndex < ladderEnd &&
+        (structuralLines[adjacentIndex].kind === "invisible" ||
+          (structuralLines[adjacentIndex].kind === "normal" && structuralLines[adjacentIndex].visible.trim() === ""))
+      )
+        adjacentIndex += 1;
+      expect(paragraphAt(adjacentIndex)?.text).toBe(authorityClosureParagraph.text);
+      return { probeRow, authorityClosureParagraph: authorityClosureParagraph.text };
+    };
+    const expectProbeContract = (markdown) => {
+      const { probeRow, authorityClosureParagraph } = authoritativeProbeContract(markdown);
+      for (const requirement of lifecycleRequirements) expect(probeRow).toContain(requirement);
+
+      for (const literal of [
+        "do not authorize an",
+        "implementation result, staging/deploy verification, a provider or operator",
+        "claim, or an ongoing-monitoring result",
+        "exact authority, captured artifact, lifecycle moment, and bounded",
+        "unknown/failure behavior",
+        "post-landing evidence is not collected before the",
+        "landed/deployed state it observes exists",
+        "independent operator acceptance may close a Probe without a pull request only",
+        "after that Probe's own acceptance criteria are met",
+      ])
+        expect(authorityClosureParagraph).toContain(literal);
+
+      expect(authorityClosureParagraph).toMatch(/operator acceptance is a\s+closure control, not evidence authority/);
+      expect(probeRow).not.toContain("what evidence a slice needs before dispatch | as surfaced");
+      for (const forbiddenConflation of [
+        "a generic Probe authorizes an implementation result",
+        "post-landing evidence is collected before the landed/deployed state it observes exists",
+      ])
+        expect(authorityClosureParagraph).not.toContain(forbiddenConflation);
+      expect(authorityClosureParagraph).not.toMatch(/operator acceptance is\s+evidence authority/);
+    };
+
+    expectProbeContract(docs);
+    const { probeRow, authorityClosureParagraph } = authoritativeProbeContract(docs);
+    const probeAndAuthority = `${probeRow}\n\n${authorityClosureParagraph}`;
+    for (const requirement of lifecycleRequirements) {
+      const withoutRequirement = docs.replace(probeRow, probeRow.replace(requirement, ""));
+      expect(() => expectProbeContract(withoutRequirement)).toThrow();
+      expect(() => expectProbeContract(`${withoutRequirement}\n<!-- ${requirement} -->`)).toThrow();
+    }
+    expect(() => expectProbeContract(docs.replace(probeRow, probeRow.replace("**Probe**", "**Decision**")))).toThrow();
+    expect(() => expectProbeContract(docs.replace(probeRow, `${probeRow}\n${probeRow}`))).toThrow();
+    expect(() =>
+      expectProbeContract(
+        docs
+          .replace(probeRow, "")
+          .replace("\n## What each GitHub primitive means", `\n${probeRow}\n\n## What each GitHub primitive means`),
+      ),
+    ).toThrow();
+    expect(() => expectProbeContract(docs.replace(probeRow, `<!-- ${probeRow} -->`))).toThrow();
+    expect(() => expectProbeContract(docs.replace(probeRow, `<!--\n${probeRow}\n-->`))).toThrow();
+    expect(() => expectProbeContract(docs.replace(probeRow, `> ${probeRow}`))).toThrow();
+    expect(() =>
+      expectProbeContract(docs.replace(authorityClosureParagraph, `<!-- ${authorityClosureParagraph} -->`)),
+    ).toThrow();
+    expect(() =>
+      expectProbeContract(docs.replace(authorityClosureParagraph, `<!--\n${authorityClosureParagraph}\n-->`)),
+    ).toThrow();
+    expect(() =>
+      expectProbeContract(
+        docs.replace(
+          authorityClosureParagraph,
+          authorityClosureParagraph
+            .split("\n")
+            .map((line) => `> ${line}`)
+            .join("\n"),
+        ),
+      ),
+    ).toThrow();
+    expect(() =>
+      expectProbeContract(
+        docs
+          .replace(authorityClosureParagraph, "")
+          .replace(
+            "\n## What each GitHub primitive means",
+            `\n${authorityClosureParagraph}\n\n## What each GitHub primitive means`,
+          ),
+      ),
+    ).toThrow();
+    expect(() =>
+      expectProbeContract(
+        docs.replace(
+          probeAndAuthority,
+          `${probeRow}\n\nUnrelated visible adjacency text.\n\n${authorityClosureParagraph}`,
+        ),
+      ),
+    ).toThrow();
+    expect(() =>
+      expectProbeContract(docs.replace(probeAndAuthority, `\`\`\`markdown\n${probeAndAuthority}\n\`\`\``)),
+    ).toThrow();
+    expect(() => expectProbeContract(docs.replace(probeAndAuthority, `<pre>\n${probeAndAuthority}\n</pre>`))).toThrow();
+    expect(() =>
+      expectProbeContract(
+        docs.replace(
+          probeAndAuthority,
+          probeAndAuthority
+            .split("\n")
+            .map((line) => `    ${line}`)
+            .join("\n"),
+        ),
+      ),
+    ).toThrow();
+    expect(() => expectProbeContract(docs.replace(probeAndAuthority, `<!--\n${probeAndAuthority}`))).toThrow();
+    expect(() => expectProbeContract(docs.replace(probeRow, `-->\n${probeRow}`))).toThrow();
+
+    const weakenedRealLadder = docs.replace(
+      probeRow,
+      probeRow.replace("time-boxed evidence gathering", "evidence gathering"),
+    );
+    const duplicateHeadingMask = [
+      "## The ladder",
+      "",
+      "| Level | Lives in | Answers | Changes |",
+      "|---|---|---|---|",
+      probeRow,
+      "",
+      authorityClosureParagraph,
+      "",
+      "## The ladder",
+    ].join("\n");
+    expect(() => expectProbeContract(weakenedRealLadder.replace("## The ladder", duplicateHeadingMask))).toThrow();
+
+    expectProbeContract(
+      docs.replace(
+        probeAndAuthority,
+        `${probeRow}\n<!--\n## The ladder\n${probeRow}\ninvisible adjacency note\n-->\n\n${authorityClosureParagraph}`,
+      ),
+    );
+  });
+
   it("exhausts every forecast authority before rendering or patching", async () => {
     const seen = [];
     const pages = new Map([
