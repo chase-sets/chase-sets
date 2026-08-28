@@ -413,7 +413,8 @@
         "routeId": "account",
         "actions": ["Update account profile"],
         "command": "UpdateAccountProfile",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["navigateAfterWrite", "navigateAfterWriteFromSources"],
+        "files": ["bounded-contexts/identity/features/accounts/ui/portable-route.ts"]
       },
       "destination": {
         "routeId": "account",
@@ -911,6 +912,9 @@
         "post-form:bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx:H2df726441e2a#1",
         "route-action:bounded-contexts/identity/routes/marketplace/account.tsx"
       ],
+      "portableSurfaces": [
+        "bounded-contexts/identity/features/accounts/ui/portable-route.ts#mutatePortableAccountRoute"
+      ],
       "visibleDestination": {
         "routeId": "accounts-detail",
         "apiContextName": "identity",
@@ -922,7 +926,10 @@
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+        "tests": [
+          "bounded-contexts/identity/features/accounts/tests/portable-route.test.ts",
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"
+        ]
       }
     },
     {
