@@ -173,12 +173,15 @@ export type PortableRouteModule<
   readonly mutate?: PortableRouteMutationOperation<TFetch, TMutationData, TValidationError>;
 }>;
 
-export type PortableContextRegistryEntry<TFetch> = Readonly<{
+export type PortableContextRegistryEntry<
+  TFetch,
+  TPortableRoutes extends readonly PortableRouteModule<TFetch>[] = readonly PortableRouteModule<TFetch>[],
+> = Readonly<{
   readonly contextName: string;
   readonly manifest: Readonly<{
     readonly deployableContributions?: readonly BcDeployableContribution[];
   }>;
-  readonly portableRoutes: readonly PortableRouteModule<TFetch>[];
+  readonly portableRoutes: TPortableRoutes;
 }>;
 
 export type BcDeployableContribution = Readonly<{

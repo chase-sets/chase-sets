@@ -14,4 +14,4 @@ export const discoveryPortableRoutes = [
     pageComponent: SearchPage,
     load: loadPortableSearchRoute,
   },
-] satisfies readonly PortableRouteModule<PortableClientFetch>[];
+] as const satisfies readonly PortableRouteModule<PortableClientFetch>[];

@@ -9,11 +9,33 @@ import { assertMarketplaceRouteContract } from "./portable-route-contract";
 
 export type PortableClientFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-type PortableClientRouterOptions = Readonly<{
+type PortableClientRouteModules = readonly PortableRouteModule<PortableClientFetch>[];
+
+type PortableClientRegistryEntry = PortableContextRegistryEntry<PortableClientFetch, PortableClientRouteModules>;
+
+type PortableClientRouterOptions<TContexts extends readonly PortableClientRegistryEntry[]> = Readonly<{
   apiOrigin: string;
   fetch: PortableClientFetch;
-  contexts: readonly PortableContextRegistryEntry<PortableClientFetch>[];
+  contexts: TContexts;
 }>;
+
+type PortableRouteModuleForEntry<TEntry> =
+  TEntry extends PortableContextRegistryEntry<PortableClientFetch, infer TPortableRoutes>
+    ? TPortableRoutes[number]
+    : never;
+
+type PortableClientRoute<TModule extends PortableRouteModule<PortableClientFetch>> =
+  TModule extends PortableRouteModule<PortableClientFetch>
+    ? Readonly<{
+        id: string;
+        path: string;
+        authorization: BcPortableRouteModule["authorization"];
+        canonicalLink: BcPortableRouteModule["canonicalLink"];
+        pageComponent: TModule["pageComponent"];
+        load: (input: PortableRouteInput) => ReturnType<TModule["load"]>;
+        mutate?: (input: PortableRouteMutationInput) => ReturnType<NonNullable<TModule["mutate"]>>;
+      }>
+    : never;
 
 function resolveAbsoluteApiOrigin(apiOrigin: string): string {
   const origin = new URL(apiOrigin);
@@ -26,10 +48,10 @@ function resolveAbsoluteApiOrigin(apiOrigin: string): string {
   return origin.origin;
 }
 
-function findPortableModule(
+function findPortableModule<TModules extends PortableClientRouteModules>(
   route: BcPortableRouteModule,
-  modules: readonly PortableRouteModule<PortableClientFetch>[],
-): PortableRouteModule<PortableClientFetch> {
+  modules: TModules,
+): TModules[number] {
   const matches = modules.filter((module) => module.routeId === route.routeId);
   if (matches.length !== 1) {
     throw new Error(
@@ -58,7 +80,14 @@ function findPortableModule(
   return module;
 }
 
-export function createPortableClientRouter(options: PortableClientRouterOptions) {
+export function createPortableClientRouter<const TContexts extends readonly PortableClientRegistryEntry[]>(
+  options: PortableClientRouterOptions<TContexts>,
+): Readonly<{
+  routes: readonly PortableClientRoute<PortableRouteModuleForEntry<TContexts[number]>>[];
+}>;
+export function createPortableClientRouter(
+  options: PortableClientRouterOptions<readonly PortableClientRegistryEntry[]>,
+) {
   if (typeof options.fetch !== "function") {
     throw new Error("Portable client router requires an injected fetch implementation.");
   }

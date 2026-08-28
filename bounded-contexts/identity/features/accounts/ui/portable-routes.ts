@@ -10,4 +10,4 @@ export const identityPortableRoutes = [
     load: loadPortableAccountRoute,
     mutate: mutatePortableAccountRoute,
   },
-] satisfies readonly PortableRouteModule<PortableClientFetch>[];
+] as const satisfies readonly PortableRouteModule<PortableClientFetch>[];
