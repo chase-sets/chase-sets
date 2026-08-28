@@ -1,18 +1,31 @@
 name: Export managed Postgres authority
-description: Export verify-full managed Postgres URLs and their pinned CA from platform Terraform state.
+description: Export managed Postgres URL authority or reconcile its CA into the platform runtime Secret.
 
 inputs:
+  mode:
+    description: "Closed authority mode: url-export or trust-only-kubernetes-secret."
+    required: false
+    default: url-export
   environment:
     description: Platform environment whose Terraform state owns the database authority.
     required: true
   contexts:
     description: Comma-separated bounded contexts to export, or all.
     required: false
-    default: all
+    default: ""
   connection-mode:
     description: Direct cluster connections or transaction-pooled connections.
     required: false
-    default: direct
+    default: ""
+  namespace:
+    description: Kubernetes namespace required only by trust-only-kubernetes-secret mode.
+    required: false
+    default: ""
+
+outputs:
+  managed-postgres-ca-sha256:
+    description: Lowercase SHA-256 of the exact decoded CA bytes reconciled by trust-only mode.
+    value: ${{ steps.reconcile-trust.outputs.managed-postgres-ca-sha256 }}
 
 runs:
   using: composite
@@ -22,12 +35,29 @@ runs:
       working-directory: infrastructure/digitalocean/platform
       env:
         AUTHORITY_ENVIRONMENT: ${{ inputs.environment }}
+        AUTHORITY_MODE: ${{ inputs.mode }}
+        AUTHORITY_CONTEXTS: ${{ inputs.contexts }}
+        AUTHORITY_CONNECTION_MODE: ${{ inputs.connection-mode }}
+        AUTHORITY_NAMESPACE: ${{ inputs.namespace }}
       run: |
         set -euo pipefail
         case "$AUTHORITY_ENVIRONMENT" in
           staging|production) ;;
           *)
             echo "Unsupported managed Postgres authority environment." >&2
+            exit 1
+            ;;
+        esac
+        case "$AUTHORITY_MODE" in
+          url-export) ;;
+          trust-only-kubernetes-secret)
+            if [ -n "$AUTHORITY_CONTEXTS" ] || [ -n "$AUTHORITY_CONNECTION_MODE" ] || [ -z "$AUTHORITY_NAMESPACE" ]; then
+              echo "Trust-only managed Postgres authority inputs were invalid." >&2
+              exit 1
+            fi
+            ;;
+          *)
+            echo "Unsupported managed Postgres authority mode." >&2
             exit 1
             ;;
         esac
@@ -45,12 +75,13 @@ runs:
           -backend-config=use_lockfile=true
 
     - name: Export bounded database URLs and CA trust
+      if: inputs.mode == 'url-export'
       shell: bash
       working-directory: infrastructure/digitalocean/platform
       env:
         AUTHORITY_ENVIRONMENT: ${{ inputs.environment }}
-        AUTHORITY_CONTEXTS: ${{ inputs.contexts }}
-        AUTHORITY_CONNECTION_MODE: ${{ inputs.connection-mode }}
+        AUTHORITY_CONTEXTS: ${{ inputs.contexts || 'all' }}
+        AUTHORITY_CONNECTION_MODE: ${{ inputs.connection-mode || 'direct' }}
         MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
       run: |
         set -euo pipefail
@@ -63,3 +94,24 @@ runs:
           --connection-mode "$AUTHORITY_CONNECTION_MODE" \
           --ca-path "$MANAGED_POSTGRES_CA_PATH" \
           --github-env "$GITHUB_ENV"
+
+    - name: Reconcile managed Postgres CA Secret
+      id: reconcile-trust
+      if: inputs.mode == 'trust-only-kubernetes-secret'
+      shell: bash
+      working-directory: infrastructure/digitalocean/platform
+      env:
+        AUTHORITY_ENVIRONMENT: ${{ inputs.environment }}
+        AUTHORITY_NAMESPACE: ${{ inputs.namespace }}
+        MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem
+      run: |
+        set -euo pipefail
+        state_path="${RUNNER_TEMP}/platform-${AUTHORITY_ENVIRONMENT}.tfstate.json"
+        terraform state pull > "$state_path"
+        node ../../../scripts/terraform-state-database-urls.mjs \
+          --mode trust-only-kubernetes-secret \
+          --state "$state_path" \
+          --environment "$AUTHORITY_ENVIRONMENT" \
+          --namespace "$AUTHORITY_NAMESPACE" \
+          --ca-path "$MANAGED_POSTGRES_CA_PATH" \
+          --github-output "$GITHUB_OUTPUT"

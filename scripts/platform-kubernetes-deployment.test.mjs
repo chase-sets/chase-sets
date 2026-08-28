@@ -12,19 +12,20 @@ import {
   buildHelmRollbackArgs,
   buildHelmStatusArgs,
   buildHelmUninstallArgs,
-  buildHelmUpgradeArgs,
+  buildHelmUpgradeArgs as buildHelmUpgradeArgsUnderTest,
   buildHelmValuesArgs,
   buildWaveExposureHelmSetArgs,
   buildKubernetesRollbackTarget,
+  buildManagedPostgresCaReconcileArgs,
   buildNamespaceDeleteArgs,
   buildNamespaceGetArgs,
   buildPreviewWildcardSecretApplyArgs,
   buildPreviewWildcardSecretGetArgs,
   buildScenarioSeedAccessManifest,
-  buildScenarioSeedJobManifest,
+  buildScenarioSeedJobManifest as buildScenarioSeedJobManifestUnderTest,
   copyPreviewWildcardTlsSecret,
   captureKubernetesRollbackTarget,
-  deployPlatformToKubernetes,
+  deployPlatformToKubernetes as deployPlatformToKubernetesUnderTest,
   helmReleaseExists,
   parsePlatformImageRef,
   parseArgs,
@@ -34,8 +35,9 @@ import {
   readGitHubProductionWriterCensus,
   readHelmOperationCensus,
   recoverStableStalePendingUpgrade,
+  reconcileManagedPostgresCaOnKubernetes,
   rollbackPlatformOnKubernetes,
-  runScenarioSeedOnKubernetes,
+  runScenarioSeedOnKubernetes as runScenarioSeedOnKubernetesUnderTest,
   sanitizeCopiedSecretManifest,
   scenarioSeedMaxActiveDeadlineSeconds,
   selectStableDeployedHelmSource,
@@ -59,6 +61,7 @@ const rollbackDigest = "sha256:635b93388d32b865330e1ccb068a5effcd7a492326e597c9f
 const rollbackIndexDigest = "sha256:261f0b60e1b373d0aa423f04b651c3ab9f9e3d0f6e799624a920b58e4b1aefb2";
 const rollbackTag = "c0bd688d64bd5140fcbd2790489717a042e5432b";
 const failedCandidateDigest = "sha256:389894cef6b5ebc5dd63d1b3b5aada76264a8d353d8fa4852018bafe9496292d";
+const managedPostgresCaSha256 = "a".repeat(64);
 const rollbackImageRef = `registry.digitalocean.com/chase-sets/chase-sets-platform@${rollbackDigest}`;
 const productionIndex = {
   schemaVersion: 2,
@@ -76,6 +79,29 @@ const productionIndex = {
     },
   ],
 };
+
+function withManagedPostgresCa(options) {
+  return {
+    ...options,
+    managedPostgresCaSha256: options.managedPostgresCaSha256 ?? managedPostgresCaSha256,
+  };
+}
+
+function buildHelmUpgradeArgs(options) {
+  return buildHelmUpgradeArgsUnderTest(withManagedPostgresCa(options));
+}
+
+function buildScenarioSeedJobManifest(options) {
+  return buildScenarioSeedJobManifestUnderTest(withManagedPostgresCa(options));
+}
+
+function deployPlatformToKubernetes(options) {
+  return deployPlatformToKubernetesUnderTest(withManagedPostgresCa(options));
+}
+
+function runScenarioSeedOnKubernetes(options) {
+  return runScenarioSeedOnKubernetesUnderTest(withManagedPostgresCa(options));
+}
 const rollbackValues = {
   global: {
     image: {
@@ -226,6 +252,25 @@ describe("platform Kubernetes deployment", () => {
     expect(manifest.spec.activeDeadlineSeconds).toBe(scenarioSeedMaxActiveDeadlineSeconds);
     expect(manifest.spec.backoffLimit).toBe(0);
     expect(manifest.spec.template.spec.imagePullSecrets).toEqual([{ name: "chase-sets" }]);
+    expect(manifest.spec.template.metadata.annotations["chase-sets.com/managed-postgres-ca-sha256"]).toBe(
+      managedPostgresCaSha256,
+    );
+    expect(manifest.spec.template.spec.volumes).toEqual([
+      {
+        name: "managed-postgres-ca",
+        secret: {
+          secretName: "chase-sets-platform-runtime",
+          items: [{ key: "managed-postgres-ca.crt", path: "ca.crt" }],
+        },
+      },
+    ]);
+    expect(container.volumeMounts).toEqual([
+      {
+        name: "managed-postgres-ca",
+        mountPath: "/var/run/secrets/chase-sets/managed-postgres",
+        readOnly: true,
+      },
+    ]);
     expect(manifest.spec.template.spec.serviceAccountName).toBe(
       "chase-sets-platform-chase-sets-platform-scenario-seed-quiesce",
     );
@@ -444,6 +489,48 @@ describe("platform Kubernetes deployment", () => {
       "--set-string",
       "global.imagePullSecrets[0].name=chase-sets",
     ]);
+  });
+
+  it("reuses the admitted Helm release for day-after CA reconciliation", async () => {
+    const args = buildManagedPostgresCaReconcileArgs({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      timeout: "15m",
+      managedPostgresCaSha256,
+    });
+    expect(args).toEqual([
+      "upgrade",
+      "chase-sets-platform",
+      "infrastructure/helm/platform",
+      "--namespace",
+      "chase-sets-platform",
+      "--reuse-values",
+      "--wait",
+      "--timeout",
+      "15m",
+      "--atomic",
+      "--no-hooks",
+      "--set-string",
+      `global.managedPostgresCaSha256=${managedPostgresCaSha256}`,
+    ]);
+    expect(() =>
+      buildManagedPostgresCaReconcileArgs({ managedPostgresCaSha256: managedPostgresCaSha256.toUpperCase() }),
+    ).toThrow("lowercase SHA-256");
+
+    const calls = [];
+    await reconcileManagedPostgresCaOnKubernetes({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      timeout: "15m",
+      managedPostgresCaSha256,
+      helmPath: "C:/synthetic/helm-double.exe",
+      kubectlPath: "C:/synthetic/kubectl-double.exe",
+      workloads: { deployments: [], rollouts: [], jobs: [] },
+      spawn: successfulSpawn(calls),
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].command).toBe("C:/synthetic/helm-double.exe");
+    expect(calls[0].args).toEqual(args);
   });
 
   it("pins Helm to the provider-managed Kubernetes image pull authority", () => {

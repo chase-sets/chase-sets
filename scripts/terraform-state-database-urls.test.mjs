@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +10,7 @@ import {
   githubEnvLinesForDatabaseUrls,
   managedPostgresClusterIdFromTerraformState,
   parseTerraformStateDatabaseUrlArgs,
+  reconcileManagedPostgresCaSecret,
   writeManagedPostgresCa,
 } from "./terraform-state-database-urls.mjs";
 
@@ -157,7 +159,8 @@ describe("Terraform state database URL export", () => {
       },
     );
 
-    expect(options).toEqual({
+    expect(options).toMatchObject({
+      mode: "url-export",
       statePath: "state.json",
       githubEnvPath: "github.env",
       caPath: join("/runner/temp", "digitalocean-managed-postgres-ca.pem"),
@@ -190,7 +193,8 @@ describe("Terraform state database URL export", () => {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ ca: { certificate: Buffer.from(certificate).toString("base64") } }),
+            headers: { get: () => "application/json; charset=utf-8" },
+            text: async () => JSON.stringify({ ca: { certificate: Buffer.from(certificate).toString("base64") } }),
           };
         },
         log: (line) => logs.push(line),
@@ -220,11 +224,25 @@ describe("Terraform state database URL export", () => {
           fetch: async () => ({
             ok: false,
             status: 403,
-            json: async () => ({ secret: "provider-body-must-not-surface" }),
+            text: async () => JSON.stringify({ secret: "provider-body-must-not-surface" }),
           }),
         },
       ),
     ).rejects.toMatchObject({ classification: "digitalocean-ca-request-rejected", status: 403 });
+
+    await expect(
+      fetchDigitalOceanManagedPostgresCa(
+        { clusterId: "synthetic-cluster", digitalOceanToken: "synthetic-token" },
+        {
+          fetch: async () => ({
+            ok: true,
+            status: 200,
+            headers: { get: () => "text/plain" },
+            text: async () => JSON.stringify({ ca: { certificate: Buffer.from(certificate).toString("base64") } }),
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ classification: "digitalocean-ca-response-invalid", status: 200 });
   });
 
   it("writes CA material with restrictive permissions", async () => {
@@ -263,7 +281,8 @@ describe("Terraform state database URL export", () => {
           fetch: async () => ({
             ok: true,
             status: 200,
-            json: async () => ({ ca: { certificate: Buffer.from(certificate).toString("base64") } }),
+            headers: { get: () => "application/json" },
+            text: async () => JSON.stringify({ ca: { certificate: Buffer.from(certificate).toString("base64") } }),
           }),
           log: () => undefined,
         },
@@ -312,5 +331,113 @@ describe("Terraform state database URL export", () => {
     expect(actionSource).toContain('--ca-path "$MANAGED_POSTGRES_CA_PATH"');
     expect(actionSource).toContain('--github-env "$GITHUB_ENV"');
     expect(actionSource).toContain("MANAGED_POSTGRES_CA_PATH: ${{ runner.temp }}/digitalocean-managed-postgres-ca.pem");
+  });
+
+  it("reconciles exact CA bytes once and removes the process-owned temporary file", async () => {
+    const writes = [];
+    const removals = [];
+    const applications = [];
+    const certificateBytes = Buffer.from(certificate, "utf8");
+    const result = await reconcileManagedPostgresCaSecret(
+      {
+        mode: "trust-only-kubernetes-secret",
+        statePath: "state.json",
+        githubOutputPath: "github.output",
+        caPath,
+        digitalOceanToken: "synthetic-token",
+        environmentName: "staging",
+        namespace: "chase-sets-platform",
+        kubectlPath: "C:/synthetic/kubectl-double.exe",
+      },
+      {
+        readFile: async (path) => (path === "state.json" ? JSON.stringify(terraformState()) : certificateBytes),
+        writeCa: async (_path, value) => expect(value).toBe(certificate),
+        appendFile: async (path, value) => writes.push({ path, value }),
+        rm: async (path, options) => removals.push({ path, options }),
+        applyManagedPostgresCaSecret: async (options) => applications.push(options),
+        fetch: async () => ({
+          ok: true,
+          status: 200,
+          headers: { get: () => "application/json" },
+          text: async () => JSON.stringify({ ca: { certificate: certificateBytes.toString("base64") } }),
+        }),
+      },
+    );
+    const digest = createHash("sha256").update(certificateBytes).digest("hex");
+
+    expect(result).toEqual({ digest });
+    expect(applications).toEqual([
+      {
+        namespace: "chase-sets-platform",
+        certificate: certificateBytes,
+        kubectlPath: "C:/synthetic/kubectl-double.exe",
+        spawn: undefined,
+      },
+    ]);
+    expect(writes).toEqual([{ path: "github.output", value: `managed-postgres-ca-sha256=${digest}\n` }]);
+    expect(removals).toEqual([{ path: caPath, options: { force: true } }]);
+  });
+
+  it("refuses URL-export inputs in trust-only mode before provider or Secret mutation", async () => {
+    let fetched = 0;
+    let applied = 0;
+    await expect(
+      reconcileManagedPostgresCaSecret(
+        {
+          mode: "trust-only-kubernetes-secret",
+          contextsSpecified: true,
+          connectionModeSpecified: false,
+          statePath: "state.json",
+          githubOutputPath: "github.output",
+          caPath,
+          digitalOceanToken: "synthetic-token",
+          environmentName: "staging",
+          namespace: "chase-sets-platform",
+          kubectlPath: "C:/synthetic/kubectl-double.exe",
+        },
+        {
+          fetch: async () => {
+            fetched += 1;
+          },
+          applyManagedPostgresCaSecret: async () => {
+            applied += 1;
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ classification: "managed-postgres-trust-only-input-invalid" });
+    expect({ fetched, applied }).toEqual({ fetched: 0, applied: 0 });
+  });
+
+  it("fails closed when trust-only cleanup cannot remove its process-owned CA file", async () => {
+    const certificateBytes = Buffer.from(certificate, "utf8");
+    await expect(
+      reconcileManagedPostgresCaSecret(
+        {
+          mode: "trust-only-kubernetes-secret",
+          statePath: "state.json",
+          githubOutputPath: "github.output",
+          caPath,
+          digitalOceanToken: "synthetic-token",
+          environmentName: "production",
+          namespace: "chase-sets-platform",
+          kubectlPath: "C:/synthetic/kubectl-double.exe",
+        },
+        {
+          readFile: async (path) => (path === "state.json" ? JSON.stringify(terraformState()) : certificateBytes),
+          writeCa: async () => undefined,
+          appendFile: async () => undefined,
+          applyManagedPostgresCaSecret: async () => undefined,
+          rm: async () => {
+            throw Object.assign(new Error("synthetic cleanup refusal"), { code: "EPERM" });
+          },
+          fetch: async () => ({
+            ok: true,
+            status: 200,
+            headers: { get: () => "application/json" },
+            text: async () => JSON.stringify({ ca: { certificate: certificateBytes.toString("base64") } }),
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ classification: "managed-postgres-ca-cleanup-failed", code: "EPERM" });
   });
 });

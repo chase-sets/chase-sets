@@ -23,8 +23,12 @@ spec:
 {{- with $component.podLabels }}
 {{ toYaml . | nindent 8 }}
 {{- end }}
-{{- if or $.Values.global.podAnnotations $component.podAnnotations }}
+{{- $managedPostgresCa := and $component.managedPostgresCa $.Values.global.managedPostgresCaSha256 }}
+{{- if or $managedPostgresCa $.Values.global.podAnnotations $component.podAnnotations }}
       annotations:
+{{- if $managedPostgresCa }}
+        chase-sets.com/managed-postgres-ca-sha256: {{ required "global.managedPostgresCaSha256 is required for database-bearing workloads" $.Values.global.managedPostgresCaSha256 | quote }}
+{{- end }}
 {{- with $.Values.global.podAnnotations }}
 {{ toYaml . | nindent 8 }}
 {{- end }}

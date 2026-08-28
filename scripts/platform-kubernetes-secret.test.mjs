@@ -3,6 +3,8 @@ import { Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import {
   applyPlatformSecretManifest,
+  applyManagedPostgresCaSecret,
+  buildManagedPostgresCaSecretManifest,
   buildManagedPostgresDatabaseEnv,
   buildNamespaceManifest,
   buildPlatformSecretBundle,
@@ -11,6 +13,7 @@ import {
   deriveOtlpWriteToken,
   summarizePlatformSecret,
 } from "./platform-kubernetes-secret.mjs";
+import { buildPlatformHelmValues, isDatabaseSecretKey } from "./render-platform-helm-values.mjs";
 
 const sampleValues = {
   global: {
@@ -35,6 +38,12 @@ const sampleValues = {
 describe("platform Kubernetes secret", () => {
   it("collects unique secret keys from Helm values", () => {
     expect(collectPlatformSecretKeys(sampleValues)).toEqual(["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"]);
+  });
+
+  it("preserves the canonical 52-key managed database URL inventory", () => {
+    const urlKeys = collectPlatformSecretKeys(buildPlatformHelmValues()).filter(isDatabaseSecretKey);
+    expect(urlKeys).toHaveLength(52);
+    expect(new Set(urlKeys).size).toBe(52);
   });
 
   it("derives the collector token without changing the application OTLP header contract", () => {
@@ -260,7 +269,18 @@ describe("platform Kubernetes secret", () => {
 
     expect(result).toEqual({ name: "chase-sets-platform-runtime", namespace: null, keyCount: 2 });
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ command: "kubectl", args: ["apply", "-f", "-"] });
+    expect(calls[0]).toMatchObject({
+      command: "kubectl",
+      args: [
+        "apply",
+        "--server-side",
+        "--force-conflicts",
+        "--field-manager",
+        "chase-sets-platform-runtime",
+        "-f",
+        "-",
+      ],
+    });
     expect(calls[0].options.stdio).toEqual(["pipe", "inherit", "inherit"]);
     expect(writes.join("")).toContain('"kind":"Secret"');
   });
@@ -297,7 +317,7 @@ describe("platform Kubernetes secret", () => {
     expect(result).toEqual({ name: "chase-sets-platform-runtime", namespace: "production", keyCount: 2 });
     expect(calls.map((call) => call.args)).toEqual([
       ["apply", "-f", "-"],
-      ["apply", "-f", "-"],
+      ["apply", "--server-side", "--force-conflicts", "--field-manager", "chase-sets-platform-runtime", "-f", "-"],
     ]);
     expect(writes).toHaveLength(2);
     expect(writes[0]).toContain('"kind":"Namespace"');
@@ -314,6 +334,78 @@ describe("platform Kubernetes secret", () => {
       keyCount: 2,
       keys: ["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"],
     });
+  });
+
+  it("server-side applies only the managed Postgres CA key under its dedicated manager", async () => {
+    const calls = [];
+    const writes = [];
+    const spawn = (command, args, options) => {
+      calls.push({ command, args, options });
+      const child = new EventEmitter();
+      child.stdin = new Writable({
+        write(chunk, _encoding, callback) {
+          writes.push(chunk.toString("utf8"));
+          callback();
+        },
+      });
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    };
+    const certificate = Buffer.from("synthetic-ca-bytes", "utf8");
+    await applyManagedPostgresCaSecret({
+      namespace: "chase-sets-platform",
+      certificate,
+      resourceVersion: "synthetic-123",
+      kubectlPath: "C:/synthetic/kubectl-double.exe",
+      spawn,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      command: "C:/synthetic/kubectl-double.exe",
+      args: ["apply", "--server-side", "--field-manager", "chase-sets-managed-postgres-ca", "-f", "-"],
+    });
+    const applied = JSON.parse(writes[0]);
+    expect(applied.metadata.name).toBe("chase-sets-platform-runtime");
+    expect(applied.metadata.namespace).toBe("chase-sets-platform");
+    expect(applied.metadata.resourceVersion).toBe("synthetic-123");
+    expect(applied.data["managed-postgres-ca.crt"]).toBe(certificate.toString("base64"));
+  });
+
+  it("reads only the existing Secret resourceVersion before the one-key server-side apply", async () => {
+    const calls = [];
+    const certificate = Buffer.from("synthetic-ca-bytes", "utf8");
+    const spawn = (command, args, options) => {
+      calls.push({ command, args, options });
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stdin = new Writable({ write: (_chunk, _encoding, callback) => callback() });
+      queueMicrotask(() => {
+        if (args[0] === "get") child.stdout.emit("data", "synthetic-456");
+        child.emit("close", 0);
+      });
+      return child;
+    };
+
+    await applyManagedPostgresCaSecret({
+      namespace: "chase-sets-platform",
+      certificate,
+      kubectlPath: "C:/synthetic/kubectl-double.exe",
+      spawn,
+    });
+
+    expect(calls.map(({ args }) => args)).toEqual([
+      [
+        "get",
+        "secret",
+        "chase-sets-platform-runtime",
+        "--namespace",
+        "chase-sets-platform",
+        "--output",
+        "jsonpath={.metadata.resourceVersion}",
+      ],
+      ["apply", "--server-side", "--field-manager", "chase-sets-managed-postgres-ca", "-f", "-"],
+    ]);
   });
 });
 

@@ -158,6 +158,15 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --output json > "$history_path"
 
+          original_ca_sha256="$(helm get values "$CHASE_SETS_HELM_RELEASE" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --output json | jq -r '.global.managedPostgresCaSha256 // empty')"
+          target_ca_sha256="$(helm get values "$CHASE_SETS_HELM_RELEASE" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --revision "$ROLLBACK_REVISION" --output json | jq -r '.global.managedPostgresCaSha256 // empty')"
+          if ! [[ "$original_ca_sha256" =~ ^[0-9a-f]{64}$ ]] || ! [[ "$target_ca_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Both rollback drill revisions must be managed-Postgres-CA mount-aware." >&2
+            exit 1
+          fi
+          echo "original_ca_sha256=${original_ca_sha256}" >> "$GITHUB_OUTPUT"
+          echo "target_ca_sha256=${target_ca_sha256}" >> "$GITHUB_OUTPUT"
+
           node - "$history_path" "$ROLLBACK_REVISION" "$GITHUB_OUTPUT" <<'NODE'
           const fs = require("node:fs");
           const [historyPath, requestedRevision, outputPath] = process.argv.slice(2);
@@ -211,6 +220,29 @@ jobs:
           SMOKE_SOURCE: staging-doks-rollback-drill-rollback
         run: pnpm run smoke:platform -- "$LANDING_URL" "$ADMIN_URL" "$MARKETPLACE_URL"
 
+      - name: Verify rollback managed Postgres CA distribution
+        if: steps.rollback_smoke.outcome == 'success'
+        env:
+          EXPECTED_CA_SHA256: ${{ steps.helm_revisions.outputs.target_ca_sha256 }}
+        run: |
+          set -euo pipefail
+          evidence="artifacts/staging-rollback-drill/rollback-managed-postgres-ca.txt"
+          : > "$evidence"
+          for component in marketplace platform-api platform-worker; do
+            name="${CHASE_SETS_HELM_RELEASE}-chase-sets-platform-${component}"
+            resource="deployment/${name}"
+            if ! kubectl get "$resource" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" >/dev/null 2>&1; then
+              resource="rollout.argoproj.io/${name}"
+            fi
+            observed="$(kubectl get "$resource" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --output 'jsonpath={.spec.template.metadata.annotations.chase-sets\.com/managed-postgres-ca-sha256}{"|"}{.spec.template.spec.volumes[?(@.name=="managed-postgres-ca")].secret.secretName}{"|"}{.spec.template.spec.volumes[?(@.name=="managed-postgres-ca")].secret.items[0].key}{"|"}{.spec.template.spec.containers[0].volumeMounts[?(@.name=="managed-postgres-ca")].mountPath}{"|"}{.spec.template.spec.containers[0].volumeMounts[?(@.name=="managed-postgres-ca")].readOnly}')"
+            expected="${EXPECTED_CA_SHA256}|chase-sets-platform-runtime|managed-postgres-ca.crt|/var/run/secrets/chase-sets/managed-postgres|true"
+            if [ "$observed" != "$expected" ]; then
+              echo "Managed Postgres CA rollback distribution mismatch for ${component}." >&2
+              exit 1
+            fi
+            printf '%s|%s\n' "$component" "$observed" >> "$evidence"
+          done
+
       - name: Roll forward staging DOKS Helm release
         id: roll_forward
         if: always() && steps.rollback.outputs.attempted == 'true'
@@ -232,6 +264,29 @@ jobs:
         env:
           SMOKE_SOURCE: staging-doks-rollback-drill-roll-forward
         run: pnpm run smoke:platform -- "$LANDING_URL" "$ADMIN_URL" "$MARKETPLACE_URL"
+
+      - name: Verify restored managed Postgres CA distribution
+        if: steps.roll_forward_smoke.outcome == 'success'
+        env:
+          EXPECTED_CA_SHA256: ${{ steps.helm_revisions.outputs.original_ca_sha256 }}
+        run: |
+          set -euo pipefail
+          evidence="artifacts/staging-rollback-drill/restored-managed-postgres-ca.txt"
+          : > "$evidence"
+          for component in marketplace platform-api platform-worker; do
+            name="${CHASE_SETS_HELM_RELEASE}-chase-sets-platform-${component}"
+            resource="deployment/${name}"
+            if ! kubectl get "$resource" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" >/dev/null 2>&1; then
+              resource="rollout.argoproj.io/${name}"
+            fi
+            observed="$(kubectl get "$resource" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --output 'jsonpath={.spec.template.metadata.annotations.chase-sets\.com/managed-postgres-ca-sha256}{"|"}{.spec.template.spec.volumes[?(@.name=="managed-postgres-ca")].secret.secretName}{"|"}{.spec.template.spec.volumes[?(@.name=="managed-postgres-ca")].secret.items[0].key}{"|"}{.spec.template.spec.containers[0].volumeMounts[?(@.name=="managed-postgres-ca")].mountPath}{"|"}{.spec.template.spec.containers[0].volumeMounts[?(@.name=="managed-postgres-ca")].readOnly}')"
+            expected="${EXPECTED_CA_SHA256}|chase-sets-platform-runtime|managed-postgres-ca.crt|/var/run/secrets/chase-sets/managed-postgres|true"
+            if [ "$observed" != "$expected" ]; then
+              echo "Managed Postgres CA restored distribution mismatch for ${component}." >&2
+              exit 1
+            fi
+            printf '%s|%s\n' "$component" "$observed" >> "$evidence"
+          done
 
       - name: Capture post-drill DOKS diagnostics
         if: always()
