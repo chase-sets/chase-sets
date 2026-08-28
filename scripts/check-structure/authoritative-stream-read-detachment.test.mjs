@@ -193,8 +193,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.diagnostics).toEqual([]);
     expect(production.totals.detachmentEscapeSites).toBe(0);
     expect(production.totals).toMatchObject({
-      roots: 2_902,
-      loadedRoots: 2_902,
+      roots: 2_912,
+      loadedRoots: 2_912,
       discoveredCallCandidates: 8,
       authoritativeSites: 8,
       helperSites: 1,

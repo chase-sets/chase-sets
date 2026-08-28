@@ -10,7 +10,7 @@ import {
   seedApiHostIfEmpty,
   type ApiContextRegistry,
 } from "./api";
-import type { EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
+import type { BcMarketplaceRouteModule, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import { createWorkerHost, createWorkerRunnerLoop, type WorkerContextRegistry, type WorkerRunner } from "./worker";
 import { getWebHostSections, resolveWebHostNavItems, resolveWebHostRouteRecords, type WebContextRegistry } from "./web";
 import { resolveWebHostRouteConfigRecords, toRouteConfigEntry } from "./web-route-config";
@@ -162,6 +162,35 @@ const apiRegistry = [
   },
 ] as const satisfies ApiContextRegistry;
 
+const marketplaceRouteFixture = [
+  {
+    routeId: "category",
+    routePath: "categories/:categorySlug",
+    fileExport: "./routes/search",
+    routeType: "route",
+    sourceContext: "marketplace",
+    delivery: "portable",
+    authorization: { kind: "public" },
+    canonicalLink: { kind: "route-derived" },
+    availability: { web: true, mobile: true },
+    pageComponentExport: "SearchPage",
+    portableDataOperations: { load: true, mutation: false },
+  },
+  {
+    routeId: "search",
+    routePath: "search",
+    fileExport: "./routes/search",
+    routeType: "route",
+    sourceContext: "marketplace",
+    delivery: "portable",
+    authorization: { kind: "public" },
+    canonicalLink: { kind: "route-derived" },
+    availability: { web: true, mobile: true },
+    pageComponentExport: "SearchPage",
+    portableDataOperations: { load: true, mutation: false },
+  },
+] as const satisfies readonly BcMarketplaceRouteModule[];
+
 const webRegistry = [
   {
     contextName: "catalog",
@@ -207,22 +236,7 @@ const webRegistry = [
       deployableContributions: [
         {
           deployable: "marketplace-web",
-          routes: [
-            {
-              routeId: "category",
-              routePath: "categories/:categorySlug",
-              fileExport: "./routes/search",
-              routeType: "route",
-              sourceContext: "marketplace",
-            },
-            {
-              routeId: "search",
-              routePath: "search",
-              fileExport: "./routes/search",
-              routeType: "route",
-              sourceContext: "marketplace",
-            },
-          ],
+          routes: marketplaceRouteFixture,
         },
       ],
       shellContributions: [

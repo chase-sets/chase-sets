@@ -31,6 +31,7 @@
     "./projection-operations-routes": "./projection-operations-routes.ts",
     "./post-write-token-store": "./post-write-token-store.ts",
     "./post-write-tokens": "./post-write-tokens.ts",
+    "./portable-client": "./portable-client.ts",
     "./process-lifecycle": "./process-lifecycle.ts",
     "./post-write-consistency": "./post-write-consistency.ts",
     "./projection-interest-index": "./projection-interest-index.ts",
