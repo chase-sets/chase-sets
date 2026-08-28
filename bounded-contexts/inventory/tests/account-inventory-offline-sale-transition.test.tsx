@@ -254,7 +254,7 @@ describe("account inventory offline-sale router transition", () => {
     expect(listReads).toBeGreaterThanOrEqual(2);
   });
 
-  it("selects a later receiptless list result over prior fresh location state without rotating its token", async () => {
+  it("retains a later receiptless list result and token through a changed-field conflict", async () => {
     const actionBodies: Record<string, unknown>[] = [];
     let actionCalls = 0;
     let itemReads = 0;
@@ -281,7 +281,11 @@ describe("account inventory offline-sale router transition", () => {
           const request =
             input instanceof Request ? input.clone() : new Request(new URL(String(input), "http://localhost"), init);
           actionBodies.push((await request.json()) as Record<string, unknown>);
-          return jsonResponse(laterReceiptlessSale);
+          if (actionCalls === 1) {
+            return jsonResponse(laterReceiptlessSale);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          return jsonResponse({ error: "This token already records different sale details." }, 409);
         }
         if (url.includes("/api/inventory/items/inv_1")) {
           itemReads += 1;
@@ -347,11 +351,37 @@ describe("account inventory offline-sale router transition", () => {
     expect(router.state.location.state).toEqual(priorLocation.state);
     const currentMobileCards = document.querySelector('[role="list"]') as HTMLElement;
     await user.click(within(currentMobileCards).getByRole("button", { name: "Record sale" }));
+    const retryTokenInput = document.querySelector('input[name="idempotencyKey"]') as HTMLInputElement;
+    expect(retryTokenInput.value).toBe(activeToken);
+    await user.type(screen.getByLabelText("Quantity sold"), "4");
+    await user.selectOptions(screen.getByLabelText("Sale channel"), "other");
+    await router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
+      formMethod: "post",
+      formData: new FormData(retryTokenInput.form!),
+      state: priorLocation.state,
+    });
+
+    expect(await screen.findByText("This token already records different sale details.")).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect((screen.getByLabelText("Quantity sold") as HTMLInputElement).value).toBe("4");
+    expect((screen.getByLabelText("Sale channel") as HTMLSelectElement).value).toBe("other");
     expect((document.querySelector('input[name="idempotencyKey"]') as HTMLInputElement).value).toBe(activeToken);
+    expect(screen.getByText("Recorded 2 units. 1 units were not recorded.")).toBeTruthy();
+    expect(screen.getByText(/could not be verified/i)).toBeTruthy();
+    expect(screen.queryByText(/Completed:/)).toBeNull();
+    expect(screen.queryByText(/Authoritative available quantity/)).toBeNull();
+    expect(actionCalls).toBe(2);
+    expect(actionBodies).toEqual([
+      expect.objectContaining({ idempotencyKey: activeToken, quantity: 3, channel: "card-show" }),
+      expect.objectContaining({ idempotencyKey: activeToken, quantity: 4, channel: "other" }),
+    ]);
+    expect(router.state.location.pathname).toBe(priorLocation.pathname);
+    expect(router.state.location.search).toBe(priorLocation.search);
+    expect(router.state.location.state).toEqual(priorLocation.state);
     expect(itemReads).toBeGreaterThanOrEqual(2);
   });
 
-  it("selects a later receiptless detail result over prior fresh location state without rotating its token", async () => {
+  it("retains a later receiptless detail result and token through a changed-field conflict", async () => {
     const actionBodies: Record<string, unknown>[] = [];
     let actionCalls = 0;
     let itemReads = 0;
@@ -377,7 +407,9 @@ describe("account inventory offline-sale router transition", () => {
           const request =
             input instanceof Request ? input.clone() : new Request(new URL(String(input), "http://localhost"), init);
           actionBodies.push((await request.json()) as Record<string, unknown>);
-          return jsonResponse(laterReceiptlessSale);
+          return actionCalls === 1
+            ? jsonResponse(laterReceiptlessSale)
+            : jsonResponse({ error: "This token already records different sale details." }, 409);
         }
         itemReads += 1;
         return jsonResponse({ ...staleSaleItem, total_quantity: 2, available_quantity: 2, holds: [], ledger: [] });
@@ -424,6 +456,30 @@ describe("account inventory offline-sale router transition", () => {
     expect(actionCalls).toBe(1);
     expect(actionBodies).toEqual([expect.objectContaining({ idempotencyKey: activeToken, quantity: 3 })]);
     expect((document.querySelector('input[name="idempotencyKey"]') as HTMLInputElement).value).toBe(activeToken);
+    expect(router.state.location.pathname).toBe(priorLocation.pathname);
+    expect(router.state.location.search).toBe(priorLocation.search);
+    expect(router.state.location.state).toEqual(priorLocation.state);
+    await user.type(screen.getByLabelText("Quantity sold"), "4");
+    await user.selectOptions(screen.getByLabelText("Sale channel"), "other");
+    await router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
+      formMethod: "post",
+      formData: new FormData(tokenInput.form!),
+      state: priorLocation.state,
+    });
+
+    expect(await screen.findByText("This token already records different sale details.")).toBeTruthy();
+    expect((screen.getByLabelText("Quantity sold") as HTMLInputElement).value).toBe("4");
+    expect((screen.getByLabelText("Sale channel") as HTMLSelectElement).value).toBe("other");
+    expect((document.querySelector('input[name="idempotencyKey"]') as HTMLInputElement).value).toBe(activeToken);
+    expect(screen.getByText("Recorded 2 units. 1 units were not recorded.")).toBeTruthy();
+    expect(screen.getByText(/could not be verified/i)).toBeTruthy();
+    expect(screen.queryByText(/Completed:/)).toBeNull();
+    expect(screen.queryByText(/Authoritative available quantity/)).toBeNull();
+    expect(actionCalls).toBe(2);
+    expect(actionBodies).toEqual([
+      expect.objectContaining({ idempotencyKey: activeToken, quantity: 3, channel: "card-show" }),
+      expect.objectContaining({ idempotencyKey: activeToken, quantity: 4, channel: "other" }),
+    ]);
     expect(router.state.location.pathname).toBe(priorLocation.pathname);
     expect(router.state.location.search).toBe(priorLocation.search);
     expect(router.state.location.state).toEqual(priorLocation.state);

@@ -275,6 +275,7 @@ export default function MarketplaceInventoryRoute() {
   const handledReceipt = useRef<string | null>(null);
   const offlineSaleAction = isOfflineSaleActionData(actionData) ? actionData : null;
   const actionError = isInventoryListActionErrorData(actionData) ? actionData : null;
+  const hasOfflineSaleError = actionError?.intent === "record-offline-sale";
   const currentPath = `${location.pathname}${location.search}`;
   const locationState = useMemo(
     () =>
@@ -284,23 +285,41 @@ export default function MarketplaceInventoryRoute() {
   const stateResult = locationState.offlineSaleResult as InventoryOfflineSaleResult | undefined;
   const preservedLocationState = useRef(locationState);
   const [preservedOfflineSaleFormTokens, setPreservedOfflineSaleFormTokens] = useState(data.offlineSaleFormTokens);
-  const visibleOfflineSaleResult = offlineSaleAction?.offlineSale ?? stateResult ?? null;
+  const [retainedReceiptlessOfflineSaleResult, setRetainedReceiptlessOfflineSaleResult] =
+    useState<InventoryOfflineSaleResult | null>(null);
+
+  const currentReceiptlessResult = hasOfflineSaleError ? retainedReceiptlessOfflineSaleResult : null;
+  const visibleOfflineSaleResult =
+    offlineSaleAction?.offlineSale ?? currentReceiptlessResult ?? (hasOfflineSaleError ? null : stateResult) ?? null;
   const visibleOfflineSaleFreshness = offlineSaleAction
     ? {
         itemId: offlineSaleAction.offlineSale.itemId,
         state: offlineSaleAction.commandReceipt ? ("pending" as const) : ("unverified" as const),
       }
-    : stateResult
-      ? data.offlineSaleFreshness
-      : null;
-  const visibleOfflineSaleFormTokens = offlineSaleAction ? preservedOfflineSaleFormTokens : data.offlineSaleFormTokens;
+    : currentReceiptlessResult
+      ? { itemId: currentReceiptlessResult.itemId, state: "unverified" as const }
+      : stateResult && !hasOfflineSaleError
+        ? data.offlineSaleFreshness
+        : null;
+  const visibleOfflineSaleFormTokens =
+    offlineSaleAction || currentReceiptlessResult ? preservedOfflineSaleFormTokens : data.offlineSaleFormTokens;
 
   useEffect(() => {
-    if (navigation.state === "idle" && !offlineSaleAction) {
+    if (navigation.state === "idle" && !offlineSaleAction && !hasOfflineSaleError) {
       preservedLocationState.current = locationState;
       setPreservedOfflineSaleFormTokens(data.offlineSaleFormTokens);
     }
-  }, [data.offlineSaleFormTokens, locationState, navigation.state, offlineSaleAction]);
+  }, [data.offlineSaleFormTokens, hasOfflineSaleError, locationState, navigation.state, offlineSaleAction]);
+
+  useEffect(() => {
+    setRetainedReceiptlessOfflineSaleResult(null);
+  }, [stateResult]);
+
+  useEffect(() => {
+    if (offlineSaleAction && !offlineSaleAction.commandReceipt) {
+      setRetainedReceiptlessOfflineSaleResult(offlineSaleAction.offlineSale);
+    }
+  }, [offlineSaleAction]);
 
   useEffect(() => {
     if (!offlineSaleAction?.commandReceipt) {
