@@ -6,6 +6,7 @@ import type { CatalogProviderIntegrationProfileVersionRecord } from "../provider
 import type { CatalogIntegrationRolloutControlPolicy } from "../governance/catalog-integration-rollout-controls";
 import { unitKeyForCatalogProviderProfileVersion } from "../governance/catalog-integration-impact-analysis";
 import type { SourceObservationIntegrationJobScope } from "../runtime";
+import { normalizeCatalogScopeProductDomain } from "../../../scope-registry/domain/contract";
 
 export type CatalogSyncScopeReferenceKind = "product-line" | "series" | "expansion" | "set" | "catalog-item";
 
@@ -790,7 +791,9 @@ function acceptedMappingFor(
 }
 
 function unitMatchesProductDomain(unitKey: CatalogIntegrationUnitKey, productDomain: string): boolean {
-  return unitKey.split(":")[1] === productDomain;
+  const canonicalScopeDomain = normalizeCatalogScopeProductDomain(productDomain);
+  const canonicalUnitDomain = normalizeCatalogScopeProductDomain(unitKey.split(":")[1]);
+  return canonicalScopeDomain !== null && canonicalUnitDomain !== null && canonicalUnitDomain === canonicalScopeDomain;
 }
 
 function unitMatchesProductForm(unitKey: CatalogIntegrationUnitKey, productForm: string): boolean {
