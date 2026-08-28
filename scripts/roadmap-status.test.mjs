@@ -1053,10 +1053,33 @@ describe("gate-stable forecast contract", () => {
 
   it("binds Probe ladder lifecycle and authority boundaries to the documentation contract", () => {
     const docs = readFileSync(path.join(repoRoot, "docs", "contributing", "backlog-model.md"), "utf8");
-    for (const literal of [
+    const lifecycleRequirements = [
+      "time-boxed evidence gathering",
       "what a slice needs before dispatch",
       "evidence available only after its prerequisite has landed",
       "at the exact lifecycle boundary where the observed state exists",
+    ];
+    const authoritativeProbeRow = (markdown) => {
+      const ladderStart = markdown.indexOf("## The ladder");
+      const ladderEnd = markdown.indexOf("\n## ", ladderStart + 1);
+      const rows = [...markdown.slice(ladderStart, ladderEnd).matchAll(/^\|\s*\*\*Probe\*\*\s*\|.*$/gm)];
+      expect(rows).toHaveLength(1);
+      return rows[0][0];
+    };
+    const expectProbeLifecycleContract = (markdown) => {
+      const probeRow = authoritativeProbeRow(markdown);
+      for (const requirement of lifecycleRequirements) expect(probeRow).toContain(requirement);
+    };
+
+    expectProbeLifecycleContract(docs);
+    const probeRow = authoritativeProbeRow(docs);
+    for (const requirement of lifecycleRequirements) {
+      const withoutRequirement = docs.replace(probeRow, probeRow.replace(requirement, ""));
+      expect(() => expectProbeLifecycleContract(withoutRequirement)).toThrow();
+      expect(() => expectProbeLifecycleContract(`${withoutRequirement}\n<!-- ${requirement} -->`)).toThrow();
+    }
+
+    for (const literal of [
       "do not authorize an",
       "implementation result, staging/deploy verification, a provider or operator",
       "claim, or an ongoing-monitoring result",
