@@ -134,15 +134,15 @@ const batteryWorkUnitCeilings = Object.freeze({
 });
 
 const committedTotalChildProcessSpawnsByEnvironment = Object.freeze({
-  plain: 344,
-  "pull-request-merge-ref": 345,
-  "merge-group": 342,
+  plain: 347,
+  "pull-request-merge-ref": 348,
+  "merge-group": 344,
 });
 
 const committedProvenanceGitSpawnsByEnvironment = Object.freeze({
   plain: 11,
   "pull-request-merge-ref": 13,
-  "merge-group": 10,
+  "merge-group": 9,
 });
 
 function sha256(value) {
@@ -456,12 +456,15 @@ function buildPullRequestScratchRepo(prefix) {
 function buildMergeGroupScratchRepo(prefix) {
   const scratch = initScratchRepo(prefix);
   writeProductSurface(scratch);
-  const base = commitScratch(scratch, "base");
+  const originMain = commitScratch(scratch, "main tip before the merge queue");
+  writeScratchFile(scratch, "docs/preceding-candidate.md", "The preceding merge-group candidate is the next base.\n");
+  const base = commitScratch(scratch, "preceding merge-group candidate");
   writeScratchFile(scratch, "docs/landing-note.md", "The landing candidate is itself the prospective merged result.\n");
   const head = commitScratch(scratch, "landing candidate");
-  runGit(scratch, ["update-ref", "refs/remotes/origin/main", base]);
+  runGit(scratch, ["update-ref", "refs/remotes/origin/main", originMain]);
   return {
     scratch,
+    originMain,
     base,
     head,
     deriveProvenance: (execGit = scratchExecGit(scratch)) =>
@@ -528,12 +531,18 @@ function buildClassifiedEnvironmentEvidence() {
 
   const mergeGroup = buildMergeGroupScratchRepo("consent-mg-env-");
   const mergeGroupResult = analyzeHostedScratch(mergeGroup);
+  const mergeGroupParentage = runGit(mergeGroup.scratch, ["rev-list", "--parents", "-n", "1", mergeGroup.head]).trim();
   rmSync(mergeGroup.scratch, { recursive: true, force: true });
 
   return {
     plain: { result: plainResult, head: plain.head },
     pullRequest: { environment: pullRequest, result: pullRequestResult },
-    mergeGroup: { result: mergeGroupResult, head: mergeGroup.head },
+    mergeGroup: {
+      environment: mergeGroup,
+      result: mergeGroupResult,
+      head: mergeGroup.head,
+      parentage: mergeGroupParentage,
+    },
     observations: [
       observationOf(plainResult, plain.head),
       observationOf(pullRequestResult, pullRequest.head),
@@ -1469,6 +1478,10 @@ describe("Consent authorization sites", () => {
     expect(pullRequest.result.partitionDigest).toBe(registry.partitionDigest);
 
     expect(mergeGroup.result.candidateHead).toBe(mergeGroup.head);
+    expect(mergeGroup.result.provenance.roles.baseTipAtAnalysis.sha).toBe(mergeGroup.environment.base);
+    expect(mergeGroup.result.provenance.roles.forkPoint.sha).toBe(mergeGroup.environment.base);
+    expect(mergeGroup.environment.originMain).not.toBe(mergeGroup.environment.base);
+    expect(mergeGroup.parentage).toBe(`${mergeGroup.head} ${mergeGroup.environment.base}`);
     expect(mergeGroup.result.partitionDigest).toBe(registry.partitionDigest);
   });
 
