@@ -20,6 +20,10 @@ type MarketplaceRouteCandidate = BcRouteModule &
     unsupportedMobile?: UnsupportedMobileRoute;
   }>;
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 export function assertMarketplaceRouteContract(
   contextName: string,
   route: MarketplaceRouteCandidate,
@@ -29,7 +33,10 @@ export function assertMarketplaceRouteContract(
   if (route.sourceContext !== contextName) {
     throw new Error(`Marketplace route '${routeKey}' must name its owning context as sourceContext.`);
   }
-  if (!route.pageComponentExport || !route.pageComponentExport.trim()) {
+  if (route.delivery === "web-resource-only" && route.pageComponentExport !== undefined) {
+    throw new Error(`Web resource marketplace route '${routeKey}' cannot declare a page component export.`);
+  }
+  if (route.delivery !== "web-resource-only" && !isNonEmptyString(route.pageComponentExport)) {
     throw new Error(`Marketplace route '${routeKey}' must identify its page component export.`);
   }
   if (!route.availability || route.availability.web !== true) {
@@ -38,7 +45,7 @@ export function assertMarketplaceRouteContract(
   if (!route.canonicalLink) {
     throw new Error(`Marketplace route '${routeKey}' must declare canonical-link metadata.`);
   }
-  if (route.canonicalLink.kind === "not-applicable" && !route.canonicalLink.reason.trim()) {
+  if (route.canonicalLink.kind === "not-applicable" && !isNonEmptyString(route.canonicalLink.reason)) {
     throw new Error(`Marketplace route '${routeKey}' must explain why no canonical link applies.`);
   }
   if (!route.authorization) {
@@ -69,10 +76,10 @@ export function assertMarketplaceRouteContract(
     throw new Error(`Unsupported marketplace route '${routeKey}' cannot be available on mobile.`);
   }
   const unsupportedMobile = route.unsupportedMobile;
-  if (!unsupportedMobile?.owner.trim() || !unsupportedMobile.followUp.trim()) {
+  if (!isNonEmptyString(unsupportedMobile?.owner) || !isNonEmptyString(unsupportedMobile?.followUp)) {
     throw new Error(`Unsupported marketplace route '${routeKey}' must identify an owner and follow-up.`);
   }
-  if (!unsupportedMobile.reason.trim()) {
+  if (!isNonEmptyString(unsupportedMobile.reason)) {
     throw new Error(`Unsupported marketplace route '${routeKey}' must explain its exclusion from mobile.`);
   }
 }

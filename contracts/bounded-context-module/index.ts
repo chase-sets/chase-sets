@@ -111,9 +111,9 @@ export type BcPortableRouteModule = BcRouteModule &
     readonly unsupportedMobile?: never;
   }>;
 
-export type BcUnsupportedRouteModule = BcRouteModule &
+export type BcServerOnlyRouteModule = BcRouteModule &
   Readonly<{
-    readonly delivery: "server-only" | "web-resource-only";
+    readonly delivery: "server-only";
     readonly authorization: RouteAuthorization;
     readonly canonicalLink: RouteCanonicalLinkIntent;
     readonly availability: Readonly<{ web: true; mobile: false }>;
@@ -121,6 +121,19 @@ export type BcUnsupportedRouteModule = BcRouteModule &
     readonly portableDataOperations?: never;
     readonly unsupportedMobile: UnsupportedMobileRoute;
   }>;
+
+export type BcWebResourceOnlyRouteModule = BcRouteModule &
+  Readonly<{
+    readonly delivery: "web-resource-only";
+    readonly authorization: RouteAuthorization;
+    readonly canonicalLink: RouteCanonicalLinkIntent;
+    readonly availability: Readonly<{ web: true; mobile: false }>;
+    readonly pageComponentExport?: never;
+    readonly portableDataOperations?: never;
+    readonly unsupportedMobile: UnsupportedMobileRoute;
+  }>;
+
+export type BcUnsupportedRouteModule = Readonly<BcServerOnlyRouteModule | BcWebResourceOnlyRouteModule>;
 
 export type BcMarketplaceRouteModule = Readonly<BcPortableRouteModule | BcUnsupportedRouteModule>;
 

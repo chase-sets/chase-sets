@@ -1083,7 +1083,7 @@
           "routeType": "route",
           "placement": "root",
           "sourceContext": "discovery",
-          "delivery": "server-only",
+          "delivery": "web-resource-only",
           "authorization": {
             "kind": "public"
           },
@@ -1095,11 +1095,10 @@
             "web": true,
             "mobile": false
           },
-          "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "discovery",
             "followUp": "#5238",
-            "reason": "Portable data operations have not been extracted for this route."
+            "reason": "The route returns a web protocol resource rather than a portable page."
           }
         },
         {

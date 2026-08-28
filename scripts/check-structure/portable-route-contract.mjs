@@ -6,12 +6,17 @@ function isNonEmptyString(value) {
 
 export function validatePortableRouteContract({ contextName, deployable, route }) {
   if (deployable !== "marketplace-web") return [];
+  if (!route || typeof route !== "object" || Array.isArray(route)) return ["route must be an object"];
   const violations = [];
   const add = (message) => violations.push(message);
 
   if (!deliveries.has(route.delivery)) add("delivery must be portable, web-resource-only, or server-only");
   if (route.sourceContext !== contextName) add("sourceContext must match the owning bounded context");
-  if (!isNonEmptyString(route.pageComponentExport)) add("pageComponentExport must identify the page component");
+  if (route.delivery === "web-resource-only" && route.pageComponentExport !== undefined) {
+    add("web-resource-only routes cannot declare pageComponentExport");
+  } else if (route.delivery !== "web-resource-only" && !isNonEmptyString(route.pageComponentExport)) {
+    add("pageComponentExport must identify the page component");
+  }
   if (route.availability?.web !== true || typeof route.availability?.mobile !== "boolean") {
     add("availability must explicitly declare web=true and a boolean mobile value");
   }
