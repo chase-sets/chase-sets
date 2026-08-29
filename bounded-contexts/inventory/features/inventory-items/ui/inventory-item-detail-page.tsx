@@ -22,6 +22,7 @@ import {
 } from "@chase-sets/design-system";
 import type { InventoryItemDetail } from "./contracts";
 import { ListFromInventoryDrawer } from "./list-from-inventory-drawer";
+import { OfflineSaleForm } from "./offline-sale-form";
 
 function displayItemLabel(item: InventoryItemDetail) {
   return item.item_title ?? item.catalog_catalog_item_id;
@@ -166,10 +167,22 @@ export function InventoryItemDetailPage({
   item,
   errorMessage,
   currentPath,
+  canRecordOfflineSale = false,
+  canHonorOffline = false,
+  offlineSaleFormToken,
+  offlineSaleResult,
+  offlineSaleVerificationState,
+  offlineSaleErrorMessage,
 }: {
   item: InventoryItemDetail;
   errorMessage?: string | null;
   currentPath?: string | null;
+  canRecordOfflineSale?: boolean;
+  canHonorOffline?: boolean;
+  offlineSaleFormToken?: string;
+  offlineSaleResult?: import("../../../client").InventoryOfflineSaleResult | null;
+  offlineSaleVerificationState?: "fresh" | "pending" | "unverified";
+  offlineSaleErrorMessage?: string | null;
 }) {
   const selectedKind = selectedLedgerKind(currentPath);
   const ledgerEntries = selectedKind ? item.ledger.filter((entry) => entry.kind === selectedKind) : item.ledger;
@@ -232,6 +245,22 @@ export function InventoryItemDetailPage({
           </Stack>
         </Card>
       </PageSection>
+
+      {canRecordOfflineSale && offlineSaleFormToken ? (
+        <PageSection title={t("inventory.features.inventoryItems.ui.offlineSaleForm.title")}>
+          <Card elevation="tinted" data-elevation-role="furniture">
+            <OfflineSaleForm
+              initialIdempotencyKey={offlineSaleFormToken}
+              canHonorOffline={canHonorOffline}
+              itemId={item.item_id}
+              result={offlineSaleResult}
+              authoritativeAvailableQuantity={item.available_quantity}
+              verificationState={offlineSaleVerificationState}
+              errorMessage={offlineSaleErrorMessage}
+            />
+          </Card>
+        </PageSection>
+      ) : null}
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjust.quantity")}>
         <Card elevation="tinted" data-elevation-role="furniture">

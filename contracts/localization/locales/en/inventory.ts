@@ -35,6 +35,35 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.intake": "Intake",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.return-restocked": "Return restocked",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.note": "Note (optional)",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.affected.order": "View affected order {orderId}",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.channel": "Sale channel",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.channel.card-show": "Card show",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.channel.in-store": "In store",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.channel.other": "Other",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.channel.placeholder": "Choose a sale channel",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.close": "Close record sale",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.completed":
+    "Completed: {count} units recorded as sold. Authoritative available quantity: {available}.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.honor.confirmation":
+    "I understand that affected orders will enter seller-cannot-fulfill support, buyers will be refunded, and account reputation may be affected.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.honor.offline": "Honor this offline sale",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.note": "Note (optional)",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.order.commitments": "Order commitments",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.result.pending":
+    "Verifying the recorded sale against current Inventory availability.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.partial":
+    "Recorded {applied} units. {refused} units were not recorded.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.price.per.item": "Sale price per item (optional)",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.protect.orders": "Protect existing orders",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.quantity": "Quantity sold",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.refused": "No units were recorded. {count} units were refused.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.result.unverified":
+    "The sale result could not be verified. Reload this item and try again.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.sheet.description":
+    "Record a sale for {item} without leaving Inventory.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.submit": "Record sale",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.title": "Record offline sale",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.trigger": "Record sale",
   "inventory.features.inventoryItems.readModel.schema.create.table.if.not.exists.inventory":
     "\nCREATE TABLE IF NOT EXISTS inventory_items (\n  item_id text PRIMARY KEY,\n  account_id text NOT NULL,\n  catalog_catalog_item_id text NOT NULL,\n  product_id text NOT NULL,\n  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,\n  graded_card jsonb NULL,\n  storage_location_id text NOT NULL REFERENCES inventory_storage_locations(storage_location_id),\n  total_quantity integer NOT NULL CHECK (total_quantity >= 0),\n  last_stream_version bigint NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0),\n  acquisition_cost_amount numeric(12,2) NULL,\n  created_at timestamptz NOT NULL DEFAULT now(),\n  updated_at timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS inventory_items_account_idx\n  ON inventory_items (account_id, updated_at DESC);\n\nCREATE INDEX IF NOT EXISTS inventory_items_storage_location_idx\n  ON inventory_items (storage_location_id);\n\nCREATE INDEX IF NOT EXISTS inventory_items_catalog_version_idx\n  ON inventory_items (product_id);\n",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.1.or.5": "-1 or 5",

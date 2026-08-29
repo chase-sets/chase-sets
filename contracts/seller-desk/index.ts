@@ -233,6 +233,14 @@ export const SELLER_DESK_ACTIONS: readonly SellerDeskAction[] = [
     replaces: ["adjust-item"],
   },
   {
+    id: "inventory-item.record-offline-sale",
+    entity: "inventory-item",
+    permission: "inventory.manage",
+    feedback: "row-transition",
+    disclosure: "inline",
+    replaces: ["record-offline-sale"],
+  },
+  {
     id: "inventory-item.restock",
     entity: "inventory-item",
     permission: "inventory.manage",

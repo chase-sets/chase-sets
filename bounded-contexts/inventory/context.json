@@ -589,6 +589,35 @@
       }
     },
     {
+      "id": "inventory.offline-sale-route-aware-fresh-read",
+      "owner": "inventory",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.tsx:H5572ea7ef0df#1",
+        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory.tsx",
+        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx"
+      ],
+      "visibleDestination": {
+        "apiContextName": "inventory",
+        "apiRoutePath": "/items/:id",
+        "description": "Record sale from /account/inventory/items/:itemId stays on that item detail and fresh-reads the written item. Record sale from the paginated /account/inventory list stays on the selected limit/offset page, carries the command receipt with the written item id, then fresh-reads that item. The list reconciles the row only when it remains on the selected page; otherwise rows, count, total, and pagination stay unchanged while the result uses the separately returned fresh item. No stale list quantity receives completed wording.",
+        "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "A valid receipt gates the item read. A delayed or failed fresh item read preserves the existing list page and renders the submitted outcome as unverified instead of completed."
+        }
+      },
+      "proof": {
+        "authoritativeResponse": "recordOfflineSale returns the committed Inventory command receipt and typed applied/refused outcome. The detail loader and list's receipt-gated getItem read observe the Inventory item projection before a completed quantity is rendered.",
+        "tests": [
+          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
+          "bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.test.tsx",
+          "bounded-contexts/inventory/features/inventory-items/ui/inventory-item-pages.test.tsx"
+        ]
+      }
+    },
+    {
       "id": "inventory.storage-location-list-fresh-read",
       "owner": "inventory",
       "risk": "important",
