@@ -1,9 +1,14 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
-import { inspectJsonImportAttributes, validateJsonImportAttributes } from "./json-import-attributes.mjs";
+import {
+  inspectJsonImportAttributes,
+  manifestHostRegistrationFields,
+  validateJsonImportAttributes,
+} from "./json-import-attributes.mjs";
 import { findContextRootExportViolation } from "./run.mjs";
 
 function withFixture(files, callback) {
@@ -34,6 +39,50 @@ function contextFiles(indexSource, extraFiles = {}) {
     "deployables/platform-api/src/generated/api-context-registry.ts": 'import "@chase-sets/example";\n',
     ...extraFiles,
   };
+}
+
+function zeroHostContextFiles(entrySource, manifest = { contextName: "atlas" }, extraFiles = {}) {
+  return {
+    "bounded-contexts/atlas/package.json": JSON.stringify({
+      name: "@chase-sets/atlas",
+      exports: { ".": "./entry.ts", "./context": "./context.json" },
+    }),
+    "bounded-contexts/atlas/context.json": typeof manifest === "string" ? manifest : JSON.stringify(manifest),
+    "bounded-contexts/atlas/entry.ts": entrySource,
+    ...extraFiles,
+  };
+}
+
+const registryBuilderNames = ["buildApiRegistry", "buildWorkerRegistry", "contributesToWebHost"];
+
+function extractRegistryBuilderManifestFields(content) {
+  const source = ts.createSourceFile("registry-builders.mjs", content, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
+  const fields = new Set();
+  const visitedBuilders = new Set();
+  for (const statement of source.statements) {
+    if (
+      !ts.isFunctionDeclaration(statement) ||
+      !statement.name ||
+      !registryBuilderNames.includes(statement.name.text)
+    ) {
+      continue;
+    }
+    visitedBuilders.add(statement.name.text);
+    const visit = (node) => {
+      if (
+        ts.isPropertyAccessExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) &&
+        node.expression.expression.text === "context" &&
+        node.expression.name.text === "manifest"
+      ) {
+        fields.add(node.name.text);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(statement);
+  }
+  return { builders: [...visitedBuilders].sort(), fields: [...fields].sort() };
 }
 
 function inspectFixture(files) {
@@ -184,6 +233,128 @@ describe("JSON import-attribute production guard", () => {
   });
 });
 
+describe("manifest-only execution disposition", () => {
+  const attributed = 'export { default as contextManifest } from "./context.json" with { type: "json" };\n';
+
+  it("classifies only an exact-attributed self-owned zero-host context root", async () => {
+    const result = await validateFixture(zeroHostContextFiles(attributed));
+
+    expect(result.violations).toEqual([]);
+    expect(result.inventory.declarations).toEqual([
+      expect.objectContaining({
+        relativeFile: "bounded-contexts/atlas/entry.ts",
+        resolved: "bounded-contexts/atlas/context.json",
+        disposition: "manifest-only",
+      }),
+    ]);
+  });
+
+  it.each([
+    ["missing attribute", 'export { default as contextManifest } from "./context.json";\n'],
+    ["non-exact attribute", "export { default as contextManifest } from \"./context.json\" with { type: 'json' };\n"],
+  ])("keeps exact attribute enforcement for %s", async (_name, source) => {
+    const result = await validateFixture(zeroHostContextFiles(source));
+
+    expect(result.inventory.declarations).toEqual([expect.objectContaining({ disposition: "manifest-only" })]);
+    expect(result.violations).toEqual([
+      'bounded-contexts/atlas/entry.ts: export "./context.json" must use exactly with { type: "json" }',
+    ]);
+  });
+
+  it.each([
+    ["apiDeployables", ["unregistered-host"]],
+    ["runtimeDeployables", ["unregistered-host"]],
+    ["sourceRuntimeDeployables", ["unregistered-host"]],
+    ["sourceRuntimeProfiles", [{ profile: "unregistered-host" }]],
+    ["deployableContributions", [{ deployable: "unregistered-host" }]],
+    ["shellContributions", [{ deployable: "unregistered-host" }]],
+  ])("exits when %s is non-empty", async (field, value) => {
+    const result = await validateFixture(zeroHostContextFiles(attributed, { contextName: "atlas", [field]: value }));
+
+    expect(result.inventory.declarations).toEqual([expect.objectContaining({ disposition: "indeterminate" })]);
+    expect(result.violations).toEqual([
+      "bounded-contexts/atlas/entry.ts: relevant context-manifest declaration has no proven execution disposition",
+    ]);
+  });
+
+  it("keeps non-root and foreign-manifest declarations indeterminate", async () => {
+    const nonRoot = await validateFixture(
+      zeroHostContextFiles(
+        "export const module = {};\n",
+        { contextName: "atlas" },
+        {
+          "bounded-contexts/atlas/parts/reader.ts":
+            'import contextManifest from "../context.json" with { type: "json" };\n',
+        },
+      ),
+    );
+    expect(nonRoot.inventory.declarations).toEqual([
+      expect.objectContaining({
+        relativeFile: "bounded-contexts/atlas/parts/reader.ts",
+        disposition: "indeterminate",
+      }),
+    ]);
+
+    const foreign = await validateFixture(
+      zeroHostContextFiles(
+        'import contextManifest from "@chase-sets/orbit/context" with { type: "json" };\n',
+        { contextName: "atlas" },
+        {
+          "bounded-contexts/orbit/package.json": JSON.stringify({
+            name: "@chase-sets/orbit",
+            exports: { ".": "./entry.ts", "./context": "./context.json" },
+          }),
+          "bounded-contexts/orbit/context.json": JSON.stringify({ contextName: "orbit" }),
+          "bounded-contexts/orbit/entry.ts": "export const module = {};\n",
+        },
+      ),
+    );
+    expect(foreign.inventory.declarations).toEqual([
+      expect.objectContaining({
+        relativeFile: "bounded-contexts/atlas/entry.ts",
+        resolved: "bounded-contexts/orbit/context.json",
+        disposition: "indeterminate",
+      }),
+    ]);
+    expect([...nonRoot.violations, ...foreign.violations]).toEqual([
+      "bounded-contexts/atlas/parts/reader.ts: relevant context-manifest declaration has no proven execution disposition",
+      "bounded-contexts/atlas/entry.ts: relevant context-manifest declaration has no proven execution disposition",
+    ]);
+  });
+
+  it("fails closed with a named violation when the owning manifest is malformed", async () => {
+    const result = await validateFixture(zeroHostContextFiles(attributed, '{"contextName":'));
+
+    expect(result.inventory.declarations).toEqual([expect.objectContaining({ disposition: "indeterminate" })]);
+    expect(result.violations).toEqual([
+      "bounded-contexts/atlas/context.json: implemented context manifest is not usable JSON",
+      "bounded-contexts/atlas/entry.ts: relevant context-manifest declaration has no proven execution disposition",
+    ]);
+  });
+});
+
+describe("manifest host-registration predicate parity", () => {
+  it("matches all three live registry builders", () => {
+    const source = readFileSync(new URL("../sync-workspace-metadata.mjs", import.meta.url), "utf8");
+    const extracted = extractRegistryBuilderManifestFields(source);
+
+    expect(extracted.builders).toEqual([...registryBuilderNames].sort());
+    expect(extracted.fields).toEqual([...manifestHostRegistrationFields].sort());
+  });
+
+  it("detects a seventh field read by a registry builder", () => {
+    const extracted = extractRegistryBuilderManifestFields(`
+      function buildApiRegistry(_outputPath, _hostName, contexts) {
+        return contexts.filter((context) => context.manifest.apiDeployables || context.manifest.seventhField);
+      }
+      function buildWorkerRegistry() {}
+      function contributesToWebHost() {}
+    `);
+
+    expect(extracted.fields).toEqual(["apiDeployables", "seventhField"]);
+  });
+});
+
 describe("real repository execution membership", () => {
   it("derives the exact real census and execution partition within the default timeout", async () => {
     const result = await validateJsonImportAttributes();
@@ -195,6 +366,7 @@ describe("real repository execution membership", () => {
       "node-enforced": 39,
       "vite-excluded": 48,
       "vitest-excluded": 7,
+      "manifest-only": 0,
       indeterminate: 0,
     });
     const normalized = result.inventory.declarations.map(
