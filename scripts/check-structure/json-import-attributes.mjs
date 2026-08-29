@@ -11,6 +11,14 @@ const nodeClosureSeeds = [
   "deployables/platform-api/src/generated/api-context-registry.ts",
   "deployables/platform-worker/src/generated/worker-context-registry.ts",
 ];
+export const manifestHostRegistrationFields = Object.freeze([
+  "apiDeployables",
+  "runtimeDeployables",
+  "sourceRuntimeDeployables",
+  "sourceRuntimeProfiles",
+  "deployableContributions",
+  "shellContributions",
+]);
 
 function normalizePath(value) {
   return path.posix.normalize(value.replaceAll("\\", "/")).replace(/^\.\//, "");
@@ -217,6 +225,24 @@ function implementedContexts(packages, rootDir) {
   });
 }
 
+function readContextManifests(contexts, paths, readContent) {
+  const manifests = new Map();
+  const violations = [];
+  for (const context of contexts) {
+    if (!paths.has(context.manifestPath)) continue;
+    try {
+      const manifest = JSON.parse(readContent(context.manifestPath));
+      if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
+        throw new TypeError("context manifest must be a JSON object");
+      }
+      manifests.set(context.manifestPath, manifest);
+    } catch {
+      violations.push(`${context.manifestPath}: implemented context manifest is not usable JSON`);
+    }
+  }
+  return { manifests, violations };
+}
+
 function contextManifestSpecifiers(packages) {
   const specifiers = new Set();
   for (const workspace of packages) {
@@ -280,7 +306,7 @@ function stringProperty(source, propertyName) {
   return value;
 }
 
-function viteExecution({ packages, paths, readContent, readRecords, contextByManifest }) {
+function viteExecution({ packages, paths, readContent, readRecords, contextByManifest, contextManifests }) {
   const files = new Set();
   const apps = [];
 
@@ -322,7 +348,8 @@ function viteExecution({ packages, paths, readContent, readRecords, contextByMan
     const hostName = hostMatch[1];
     for (const manifestPath of activeManifests) {
       const context = contextByManifest.get(manifestPath);
-      const manifest = JSON.parse(readContent(manifestPath));
+      const manifest = contextManifests.get(manifestPath);
+      if (!manifest) continue;
       for (const contribution of manifest.deployableContributions ?? []) {
         if (contribution?.deployable !== hostName || !Array.isArray(contribution.routes)) continue;
         for (const route of contribution.routes) {
@@ -440,10 +467,27 @@ function vitestExecution({ packages, paths, readContent }) {
   return files;
 }
 
-function disposition({ relativeFile, nodeFiles, viteFiles, vitestFiles }) {
+function hasNoHostRegistration(manifest) {
+  return manifestHostRegistrationFields.every(
+    (field) => manifest[field] === undefined || (Array.isArray(manifest[field]) && manifest[field].length === 0),
+  );
+}
+
+function disposition({
+  relativeFile,
+  resolved,
+  nodeFiles,
+  viteFiles,
+  vitestFiles,
+  contextByManifest,
+  contextManifests,
+}) {
   if (nodeFiles.has(relativeFile)) return "node-enforced";
   if (viteFiles.has(relativeFile)) return "vite-excluded";
   if (vitestFiles.has(relativeFile)) return "vitest-excluded";
+  const context = contextByManifest.get(resolved);
+  const manifest = contextManifests.get(resolved);
+  if (context?.rootEntryPath === relativeFile && manifest && hasNoHostRegistration(manifest)) return "manifest-only";
   return "indeterminate";
 }
 
@@ -457,8 +501,16 @@ export function inspectJsonImportAttributes(options = {}) {
   const readRecords = createRecordReader(readContent);
   const contexts = implementedContexts(packages, rootDir);
   const contextByManifest = new Map(contexts.map((context) => [context.manifestPath, context]));
+  const contextManifestResult = readContextManifests(contexts, paths, readContent);
   const nodeFiles = moduleClosure({ seeds: nodeClosureSeeds, paths, packages, readContent, readRecords });
-  const vite = viteExecution({ packages, paths, readContent, readRecords, contextByManifest });
+  const vite = viteExecution({
+    packages,
+    paths,
+    readContent,
+    readRecords,
+    contextByManifest,
+    contextManifests: contextManifestResult.manifests,
+  });
   const vitestFiles = vitestExecution({ packages, paths, readContent });
   const manifestSpecifiers = contextManifestSpecifiers(packages);
   const declarations = [];
@@ -479,7 +531,15 @@ export function inspectJsonImportAttributes(options = {}) {
         ...record,
         relativeFile,
         resolved,
-        disposition: disposition({ relativeFile, nodeFiles, viteFiles: vite.files, vitestFiles }),
+        disposition: disposition({
+          relativeFile,
+          resolved,
+          nodeFiles,
+          viteFiles: vite.files,
+          vitestFiles,
+          contextByManifest,
+          contextManifests: contextManifestResult.manifests,
+        }),
       });
     }
   }
@@ -490,12 +550,12 @@ export function inspectJsonImportAttributes(options = {}) {
     ),
   );
   const partition = Object.fromEntries(
-    ["node-enforced", "vite-excluded", "vitest-excluded", "indeterminate"].map((name) => [
+    ["node-enforced", "vite-excluded", "vitest-excluded", "manifest-only", "indeterminate"].map((name) => [
       name,
       declarations.filter((entry) => entry.disposition === name).length,
     ]),
   );
-  const discoveryViolations = [];
+  const discoveryViolations = [...contextManifestResult.violations];
   if (contexts.length > 0 && declarations.length === 0) {
     discoveryViolations.push(
       `JSON import-attribute discovery collapsed despite ${contexts.length} implemented context manifest(s)`,
@@ -518,7 +578,10 @@ export async function validateJsonImportAttributes(options = {}) {
       violations.push(
         `${entry.relativeFile}: relevant context-manifest declaration has no proven execution disposition`,
       );
-    } else if (entry.disposition === "node-enforced" && entry.attributeText !== jsonAttributeText) {
+    } else if (
+      (entry.disposition === "node-enforced" || entry.disposition === "manifest-only") &&
+      entry.attributeText !== jsonAttributeText
+    ) {
       violations.push(
         `${entry.relativeFile}: ${entry.form} ${JSON.stringify(entry.specifier)} must use exactly ${jsonAttributeText}`,
       );
