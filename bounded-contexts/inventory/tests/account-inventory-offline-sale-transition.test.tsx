@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendFreshWriteToken,
@@ -127,6 +126,14 @@ function stubMobileViewport() {
       dispatchEvent: vi.fn(),
     })),
   );
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 describe("account inventory offline-sale router transition", () => {
@@ -258,6 +265,8 @@ describe("account inventory offline-sale router transition", () => {
     const actionBodies: Record<string, unknown>[] = [];
     let actionCalls = 0;
     let itemReads = 0;
+    const receiptlessResponse = deferred<Response>();
+    const conflictResponse = deferred<Response>();
     stubMobileViewport();
     vi.stubGlobal(
       "fetch",
@@ -282,10 +291,9 @@ describe("account inventory offline-sale router transition", () => {
             input instanceof Request ? input.clone() : new Request(new URL(String(input), "http://localhost"), init);
           actionBodies.push((await request.json()) as Record<string, unknown>);
           if (actionCalls === 1) {
-            return jsonResponse(laterReceiptlessSale);
+            return await receiptlessResponse.promise;
           }
-          await new Promise((resolve) => setTimeout(resolve, 25));
-          return jsonResponse({ error: "This token already records different sale details." }, 409);
+          return await conflictResponse.promise;
         }
         if (url.includes("/api/inventory/items/inv_1")) {
           itemReads += 1;
@@ -334,13 +342,22 @@ describe("account inventory offline-sale router transition", () => {
     const priorLocation = router.state.location;
     await user.type(screen.getByLabelText("Quantity sold"), "3");
     await user.selectOptions(screen.getByLabelText("Sale channel"), "card-show");
-    await router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
-      formMethod: "post",
-      formData: new FormData(tokenInput.form!),
-      state: priorLocation.state,
+    let receiptlessNavigation!: Promise<void>;
+    await act(async () => {
+      receiptlessNavigation = router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
+        formMethod: "post",
+        formData: new FormData(tokenInput.form!),
+        state: priorLocation.state,
+      });
+    });
+    expect(router.state.navigation.state).toBe("submitting");
+    await act(async () => {
+      receiptlessResponse.resolve(jsonResponse(laterReceiptlessSale));
+      await receiptlessNavigation;
     });
 
-    expect(await screen.findByText("Recorded 2 units. 1 units were not recorded.")).toBeTruthy();
+    expect(router.state.navigation.state).toBe("idle");
+    expect(screen.getByText("Recorded 2 units. 1 units were not recorded.")).toBeTruthy();
     expect(screen.getByText(/could not be verified/i)).toBeTruthy();
     await waitFor(() => expect(screen.queryByText(/Completed:/)).toBeNull());
     expect(screen.queryByText(/Authoritative available quantity/)).toBeNull();
@@ -355,13 +372,22 @@ describe("account inventory offline-sale router transition", () => {
     expect(retryTokenInput.value).toBe(activeToken);
     await user.type(screen.getByLabelText("Quantity sold"), "4");
     await user.selectOptions(screen.getByLabelText("Sale channel"), "other");
-    await router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
-      formMethod: "post",
-      formData: new FormData(retryTokenInput.form!),
-      state: priorLocation.state,
+    let conflictNavigation!: Promise<void>;
+    await act(async () => {
+      conflictNavigation = router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
+        formMethod: "post",
+        formData: new FormData(retryTokenInput.form!),
+        state: priorLocation.state,
+      });
+    });
+    expect(router.state.navigation.state).toBe("submitting");
+    await act(async () => {
+      conflictResponse.resolve(jsonResponse({ error: "This token already records different sale details." }, 409));
+      await conflictNavigation;
     });
 
-    expect(await screen.findByText("This token already records different sale details.")).toBeTruthy();
+    expect(router.state.navigation.state).toBe("idle");
+    expect(screen.getByText("This token already records different sale details.")).toBeTruthy();
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect((screen.getByLabelText("Quantity sold") as HTMLInputElement).value).toBe("4");
     expect((screen.getByLabelText("Sale channel") as HTMLSelectElement).value).toBe("other");
@@ -385,6 +411,8 @@ describe("account inventory offline-sale router transition", () => {
     const actionBodies: Record<string, unknown>[] = [];
     let actionCalls = 0;
     let itemReads = 0;
+    const receiptlessResponse = deferred<Response>();
+    const conflictResponse = deferred<Response>();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -407,9 +435,7 @@ describe("account inventory offline-sale router transition", () => {
           const request =
             input instanceof Request ? input.clone() : new Request(new URL(String(input), "http://localhost"), init);
           actionBodies.push((await request.json()) as Record<string, unknown>);
-          return actionCalls === 1
-            ? jsonResponse(laterReceiptlessSale)
-            : jsonResponse({ error: "This token already records different sale details." }, 409);
+          return await (actionCalls === 1 ? receiptlessResponse.promise : conflictResponse.promise);
         }
         itemReads += 1;
         return jsonResponse({ ...staleSaleItem, total_quantity: 2, available_quantity: 2, holds: [], ledger: [] });
@@ -443,31 +469,50 @@ describe("account inventory offline-sale router transition", () => {
     const priorLocation = router.state.location;
     await user.type(screen.getByLabelText("Quantity sold"), "3");
     await user.selectOptions(screen.getByLabelText("Sale channel"), "card-show");
-    await router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
-      formMethod: "post",
-      formData: new FormData(tokenInput.form!),
-      state: priorLocation.state,
+    let receiptlessNavigation!: Promise<void>;
+    await act(async () => {
+      receiptlessNavigation = router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
+        formMethod: "post",
+        formData: new FormData(tokenInput.form!),
+        state: priorLocation.state,
+      });
+    });
+    expect(router.state.navigation.state).toBe("submitting");
+    await act(async () => {
+      receiptlessResponse.resolve(jsonResponse(laterReceiptlessSale));
+      await receiptlessNavigation;
     });
 
-    expect(await screen.findByText("Recorded 2 units. 1 units were not recorded.")).toBeTruthy();
+    expect(router.state.navigation.state).toBe("idle");
+    expect(screen.getByText("Recorded 2 units. 1 units were not recorded.")).toBeTruthy();
     expect(screen.getByText(/could not be verified/i)).toBeTruthy();
     await waitFor(() => expect(screen.queryByText(/Completed:/)).toBeNull());
     expect(screen.queryByText(/Authoritative available quantity/)).toBeNull();
     expect(actionCalls).toBe(1);
     expect(actionBodies).toEqual([expect.objectContaining({ idempotencyKey: activeToken, quantity: 3 })]);
-    expect((document.querySelector('input[name="idempotencyKey"]') as HTMLInputElement).value).toBe(activeToken);
+    const retryTokenInput = document.querySelector('input[name="idempotencyKey"]') as HTMLInputElement;
+    expect(retryTokenInput.value).toBe(activeToken);
     expect(router.state.location.pathname).toBe(priorLocation.pathname);
     expect(router.state.location.search).toBe(priorLocation.search);
     expect(router.state.location.state).toEqual(priorLocation.state);
     await user.type(screen.getByLabelText("Quantity sold"), "4");
     await user.selectOptions(screen.getByLabelText("Sale channel"), "other");
-    await router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
-      formMethod: "post",
-      formData: new FormData(tokenInput.form!),
-      state: priorLocation.state,
+    let conflictNavigation!: Promise<void>;
+    await act(async () => {
+      conflictNavigation = router.navigate(`${priorLocation.pathname}${priorLocation.search}`, {
+        formMethod: "post",
+        formData: new FormData(retryTokenInput.form!),
+        state: priorLocation.state,
+      });
+    });
+    expect(router.state.navigation.state).toBe("submitting");
+    await act(async () => {
+      conflictResponse.resolve(jsonResponse({ error: "This token already records different sale details." }, 409));
+      await conflictNavigation;
     });
 
-    expect(await screen.findByText("This token already records different sale details.")).toBeTruthy();
+    expect(router.state.navigation.state).toBe("idle");
+    expect(screen.getByText("This token already records different sale details.")).toBeTruthy();
     expect((screen.getByLabelText("Quantity sold") as HTMLInputElement).value).toBe("4");
     expect((screen.getByLabelText("Sale channel") as HTMLSelectElement).value).toBe("other");
     expect((document.querySelector('input[name="idempotencyKey"]') as HTMLInputElement).value).toBe(activeToken);
