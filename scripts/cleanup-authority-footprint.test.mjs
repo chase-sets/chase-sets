@@ -34,6 +34,8 @@ const DELIVERED_FOOTPRINT = [
   "bounded-contexts/ordering/tests/cleanup-authority-composition.test.ts",
   "bounded-contexts/ordering/tests/test-support/cleanup-authority.ts",
   "contracts/localization/locales/en/ordering.ts",
+  "deployables/marketplace-seed-testing/index.ts",
+  "deployables/marketplace-seed-testing/tests/representative-catalog.test.ts",
   "deployables/platform-api/__tests__/cleanup-authority-host-capability.test.ts",
   "deployables/platform-api/src/app.ts",
   "deployables/platform-worker/__tests__/cleanup-authority-host-capability.test.ts",
@@ -99,19 +101,38 @@ describe("cleanup-authority-footprint", () => {
 
   it("normalises win32 separators and de-duplicates before classifying", () => {
     const result = classifyCleanupAuthorityFootprint([
-      "bounded-contexts\\ordering\\index.ts",
-      "bounded-contexts/ordering/index.ts",
+      "bounded-contexts\\ordering\\client.ts",
+      "bounded-contexts/ordering/client.ts",
     ]);
 
-    expect(result.authorized).toEqual(["bounded-contexts/ordering/index.ts"]);
+    expect(result.authorized).toEqual(["bounded-contexts/ordering/client.ts"]);
     expect(result.ok).toBe(true);
   });
 
   it("keeps every authorized path exact and sorted so the allowlist cannot drift silently", () => {
+    expect([...AUTHORIZED_PATHS].sort()).toEqual([...DELIVERED_FOOTPRINT].sort());
+    expect([...AUTHORIZED_PATHS]).toEqual([...AUTHORIZED_PATHS].sort());
     expect([...AUTHORIZED_PATHS]).toEqual([...AUTHORIZED_PATHS].map((entry) => entry.replaceAll("\\", "/")));
     for (const entry of AUTHORIZED_PATHS) {
       expect(isAuthorizedPath(entry)).toBe(true);
       expect(entry).not.toContain("*");
+    }
+  });
+
+  it("rejects unrelated structural, documentation, and cleanup-looking paths", () => {
+    const unrelated = [
+      "scripts/check-structure/unrelated-structure.test.mjs",
+      "docs/architecture/unrelated-inventory.md",
+      "bounded-contexts/ordering/features/orders/api/cleanup-authority-surprise.ts",
+    ];
+
+    for (const path of unrelated) {
+      expect({ path, ...classifyCleanupAuthorityFootprint([path]) }).toEqual({
+        path,
+        authorized: [],
+        violations: [{ path, reason: "out-of-footprint" }],
+        ok: false,
+      });
     }
   });
 

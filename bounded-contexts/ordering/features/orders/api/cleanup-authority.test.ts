@@ -3,6 +3,7 @@ import { EVENT_STORE_READ_PAGE_SIZE_MAX, type StoredEvent } from "@chase-sets/ev
 import {
   ORDER_CLEANUP_AUTHORITY_ORDER_MAX_EVENTS,
   ORDER_CLEANUP_AUTHORITY_SCHEMA_VERSION,
+  isStrictUtcInstant,
   observeBuyerOrderCleanupAuthority,
   observeEvidenceWindowSourceCleanupAuthority,
   observeOrderCleanupAuthority,
@@ -89,6 +90,33 @@ function readyForFulfillment(): EventSpec {
   };
 }
 
+type CancellationReservationSnapshot = Readonly<{
+  reservationRequestId: string;
+  inventoryItemId: string;
+  sellerAccountId: string;
+  quantity: number;
+  holdId: string | null;
+  status: "pending" | "confirmed" | "rejected";
+  rejectionReason: string | null;
+  releasedAt: null;
+}>;
+
+function cancellationReservationSnapshot(
+  overrides: Partial<CancellationReservationSnapshot> = {},
+): CancellationReservationSnapshot {
+  return {
+    reservationRequestId: "rsv_1",
+    inventoryItemId: "inv_1",
+    sellerAccountId: SELLER_ACCOUNT_ID,
+    quantity: 1,
+    holdId: "hld_1",
+    status: "confirmed",
+    rejectionReason: null,
+    releasedAt: null,
+    ...overrides,
+  };
+}
+
 function cancelled(
   overrides: Readonly<{
     reason?: string;
@@ -97,6 +125,7 @@ function cancelled(
     recordedAt?: string;
     omitBuyerAccountId?: boolean;
     omitStatusBefore?: boolean;
+    reservationRequests?: readonly CancellationReservationSnapshot[];
   }> = {},
 ): EventSpec {
   const payload: Record<string, unknown> = {
@@ -104,7 +133,7 @@ function cancelled(
     cancelledAt: CANCELLED_AT,
     reason: overrides.reason ?? "buyer-cancelled",
     buyerEmail: null,
-    reservationRequests: [],
+    reservationRequests: overrides.reservationRequests ?? [cancellationReservationSnapshot()],
   };
   if (!overrides.omitBuyerAccountId) {
     payload.buyerAccountId = overrides.buyerAccountId === undefined ? BUYER_ACCOUNT_ID : overrides.buyerAccountId;
@@ -171,7 +200,10 @@ const CANCELLED_WITH_CONFIRMATION: readonly EventSpec[] = [
  * F1: Ordering cancelled from `pending-reservation` and never recorded the
  * confirmation Inventory committed atomically with the Hold.
  */
-const CANCELLED_WITHOUT_ORDER_TERMINAL: readonly EventSpec[] = [created(), cancelled()];
+const CANCELLED_WITHOUT_ORDER_TERMINAL: readonly EventSpec[] = [
+  created(),
+  cancelled({ reservationRequests: [cancellationReservationSnapshot({ holdId: null, status: "pending" })] }),
+];
 
 const ACTIVE_HOLD_AUTHORITY: StubInventoryAuthorityConfig = {
   reservations: { rsv_1: confirmedReservation() },
@@ -316,7 +348,7 @@ describe("cleanup-authority-complete-read-bounds", () => {
 
     // The exact-bound history is read completely and then fails on its own
     // literal-history rules, not on the read bound.
-    expect(atBoundOutcome).toEqual({ outcome: "conflict", reason: "order-line-amounts-out-of-order" });
+    expect(atBoundOutcome).toEqual({ outcome: "conflict", reason: "order-line-amounts-mismatch" });
     // One event past the bound never reaches the fold at all.
     expect(overBoundOutcome).toEqual({ outcome: "conflict", reason: "order-stream-unreadable" });
   });
@@ -379,7 +411,81 @@ describe("cleanup-authority-history-validation", () => {
     expect(await mismatched.run()).toEqual({ outcome: "conflict", reason: "order-line-amounts-mismatch" });
   });
 
+  it("requires production-shaped unique creation lines and exact published line-id/lineTotalAmount equality", async () => {
+    const twoLines = [
+      { lineId: "oli_1", lineTotalAmount: "20.00" },
+      { lineId: "oli_2", lineTotalAmount: "7.50" },
+    ] as const;
+    const exactFact: EventSpec = {
+      eventType: "ordering.order.line-item-amounts-published",
+      payload: {
+        orderId: ORDER_ID,
+        lineItems: [
+          { lineId: "oli_1", amount: "20.00" },
+          { lineId: "oli_2", amount: "7.50" },
+        ],
+      },
+      recordedAt: CREATED_AT,
+    };
+
+    const exact = observe([created({ lines: twoLines }), exactFact, confirmed(), cancelled()], RELEASED_HOLD_AUTHORITY);
+    expect(expectObserved(await exact.run()).state).toBe("cleanup-complete");
+
+    const poisonedCreation = observe(
+      [
+        created({
+          lines: [
+            { lineId: "oli_1", lineTotalAmount: "20.00" },
+            { lineId: "oli_1", lineTotalAmount: "7.50" },
+          ],
+        }),
+        cancelled(),
+      ],
+      RELEASED_HOLD_AUTHORITY,
+    );
+    expect(await poisonedCreation.run()).toEqual({ outcome: "conflict", reason: "order-lines-malformed" });
+
+    const publishedMutants: readonly Readonly<{ label: string; lineItems: readonly unknown[] }>[] = [
+      { label: "missing", lineItems: [{ lineId: "oli_1", amount: "20.00" }] },
+      {
+        label: "duplicate",
+        lineItems: [
+          { lineId: "oli_1", amount: "20.00" },
+          { lineId: "oli_1", amount: "20.00" },
+        ],
+      },
+      {
+        label: "amount",
+        lineItems: [
+          { lineId: "oli_1", amount: "20.00" },
+          { lineId: "oli_2", amount: "7.51" },
+        ],
+      },
+    ];
+    for (const mutant of publishedMutants) {
+      const observation = observe(
+        [
+          created({ lines: twoLines }),
+          { ...exactFact, payload: { orderId: ORDER_ID, lineItems: mutant.lineItems } },
+          cancelled(),
+        ],
+        RELEASED_HOLD_AUTHORITY,
+      );
+      expect({ label: mutant.label, ...(await observation.run()) }).toEqual({
+        label: mutant.label,
+        outcome: "conflict",
+        reason: "order-line-amounts-mismatch",
+      });
+    }
+  });
+
   it("rejects duplicate declarations, unknown requests, repeated terminals, and reused Holds", async () => {
+    const emptyDeclarations = observe([created({ reservationRequests: [] })], ACTIVE_HOLD_AUTHORITY);
+    expect(await emptyDeclarations.run()).toEqual({
+      outcome: "conflict",
+      reason: "order-reservation-requests-missing",
+    });
+
     const duplicateDeclaration = observe(
       [
         created({
@@ -460,7 +566,10 @@ describe("cleanup-authority-history-validation", () => {
     const captureWithoutPayment = observe([created(), confirmed(), readyForFulfillment()], ACTIVE_HOLD_AUTHORITY);
     expect(await captureWithoutPayment.run()).toEqual({ outcome: "conflict", reason: "order-capture-out-of-order" });
 
-    const repeatedCancellation = observe([created(), cancelled(), cancelled()], ACTIVE_HOLD_AUTHORITY);
+    const pendingCancellation = cancelled({
+      reservationRequests: [cancellationReservationSnapshot({ holdId: null, status: "pending" })],
+    });
+    const repeatedCancellation = observe([created(), pendingCancellation, pendingCancellation], ACTIVE_HOLD_AUTHORITY);
     expect(await repeatedCancellation.run()).toEqual({ outcome: "conflict", reason: "order-cancellation-repeated" });
 
     const releaseBeforeCancellation = observe([created(), confirmed(), orderReleased()], ACTIVE_HOLD_AUTHORITY);
@@ -470,7 +579,20 @@ describe("cleanup-authority-history-validation", () => {
     });
 
     const releaseOfUnconfirmedRequest = observe(
-      [created(), rejected(), cancelled(), orderReleased()],
+      [
+        created(),
+        rejected(),
+        cancelled({
+          reservationRequests: [
+            cancellationReservationSnapshot({
+              holdId: null,
+              status: "rejected",
+              rejectionReason: "inventory-unavailable",
+            }),
+          ],
+        }),
+        orderReleased(),
+      ],
       ACTIVE_HOLD_AUTHORITY,
     );
     expect(await releaseOfUnconfirmedRequest.run()).toEqual({
@@ -602,15 +724,49 @@ describe("cleanup-authority-historical-cancellation", () => {
     expect(report.cancellationStatusBefore).toBe("pending-payment");
   });
 
-  it("accepts an explicit null for either historical field", async () => {
-    const nulled = observe(
+  it("rejects present null while preserving legitimate historical omission", async () => {
+    const nullBuyer = observe(
       [created(), confirmed(), cancelled({ buyerAccountId: null, statusBeforeCancellation: null })],
       RELEASED_HOLD_AUTHORITY,
     );
-    const report = expectObserved(await nulled.run());
+    expect(await nullBuyer.run()).toEqual({ outcome: "conflict", reason: "order-cancellation-buyer-mismatch" });
 
-    expect(report.state).toBe("cleanup-complete");
-    expect(report.cancellationStatusBefore).toBe("pending-reservation");
+    const nullStatus = observe(
+      [created(), confirmed(), cancelled({ omitBuyerAccountId: true, statusBeforeCancellation: null })],
+      RELEASED_HOLD_AUTHORITY,
+    );
+    expect(await nullStatus.run()).toEqual({ outcome: "conflict", reason: "order-cancellation-status-mismatch" });
+  });
+
+  it("requires the cancellation reservation snapshot to exactly equal the pre-cancellation fold", async () => {
+    const exact = observe([created(), confirmed(), cancelled()], RELEASED_HOLD_AUTHORITY);
+    expect(expectObserved(await exact.run()).state).toBe("cleanup-complete");
+
+    const mutants: readonly Readonly<{
+      label: string;
+      reservationRequests: readonly CancellationReservationSnapshot[];
+    }>[] = [
+      { label: "missing", reservationRequests: [] },
+      {
+        label: "status",
+        reservationRequests: [cancellationReservationSnapshot({ status: "pending" })],
+      },
+      {
+        label: "hold",
+        reservationRequests: [cancellationReservationSnapshot({ holdId: "hld_other" })],
+      },
+    ];
+    for (const mutant of mutants) {
+      const observation = observe(
+        [created(), confirmed(), cancelled({ reservationRequests: mutant.reservationRequests })],
+        RELEASED_HOLD_AUTHORITY,
+      );
+      expect({ label: mutant.label, ...(await observation.run()) }).toEqual({
+        label: mutant.label,
+        outcome: "conflict",
+        reason: "order-cancellation-reservations-mismatch",
+      });
+    }
   });
 
   it("rejects a present value that disagrees with the derived one", async () => {
@@ -929,6 +1085,10 @@ describe("cleanup-authority-repeat-day-after", () => {
       "2026-08-01T00:00:00",
       "2026-08-01",
       "2026-08-01T00:00:00z",
+      "2025-02-29T00:00:00Z",
+      "2026-13-01T00:00:00Z",
+      "2026-04-31T00:00:00Z",
+      "2026-08-01T24:00:00Z",
       "not-an-instant",
       "",
     ];
@@ -940,6 +1100,12 @@ describe("cleanup-authority-repeat-day-after", () => {
         reason: "window-opened-at-invalid",
       });
     }
+  });
+
+  it("accepts valid Gregorian leap-day and fractional UTC-Z controls without an age limit", () => {
+    expect(isStrictUtcInstant("2024-02-29T23:59:59Z")).toBe(true);
+    expect(isStrictUtcInstant("2024-02-29T23:59:59.123456789Z")).toBe(true);
+    expect(isStrictUtcInstant("1900-01-01T00:00:00Z")).toBe(true);
   });
 });
 
@@ -973,7 +1139,18 @@ describe("cleanup-authority-inventory-source-lookup", () => {
           { reservationRequestId: "rsv_2", inventoryItemId: "inv_2", sellerAccountId: SELLER_ACCOUNT_ID, quantity: 2 },
         ],
       }),
-      cancelled(),
+      cancelled({
+        reservationRequests: [
+          cancellationReservationSnapshot({ holdId: null, status: "pending" }),
+          cancellationReservationSnapshot({
+            reservationRequestId: "rsv_2",
+            inventoryItemId: "inv_2",
+            quantity: 2,
+            holdId: null,
+            status: "pending",
+          }),
+        ],
+      }),
     ];
     const authority: StubInventoryAuthorityConfig = {
       reservations: {
@@ -1032,7 +1209,18 @@ describe("cleanup-authority-inventory-source-lookup", () => {
           { reservationRequestId: "rsv_2", inventoryItemId: "inv_2", sellerAccountId: SELLER_ACCOUNT_ID, quantity: 2 },
         ],
       }),
-      cancelled(),
+      cancelled({
+        reservationRequests: [
+          cancellationReservationSnapshot({ holdId: null, status: "pending" }),
+          cancellationReservationSnapshot({
+            reservationRequestId: "rsv_2",
+            inventoryItemId: "inv_2",
+            quantity: 2,
+            holdId: null,
+            status: "pending",
+          }),
+        ],
+      }),
     ];
     const reused = observe(twoDeclarations, {
       reservations: {

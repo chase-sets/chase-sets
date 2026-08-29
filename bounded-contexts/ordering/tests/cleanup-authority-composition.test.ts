@@ -14,6 +14,10 @@ function readOrderingSource(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
 }
 
+function readRepositorySource(relativePath: string): string {
+  return readFileSync(fileURLToPath(new URL(`../../../${relativePath}`, import.meta.url)), "utf8");
+}
+
 function unusablePool() {
   const fail = () => {
     throw new Error("The Ordering cleanup-authority composition test must not touch a database pool.");
@@ -76,5 +80,25 @@ describe("cleanup-authority-inventory-host-capability", () => {
     }
     // No caller may fall back to a bare pool-only construction.
     expect(seedSource).not.toMatch(/createOrderingServices\(pool\)/);
+  });
+
+  it("censuses both generic marketplace seed hosts and requires an explicit not-mounted capability", () => {
+    const genericSeedHosts = [
+      "deployables/marketplace-seed-testing/index.ts",
+      "deployables/marketplace-seed-testing/tests/representative-catalog.test.ts",
+    ] as const;
+
+    for (const relativePath of genericSeedHosts) {
+      const source = readRepositorySource(relativePath);
+      expect({ relativePath, orderingMounts: source.match(/module:\s*orderingModule/g)?.length ?? 0 }).toEqual({
+        relativePath,
+        orderingMounts: 1,
+      });
+      expect({
+        relativePath,
+        explicitCapabilities:
+          source.match(/inventoryCleanupAuthority:\s*\{\s*kind:\s*"not-mounted"\s*\}/g)?.length ?? 0,
+      }).toEqual({ relativePath, explicitCapabilities: 1 });
+    }
   });
 });

@@ -191,7 +191,7 @@ function cleanupAuthorityValidationResponse(c: { json: (body: unknown, status?: 
   return c.json(
     {
       error: {
-        code: "validation_failed",
+        code: "ordering_cleanup_authority_input_invalid",
         message: t("ordering.features.orders.api.route.cleanup.authority.invalid"),
       },
     },
@@ -458,15 +458,20 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
           return cleanupAuthorityValidationResponse(c);
         case "not-found":
           return c.json(
-            { error: { code: "not_found", message: t("ordering.features.orders.api.route.purchase.not.found") } },
+            {
+              error: {
+                code: "ordering_cleanup_authority_not_found",
+                message: t("ordering.features.orders.api.route.cleanup.authority.not.found"),
+              },
+            },
             404,
           );
         default:
           return c.json(
             {
               error: {
-                code: "cleanup_authority_conflict",
-                message: t("ordering.features.orders.api.route.cleanup.authority.conflict"),
+                code: "ordering_cleanup_authority_incomplete",
+                message: t("ordering.features.orders.api.route.cleanup.authority.incomplete"),
               },
             },
             409,

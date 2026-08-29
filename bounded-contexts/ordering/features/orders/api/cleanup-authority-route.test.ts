@@ -168,7 +168,12 @@ describe("cleanup-authority-n8-contract", () => {
       const { app, observe } = buildApp({ actor: buyerActor });
       const response = await post(app, body);
       expect({ body, status: response.status }).toEqual({ body, status: 400 });
-      expect((await response.json()).error.code).toBe("validation_failed");
+      expect(await response.json()).toEqual({
+        error: {
+          code: "ordering_cleanup_authority_input_invalid",
+          message: "Cleanup authority request is invalid.",
+        },
+      });
       expect(observe).not.toHaveBeenCalled();
     }
   });
@@ -182,6 +187,12 @@ describe("cleanup-authority-n8-contract", () => {
     });
 
     expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "ordering_cleanup_authority_input_invalid",
+        message: "Cleanup authority request is invalid.",
+      },
+    });
     expect(observe).not.toHaveBeenCalled();
   });
 
@@ -190,17 +201,25 @@ describe("cleanup-authority-n8-contract", () => {
       observation: OrderCleanupAuthorityObservation;
       status: number;
       code: string;
+      message: string;
     }>[] = [
       {
         observation: { outcome: "invalid-request", reason: "window-opened-at-invalid" },
         status: 400,
-        code: "validation_failed",
+        code: "ordering_cleanup_authority_input_invalid",
+        message: "Cleanup authority request is invalid.",
       },
-      { observation: { outcome: "not-found" }, status: 404, code: "not_found" },
+      {
+        observation: { outcome: "not-found" },
+        status: 404,
+        code: "ordering_cleanup_authority_not_found",
+        message: "Cleanup authority is unavailable.",
+      },
       {
         observation: { outcome: "conflict", reason: "inventory-reservation-authority-incomplete" },
         status: 409,
-        code: "cleanup_authority_conflict",
+        code: "ordering_cleanup_authority_incomplete",
+        message: "Cleanup authority is incomplete.",
       },
     ];
 
@@ -209,9 +228,10 @@ describe("cleanup-authority-n8-contract", () => {
       const response = await post(app, { windowOpenedAt: WINDOW_OPENED_AT });
       const text = await response.text();
 
-      expect({ status: response.status, code: JSON.parse(text).error.code }).toEqual({
+      expect({ status: response.status, ...JSON.parse(text).error }).toEqual({
         status: testCase.status,
         code: testCase.code,
+        message: testCase.message,
       });
       expect(Object.keys(JSON.parse(text))).toEqual(["error"]);
       expect(Object.keys(JSON.parse(text).error).sort()).toEqual(["code", "message"]);

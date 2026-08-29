@@ -171,7 +171,7 @@ export function orderCreatedPayload(
     sourceType?: string;
     sourceReferenceId?: string | null;
     reservationRequests?: readonly ReservationDeclarationFixture[];
-    lines?: readonly Readonly<{ lineId: string; amount: string }>[];
+    lines?: readonly Readonly<{ lineId: string; lineTotalAmount: string }>[];
   }> = {},
 ): Readonly<Record<string, unknown>> {
   return {
@@ -180,7 +180,7 @@ export function orderCreatedPayload(
     sellerAccountId: SELLER_ACCOUNT_ID,
     sourceType: overrides.sourceType ?? "cart-checkout",
     sourceReferenceId: overrides.sourceReferenceId === undefined ? "chk_1" : overrides.sourceReferenceId,
-    lines: overrides.lines ?? [{ lineId: "oli_1", amount: "20.00" }],
+    lines: overrides.lines ?? [{ lineId: "oli_1", lineTotalAmount: "20.00" }],
     reservationRequests: overrides.reservationRequests ?? [
       {
         reservationRequestId: "rsv_1",

@@ -190,7 +190,7 @@ export function createMarketplaceSeedRuntime(
       contextName: "ordering",
       module: orderingModule,
       pool: pools.ordering,
-      ports: { commercialTermsResolver },
+      ports: { commercialTermsResolver, inventoryCleanupAuthority: { kind: "not-mounted" } },
     },
     {
       contextName: "payments",

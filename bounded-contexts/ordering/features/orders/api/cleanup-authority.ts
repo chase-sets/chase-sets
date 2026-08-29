@@ -222,12 +222,32 @@ export type OrderCleanupAuthorityDeps = Readonly<{
   inventory: OrderingInventoryCleanupAuthorityPort;
 }>;
 
-const RFC3339_UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+const RFC3339_UTC_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?Z$/;
 
 const ORDER_SOURCE_TYPES: readonly OrderSourceType[] = ["cart-checkout", "buy-now", "offer-acceptance"];
 
 export function isStrictUtcInstant(value: unknown): value is string {
-  return typeof value === "string" && RFC3339_UTC_INSTANT.test(value) && Number.isFinite(Date.parse(value));
+  if (typeof value !== "string") {
+    return false;
+  }
+  const match = RFC3339_UTC_INSTANT.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
+  return day >= 1 && day <= daysInMonth[month - 1]!;
 }
 
 function conflict(reason: string): OrderCleanupAuthorityObservation {
@@ -243,9 +263,15 @@ type ReservationDeclaration = Readonly<{
   inventoryItemId: string;
   sellerAccountId: string;
   quantity: number;
+  holdId: string | null;
 }>;
 
 type DeclarationOutcome = "pending" | "confirmed" | "rejected";
+type OrderRecordedReservationOutcome = Readonly<{
+  outcome: DeclarationOutcome;
+  holdId: string | null;
+  rejectionReason: string | null;
+}>;
 
 type OrderHistoryFold = Readonly<{
   orderId: string;
@@ -253,7 +279,7 @@ type OrderHistoryFold = Readonly<{
   sourceType: string;
   sourceReferenceId: string | null;
   declarations: readonly ReservationDeclaration[];
-  orderRecordedOutcomes: ReadonlyMap<string, Readonly<{ outcome: DeclarationOutcome; holdId: string | null }>>;
+  orderRecordedOutcomes: ReadonlyMap<string, OrderRecordedReservationOutcome>;
   status: OrderStatus;
   statusBeforeCancellation: OrderStatusBeforeCancellation | null;
   cancellationReason: string | null;
@@ -302,6 +328,54 @@ function recordedAtMillis(event: StoredEvent): number {
 
 function isCleanupEligibleStatus(status: OrderStatusBeforeCancellation | null): boolean {
   return status === "pending-reservation" || status === "pending-payment";
+}
+
+const CANCELLATION_RESERVATION_KEYS = [
+  "holdId",
+  "inventoryItemId",
+  "quantity",
+  "rejectionReason",
+  "releasedAt",
+  "reservationRequestId",
+  "sellerAccountId",
+  "status",
+] as const;
+
+function cancellationReservationSnapshotMatches(
+  value: unknown,
+  declarations: readonly ReservationDeclaration[],
+  outcomes: ReadonlyMap<string, OrderRecordedReservationOutcome>,
+): boolean {
+  if (!Array.isArray(value) || value.length !== declarations.length) {
+    return false;
+  }
+
+  return declarations.every((declaration, index) => {
+    const raw = value[index];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return false;
+    }
+    const snapshot = raw as Readonly<Record<string, unknown>>;
+    if (Object.keys(snapshot).sort().join("|") !== [...CANCELLATION_RESERVATION_KEYS].sort().join("|")) {
+      return false;
+    }
+    const outcome = outcomes.get(declaration.reservationRequestId);
+    if (!outcome) {
+      return false;
+    }
+    const expectedHoldId = outcome.outcome === "confirmed" ? outcome.holdId : declaration.holdId;
+
+    return (
+      snapshot["reservationRequestId"] === declaration.reservationRequestId &&
+      snapshot["inventoryItemId"] === declaration.inventoryItemId &&
+      snapshot["sellerAccountId"] === declaration.sellerAccountId &&
+      snapshot["quantity"] === declaration.quantity &&
+      snapshot["holdId"] === expectedHoldId &&
+      snapshot["status"] === outcome.outcome &&
+      snapshot["rejectionReason"] === outcome.rejectionReason &&
+      snapshot["releasedAt"] === null
+    );
+  });
 }
 
 /**
@@ -365,7 +439,7 @@ function foldOrderHistory(events: readonly StoredEvent[], input: OrderCleanupAut
   }
 
   const rawRequests = creationPayload["reservationRequests"];
-  if (!Array.isArray(rawRequests)) {
+  if (!Array.isArray(rawRequests) || rawRequests.length === 0) {
     return { kind: "conflict", reason: "order-reservation-requests-missing" };
   }
 
@@ -380,23 +454,50 @@ function foldOrderHistory(events: readonly StoredEvent[], input: OrderCleanupAut
     const inventoryItemId = readString(request, "inventoryItemId");
     const sellerAccountId = readString(request, "sellerAccountId");
     const quantity = readPositiveInteger(request, "quantity");
+    const rawHoldId = request["holdId"];
+    const holdId = rawHoldId === undefined || rawHoldId === null ? null : readString(request, "holdId");
     if (reservationRequestId === null || inventoryItemId === null || sellerAccountId === null || quantity === null) {
+      return { kind: "conflict", reason: "order-reservation-request-malformed" };
+    }
+    if (rawHoldId !== undefined && rawHoldId !== null && holdId === null) {
       return { kind: "conflict", reason: "order-reservation-request-malformed" };
     }
     if (declarationIds.has(reservationRequestId)) {
       return { kind: "conflict", reason: "order-reservation-request-duplicate" };
     }
     declarationIds.add(reservationRequestId);
-    declarations.push({ reservationRequestId, inventoryItemId, sellerAccountId, quantity });
+    declarations.push({ reservationRequestId, inventoryItemId, sellerAccountId, quantity, holdId });
   }
 
   if (declarations.length > ORDER_CLEANUP_AUTHORITY_MAX_HOLDS) {
     return { kind: "conflict", reason: "order-reservation-requests-over-bound" };
   }
 
-  const outcomes = new Map<string, { outcome: DeclarationOutcome; holdId: string | null }>();
+  const outcomes = new Map<string, OrderRecordedReservationOutcome>();
   for (const declaration of declarations) {
-    outcomes.set(declaration.reservationRequestId, { outcome: "pending", holdId: null });
+    outcomes.set(declaration.reservationRequestId, {
+      outcome: "pending",
+      holdId: declaration.holdId,
+      rejectionReason: null,
+    });
+  }
+
+  const rawCreationLines = creationPayload["lines"];
+  if (!Array.isArray(rawCreationLines) || rawCreationLines.length === 0) {
+    return { kind: "conflict", reason: "order-lines-malformed" };
+  }
+  const creationLineAmounts = new Map<string, string>();
+  for (const rawLine of rawCreationLines) {
+    if (!rawLine || typeof rawLine !== "object" || Array.isArray(rawLine)) {
+      return { kind: "conflict", reason: "order-lines-malformed" };
+    }
+    const line = rawLine as Readonly<Record<string, unknown>>;
+    const lineId = readString(line, "lineId");
+    const lineTotalAmount = readString(line, "lineTotalAmount");
+    if (lineId === null || lineTotalAmount === null || creationLineAmounts.has(lineId)) {
+      return { kind: "conflict", reason: "order-lines-malformed" };
+    }
+    creationLineAmounts.set(lineId, lineTotalAmount);
   }
 
   const confirmedHoldIds = new Set<string>();
@@ -431,16 +532,10 @@ function foldOrderHistory(events: readonly StoredEvent[], input: OrderCleanupAut
         if (!Array.isArray(lineItems)) {
           return { kind: "conflict", reason: "order-line-amounts-malformed" };
         }
-        const creationLines = creationPayload["lines"];
-        const creationLineIds = new Set(
-          (Array.isArray(creationLines) ? creationLines : [])
-            .map((line) =>
-              line && typeof line === "object" && !Array.isArray(line)
-                ? readString(line as Readonly<Record<string, unknown>>, "lineId")
-                : null,
-            )
-            .filter((lineId): lineId is string => lineId !== null),
-        );
+        if (lineItems.length !== creationLineAmounts.size) {
+          return { kind: "conflict", reason: "order-line-amounts-mismatch" };
+        }
+        const publishedLineIds = new Set<string>();
         for (const entry of lineItems) {
           if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
             return { kind: "conflict", reason: "order-line-amounts-malformed" };
@@ -448,9 +543,15 @@ function foldOrderHistory(events: readonly StoredEvent[], input: OrderCleanupAut
           const lineItem = entry as Readonly<Record<string, unknown>>;
           const lineId = readString(lineItem, "lineId");
           const amount = readString(lineItem, "amount");
-          if (lineId === null || amount === null || !creationLineIds.has(lineId)) {
+          if (
+            lineId === null ||
+            amount === null ||
+            publishedLineIds.has(lineId) ||
+            creationLineAmounts.get(lineId) !== amount
+          ) {
             return { kind: "conflict", reason: "order-line-amounts-mismatch" };
           }
+          publishedLineIds.add(lineId);
         }
         lineAmountsSeen = true;
         break;
@@ -484,7 +585,7 @@ function foldOrderHistory(events: readonly StoredEvent[], input: OrderCleanupAut
           return { kind: "conflict", reason: "order-reservation-hold-reused" };
         }
         confirmedHoldIds.add(holdId);
-        outcomes.set(reservationRequestId, { outcome: "confirmed", holdId });
+        outcomes.set(reservationRequestId, { outcome: "confirmed", holdId, rejectionReason: null });
         reservationOutcomeSeen = true;
         break;
       }
@@ -494,17 +595,23 @@ function foldOrderHistory(events: readonly StoredEvent[], input: OrderCleanupAut
           return { kind: "conflict", reason: "order-reservation-outcome-after-cancellation" };
         }
         const reservationRequestId = readString(payload, "reservationRequestId");
-        if (reservationRequestId === null) {
+        const rejectionReason = readString(payload, "reason");
+        if (reservationRequestId === null || rejectionReason === null) {
           return { kind: "conflict", reason: "order-reservation-rejection-malformed" };
         }
+        const declaration = declarations.find((entry) => entry.reservationRequestId === reservationRequestId);
         const outcome = outcomes.get(reservationRequestId);
-        if (!outcome) {
+        if (!declaration || !outcome) {
           return { kind: "conflict", reason: "order-reservation-rejection-unknown-request" };
         }
         if (outcome.outcome !== "pending") {
           return { kind: "conflict", reason: "order-reservation-terminal-repeated" };
         }
-        outcomes.set(reservationRequestId, { outcome: "rejected", holdId: null });
+        outcomes.set(reservationRequestId, {
+          outcome: "rejected",
+          holdId: declaration.holdId,
+          rejectionReason,
+        });
         reservationOutcomeSeen = true;
         break;
       }
@@ -542,21 +649,20 @@ function foldOrderHistory(events: readonly StoredEvent[], input: OrderCleanupAut
         if (reason === null) {
           return { kind: "conflict", reason: "order-cancellation-malformed" };
         }
+        if (!cancellationReservationSnapshotMatches(payload["reservationRequests"], declarations, outcomes)) {
+          return { kind: "conflict", reason: "order-cancellation-reservations-mismatch" };
+        }
         // The shipped public decoder allows both fields to be absent on events
         // written before they existed. Derive from creation and the
         // immediately pre-cancellation fold; any present value must agree.
         const storedBuyerAccountId = payload["buyerAccountId"];
-        if (storedBuyerAccountId !== undefined && storedBuyerAccountId !== null) {
-          if (storedBuyerAccountId !== buyerAccountId) {
-            return { kind: "conflict", reason: "order-cancellation-buyer-mismatch" };
-          }
+        if (storedBuyerAccountId !== undefined && storedBuyerAccountId !== buyerAccountId) {
+          return { kind: "conflict", reason: "order-cancellation-buyer-mismatch" };
         }
         const derivedStatusBefore = status as OrderStatusBeforeCancellation;
         const storedStatusBefore = payload["statusBeforeCancellation"];
-        if (storedStatusBefore !== undefined && storedStatusBefore !== null) {
-          if (storedStatusBefore !== derivedStatusBefore) {
-            return { kind: "conflict", reason: "order-cancellation-status-mismatch" };
-          }
+        if (storedStatusBefore !== undefined && storedStatusBefore !== derivedStatusBefore) {
+          return { kind: "conflict", reason: "order-cancellation-status-mismatch" };
         }
         cancelledSeen = true;
         statusBeforeCancellation = derivedStatusBefore;
