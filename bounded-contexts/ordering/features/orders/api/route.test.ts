@@ -59,6 +59,7 @@ function createServices(): OrderingOrderServices {
     listSales: vi.fn(async () => ({ items: [], total: 0 })),
     getSale: vi.fn(async () => null),
     getOrderReviewOpportunity: vi.fn(async () => null),
+    cleanupAuthority: { kind: "not-mounted" },
     projectors: [],
   } as unknown as OrderingOrderServices;
 }

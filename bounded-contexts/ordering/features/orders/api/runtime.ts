@@ -1,5 +1,14 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import {
+  observeBuyerOrderCleanupAuthority,
+  observeEvidenceWindowSourceCleanupAuthority,
+  type BuyerOrderCleanupAuthorityInput,
+  type EvidenceWindowSourceCleanupAuthorityInput,
+  type EvidenceWindowSourceCleanupAuthorityResult,
+  type OrderCleanupAuthorityObservation,
+  type OrderingInventoryCleanupAuthorityCapability,
+} from "./cleanup-authority";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -217,6 +226,8 @@ type OrderRuntimeDeps = Readonly<{
   taxQuoteResolver?: TaxQuoteResolver;
   notificationOutbox?: NotificationOutbox;
   authenticityFeePolicyResolver?: AuthenticityFeePolicyResolver;
+  /** Required host capability; see `OrderingServiceOptions`. */
+  inventoryCleanupAuthority: OrderingInventoryCleanupAuthorityCapability;
 }>;
 
 export type CheckoutOrderLineSnapshot = Readonly<{
@@ -592,8 +603,26 @@ export type OrderingOrderServices = Readonly<{
   backfillSellerOpenOrderClaims: (
     context: EventStoreContext,
   ) => Promise<Readonly<{ sellerAccountIds: readonly string[] }>>;
+  /**
+   * Read-only cleanup authority. The variant is the mount decision:
+   * a host that does not mount the Inventory authority exposes no observation
+   * function at all, so no route handler can exist for it.
+   */
+  cleanupAuthority: OrderingCleanupAuthorityServices;
   projectors: readonly ProjectionHandlerSet[];
 }>;
+
+export type OrderingCleanupAuthorityServices =
+  | Readonly<{
+      kind: "available";
+      observeBuyerOrderCleanupAuthority: (
+        input: BuyerOrderCleanupAuthorityInput,
+      ) => Promise<OrderCleanupAuthorityObservation>;
+      observeEvidenceWindowSourceCleanupAuthority: (
+        input: EvidenceWindowSourceCleanupAuthorityInput,
+      ) => Promise<EvidenceWindowSourceCleanupAuthorityResult>;
+    }>
+  | Readonly<{ kind: "not-mounted" }>;
 
 function maxCommitPosition(left: string | undefined, right: string | undefined) {
   if (!left) {
@@ -1459,6 +1488,29 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       context,
     });
   };
+
+  /**
+   * The cleanup-authority capability is resolved once, at construction. A
+   * host that supplies `not-mounted` produces no observation function, so
+   * there is nothing for a route to mount and no placeholder to call.
+   */
+  const inventoryCleanupAuthorityCapability = deps.inventoryCleanupAuthority;
+  const cleanupAuthority: OrderingCleanupAuthorityServices =
+    inventoryCleanupAuthorityCapability.kind === "available"
+      ? {
+          kind: "available",
+          observeBuyerOrderCleanupAuthority: (input) =>
+            observeBuyerOrderCleanupAuthority(
+              { eventStore: deps.eventStore, inventory: inventoryCleanupAuthorityCapability.port },
+              input,
+            ),
+          observeEvidenceWindowSourceCleanupAuthority: (input) =>
+            observeEvidenceWindowSourceCleanupAuthority(
+              { eventStore: deps.eventStore, inventory: inventoryCleanupAuthorityCapability.port },
+              input,
+            ),
+        }
+      : { kind: "not-mounted" };
 
   const claimedOrderStreamStatus = async (claim: OrderSourceClaim) => {
     const loadedOrders = await Promise.all(
@@ -2485,6 +2537,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       }
       return { sellerAccountIds };
     },
+    cleanupAuthority,
     projectors: [
       createProjectionHandlerSet({
         projectionName: "ordering-order-projection",
