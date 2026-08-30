@@ -20,6 +20,7 @@ export const DEFAULT_AUTHORITY_LIMITS = Object.freeze({
   connectionNodes: 1_000,
   requests: 1_000,
   nodes: 50_000,
+  batchIssues: 25,
 });
 
 class Unavailable extends Error {
@@ -39,6 +40,8 @@ export function createAuthorityBudget(overrides = {}) {
   const limits = { ...DEFAULT_AUTHORITY_LIMITS, ...overrides };
   if (Object.values(limits).some((value) => !positive(value)))
     throw new TypeError("Authority limits must be positive integers.");
+  if (limits.batchIssues > DEFAULT_AUTHORITY_LIMITS.batchIssues)
+    throw new TypeError(`Authority batches cannot exceed ${DEFAULT_AUTHORITY_LIMITS.batchIssues} issues.`);
   const state = { requests: 0, nodes: 0 };
   return {
     limits,
@@ -252,180 +255,250 @@ async function currentShelf(args, stream) {
   return issues;
 }
 
-const validComment = (comment) =>
+const validConnectionComment = (comment) =>
+  typeof comment?.id === "string" && typeof comment.body === "string" && instant(comment.updatedAt);
+const validRestComment = (comment) =>
   positive(comment?.id) && typeof comment.body === "string" && instant(comment.updated_at);
-async function comments(args, number, stream) {
-  const values = await restPages({
-    ...args,
-    stream,
-    url: `${API}/repos/${args.repo}/issues/${number}/comments?per_page=100&page=1`,
-    valid: validComment,
-    identity: (comment) => comment.id,
-  });
+const CONNECTION_KINDS = Object.freeze({
+  comments: {
+    field: "comments",
+    selection: (after) =>
+      `comments(first:100,after:${after}){totalCount pageInfo{hasNextPage endCursor} nodes{id updatedAt body}}`,
+    valid: validConnectionComment,
+  },
+  dependencies: {
+    field: "blockedBy",
+    selection: (after) =>
+      `blockedBy(first:100,after:${after}){totalCount pageInfo{hasNextPage endCursor} nodes{id number repository{nameWithOwner}}}`,
+    valid: (node) =>
+      typeof node?.id === "string" && positive(node.number) && typeof node.repository?.nameWithOwner === "string",
+  },
+  lifecycle: {
+    field: "timelineItems",
+    selection: (after) =>
+      `state title url createdAt updatedAt labels(first:100){totalCount pageInfo{hasNextPage endCursor} nodes{name}} timelineItems(first:100,after:${after},itemTypes:[LABELED_EVENT,UNLABELED_EVENT,CLOSED_EVENT,REOPENED_EVENT]){totalCount pageInfo{hasNextPage endCursor} nodes{__typename ... on LabeledEvent{id createdAt label{name}} ... on UnlabeledEvent{id createdAt label{name}} ... on ClosedEvent{id createdAt} ... on ReopenedEvent{id createdAt}}}`,
+    valid: (node) =>
+      typeof node?.id === "string" &&
+      new Set(["LabeledEvent", "UnlabeledEvent", "ClosedEvent", "ReopenedEvent"]).has(node.__typename) &&
+      instant(node.createdAt) &&
+      (!["LabeledEvent", "UnlabeledEvent"].includes(node.__typename) || typeof node.label?.name === "string"),
+  },
+});
+
+function repoVars(repo) {
+  const [owner, name, extra] = repo.split("/");
+  if (!owner || !name || extra) throw new TypeError("Invalid repository.");
+  return { owner, name };
+}
+
+function batchQuery(kind, phase, states) {
+  const spec = CONNECTION_KINDS[kind];
+  const definitions = ["$owner:String!", "$name:String!"];
+  const fields = [];
+  const variables = {};
+  for (const [index, state] of states.entries()) {
+    definitions.push(`$number${index}:Int!`, `$after${index}:String`);
+    variables[`number${index}`] = state.number;
+    variables[`after${index}`] = state.after;
+    fields.push(`issue${index}:issue(number:$number${index}){number ${spec.selection(`$after${index}`)}}`);
+  }
   return {
-    values,
-    snapshot: values
-      .map((comment) => ({
-        id: comment.id,
-        updatedAt: comment.updated_at,
-        body: createHash("sha256").update(comment.body).digest("hex"),
-      }))
-      .sort((a, b) => a.id - b.id),
+    query: `# REVIEW_CADENCE_${kind.toUpperCase()}_${phase}_BATCH\nquery(${definitions.join(",")}){repository(owner:$owner,name:$name){${fields.join(" ")}}}`,
+    variables,
   };
 }
 
-const DEPENDENCIES_QUERY = `# REVIEW_CADENCE_DEPENDENCIES
-query($owner:String!,$name:String!,$number:Int!,$after:String){repository(owner:$owner,name:$name){issue(number:$number){blockedBy(first:100,after:$after){totalCount pageInfo{hasNextPage endCursor} nodes{id number repository{nameWithOwner}}}}}}`;
-const LIFECYCLE_QUERY = `# REVIEW_CADENCE_LIFECYCLE
-query($owner:String!,$name:String!,$number:Int!,$after:String){repository(owner:$owner,name:$name){issue(number:$number){number state title url createdAt updatedAt labels(first:100){totalCount pageInfo{hasNextPage endCursor} nodes{name}} timelineItems(first:100,after:$after,itemTypes:[LABELED_EVENT,UNLABELED_EVENT,CLOSED_EVENT,REOPENED_EVENT]){totalCount pageInfo{hasNextPage endCursor} nodes{__typename ... on LabeledEvent{id createdAt label{name}} ... on UnlabeledEvent{id createdAt label{name}} ... on ClosedEvent{id createdAt} ... on ReopenedEvent{id createdAt}}}}}}`;
-
-async function connection({ query, variables, select, observe = () => {}, valid, identity, ...args }) {
-  const nodes = [];
-  const ids = new Set();
-  const cursors = new Set();
-  let total = null;
-  let after = null;
-  let pages = 0;
-  do {
-    if (pages >= args.budget.limits.pages) throw new Unavailable(`${args.stream}_PAGE_BUDGET_EXHAUSTED`);
-    const result = await getJson(`${API}/graphql`, {
-      ...args,
-      init: {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ query, variables: { ...variables, after } }),
-      },
-    });
-    pages += 1;
-    if (result.body.errors || !result.body.data) throw new Unavailable(`${args.stream}_GRAPHQL_INVALID`);
-    observe(result.body.data);
-    const page = select(result.body.data);
-    if (
-      !Number.isSafeInteger(page?.totalCount) ||
-      page.totalCount < 0 ||
-      !Array.isArray(page.nodes) ||
-      typeof page.pageInfo?.hasNextPage !== "boolean" ||
-      (page.pageInfo.hasNextPage && !page.pageInfo.endCursor)
-    )
-      throw new Unavailable(`${args.stream}_PAGE_INVALID`);
-    if (total === null) total = page.totalCount;
-    if (total !== page.totalCount) throw new Unavailable(`${args.stream}_TOTAL_CHANGED`);
-    if (nodes.length + page.nodes.length > args.budget.limits.connectionNodes)
-      throw new Unavailable(`${args.stream}_NODE_BUDGET_EXHAUSTED`);
-    args.budget.addNodes(page.nodes.length);
-    for (const node of page.nodes) {
-      if (!valid(node) || ids.has(identity(node))) throw new Unavailable(`${args.stream}_NODE_INVALID`);
-      ids.add(identity(node));
-      nodes.push(node);
-    }
-    after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
-    if (after && (cursors.has(after) || nodes.length >= args.budget.limits.connectionNodes))
-      throw new Unavailable(
-        cursors.has(after) ? `${args.stream}_CURSOR_REPEATED` : `${args.stream}_NODE_BUDGET_EXHAUSTED`,
-      );
-    if (after) cursors.add(after);
-  } while (after);
-  if (nodes.length !== total) throw new Unavailable(`${args.stream}_COUNT_MISMATCH`);
-  return nodes;
-}
-
-const repoVars = (repo, number) => {
-  const [owner, name, extra] = repo.split("/");
-  if (!owner || !name || extra) throw new TypeError("Invalid repository.");
-  return { owner, name, number };
-};
-async function dependencies(args, number, stream) {
-  const nodes = await connection({
-    ...args,
-    stream,
-    query: DEPENDENCIES_QUERY,
-    variables: repoVars(args.repo, number),
-    select: (data) => data.repository?.issue?.blockedBy,
-    valid: (node) =>
-      typeof node?.id === "string" && positive(node.number) && typeof node.repository?.nameWithOwner === "string",
-    identity: (node) => node.id,
-  });
-  return nodes
-    .map((node) => ({ id: node.id, number: node.number, repo: node.repository.nameWithOwner }))
-    .sort((a, b) => a.id.localeCompare(b.id));
-}
-async function lifecycle(args, number, stream) {
-  const types = new Set(["LabeledEvent", "UnlabeledEvent", "ClosedEvent", "ReopenedEvent"]);
-  let issue = null;
-  const nodes = await connection({
-    ...args,
-    stream,
-    query: LIFECYCLE_QUERY,
-    variables: repoVars(args.repo, number),
-    observe: (data) => {
-      const node = data.repository?.issue;
-      const page = node?.labels;
-      if (
-        !positive(node?.number) ||
-        !["OPEN", "CLOSED"].includes(node.state) ||
-        typeof node.title !== "string" ||
-        typeof node.url !== "string" ||
-        !instant(node.createdAt) ||
-        !instant(node.updatedAt) ||
-        !Number.isSafeInteger(page?.totalCount) ||
-        page.totalCount < 0 ||
-        !Array.isArray(page.nodes) ||
-        page.pageInfo?.hasNextPage ||
-        page.nodes.length !== page.totalCount ||
-        page.nodes.some((label) => typeof label?.name !== "string")
-      )
-        throw new Unavailable(`${stream}_ISSUE_FACT_INVALID`);
-      const candidate = {
-        number: node.number,
-        state: node.state.toLowerCase(),
-        title: node.title,
-        url: node.url,
-        createdAt: node.createdAt,
-        updatedAt: node.updatedAt,
-        labels: page.nodes.map((label) => label.name).sort(),
-      };
-      if (issue && issueFact(issue) !== issueFact(candidate)) throw new Unavailable(`${stream}_ISSUE_FACT_MOVED`);
-      issue = candidate;
-    },
-    select: (data) => data.repository?.issue?.timelineItems,
-    valid: (node) =>
-      typeof node?.id === "string" &&
-      types.has(node.__typename) &&
-      instant(node.createdAt) &&
-      (!["LabeledEvent", "UnlabeledEvent"].includes(node.__typename) || typeof node.label?.name === "string"),
-    identity: (node) => node.id,
-  });
+function lifecycleIssue(node, stream) {
+  const labelsPage = node?.labels;
+  if (
+    !["OPEN", "CLOSED"].includes(node?.state) ||
+    typeof node.title !== "string" ||
+    typeof node.url !== "string" ||
+    !instant(node.createdAt) ||
+    !instant(node.updatedAt) ||
+    !Number.isSafeInteger(labelsPage?.totalCount) ||
+    labelsPage.totalCount < 0 ||
+    !Array.isArray(labelsPage.nodes) ||
+    labelsPage.pageInfo?.hasNextPage ||
+    labelsPage.nodes.length !== labelsPage.totalCount ||
+    labelsPage.nodes.some((label) => typeof label?.name !== "string")
+  )
+    throw new Unavailable(`${stream}_ISSUE_FACT_INVALID`);
   return {
-    issue,
-    events: nodes
+    number: node.number,
+    state: node.state.toLowerCase(),
+    title: node.title,
+    url: node.url,
+    createdAt: node.createdAt,
+    updatedAt: node.updatedAt,
+    labels: labelsPage.nodes.map((label) => label.name).sort(),
+  };
+}
+
+function finishConnection(kind, state) {
+  if (kind === "comments") {
+    const values = state.nodes
+      .map((comment) => ({ id: comment.id, body: comment.body, updated_at: comment.updatedAt }))
+      .sort((left, right) => left.id.localeCompare(right.id));
+    return {
+      values,
+      snapshot: values.map((comment) => ({
+        id: comment.id,
+        updatedAt: comment.updated_at,
+        body: createHash("sha256").update(comment.body).digest("hex"),
+      })),
+    };
+  }
+  if (kind === "dependencies")
+    return state.nodes
+      .map((node) => ({ id: node.id, number: node.number, repo: node.repository.nameWithOwner }))
+      .sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    issue: state.issue,
+    events: state.nodes
       .map((node) => ({
         id: node.id,
         type: node.__typename,
         createdAt: node.createdAt,
         label: node.label?.name ?? null,
       }))
-      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id)),
+      .sort(
+        (left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.id.localeCompare(right.id),
+      ),
   };
+}
+
+async function batchedConnections(args, issues, kind, phase) {
+  const spec = CONNECTION_KINDS[kind];
+  const pending = new Map(
+    issues.map((issue) => [
+      issue.number,
+      {
+        number: issue.number,
+        after: null,
+        pages: 0,
+        total: null,
+        nodes: [],
+        ids: new Set(),
+        cursors: new Set(),
+        issue: null,
+      },
+    ]),
+  );
+  const results = new Map();
+  while (pending.size) {
+    const batch = [...pending.values()].slice(0, args.budget.limits.batchIssues);
+    const built = batchQuery(kind, phase, batch);
+    let result;
+    try {
+      result = await getJson(`${API}/graphql`, {
+        ...args,
+        stream: `${kind.toUpperCase()}_${phase}_BATCH`,
+        init: {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            query: built.query,
+            variables: { ...repoVars(args.repo), ...built.variables },
+          }),
+        },
+      });
+    } catch (error) {
+      if (code(error, "").startsWith("GLOBAL_")) throw error;
+      for (const state of batch) {
+        results.set(state.number, no(`ISSUE_${state.number}_${kind.toUpperCase()}_${phase}_REQUEST_FAILED`));
+        pending.delete(state.number);
+      }
+      continue;
+    }
+    const repository = result.body.errors ? null : result.body.data?.repository;
+    if (!repository) {
+      for (const state of batch) {
+        results.set(state.number, no(`ISSUE_${state.number}_${kind.toUpperCase()}_${phase}_GRAPHQL_INVALID`));
+        pending.delete(state.number);
+      }
+      continue;
+    }
+    for (const [index, state] of batch.entries()) {
+      const stream = `ISSUE_${state.number}_${kind.toUpperCase()}_${phase}`;
+      try {
+        const issue = repository[`issue${index}`];
+        if (issue?.number !== state.number) throw new Unavailable(`${stream}_ISSUE_IDENTITY_MISMATCH`);
+        if (kind === "lifecycle") {
+          const candidate = lifecycleIssue(issue, stream);
+          if (state.issue && issueFact(state.issue) !== issueFact(candidate))
+            throw new Unavailable(`${stream}_ISSUE_FACT_MOVED`);
+          state.issue = candidate;
+        }
+        const page = issue[spec.field];
+        if (
+          !Number.isSafeInteger(page?.totalCount) ||
+          page.totalCount < 0 ||
+          !Array.isArray(page.nodes) ||
+          typeof page.pageInfo?.hasNextPage !== "boolean" ||
+          (page.pageInfo.hasNextPage &&
+            (typeof page.pageInfo.endCursor !== "string" || page.pageInfo.endCursor.length === 0))
+        )
+          throw new Unavailable(`${stream}_PAGE_INVALID`);
+        state.pages += 1;
+        if (state.total === null) state.total = page.totalCount;
+        if (state.total !== page.totalCount) throw new Unavailable(`${stream}_TOTAL_CHANGED`);
+        if (state.nodes.length + page.nodes.length > args.budget.limits.connectionNodes)
+          throw new Unavailable(`${stream}_NODE_BUDGET_EXHAUSTED`);
+        args.budget.addNodes(page.nodes.length);
+        for (const node of page.nodes) {
+          if (!spec.valid(node) || state.ids.has(node.id)) throw new Unavailable(`${stream}_NODE_INVALID`);
+          state.ids.add(node.id);
+          state.nodes.push(node);
+        }
+        if (!page.pageInfo.hasNextPage) {
+          if (state.nodes.length !== state.total) throw new Unavailable(`${stream}_COUNT_MISMATCH`);
+          results.set(state.number, ok(finishConnection(kind, state)));
+          pending.delete(state.number);
+          continue;
+        }
+        const cursor = page.pageInfo.endCursor;
+        if (state.cursors.has(cursor)) throw new Unavailable(`${stream}_CURSOR_REPEATED`);
+        if (state.nodes.length >= args.budget.limits.connectionNodes)
+          throw new Unavailable(`${stream}_NODE_BUDGET_EXHAUSTED`);
+        if (state.pages >= args.budget.limits.pages) throw new Unavailable(`${stream}_PAGE_BUDGET_EXHAUSTED`);
+        state.cursors.add(cursor);
+        state.after = cursor;
+      } catch (error) {
+        if (code(error, "").startsWith("GLOBAL_")) throw error;
+        results.set(state.number, no(code(error, `${stream}_UNAVAILABLE`)));
+        pending.delete(state.number);
+      }
+    }
+  }
+  return results;
 }
 
 function lines(body, field) {
   const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return [...body.matchAll(new RegExp(`^${escaped}:\\s*(.+?)\\s*$`, "gim"))].map((match) => match[1]);
 }
+function legacyReplacementLines(body) {
+  return [
+    ...body.matchAll(/^[ \t]*(?:Replacement:\s*#(\d+)|\*\*Replacement:\s*#(\d+)(?:\s+—\s+[^*\r\n]+)?\*\*)[ \t]*$/gim),
+  ].map((match) => Number(match[1] ?? match[2]));
+}
 export function parseSuccessorAuthority(commentValues, dependencyValues, original, repo) {
   const receipts = [];
   let malformed = false;
   for (const comment of commentValues) {
     const body = comment.body;
-    if (!/planning-repair\/v1|\b(?:DISPOSITION|ORIGINAL_ISSUE|REPLACEMENTS?)\s*:/i.test(body)) continue;
     const version = lines(body, "PLANNING_CONTRACT_VERSION");
     const disposition = lines(body, "DISPOSITION");
     const source = lines(body, "ORIGINAL_ISSUE");
     const replacement = lines(body, "REPLACEMENTS");
-    const canonical = version.length + disposition.length + source.length + replacement.length > 0;
+    const legacyDispositions = [...body.matchAll(/\bdisposition REPLACED \(planning-repair\/v1\)/gi)];
+    const legacyReplacements = legacyReplacementLines(body);
+    const canonicalAssertion = version.length > 0 || disposition.includes("REPLACED");
+    if (!canonicalAssertion && legacyDispositions.length === 0) continue;
     let targets = null;
     if (
-      canonical &&
+      canonicalAssertion &&
       version.length === 1 &&
       version[0] === "planning-repair/v1" &&
       disposition.length === 1 &&
@@ -436,11 +509,8 @@ export function parseSuccessorAuthority(commentValues, dependencyValues, origina
       /^(?:#\d+)(?:[\s,]+#\d+)*$/.test(replacement[0])
     )
       targets = [...replacement[0].matchAll(/#(\d+)/g)].map((match) => Number(match[1]));
-    if (!canonical) {
-      const dispositions = [...body.matchAll(/\bdisposition REPLACED \(planning-repair\/v1\)/gi)];
-      const replacements = [...body.matchAll(/^Replacement:\s*#(\d+)\s*$/gim)];
-      if (dispositions.length === 1 && replacements.length === 1) targets = [Number(replacements[0][1])];
-    }
+    if (!canonicalAssertion && legacyDispositions.length === 1 && legacyReplacements.length === 1)
+      targets = legacyReplacements;
     if (!targets?.length || new Set(targets).size !== targets.length || targets.includes(original)) malformed = true;
     else receipts.push(targets.sort((a, b) => a - b));
   }
@@ -499,20 +569,25 @@ export async function collectDigestAuthority({
     return allUnavailable(code(error, "CURRENT_INITIAL_UNAVAILABLE"));
   }
   const successors = new Map();
+  let initialComments;
+  let initialDependencies;
+  try {
+    initialComments = await batchedConnections(args, current, "comments", "INITIAL");
+    initialDependencies = await batchedConnections(args, current, "dependencies", "INITIAL");
+  } catch (error) {
+    return allUnavailable(code(error, "SUCCESSOR_INITIAL_UNAVAILABLE"));
+  }
   for (const issue of current) {
-    try {
-      successors.set(
-        issue.number,
-        ok({
-          comments: await comments(args, issue.number, `ISSUE_${issue.number}_COMMENTS_INITIAL`),
-          dependencies: await dependencies(args, issue.number, `ISSUE_${issue.number}_DEPENDENCIES_INITIAL`),
-        }),
-      );
-    } catch (error) {
-      const reason = code(error, `ISSUE_${issue.number}_SUCCESSOR_INITIAL_UNAVAILABLE`);
-      if (reason.startsWith("GLOBAL_")) return allUnavailable(reason);
-      successors.set(issue.number, no(reason));
-    }
+    const issueComments = initialComments.get(issue.number);
+    const issueDependencies = initialDependencies.get(issue.number);
+    successors.set(
+      issue.number,
+      issueComments?.available && issueDependencies?.available
+        ? ok({ comments: issueComments.value, dependencies: issueDependencies.value })
+        : no(
+            issueComments?.reason ?? issueDependencies?.reason ?? `ISSUE_${issue.number}_SUCCESSOR_INITIAL_UNAVAILABLE`,
+          ),
+    );
   }
   const now = clock();
   const digestAtMs = now instanceof Date ? now.getTime() : Date.parse(now);
@@ -535,7 +610,7 @@ export async function collectDigestAuthority({
         ...args,
         stream: "RECENT_REPOSITORY_COMMENTS",
         url: `${API}/repos/${repo}/issues/comments?since=${encodeURIComponent(cutoff)}&per_page=100&sort=created&direction=desc`,
-        valid: validComment,
+        valid: validRestComment,
         identity: (comment) => comment.id,
       }),
     );
@@ -554,15 +629,11 @@ export async function collectDigestAuthority({
       }
       union.set(issue.number, prior ?? issue);
     }
-  const events = new Map();
-  for (const issue of union.values()) {
-    try {
-      events.set(issue.number, ok(await lifecycle(args, issue.number, `ISSUE_${issue.number}_LIFECYCLE_INITIAL`)));
-    } catch (error) {
-      const reason = code(error, `ISSUE_${issue.number}_LIFECYCLE_INITIAL_UNAVAILABLE`);
-      if (reason.startsWith("GLOBAL_")) return allUnavailable(reason, digestAt, cadenceComments);
-      events.set(issue.number, no(reason));
-    }
+  let events;
+  try {
+    events = await batchedConnections(args, [...union.values()], "lifecycle", "INITIAL");
+  } catch (error) {
+    return allUnavailable(code(error, "LIFECYCLE_INITIAL_UNAVAILABLE"), digestAt, cadenceComments);
   }
   let currentReason = null;
   try {
@@ -586,43 +657,51 @@ export async function collectDigestAuthority({
       if (reason.startsWith("GLOBAL_")) return allUnavailable(reason, digestAt, cadenceComments);
       updatedReason = reason;
     }
+  let finalEvents;
+  try {
+    finalEvents = await batchedConnections(args, [...union.values()], "lifecycle", "FINAL");
+  } catch (error) {
+    return allUnavailable(code(error, "LIFECYCLE_FINAL_UNAVAILABLE"), digestAt, cadenceComments);
+  }
   for (const issue of union.values()) {
-    try {
-      const finalAuthority = await lifecycle(args, issue.number, `ISSUE_${issue.number}_LIFECYCLE_FINAL`);
-      if (
-        issueFact(issue) !== issueFact(finalAuthority.issue) ||
-        !events.get(issue.number)?.available ||
-        digest(events.get(issue.number).value) !== digest(finalAuthority)
-      ) {
-        const reason = `ISSUE_${issue.number}_AUTHORITY_MOVED`;
-        events.set(issue.number, no(reason));
-        if (current.some((row) => row.number === issue.number)) currentReason ??= reason;
-        if (updated.available && updated.value.some((row) => row.number === issue.number)) updatedReason ??= reason;
-      }
-    } catch (error) {
-      const reason = code(error, `ISSUE_${issue.number}_FINAL_UNAVAILABLE`);
-      if (reason.startsWith("GLOBAL_")) return allUnavailable(reason, digestAt, cadenceComments);
+    const first = events.get(issue.number);
+    const final = finalEvents.get(issue.number);
+    if (
+      !first?.available ||
+      !final?.available ||
+      issueFact(issue) !== issueFact(final.value.issue) ||
+      digest(first.value) !== digest(final.value)
+    ) {
+      const reason = first?.reason ?? final?.reason ?? `ISSUE_${issue.number}_AUTHORITY_MOVED`;
       events.set(issue.number, no(reason));
       if (current.some((row) => row.number === issue.number)) currentReason ??= reason;
       if (updated.available && updated.value.some((row) => row.number === issue.number)) updatedReason ??= reason;
-    }
+    } else events.set(issue.number, final);
   }
-  for (const issue of current) {
+  const stableSuccessorIssues = current.filter((issue) => successors.get(issue.number)?.available);
+  let finalComments;
+  let finalDependencies;
+  try {
+    finalComments = await batchedConnections(args, stableSuccessorIssues, "comments", "FINAL");
+    finalDependencies = await batchedConnections(args, stableSuccessorIssues, "dependencies", "FINAL");
+  } catch (error) {
+    return allUnavailable(code(error, "SUCCESSOR_FINAL_UNAVAILABLE"), digestAt, cadenceComments);
+  }
+  for (const issue of stableSuccessorIssues) {
     const first = successors.get(issue.number);
-    if (!first?.available) continue;
-    try {
-      const final = {
-        comments: await comments(args, issue.number, `ISSUE_${issue.number}_COMMENTS_FINAL`),
-        dependencies: await dependencies(args, issue.number, `ISSUE_${issue.number}_DEPENDENCIES_FINAL`),
-      };
-      if (digest(first.value) !== digest(final))
-        successors.set(issue.number, no(`ISSUE_${issue.number}_SUCCESSOR_AUTHORITY_MOVED`));
-      else successors.set(issue.number, ok(final));
-    } catch (error) {
-      const reason = code(error, `ISSUE_${issue.number}_SUCCESSOR_FINAL_UNAVAILABLE`);
-      if (reason.startsWith("GLOBAL_")) return allUnavailable(reason, digestAt, cadenceComments);
-      successors.set(issue.number, no(reason));
+    const issueComments = finalComments.get(issue.number);
+    const issueDependencies = finalDependencies.get(issue.number);
+    if (!issueComments?.available || !issueDependencies?.available) {
+      successors.set(
+        issue.number,
+        no(issueComments?.reason ?? issueDependencies?.reason ?? `ISSUE_${issue.number}_SUCCESSOR_FINAL_UNAVAILABLE`),
+      );
+      continue;
     }
+    const final = { comments: issueComments.value, dependencies: issueDependencies.value };
+    if (digest(first.value) !== digest(final))
+      successors.set(issue.number, no(`ISSUE_${issue.number}_SUCCESSOR_AUTHORITY_MOVED`));
+    else successors.set(issue.number, ok(final));
   }
   const currentCount = currentReason ? no(currentReason) : ok(current.length);
   const currentMembership = new Map();
