@@ -361,12 +361,12 @@ describe("real repository execution membership", () => {
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(94);
+    expect(result.inventory.declarations).toHaveLength(95);
     expect(result.inventory.partition).toEqual({
       "node-enforced": 39,
       "vite-excluded": 48,
       "vitest-excluded": 7,
-      "manifest-only": 0,
+      "manifest-only": 1,
       indeterminate: 0,
     });
     const normalized = result.inventory.declarations.map(
@@ -380,7 +380,7 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "69388d3fd68fc0b9f8bec17bb4f6f3dcac524f1d85eddccab1f5c34afb144e1f",
+      "3789f7e693b2b23cb1dd736713b41a0a95bbd27c657d55af1d6fed42db19bd72",
     );
     expect(
       result.inventory.declarations.find(
@@ -408,7 +408,7 @@ describe("real repository execution membership", () => {
     const result = await validateJsonImportAttributes({ paths: new Set() });
 
     expect(result.violations).toEqual([
-      "JSON import-attribute discovery collapsed despite 19 implemented context manifest(s)",
+      "JSON import-attribute discovery collapsed despite 20 implemented context manifest(s)",
     ]);
   });
 });

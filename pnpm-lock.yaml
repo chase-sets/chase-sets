@@ -214,6 +214,8 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  bounded-contexts/channels: {}
+
   bounded-contexts/checkout:
     dependencies:
       '@chase-sets/auth':

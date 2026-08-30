@@ -1,0 +1,14 @@
+{
+  "name": "@chase-sets/channels",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:watch": "vitest --config ./tests/vitest.config.mjs"
+  },
+  "exports": {
+    ".": "./index.ts",
+    "./context": "./context.json"
+  },
+  "types": "./index.ts"
+}

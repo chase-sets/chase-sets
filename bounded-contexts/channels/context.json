@@ -1,0 +1,26 @@
+{
+  "contextName": "channels",
+  "packageName": "@chase-sets/channels",
+  "ownedNouns": [],
+  "streamPrefix": "channels.",
+  "apiBasePath": "/api/channels",
+  "slices": [],
+  "allowedSupportDirectories": [],
+  "publicExports": [".", "./context"],
+  "allowedContextDependencies": [],
+  "seedRequirements": [],
+  "hostPorts": [],
+  "apiDeployables": [],
+  "apiRuntimeProfiles": [],
+  "apiMounts": [],
+  "workerRuntimeProfiles": [],
+  "deployableContributions": [],
+  "shellContributions": [],
+  "directoryIntent": {
+    "routes": {
+      "classification": "routes",
+      "purpose": "Reserve Channels route metadata until behavior-backed Channels routes exist.",
+      "expectedConsumers": ["Future behavior-backed Channels route contributions"]
+    }
+  }
+}

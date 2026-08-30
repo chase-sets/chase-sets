@@ -21,6 +21,7 @@ import {
 import { authWakeRegistryEntry } from "./source-context-wake-registry/auth";
 import { authenticityWakeRegistryEntry } from "./source-context-wake-registry/authenticity";
 import { catalogWakeRegistryEntry } from "./source-context-wake-registry/catalog";
+import { channelsWakeRegistryEntry } from "./source-context-wake-registry/channels";
 import { checkoutWakeRegistryEntry } from "./source-context-wake-registry/checkout";
 import { collectionsWakeRegistryEntry } from "./source-context-wake-registry/collections";
 import { commercialTermsWakeRegistryEntry } from "./source-context-wake-registry/commercial-terms";
@@ -116,6 +117,7 @@ export const sourceContextWakeRegistry = [
   authWakeRegistryEntry,
   authenticityWakeRegistryEntry,
   catalogWakeRegistryEntry,
+  channelsWakeRegistryEntry,
   checkoutWakeRegistryEntry,
   collectionsWakeRegistryEntry,
   commercialTermsWakeRegistryEntry,

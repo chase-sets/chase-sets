@@ -103,6 +103,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/bounded-context-runtime",
   "@chase-sets/catalog",
   "@chase-sets/catalog-seed",
+  "@chase-sets/channels",
   "@chase-sets/checkout",
   "@chase-sets/checkout-order-source",
   "@chase-sets/collections",
