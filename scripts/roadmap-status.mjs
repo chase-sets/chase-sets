@@ -203,7 +203,7 @@ export async function collectMonthlyRefinedInventory({ loadPage, window }) {
       if (!hasExactKeys(node, ["number", "mergedAt", "baseRefName"])) {
         throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_IDENTITY_INVALID");
       }
-      const mergedAtMs = canonicalInstant(node.mergedAt);
+      const mergedAtMs = parseTimezoneInstant(node.mergedAt);
       if (
         !isPositiveSafeInteger(node.number) ||
         identities.has(node.number) ||

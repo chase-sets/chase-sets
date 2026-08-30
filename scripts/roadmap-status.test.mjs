@@ -383,7 +383,7 @@ describe("monthly refined-inventory cap authority", () => {
         hasNextPage: true,
         endCursor: "page-2",
       }),
-      refinedPage([refinedNode(5, "2026-07-18T12:34:56.000Z")], 3),
+      refinedPage([refinedNode(5, "2026-07-18T12:34:56Z")], 3),
     ];
     const result = await collectMonthlyRefinedInventory({ window, loadPage: async () => pages.shift() });
     expect(result).toMatchObject({ pages: 2, count: 3 });
