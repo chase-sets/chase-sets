@@ -1,15 +1,18 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   browserE2eLifecyclePathEnv,
   browserE2eReadinessEvidencePathEnv,
+  browserE2eTestTimelinePathEnv,
+  BrowserE2eTestTimelineReporter,
   createBrowserE2eLifecycleRecorder,
   createBrowserE2eRunEvidenceEnvironment,
   createReadinessTimeline,
+  joinBrowserE2eTestTimelineWithLifecycle,
   readJsonIfPresent,
 } from "./browser-e2e-evidence.mjs";
 import { waitForBrowserE2eReadiness } from "./browser-e2e-readiness.mjs";
@@ -63,6 +66,15 @@ describe("browser e2e lifecycle evidence", () => {
         "lane-09",
         "2023-11-14T221320-000Z-6034",
         "readiness.json",
+      ),
+      [browserE2eTestTimelinePathEnv]: path.join(
+        rootDir,
+        "artifacts",
+        "browser-e2e",
+        "runs",
+        "lane-09",
+        "2023-11-14T221320-000Z-6034",
+        "test-timeline.json",
       ),
     });
   });
@@ -166,6 +178,123 @@ describe("browser e2e lifecycle evidence", () => {
 
     child.kill();
     await once(child, "close");
+  });
+});
+
+describe("browser e2e test timeline evidence", () => {
+  it("writes every Playwright onTestEnd row durably", async () => {
+    const directory = await createTemporaryDirectory();
+    const filePath = path.join(directory, "test-timeline.json");
+    let now = 1_700_000_000_000;
+    const reporter = new BrowserE2eTestTimelineReporter({
+      filePath,
+      sandboxId: "test-sandbox",
+      now: () => now,
+    });
+    reporter.onBegin();
+
+    for (let index = 1; index <= 2; index += 1) {
+      now += 1_000;
+      reporter.onTestEnd(
+        {
+          id: `test-${index}`,
+          titlePath: () => ["buy funnel", `test ${index}`],
+          parent: { project: () => ({ name: "marketplace-chromium" }) },
+        },
+        { retry: 0, status: "passed", duration: 100 + index },
+      );
+      const durableTimeline = JSON.parse(await readFile(filePath, "utf8"));
+      expect(durableTimeline.tests).toHaveLength(index);
+      expect(durableTimeline.tests[index - 1]).toMatchObject({
+        sequence: index,
+        testId: `test-${index}`,
+        projectName: "marketplace-chromium",
+        retry: 0,
+        status: "passed",
+      });
+    }
+  });
+
+  it("orders test-nine completion before Marketplace exit", async () => {
+    const directory = await createTemporaryDirectory();
+    const timelinePath = path.join(directory, "test-timeline.json");
+    const tests = Array.from({ length: 9 }, (_, index) => ({
+      sequence: index + 1,
+      testId: `test-${index + 1}`,
+      completedAt: `2026-08-30T02:31:${String(40 + index).padStart(2, "0")}.000Z`,
+    }));
+    await writeFile(timelinePath, JSON.stringify({ tests }));
+
+    const order = joinBrowserE2eTestTimelineWithLifecycle({
+      lifecycle: {
+        services: [
+          {
+            name: "marketplace",
+            pid: 43444,
+            status: "exited",
+            exitedAt: "2026-08-30T02:31:49.000Z",
+          },
+        ],
+      },
+      testTimeline: readJsonIfPresent(timelinePath),
+    });
+
+    expect(order).toEqual({
+      marketplacePid: 43444,
+      testCount: 9,
+      test9CompletedAt: "2026-08-30T02:31:48.000Z",
+      marketplaceExitedAt: "2026-08-30T02:31:49.000Z",
+      ordering: "marketplace-exited-after-test-nine",
+    });
+
+    expect(
+      joinBrowserE2eTestTimelineWithLifecycle({
+        lifecycle: { services: [{ name: "marketplace", pid: 43444, status: "running", exitedAt: null }] },
+        testTimeline: readJsonIfPresent(timelinePath),
+      }),
+    ).toMatchObject({
+      marketplacePid: 43444,
+      test9CompletedAt: "2026-08-30T02:31:48.000Z",
+      marketplaceExitedAt: null,
+      ordering: "marketplace-alive-through-test-nine",
+    });
+  });
+
+  it("rejects an exit after the last response but before test completion", () => {
+    const lastResponseAt = "2026-08-30T02:31:47.000Z";
+    const tests = Array.from({ length: 9 }, (_, index) => ({
+      sequence: index + 1,
+      testId: `test-${index + 1}`,
+      completedAt: index === 8 ? "2026-08-30T02:31:49.000Z" : `2026-08-30T02:31:${40 + index}.000Z`,
+    }));
+    const marketplaceExitedAt = "2026-08-30T02:31:48.000Z";
+
+    expect(Date.parse(marketplaceExitedAt)).toBeGreaterThan(Date.parse(lastResponseAt));
+    expect(() =>
+      joinBrowserE2eTestTimelineWithLifecycle({
+        lifecycle: {
+          services: [{ name: "marketplace", pid: 43444, status: "exited", exitedAt: marketplaceExitedAt }],
+        },
+        testTimeline: { tests },
+      }),
+    ).toThrow("marketplace exited at 2026-08-30T02:31:48.000Z before test 9 completed at 2026-08-30T02:31:49.000Z");
+  });
+
+  it("rejects a duplicate completion row that hides a missing test", () => {
+    const tests = Array.from({ length: 9 }, (_, index) => ({
+      sequence: index + 1,
+      testId: `test-${index + 1}`,
+      retry: 0,
+      completedAt: `2026-08-30T02:31:${40 + index}.000Z`,
+    }));
+    tests[8].testId = tests[7].testId;
+
+    expect(() =>
+      joinBrowserE2eTestTimelineWithLifecycle({
+        lifecycle: { services: [{ name: "marketplace", pid: 43444, status: "running", exitedAt: null }] },
+        testTimeline: { tests },
+      }),
+    ).toThrow("Browser e2e test timeline completion row 9 is missing or duplicated.");
   });
 });
 

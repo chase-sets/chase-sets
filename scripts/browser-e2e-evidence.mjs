@@ -3,6 +3,7 @@ import path from "node:path";
 
 export const browserE2eLifecyclePathEnv = "CHASE_SETS_BROWSER_E2E_LIFECYCLE_PATH";
 export const browserE2eReadinessEvidencePathEnv = "CHASE_SETS_BROWSER_E2E_READINESS_EVIDENCE_PATH";
+export const browserE2eTestTimelinePathEnv = "CHASE_SETS_BROWSER_E2E_TEST_TIMELINE_PATH";
 export const browserE2eOutputTailCharacters = 16_384;
 
 function isoTimestamp(now) {
@@ -15,6 +16,9 @@ export function resolveBrowserE2eEvidencePaths(sandbox, env = process.env) {
     lifecyclePath: path.resolve(env[browserE2eLifecyclePathEnv] ?? path.join(runtimeDirectory, "lifecycle.json")),
     readinessPath: path.resolve(
       env[browserE2eReadinessEvidencePathEnv] ?? path.join(runtimeDirectory, "readiness.json"),
+    ),
+    testTimelinePath: path.resolve(
+      env[browserE2eTestTimelinePathEnv] ?? path.join(runtimeDirectory, "test-timeline.json"),
     ),
   };
 }
@@ -32,6 +36,7 @@ export function createBrowserE2eRunEvidenceEnvironment(sandbox, { now = Date.now
   return {
     [browserE2eLifecyclePathEnv]: path.join(runDirectory, "lifecycle.json"),
     [browserE2eReadinessEvidencePathEnv]: path.join(runDirectory, "readiness.json"),
+    [browserE2eTestTimelinePathEnv]: path.join(runDirectory, "test-timeline.json"),
   };
 }
 
@@ -242,6 +247,161 @@ export function createReadinessTimeline({ startedAtMs = Date.now(), now = Date.n
     },
   };
 }
+
+export function createBrowserE2eTestTimelineRecorder({ filePath, sandboxId, now = Date.now } = {}) {
+  if (!filePath) {
+    throw new Error("Browser e2e test timeline evidence requires a file path.");
+  }
+
+  const startedAt = isoTimestamp(now);
+  const tests = [];
+
+  function snapshot() {
+    return {
+      schemaVersion: 1,
+      kind: "browser-e2e-test-timeline",
+      sandboxId,
+      startedAt,
+      updatedAt: isoTimestamp(now),
+      tests: tests.map((test) => ({ ...test, titlePath: [...test.titlePath] })),
+    };
+  }
+
+  function persist() {
+    const evidence = snapshot();
+    writeJsonAtomic(filePath, evidence);
+    return evidence;
+  }
+
+  persist();
+
+  return {
+    record({ testId, titlePath, projectName, retry, status, durationMs }) {
+      tests.push({
+        sequence: tests.length + 1,
+        testId,
+        titlePath: [...titlePath],
+        projectName,
+        retry,
+        status,
+        durationMs,
+        completedAt: isoTimestamp(now),
+      });
+      return persist();
+    },
+    persist,
+    snapshot,
+  };
+}
+
+function parseEvidenceTimestamp(value, label) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error(`Browser e2e evidence is missing a valid ${label}.`);
+  }
+  return timestamp;
+}
+
+export function joinBrowserE2eTestTimelineWithLifecycle({
+  lifecycle,
+  testTimeline,
+  expectedTestCount = 9,
+  marketplaceServiceName = "marketplace",
+} = {}) {
+  const tests = testTimeline?.tests;
+  if (!Array.isArray(tests) || tests.length !== expectedTestCount) {
+    throw new Error(
+      `Browser e2e test timeline requires exactly ${expectedTestCount} completion rows; received ${tests?.length ?? 0}.`,
+    );
+  }
+  const completedAttempts = new Set();
+  for (const [index, test] of tests.entries()) {
+    if (test.sequence !== index + 1) {
+      throw new Error(`Browser e2e test timeline sequence ${index + 1} is missing or duplicated.`);
+    }
+    const completedAttempt = `${test.testId}\0${test.retry ?? 0}`;
+    if (!test.testId || completedAttempts.has(completedAttempt)) {
+      throw new Error(`Browser e2e test timeline completion row ${index + 1} is missing or duplicated.`);
+    }
+    completedAttempts.add(completedAttempt);
+    parseEvidenceTimestamp(test.completedAt, `test ${index + 1} completion timestamp`);
+  }
+
+  const marketplaceServices = lifecycle?.services?.filter((service) => service.name === marketplaceServiceName) ?? [];
+  if (marketplaceServices.length !== 1) {
+    throw new Error(
+      `Browser e2e lifecycle requires exactly one ${marketplaceServiceName} service; received ${marketplaceServices.length}.`,
+    );
+  }
+
+  const marketplace = marketplaceServices[0];
+  if (!Number.isInteger(marketplace.pid)) {
+    throw new Error(`Browser e2e lifecycle is missing the ${marketplaceServiceName} direct-child PID.`);
+  }
+
+  const test9CompletedAt = tests[expectedTestCount - 1].completedAt;
+  const test9CompletedAtMs = parseEvidenceTimestamp(test9CompletedAt, `test ${expectedTestCount} completion timestamp`);
+  if (marketplace.exitedAt === null && marketplace.status === "running") {
+    return {
+      marketplacePid: marketplace.pid,
+      testCount: tests.length,
+      test9CompletedAt,
+      marketplaceExitedAt: null,
+      ordering: "marketplace-alive-through-test-nine",
+    };
+  }
+
+  const marketplaceExitedAtMs = parseEvidenceTimestamp(
+    marketplace.exitedAt,
+    `${marketplaceServiceName} exit timestamp`,
+  );
+  if (marketplaceExitedAtMs <= test9CompletedAtMs) {
+    throw new Error(
+      `${marketplaceServiceName} exited at ${marketplace.exitedAt} before test ${expectedTestCount} completed at ${test9CompletedAt}.`,
+    );
+  }
+
+  return {
+    marketplacePid: marketplace.pid,
+    testCount: tests.length,
+    test9CompletedAt,
+    marketplaceExitedAt: marketplace.exitedAt,
+    ordering: "marketplace-exited-after-test-nine",
+  };
+}
+
+export class BrowserE2eTestTimelineReporter {
+  constructor({ filePath, sandboxId, now = Date.now } = {}) {
+    this.filePath = filePath;
+    this.sandboxId = sandboxId;
+    this.now = now;
+    this.recorder = null;
+  }
+
+  onBegin() {
+    this.recorder = createBrowserE2eTestTimelineRecorder({
+      filePath: this.filePath,
+      sandboxId: this.sandboxId,
+      now: this.now,
+    });
+  }
+
+  onTestEnd(test, result) {
+    if (!this.recorder) {
+      throw new Error("Browser e2e test timeline reporter did not receive onBegin before onTestEnd.");
+    }
+    this.recorder.record({
+      testId: test.id,
+      titlePath: test.titlePath(),
+      projectName: test.parent?.project?.()?.name ?? null,
+      retry: result.retry,
+      status: result.status,
+      durationMs: result.duration,
+    });
+  }
+}
+
+export default BrowserE2eTestTimelineReporter;
 
 export function writeBrowserE2eReadinessEvidence({
   filePath,

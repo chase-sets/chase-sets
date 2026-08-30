@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
-import { createBrowserE2eRunEvidenceEnvironment } from "./scripts/browser-e2e-evidence.mjs";
+import {
+  browserE2eTestTimelinePathEnv,
+  createBrowserE2eRunEvidenceEnvironment,
+} from "./scripts/browser-e2e-evidence.mjs";
 import { resolveBrowserE2eSystemTarget } from "./scripts/dev-system-config.mjs";
 import { acquireHeavySlot } from "./scripts/lib/heavy-slot.mjs";
 import { resolveWorktreeSandbox } from "./scripts/lib/sandbox.mjs";
@@ -21,6 +24,14 @@ const includeAdminWebProject = !skipWebServer || Boolean(process.env.ADMIN_WEB_U
 const includePublicWebProject = Boolean(process.env.PUBLIC_WEB_URL);
 const browserE2eSystemTarget = resolveBrowserE2eSystemTarget();
 const browserE2eEvidenceEnvironment = createBrowserE2eRunEvidenceEnvironment(sandbox);
+const browserE2eEvidenceReporterPath = "./scripts/browser-e2e-evidence.mjs";
+const browserE2eEvidenceReporter: [string, { filePath: string; sandboxId: string }] = [
+  browserE2eEvidenceReporterPath,
+  {
+    filePath: browserE2eEvidenceEnvironment[browserE2eTestTimelinePathEnv],
+    sandboxId: sandbox.id,
+  },
+];
 const projects = [
   {
     name: "marketplace-chromium",
@@ -57,6 +68,7 @@ export default defineConfig({
   workers: isCi ? 1 : undefined,
   reporter: [
     ["list"],
+    ...(skipWebServer ? [] : [browserE2eEvidenceReporter]),
     [retryTelemetryReporterPath],
     ["html", { open: "never", outputFolder: "artifacts/playwright/report" }],
   ],
