@@ -1,3 +1,4 @@
+// @ts-check
 // Applies DigitalOcean managed Postgres grants from Terraform local-exec
 // provisioners (infrastructure/digitalocean/platform). Two grant kinds:
 //
@@ -16,8 +17,9 @@ import { fileURLToPath } from "node:url";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { checkServerIdentity } from "node:tls";
 import pg from "pg";
-import { postgresClientConfig, postgresFailureFields, safeFailureFields } from "./lib/postgres-connection.mjs";
+import { resolvePostgresSsl, postgresFailureFields, safeFailureFields } from "./lib/postgres-connection.mjs";
 import {
   fetchDigitalOceanManagedPostgresCa,
   managedPostgresConnectionUrl,
@@ -28,9 +30,11 @@ const { Client } = pg;
 const MANAGED_POSTGRES_GRANT_TEMP_PREFIX = "chase-sets-managed-postgres-grant-";
 const MANAGED_POSTGRES_CA_FILE = "ca.crt";
 
+/** @type {readonly import("./apply-digitalocean-database-grant.mjs").DatabaseGrant["kind"][]} */
 export const GRANT_KINDS = Object.freeze(["owner", "wake-listener"]);
 export const WAKE_LISTENER_EVENT_STORE_TABLES = Object.freeze(["event_store_events", "event_store_streams"]);
 
+/** @param {string} name @param {NodeJS.ProcessEnv} [env] */
 function requireEnv(name, env = process.env) {
   const value = env[name];
   if (!value) {
@@ -39,14 +43,22 @@ function requireEnv(name, env = process.env) {
   return value;
 }
 
+/** @param {string} classification @param {string} message @param {{code?: unknown}} [fields] */
 function grantError(classification, message, fields = {}) {
   return Object.assign(new Error(message), { classification, ...fields });
 }
 
+/** @param {unknown} error */
+function errorCode(error) {
+  return error && typeof error === "object" && "code" in error ? error.code : undefined;
+}
+
+/** @type {typeof import("./apply-digitalocean-database-grant.mjs").quoteIdentifier} */
 export function quoteIdentifier(value) {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
+/** @type {typeof import("./apply-digitalocean-database-grant.mjs").statementsForGrant} */
 export function statementsForGrant({ database, user, kind }) {
   const databaseIdentifier = quoteIdentifier(database);
   const userIdentifier = quoteIdentifier(user);
@@ -79,6 +91,7 @@ export function statementsForGrant({ database, user, kind }) {
   ];
 }
 
+/** @param {unknown} error @param {string} fallbackClassification */
 function classifiedPostgresError(error, fallbackClassification) {
   const fields = postgresFailureFields(error);
   const classification =
@@ -88,10 +101,11 @@ function classifiedPostgresError(error, fallbackClassification) {
         ? "certificate-authority-untrusted"
         : fields.classification;
   return grantError(classification, "Managed Postgres grant operation failed.", {
-    ...(fields.code ? { code: fields.code } : {}),
+    ...(errorCode(fields) ? { code: errorCode(fields) } : {}),
   });
 }
 
+/** @param {NodeJS.ProcessEnv} env */
 function postgresPort(env) {
   const port = Number(env.PGPORT ?? "5432");
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -100,6 +114,7 @@ function postgresPort(env) {
   return port;
 }
 
+/** @param {import("./apply-digitalocean-database-grant.mjs").DatabaseGrant} grant @param {NodeJS.ProcessEnv} env */
 function connectionAuthority(grant, env) {
   return {
     host: requireEnv("PGHOST", env),
@@ -110,6 +125,7 @@ function connectionAuthority(grant, env) {
   };
 }
 
+/** @param {import("./apply-digitalocean-database-grant.mjs").GrantAuthority} authority */
 function authorityConnectionUrl(authority) {
   const host = authority.host.includes(":") ? `[${authority.host}]` : authority.host;
   return (
@@ -118,6 +134,7 @@ function authorityConnectionUrl(authority) {
   );
 }
 
+/** @type {typeof import("./apply-digitalocean-database-grant.mjs").assertManagedPostgresGrantUrl} */
 export function assertManagedPostgresGrantUrl(connectionString, authority, caPath) {
   let url;
   try {
@@ -177,6 +194,7 @@ export function assertManagedPostgresGrantUrl(connectionString, authority, caPat
   return url;
 }
 
+/** @type {typeof import("./apply-digitalocean-database-grant.mjs").managedPostgresGrantUrl} */
 export function managedPostgresGrantUrl(grant, env, caPath) {
   const authority = connectionAuthority(grant, env);
   const connectionString = managedPostgresConnectionUrl(authorityConnectionUrl(authority), caPath);
@@ -184,14 +202,35 @@ export function managedPostgresGrantUrl(grant, env, caPath) {
   return connectionString;
 }
 
+/**
+ * @param {import("./apply-digitalocean-database-grant.mjs").DatabaseGrant} grant
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} caPath
+ * @param {import("./apply-digitalocean-database-grant.mjs").DatabaseGrantDependencies} [dependencies]
+ */
 async function applyGrant(grant, env, caPath, dependencies = {}) {
   const authority = connectionAuthority(grant, env);
   const buildUrl = dependencies.managedPostgresGrantUrl ?? managedPostgresGrantUrl;
   const connectionString = buildUrl(grant, env, caPath);
-  assertManagedPostgresGrantUrl(connectionString, authority, caPath);
+  const url = assertManagedPostgresGrantUrl(connectionString, authority, caPath);
+  /** @type {import("pg").ClientConfig} */
   let config;
   try {
-    config = postgresClientConfig(connectionString, {}, dependencies.readFileSync);
+    // Keep the canonical verify-full URL as the validated authority, but pass
+    // explicit fields so pg cannot reparse it and replace our TLS policy.
+    // pg omits SNI for IP sockets; Node may otherwise check "localhost".
+    config = {
+      host: url.hostname,
+      port: Number(url.port),
+      database: decodeURIComponent(url.pathname.slice(1)),
+      user: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password),
+      ssl: {
+        ...resolvePostgresSsl(connectionString, {}, dependencies.readFileSync),
+        rejectUnauthorized: true,
+        checkServerIdentity: (_hostname, certificate) => checkServerIdentity(url.hostname, certificate),
+      },
+    };
   } catch (error) {
     throw classifiedPostgresError(error, "postgres-connect-failed");
   }
@@ -226,6 +265,7 @@ async function applyGrant(grant, env, caPath, dependencies = {}) {
   }
 }
 
+/** @type {typeof import("./apply-digitalocean-database-grant.mjs").applyDatabaseGrants} */
 export async function applyDatabaseGrants(env = process.env, dependencies = {}) {
   const grants = readGrants(env);
   const clusterId = requireEnv("DIGITALOCEAN_DATABASE_CLUSTER_ID", env);
@@ -251,7 +291,7 @@ export async function applyDatabaseGrants(env = process.env, dependencies = {}) 
       throw grantError(
         "managed-postgres-grant-ca-directory-failed",
         "Managed Postgres grant CA directory creation failed.",
-        { code: error?.code },
+        { code: errorCode(error) },
       );
     }
     const caPath = join(ownedPath, MANAGED_POSTGRES_CA_FILE);
@@ -259,7 +299,7 @@ export async function applyDatabaseGrants(env = process.env, dependencies = {}) 
       await writeCa(caPath, certificate);
     } catch (error) {
       throw grantError("managed-postgres-grant-ca-write-failed", "Managed Postgres grant CA write failed.", {
-        code: error?.code,
+        code: errorCode(error),
       });
     }
     for (const grant of grants) {
@@ -276,7 +316,7 @@ export async function applyDatabaseGrants(env = process.env, dependencies = {}) 
       } catch (error) {
         if (!operationError) {
           throw grantError("managed-postgres-grant-cleanup-failed", "Managed Postgres grant cleanup failed.", {
-            code: error?.code,
+            code: errorCode(error),
           });
         }
       }
@@ -284,6 +324,7 @@ export async function applyDatabaseGrants(env = process.env, dependencies = {}) 
   }
 }
 
+/** @type {typeof import("./apply-digitalocean-database-grant.mjs").runDatabaseGrantMain} */
 export async function runDatabaseGrantMain(env = process.env, dependencies = {}) {
   const log = dependencies.log ?? console.log;
   const logError = dependencies.error ?? console.error;
@@ -292,11 +333,16 @@ export async function runDatabaseGrantMain(env = process.env, dependencies = {})
     log(JSON.stringify({ classification: "managed-postgres-grants-applied", grantCount: result.grantCount }));
     return 0;
   } catch (error) {
-    logError(JSON.stringify(safeFailureFields(error?.classification ?? "managed-postgres-grant-failed", error)));
+    const classification =
+      error && typeof error === "object" && "classification" in error
+        ? error.classification
+        : "managed-postgres-grant-failed";
+    logError(JSON.stringify(safeFailureFields(classification, error)));
     return 1;
   }
 }
 
+/** @type {typeof import("./apply-digitalocean-database-grant.mjs").readGrants} */
 export function readGrants(env = process.env) {
   if (env.DATABASE_GRANTS_JSON) {
     let grants;

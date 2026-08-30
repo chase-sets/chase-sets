@@ -6,9 +6,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import tls from "node:tls";
 import { promisify } from "node:util";
-import pg, { type Client as PgClient, type ClientConfig } from "pg";
+import pg, { type Client as PgClient } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  type DatabaseGrant,
+  type DatabaseGrantDependencies,
   managedPostgresGrantUrl,
   quoteIdentifier,
   runDatabaseGrantMain,
@@ -43,12 +45,6 @@ type Sentinel = Readonly<{
   port: number;
   connectionCount: () => number;
   close: () => Promise<void>;
-}>;
-
-type DatabaseGrant = Readonly<{
-  database: string;
-  user: string;
-  kind: "owner" | "wake-listener";
 }>;
 
 const secretMarkers = ["provider-db-secret-marker", "ambient-db-secret-marker", "postgresql://", "BEGIN CERTIFICATE"];
@@ -136,19 +132,12 @@ describeDb("Terraform database-grant TLS against real PostgreSQL", () => {
     const trackedPaths: string[] = [];
     let providerCalls = 0;
 
-    class TrackingClient extends Client {
-      constructor(config?: string | ClientConfig) {
-        super(config);
-        const caPath = new URL(
-          String((config as { connectionString?: string } | undefined)?.connectionString),
-        ).searchParams.get("sslrootcert");
-        if (caPath) trackedPaths.push(dirname(caPath));
-      }
-    }
-
     const output = await withHostileAmbient(sentinel.port, () =>
       runGrantMain(grantSet(), certificates.caCertificate, {
-        Client: TrackingClient,
+        managedPostgresGrantUrl: (grant, env, caPath) => {
+          trackedPaths.push(dirname(caPath));
+          return managedPostgresGrantUrl(grant, env, caPath);
+        },
         onProviderCall: () => {
           providerCalls += 1;
         },
@@ -178,7 +167,7 @@ describeDb("Terraform database-grant TLS against real PostgreSQL", () => {
       ],
       certificates.caCertificate,
       {
-        managedPostgresGrantUrl: (grant: DatabaseGrant, env: NodeJS.ProcessEnv, caPath: string) => {
+        managedPostgresGrantUrl: (grant, env, caPath) => {
           const url = new URL(managedPostgresGrantUrl(grant, env, caPath));
           if (grant.database === databases[1]) url.pathname = `/${databases[0]}`;
           return url.toString();
@@ -209,7 +198,7 @@ describeDb("Terraform database-grant TLS against real PostgreSQL", () => {
 
     await beforeEachResetPrivileges();
     const droppedSelect = await runGrantMain(grantSet(), certificates.caCertificate, {
-      statementsForGrant: (grant: DatabaseGrant) =>
+      statementsForGrant: (grant) =>
         statementsForGrant(grant).filter((statement) => !statement.includes("GRANT SELECT")),
     });
     expect(droppedSelect.exitCode).toBe(0);
@@ -242,16 +231,22 @@ describeDb("Terraform database-grant TLS against real PostgreSQL", () => {
     ];
   }
 
-  async function runGrantMain(grants: readonly DatabaseGrant[], caPath: string, options: Record<string, unknown> = {}) {
+  async function runGrantMain(
+    grants: readonly DatabaseGrant[],
+    caPath: string,
+    {
+      host = "localhost",
+      onProviderCall,
+      ...dependencies
+    }: DatabaseGrantDependencies & {
+      host?: string;
+      onProviderCall?: () => void;
+    } = {},
+  ) {
     const admin = new URL(adminDatabaseUrl!);
     const stdout: string[] = [];
     const stderr: string[] = [];
-    const host = String(options.host ?? "localhost");
-    const onProviderCall = options.onProviderCall as (() => void) | undefined;
     const certificate = await readFile(caPath, "utf8");
-    const dependencies = { ...options };
-    delete dependencies.host;
-    delete dependencies.onProviderCall;
 
     const exitCode = await runDatabaseGrantMain(
       {
@@ -266,12 +261,12 @@ describeDb("Terraform database-grant TLS against real PostgreSQL", () => {
       {
         ...dependencies,
         tmpdir: () => temporaryDirectory,
-        log: (value: unknown) => stdout.push(String(value)),
-        error: (value: unknown) => stderr.push(String(value)),
-        fetch: async (url: string, request: { headers?: Record<string, string> }) => {
+        log: (value) => stdout.push(value),
+        error: (value) => stderr.push(value),
+        fetch: async (url, request) => {
           onProviderCall?.();
           expect(url).toBe("https://api.digitalocean.com/v2/databases/synthetic-loopback-cluster-7312/ca");
-          expect(request.headers).toEqual({
+          expect(request?.headers).toEqual({
             Accept: "application/json",
             Authorization: "Bearer provider-db-secret-marker",
           });
@@ -529,7 +524,7 @@ async function startTlsPostgresProxy(
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     socket.once("data", (request) => {
-      if (request.length !== 8 || request.readInt32BE(4) !== 80877103) {
+      if (!Buffer.isBuffer(request) || request.length !== 8 || request.readInt32BE(4) !== 80877103) {
         socket.destroy();
         return;
       }

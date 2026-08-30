@@ -1,7 +1,8 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 import {
   GRANT_KINDS,
@@ -22,6 +23,82 @@ const SECRET_MARKERS = [
   "BEGIN CERTIFICATE",
   "postgresql://",
 ];
+
+// Check the real JS body independently of its declaration, then assign all of
+// its exports to the published module contract. The virtual filename avoids
+// TypeScript resolving the implementation import straight to the .d.mts.
+function grantBoundaryDiagnostics(mutate = (source) => source, caller = "") {
+  const runtimePath = join(import.meta.dirname, "apply-digitalocean-database-grant.implementation.mjs");
+  const callerPath = join(import.meta.dirname, "apply-digitalocean-database-grant.boundary.mts");
+  const sources = new Map(
+    [
+      [runtimePath, mutate(readFileSync(new URL("./apply-digitalocean-database-grant.mjs", import.meta.url), "utf8"))],
+      [
+        callerPath,
+        `
+      import * as implementation from "./apply-digitalocean-database-grant.implementation.mjs";
+      import type * as contract from "./apply-digitalocean-database-grant.mjs";
+      const boundary: typeof contract = implementation;
+      ${caller}
+    `,
+      ],
+    ].map(([path, source]) => [path.replaceAll("\\", "/"), source]),
+  );
+  const options = {
+    allowJs: true,
+    strict: true,
+    skipLibCheck: false,
+    noEmit: true,
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.Preserve,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    types: ["node"],
+  };
+  const host = ts.createCompilerHost(options);
+  const read = host.readFile;
+  const exists = host.fileExists;
+  host.readFile = (path) => sources.get(path.replaceAll("\\", "/")) ?? read(path);
+  host.fileExists = (path) => sources.has(path.replaceAll("\\", "/")) || exists(path);
+  const program = ts.createProgram({ rootNames: [callerPath], options, host });
+  return ts.getPreEmitDiagnostics(program).map((diagnostic) => ({
+    file: diagnostic.file?.fileName,
+    code: diagnostic.code,
+    message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+  }));
+}
+
+describe("database grant typed module boundary", () => {
+  it("checks the real implementation and all exports against real pg types with declaration checking enabled", () => {
+    expect(grantBoundaryDiagnostics()).toEqual([]);
+  });
+
+  it("detects implementation drift in the actual pg query call and the CLI result", () => {
+    const diagnostics = grantBoundaryDiagnostics((source) =>
+      source
+        .replace("await client.query(statement);", "await client.query({ sql: statement });")
+        .replace("return 0;", 'return "success";'),
+    );
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 2769, message: expect.stringContaining("sql") }),
+        expect.objectContaining({ code: 2322, message: expect.stringContaining("0 | 1") }),
+      ]),
+    );
+  });
+
+  it("detects a removed runtime export and rejects incompatible caller/composition dependencies", () => {
+    const diagnostics = grantBoundaryDiagnostics(
+      (source) => source.replace("export async function applyDatabaseGrants", "async function applyDatabaseGrants"),
+      `boundary.runDatabaseGrantMain({}, { statementsForGrant: () => [42] });`,
+    );
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 2741, message: expect.stringContaining("applyDatabaseGrants") }),
+        expect.objectContaining({ code: 2322, message: expect.stringContaining("number") }),
+      ]),
+    );
+  });
+});
 
 function grantEnvironment(overrides = {}) {
   return {
@@ -161,6 +238,7 @@ describe("managed Postgres grant TLS main", () => {
     const output = outputRecorder();
     const providerRequests = [];
     const clientConfigs = [];
+    const canonicalUrls = [];
     const queries = [];
     const modes = [];
     let ended = 0;
@@ -168,7 +246,7 @@ describe("managed Postgres grant TLS main", () => {
     class RecordingClient {
       constructor(config) {
         clientConfigs.push(config);
-        const caPath = new URL(config.connectionString).searchParams.get("sslrootcert");
+        const caPath = new URL(canonicalUrls.at(-1)).searchParams.get("sslrootcert");
         modes.push({
           directory: statSync(dirname(caPath)).mode & 0o777,
           file: statSync(caPath).mode & 0o777,
@@ -190,6 +268,11 @@ describe("managed Postgres grant TLS main", () => {
       const result = await runDatabaseGrantMain(grantEnvironment(), {
         ...output,
         Client: RecordingClient,
+        managedPostgresGrantUrl: (grant, env, caPath) => {
+          const url = managedPostgresGrantUrl(grant, env, caPath);
+          canonicalUrls.push(url);
+          return url;
+        },
         tmpdir: () => root,
         fetch: async (url, options) => {
           providerRequests.push({ url, options });
@@ -211,7 +294,7 @@ describe("managed Postgres grant TLS main", () => {
       ]);
       expect(clientConfigs).toHaveLength(2);
       expect(
-        clientConfigs.map(({ connectionString }) => {
+        canonicalUrls.map((connectionString) => {
           const url = new URL(connectionString);
           return {
             host: url.hostname,
@@ -241,9 +324,26 @@ describe("managed Postgres grant TLS main", () => {
         },
       ]);
       for (const config of clientConfigs) {
-        expect(config.ssl).toEqual({ rejectUnauthorized: true, ca: TEST_CERTIFICATE });
-        expect(config.connectionString).not.toContain("ambient-secret-marker");
+        expect(config.ssl).toEqual({
+          rejectUnauthorized: true,
+          ca: TEST_CERTIFICATE,
+          checkServerIdentity: expect.any(Function),
+        });
+        expect(config).not.toHaveProperty("connectionString");
+        expect(config).toMatchObject({
+          host: "managed-db.example.test",
+          port: 25060,
+          user: "cluster_admin",
+          password: "password-secret-marker",
+        });
+        expect(
+          config.ssl.checkServerIdentity("localhost", { subjectaltname: "DNS:managed-db.example.test" }),
+        ).toBeUndefined();
+        expect(config.ssl.checkServerIdentity("localhost", { subjectaltname: "DNS:localhost" })).toMatchObject({
+          code: "ERR_TLS_CERT_ALTNAME_INVALID",
+        });
       }
+      expect(clientConfigs.map(({ database }) => database)).toEqual(["database_a", "database_b"]);
       if (process.platform !== "win32") {
         expect(modes).toEqual([
           { directory: 0o700, file: 0o600 },
@@ -436,10 +536,6 @@ describe("managed Postgres grant TLS main", () => {
     const output = outputRecorder();
     let ownedPath;
     class FailingClient {
-      constructor(config) {
-        ownedPath = dirname(new URL(config.connectionString).searchParams.get("sslrootcert"));
-      }
-
       async connect() {
         if (stage === "connect") throw new Error("password-secret-marker connect");
       }
@@ -457,6 +553,10 @@ describe("managed Postgres grant TLS main", () => {
         tmpdir: () => root,
         fetch: async () => providerCaResponse(),
         Client: FailingClient,
+        mkdtemp: async (prefix) => {
+          ownedPath = await mkdtemp(prefix);
+          return ownedPath;
+        },
         ...(stage === "CA write"
           ? {
               writeManagedPostgresCa: async (caPath) => {
@@ -483,10 +583,6 @@ describe("managed Postgres grant TLS main", () => {
     const output = outputRecorder();
     let ownedPath;
     class FailingClient {
-      constructor(config) {
-        ownedPath = dirname(new URL(config.connectionString).searchParams.get("sslrootcert"));
-      }
-
       async connect() {
         throw new Error("password-secret-marker connect");
       }
@@ -500,6 +596,10 @@ describe("managed Postgres grant TLS main", () => {
         tmpdir: () => root,
         fetch: async () => providerCaResponse(),
         Client: FailingClient,
+        mkdtemp: async (prefix) => {
+          ownedPath = await mkdtemp(prefix);
+          return ownedPath;
+        },
         rm: async () => undefined,
       });
 
