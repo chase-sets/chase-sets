@@ -494,7 +494,7 @@ export function parseSuccessorAuthority(commentValues, dependencyValues, origina
     const replacement = lines(body, "REPLACEMENTS");
     const legacyDispositions = [...body.matchAll(/\bdisposition REPLACED \(planning-repair\/v1\)/gi)];
     const legacyReplacements = legacyReplacementLines(body);
-    const canonicalAssertion = version.length > 0 || disposition.includes("REPLACED");
+    const canonicalAssertion = disposition.some((value) => /\bREPLACED\b/.test(value));
     if (!canonicalAssertion && legacyDispositions.length === 0) continue;
     let targets = null;
     if (

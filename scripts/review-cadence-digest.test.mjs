@@ -340,7 +340,7 @@ describe("review cadence digest", () => {
     expect(rendered).not.toContain("Week-over-week delta: -165");
   });
 
-  it("selects the weekly drain target only after structured successor authority is complete", () => {
+  it("selects the weekly drain target only after structured successor authority is complete", async () => {
     const repo = "synthetic-owner/synthetic-repo";
     const canonical = {
       id: 1,
@@ -366,6 +366,29 @@ This comment records planning-lane bookkeeping; no product code, branch, or PR w
       updated_at: DIGEST_AT,
     };
     const native = [{ id: "dependency-6415", number: 6415, repo }];
+    const nonReplacementComments = [
+      {
+        number: 6419,
+        comment: {
+          id: "repair-in-place-6419",
+          body: `PLANNING_CONTRACT_VERSION: planning-repair/v1
+DISPOSITION: REPAIR_IN_PLACE — claim-token/content-revision/review-attempt unchanged
+ORIGINAL_ISSUE: #6419
+REPLACEMENTS: none`,
+          updated_at: DIGEST_AT,
+        },
+      },
+      {
+        number: 6407,
+        comment: {
+          id: "version-only-prose-6407",
+          body: `PLANNING_CONTRACT_VERSION: planning-repair/v1
+
+ROLE: DOWNSTREAM CONTINUITY — operator execution remains blocked pending the current issue.`,
+          updated_at: DIGEST_AT,
+        },
+      },
+    ];
 
     expect(parseSuccessorAuthority([canonical], native, 6410, repo).value.classification).toBe("qualified");
     expect(parseSuccessorAuthority([legacy], native, 6410, repo).value.classification).toBe("qualified");
@@ -391,6 +414,23 @@ This comment records planning-lane bookkeeping; no product code, branch, or PR w
       parseSuccessorAuthority([{ ...canonical, body: "DISPOSITION: REPLACED" }], native, 6410, repo).available,
     ).toBe(false);
     expect(parseSuccessorAuthority([canonical, legacy], native, 6410, repo).available).toBe(false);
+    for (const { number, comment } of nonReplacementComments) {
+      expect(parseSuccessorAuthority([comment], [], number, repo)).toEqual({
+        available: true,
+        value: { classification: "confirmed-none", replacements: [] },
+      });
+      const collected = await collectDigestAuthority({
+        repo,
+        token: "withheld",
+        request: authorityRequest([issue(number)], {
+          comments: (candidate) => (candidate === number ? [comment] : []),
+        }).request,
+        clock: () => new Date(DIGEST_AT),
+      });
+      expect(collected.escalations.value.eligible.map((row) => row.issue.number)).toEqual([number]);
+      expect(collected.escalations.value.unavailable).toEqual([]);
+      expect(renderShelfDigest(collected)).toContain(`**This week's drain target:** [#${number}]`);
+    }
   });
 
   it("returns unavailable instead of clipping or overrunning bounded shelf authority", async () => {
