@@ -1,4 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
 import process from "node:process";
 import { classified } from "./backlog-classify.mjs";
 import { canonicalLabelNames, ENABLED_NATIVE_ISSUE_TYPES } from "./label-registry.mjs";
@@ -6,6 +9,8 @@ import { canonicalLabelNames, ENABLED_NATIVE_ISSUE_TYPES } from "./label-registr
 export const ISSUE_READINESS_SCHEMA_VERSION = "issue-readiness/v1";
 export const ISSUE_READINESS_RUN_SCHEMA_VERSION = "issue-readiness-run/v1";
 export const PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION = "prospective-issue-readiness-run/v1";
+export const ISSUE_READINESS_CONSUME_REQUEST_SCHEMA_VERSION = "issue-readiness-consume-request/v1";
+export const ISSUE_READINESS_CONSUME_RESULT_SCHEMA_VERSION = "issue-readiness-consume-result/v1";
 export const COMMENT_MARKER = "<!-- chase-sets:issue-readiness:v1 -->";
 export const RECEIPT_START_MARKER = "<!-- chase-sets:issue-readiness-receipt:start -->";
 export const RECEIPT_END_MARKER = "<!-- chase-sets:issue-readiness-receipt:end -->";
@@ -30,7 +35,25 @@ const BOT_LOGIN = "github-actions[bot]";
 const MAX_PAGES = 100;
 const MAX_ITEMS = 10_000;
 const MAX_DEPENDENCIES = 200;
+const MAX_FOOTPRINT_PATHS = 128;
+const MAX_FOOTPRINT_PATH_BYTES = 512;
+const MAX_GIT_HISTORY_COMMITS = 10_000;
+const MAX_GIT_TREE_QUERIES = 512;
+const GIT_TIMEOUT_MS = 15_000;
+const GIT_OUTPUT_CAP_BYTES = 1024 * 1024;
 const NO_RESPONSE = "_no response_";
+const FOOTPRINT_ROOTS = new Set([
+  "scripts",
+  ".agents",
+  ".claude",
+  ".github",
+  "docs",
+  "bounded-contexts",
+  "contracts",
+  "infrastructure",
+  "packages",
+  "deployables",
+]);
 const NON_RUNNABLE_LABELS = new Set(
   canonicalLabelNames("status").filter((label) => /status:(?:needs-replan|tracking-only)$/.test(label)),
 );
@@ -1436,27 +1459,376 @@ export async function upsertIssueReadinessComment({
   });
 }
 
-export function consumeIssueReadinessReceipt({
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function canonicalJson(value) {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+    .join(",")}}`;
+}
+
+function isCanonicalJsonDomain(value, seen = new Set()) {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return true;
+  if (typeof value === "number") return Number.isSafeInteger(value);
+  if (!value || typeof value !== "object" || seen.has(value)) return false;
+  seen.add(value);
+  const valid = Array.isArray(value)
+    ? value.every((entry) => isCanonicalJsonDomain(entry, seen))
+    : Object.values(value).every((entry) => isCanonicalJsonDomain(entry, seen));
+  seen.delete(value);
+  return valid;
+}
+
+function utf8Sorted(values) {
+  return [...values].sort((left, right) => Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")));
+}
+
+function isFootprintPathAttempt(line) {
+  const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
+  if (!bullet) return false;
+  if (bullet[1].startsWith("`")) return true;
+  const token = bullet[1].match(/^\S+/)?.[0] ?? "";
+  return token.startsWith(".") || /[/.\\]/.test(token);
+}
+
+function parseDescriptionSuffix(remainder) {
+  if (remainder === "") return true;
+  return /^[ \t]+(?:—|-)[ \t]+[^ \t\0\r\n](?:[^\0\r\n]*[^ \t\0\r\n])?[ \t]*$/.test(remainder);
+}
+
+function capturedPathValue(line) {
+  const source = line.match(/^\s*[-*+]\s+(.+)$/)?.[1] ?? "";
+  if (source.startsWith("`")) {
+    const closing = source.indexOf("`", 1);
+    if (closing < 0) return null;
+    const value = source.slice(1, closing);
+    return parseDescriptionSuffix(source.slice(closing + 1)) ? { value, backticked: true } : null;
+  }
+  const match = source.match(/^(\S+)(.*)$/);
+  if (!match || !parseDescriptionSuffix(match[2])) return null;
+  return { value: match[1], backticked: false };
+}
+
+function normalizeFootprintPath({ value, backticked }) {
+  if (
+    value.length === 0 ||
+    Buffer.byteLength(value, "utf8") > MAX_FOOTPRINT_PATH_BYTES ||
+    (backticked && (/^[ \t]/.test(value) || /[ \t]$/.test(value))) ||
+    /[,;:)\]}]$/.test(value) ||
+    /^\/{1,2}/.test(value) ||
+    /^[A-Za-z]:/.test(value)
+  ) {
+    return null;
+  }
+  let normalized = value.replaceAll("\\", "/");
+  if (normalized.startsWith("//")) return null;
+  if (normalized.startsWith("./")) normalized = normalized.slice(2);
+  if (normalized.startsWith("./")) return null;
+  if (normalized.endsWith("/")) normalized = normalized.slice(0, -1);
+  if (normalized.includes("//")) return null;
+  const segments = normalized.split("/");
+  const invalidSegment = segments.some(
+    (segment) =>
+      segment.length === 0 ||
+      segment === "." ||
+      segment === ".." ||
+      /[\u0000-\u001f\u007f/:*?\[\]~^#]/u.test(segment) ||
+      segment.includes("@{") ||
+      segment.includes("\\"),
+  );
+  if (invalidSegment) return null;
+  if (segments.length > 1) {
+    if (!FOOTPRINT_ROOTS.has(segments[0])) return null;
+  } else if (!backticked && !value.startsWith(".") && !value.includes(".")) {
+    return null;
+  }
+  return normalized;
+}
+
+export function extractIssueReadinessFootprint(body) {
+  if (typeof body !== "string") return { outcome: "unknown", paths: null };
+  const structure = scanIssueFormStructure(body);
+  const sourceLines = body.split(/\r?\n/);
+  const footprintHeading = structure.headings.find((heading) => heading.label === "Footprint & chain");
+  const nextHeading = footprintHeading
+    ? structure.headings.find((heading) => heading.lineIndex > footprintHeading.lineIndex)
+    : null;
+  const field = footprintHeading
+    ? sourceLines.slice(footprintHeading.lineIndex + 1, nextHeading?.lineIndex ?? sourceLines.length).join("\n")
+    : "";
+  const paths = new Set();
+  let attempts = 0;
+  let fence = null;
+  let unclosedFenceAttempt = false;
+
+  for (const line of field.split(/\r?\n/)) {
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,}) *$/);
+    if (fence) {
+      if (fenceMatch && fenceMatch[1][0] === fence.marker && fenceMatch[1].length >= fence.length) {
+        fence = null;
+      } else if (isFootprintPathAttempt(line)) {
+        unclosedFenceAttempt = true;
+      }
+      continue;
+    }
+    if (fenceMatch) {
+      fence = { marker: fenceMatch[1][0], length: fenceMatch[1].length };
+      unclosedFenceAttempt = false;
+      continue;
+    }
+    if (/^\s*(?:[-*+]\s+)?(?:\*\*|__)?(?:Callers|Chain)(?:\*\*|__)?\s*:/i.test(line)) break;
+    if (!isFootprintPathAttempt(line)) continue;
+    attempts += 1;
+    const captured = capturedPathValue(line);
+    const normalized = captured ? normalizeFootprintPath(captured) : null;
+    if (normalized === null) return { outcome: "unknown", paths: null };
+    paths.add(normalized);
+    if (paths.size > MAX_FOOTPRINT_PATHS) return { outcome: "unknown", paths: null };
+  }
+  if (fence && unclosedFenceAttempt) return { outcome: "unknown", paths: null };
+  if (attempts === 0) return { outcome: "not-declared", paths: [] };
+  return { outcome: "declared", paths: utf8Sorted(paths) };
+}
+
+function defaultGitRunner({ repositoryRoot, args }) {
+  return spawnSync("git", args, {
+    cwd: repositoryRoot,
+    env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_TERMINAL_PROMPT: "0" },
+    encoding: null,
+    windowsHide: true,
+    timeout: GIT_TIMEOUT_MS,
+    maxBuffer: GIT_OUTPUT_CAP_BYTES,
+    shell: false,
+  });
+}
+
+function gitOutput(gitRunner, repositoryRoot, args, allowedStatuses = [0]) {
+  let result;
+  try {
+    result = gitRunner({
+      repositoryRoot,
+      args: [...args],
+      timeoutMs: GIT_TIMEOUT_MS,
+      outputCapBytes: GIT_OUTPUT_CAP_BYTES,
+      env: Object.freeze({ GIT_NO_LAZY_FETCH: "1", GIT_TERMINAL_PROMPT: "0" }),
+    });
+  } catch {
+    return null;
+  }
+  const stdout = Buffer.isBuffer(result?.stdout) ? result.stdout : Buffer.from(result?.stdout ?? "", "utf8");
+  const stderr = Buffer.isBuffer(result?.stderr) ? result.stderr : Buffer.from(result?.stderr ?? "", "utf8");
+  if (
+    result?.error ||
+    result?.signal ||
+    !allowedStatuses.includes(result?.status) ||
+    stdout.length + stderr.length > GIT_OUTPUT_CAP_BYTES ||
+    stderr.length > 0
+  ) {
+    return null;
+  }
+  return { status: result.status, stdout };
+}
+
+function exactGitLine(output, pattern) {
+  const value = output.toString("utf8");
+  return pattern.test(value) ? value.replace(/\r?\n$/, "") : null;
+}
+
+function localRefSha(gitRunner, repositoryRoot) {
+  const output = gitOutput(gitRunner, repositoryRoot, ["rev-parse", "--verify", "refs/remotes/origin/main^{commit}"]);
+  return output ? exactGitLine(output.stdout, /^[a-f0-9]{40}\r?\n$/) : null;
+}
+
+function repositoryHasIncompleteObjects(gitRunner, repositoryRoot) {
+  const shallow = gitOutput(gitRunner, repositoryRoot, ["rev-parse", "--is-shallow-repository"]);
+  const shallowValue = shallow ? exactGitLine(shallow.stdout, /^(?:true|false)\r?\n$/) : null;
+  if (shallowValue === null || shallowValue === "true") return true;
+  const partial = gitOutput(
+    gitRunner,
+    repositoryRoot,
+    ["config", "--local", "--get", "extensions.partialClone"],
+    [0, 1],
+  );
+  if (!partial || (partial.status === 1 && partial.stdout.length > 0) || partial.status === 0) return true;
+  const promisor = gitOutput(
+    gitRunner,
+    repositoryRoot,
+    ["config", "--local", "--get-regexp", "^remote\\..*\\.promisor$"],
+    [0, 1],
+  );
+  if (!promisor || (promisor.status === 1 && promisor.stdout.length > 0)) return true;
+  if (promisor.status === 0) {
+    const value = promisor.stdout.toString("utf8");
+    if (!/^(?:remote\.[^\r\n ]+\.promisor (?:true|false)\r?\n)+$/.test(value)) return true;
+    if (/ true\r?$/m.test(value)) return true;
+  }
+  return false;
+}
+
+function literalPathspec(value) {
+  return `:(top,literal)${value}`;
+}
+
+function gitlinkInteriorUnknown(gitRunner, repositoryRoot, baselineSha, currentSha, paths) {
+  let queryCount = 0;
+  for (const sha of [baselineSha, currentSha]) {
+    const treeCache = new Map();
+    const readTree = (treeish) => {
+      if (treeCache.has(treeish)) return treeCache.get(treeish);
+      queryCount += 1;
+      if (queryCount >= MAX_GIT_TREE_QUERIES) return null;
+      const output = gitOutput(gitRunner, repositoryRoot, ["ls-tree", "-z", treeish]);
+      if (!output) return null;
+      const source = output.stdout.toString("utf8");
+      if (source !== "" && !source.endsWith("\0")) return null;
+      const entries = new Map();
+      for (const rawEntry of source === "" ? [] : source.slice(0, -1).split("\0")) {
+        const match = rawEntry.match(/^([0-7]{6}) (blob|tree|commit) ([a-f0-9]{40})\t(.+)$/s);
+        if (!match || entries.has(match[4])) return null;
+        entries.set(match[4], { mode: match[1], type: match[2], oid: match[3] });
+      }
+      treeCache.set(treeish, entries);
+      return entries;
+    };
+    for (const declaredPath of paths) {
+      const segments = declaredPath.split("/");
+      let treeish = sha;
+      for (let index = 0; index < segments.length - 1; index += 1) {
+        const entries = readTree(treeish);
+        if (!entries) return true;
+        const entry = entries.get(segments[index]);
+        if (!entry) break;
+        if (entry.mode === "160000" || entry.type === "commit") return true;
+        if (entry.type !== "tree") break;
+        treeish = entry.oid;
+      }
+    }
+  }
+  return false;
+}
+
+function gitlinkHistoryUnknown(gitRunner, repositoryRoot, baselineSha, currentSha, paths) {
+  const ancestors = new Set();
+  for (const declaredPath of paths) {
+    const segments = declaredPath.split("/");
+    for (let index = 1; index < segments.length; index += 1) ancestors.add(segments.slice(0, index).join("/"));
+  }
+  if (ancestors.size === 0) return false;
+  const output = gitOutput(gitRunner, repositoryRoot, [
+    "log",
+    "--format=",
+    "--raw",
+    "-z",
+    "--no-abbrev",
+    "--full-history",
+    "--find-renames",
+    `--max-count=${MAX_GIT_HISTORY_COMMITS}`,
+    `${baselineSha}..${currentSha}`,
+    "--",
+    ...utf8Sorted(ancestors).map(literalPathspec),
+  ]);
+  if (!output) return true;
+  const source = output.stdout.toString("utf8");
+  if (source === "") return false;
+  if (!source.endsWith("\0")) return true;
+  const chunks = source.slice(0, -1).split("\0");
+  for (let index = 0; index < chunks.length; ) {
+    const metadata = chunks[index].replace(/^(?:\r?\n)+/, "");
+    const match = metadata.match(/^:([0-7]{6}) ([0-7]{6}) [a-f0-9]{40} [a-f0-9]{40} ([A-Z][0-9]*)$/);
+    if (!match) return true;
+    if (match[1] === "160000" || match[2] === "160000") return true;
+    index += match[3].startsWith("R") || match[3].startsWith("C") ? 3 : 2;
+    if (index > chunks.length) return true;
+  }
+  return false;
+}
+
+function compareFootprintHistory({ baselineSha, currentMain, paths, repositoryRoot, gitRunner }) {
+  if (
+    !currentMain ||
+    currentMain.localRef !== "refs/remotes/origin/main" ||
+    currentMain.githubRef !== "refs/heads/main" ||
+    !/^[a-f0-9]{40}$/.test(currentMain.localSha ?? "") ||
+    !/^[a-f0-9]{40}$/.test(currentMain.githubSha ?? "") ||
+    currentMain.localSha !== currentMain.githubSha ||
+    !path.isAbsolute(repositoryRoot ?? "")
+  ) {
+    return "unknown";
+  }
+  const currentSha = currentMain.localSha;
+  if (localRefSha(gitRunner, repositoryRoot) !== currentSha) return "unknown";
+  if (repositoryHasIncompleteObjects(gitRunner, repositoryRoot)) return "unknown";
+  const ancestor = gitOutput(gitRunner, repositoryRoot, ["merge-base", "--is-ancestor", baselineSha, currentSha]);
+  if (!ancestor || ancestor.stdout.length > 0) return "unknown";
+  if (gitlinkInteriorUnknown(gitRunner, repositoryRoot, baselineSha, currentSha, paths)) return "unknown";
+  const countOutput = gitOutput(gitRunner, repositoryRoot, ["rev-list", "--count", `${baselineSha}..${currentSha}`]);
+  const countText = countOutput ? exactGitLine(countOutput.stdout, /^(?:0|[1-9][0-9]*)\r?\n$/) : null;
+  if (countText === null) return "unknown";
+  const commitCount = Number(countText);
+  if (!Number.isSafeInteger(commitCount) || commitCount >= MAX_GIT_HISTORY_COMMITS) return "unknown";
+  if (gitlinkHistoryUnknown(gitRunner, repositoryRoot, baselineSha, currentSha, paths)) return "unknown";
+  const history = gitOutput(gitRunner, repositoryRoot, [
+    "log",
+    "--format=%H",
+    "--full-history",
+    "--find-renames",
+    `--max-count=${MAX_GIT_HISTORY_COMMITS}`,
+    `${baselineSha}..${currentSha}`,
+    "--",
+    ...paths.map(literalPathspec),
+  ]);
+  if (!history) return "unknown";
+  const historyText = history.stdout.toString("utf8");
+  if (historyText !== "" && !/^(?:[a-f0-9]{40}\r?\n)+$/.test(historyText)) return "unknown";
+  if (localRefSha(gitRunner, repositoryRoot) !== currentSha) return "unknown";
+  return historyText === "" ? "unchanged" : "drift";
+}
+
+function footprintComparison({ body, receipt, currentMain, normalizedPaths, outcome }) {
+  const commonCurrentSha =
+    currentMain && currentMain.localSha === currentMain.githubSha ? currentMain.localSha : null;
+  return {
+    outcome,
+    issueBodySha256: sha256(body),
+    baselineSha: receipt && validateIssueReadinessReceipt(receipt).length === 0 ? receipt.provenance.checkerSha : null,
+    currentMainSha: commonCurrentSha,
+    normalizedPathsSha256: normalizedPaths === null ? null : sha256(canonicalJson(normalizedPaths)),
+  };
+}
+
+function consumeIssueReadinessReceiptDetailed({
   receipt,
   currentRevision,
   trustedCheckerSha,
   semanticPressureTest = "not-run",
+  currentMain,
+  repositoryRoot,
+  gitRunner = defaultGitRunner,
 }) {
+  const body = typeof currentRevision?.body === "string" ? currentRevision.body : "";
+  const notEvaluated = () => footprintComparison({ body, receipt, currentMain, normalizedPaths: null, outcome: "not-evaluated" });
+  const finish = (result, comparison = notEvaluated()) => ({ result, footprintComparison: comparison });
   if (receipt == null) {
-    return { decision: "reject", reasonCode: "RECEIPT_MISSING", structuralStatus: "missing" };
+    return finish({ decision: "reject", reasonCode: "RECEIPT_MISSING", structuralStatus: "missing" });
   }
   if (validateIssueReadinessReceipt(receipt).length > 0) {
-    return { decision: "reject", reasonCode: "RECEIPT_MALFORMED", structuralStatus: "unknown" };
+    return finish({ decision: "reject", reasonCode: "RECEIPT_MALFORMED", structuralStatus: "unknown" });
   }
   if (
     !/^[a-f0-9]{40}$/i.test(String(trustedCheckerSha ?? "")) ||
     receipt.provenance.checkerSha !== String(trustedCheckerSha).toLowerCase()
   ) {
-    return {
+    return finish({
       decision: "reject",
       reasonCode: "CHECKER_PROVENANCE_MISMATCH",
       structuralStatus: receipt.status,
-    };
+    });
   }
   if (
     !currentRevision ||
@@ -1465,41 +1837,200 @@ export function consumeIssueReadinessReceipt({
     receipt.subject.nodeId !== currentRevision.nodeId ||
     receipt.subject.updatedAt !== currentRevision.updatedAt
   ) {
-    return { decision: "reject", reasonCode: "RECEIPT_STALE", structuralStatus: receipt.status };
+    return finish({ decision: "reject", reasonCode: "RECEIPT_STALE", structuralStatus: receipt.status });
   }
   if (receipt.status === "unknown") {
-    return { decision: "reject", reasonCode: "RECEIPT_UNKNOWN", structuralStatus: receipt.status };
+    return finish({ decision: "reject", reasonCode: "RECEIPT_UNKNOWN", structuralStatus: receipt.status });
   }
   if (receipt.status === "not-ready") {
-    return {
+    return finish({
       decision: "dispatch-planning-repair",
       reasonCode: "STRUCTURAL_NOT_READY",
       structuralStatus: receipt.status,
-    };
+    });
   }
   if (semanticPressureTest === "fail") {
-    return {
+    return finish({
       decision: "dispatch-planning-repair",
       reasonCode: "SEMANTIC_PRESSURE_TEST_FAILED",
       structuralStatus: receipt.status,
-    };
+    });
   }
   if (semanticPressureTest !== "pass") {
-    return {
+    return finish({
       decision: "reject",
       reasonCode: "SEMANTIC_PRESSURE_TEST_MISSING",
       structuralStatus: receipt.status,
-    };
+    });
   }
-  return {
-    decision: "dispatch-implementation",
-    reasonCode: "READY_RECEIPT_CURRENT",
-    structuralStatus: receipt.status,
-  };
+  const extracted = extractIssueReadinessFootprint(currentRevision.body);
+  if (extracted.outcome === "unknown") {
+    return finish(
+      { decision: "reject", reasonCode: "FOOTPRINT_DRIFT_UNKNOWN", structuralStatus: receipt.status },
+      footprintComparison({ body, receipt, currentMain, normalizedPaths: null, outcome: "unknown" }),
+    );
+  }
+  if (extracted.outcome === "not-declared") {
+    return finish(
+      { decision: "dispatch-implementation", reasonCode: "READY_RECEIPT_CURRENT", structuralStatus: receipt.status },
+      footprintComparison({ body, receipt, currentMain, normalizedPaths: [], outcome: "not-declared" }),
+    );
+  }
+  const comparisonOutcome = compareFootprintHistory({
+    baselineSha: receipt.provenance.checkerSha,
+    currentMain,
+    paths: extracted.paths,
+    repositoryRoot,
+    gitRunner,
+  });
+  const comparison = footprintComparison({
+    body,
+    receipt,
+    currentMain,
+    normalizedPaths: extracted.paths,
+    outcome: comparisonOutcome,
+  });
+  if (comparisonOutcome === "drift") {
+    return finish(
+      { decision: "dispatch-planning-repair", reasonCode: "FOOTPRINT_DRIFT", structuralStatus: receipt.status },
+      comparison,
+    );
+  }
+  if (comparisonOutcome === "unknown") {
+    return finish(
+      { decision: "reject", reasonCode: "FOOTPRINT_DRIFT_UNKNOWN", structuralStatus: receipt.status },
+      comparison,
+    );
+  }
+  return finish(
+    { decision: "dispatch-implementation", reasonCode: "READY_RECEIPT_CURRENT", structuralStatus: receipt.status },
+    comparison,
+  );
+}
+
+export function consumeIssueReadinessReceipt({
+  receipt,
+  currentRevision,
+  trustedCheckerSha,
+  semanticPressureTest = "not-run",
+  currentMain,
+  repositoryRoot,
+  gitRunner = defaultGitRunner,
+}) {
+  return consumeIssueReadinessReceiptDetailed({
+    receipt,
+    currentRevision,
+    trustedCheckerSha,
+    semanticPressureTest,
+    currentMain,
+    repositoryRoot,
+    gitRunner,
+  }).result;
 }
 
 function normalizeCheckerSha(value) {
   return /^[a-f0-9]{40}$/i.test(String(value ?? "")) ? String(value).toLowerCase() : "unavailable";
+}
+
+function consumeArguments(argv) {
+  if (!argv.includes("--consume-request") && !argv.includes("--repository-root")) return null;
+  if (
+    argv.length !== 4 ||
+    argv[0] !== "--consume-request" ||
+    argv[2] !== "--repository-root" ||
+    !path.isAbsolute(argv[1] ?? "") ||
+    !path.isAbsolute(argv[3] ?? "")
+  ) {
+    fail("CONSUME_ARGUMENTS_INVALID");
+  }
+  return { requestPath: argv[1], repositoryRoot: argv[3] };
+}
+
+function utcInstant(value) {
+  if (typeof value !== "string") return false;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z$/);
+  if (!match) return false;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return false;
+  const parsed = new Date(timestamp);
+  return (
+    parsed.getUTCFullYear() === Number(match[1]) &&
+    parsed.getUTCMonth() + 1 === Number(match[2]) &&
+    parsed.getUTCDate() === Number(match[3]) &&
+    parsed.getUTCHours() === Number(match[4]) &&
+    parsed.getUTCMinutes() === Number(match[5]) &&
+    parsed.getUTCSeconds() === Number(match[6])
+  );
+}
+
+function parseConsumeRequest(source) {
+  let request;
+  try {
+    request = JSON.parse(source);
+  } catch {
+    fail("CONSUME_REQUEST_INVALID");
+  }
+  if (
+    !isCanonicalJsonDomain(request) ||
+    !hasExactKeys(request, [
+      "schemaVersion",
+      "receipt",
+      "currentRevision",
+      "trustedCheckerSha",
+      "semanticPressureTest",
+      "currentMain",
+    ]) ||
+    request.schemaVersion !== ISSUE_READINESS_CONSUME_REQUEST_SCHEMA_VERSION ||
+    !hasExactKeys(request.currentRevision, [
+      "repository",
+      "number",
+      "nodeId",
+      "updatedAt",
+      "body",
+      "bodySha256",
+    ]) ||
+    typeof request.currentRevision.repository !== "string" ||
+    !/^[^/]+\/[^/]+$/.test(request.currentRevision.repository) ||
+    !Number.isSafeInteger(request.currentRevision.number) ||
+    request.currentRevision.number < 1 ||
+    typeof request.currentRevision.nodeId !== "string" ||
+    request.currentRevision.nodeId.length === 0 ||
+    !utcInstant(request.currentRevision.updatedAt) ||
+    typeof request.currentRevision.body !== "string" ||
+    !/^[a-f0-9]{64}$/.test(request.currentRevision.bodySha256 ?? "") ||
+    sha256(request.currentRevision.body) !== request.currentRevision.bodySha256 ||
+    !/^[a-f0-9]{40}$/.test(request.trustedCheckerSha ?? "") ||
+    !["pass", "fail", "not-run"].includes(request.semanticPressureTest) ||
+    !hasExactKeys(request.currentMain, ["localRef", "localSha", "githubRef", "githubSha"]) ||
+    request.currentMain.localRef !== "refs/remotes/origin/main" ||
+    request.currentMain.githubRef !== "refs/heads/main" ||
+    !/^[a-f0-9]{40}$/.test(request.currentMain.localSha ?? "") ||
+    !/^[a-f0-9]{40}$/.test(request.currentMain.githubSha ?? "")
+  ) {
+    fail("CONSUME_REQUEST_INVALID");
+  }
+  return request;
+}
+
+function consumeRequestResult(request, repositoryRoot, gitRunner) {
+  const requestSha256 = sha256(canonicalJson(request));
+  const consumed = consumeIssueReadinessReceiptDetailed({
+    receipt: request.receipt,
+    currentRevision: request.currentRevision,
+    trustedCheckerSha: request.trustedCheckerSha,
+    semanticPressureTest: request.semanticPressureTest,
+    currentMain: request.currentMain,
+    repositoryRoot,
+    gitRunner,
+  });
+  return {
+    schemaVersion: ISSUE_READINESS_CONSUME_RESULT_SCHEMA_VERSION,
+    requestSha256,
+    decision: consumed.result.decision,
+    reasonCode: consumed.result.reasonCode,
+    structuralStatus: consumed.result.structuralStatus,
+    footprintComparison: consumed.footprintComparison,
+  };
 }
 
 function prospectiveArguments(argv) {
@@ -1526,7 +2057,24 @@ export async function main({
   now = () => new Date(),
   argv = process.argv.slice(2),
   readTextFile = (file) => readFile(file, "utf8"),
+  statPath = (file) => stat(file),
+  gitRunner = defaultGitRunner,
 } = {}) {
+  try {
+    const consume = consumeArguments(argv);
+    if (consume) {
+      const rootStat = await statPath(consume.repositoryRoot);
+      if (!rootStat?.isDirectory()) fail("CONSUME_REPOSITORY_ROOT_INVALID");
+      const request = parseConsumeRequest(await readTextFile(consume.requestPath));
+      const result = consumeRequestResult(request, consume.repositoryRoot, gitRunner);
+      logger.log(canonicalJson(result));
+      return { exitCode: 0, ...result };
+    }
+  } catch {
+    logger.error("ISSUE_READINESS_CONSUME_FAILED");
+    return { exitCode: 2, receipt: null, commentAction: "not-attempted" };
+  }
+
   let prospective;
   try {
     prospective = prospectiveArguments(argv);

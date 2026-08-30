@@ -84,6 +84,28 @@ receipt still requires the independent semantic pressure test: a pressure-test
 failure routes to planning repair without changing or contradicting the
 structural receipt.
 
+Immediately before implementation dispatch, the repository consumer binds one
+frozen request: the exact issue body and digest, current issue identity and
+revision, receipt checker baseline, trusted checker identity, qualified local
+`refs/remotes/origin/main` and GitHub `refs/heads/main` identities, and the
+repository root used for bounded native Git history. Candidate-free footprint
+prose preserves the legacy result. A committed add, delete, modification, type
+change, rename on either declared side, or modify-then-revert after the receipt
+baseline returns `FOOTPRINT_DRIFT` and routes to planning repair. Invalid path
+declarations; unequal or moving current-main authority; shallow, partial,
+promisor, missing, overflowing, timed-out, or malformed Git history; and
+gitlink interiors return `FOOTPRINT_DRIFT_UNKNOWN` and reject dispatch. The
+comparison is recomputed for every request: recovery requires restored complete
+authority, while accepted drift requires a fresh receipt at the new baseline.
+The provider-free entry point is
+`node scripts/issue-readiness.mjs --consume-request <absolute-json> --repository-root <absolute-root>`.
+
+This repository surface deliberately has zero production consumers. Its first
+production caller is the natively blocked installed-controller successor,
+which owns freezing the qualified local and GitHub main identities. The
+repository CLI does not read provider state, install controller behavior, fetch
+or deepen history, or accept a caller-supplied comparison outcome.
+
 Stable rule IDs map to the checklist:
 
 0. **`ready-00-placed-classified` — placed and classified
