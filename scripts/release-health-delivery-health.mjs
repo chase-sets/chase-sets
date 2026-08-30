@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import process from "node:process";
 import { inflateRawSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
+import { buildMetaWorkShareObservation } from "./change-scope.mjs";
 import { classifyPrScope } from "./lib/pr-scope-policy-v1.mjs";
 import { parseCircuitMarker, thresholdForObservations } from "./release-health-merge-group-failure-signatures.mjs";
 
@@ -23,6 +24,7 @@ const INTENTIONAL_OUTCOMES = new Set([
   "skipped/not-eligible",
 ]);
 const SLI_MARKER_PATTERN = /<!--\s*delivery-health-sli\/v1\s+({[\s\S]*?})\s*-->/;
+const SLI_MARKER_PREFIX = "<!-- delivery-health-sli/v1";
 const EPHEMERAL_VERIFICATION_VERSION = "ephemeral-verification/v1";
 const EPHEMERAL_RECORD_KEYS = new Set([
   "schemaVersion",
@@ -72,6 +74,199 @@ const EPHEMERAL_FAILURE_PHASES = new Set([
 const EPHEMERAL_WORKLOADS = new Set(["representative-commerce-state", "platform-smoke", "stripe-money-smoke"]);
 const EPHEMERAL_ARCHIVE_MAX_BYTES = 256 * 1024 * 1024;
 const EPHEMERAL_RECORD_MAX_BYTES = 256 * 1024;
+const SLI_REASON_RANKS = new Map(
+  [
+    "producer-disabled",
+    "source-failure",
+    "source-truncated",
+    "field-missing",
+    "field-invalid",
+    "job-collection-failure",
+    "artifact-collection-failure",
+    "artifact-missing",
+    "attempt-conflict",
+    "metric-path-missing",
+    "sample-path-missing",
+    "below-minimum-sample",
+  ].map((reasonCode, index) => [reasonCode, index + 1]),
+);
+const CANONICAL_JOB_NAMES = ["Resolve Release", "Deploy Staging", "Deploy Production"];
+const EPHEMERAL_JOB_NAME = "Verify Release in Ephemeral Namespace";
+const PRODUCER_REASON_SOURCE = "repo-variable:PLATFORM_EPHEMERAL_VERIFICATION_ENABLED";
+const CANONICAL_REASON_RANKS = new Map(
+  [
+    "canonical-request-failure",
+    "canonical-source-truncated",
+    "canonical-provider-cap",
+    "canonical-count-mismatch",
+    "canonical-marker-malformed",
+    "canonical-marker-unconfigured",
+  ].map((reasonCode, index) => [reasonCode, index + 1]),
+);
+const TARGET_BASELINE_CONTROL = {
+  "pull-request-ci-success": [
+    0.738,
+    "rolling7d",
+    "prs.platformPr.pullRequest.successRate",
+    84,
+    62,
+    84,
+    0.7380952380952381,
+    "floor-4dp",
+  ],
+  "merge-group-success": [
+    0.9428,
+    "rolling7d",
+    "prs.platformPr.mergeGroup.successRate",
+    35,
+    33,
+    35,
+    0.9428571428571428,
+    "floor-4dp",
+  ],
+  "actual-release-success": [
+    0.7857,
+    "lastN",
+    "releases.actual.successRate",
+    14,
+    11,
+    14,
+    0.7857142857142857,
+    "floor-4dp",
+  ],
+  "ephemeral-verification-success": [
+    0.95,
+    "unavailable",
+    "releases.ephemeral.successRate",
+    0,
+    null,
+    null,
+    null,
+    "unavailable-preserve",
+  ],
+  "pr-ci-p90": [
+    993,
+    "rolling7d",
+    "prs.platformPr.combined.executionSeconds.p90",
+    126,
+    null,
+    null,
+    993,
+    "exact-integer",
+  ],
+  "creation-to-merge-p90": [
+    119829,
+    "rolling7d",
+    "prs.creationToMergeSeconds.p90",
+    31,
+    null,
+    null,
+    119829,
+    "exact-integer",
+  ],
+  "repeated-failure-detection": [
+    0,
+    "rolling7d",
+    "failureSignatures.detectionSeconds.p90",
+    2,
+    null,
+    null,
+    0,
+    "exact-integer",
+  ],
+  "open-mutation-circuit": [
+    0,
+    "rolling24h",
+    "failureSignatures.openMutationCircuitCount",
+    0,
+    null,
+    null,
+    0,
+    "exact-integer",
+  ],
+};
+const TARGET_SHAPE_CONTROL = {
+  "pull-request-ci-success": [
+    "rolling24h",
+    "prs.platformPr.pullRequest.successRate",
+    "prs.platformPr.pullRequest.denominator",
+    "gte",
+    10,
+    "p1",
+    null,
+    null,
+  ],
+  "merge-group-success": [
+    "rolling24h",
+    "prs.platformPr.mergeGroup.successRate",
+    "prs.platformPr.mergeGroup.denominator",
+    "gte",
+    10,
+    "p1",
+    null,
+    null,
+  ],
+  "actual-release-success": [
+    "lastN",
+    "releases.actual.successRate",
+    "releases.actual.denominator",
+    "gte",
+    10,
+    "p1",
+    0.5,
+    null,
+  ],
+  "ephemeral-verification-success": [
+    "lastN",
+    "releases.ephemeral.successRate",
+    "releases.ephemeral.denominator",
+    "gte",
+    10,
+    "p1",
+    null,
+    0,
+  ],
+  "pr-ci-p90": [
+    "rolling24h",
+    "prs.platformPr.combined.executionSeconds.p90",
+    "prs.platformPr.combined.executionSeconds.sampleCount",
+    "lte",
+    10,
+    "p1",
+    null,
+    null,
+  ],
+  "creation-to-merge-p90": [
+    "rolling7d",
+    "prs.creationToMergeSeconds.p90",
+    "prs.creationToMergeSeconds.sampleCount",
+    "lte",
+    10,
+    "p1",
+    null,
+    null,
+  ],
+  "repeated-failure-detection": [
+    "rolling7d",
+    "failureSignatures.detectionSeconds.p90",
+    "failureSignatures.detectionSeconds.sampleCount",
+    "lte",
+    1,
+    "p1",
+    null,
+    null,
+  ],
+  "open-mutation-circuit": [
+    "rolling24h",
+    "failureSignatures.openMutationCircuitCount",
+    "failureSignatures.sourceCount",
+    "eq",
+    0,
+    "p0",
+    null,
+    null,
+  ],
+};
 
 export function parseDeliveryHealthArgs(argv, env = process.env) {
   return {
@@ -84,6 +279,7 @@ export function parseDeliveryHealthArgs(argv, env = process.env) {
     githubOutputPath: readOption(argv, "--github-output") ?? readEnv("GITHUB_OUTPUT", env),
     githubSummaryPath: readOption(argv, "--github-summary") ?? readEnv("GITHUB_STEP_SUMMARY", env),
     updateIssues: parseBoolean(readOption(argv, "--update-issues") ?? "false"),
+    ephemeralProducerState: readOption(argv, "--ephemeral-producer-state") ?? "unknown",
     policyPath: readOption(argv, "--policy") ?? DELIVERY_HEALTH_POLICY_PATH,
     fetchImpl: globalThis.fetch,
     sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
@@ -92,6 +288,45 @@ export function parseDeliveryHealthArgs(argv, env = process.env) {
 
 export async function readDeliveryHealthPolicy(path = DELIVERY_HEALTH_POLICY_PATH) {
   return JSON.parse(await readFile(path, "utf8"));
+}
+
+export function parseRepositoryVariablesAuthority(pages) {
+  if (!Array.isArray(pages) || pages.length < 1) return "unknown";
+  const totals = new Set();
+  const names = new Set();
+  const variables = [];
+  for (const page of pages) {
+    if (
+      !page ||
+      typeof page !== "object" ||
+      Array.isArray(page) ||
+      !Number.isInteger(page.total_count) ||
+      page.total_count < 0 ||
+      !Array.isArray(page.variables)
+    ) {
+      return "unknown";
+    }
+    totals.add(page.total_count);
+    for (const variable of page.variables) {
+      if (
+        !variable ||
+        typeof variable !== "object" ||
+        Array.isArray(variable) ||
+        typeof variable.name !== "string" ||
+        variable.name.trim().length === 0 ||
+        typeof variable.value !== "string"
+      ) {
+        return "unknown";
+      }
+      const identity = variable.name.toLocaleLowerCase("en-US");
+      if (names.has(identity)) return "unknown";
+      names.add(identity);
+      variables.push(variable);
+    }
+  }
+  if (totals.size !== 1 || [...totals][0] !== variables.length) return "unknown";
+  const target = variables.filter((variable) => variable.name === "PLATFORM_EPHEMERAL_VERIFICATION_ENABLED");
+  return target.length === 1 && target[0].value === "true" ? "enabled" : "disabled";
 }
 
 export function normalizeDeliveryConclusion(input = {}) {
@@ -124,7 +359,8 @@ export async function collectDeliveryHealth(options, dependencies = {}) {
   validatePolicy(policy);
   const client = dependencies.client ?? createGitHubClient(options, policy.collection);
   const end = new Date(options.checkedAt);
-  const queryStart = new Date(end.getTime() - policy.windows.rolling7dDays * 86_400_000).toISOString();
+  const queryDays = options.publicationMode === "daily" ? 14 : policy.windows.rolling7dDays;
+  const queryStart = new Date(end.getTime() - queryDays * 86_400_000).toISOString();
   const source = dependencies.source ?? (await collectSourceData({ options, policy, client, queryStart }));
   const result = buildDeliveryHealth({
     checkedAt: options.checkedAt,
@@ -132,9 +368,12 @@ export async function collectDeliveryHealth(options, dependencies = {}) {
     repository: options.repository,
     policy,
     source,
+    ephemeralProducerState: options.ephemeralProducerState,
     apiStatus: source.apiStatus ?? client.status(),
   });
+  await writeOutputs(options, result);
   if (options.updateIssues) {
+    await validateCanonicalOutputPayloads(options, result);
     result.issueUpdates = await publishSliIssues({ client, repository: options.repository, record: result.record });
   }
   return result;
@@ -170,15 +409,17 @@ async function collectSourceData({ options, policy, client, queryStart }) {
     safely("platform-deploy-runs", () =>
       fetchWorkflowRuns(client, workflows.platformDeploy, queryStart, policy.collection.maxPages, policy.windows.lastN),
     ),
-    safely("ephemeral-verification-runs", () =>
-      fetchWorkflowRuns(
-        client,
-        workflows.ephemeralVerification,
-        queryStart,
-        policy.collection.maxPages,
-        policy.windows.lastN,
-      ),
-    ),
+    options.ephemeralProducerState === "enabled"
+      ? safely("ephemeral-verification-runs", () =>
+          fetchWorkflowRuns(
+            client,
+            workflows.ephemeralVerification,
+            queryStart,
+            policy.collection.maxPages,
+            policy.windows.lastN,
+          ),
+        )
+      : [],
     safely("delivery-failure-signatures", () =>
       fetchCircuitIssues(client, options.repository, policy.collection.maxPages),
     ),
@@ -210,16 +451,44 @@ async function collectSourceData({ options, policy, client, queryStart }) {
     },
   );
 
+  let metaWork = { pulls: [], sourceReasons: [] };
+  if (options.publicationMode === "daily") {
+    try {
+      metaWork = await fetchMetaWorkPulls({
+        client,
+        repository: options.repository,
+        start: new Date(Date.parse(options.checkedAt) - 14 * 86_400_000).toISOString(),
+        end: options.checkedAt,
+        concurrency: policy.collection.concurrency,
+      });
+    } catch (error) {
+      sourceFailures.push({ source: "meta-pull-requests", error: boundedError(error) });
+      metaWork = {
+        pulls: [],
+        sourceReasons: [{ reasonCode: "meta-source-failure", reasonSource: "pull-requests" }],
+      };
+    }
+  }
+
   const actualRuns = deployRuns.filter((run) => run.event === "workflow_dispatch");
   const jobRuns = [...actualRuns, ...ephemeralRuns];
+  const jobStatusByRun = new Map();
   const jobsByRun = new Map(
     await mapConcurrent(jobRuns, policy.collection.concurrency, async (run) => {
-      const jobs = await safely(`jobs:${run.id}`, () => fetchRunJobs(client, run.id, policy.collection.maxPages));
-      return [String(run.id), jobs];
+      try {
+        const jobs = await fetchRunJobs(client, run.id, policy.collection.maxPages);
+        jobStatusByRun.set(String(run.id), "collected");
+        return [String(run.id), jobs];
+      } catch (error) {
+        sourceFailures.push({ source: `jobs:${run.id}`, error: boundedError(error) });
+        jobStatusByRun.set(String(run.id), "failure");
+        return [String(run.id), []];
+      }
     }),
   );
 
   const releaseRecordsByRun = new Map();
+  const releaseArtifactStatusByRun = new Map();
   const ephemeralRecordsByRun = new Map();
   const ephemeralArtifactStatusByRun = new Map();
   const artifactFailures = [];
@@ -227,7 +496,9 @@ async function collectSourceData({ options, policy, client, queryStart }) {
     try {
       const records = await fetchReleaseHealthArtifacts(client, run.id);
       releaseRecordsByRun.set(String(run.id), records);
+      releaseArtifactStatusByRun.set(String(run.id), records.length > 0 ? "collected" : "absent");
     } catch (error) {
+      releaseArtifactStatusByRun.set(String(run.id), "failure");
       artifactFailures.push({ runId: run.id, error: boundedError(error) });
     }
   });
@@ -249,18 +520,25 @@ async function collectSourceData({ options, policy, client, queryStart }) {
     deployRuns: deployRuns.map((run) => ({
       ...run,
       jobs: jobsByRun.get(String(run.id)) ?? [],
+      jobCollectionStatus: jobStatusByRun.get(String(run.id)) ?? "omitted",
       releaseArtifacts: releaseRecordsByRun.get(String(run.id)) ?? [],
+      artifactCollectionStatus: releaseArtifactStatusByRun.get(String(run.id)) ?? "omitted",
     })),
     ephemeralRuns: ephemeralRuns.map((run) => ({
       ...run,
       jobs: jobsByRun.get(String(run.id)) ?? [],
+      jobCollectionStatus: jobStatusByRun.get(String(run.id)) ?? "omitted",
       verificationArtifact: ephemeralRecordsByRun.get(String(run.id)) ?? null,
       artifactCollectionStatus: ephemeralArtifactStatusByRun.get(String(run.id)) ?? "omitted",
     })),
-    collection: { ephemeralArtifacts: true },
+    collection: {
+      ephemeralArtifacts: options.ephemeralProducerState === "enabled",
+      metaWorkFiles: options.publicationMode === "daily",
+    },
     circuits: circuitIssues.map((issue) => normalizeCircuitIssue(issue)).filter(Boolean),
     artifactFailures,
     sourceFailures,
+    metaWork,
     apiStatus: client.status(),
   };
 }
@@ -268,12 +546,13 @@ async function collectSourceData({ options, policy, client, queryStart }) {
 export function buildDeliveryHealth(input) {
   const generatedAt = normalizeIso(input.checkedAt);
   if (!generatedAt) throw new Error("checkedAt must be an ISO date.");
+  const ephemeralProducerState = input.ephemeralProducerState ?? input.source?.ephemeralProducerState ?? "unknown";
   const normalized = normalizeSource(input.source);
   const windows = buildWindows(generatedAt, input.policy.windows);
   const summaries = Object.fromEntries(
     Object.entries(windows).map(([name, window]) => [name, summarizeWindow(normalized, window, input.policy)]),
   );
-  const completeness = buildCompleteness(normalized, input.apiStatus);
+  const completeness = buildCompleteness(normalized, input.apiStatus, ephemeralProducerState);
   const record = {
     schemaVersion: DELIVERY_HEALTH_VERSION,
     generatedAt,
@@ -307,9 +586,32 @@ export function buildDeliveryHealth(input) {
     },
     windows: summaries,
   };
+  if (record.publication.mode === "daily") {
+    const bounds = {
+      start: new Date(Date.parse(generatedAt) - 14 * 86_400_000).toISOString(),
+      end: generatedAt,
+    };
+    const sourceReasons = [];
+    if (!normalized.collection.metaWorkFiles) {
+      sourceReasons.push({ reasonCode: "meta-source-failure", reasonSource: "pull-requests" });
+    }
+    sourceReasons.push(...normalized.metaWork.sourceReasons);
+    record.observations = {
+      metaWorkShare: buildMetaWorkShareObservation({
+        bounds,
+        sourceReasons,
+        pulls: normalized.metaWork.pulls,
+      }),
+    };
+  }
   record.baselineComparison = buildBaselineComparison(record, input.policy.baseline);
   record.rolloutComparisons = buildRolloutComparisons(normalized, windows.rolling7d.start, generatedAt, input.policy);
-  record.slis = evaluateSlis(record, input.policy);
+  record.slis = evaluateSlis(
+    record,
+    input.policy,
+    buildTargetReasons(normalized, input.apiStatus, windows, input.policy, ephemeralProducerState),
+    ephemeralProducerState,
+  );
   return { record, markdown: renderDeliveryHealthMarkdown(record) };
 }
 
@@ -367,20 +669,88 @@ function pickRate(metric) {
 
 function normalizeSource(source = {}) {
   const combinedDeployRuns = Array.isArray(source.deployRuns) ? source.deployRuns : [];
+  const platformPr = bindAuthoritativeRunRecords(
+    Array.isArray(source.platformPrRuns) ? source.platformPrRuns : [],
+    "platform-pr.yml",
+  );
+  const dispatch = bindAuthoritativeRunRecords(
+    Array.isArray(source.dispatchRuns) ? source.dispatchRuns : combinedDeployRuns.filter((run) => run.event === "push"),
+    "platform-release-candidate.yml",
+  );
+  const deploy = bindAuthoritativeRunRecords(
+    combinedDeployRuns.filter((run) => run.event !== "push"),
+    "platform-production.yml",
+  );
+  const ephemeral = bindAuthoritativeRunRecords(
+    Array.isArray(source.ephemeralRuns) ? source.ephemeralRuns : [],
+    "platform-ephemeral-verification.yml",
+  );
   return {
     pulls: Array.isArray(source.pulls) ? source.pulls : [],
-    platformPrRuns: Array.isArray(source.platformPrRuns) ? source.platformPrRuns : [],
-    dispatchRuns: Array.isArray(source.dispatchRuns)
-      ? source.dispatchRuns
-      : combinedDeployRuns.filter((run) => run.event === "push"),
-    deployRuns: combinedDeployRuns.filter((run) => run.event !== "push"),
-    ephemeralRuns: Array.isArray(source.ephemeralRuns) ? source.ephemeralRuns : [],
+    platformPrRuns: platformPr.runs,
+    dispatchRuns: dispatch.runs,
+    deployRuns: deploy.runs,
+    ephemeralRuns: ephemeral.runs,
+    attemptReasons: {
+      platformPr: platformPr.reasons,
+      dispatch: dispatch.reasons,
+      deploy: deploy.reasons,
+      ephemeral: ephemeral.reasons,
+    },
     circuits: Array.isArray(source.circuits) ? source.circuits : [],
     artifactFailures: Array.isArray(source.artifactFailures) ? source.artifactFailures : [],
     sourceFailures: Array.isArray(source.sourceFailures) ? source.sourceFailures : [],
-    collection:
-      source.collection?.ephemeralArtifacts === true ? { ephemeralArtifacts: true } : { ephemeralArtifacts: false },
+    metaWork: {
+      pulls: Array.isArray(source.metaWork?.pulls) ? source.metaWork.pulls : [],
+      sourceReasons: Array.isArray(source.metaWork?.sourceReasons) ? source.metaWork.sourceReasons : [],
+    },
+    collection: {
+      ephemeralArtifacts: source.collection?.ephemeralArtifacts === true,
+      metaWorkFiles: source.collection?.metaWorkFiles === true,
+    },
   };
+}
+
+function bindAuthoritativeRunRecords(runs, workflow) {
+  const groups = new Map();
+  const reasons = [];
+  for (const [index, run] of runs.entries()) {
+    const id = run?.id;
+    const attempt = run?.run_attempt ?? run?.runAttempt;
+    const source = `workflow:${workflow}:run:${isPositiveIdentity(id) ? id : `index-${index}`}`;
+    if (!isPositiveIdentity(id)) {
+      reasons.push(sliReason(Object.hasOwn(run ?? {}, "id") ? "field-invalid" : "field-missing", `${source}:id`));
+      continue;
+    }
+    if (!isPositiveInteger(attempt)) {
+      reasons.push(
+        sliReason(
+          Object.hasOwn(run ?? {}, "run_attempt") || Object.hasOwn(run ?? {}, "runAttempt")
+            ? "field-invalid"
+            : "field-missing",
+          `${source}:run_attempt`,
+        ),
+      );
+      continue;
+    }
+    const group = groups.get(String(id)) ?? [];
+    group.push({ run, attempt });
+    groups.set(String(id), group);
+  }
+  const authoritative = [];
+  for (const [id, group] of groups) {
+    const highest = Math.max(...group.map((entry) => entry.attempt));
+    const latest = group.filter((entry) => entry.attempt === highest);
+    const chosen = [...latest].sort((left, right) =>
+      ordinalCompare(JSON.stringify(left.run), JSON.stringify(right.run)),
+    )[0].run;
+    authoritative.push({
+      ...chosen,
+      attemptBindingReasons:
+        latest.length === 1 ? [] : [sliReason("attempt-conflict", `workflow:${workflow}:run:${id}:attempt:${highest}`)],
+    });
+  }
+  return { runs: authoritative, reasons: orderSliReasons(reasons) };
 }
 
 function buildWindows(end, policy) {
@@ -548,12 +918,20 @@ function summarizeRuns(runs) {
 
 function summarizeReleases(dispatchRuns, deployRuns, ephemeralRuns, window) {
   dispatchRuns = selectMetricSeries(dispatchRuns, window, runTimestamp);
-  const actualRuns = selectMetricSeries(
-    deployRuns.filter((run) => run.event === "workflow_dispatch" && isActualReleaseRun(run)),
+  const releaseCandidates = selectByWindow(
+    deployRuns.filter((run) => run.event === "workflow_dispatch"),
     window,
     runTimestamp,
   );
-  const actualOutcomes = actualRuns.map((run) => actualReleaseOutcome(run));
+  const releaseAnalysis = analyzeActualReleaseFrontier(
+    releaseCandidates,
+    window.kind === "last-n" ? window.limit : Number.POSITIVE_INFINITY,
+  );
+  const actualRuns = releaseAnalysis.selected.map((entry) => entry.run);
+  const actualOutcomes = releaseAnalysis.selected.map((entry) => ({
+    outcome: entry.outcome,
+    preMutationFailure: entry.preMutationFailure,
+  }));
   const actualCounts = countBy(actualOutcomes, (entry) => entry.outcome);
   const actualNumerator = sumOutcomes(actualCounts, SUCCESS_OUTCOMES);
   const actualFailures = sumOutcomes(actualCounts, FAILURE_OUTCOMES);
@@ -637,38 +1015,22 @@ function summarizeStage(runs, stage) {
 
 function summarizeEphemeral(runs, window) {
   const windowedRuns = selectByWindow(runs, window, runTimestamp);
-  const automaticWindowRuns = windowedRuns.filter((run) => run.verificationArtifact?.trigger === "automatic");
-  const manualWindowRuns = windowedRuns.filter((run) => run.verificationArtifact?.trigger === "manual");
-  const otherWindowRuns = windowedRuns.filter(
-    (run) => !["automatic", "manual"].includes(run.verificationArtifact?.trigger),
+  const analysis = analyzeEphemeralFrontier(
+    windowedRuns,
+    window.kind === "last-n" ? window.limit : Number.POSITIVE_INFINITY,
   );
-  const automaticRuns = selectMetricSeries(automaticWindowRuns, window, runTimestamp);
-  const manualRuns = selectMetricSeries(manualWindowRuns, window, runTimestamp);
-  const otherRuns = selectMetricSeries(otherWindowRuns, window, runTimestamp);
-  const entries = automaticWindowRuns.map((run) => {
-    const job = (run.jobs ?? []).find((candidate) =>
-      /verify release in ephemeral namespace/i.test(candidate.name ?? ""),
-    );
-    const conclusion = job?.conclusion ?? run.conclusion;
-    return {
-      run,
-      conclusion: run.verificationArtifact?.result ?? conclusion,
-      jobConclusion: conclusion,
-      runAttempt: run.run_attempt ?? run.runAttempt,
-      eligible: conclusion !== "skipped",
-      displaced: isConcurrencyDisplaced(run, automaticWindowRuns, conclusion),
-    };
-  });
-  const classified = entries.map((entry) => ({ ...entry, outcome: normalizeDeliveryConclusion(entry) }));
-  const metricEntries = selectMetricSeries(
-    classified.filter((entry) => SUCCESS_OUTCOMES.has(entry.outcome) || FAILURE_OUTCOMES.has(entry.outcome)),
-    window,
-    (entry) => runTimestamp(entry.run),
+  const automaticRuns = analysis.selected;
+  const manualRuns = analysis.manual;
+  const otherRuns = analysis.other;
+  const classified = automaticRuns.map((entry) => ({
+    ...entry,
+    jobConclusion: entry.jobConclusion,
+  }));
+  const metricEntries = classified.filter(
+    (entry) => SUCCESS_OUTCOMES.has(entry.outcome) || FAILURE_OUTCOMES.has(entry.outcome),
   );
-  const intentionalEntries = selectMetricSeries(
-    classified.filter((entry) => !SUCCESS_OUTCOMES.has(entry.outcome) && !FAILURE_OUTCOMES.has(entry.outcome)),
-    window,
-    (entry) => runTimestamp(entry.run),
+  const intentionalEntries = classified.filter(
+    (entry) => !SUCCESS_OUTCOMES.has(entry.outcome) && !FAILURE_OUTCOMES.has(entry.outcome),
   );
   const outcomes = {
     ...countBy(metricEntries, (entry) => entry.outcome),
@@ -694,6 +1056,235 @@ function summarizeEphemeral(runs, window) {
     denominator,
     successRate: denominator > 0 ? numerator / denominator : null,
   };
+}
+
+function analyzeActualReleaseFrontier(runs, limit) {
+  const selected = [];
+  const pendingReasons = [];
+  const ordered = [...runs].sort(compareRunsNewestFirst);
+  for (const run of ordered) {
+    const decision = resolveActualReleaseDecision(run);
+    if (!decision.applicable) continue;
+    if (decision.resolved) {
+      if (selected.length < limit) selected.push(decision);
+    } else if (selected.length < limit) {
+      pendingReasons.push(...decision.reasons);
+    }
+  }
+  return { selected, reasons: orderSliReasons(pendingReasons) };
+}
+
+function resolveActualReleaseDecision(run) {
+  const runId = String(run.id ?? "unknown");
+  const attempt = run.run_attempt ?? run.runAttempt;
+  const allJobs = Array.isArray(run.jobs) ? run.jobs : [];
+  const releaseRecords = (run.releaseArtifacts ?? []).filter((record) => record?.schemaVersion === "release-health/v1");
+  const hasCanonicalEvidence =
+    releaseRecords.length > 0 ||
+    allJobs.some((job) => CANONICAL_JOB_NAMES.includes(job?.name)) ||
+    run.jobCollectionStatus === "failure" ||
+    run.artifactCollectionStatus === "failure";
+  if (!hasCanonicalEvidence) return { applicable: false, resolved: false, reasons: [] };
+
+  const reasons = [...(run.attemptBindingReasons ?? [])];
+  if (run.jobCollectionStatus === "failure") {
+    reasons.push(sliReason("job-collection-failure", `run:${runId}`));
+  }
+  if (run.artifactCollectionStatus === "failure") {
+    reasons.push(sliReason("artifact-collection-failure", `run:${runId}`));
+  }
+  const jobs = new Map();
+  for (const name of CANONICAL_JOB_NAMES) {
+    const named = allJobs.filter((job) => job?.name === name);
+    const current = named.filter((job) => (job.run_attempt ?? job.runAttempt) === attempt);
+    if (named.some((job) => !isPositiveInteger(job.run_attempt ?? job.runAttempt))) {
+      reasons.push(sliReason("attempt-conflict", `run:${runId}:job:${name}`));
+    }
+    if (current.length !== 1) reasons.push(sliReason("attempt-conflict", `run:${runId}:job:${name}`));
+    if (current.length === 1) jobs.set(name, current[0]);
+  }
+
+  const currentRecords = [];
+  for (const record of releaseRecords) {
+    const recordRunId = record.workflowRunId;
+    const recordAttempt = Number(record.workflowRunAttempt);
+    if (String(recordRunId) === runId && isPositiveInteger(recordAttempt) && recordAttempt < attempt) continue;
+    if (String(recordRunId) !== runId || recordAttempt !== attempt) {
+      reasons.push(sliReason("attempt-conflict", `run:${runId}:release-record-identity`));
+      continue;
+    }
+    currentRecords.push(record);
+  }
+
+  const byPhase = new Map();
+  for (const record of currentRecords) {
+    const phase = record.attempt?.phase;
+    if (!["queue", "staging", "production"].includes(phase)) {
+      reasons.push(sliReason("attempt-conflict", `run:${runId}:release-phase`));
+      continue;
+    }
+    const records = byPhase.get(phase) ?? [];
+    records.push(record);
+    byPhase.set(phase, records);
+  }
+  for (const [phase, records] of byPhase) {
+    if (records.length !== 1) reasons.push(sliReason("attempt-conflict", `run:${runId}:phase:${phase}`));
+  }
+
+  const resolveJob = jobs.get("Resolve Release")?.conclusion;
+  const stagingJob = jobs.get("Deploy Staging")?.conclusion;
+  const productionJob = jobs.get("Deploy Production")?.conclusion;
+  let outcome;
+  let terminal;
+  if (currentRecords.length === 0) {
+    if (resolveJob === "success" && stagingJob === "skipped" && productionJob === "skipped") {
+      outcome = "skipped/not-eligible";
+    } else {
+      if (resolveJob === "success" && [stagingJob, productionJob].some((value) => value && value !== "skipped")) {
+        reasons.push(sliReason("artifact-missing", `run:${runId}`));
+      }
+      reasons.push(sliReason("attempt-conflict", `run:${runId}:zero-record-posture`));
+    }
+  } else if (currentRecords.length === 1 && byPhase.has("queue")) {
+    const record = byPhase.get("queue")[0];
+    const valid =
+      record.attempt?.result === "skipped" &&
+      record.attempt?.reason === "candidate-superseded-before-staging-mutation" &&
+      /^[0-9a-f]{40}$/u.test(record.attempt?.supersededByCommit ?? "") &&
+      record.staging?.result === "skipped" &&
+      record.staging?.applied === false &&
+      record.production?.result === "skipped" &&
+      resolveJob === "success" &&
+      stagingJob === "success" &&
+      productionJob === "skipped";
+    if (valid) outcome = "intentional-superseded/coalesced";
+    else reasons.push(sliReason("attempt-conflict", `run:${runId}:queue-posture`));
+  } else if (currentRecords.length === 1 && byPhase.has("staging")) {
+    const record = byPhase.get("staging")[0];
+    const result = record.attempt?.result;
+    if (
+      resolveJob === "success" &&
+      stagingJob === result &&
+      productionJob === "skipped" &&
+      record.staging?.result === result
+    ) {
+      terminal = record;
+      outcome = normalizeDeliveryConclusion({
+        conclusion: result,
+        runAttempt: attempt,
+        reason: record.attempt?.reason,
+      });
+    } else reasons.push(sliReason("attempt-conflict", `run:${runId}:staging-posture`));
+  } else if (currentRecords.length === 2 && byPhase.size === 2 && byPhase.has("staging") && byPhase.has("production")) {
+    const staging = byPhase.get("staging")[0];
+    const production = byPhase.get("production")[0];
+    if (
+      resolveJob === "success" &&
+      stagingJob === staging.attempt?.result &&
+      productionJob === production.attempt?.result &&
+      staging.staging?.result === staging.attempt?.result &&
+      production.production?.result === production.attempt?.result
+    ) {
+      terminal = production;
+      outcome = normalizeDeliveryConclusion({
+        conclusion: production.attempt?.result,
+        runAttempt: attempt,
+        reason: production.attempt?.reason,
+      });
+    } else reasons.push(sliReason("attempt-conflict", `run:${runId}:production-posture`));
+  } else {
+    reasons.push(sliReason("attempt-conflict", `run:${runId}:release-shape`));
+  }
+
+  const orderedReasons = orderSliReasons(reasons);
+  if (orderedReasons.length > 0 || !outcome || outcome === "unknown") {
+    if (!outcome || outcome === "unknown")
+      orderedReasons.push(sliReason("attempt-conflict", `run:${runId}:terminal-outcome`));
+    return { run, applicable: true, resolved: false, reasons: orderSliReasons(orderedReasons) };
+  }
+  return {
+    run,
+    applicable: true,
+    resolved: true,
+    outcome,
+    preMutationFailure:
+      Boolean(terminal) &&
+      FAILURE_OUTCOMES.has(outcome) &&
+      terminal.staging?.applied !== true &&
+      stagingJob !== "success",
+    reasons: [],
+  };
+}
+
+function analyzeEphemeralFrontier(runs, limit) {
+  const ordered = [...runs].sort(compareRunsNewestFirst);
+  const resolved = ordered.map(resolveEphemeralDecision);
+  const automatic = resolved.filter((entry) => entry.resolved && entry.trigger === "automatic");
+  const selected = automatic.slice(0, limit);
+  const frontierIndex = selected.length >= limit ? ordered.indexOf(selected.at(-1).run) : Number.POSITIVE_INFINITY;
+  const reasons = [];
+  for (const entry of resolved) {
+    if (entry.resolved) continue;
+    const index = ordered.indexOf(entry.run);
+    if (index <= frontierIndex) reasons.push(...entry.reasons);
+  }
+  const automaticRuns = automatic.map((entry) => entry.run);
+  for (const entry of selected) {
+    entry.displaced = isConcurrencyDisplaced(entry.run, automaticRuns, entry.jobConclusion);
+    entry.outcome = normalizeDeliveryConclusion({
+      conclusion: entry.record.result ?? entry.jobConclusion,
+      runAttempt: entry.run.run_attempt ?? entry.run.runAttempt,
+      displaced: entry.displaced,
+    });
+  }
+  return {
+    selected,
+    manual: resolved.filter((entry) => entry.resolved && entry.trigger === "manual"),
+    other: resolved.filter((entry) => !entry.resolved),
+    reasons: orderSliReasons(reasons),
+  };
+}
+
+function resolveEphemeralDecision(run) {
+  const runId = String(run.id ?? "unknown");
+  const attempt = run.run_attempt ?? run.runAttempt;
+  const namedJobs = (run.jobs ?? []).filter((job) => job?.name === EPHEMERAL_JOB_NAME);
+  const jobs = namedJobs.filter((job) => (job.run_attempt ?? job.runAttempt) === attempt);
+  const reasons = [...(run.attemptBindingReasons ?? [])];
+  if (run.jobCollectionStatus === "failure") {
+    reasons.push(sliReason("job-collection-failure", `run:${runId}`));
+  }
+  if (run.artifactCollectionStatus === "invalid") {
+    reasons.push(sliReason("artifact-collection-failure", `run:${runId}`));
+  }
+  if (namedJobs.some((job) => !isPositiveInteger(job.run_attempt ?? job.runAttempt)) || jobs.length !== 1) {
+    reasons.push(sliReason("attempt-conflict", `run:${runId}:job:${EPHEMERAL_JOB_NAME}`));
+  }
+  const record = run.verificationArtifact;
+  if (!record) reasons.push(sliReason("artifact-missing", `run:${runId}`));
+  else if (String(record.workflowRunId) !== runId || Number(record.workflowRunAttempt) !== attempt) {
+    reasons.push(sliReason("attempt-conflict", `run:${runId}:verification-record-identity`));
+  }
+  if (record && !["automatic", "manual"].includes(record.trigger)) {
+    reasons.push(sliReason("field-invalid", `run:${runId}:trigger`));
+  }
+  const orderedReasons = orderSliReasons(reasons);
+  return {
+    run,
+    record,
+    trigger: record?.trigger ?? null,
+    jobConclusion: jobs[0]?.conclusion ?? run.conclusion,
+    resolved: orderedReasons.length === 0,
+    reasons: orderedReasons,
+  };
+}
+
+function compareRunsNewestFirst(left, right) {
+  const time = Date.parse(runTimestamp(right) ?? "") - Date.parse(runTimestamp(left) ?? "");
+  if (time !== 0) return time;
+  const leftId = BigInt(String(left.id ?? 0));
+  const rightId = BigInt(String(right.id ?? 0));
+  return rightId > leftId ? 1 : rightId < leftId ? -1 : 0;
 }
 
 function isConcurrencyDisplaced(run, automaticRuns, conclusion) {
@@ -765,14 +1356,28 @@ function detectionLatencySeconds(circuit) {
   return Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : null;
 }
 
-export function evaluateSlis(record, policy) {
+export function evaluateSlis(record, policy, targetReasons = {}, ephemeralProducerState = "unknown") {
   const evaluations = [];
   for (const [id, target] of Object.entries(policy.targets)) {
     const window = record.windows[target.window];
     const value = getPath(window, target.metric);
     const sample = getPath(window, target.sampleMetric);
-    const complete = record.completeness.status === "complete";
-    const sufficient = complete && Number.isFinite(sample) && sample >= target.minimumSample && Number.isFinite(value);
+    const reasons = [...(targetReasons[id] ?? [])];
+    if (value === undefined) reasons.push(sliReason("metric-path-missing", `target:${id}:metric:${target.metric}`));
+    if (sample === undefined)
+      reasons.push(sliReason("sample-path-missing", `target:${id}:sample:${target.sampleMetric}`));
+    const disabled = id === "ephemeral-verification-success" && ephemeralProducerState === "disabled";
+    const complete = disabled || orderSliReasons(reasons).every((reason) => reason.reasonCode === "producer-disabled");
+    if (!disabled && complete && Number.isFinite(sample) && sample < target.minimumSample) {
+      reasons.push(sliReason("below-minimum-sample", `target:${id}`));
+    }
+    const orderedReasons = orderSliReasons(reasons);
+    const sufficient =
+      !disabled &&
+      orderedReasons.length === 0 &&
+      Number.isFinite(sample) &&
+      sample >= target.minimumSample &&
+      Number.isFinite(value);
     const passes = sufficient ? compare(value, target.operator, target.value) : null;
     let severity = target.severity;
     if (passes === false && Number.isFinite(target.p0Below) && value < target.p0Below) severity = "p0";
@@ -784,14 +1389,240 @@ export function evaluateSlis(record, policy) {
       value: Number.isFinite(value) ? value : null,
       sample: Number.isFinite(sample) ? sample : 0,
       target: { operator: target.operator, value: target.value, minimumSample: target.minimumSample },
-      status: !sufficient ? "insufficient-data" : passes ? "passing" : "breaching",
+      status: disabled ? "disabled" : !sufficient ? "insufficient-data" : passes ? "passing" : "breaching",
       severity,
+      reasons: disabled ? [sliReason("producer-disabled", PRODUCER_REASON_SOURCE)] : orderedReasons,
     });
   }
   return evaluations;
 }
 
-function buildCompleteness(source, apiStatus = {}) {
+function buildTargetReasons(source, apiStatus = {}, windows, policy, ephemeralProducerState = "unknown") {
+  const reasons = Object.fromEntries(Object.keys(policy.targets).map((id) => [id, []]));
+  const add = (ids, reasonCode, reasonSource) => {
+    for (const id of ids) reasons[id]?.push(sliReason(reasonCode, reasonSource));
+  };
+  const sourceConsumers = {
+    "pull-requests": ["creation-to-merge-p90"],
+    "platform-pr-runs": ["pull-request-ci-success", "merge-group-success", "pr-ci-p90"],
+    "platform-deploy-runs": ["actual-release-success"],
+    "release-dispatch-runs": ["actual-release-success"],
+    "ephemeral-verification-runs": ["ephemeral-verification-success"],
+    "delivery-failure-signatures": ["repeated-failure-detection", "open-mutation-circuit"],
+  };
+  for (const failure of source.sourceFailures) {
+    if (failure.source.startsWith("jobs:")) {
+      // Attempt-bound analyzers localize this failure to the applicable
+      // last-N frontier instead of suppressing for an older run.
+    } else if (failure.source.startsWith("pull-files:")) {
+      // Status-aware PR-file failures belong to the daily observation, not an SLI.
+    } else {
+      add(sourceConsumers[failure.source] ?? [], "source-failure", failure.source);
+    }
+  }
+  const truncatedConsumers = {
+    "workflow:platform-pr.yml": sourceConsumers["platform-pr-runs"],
+    "workflow:platform-production.yml": ["actual-release-success"],
+    "workflow:platform-release-candidate.yml": ["actual-release-success"],
+    "workflow:platform-ephemeral-verification.yml": ["ephemeral-verification-success"],
+    "delivery-failure-signatures": sourceConsumers["delivery-failure-signatures"],
+    "pull-requests": sourceConsumers["pull-requests"],
+  };
+  for (const entry of Array.isArray(apiStatus.truncated) ? apiStatus.truncated : []) {
+    add(truncatedConsumers[entry] ?? [], "source-truncated", entry);
+  }
+
+  for (const reason of source.attemptReasons.platformPr)
+    add(sourceConsumers["platform-pr-runs"], reason.reasonCode, reason.reasonSource);
+  for (const reason of source.attemptReasons.deploy)
+    add(["actual-release-success"], reason.reasonCode, reason.reasonSource);
+  if (ephemeralProducerState === "enabled") {
+    for (const reason of source.attemptReasons.ephemeral)
+      add(["ephemeral-verification-success"], reason.reasonCode, reason.reasonSource);
+  }
+
+  for (const run of source.platformPrRuns) {
+    validateRequiredFields(
+      run,
+      ["updated_at"],
+      `workflow:platform-pr.yml:run:${run.id ?? "unknown"}`,
+      sourceConsumers["platform-pr-runs"],
+      add,
+      { updated_at: isIsoInstant },
+    );
+    if (!isIsoInstant(run.updated_at) || !inBounds(run.updated_at, windows.rolling24h)) continue;
+    const affected =
+      run.event === "pull_request"
+        ? ["pull-request-ci-success", "pr-ci-p90"]
+        : run.event === "merge_group"
+          ? ["merge-group-success", "pr-ci-p90"]
+          : sourceConsumers["platform-pr-runs"];
+    for (const reason of run.attemptBindingReasons ?? []) add(affected, reason.reasonCode, reason.reasonSource);
+    validateRequiredFields(
+      run,
+      ["id", "event", "conclusion", "run_attempt"],
+      `workflow:platform-pr.yml:run:${run.id ?? "unknown"}`,
+      affected,
+      add,
+      {
+        id: isPositiveIdentity,
+        event: (value) => ["pull_request", "merge_group"].includes(value),
+        conclusion: isTerminalConclusion,
+        run_attempt: isPositiveInteger,
+      },
+    );
+    if (["pull_request", "merge_group"].includes(run.event)) {
+      validateRequiredFields(
+        run,
+        ["run_started_at"],
+        `workflow:platform-pr.yml:run:${run.id ?? "unknown"}`,
+        ["pr-ci-p90"],
+        add,
+        { run_started_at: isIsoInstant },
+      );
+    }
+  }
+
+  for (const pull of source.pulls) {
+    if (pull.mergedAt === null || pull.mergedAt === undefined) continue;
+    if (!isIsoInstant(pull.mergedAt)) {
+      add(["creation-to-merge-p90"], "field-invalid", `pull:${pull.number ?? "unknown"}:mergedAt`);
+      continue;
+    }
+    if (!inBounds(pull.mergedAt, windows.rolling7d)) continue;
+    validateRequiredFields(
+      pull,
+      ["number", "createdAt", "updatedAt", "mergedAt"],
+      `pull:${pull.number ?? "unknown"}`,
+      ["creation-to-merge-p90"],
+      add,
+      { number: isPositiveInteger, createdAt: isIsoInstant, updatedAt: isIsoInstant, mergedAt: isIsoInstant },
+    );
+  }
+
+  for (const run of source.deployRuns.filter((entry) => entry.event === "workflow_dispatch")) {
+    validateRequiredFields(
+      run,
+      ["id", "event", "conclusion", "run_attempt", "updated_at"],
+      `workflow:platform-production.yml:run:${run.id ?? "unknown"}`,
+      ["actual-release-success"],
+      add,
+      {
+        id: isPositiveIdentity,
+        event: (value) => value === "workflow_dispatch",
+        conclusion: isTerminalConclusion,
+        run_attempt: isPositiveInteger,
+        updated_at: isIsoInstant,
+      },
+    );
+  }
+
+  const releaseAnalysis = analyzeActualReleaseFrontier(source.deployRuns, windows.lastN.limit);
+  for (const reason of releaseAnalysis.reasons) add(["actual-release-success"], reason.reasonCode, reason.reasonSource);
+  if (ephemeralProducerState === "disabled") {
+    reasons["ephemeral-verification-success"] = [sliReason("producer-disabled", PRODUCER_REASON_SOURCE)];
+  } else if (ephemeralProducerState !== "enabled") {
+    add(["ephemeral-verification-success"], "source-failure", PRODUCER_REASON_SOURCE);
+  } else {
+    for (const run of source.ephemeralRuns) {
+      validateRequiredFields(
+        run,
+        ["id", "conclusion", "run_attempt", "updated_at"],
+        `workflow:platform-ephemeral-verification.yml:run:${run.id ?? "unknown"}`,
+        ["ephemeral-verification-success"],
+        add,
+        {
+          id: isPositiveIdentity,
+          conclusion: isTerminalConclusion,
+          run_attempt: isPositiveInteger,
+          updated_at: isIsoInstant,
+        },
+      );
+    }
+    const ephemeralAnalysis = analyzeEphemeralFrontier(source.ephemeralRuns, windows.lastN.limit);
+    for (const reason of ephemeralAnalysis.reasons)
+      add(["ephemeral-verification-success"], reason.reasonCode, reason.reasonSource);
+  }
+
+  for (const circuit of source.circuits) {
+    const base = `delivery-failure-signature:${circuit.canonicalIssueNumber ?? "unknown"}`;
+    if (circuit.invalidMarker) {
+      add(sourceConsumers["delivery-failure-signatures"], "field-invalid", base);
+      continue;
+    }
+    for (const [field, validator] of [
+      ["lastObservedAt", isIsoInstant],
+      ["state", (value) => typeof value === "string" && value.length > 0],
+      ["lane", (value) => typeof value === "string" && value.length > 0],
+    ]) {
+      if (!Object.hasOwn(circuit, field) || circuit[field] === null)
+        add(sourceConsumers["delivery-failure-signatures"], "field-missing", `${base}:${field}`);
+      else if (!validator(circuit[field]))
+        add(sourceConsumers["delivery-failure-signatures"], "field-invalid", `${base}:${field}`);
+    }
+    if (!Array.isArray(circuit.observations))
+      add(["repeated-failure-detection"], "field-invalid", `${base}:observations`);
+    else if (circuit.observations.some((entry) => !isIsoInstant(entry?.observedAt)))
+      add(["repeated-failure-detection"], "field-invalid", `${base}:observations.observedAt`);
+    const publishedAt = circuit.canonicalIssueCreatedAt ?? circuit.checkedAt;
+    if (!isIsoInstant(publishedAt)) add(["repeated-failure-detection"], "field-invalid", `${base}:publishedAt`);
+  }
+  return Object.fromEntries(Object.entries(reasons).map(([id, values]) => [id, orderSliReasons(values)]));
+}
+
+function validateRequiredFields(value, fields, source, ids, add, validators) {
+  for (const field of fields) {
+    if (!Object.hasOwn(value, field) || value[field] === null || value[field] === undefined) {
+      add(ids, "field-missing", `${source}:${field}`);
+    } else if (!validators[field](value[field])) {
+      add(ids, "field-invalid", `${source}:${field}`);
+    }
+  }
+}
+
+function sliReason(reasonCode, reasonSource) {
+  return { reasonCode, reasonSource };
+}
+
+function orderSliReasons(reasons) {
+  const unique = new Map();
+  for (const reason of reasons) {
+    if (!SLI_REASON_RANKS.has(reason?.reasonCode) || typeof reason?.reasonSource !== "string") continue;
+    unique.set(`${reason.reasonCode}\u0000${reason.reasonSource}`, reason);
+  }
+  return [...unique.values()].sort(
+    (left, right) =>
+      SLI_REASON_RANKS.get(left.reasonCode) - SLI_REASON_RANKS.get(right.reasonCode) ||
+      ordinalCompare(left.reasonSource, right.reasonSource),
+  );
+}
+
+function isPositiveIdentity(value) {
+  return (Number.isInteger(value) && value > 0) || (typeof value === "string" && /^[1-9][0-9]*$/u.test(value));
+}
+
+function isPositiveInteger(value) {
+  return Number.isInteger(value) && value > 0;
+}
+
+function isIsoInstant(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+function isTerminalConclusion(value) {
+  return [
+    "success",
+    "failure",
+    "timed_out",
+    "startup_failure",
+    "action_required",
+    "cancelled",
+    "skipped",
+    "neutral",
+  ].includes(value);
+}
+
+function buildCompleteness(source, apiStatus = {}, ephemeralProducerState = "unknown") {
   const truncated = Array.isArray(apiStatus.truncated) ? apiStatus.truncated : [];
   const errors = Array.isArray(apiStatus.errors) ? apiStatus.errors : [];
   const missingReleaseArtifacts = source.deployRuns
@@ -821,6 +1652,7 @@ function buildCompleteness(source, apiStatus = {}) {
     ...source.sourceFailures.map((entry) => `source:${entry.source}`),
     ...missingReleaseArtifacts.map((runId) => `missing-release-health:${runId}`),
     ...missingEphemeralArtifacts.map((runId) => `missing-ephemeral-evidence:${runId}`),
+    ...(ephemeralProducerState === "unknown" ? [`source:${PRODUCER_REASON_SOURCE}`] : []),
     ...(source.pulls.some((pull) => pull.nestedDataTruncated) ? ["truncated:pull-request-nested-data"] : []),
   ];
   return {
@@ -872,6 +1704,20 @@ export function renderDeliveryHealthMarkdown(record) {
     `- Ephemeral verification: ${current.releases.ephemeral.automaticRuns} automatic runs; ${current.releases.ephemeral.manualRuns} manual proofs; ${current.releases.ephemeral.otherRuns} unclassified runs; ${current.releases.ephemeral.displaced} concurrency-displaced and ${current.releases.ephemeral.cancelledOther} other cancellations.`,
     `- Staging: ${formatRate(current.releases.staging)}; duration p50/p90 ${formatSeconds(current.releases.staging.durationSeconds.p50)} / ${formatSeconds(current.releases.staging.durationSeconds.p90)}.`,
     `- Production: ${formatRate(current.releases.production)}; rollbacks ${current.releases.production.rollbacks}; duration p50/p90 ${formatSeconds(current.releases.production.durationSeconds.p50)} / ${formatSeconds(current.releases.production.durationSeconds.p90)}.`,
+  );
+  if (record.publication.mode === "daily") {
+    const observation = record.observations.metaWorkShare;
+    lines.push(
+      "",
+      "### 14-day work purpose",
+      "",
+      `Inclusive bounds: ${observation.bounds.start} to ${observation.bounds.end}.`,
+      `- Counts: ${observation.counts.metaOnly} meta-only; ${observation.counts.mixed} mixed; ${observation.counts.product} product; ${observation.counts.unknown} unknown.`,
+      `- Share: ${observation.status === "available" ? formatMetric(observation.share) : "unavailable"} (${observation.numerator}/${observation.denominator}).`,
+      ...observation.reasons.map((reason) => `- ${reason.reasonCode}: ${reason.reasonSource}.`),
+    );
+  }
+  lines.push(
     "",
     "### SLI posture",
     "",
@@ -886,7 +1732,7 @@ export function renderDeliveryHealthMarkdown(record) {
   if (record.completeness.reasons.length > 0) {
     lines.push(
       "",
-      `Incomplete evidence: ${record.completeness.reasons.join(", ")}. Alerts are suppressed until complete.`,
+      `Incomplete evidence telemetry: ${record.completeness.reasons.join(", ")}. Each SLI suppresses only the incomplete evidence it consumes.`,
     );
   }
   return lines.join("\n");
@@ -908,7 +1754,12 @@ export function renderSliIssue(record, sli) {
       ? "Recover the affected delivery lane using the release-process runbook, then let a later complete collection close this canonical signal."
       : sli.status === "passing"
         ? "Recovered: the latest complete collection satisfies the policy target."
-        : "No new alert decision is made while evidence is incomplete or below the minimum sample.",
+        : sli.status === "disabled"
+          ? "The automatic producer is authoritatively disabled; an existing canonical signal remains held without opening a new issue."
+          : "No new alert decision is made while target evidence is incomplete or below the minimum sample.",
+    ...(sli.reasons?.length
+      ? ["", ...sli.reasons.map((reason) => `- Reason: ${reason.reasonCode} (${reason.reasonSource})`)]
+      : []),
     "",
     renderSliMarker({ sli: sli.id, schemaVersion: DELIVERY_HEALTH_SLI_MARKER_VERSION }),
   ].join("\n");
@@ -930,19 +1781,30 @@ export function parseSliMarker(body) {
 }
 
 export async function publishSliIssues({ client, repository, record }) {
-  const query = encodeURIComponent(`repo:${repository} is:issue "${DELIVERY_HEALTH_SLI_MARKER_VERSION}" in:body`);
-  const existing = await client.paginate(
-    `${API_BASE_URL}/search/issues?q=${query}&per_page=100`,
-    (payload) => payload?.items,
-    {
-      source: "delivery-health-sli-issues",
-      maxPages: 5,
-    },
-  );
-  const bySli = new Map(existing.map((issue) => [parseSliMarker(issue.body)?.sli, issue]).filter(([id]) => id));
-  const updates = [];
+  const snapshot = await fetchCanonicalIssueSnapshot(client, repository, new Set(record.slis.map((sli) => sli.id)));
+  if (snapshot.status !== "complete") {
+    return { status: "canonical-lookup-incomplete", reasons: snapshot.reasons, actions: [] };
+  }
+  const bySli = new Map();
+  for (const issue of snapshot.issues) {
+    const marker = parseSliMarker(issue.body);
+    if (!marker) continue;
+    const group = bySli.get(marker.sli) ?? [];
+    group.push(issue);
+    bySli.set(marker.sli, group);
+  }
+  const actions = [];
   for (const sli of record.slis) {
-    const issue = bySli.get(sli.id);
+    const matches = (bySli.get(sli.id) ?? []).sort((left, right) => left.number - right.number);
+    if (matches.length > 1) {
+      actions.push({
+        action: "duplicate-marker-conflict",
+        sli: sli.id,
+        issueNumbers: matches.map((issue) => issue.number),
+      });
+      continue;
+    }
+    const issue = matches[0];
     if (sli.status === "breaching") {
       const body = renderSliIssue(record, sli);
       const title = `[Delivery health] ${sli.severity.toUpperCase()} ${sli.id}`;
@@ -952,19 +1814,157 @@ export async function publishSliIssues({ client, repository, record }) {
             method: "POST",
             body: { title, body, labels: ["kind:ops", "area:infrastructure", `priority:${sli.severity}`] },
           });
-      updates.push({ sli: sli.id, action: issue ? "updated" : "created", issueNumber: saved.number });
+      actions.push({
+        sli: sli.id,
+        action: issue ? (issue.state === "open" ? "updated" : "reopened") : "created",
+        issueNumber: saved.number,
+      });
     } else if (issue?.state === "open" && sli.status === "passing") {
       await client.json(`/issues/${issue.number}`, {
         method: "PATCH",
         body: { body: renderSliIssue(record, sli), state: "closed", state_reason: "completed" },
       });
-      updates.push({ sli: sli.id, action: "closed", issueNumber: issue.number });
+      actions.push({ sli: sli.id, action: "closed", issueNumber: issue.number });
     } else if (issue?.state === "open" && sli.status === "insufficient-data") {
       await client.json(`/issues/${issue.number}`, { method: "PATCH", body: { body: renderSliIssue(record, sli) } });
-      updates.push({ sli: sli.id, action: "held-open-insufficient-data", issueNumber: issue.number });
+      actions.push({ sli: sli.id, action: "held-open-insufficient-data", issueNumber: issue.number });
+    } else if (issue?.state === "open" && sli.status === "disabled") {
+      if (/^- Status: \*\*disabled\*\*$/mu.test(String(issue.body ?? ""))) {
+        actions.push({ sli: sli.id, action: "unchanged-disabled", issueNumber: issue.number });
+      } else {
+        await client.json(`/issues/${issue.number}`, { method: "PATCH", body: { body: renderSliIssue(record, sli) } });
+        actions.push({ sli: sli.id, action: "held-open-disabled", issueNumber: issue.number });
+      }
     }
   }
-  return updates;
+  return { status: "complete", reasons: [], actions };
+}
+
+async function fetchCanonicalIssueSnapshot(client, repository, configuredSlis) {
+  const reasons = [];
+  const issues = [];
+  const seenUrls = new Set();
+  const query = encodeURIComponent(`repo:${repository} is:issue "${DELIVERY_HEALTH_SLI_MARKER_VERSION}" in:body`);
+  let nextUrl = `${API_BASE_URL}/search/issues?q=${query}&per_page=100&page=1`;
+  let expectedTotal = null;
+  try {
+    for (let page = 1; page <= 10 && nextUrl; page += 1) {
+      if (seenUrls.has(nextUrl)) {
+        reasons.push(canonicalReason("canonical-source-truncated", "delivery-health-sli-search"));
+        break;
+      }
+      seenUrls.add(nextUrl);
+      const response = await client.request(nextUrl);
+      const payload = await response.json();
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        !Number.isInteger(payload.total_count) ||
+        payload.total_count < 0 ||
+        !Array.isArray(payload.items)
+      ) {
+        reasons.push(canonicalReason("canonical-source-truncated", "delivery-health-sli-search"));
+        break;
+      }
+      if (expectedTotal === null) expectedTotal = payload.total_count;
+      else if (expectedTotal !== payload.total_count)
+        reasons.push(canonicalReason("canonical-count-mismatch", "delivery-health-sli-search"));
+      if (payload.incomplete_results !== false) {
+        reasons.push(canonicalReason("canonical-source-truncated", "delivery-health-sli-search"));
+      }
+      if (payload.total_count >= 1_000) {
+        reasons.push(canonicalReason("canonical-provider-cap", "delivery-health-sli-search"));
+      }
+      issues.push(...payload.items);
+      if (issues.length >= payload.total_count) {
+        nextUrl = null;
+        break;
+      }
+      const candidate = parseNextLink(response.headers?.get?.("link"));
+      if (!candidate || !isSafeSearchCursor(candidate, query, page + 1)) {
+        reasons.push(canonicalReason("canonical-source-truncated", "delivery-health-sli-search"));
+        break;
+      }
+      nextUrl = candidate;
+    }
+    if (nextUrl) reasons.push(canonicalReason("canonical-source-truncated", "delivery-health-sli-search"));
+  } catch {
+    reasons.push(canonicalReason("canonical-request-failure", "delivery-health-sli-search"));
+  }
+
+  const issueNumbers = issues.map((issue) => issue?.number);
+  const uniqueNumbers = new Set(issueNumbers.filter((number) => Number.isInteger(number) && number > 0));
+  if (uniqueNumbers.size !== issues.length) {
+    reasons.push(canonicalReason("canonical-source-truncated", "delivery-health-sli-search"));
+  }
+  if (
+    expectedTotal !== null &&
+    (uniqueNumbers.size !== expectedTotal || issueNumbers.some((number) => !Number.isInteger(number) || number < 1))
+  ) {
+    reasons.push(canonicalReason("canonical-count-mismatch", "delivery-health-sli-search"));
+  }
+
+  for (const issue of [...issues].sort((left, right) => left.number - right.number)) {
+    const body = String(issue.body ?? "");
+    const prefixCount = body.split(SLI_MARKER_PREFIX).length - 1;
+    if (prefixCount === 0) continue;
+    const matches = [...body.matchAll(/<!--\s*delivery-health-sli\/v1\s+(\{[\s\S]*?\})\s*-->/gu)];
+    const marker = matches.length === 1 ? parseSliMarker(matches[0][0]) : null;
+    if (prefixCount !== 1 || matches.length !== 1 || !marker) {
+      reasons.push(canonicalReason("canonical-marker-malformed", `issue:${issue.number}`));
+    } else if (!configuredSlis.has(marker.sli)) {
+      reasons.push(canonicalReason("canonical-marker-unconfigured", `issue:${issue.number}`));
+    }
+  }
+  const orderedReasons = orderCanonicalReasons(reasons);
+  return {
+    status: orderedReasons.length === 0 ? "complete" : "canonical-lookup-incomplete",
+    reasons: orderedReasons,
+    issues: orderedReasons.length === 0 ? issues : [],
+  };
+}
+
+function parseNextLink(value) {
+  if (typeof value !== "string") return null;
+  for (const part of value.split(",")) {
+    const match = part.trim().match(/^<([^>]+)>;\s*rel="([^"]+)"$/u);
+    if (match?.[2] === "next") return match[1];
+  }
+  return null;
+}
+
+function isSafeSearchCursor(value, encodedQuery, expectedPage) {
+  try {
+    const url = new URL(value);
+    return (
+      url.origin === API_BASE_URL &&
+      url.pathname === "/search/issues" &&
+      url.searchParams.get("q") === decodeURIComponent(encodedQuery) &&
+      url.searchParams.get("per_page") === "100" &&
+      Number(url.searchParams.get("page")) === expectedPage
+    );
+  } catch {
+    return false;
+  }
+}
+
+function canonicalReason(reasonCode, reasonSource) {
+  return { reasonCode, reasonSource };
+}
+
+function orderCanonicalReasons(reasons) {
+  const unique = new Map();
+  for (const reason of reasons) {
+    if (!CANONICAL_REASON_RANKS.has(reason?.reasonCode)) continue;
+    unique.set(`${reason.reasonCode}\u0000${reason.reasonSource}`, reason);
+  }
+  return [...unique.values()].sort((left, right) => {
+    const rank = CANONICAL_REASON_RANKS.get(left.reasonCode) - CANONICAL_REASON_RANKS.get(right.reasonCode);
+    if (rank !== 0) return rank;
+    const leftIssue = Number(left.reasonSource.match(/^issue:(\d+)$/u)?.[1] ?? Number.MAX_SAFE_INTEGER);
+    const rightIssue = Number(right.reasonSource.match(/^issue:(\d+)$/u)?.[1] ?? Number.MAX_SAFE_INTEGER);
+    return leftIssue - rightIssue || ordinalCompare(left.reasonSource, right.reasonSource);
+  });
 }
 
 export function createGitHubClient(options, collection = {}) {
@@ -1123,6 +2123,130 @@ async function fetchPullFiles(client, pullNumber, maxPages) {
     source: `pull-files:${pullNumber}`,
     maxPages,
   });
+}
+
+async function fetchMetaWorkPulls({ client, repository, start, end, concurrency }) {
+  const queryText = `repo:${repository} is:pr is:merged merged:>=${start.slice(0, 10)}`;
+  const encodedQuery = encodeURIComponent(queryText);
+  let nextUrl = `${API_BASE_URL}/search/issues?q=${encodedQuery}&per_page=100&page=1`;
+  const candidates = [];
+  const seenUrls = new Set();
+  let expectedTotal = null;
+  let truncated = false;
+  for (let page = 1; page <= 10 && nextUrl; page += 1) {
+    if (seenUrls.has(nextUrl)) {
+      truncated = true;
+      break;
+    }
+    seenUrls.add(nextUrl);
+    const response = await client.request(nextUrl);
+    const payload = await response.json();
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      !Number.isInteger(payload.total_count) ||
+      payload.total_count < 0 ||
+      !Array.isArray(payload.items)
+    ) {
+      truncated = true;
+      break;
+    }
+    if (expectedTotal === null) expectedTotal = payload.total_count;
+    else if (expectedTotal !== payload.total_count) truncated = true;
+    if (payload.incomplete_results !== false || payload.total_count >= 1_000) truncated = true;
+    candidates.push(...payload.items);
+    if (candidates.length >= payload.total_count) {
+      nextUrl = null;
+      break;
+    }
+    const candidate = parseNextLink(response.headers?.get?.("link"));
+    if (!candidate || !isSafeSearchCursor(candidate, encodedQuery, page + 1)) {
+      truncated = true;
+      break;
+    }
+    nextUrl = candidate;
+  }
+  if (nextUrl) truncated = true;
+  const numbers = candidates.map((candidate) => candidate?.number);
+  const uniqueNumbers = new Set(numbers.filter((number) => Number.isInteger(number) && number > 0));
+  if (
+    expectedTotal === null ||
+    uniqueNumbers.size !== candidates.length ||
+    uniqueNumbers.size !== expectedTotal ||
+    numbers.some((number) => !Number.isInteger(number) || number < 1)
+  ) {
+    truncated = true;
+  }
+  if (truncated) {
+    return {
+      pulls: [],
+      sourceReasons: [{ reasonCode: "meta-source-truncated", reasonSource: "pull-requests" }],
+    };
+  }
+
+  const sourceReasons = [];
+  const details = await mapConcurrent(
+    [...uniqueNumbers].sort((left, right) => left - right),
+    concurrency,
+    async (number) => {
+      try {
+        const pull = await client.json(`/pulls/${number}`);
+        if (
+          !pull ||
+          typeof pull !== "object" ||
+          pull.number !== number ||
+          !Number.isInteger(pull.changed_files) ||
+          pull.changed_files < 0 ||
+          !isIsoInstant(pull.merged_at)
+        ) {
+          sourceReasons.push({ reasonCode: "meta-source-truncated", reasonSource: "pull-requests" });
+          return null;
+        }
+        if (!inBounds(pull.merged_at, { start, end })) return null;
+        try {
+          const files = await fetchStatusAwarePullFiles(client, number, pull.changed_files);
+          return {
+            number,
+            changedFiles: pull.changed_files,
+            files: files.files,
+            collectionStatus: files.status,
+          };
+        } catch {
+          return { number, changedFiles: pull.changed_files, files: [], collectionStatus: "failure" };
+        }
+      } catch {
+        sourceReasons.push({ reasonCode: "meta-source-failure", reasonSource: `pull-files:${number}` });
+        return null;
+      }
+    },
+  );
+  return { pulls: details.filter(Boolean), sourceReasons };
+}
+
+async function fetchStatusAwarePullFiles(client, pullNumber, expectedCount) {
+  if (!Number.isInteger(expectedCount) || expectedCount < 0) return { files: [], status: "truncated" };
+  // GitHub's pull-files REST endpoint exposes at most 3,000 files. Reaching
+  // that boundary cannot prove exhaustion, even when the PR count says 3,000.
+  if (expectedCount >= 3_000) return { files: [], status: "truncated" };
+  const files = [];
+  const identities = new Set();
+  for (let page = 1; page <= 30; page += 1) {
+    const payload = await client.json(`/pulls/${pullNumber}/files?per_page=100&page=${page}`);
+    if (!Array.isArray(payload)) throw new Error(`Pull ${pullNumber} file response is not an array.`);
+    for (const file of payload) {
+      const identity =
+        file && typeof file === "object"
+          ? `${String(file.filename)}\u0000${String(file.status)}\u0000${String(file.previous_filename ?? "")}`
+          : "unreadable";
+      if (identities.has(identity)) return { files: [...files, file], status: "truncated" };
+      identities.add(identity);
+      files.push(file);
+    }
+    if (payload.length < 100) {
+      return { files, status: files.length === expectedCount ? "complete" : "complete" };
+    }
+  }
+  return { files, status: "truncated" };
 }
 
 async function fetchPullReviews(client, pullNumber, maxPages) {
@@ -1388,7 +2512,11 @@ function findEndOfCentralDirectory(buffer) {
 
 function normalizeCircuitIssue(issue) {
   const record = parseCircuitMarker(issue?.body);
-  if (!record) return null;
+  if (!record) {
+    return String(issue?.body ?? "").includes("<!-- delivery-failure-signature/v1")
+      ? { invalidMarker: true, canonicalIssueNumber: issue?.number ?? null }
+      : null;
+  }
   return {
     ...record,
     canonicalIssueNumber: record.canonicalIssueNumber ?? issue.number,
@@ -1542,6 +2670,10 @@ function compare(value, operator, target) {
   throw new Error(`Unsupported target operator: ${operator}`);
 }
 
+function ordinalCompare(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function updateRateLimit(status, headers) {
   const remaining = Number(headers?.get?.("x-ratelimit-remaining"));
   if (Number.isFinite(remaining)) {
@@ -1606,6 +2738,8 @@ function validateOptions(options) {
   if (!normalizeIso(options.checkedAt)) throw new Error("checkedAt must be an ISO date.");
   if (!["hourly", "daily"].includes(options.publicationMode))
     throw new Error("publicationMode must be hourly or daily.");
+  if (!["enabled", "disabled", "unknown"].includes(options.ephemeralProducerState ?? "unknown"))
+    throw new Error("ephemeralProducerState must be enabled, disabled, or unknown.");
   if (typeof options.fetchImpl !== "function") throw new Error("A fetch implementation is required.");
 }
 
@@ -1613,6 +2747,51 @@ function validatePolicy(policy) {
   if (policy?.schemaVersion !== "delivery-health-policy/v1") throw new Error("Unsupported delivery-health policy.");
   if (!Number.isInteger(policy.windows?.lastN) || policy.windows.lastN < 1)
     throw new Error("Policy lastN must be positive.");
+  const ids = Object.keys(policy.targets ?? {});
+  const expectedIds = Object.keys(TARGET_BASELINE_CONTROL);
+  if (JSON.stringify(ids) !== JSON.stringify(expectedIds))
+    throw new Error("Policy must contain the settled eight targets in order.");
+  for (const [id, expected] of Object.entries(TARGET_BASELINE_CONTROL)) {
+    const target = policy.targets[id];
+    const baseline = target?.baseline;
+    const sample = baseline?.sample;
+    const actual = [
+      target?.value,
+      baseline?.sourceWindow,
+      baseline?.statistic,
+      sample?.count,
+      sample?.numerator,
+      sample?.denominator,
+      baseline?.observedValue,
+      baseline?.rounding,
+    ];
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Policy baseline mismatch for ${id}.`);
+    const shape = [
+      target.window,
+      target.metric,
+      target.sampleMetric,
+      target.operator,
+      target.minimumSample,
+      target.severity,
+      target.p0Below ?? null,
+      target.p0At ?? null,
+    ];
+    if (JSON.stringify(shape) !== JSON.stringify(TARGET_SHAPE_CONTROL[id]))
+      throw new Error(`Policy target shape mismatch for ${id}.`);
+    if (
+      baseline.observedAt !== "2026-08-30T03:20:23Z" ||
+      typeof baseline.rationale !== "string" ||
+      baseline.rationale.length < 1
+    )
+      throw new Error(`Policy baseline authority is incomplete for ${id}.`);
+    if (JSON.stringify(Object.keys(sample)) !== JSON.stringify(["count", "numerator", "denominator"]))
+      throw new Error(`Policy baseline sample is not closed for ${id}.`);
+    if (
+      JSON.stringify(Object.keys(baseline)) !==
+      JSON.stringify(["observedAt", "sourceWindow", "statistic", "sample", "observedValue", "rounding", "rationale"])
+    )
+      throw new Error(`Policy baseline metadata is not closed for ${id}.`);
+  }
 }
 
 async function writeOutputs(options, result) {
@@ -1634,11 +2813,40 @@ async function writeOutputs(options, result) {
   }
 }
 
+async function validateCanonicalOutputPayloads(options, result) {
+  if (!options.outPath || !options.markdownOutPath) {
+    throw new Error("Issue publication requires both canonical delivery-health output paths.");
+  }
+  const outputDirectory = dirname(options.outPath);
+  if (
+    outputDirectory !== dirname(options.markdownOutPath) ||
+    basename(options.outPath) !== "delivery-health.json" ||
+    basename(options.markdownOutPath) !== "delivery-health.md"
+  ) {
+    throw new Error("Issue publication requires the canonical delivery-health artifact directory shape.");
+  }
+  const payloads = (await readdir(outputDirectory)).sort();
+  if (JSON.stringify(payloads) !== JSON.stringify(["delivery-health.json", "delivery-health.md"])) {
+    throw new Error("Delivery-health artifact directory must contain exactly the two canonical payloads.");
+  }
+  let persisted;
+  try {
+    persisted = JSON.parse(await readFile(options.outPath, "utf8"));
+  } catch {
+    throw new Error("Canonical delivery-health JSON payload is malformed.");
+  }
+  if (JSON.stringify(persisted) !== JSON.stringify(result.record)) {
+    throw new Error("Canonical delivery-health JSON payload does not match the evaluated record.");
+  }
+  if ((await readFile(options.markdownOutPath, "utf8")) !== `${result.markdown}\n`) {
+    throw new Error("Canonical delivery-health Markdown payload does not match the evaluated record.");
+  }
+}
+
 async function main(argv, env = process.env) {
   const options = parseDeliveryHealthArgs(argv, env);
   try {
     const result = await collectDeliveryHealth(options);
-    await writeOutputs(options, result);
     if (!options.githubSummaryPath) console.log(result.markdown);
     return 0;
   } catch (error) {

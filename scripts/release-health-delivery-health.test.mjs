@@ -1,4 +1,7 @@
 import { deflateRawSync } from "node:zlib";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   DELIVERY_HEALTH_VERSION,
@@ -6,6 +9,7 @@ import {
   collectDeliveryHealth,
   createGitHubClient,
   normalizeDeliveryConclusion,
+  parseRepositoryVariablesAuthority,
   parseSliMarker,
   percentileSummary,
   publishSliIssues,
@@ -347,7 +351,14 @@ describe("delivery-health/v1", () => {
     expect(record.completeness).toMatchObject({ status: "partial", api: { rateLimited: true } });
     expect(record.completeness.reasons).toContain("truncated:workflow:platform-pr.yml");
     expect(record.completeness.reasons).toContain("truncated:pull-request-nested-data");
-    expect(record.slis.every((sli) => sli.status === "insufficient-data")).toBe(true);
+    expect(record.slis.filter((sli) => sli.status === "insufficient-data").map((sli) => sli.id)).toEqual([
+      "pull-request-ci-success",
+      "merge-group-success",
+      "actual-release-success",
+      "pr-ci-p90",
+      "repeated-failure-detection",
+    ]);
+    expect(record.slis.find((sli) => sli.id === "open-mutation-circuit").status).toBe("breaching");
   });
 
   it("keeps the artifact support-safe and never copies logs or pull request titles", () => {
@@ -553,6 +564,7 @@ describe("ephemeral verification release assurance", () => {
           repository: "chase-sets/chase-sets",
           checkedAt: "2026-07-18T12:00:00.000Z",
           publicationMode: "hourly",
+          ephemeralProducerState: "enabled",
           updateIssues: false,
           fetchImpl: async () => new Response(),
         },
@@ -567,7 +579,11 @@ describe("ephemeral verification release assurance", () => {
 
     const omitted = await collect(false);
     expect(omitted.record.completeness.reasons).toContain("missing-ephemeral-evidence:900");
-    expect(omitted.record.slis.every((sli) => sli.status === "insufficient-data")).toBe(true);
+    expect(omitted.record.slis.find((sli) => sli.id === "ephemeral-verification-success")).toMatchObject({
+      status: "insufficient-data",
+      reasons: [{ reasonCode: "artifact-missing", reasonSource: "run:900" }],
+    });
+    expect(omitted.record.slis.find((sli) => sli.id === "open-mutation-circuit").status).toBe("passing");
   });
 
   it("reads the canonical record without rejecting a large sibling payload", () => {
@@ -602,10 +618,17 @@ describe("canonical SLI issues", () => {
 
     const calls = [];
     const client = {
-      paginate: async () => [
-        { number: 55, state: "open", body: marker },
-        { number: 56, state: "open", body: "not a machine issue" },
-      ],
+      request: async () =>
+        new Response(
+          JSON.stringify({
+            total_count: 2,
+            incomplete_results: false,
+            items: [
+              { number: 55, state: "open", body: marker },
+              { number: 56, state: "open", body: "not a machine issue" },
+            ],
+          }),
+        ),
       json: async (path, request) => {
         calls.push({ path, request });
         return { number: path === "/issues" ? 57 : Number(path.split("/").at(-1)) };
@@ -618,10 +641,14 @@ describe("canonical SLI issues", () => {
     };
     const updates = await publishSliIssues({ client, repository: "chase-sets/chase-sets", record });
 
-    expect(updates).toEqual([
-      { sli: "merge-group-success", action: "updated", issueNumber: 55 },
-      { sli: "actual-release-success", action: "created", issueNumber: 57 },
-    ]);
+    expect(updates).toEqual({
+      status: "complete",
+      reasons: [],
+      actions: [
+        { sli: "merge-group-success", action: "updated", issueNumber: 55 },
+        { sli: "actual-release-success", action: "created", issueNumber: 57 },
+      ],
+    });
     expect(calls.map((call) => call.path)).toEqual(["/issues/55", "/issues"]);
     expect(parseSliMarker(calls[0].request.body.body)).toEqual({
       schemaVersion: "delivery-health-sli/v1",
@@ -641,6 +668,765 @@ describe("release-health artifact archives", () => {
     expect([...entries.keys()]).toEqual(["production-release.json", "staging-release.json"]);
     expect(JSON.parse(entries.get("production-release.json").toString("utf8"))).toEqual({
       schemaVersion: "release-health/v1",
+    });
+  });
+});
+
+describe("#7530 delivery-health alert contract", () => {
+  it("pins the dated eight-target alert-control crosswalk", async () => {
+    expect(Object.keys(policy.targets)).toEqual([
+      "pull-request-ci-success",
+      "merge-group-success",
+      "actual-release-success",
+      "ephemeral-verification-success",
+      "pr-ci-p90",
+      "creation-to-merge-p90",
+      "repeated-failure-detection",
+      "open-mutation-circuit",
+    ]);
+    expect(
+      Object.fromEntries(
+        Object.entries(policy.targets).map(([id, target]) => [
+          id,
+          {
+            value: target.value,
+            observedAt: target.baseline.observedAt,
+            sourceWindow: target.baseline.sourceWindow,
+            statistic: target.baseline.statistic,
+            sample: target.baseline.sample,
+            observedValue: target.baseline.observedValue,
+            rounding: target.baseline.rounding,
+          },
+        ]),
+      ),
+    ).toEqual({
+      "pull-request-ci-success": {
+        value: 0.738,
+        observedAt: "2026-08-30T03:20:23Z",
+        sourceWindow: "rolling7d",
+        statistic: "prs.platformPr.pullRequest.successRate",
+        sample: { count: 84, numerator: 62, denominator: 84 },
+        observedValue: 0.7380952380952381,
+        rounding: "floor-4dp",
+      },
+      "merge-group-success": {
+        value: 0.9428,
+        observedAt: "2026-08-30T03:20:23Z",
+        sourceWindow: "rolling7d",
+        statistic: "prs.platformPr.mergeGroup.successRate",
+        sample: { count: 35, numerator: 33, denominator: 35 },
+        observedValue: 0.9428571428571428,
+        rounding: "floor-4dp",
+      },
+      "actual-release-success": {
+        value: 0.7857,
+        observedAt: "2026-08-30T03:20:23Z",
+        sourceWindow: "lastN",
+        statistic: "releases.actual.successRate",
+        sample: { count: 14, numerator: 11, denominator: 14 },
+        observedValue: 0.7857142857142857,
+        rounding: "floor-4dp",
+      },
+      "ephemeral-verification-success": {
+        value: 0.95,
+        observedAt: "2026-08-30T03:20:23Z",
+        sourceWindow: "unavailable",
+        statistic: "releases.ephemeral.successRate",
+        sample: { count: 0, numerator: null, denominator: null },
+        observedValue: null,
+        rounding: "unavailable-preserve",
+      },
+      "pr-ci-p90": {
+        value: 993,
+        observedAt: "2026-08-30T03:20:23Z",
+        sourceWindow: "rolling7d",
+        statistic: "prs.platformPr.combined.executionSeconds.p90",
+        sample: { count: 126, numerator: null, denominator: null },
+        observedValue: 993,
+        rounding: "exact-integer",
+      },
+      "creation-to-merge-p90": {
+        value: 119829,
+        observedAt: "2026-08-30T03:20:23Z",
+        sourceWindow: "rolling7d",
+        statistic: "prs.creationToMergeSeconds.p90",
+        sample: { count: 31, numerator: null, denominator: null },
+        observedValue: 119829,
+        rounding: "exact-integer",
+      },
+      "repeated-failure-detection": {
+        value: 0,
+        observedAt: "2026-08-30T03:20:23Z",
+        sourceWindow: "rolling7d",
+        statistic: "failureSignatures.detectionSeconds.p90",
+        sample: { count: 2, numerator: null, denominator: null },
+        observedValue: 0,
+        rounding: "exact-integer",
+      },
+      "open-mutation-circuit": {
+        value: 0,
+        observedAt: "2026-08-30T03:20:23Z",
+        sourceWindow: "rolling24h",
+        statistic: "failureSignatures.openMutationCircuitCount",
+        sample: { count: 0, numerator: null, denominator: null },
+        observedValue: 0,
+        rounding: "exact-integer",
+      },
+    });
+    expect(
+      Object.fromEntries(
+        Object.entries(policy.targets).map(([id, target]) => [
+          id,
+          {
+            window: target.window,
+            metric: target.metric,
+            sampleMetric: target.sampleMetric,
+            operator: target.operator,
+            minimumSample: target.minimumSample,
+            severity: target.severity,
+            p0Below: target.p0Below ?? null,
+            p0At: target.p0At ?? null,
+          },
+        ]),
+      ),
+    ).toEqual({
+      "pull-request-ci-success": {
+        window: "rolling24h",
+        metric: "prs.platformPr.pullRequest.successRate",
+        sampleMetric: "prs.platformPr.pullRequest.denominator",
+        operator: "gte",
+        minimumSample: 10,
+        severity: "p1",
+        p0Below: null,
+        p0At: null,
+      },
+      "merge-group-success": {
+        window: "rolling24h",
+        metric: "prs.platformPr.mergeGroup.successRate",
+        sampleMetric: "prs.platformPr.mergeGroup.denominator",
+        operator: "gte",
+        minimumSample: 10,
+        severity: "p1",
+        p0Below: null,
+        p0At: null,
+      },
+      "actual-release-success": {
+        window: "lastN",
+        metric: "releases.actual.successRate",
+        sampleMetric: "releases.actual.denominator",
+        operator: "gte",
+        minimumSample: 10,
+        severity: "p1",
+        p0Below: 0.5,
+        p0At: null,
+      },
+      "ephemeral-verification-success": {
+        window: "lastN",
+        metric: "releases.ephemeral.successRate",
+        sampleMetric: "releases.ephemeral.denominator",
+        operator: "gte",
+        minimumSample: 10,
+        severity: "p1",
+        p0Below: null,
+        p0At: 0,
+      },
+      "pr-ci-p90": {
+        window: "rolling24h",
+        metric: "prs.platformPr.combined.executionSeconds.p90",
+        sampleMetric: "prs.platformPr.combined.executionSeconds.sampleCount",
+        operator: "lte",
+        minimumSample: 10,
+        severity: "p1",
+        p0Below: null,
+        p0At: null,
+      },
+      "creation-to-merge-p90": {
+        window: "rolling7d",
+        metric: "prs.creationToMergeSeconds.p90",
+        sampleMetric: "prs.creationToMergeSeconds.sampleCount",
+        operator: "lte",
+        minimumSample: 10,
+        severity: "p1",
+        p0Below: null,
+        p0At: null,
+      },
+      "repeated-failure-detection": {
+        window: "rolling7d",
+        metric: "failureSignatures.detectionSeconds.p90",
+        sampleMetric: "failureSignatures.detectionSeconds.sampleCount",
+        operator: "lte",
+        minimumSample: 1,
+        severity: "p1",
+        p0Below: null,
+        p0At: null,
+      },
+      "open-mutation-circuit": {
+        window: "rolling24h",
+        metric: "failureSignatures.openMutationCircuitCount",
+        sampleMetric: "failureSignatures.sourceCount",
+        operator: "eq",
+        minimumSample: 0,
+        severity: "p0",
+        p0Below: null,
+        p0At: null,
+      },
+    });
+    expect(Object.values(policy.targets).map((target) => target.baseline.rationale)).toEqual([
+      "The configured rolling24h window had 4 samples; rolling7d met minimumSample and observed 62 successes in 84 pass/fail outcomes.",
+      "The configured rolling24h window had 4 samples; rolling7d met minimumSample and observed 33 successes in 35 pass/fail outcomes.",
+      "The authoritative latest attempts in the configured lastN window observed 11 successes in 14 pass/fail release outcomes; 6 not-eligible decisions remained excluded.",
+      "The automatic producer was disabled and supplied no eligible observation, so the existing dormant value is preserved without fabricating a sample.",
+      "The configured rolling24h window had 8 samples; rolling7d met minimumSample and observed an exact nearest-rank p90 of 993 seconds.",
+      "The configured rolling7d window met minimumSample and observed an exact nearest-rank p90 of 119829 seconds.",
+      "The configured rolling7d window met minimumSample and observed an exact nearest-rank p90 of 0 seconds.",
+      "The complete rolling24h failure-signature source was empty; minimumSample is 0 and the exact open-circuit count was 0.",
+    ]);
+    const record = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source: representativeSource(),
+      apiStatus: {},
+      ephemeralProducerState: "enabled",
+    }).record;
+    expect(record.policy.targets).toEqual(policy.targets);
+    const mutants = [];
+    const missingTarget = structuredClone(policy);
+    delete missingTarget.targets["open-mutation-circuit"];
+    mutants.push(missingTarget);
+    for (const mutate of [
+      (candidate) => (candidate.targets["pull-request-ci-success"].value = 0.9),
+      (candidate) => (candidate.targets["pull-request-ci-success"].baseline.statistic = "wrong"),
+      (candidate) => (candidate.targets["pull-request-ci-success"].baseline.sample.count = 83),
+      (candidate) => (candidate.targets["pull-request-ci-success"].baseline.rounding = "exact-integer"),
+      (candidate) => (candidate.targets["ephemeral-verification-success"].baseline.observedValue = 0),
+    ]) {
+      const candidate = structuredClone(policy);
+      mutate(candidate);
+      mutants.push(candidate);
+    }
+    for (const mutant of mutants) {
+      await expect(
+        collectDeliveryHealth(
+          {
+            repository: "chase-sets/chase-sets",
+            checkedAt: "2026-07-18T12:00:00.000Z",
+            publicationMode: "hourly",
+            ephemeralProducerState: "disabled",
+            updateIssues: false,
+            fetchImpl: async () => new Response(),
+          },
+          { policy: mutant, source: {} },
+        ),
+      ).rejects.toThrow(/Policy/u);
+    }
+  });
+
+  it("evaluates every configured target by its own eligibility contract", () => {
+    const source = representativeSource();
+    source.pulls[9].mergedAt = null;
+    const record = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+      ephemeralProducerState: "disabled",
+    }).record;
+    expect(record.slis).toHaveLength(8);
+    expect(new Set(record.slis.map((entry) => entry.status))).toEqual(
+      new Set(["passing", "breaching", "insufficient-data", "disabled"]),
+    );
+    expect(record.slis.find((entry) => entry.id === "ephemeral-verification-success")).toMatchObject({
+      status: "disabled",
+      reasons: [
+        { reasonCode: "producer-disabled", reasonSource: "repo-variable:PLATFORM_EPHEMERAL_VERIFICATION_ENABLED" },
+      ],
+    });
+    expect(record.slis.find((entry) => entry.id === "open-mutation-circuit")).toMatchObject({
+      status: "breaching",
+      sample: 2,
+    });
+
+    const missingPathPolicy = structuredClone(policy);
+    missingPathPolicy.targets["merge-group-success"].metric = "prs.platformPr.mergeGroup.missing";
+    const missingPath = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy: missingPathPolicy,
+      source,
+      apiStatus: {},
+      ephemeralProducerState: "disabled",
+    }).record.slis.find((entry) => entry.id === "merge-group-success");
+    expect(missingPath).toMatchObject({
+      status: "insufficient-data",
+      reasons: [
+        {
+          reasonCode: "metric-path-missing",
+          reasonSource: "target:merge-group-success:metric:prs.platformPr.mergeGroup.missing",
+        },
+      ],
+    });
+  });
+
+  it("keeps a complete empty mutation circuit passing", () => {
+    const source = representativeSource();
+    source.circuits = [];
+    const record = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+      ephemeralProducerState: "disabled",
+    }).record;
+    expect(record.slis.find((entry) => entry.id === "open-mutation-circuit")).toMatchObject({
+      status: "passing",
+      value: 0,
+      sample: 0,
+      reasons: [],
+    });
+  });
+
+  it("localizes completeness by target source window and lastN frontier", () => {
+    const source = representativeSource();
+    source.platformPrRuns[0].run_started_at = null;
+    source.sourceFailures = [{ source: "pull-reviews:1", error: "fixture" }];
+    const record = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source,
+      apiStatus: {},
+      ephemeralProducerState: "disabled",
+    }).record;
+    expect(record.slis.find((entry) => entry.id === "pr-ci-p90").status).toBe("insufficient-data");
+    expect(record.slis.find((entry) => entry.id === "pull-request-ci-success").status).not.toBe("insufficient-data");
+    expect(record.slis.find((entry) => entry.id === "actual-release-success").status).not.toBe("insufficient-data");
+  });
+
+  it("propagates authoritative ephemeral producer state", () => {
+    const workflow = readFileSync(
+      new URL("../.github/workflows/platform-delivery-health.yml", import.meta.url),
+      "utf8",
+    );
+    expect(workflow).toContain("RAW_EPHEMERAL_PRODUCER_ENABLED: ${{ vars.PLATFORM_EPHEMERAL_VERIFICATION_ENABLED }}");
+    expect(workflow).toContain('if [ "$RAW_EPHEMERAL_PRODUCER_ENABLED" = "true" ]; then');
+    expect(workflow).toContain('--ephemeral-producer-state "$ephemeral_producer_state"');
+    expect(workflow).not.toMatch(/vars\.PLATFORM_EPHEMERAL_VERIFICATION_ENABLED\s*==/u);
+    expect(parseRepositoryVariablesAuthority([{ total_count: 0, variables: [] }])).toBe("disabled");
+    expect(
+      parseRepositoryVariablesAuthority([
+        { total_count: 1, variables: [{ name: "PLATFORM_EPHEMERAL_VERIFICATION_ENABLED", value: "true" }] },
+      ]),
+    ).toBe("enabled");
+    for (const value of ["True", "TRUE", "1", "yes"]) {
+      expect(
+        parseRepositoryVariablesAuthority([
+          { total_count: 1, variables: [{ name: "PLATFORM_EPHEMERAL_VERIFICATION_ENABLED", value }] },
+        ]),
+      ).toBe("disabled");
+    }
+    for (const pages of [
+      [{ total_count: 1, variables: [{}] }],
+      [
+        {
+          total_count: 2,
+          variables: [
+            { name: "A", value: "1" },
+            { name: "a", value: "2" },
+          ],
+        },
+      ],
+      [
+        {
+          total_count: 2,
+          variables: [
+            { name: "PLATFORM_EPHEMERAL_VERIFICATION_ENABLED", value: "true" },
+            { name: "platform_ephemeral_verification_enabled", value: "false" },
+          ],
+        },
+      ],
+      [{ total_count: 2, variables: [{ name: "A", value: "1" }] }],
+      [{}],
+      null,
+    ]) {
+      expect(parseRepositoryVariablesAuthority(pages)).toBe("unknown");
+    }
+  });
+
+  it("holds canonical ephemeral issue across disabled lifecycle", async () => {
+    const marker = renderSliMarker({ schemaVersion: "delivery-health-sli/v1", sli: "ephemeral-verification-success" });
+    const calls = [];
+    const makeClient = (issues) => ({
+      request: async () =>
+        new Response(JSON.stringify({ total_count: issues.length, incomplete_results: false, items: issues })),
+      json: async (path, request) => {
+        calls.push({ path, request });
+        return { number: Number(path.split("/").at(-1)) || 90 };
+      },
+    });
+    const record = {
+      generatedAt: "2026-08-30T00:00:00.000Z",
+      completeness: { status: "complete" },
+      slis: [
+        {
+          ...sli("ephemeral-verification-success", "disabled"),
+          reasons: [
+            { reasonCode: "producer-disabled", reasonSource: "repo-variable:PLATFORM_EPHEMERAL_VERIFICATION_ENABLED" },
+          ],
+        },
+      ],
+    };
+    expect(
+      (await publishSliIssues({ client: makeClient([]), repository: "chase-sets/chase-sets", record })).actions,
+    ).toEqual([]);
+    expect(
+      (
+        await publishSliIssues({
+          client: makeClient([{ number: 90, state: "closed", body: marker }]),
+          repository: "chase-sets/chase-sets",
+          record,
+        })
+      ).actions,
+    ).toEqual([]);
+    expect(
+      (
+        await publishSliIssues({
+          client: makeClient([{ number: 90, state: "open", body: `${marker}\n- Status: **breaching**` }]),
+          repository: "chase-sets/chase-sets",
+          record,
+        })
+      ).actions,
+    ).toEqual([{ sli: "ephemeral-verification-success", action: "held-open-disabled", issueNumber: 90 }]);
+    const writesAfterFirstDisabled = calls.length;
+    expect(
+      (
+        await publishSliIssues({
+          client: makeClient([{ number: 90, state: "open", body: `${marker}\n- Status: **disabled**` }]),
+          repository: "chase-sets/chase-sets",
+          record,
+        })
+      ).actions,
+    ).toEqual([{ sli: "ephemeral-verification-success", action: "unchanged-disabled", issueNumber: 90 }]);
+    expect(calls).toHaveLength(writesAfterFirstDisabled);
+  });
+
+  it("drives one canonical SLI mutation through collector evaluator and publisher", async () => {
+    const writes = [];
+    const client = productionSeamClient({
+      platformRuns: Array.from({ length: 10 }, (_, index) =>
+        run(50_000 + index, "pull_request", "failure", { updated_at: iso(index), run_started_at: iso(index + 1) }),
+      ),
+      writes,
+    });
+    const outputDirectory = mkdtempSync(path.join(tmpdir(), "delivery-health-production-seam-"));
+    let result;
+    try {
+      result = await collectDeliveryHealth(
+        {
+          repository: "chase-sets/chase-sets",
+          checkedAt: "2026-07-18T12:00:00.000Z",
+          publicationMode: "hourly",
+          ephemeralProducerState: "disabled",
+          outPath: path.join(outputDirectory, "delivery-health.json"),
+          markdownOutPath: path.join(outputDirectory, "delivery-health.md"),
+          updateIssues: true,
+          fetchImpl: async () => new Response(),
+        },
+        { policy, client },
+      );
+    } finally {
+      rmSync(outputDirectory, { recursive: true, force: true });
+    }
+    expect(result.record.slis.find((entry) => entry.id === "pull-request-ci-success")).toMatchObject({
+      status: "breaching",
+      sample: 10,
+      reasons: [],
+    });
+    expect(result.issueUpdates).toMatchObject({ status: "complete", reasons: [] });
+    expect(result.issueUpdates.actions).toEqual([
+      { sli: "pull-request-ci-success", action: "created", issueNumber: 7001 },
+    ]);
+    expect(writes.map((entry) => entry.path)).toEqual(["/issues"]);
+
+    const omittedLiveSource = await collectDeliveryHealth(
+      {
+        repository: "chase-sets/chase-sets",
+        checkedAt: "2026-07-18T12:00:00.000Z",
+        publicationMode: "daily",
+        ephemeralProducerState: "disabled",
+        updateIssues: false,
+        fetchImpl: async () => new Response(),
+      },
+      { policy, source: { pulls: [] }, client },
+    );
+    expect(omittedLiveSource.record.observations.metaWorkShare).toMatchObject({
+      status: "unavailable",
+      reasons: [{ reasonCode: "meta-source-failure", reasonSource: "pull-requests" }],
+    });
+  });
+
+  it("publishes complete daily meta-work share from status-aware PR files", async () => {
+    const client = productionSeamClient({
+      pulls: [
+        {
+          number: 42,
+          state: "MERGED",
+          isDraft: false,
+          createdAt: "2026-07-17T10:00:00.000Z",
+          updatedAt: "2026-07-18T10:00:00.000Z",
+          mergedAt: "2026-07-18T10:00:00.000Z",
+          additions: 1,
+          deletions: 0,
+          changedFiles: 1,
+          timelineItems: { nodes: [] },
+          reviews: { totalCount: 0, nodes: [] },
+          files: { totalCount: 1, nodes: [{ path: "scripts/tool.mjs", additions: 1, deletions: 0 }] },
+        },
+      ],
+      pullFiles: new Map([[42, [{ filename: "scripts/tool.mjs", status: "added", additions: 1, deletions: 0 }]]]),
+    });
+    const result = await collectDeliveryHealth(
+      {
+        repository: "chase-sets/chase-sets",
+        checkedAt: "2026-07-18T12:00:00.000Z",
+        publicationMode: "daily",
+        ephemeralProducerState: "disabled",
+        updateIssues: false,
+        fetchImpl: async () => new Response(),
+      },
+      { policy, client },
+    );
+    expect(result.record.observations.metaWorkShare).toMatchObject({
+      counts: { metaOnly: 1, mixed: 0, product: 0, unknown: 0 },
+      numerator: 1,
+      denominator: 1,
+      share: 1,
+      status: "available",
+      reasons: [],
+    });
+    expect(result.markdown).toContain("### 14-day work purpose");
+    const hourly = buildDeliveryHealth({
+      checkedAt: "2026-07-18T12:00:00.000Z",
+      publicationMode: "hourly",
+      repository: "chase-sets/chase-sets",
+      policy,
+      source: representativeSource(),
+      apiStatus: {},
+      ephemeralProducerState: "disabled",
+    });
+    expect(hourly.record).not.toHaveProperty("observations");
+    expect(hourly.markdown).not.toContain("### 14-day work purpose");
+  });
+
+  it("rejects a noncanonical artifact directory before issue publication", async () => {
+    const outputDirectory = mkdtempSync(path.join(tmpdir(), "delivery-health-payload-negative-"));
+    const writes = [];
+    writeFileSync(path.join(outputDirectory, "unexpected.json"), "{}", "utf8");
+    try {
+      await expect(
+        collectDeliveryHealth(
+          {
+            repository: "chase-sets/chase-sets",
+            checkedAt: "2026-07-18T12:00:00.000Z",
+            publicationMode: "hourly",
+            ephemeralProducerState: "disabled",
+            outPath: path.join(outputDirectory, "delivery-health.json"),
+            markdownOutPath: path.join(outputDirectory, "delivery-health.md"),
+            updateIssues: true,
+            fetchImpl: async () => new Response(),
+          },
+          {
+            policy,
+            client: productionSeamClient({
+              platformRuns: Array.from({ length: 10 }, (_, index) =>
+                run(60_000 + index, "pull_request", "failure", {
+                  updated_at: iso(index),
+                  run_started_at: iso(index + 1),
+                }),
+              ),
+              writes,
+            }),
+          },
+        ),
+      ).rejects.toThrow("exactly the two canonical payloads");
+      expect(writes).toEqual([]);
+    } finally {
+      rmSync(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks every write for an incomplete canonical snapshot and isolates duplicate SLI markers", async () => {
+    const marker = (id) => renderSliMarker({ schemaVersion: "delivery-health-sli/v1", sli: id });
+    const writes = [];
+    const record = {
+      generatedAt: "2026-08-30T00:00:00.000Z",
+      completeness: { status: "complete" },
+      slis: [sli("pull-request-ci-success", "breaching"), sli("merge-group-success", "breaching")],
+    };
+    const incomplete = await publishSliIssues({
+      client: {
+        request: async () =>
+          new Response(
+            JSON.stringify({
+              total_count: 1,
+              incomplete_results: false,
+              items: [
+                {
+                  number: 9,
+                  state: "open",
+                  body: `${marker("pull-request-ci-success")}\n${marker("merge-group-success")}`,
+                },
+              ],
+            }),
+          ),
+        json: async (...args) => writes.push(args),
+      },
+      repository: "chase-sets/chase-sets",
+      record,
+    });
+    expect(incomplete).toEqual({
+      status: "canonical-lookup-incomplete",
+      reasons: [{ reasonCode: "canonical-marker-malformed", reasonSource: "issue:9" }],
+      actions: [],
+    });
+    expect(writes).toEqual([]);
+
+    const duplicates = await publishSliIssues({
+      client: {
+        request: async () =>
+          new Response(
+            JSON.stringify({
+              total_count: 2,
+              incomplete_results: false,
+              items: [
+                { number: 12, state: "open", body: marker("pull-request-ci-success") },
+                { number: 3, state: "open", body: marker("pull-request-ci-success") },
+              ],
+            }),
+          ),
+        json: async (path) => {
+          writes.push(path);
+          return { number: 77 };
+        },
+      },
+      repository: "chase-sets/chase-sets",
+      record,
+    });
+    expect(duplicates.actions).toEqual([
+      { action: "duplicate-marker-conflict", sli: "pull-request-ci-success", issueNumbers: [3, 12] },
+      { action: "created", sli: "merge-group-success", issueNumber: 77 },
+    ]);
+    expect(writes).toEqual(["/issues"]);
+  });
+
+  it("closes a canonical zero-sample recovery without creating or reopening one", async () => {
+    const marker = renderSliMarker({ schemaVersion: "delivery-health-sli/v1", sli: "open-mutation-circuit" });
+    const record = {
+      generatedAt: "2026-08-30T00:00:00.000Z",
+      completeness: { status: "complete" },
+      slis: [{ ...sli("open-mutation-circuit", "passing"), sample: 0, value: 0, reasons: [] }],
+    };
+    const calls = [];
+    const publish = (issues) =>
+      publishSliIssues({
+        client: {
+          request: async () =>
+            new Response(JSON.stringify({ total_count: issues.length, incomplete_results: false, items: issues })),
+          json: async (path, request) => {
+            calls.push({ path, request });
+            return { number: 91 };
+          },
+        },
+        repository: "chase-sets/chase-sets",
+        record,
+      });
+    expect((await publish([])).actions).toEqual([]);
+    expect((await publish([{ number: 91, state: "closed", body: marker }])).actions).toEqual([]);
+    expect((await publish([{ number: 91, state: "open", body: marker }])).actions).toEqual([
+      { sli: "open-mutation-circuit", action: "closed", issueNumber: 91 },
+    ]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("binds every current-attempt release phase", () => {
+    const releaseRun = (id, attempt, result) =>
+      run(id, "workflow_dispatch", result, {
+        run_attempt: attempt,
+        jobs: [
+          stageJob("Resolve Release", "success", id),
+          stageJob("Deploy Staging", "success", id),
+          stageJob("Deploy Production", result, id),
+        ],
+        releaseArtifacts: [releaseRecord(result, { index: id })],
+      });
+    const stable = Array.from({ length: 9 }, (_, index) => releaseRun(80_000 + index, 1, "success"));
+    const evaluate = (deployRuns) =>
+      buildDeliveryHealth({
+        checkedAt: "2026-07-18T12:00:00.000Z",
+        publicationMode: "hourly",
+        repository: "chase-sets/chase-sets",
+        policy,
+        source: { deployRuns, circuits: [] },
+        apiStatus: {},
+        ephemeralProducerState: "disabled",
+      }).record;
+
+    const latestPass = evaluate([...stable, releaseRun(81_000, 2, "success"), releaseRun(81_000, 1, "failure")]);
+    expect(latestPass.windows.lastN.releases.actual).toMatchObject({ numerator: 10, denominator: 10 });
+    expect(latestPass.windows.lastN.releases.actual.outcomes).toMatchObject({ "retry-pass/flake": 1 });
+
+    const latestFail = evaluate([
+      releaseRun(81_001, 1, "success"),
+      ...stable.reverse(),
+      releaseRun(81_001, 2, "failure"),
+    ]);
+    expect(latestFail.windows.lastN.releases.actual).toMatchObject({ numerator: 9, denominator: 10 });
+
+    const conflicting = evaluate([...stable, releaseRun(81_002, 2, "success"), releaseRun(81_002, 2, "failure")]);
+    expect(conflicting.slis.find((entry) => entry.id === "actual-release-success")).toMatchObject({
+      status: "insufficient-data",
+      reasons: [
+        {
+          reasonCode: "attempt-conflict",
+          reasonSource: "workflow:platform-production.yml:run:81002:attempt:2",
+        },
+      ],
+    });
+  });
+
+  it("rejects truncated meta authority when the decisive PR is beyond a page boundary", async () => {
+    const collect = (complete) =>
+      collectDeliveryHealth(
+        {
+          repository: "chase-sets/chase-sets",
+          checkedAt: "2026-07-18T12:00:00.000Z",
+          publicationMode: "daily",
+          ephemeralProducerState: "disabled",
+          updateIssues: false,
+          fetchImpl: async () => new Response(),
+        },
+        { policy, client: metaPaginationClient(complete) },
+      );
+    const complete = await collect(true);
+    expect(complete.record.observations.metaWorkShare).toMatchObject({
+      counts: { metaOnly: 1, mixed: 0, product: 0, unknown: 0 },
+      share: 1,
+      status: "available",
+      reasons: [],
+    });
+    const truncated = await collect(false);
+    expect(truncated.record.observations.metaWorkShare).toMatchObject({
+      counts: { metaOnly: 0, mixed: 0, product: 0, unknown: 0 },
+      share: null,
+      status: "unavailable",
+      reasons: [{ reasonCode: "meta-source-truncated", reasonSource: "pull-requests" }],
     });
   });
 });
@@ -690,17 +1476,26 @@ function representativeSource() {
       }),
     ],
   });
-  const coalescedRelease = run(411, "workflow_dispatch", "cancelled", {
-    jobs: [stageJob("Resolve Release", "success", 11)],
+  const coalescedRelease = run(411, "workflow_dispatch", "success", {
+    jobs: [
+      stageJob("Resolve Release", "success", 11),
+      stageJob("Deploy Staging", "success", 11),
+      stageJob("Deploy Production", "skipped", 11),
+    ],
     releaseArtifacts: [
       {
-        ...releaseRecord("cancelled", {
+        ...releaseRecord("skipped", {
           index: 11,
           stagingResult: "skipped",
           stagingApplied: false,
           productionResult: "skipped",
         }),
-        attempt: { result: "cancelled", phase: "staging", reason: "superseded-pre-mutation" },
+        attempt: {
+          result: "skipped",
+          phase: "queue",
+          reason: "candidate-superseded-before-staging-mutation",
+          supersededByCommit: "c".repeat(40),
+        },
       },
     ],
   });
@@ -734,6 +1529,7 @@ function representativeSource() {
     }),
   ];
   return {
+    ephemeralProducerState: "enabled",
     pulls,
     platformPrRuns: [...pullRequestRuns, ...mergeGroupRuns],
     deployRuns: [...dispatchRuns, ...successfulReleases, failedRelease, coalescedRelease],
@@ -765,6 +1561,7 @@ function representativeSource() {
         firstObservedAt: iso(90),
         lastObservedAt: iso(80),
         recoveredAt: iso(80),
+        checkedAt: iso(79),
         observations: [],
       },
     ],
@@ -773,7 +1570,7 @@ function representativeSource() {
 }
 
 function run(id, event, conclusion, overrides = {}) {
-  return {
+  const value = {
     id,
     event,
     conclusion,
@@ -785,6 +1582,33 @@ function run(id, event, conclusion, overrides = {}) {
     releaseArtifacts: [],
     ...overrides,
   };
+  const attempt = value.run_attempt ?? value.runAttempt;
+  if (
+    (value.releaseArtifacts ?? []).some((record) => record?.schemaVersion === "release-health/v1") &&
+    !(value.jobs ?? []).some((job) => job?.name === "Resolve Release")
+  ) {
+    value.jobs = [{ name: "Resolve Release", conclusion: "success", steps: [] }, ...(value.jobs ?? [])];
+  }
+  value.jobs = (value.jobs ?? []).map((job) => ({ run_attempt: attempt, ...job }));
+  value.releaseArtifacts = (value.releaseArtifacts ?? []).flatMap((record) => {
+    if (record?.schemaVersion !== "release-health/v1") return [record];
+    const identified = {
+      workflowRunId: String(id),
+      workflowRunAttempt: String(attempt),
+      ...record,
+    };
+    if (identified.attempt?.phase !== "production") return [identified];
+    const staging = {
+      ...structuredClone(identified),
+      attempt: {
+        ...structuredClone(identified.attempt),
+        phase: "staging",
+        result: identified.staging?.result,
+      },
+    };
+    return identified.production?.result === "skipped" ? [staging] : [staging, identified];
+  });
+  return value;
 }
 
 function releaseRecord(result, overrides = {}) {
@@ -885,7 +1709,7 @@ function collectorClient({ archive, withArtifact }) {
       return { workflow_runs: [] };
     },
     paginate: async (request) => {
-      if (String(request).includes("/actions/runs/900/jobs")) return [ephemeralJob("success")];
+      if (String(request).includes("/actions/runs/900/jobs")) return [{ ...ephemeralJob("success"), run_attempt: 1 }];
       if (String(request).includes("/actions/runs/900/artifacts")) {
         return withArtifact
           ? [
@@ -902,6 +1726,88 @@ function collectorClient({ archive, withArtifact }) {
       return [];
     },
     request: async () => new Response(archive),
+    markTruncated: () => {},
+    status: () => ({ truncated: [], errors: [] }),
+  };
+}
+
+function productionSeamClient({ platformRuns = [], pulls = [], pullFiles = new Map(), writes = [] } = {}) {
+  return {
+    json: async (request, options) => {
+      if (request === "https://api.github.com/graphql") {
+        return {
+          data: {
+            repository: {
+              pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: pulls },
+            },
+          },
+        };
+      }
+      if (String(request).includes("platform-pr.yml")) return { workflow_runs: platformRuns };
+      if (String(request).includes("/actions/workflows/")) return { workflow_runs: [] };
+      const pullFilesMatch = String(request).match(/^\/pulls\/(\d+)\/files\?/u);
+      if (pullFilesMatch) return pullFiles.get(Number(pullFilesMatch[1])) ?? [];
+      const pullMatch = String(request).match(/^\/pulls\/(\d+)$/u);
+      if (pullMatch) {
+        const pull = pulls.find((entry) => entry.number === Number(pullMatch[1]));
+        return pull ? { number: pull.number, changed_files: pull.changedFiles, merged_at: pull.mergedAt } : null;
+      }
+      if (request === "/issues" || String(request).startsWith("/issues/")) {
+        writes.push({ path: request, request: options });
+        return { number: request === "/issues" ? 7001 : Number(String(request).split("/").at(-1)) };
+      }
+      throw new Error(`Unexpected JSON request: ${request}`);
+    },
+    paginate: async () => [],
+    request: async (request) => {
+      if (String(request).startsWith("https://api.github.com/search/issues")) {
+        const isPullSearch = new URL(String(request)).searchParams.get("q")?.includes("is:pr");
+        const items = isPullSearch ? pulls.map((pull) => ({ number: pull.number })) : [];
+        return new Response(JSON.stringify({ total_count: items.length, incomplete_results: false, items }));
+      }
+      throw new Error(`Unexpected request: ${request}`);
+    },
+    markTruncated: () => {},
+    status: () => ({ truncated: [], errors: [] }),
+  };
+}
+
+function metaPaginationClient(complete) {
+  return {
+    request: async (request) => {
+      const url = new URL(String(request));
+      const page = Number(url.searchParams.get("page"));
+      const items = page === 1 ? Array.from({ length: 100 }, (_, index) => ({ number: index + 1 })) : [{ number: 101 }];
+      const headers = {};
+      if (page === 1 && complete) {
+        const next = new URL(url);
+        next.searchParams.set("page", "2");
+        headers.link = `<${next}>; rel="next"`;
+      }
+      return new Response(JSON.stringify({ total_count: 101, incomplete_results: false, items }), { headers });
+    },
+    json: async (request) => {
+      if (request === "https://api.github.com/graphql") {
+        return {
+          data: { repository: { pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } },
+        };
+      }
+      if (String(request).includes("/actions/workflows/")) return { workflow_runs: [] };
+      const detail = String(request).match(/^\/pulls\/(\d+)$/u);
+      if (detail) {
+        const number = Number(detail[1]);
+        return {
+          number,
+          changed_files: number === 101 ? 1 : 0,
+          merged_at: number === 101 ? "2026-07-18T10:00:00.000Z" : "2026-06-01T00:00:00.000Z",
+        };
+      }
+      if (String(request).startsWith("/pulls/101/files?")) {
+        return [{ filename: "scripts/decisive.mjs", status: "added" }];
+      }
+      throw new Error(`Unexpected JSON request: ${request}`);
+    },
+    paginate: async () => [],
     markTruncated: () => {},
     status: () => ({ truncated: [], errors: [] }),
   };

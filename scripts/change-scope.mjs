@@ -109,6 +109,40 @@ const exposurePosturePatterns = {
   "rollout-policy": [/^scripts\/release-lock/, /^docs\/runbooks\/release-process-evolution\.md$/],
 };
 
+const workPurposeExecutableRoots = /^(?:bounded-contexts|contracts|deployables|packages)\//;
+const workPurposeMetaRoots = /^(?:\.agents|\.claude|\.codex|\.github|artifacts|docs|scripts|infrastructure)\//;
+const workPurposeRootFiles = new Set([
+  "README.md",
+  "AGENTS.md",
+  "Dockerfile",
+  ".dockerignore",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  ".npmrc",
+  "tsconfig.json",
+  "tsconfig.base.json",
+  "tailwind.config.ts",
+  "playwright.config.ts",
+  "tsconfig.tests.json",
+  "test-env.d.ts",
+  "vitest.shared.mjs",
+]);
+const workPurposeStatuses = new Set(["added", "modified", "removed", "renamed", "copied", "changed"]);
+const metaReasonRanks = new Map(
+  [
+    "meta-source-failure",
+    "meta-source-truncated",
+    "meta-count-mismatch",
+    "meta-status-unsupported",
+    "meta-previous-path-missing",
+    "meta-path-unregistered",
+    "meta-file-unreadable",
+    "meta-diff-empty",
+    "meta-denominator-zero",
+  ].map((reasonCode, index) => [reasonCode, index + 1]),
+);
+
 function normalizeFilePath(filePath) {
   return normalizePath(filePath).replace(/^\.\//, "");
 }
@@ -131,6 +165,173 @@ function isTestOnlyOrDocumentationFile(filePath) {
     /(?:^|\/)(?:__tests__|tests|test-support)\//.test(filePath) ||
     /\.(?:md|mdx)$/.test(filePath)
   );
+}
+
+export function classifyWorkPurposePath(filePath) {
+  if (typeof filePath !== "string" || filePath.trim().length === 0) return "unknown";
+  const normalized = normalizeFilePath(filePath);
+  if (isTestOnlyOrDocumentationFile(normalized)) return "meta";
+  if (workPurposeExecutableRoots.test(normalized)) return "product";
+  if (workPurposeMetaRoots.test(normalized) || workPurposeRootFiles.has(normalized)) return "meta";
+  return "unknown";
+}
+
+export function classifyPrWorkPurpose({ number, files, changedFiles, collectionStatus = "complete" }) {
+  const pullNumber = Number.isInteger(number) && number > 0 ? number : 0;
+  const records = Array.isArray(files) ? files : [];
+  const reasons = [];
+  if (collectionStatus === "failure") reasons.push(metaReason("meta-source-failure", `pull-files:${pullNumber}`));
+  if (collectionStatus === "truncated") reasons.push(metaReason("meta-source-truncated", `pull-files:${pullNumber}`));
+
+  const canonical = records.map(canonicalPurposeFile).sort(compareCanonicalPurposeFiles);
+  if (!Number.isInteger(changedFiles) || changedFiles < 0 || canonical.length !== changedFiles) {
+    reasons.push(metaReason("meta-count-mismatch", `pull:${pullNumber}:files`));
+  }
+
+  const purposes = new Set();
+  for (const [index, entry] of canonical.entries()) {
+    const source = `pull:${pullNumber}:file:${index}`;
+    if (!entry.readable) {
+      reasons.push(metaReason("meta-file-unreadable", source));
+      continue;
+    }
+    if (!workPurposeStatuses.has(entry.status)) {
+      reasons.push(metaReason("meta-status-unsupported", source));
+      continue;
+    }
+    const paths = [entry.filename];
+    if (["renamed", "copied"].includes(entry.status)) {
+      if (!entry.previousPresent || typeof entry.previousFilename !== "string" || entry.previousFilename.length === 0) {
+        reasons.push(metaReason("meta-previous-path-missing", source));
+        continue;
+      }
+      paths.push(entry.previousFilename);
+    }
+    const classified = paths.map(classifyWorkPurposePath);
+    if (classified.includes("unknown")) {
+      reasons.push(metaReason("meta-path-unregistered", source));
+      continue;
+    }
+    for (const purpose of classified) purposes.add(purpose);
+  }
+
+  if (canonical.length === 0 && reasons.length === 0) reasons.push(metaReason("meta-diff-empty", `pull:${pullNumber}`));
+  const orderedReasons = orderMetaReasons(reasons);
+  const purpose =
+    orderedReasons.length > 0
+      ? "unknown"
+      : purposes.size === 2
+        ? "mixed"
+        : purposes.has("product")
+          ? "product"
+          : purposes.has("meta")
+            ? "meta-only"
+            : "unknown";
+  return { number: pullNumber, purpose, reasons: orderedReasons };
+}
+
+export function buildMetaWorkShareObservation({ pulls, bounds, sourceReasons = [] }) {
+  const reasons = [...sourceReasons];
+  const counts = { metaOnly: 0, mixed: 0, product: 0, unknown: 0 };
+  for (const pull of Array.isArray(pulls) ? [...pulls].sort((left, right) => left.number - right.number) : []) {
+    const classification = classifyPrWorkPurpose(pull);
+    if (classification.purpose === "meta-only") counts.metaOnly += 1;
+    else if (classification.purpose === "mixed") counts.mixed += 1;
+    else if (classification.purpose === "product") counts.product += 1;
+    else counts.unknown += 1;
+    reasons.push(...classification.reasons);
+  }
+  const numerator = counts.metaOnly;
+  const denominator = counts.metaOnly + counts.mixed + counts.product;
+  if (reasons.length === 0 && denominator === 0) {
+    reasons.push(metaReason("meta-denominator-zero", "meta-work-share:denominator-zero"));
+  }
+  const orderedReasons = orderMetaReasons(reasons);
+  return {
+    schemaVersion: "delivery-health-meta-work-share/v1",
+    bounds: { start: bounds.start, end: bounds.end },
+    counts,
+    numerator,
+    denominator,
+    share: orderedReasons.length === 0 ? numerator / denominator : null,
+    status: orderedReasons.length === 0 ? "available" : "unavailable",
+    reasons: orderedReasons,
+  };
+}
+
+function canonicalPurposeFile(file) {
+  const object = file && typeof file === "object" && !Array.isArray(file) ? file : null;
+  const filename = object?.filename;
+  const status = object?.status;
+  const previousPresent = object ? Object.hasOwn(object, "previous_filename") : false;
+  const previousFilename = previousPresent ? object.previous_filename : undefined;
+  return {
+    filenameTypeRank: typeof filename === "string" ? 0 : 1,
+    filename: typeof filename === "string" ? filename : "",
+    statusTypeRank: typeof status === "string" ? 0 : 1,
+    status: typeof status === "string" ? status : "",
+    previousPresenceRank: previousPresent ? 0 : 1,
+    previousTypeRank: typeof previousFilename === "string" ? 0 : 1,
+    previousFilename: typeof previousFilename === "string" ? previousFilename : "",
+    previousPresent,
+    readable: Boolean(object) && typeof filename === "string" && filename.length > 0,
+  };
+}
+
+function compareCanonicalPurposeFiles(left, right) {
+  for (const key of [
+    "filenameTypeRank",
+    "filename",
+    "statusTypeRank",
+    "status",
+    "previousPresenceRank",
+    "previousTypeRank",
+    "previousFilename",
+  ]) {
+    const comparison = typeof left[key] === "number" ? left[key] - right[key] : ordinalCompare(left[key], right[key]);
+    if (comparison !== 0) return comparison;
+  }
+  return 0;
+}
+
+function metaReason(reasonCode, reasonSource) {
+  return { reasonCode, reasonSource };
+}
+
+function orderMetaReasons(reasons) {
+  const unique = new Map();
+  for (const reason of reasons) {
+    if (!metaReasonRanks.has(reason?.reasonCode) || typeof reason?.reasonSource !== "string") continue;
+    unique.set(`${reason.reasonCode}\u0000${reason.reasonSource}`, {
+      reasonCode: reason.reasonCode,
+      reasonSource: reason.reasonSource,
+    });
+  }
+  return [...unique.values()].sort((left, right) => {
+    const rank = metaReasonRanks.get(left.reasonCode) - metaReasonRanks.get(right.reasonCode);
+    if (rank !== 0) return rank;
+    const leftTuple = metaReasonSourceTuple(left.reasonSource);
+    const rightTuple = metaReasonSourceTuple(right.reasonSource);
+    for (let index = 0; index < leftTuple.length; index += 1) {
+      const comparison =
+        typeof leftTuple[index] === "number"
+          ? leftTuple[index] - rightTuple[index]
+          : ordinalCompare(leftTuple[index], rightTuple[index]);
+      if (comparison !== 0) return comparison;
+    }
+    return 0;
+  });
+}
+
+function metaReasonSourceTuple(source) {
+  if (source === "pull-requests") return [0, 0, -1, source];
+  const pullMatch = source.match(/^(?:pull-files:|pull:)(\d+)(?::file:(\d+)|:files)?$/u);
+  if (pullMatch) return [1, Number(pullMatch[1]), pullMatch[2] === undefined ? -1 : Number(pullMatch[2]), source];
+  return [2, 0, -1, source];
+}
+
+function ordinalCompare(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function workspaceWorkspaceDependencyNames(dependencyRecord) {

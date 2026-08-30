@@ -65,28 +65,55 @@
       "metric": "prs.platformPr.pullRequest.successRate",
       "sampleMetric": "prs.platformPr.pullRequest.denominator",
       "operator": "gte",
-      "value": 0.9,
+      "value": 0.738,
       "minimumSample": 10,
-      "severity": "p1"
+      "severity": "p1",
+      "baseline": {
+        "observedAt": "2026-08-30T03:20:23Z",
+        "sourceWindow": "rolling7d",
+        "statistic": "prs.platformPr.pullRequest.successRate",
+        "sample": { "count": 84, "numerator": 62, "denominator": 84 },
+        "observedValue": 0.7380952380952381,
+        "rounding": "floor-4dp",
+        "rationale": "The configured rolling24h window had 4 samples; rolling7d met minimumSample and observed 62 successes in 84 pass/fail outcomes."
+      }
     },
     "merge-group-success": {
       "window": "rolling24h",
       "metric": "prs.platformPr.mergeGroup.successRate",
       "sampleMetric": "prs.platformPr.mergeGroup.denominator",
       "operator": "gte",
-      "value": 0.95,
+      "value": 0.9428,
       "minimumSample": 10,
-      "severity": "p1"
+      "severity": "p1",
+      "baseline": {
+        "observedAt": "2026-08-30T03:20:23Z",
+        "sourceWindow": "rolling7d",
+        "statistic": "prs.platformPr.mergeGroup.successRate",
+        "sample": { "count": 35, "numerator": 33, "denominator": 35 },
+        "observedValue": 0.9428571428571428,
+        "rounding": "floor-4dp",
+        "rationale": "The configured rolling24h window had 4 samples; rolling7d met minimumSample and observed 33 successes in 35 pass/fail outcomes."
+      }
     },
     "actual-release-success": {
       "window": "lastN",
       "metric": "releases.actual.successRate",
       "sampleMetric": "releases.actual.denominator",
       "operator": "gte",
-      "value": 0.9,
+      "value": 0.7857,
       "minimumSample": 10,
       "severity": "p1",
-      "p0Below": 0.5
+      "p0Below": 0.5,
+      "baseline": {
+        "observedAt": "2026-08-30T03:20:23Z",
+        "sourceWindow": "lastN",
+        "statistic": "releases.actual.successRate",
+        "sample": { "count": 14, "numerator": 11, "denominator": 14 },
+        "observedValue": 0.7857142857142857,
+        "rounding": "floor-4dp",
+        "rationale": "The authoritative latest attempts in the configured lastN window observed 11 successes in 14 pass/fail release outcomes; 6 not-eligible decisions remained excluded."
+      }
     },
     "ephemeral-verification-success": {
       "window": "lastN",
@@ -96,34 +123,70 @@
       "value": 0.95,
       "minimumSample": 10,
       "severity": "p1",
-      "p0At": 0
+      "p0At": 0,
+      "baseline": {
+        "observedAt": "2026-08-30T03:20:23Z",
+        "sourceWindow": "unavailable",
+        "statistic": "releases.ephemeral.successRate",
+        "sample": { "count": 0, "numerator": null, "denominator": null },
+        "observedValue": null,
+        "rounding": "unavailable-preserve",
+        "rationale": "The automatic producer was disabled and supplied no eligible observation, so the existing dormant value is preserved without fabricating a sample."
+      }
     },
     "pr-ci-p90": {
       "window": "rolling24h",
       "metric": "prs.platformPr.combined.executionSeconds.p90",
       "sampleMetric": "prs.platformPr.combined.executionSeconds.sampleCount",
       "operator": "lte",
-      "value": 720,
+      "value": 993,
       "minimumSample": 10,
-      "severity": "p1"
+      "severity": "p1",
+      "baseline": {
+        "observedAt": "2026-08-30T03:20:23Z",
+        "sourceWindow": "rolling7d",
+        "statistic": "prs.platformPr.combined.executionSeconds.p90",
+        "sample": { "count": 126, "numerator": null, "denominator": null },
+        "observedValue": 993,
+        "rounding": "exact-integer",
+        "rationale": "The configured rolling24h window had 8 samples; rolling7d met minimumSample and observed an exact nearest-rank p90 of 993 seconds."
+      }
     },
     "creation-to-merge-p90": {
       "window": "rolling7d",
       "metric": "prs.creationToMergeSeconds.p90",
       "sampleMetric": "prs.creationToMergeSeconds.sampleCount",
       "operator": "lte",
-      "value": 3600,
+      "value": 119829,
       "minimumSample": 10,
-      "severity": "p1"
+      "severity": "p1",
+      "baseline": {
+        "observedAt": "2026-08-30T03:20:23Z",
+        "sourceWindow": "rolling7d",
+        "statistic": "prs.creationToMergeSeconds.p90",
+        "sample": { "count": 31, "numerator": null, "denominator": null },
+        "observedValue": 119829,
+        "rounding": "exact-integer",
+        "rationale": "The configured rolling7d window met minimumSample and observed an exact nearest-rank p90 of 119829 seconds."
+      }
     },
     "repeated-failure-detection": {
       "window": "rolling7d",
       "metric": "failureSignatures.detectionSeconds.p90",
       "sampleMetric": "failureSignatures.detectionSeconds.sampleCount",
       "operator": "lte",
-      "value": 300,
+      "value": 0,
       "minimumSample": 1,
-      "severity": "p1"
+      "severity": "p1",
+      "baseline": {
+        "observedAt": "2026-08-30T03:20:23Z",
+        "sourceWindow": "rolling7d",
+        "statistic": "failureSignatures.detectionSeconds.p90",
+        "sample": { "count": 2, "numerator": null, "denominator": null },
+        "observedValue": 0,
+        "rounding": "exact-integer",
+        "rationale": "The configured rolling7d window met minimumSample and observed an exact nearest-rank p90 of 0 seconds."
+      }
     },
     "open-mutation-circuit": {
       "window": "rolling24h",
@@ -132,7 +195,16 @@
       "operator": "eq",
       "value": 0,
       "minimumSample": 0,
-      "severity": "p0"
+      "severity": "p0",
+      "baseline": {
+        "observedAt": "2026-08-30T03:20:23Z",
+        "sourceWindow": "rolling24h",
+        "statistic": "failureSignatures.openMutationCircuitCount",
+        "sample": { "count": 0, "numerator": null, "denominator": null },
+        "observedValue": 0,
+        "rounding": "exact-integer",
+        "rationale": "The complete rolling24h failure-signature source was empty; minimumSample is 0 and the exact open-circuit count was 0."
+      }
     }
   }
 }

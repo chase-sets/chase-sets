@@ -3,7 +3,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";
+import {
+  buildMetaWorkShareObservation,
+  classifyChanges,
+  classifyPrWorkPurpose,
+  classifyWorkPurposePath,
+  listChangedFiles,
+  toOutputMap,
+} from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
@@ -2263,5 +2270,125 @@ describe("change-scope", () => {
       "ucp-signed-write",
     ]);
     expect(JSON.parse(toOutputMap(scope).exposure_posture_categories_json)).toEqual(scope.exposurePostureCategories);
+  });
+});
+
+describe("delivery-health work-purpose projection", () => {
+  it("classifies the closed product and meta registry without changing production predicates", () => {
+    expect(
+      [
+        "bounded-contexts/catalog/domain/product.ts",
+        "contracts/money-movement/src/contract.ts",
+        "deployables/platform-api/src/main.ts",
+        "packages/design-system/src/button.tsx",
+      ].map(classifyWorkPurposePath),
+    ).toEqual(["product", "product", "product", "product"]);
+    expect(
+      [
+        "bounded-contexts/catalog/domain/product.test.ts",
+        "packages/design-system/README.md",
+        "infrastructure/stripe-payments/src/provider.ts",
+        ".github/workflows/platform-pr.yml",
+        "scripts/change-scope.mjs",
+        "pnpm-workspace.yaml",
+      ].map(classifyWorkPurposePath),
+    ).toEqual(["meta", "meta", "meta", "meta", "meta", "meta"]);
+    expect(classifyWorkPurposePath("legal/terms.ts")).toBe("unknown");
+
+    const providerTest = "infrastructure/platform-runtime/source-context-wake-registry.test.ts";
+    const providerRuntime = "infrastructure/platform-runtime/source-context-wake-registry.ts";
+    expect(classifyChanges({ changedFiles: [providerTest] }).integrationRiskRequired).toBe(true);
+    expect(classifyChanges({ changedFiles: [providerRuntime] }).integrationRiskRequired).toBe(true);
+  });
+
+  it.each([
+    ["added", "bounded-contexts/catalog/domain/item.ts", undefined, "product"],
+    ["modified", "scripts/change-scope.mjs", undefined, "meta-only"],
+    ["removed", "packages/design-system/src/button.tsx", undefined, "product"],
+    ["changed", "docs/runbooks/release-process-evolution.md", undefined, "meta-only"],
+    ["renamed", "bounded-contexts/catalog/domain/item.ts", "scripts/old-item.mjs", "mixed"],
+    ["copied", "scripts/new-tool.mjs", "scripts/old-tool.mjs", "meta-only"],
+  ])("classifies status-aware %s records", (status, filename, previousFilename, expected) => {
+    const file = { filename, status };
+    if (previousFilename !== undefined) file.previous_filename = previousFilename;
+    expect(classifyPrWorkPurpose({ number: 7, changedFiles: 1, files: [file] }).purpose).toBe(expected);
+  });
+
+  it("canonicalizes malformed provider records before assigning reason indexes", () => {
+    const files = [
+      { filename: "unregistered/ten.ts", status: "modified" },
+      { filename: "scripts/rename.mjs", status: "renamed" },
+      { filename: "scripts/unsupported.mjs", status: "moved" },
+      {},
+    ];
+    const forward = classifyPrWorkPurpose({ number: 10, changedFiles: 4, files });
+    const reverse = classifyPrWorkPurpose({ number: 10, changedFiles: 4, files: [...files].reverse() });
+    expect(JSON.stringify(forward)).toBe(JSON.stringify(reverse));
+    expect(forward.purpose).toBe("unknown");
+    expect(forward.reasons.map((reason) => reason.reasonCode)).toEqual([
+      "meta-status-unsupported",
+      "meta-previous-path-missing",
+      "meta-path-unregistered",
+      "meta-file-unreadable",
+    ]);
+  });
+
+  it("orders global and per-PR failures deterministically and reserves denominator zero for complete empty authority", () => {
+    const bounds = { start: "2026-08-16T00:00:00.000Z", end: "2026-08-30T00:00:00.000Z" };
+    const unavailable = buildMetaWorkShareObservation({
+      bounds,
+      sourceReasons: [{ reasonCode: "meta-source-failure", reasonSource: "pull-requests" }],
+      pulls: [
+        { number: 10, changedFiles: 1, files: [{ filename: "unknown/a.ts", status: "modified" }] },
+        { number: 2, changedFiles: 1, files: [{ filename: "unknown/b.ts", status: "modified" }] },
+      ],
+    });
+    expect(unavailable.reasons.map((reason) => reason.reasonSource)).toEqual([
+      "pull-requests",
+      "pull:2:file:0",
+      "pull:10:file:0",
+    ]);
+    expect(unavailable.reasons).not.toContainEqual(expect.objectContaining({ reasonCode: "meta-denominator-zero" }));
+
+    expect(buildMetaWorkShareObservation({ bounds, pulls: [] })).toMatchObject({
+      counts: { metaOnly: 0, mixed: 0, product: 0, unknown: 0 },
+      numerator: 0,
+      denominator: 0,
+      share: null,
+      status: "unavailable",
+      reasons: [{ reasonCode: "meta-denominator-zero", reasonSource: "meta-work-share:denominator-zero" }],
+    });
+  });
+
+  it("publishes the exact available numerator and denominator contract", () => {
+    const observation = buildMetaWorkShareObservation({
+      bounds: { start: "2026-08-16T00:00:00.000Z", end: "2026-08-30T00:00:00.000Z" },
+      pulls: [
+        { number: 1, changedFiles: 1, files: [{ filename: "scripts/tool.mjs", status: "added" }] },
+        {
+          number: 2,
+          changedFiles: 2,
+          files: [
+            { filename: "scripts/tool.test.mjs", status: "modified" },
+            { filename: "bounded-contexts/catalog/domain/item.ts", status: "modified" },
+          ],
+        },
+        {
+          number: 3,
+          changedFiles: 1,
+          files: [{ filename: "bounded-contexts/catalog/domain/item.ts", status: "removed" }],
+        },
+      ],
+    });
+    expect(observation).toEqual({
+      schemaVersion: "delivery-health-meta-work-share/v1",
+      bounds: { start: "2026-08-16T00:00:00.000Z", end: "2026-08-30T00:00:00.000Z" },
+      counts: { metaOnly: 1, mixed: 1, product: 1, unknown: 0 },
+      numerator: 1,
+      denominator: 3,
+      share: 1 / 3,
+      status: "available",
+      reasons: [],
+    });
   });
 });
