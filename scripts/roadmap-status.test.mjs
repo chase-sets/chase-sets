@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -29,6 +30,7 @@ import {
   reducePriorRefinedInventoryAuthority,
   reconcileForecastIssueSources,
   reconcileEpicChildren,
+  renderClassificationGapReport,
   renderRoadmapStatus,
   renderRefinedInventoryCapMarker,
   resolveCurrentMilestoneEntry,
@@ -38,6 +40,7 @@ import {
   spliceIntoBody,
   START_MARKER,
   summarizeWaves,
+  summarizeClassificationGapsFromAuthority,
   summarizePrioritizationHygiene,
   stabilizeRoadmapWindowAuthority,
   stabilizeMonthlyRefinedInventory,
@@ -128,7 +131,8 @@ function issueFactNode(issue) {
   return {
     number: issue.number,
     state: issue.state.toUpperCase(),
-    issueType: { name: issue.issueTypeName },
+    issueType:
+      issue.issueTypeName === null ? null : { name: issue.issueTypeName, isEnabled: issue.issueTypeIsEnabled ?? true },
     parent: issue.hasParent ? { number: 999 } : null,
     issueDependenciesSummary: { blockedBy: issue.blockedByCount },
   };
@@ -158,7 +162,14 @@ function windowIssueNode(issue) {
     id: `SYNTHETIC_ISSUE_${issue.number}`,
     number: issue.number,
     state: "OPEN",
-    issueType: issue.issueTypeName === null ? null : { name: issue.issueTypeName },
+    issueType:
+      issue.issueTypeName === null
+        ? null
+        : {
+            id: `SYNTHETIC_TYPE_${issue.issueTypeName}`,
+            name: issue.issueTypeName,
+            isEnabled: issue.issueTypeIsEnabled ?? true,
+          },
     milestone:
       issue.milestone === null
         ? null
@@ -1760,6 +1771,71 @@ describe("roadmap status classification and preserved rollups", () => {
   });
 });
 
+describe("roadmap-status/classification-gaps-complete-authority", () => {
+  it("reports sorted gap numbers while preserving native Epic and tracking-only exclusion precedence", () => {
+    const issues = [
+      slice(9, WAVE_1, "open", ["priority:p2", "area:ops"], OLD, { issueTypeIsEnabled: true }),
+      slice(3, WAVE_1, "open", ["priority:p2", "area:ops", "kind:ops"], OLD, { issueTypeIsEnabled: false }),
+      slice(7, WAVE_1, "open", ["priority:p2", "area:ops", "kind:ops", "status:tracking-only"], OLD, { issueTypeIsEnabled: true }),
+      slice(8, WAVE_1, "open", ["priority:p2"], OLD, { issueTypeName: "Epic", issueTypeIsEnabled: true }),
+    ];
+    const summary = summarizeWaves({
+      milestones: [WAVE_1],
+      issues,
+      scopeGrowthByIssue: knownGrowth(issues),
+      nowMs: NOW,
+    });
+    expect(summary.rows[0]).toMatchObject({ classificationGapsKnown: true, classificationGapNumbers: [3, 9] });
+    expect(renderClassificationGapReport(summary.rows)).toContain("Wave 1: **2** — #3, #9");
+  });
+
+  it("publishes bounded unknown instead of a partial positive when enabled-type authority is absent", () => {
+    const issues = [
+      slice(1, WAVE_1, "open", ["priority:p2", "area:ops"], OLD, { issueTypeIsEnabled: true }),
+      slice(2, WAVE_1, "open", ["priority:p2", "area:ops", "kind:ops"]),
+    ];
+    const summary = summarizeWaves({
+      milestones: [WAVE_1],
+      issues,
+      scopeGrowthByIssue: knownGrowth(issues),
+      nowMs: NOW,
+    });
+    expect(summary.rows[0]).toMatchObject({ classificationGapsKnown: false, classificationGapNumbers: [] });
+    expect(renderClassificationGapReport(summary.rows)).toContain("**?** (bounded unknown");
+    expect(renderClassificationGapReport(summary.rows)).not.toContain("#1");
+  });
+
+  it("carries a decisive page-two disabled-type fact into the gap report", async () => {
+    const pages = new Map([
+      [
+        null,
+        {
+          totalCount: 2,
+          pageInfo: { hasNextPage: true, endCursor: "page-two" },
+          nodes: [{ number: 1, state: "OPEN", issueType: { name: "Slice", isEnabled: true }, parent: null, issueDependenciesSummary: { blockedBy: 0 } }],
+        },
+      ],
+      [
+        "page-two",
+        {
+          totalCount: 2,
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [{ number: 2, state: "OPEN", issueType: { name: "Slice", isEnabled: false }, parent: null, issueDependenciesSummary: { blockedBy: 0 } }],
+        },
+      ],
+    ]);
+    const facts = await collectRoadmapIssueFacts(async (after) => pages.get(after));
+    const issues = [1, 2].map((number) =>
+      mergeRoadmapIssueFacts(
+        slice(number, WAVE_1, "open", ["priority:p2", "area:ops", "kind:ops"]),
+        facts.get(number),
+      ),
+    );
+    const summary = summarizeWaves({ milestones: [WAVE_1], issues, scopeGrowthByIssue: knownGrowth(issues), nowMs: NOW });
+    expect(summary.rows[0].classificationGapNumbers).toEqual([2]);
+  });
+});
+
 describe("latest-entry scope growth", () => {
   it("counts an old issue milestoned into its current wave two days ago", async () => {
     const issue = slice(1, WAVE_1, "open", ["kind:product"], OLD, { updated_at: RECENT });
@@ -2515,6 +2591,20 @@ describe("real main composition", () => {
     expect(requests.filter(({ method }) => method === "PATCH")).toEqual([]);
   });
 
+  it("writes a dry-run artifact while keeping roadmap issue mutation unreachable", async () => {
+    const temp = mkdtempSync(path.join(os.tmpdir(), "issue-7536-roadmap-dry-run-"));
+    try {
+      const outPath = path.join(temp, "roadmap.md");
+      const { request, requests } = createMainRequest({ issues: [] });
+      const code = await main({ env: mainEnv(), request, nowMs: NOW, dryRun: true, outPath, writeOutput: () => {} });
+      expect(code).toBe(0);
+      expect(requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+      expect(readFileSync(outPath, "utf8")).toContain("## Classification gaps");
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
   it("clears all ambient roadmap variables and reaches the intended named env failure", async () => {
     const diagnostics = [];
     const code = await main({
@@ -2547,7 +2637,7 @@ describe("prioritization hygiene authority", () => {
       id: "synthetic-issue-1",
       number: 1,
       state: "OPEN",
-      issueType: { name: "Slice" },
+      issueType: { id: "synthetic-type-slice", name: "Slice", isEnabled: true },
       milestone,
       issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
       labels: completePage(reverse ? labels.slice().reverse() : labels, labelTotal),
@@ -2572,7 +2662,7 @@ describe("prioritization hygiene authority", () => {
       id: "synthetic-issue-1",
       number: 1,
       state: "OPEN",
-      issueType: { name: "Slice" },
+      issueType: { id: "synthetic-type-slice", name: "Slice", isEnabled: true },
       milestone,
       issueDependenciesSummary: { blockedBy: 0, totalBlockedBy: 0 },
       labels: labelPages?.root ?? completePage(completeLabels),
@@ -2834,9 +2924,12 @@ describe("prioritization hygiene authority", () => {
     const loaders = windowLoaders();
     const rootPage = await loaders.loadIssues(null);
     rootPage.nodes[0].labels = {
-      totalCount: 2,
+      totalCount: 3,
       pageInfo: { hasNextPage: true, endCursor: "synthetic-page-two" },
-      nodes: [{ id: "synthetic-label-priority", name: "priority:p1" }],
+      nodes: [
+        { id: "synthetic-label-priority", name: "priority:p1" },
+        { id: "synthetic-label-area", name: "area:ops" },
+      ],
     };
     loaders.loadIssues = async () => rootPage;
     let labelCalls = 0;
@@ -2844,13 +2937,16 @@ describe("prioritization hygiene authority", () => {
       labelCalls += 1;
       if (after === null) {
         return {
-          totalCount: 2,
+          totalCount: 3,
           pageInfo: { hasNextPage: true, endCursor: "synthetic-page-two" },
-          nodes: [{ id: "synthetic-label-priority", name: "priority:p1" }],
+          nodes: [
+            { id: "synthetic-label-priority", name: "priority:p1" },
+            { id: "synthetic-label-area", name: "area:ops" },
+          ],
         };
       }
       return {
-        totalCount: 2,
+        totalCount: 3,
         pageInfo: { hasNextPage: false, endCursor: null },
         nodes: [{ id: "synthetic-label-kind", name: "kind:ops" }],
       };
@@ -2858,9 +2954,11 @@ describe("prioritization hygiene authority", () => {
     const accepted = await collectRoadmapWindowAuthority(loaders);
     expect(labelCalls).toBe(1);
     expect(accepted.authority.issues.nodes[0].labels.nodes.map(({ name }) => name)).toEqual([
+      "area:ops",
       "kind:ops",
       "priority:p1",
     ]);
+    expect(summarizeClassificationGapsFromAuthority(accepted.authority).get("Wave 1")).toEqual([]);
   });
 
   it("collects a decisive page-two blockedBy node before accepting the authority", async () => {

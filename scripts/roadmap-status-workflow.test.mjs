@@ -89,7 +89,15 @@ jobs:
       }),
     ]);
 
+    const roadmapRunReferences = runSteps.filter(({ run }) => run.includes("roadmap-status"));
+    expect(roadmapRunReferences.map(({ run }) => run)).toEqual([
+      "node ./scripts/roadmap-status.mjs",
+      "node ./scripts/roadmap-status.mjs --resolve-probe-job",
+      "node ./scripts/roadmap-status.mjs --probe-authority --out artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json",
+      "node ./scripts/roadmap-status.mjs --validate-probe-authority --input artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json",
+    ]);
     expect(directModuleImporters()).toEqual([
+      "scripts/backlog-classification-sweep.mjs",
       "scripts/roadmap-authority-probe.mjs",
       "scripts/roadmap-authority-probe.test.mjs",
       "scripts/roadmap-status.test.mjs",

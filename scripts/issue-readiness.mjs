@@ -344,6 +344,19 @@ function projectLabel(raw) {
   return raw.name;
 }
 
+function projectAuthorityLabel(raw) {
+  if (
+    !raw ||
+    typeof raw.node_id !== "string" ||
+    raw.node_id.length === 0 ||
+    typeof raw.name !== "string" ||
+    raw.name.length === 0
+  ) {
+    fail("LABEL_SHAPE_INVALID");
+  }
+  return { nodeId: raw.node_id, name: raw.name };
+}
+
 function projectDependency(raw) {
   if (
     !raw ||
@@ -567,6 +580,85 @@ export async function collectIssueAuthority({ repository, number, token, client 
     coverage,
     reasonCodes: [...new Set(reasonCodes)].sort(),
   };
+}
+
+function sameStableIssue(left, right) {
+  return (
+    left.nodeId === right.nodeId &&
+    left.number === right.number &&
+    left.state === right.state &&
+    left.updatedAt === right.updatedAt &&
+    left.body === right.body &&
+    left.issueType?.nodeId === right.issueType?.nodeId &&
+    left.issueType?.name === right.issueType?.name &&
+    left.issueType?.isEnabled === right.issueType?.isEnabled &&
+    left.milestone?.number === right.milestone?.number &&
+    left.milestone?.title === right.milestone?.title &&
+    left.milestone?.state === right.milestone?.state &&
+    left.commentsTotal === right.commentsTotal &&
+    left.dependenciesTotal === right.dependenciesTotal &&
+    left.openDependenciesTotal === right.openDependenciesTotal
+  );
+}
+
+/**
+ * Stable issue authority for mutation planners. Unlike collectIssueAuthority,
+ * this seam intentionally does not traverse comments or dependency history.
+ * It reads only the issue, its independent GraphQL identity/totals, and the
+ * complete current label connection, all between matching before/after reads.
+ */
+export async function collectStableIssueAuthority({ repository, number, token, client = globalThis.fetch }) {
+  try {
+    const initialIssue = await readIssue({ repository, number, token, client });
+    const initialGraph = await readGraphAuthority({ repository, number, token, client });
+    assertInitialIdentity(initialIssue, initialGraph);
+    const collection = await collectPages({
+      repository,
+      repositoryDatabaseId: initialGraph.repositoryDatabaseId,
+      endpointPath: `/issues/${number}/labels`,
+      token,
+      client,
+      project: projectAuthorityLabel,
+    });
+    if (collection.items.length !== initialGraph.labelsTotal) fail("LABEL_COUNT_MISMATCH");
+    const labelKeys = collection.items.map((label) => `${label.nodeId}\0${label.name}`);
+    if (new Set(labelKeys).size !== labelKeys.length) fail("LABEL_DUPLICATE");
+
+    const finalIssue = await readIssue({ repository, number, token, client });
+    const finalGraph = await readGraphAuthority({ repository, number, token, client });
+    assertInitialIdentity(finalIssue, finalGraph);
+    if (
+      !sameStableIssue(initialIssue, finalIssue) ||
+      initialGraph.nodeId !== finalGraph.nodeId ||
+      initialGraph.updatedAt !== finalGraph.updatedAt ||
+      initialGraph.labelsTotal !== finalGraph.labelsTotal ||
+      initialGraph.issueType?.nodeId !== finalGraph.issueType?.nodeId ||
+      initialGraph.issueType?.name !== finalGraph.issueType?.name ||
+      initialGraph.issueType?.isEnabled !== finalGraph.issueType?.isEnabled
+    ) {
+      fail("ISSUE_REVISION_MOVED");
+    }
+
+    return {
+      complete: true,
+      issue: initialIssue,
+      graph: initialGraph,
+      labels: collection.items.sort((left, right) =>
+        `${left.nodeId}\0${left.name}`.localeCompare(`${right.nodeId}\0${right.name}`),
+      ),
+      coverage: { pages: collection.pages, collected: collection.items.length, total: initialGraph.labelsTotal },
+      reasonCodes: [],
+    };
+  } catch (error) {
+    return {
+      complete: false,
+      issue: null,
+      graph: null,
+      labels: [],
+      coverage: { pages: 0, collected: 0, total: null },
+      reasonCodes: [error instanceof IssueReadinessBoundaryError ? error.code : "INTERNAL_FAILURE"],
+    };
+  }
 }
 
 function normalizeField(value) {

@@ -1064,6 +1064,8 @@ export class RoadmapIssueEnumerationError extends Error {
 }
 
 const WINDOW_AUTHORITY_VERSION = "roadmap-dispatch-window-authority/v1";
+const WINDOW_AUTHORITY_MAX_PAGES = 100;
+const WINDOW_AUTHORITY_MAX_ITEMS = 10_000;
 
 function windowAuthorityError(code, message = code) {
   return new RoadmapIssueEnumerationError(code, message);
@@ -1104,12 +1106,20 @@ async function collectWindowConnection({ loadPage, firstPage = null, validateNod
   let expectedTotal = null;
   let after = null;
   let pageFromRoot = firstPage;
+  let pages = 0;
   do {
+    if (pages >= WINDOW_AUTHORITY_MAX_PAGES || nodes.length >= WINDOW_AUTHORITY_MAX_ITEMS) {
+      throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_BOUNDED");
+    }
     const page = pageFromRoot ?? (await loadPage(after));
     pageFromRoot = null;
     const nodesBeforePage = nodes.length;
     validateWindowPage(page, code);
+    pages += 1;
     if (expectedTotal === null) expectedTotal = page.totalCount;
+    if (expectedTotal > WINDOW_AUTHORITY_MAX_ITEMS) {
+      throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_BOUNDED");
+    }
     if (page.totalCount !== expectedTotal) {
       throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_TOTAL_CHANGED");
     }
@@ -1166,7 +1176,13 @@ function validBlockedBy(node) {
 }
 
 function validNullableIssueType(value) {
-  return value === null || (hasOnlyKeys(value, ["name"]) && requiredString(value.name));
+  return (
+    value === null ||
+    (hasOnlyKeys(value, ["id", "name", "isEnabled"]) &&
+      requiredString(value.id) &&
+      requiredString(value.name) &&
+      typeof value.isEnabled === "boolean")
+  );
 }
 
 function validNullableMilestone(value) {
@@ -1220,7 +1236,14 @@ function canonicalWindowAuthority({ milestones, issues }) {
           id: issue.id,
           number: issue.number,
           state: issue.state,
-          issueType: issue.issueType === null ? null : { name: issue.issueType.name },
+          issueType:
+            issue.issueType === null
+              ? null
+              : {
+                  id: issue.issueType.id,
+                  name: issue.issueType.name,
+                  isEnabled: issue.issueType.isEnabled,
+                },
           milestone:
             issue.milestone === null
               ? null
@@ -1330,6 +1353,7 @@ function authorityFacts(authority) {
       number: issue.number,
       state: issue.state.toLowerCase(),
       issueTypeName: issue.issueType?.name ?? null,
+      issueTypeIsEnabled: issue.issueType?.isEnabled ?? null,
       milestone: issue.milestone && { ...issue.milestone, state: issue.milestone.state.toLowerCase() },
       labels: issue.labels.nodes,
       blockedBy: issue.blockedBy.nodes.map((node) => ({ ...node, state: node.state.toLowerCase() })),
@@ -1376,6 +1400,30 @@ export function summarizePrioritizationHygiene(authority) {
   return { selected, candidates, byPriority, noWindowFamilies: [...new Set(noWindowFamilies)].sort() };
 }
 
+export function summarizeClassificationGapsFromAuthority(authority) {
+  const facts = authorityFacts(authority);
+  const rows = new Map();
+  for (const milestone of facts.milestones) {
+    if (!THROUGHPUT_TITLE.test(milestone.title)) continue;
+    const numbers = [];
+    for (const issue of facts.issues.filter((entry) => entry.milestone?.id === milestone.id)) {
+      const input = {
+        number: issue.number,
+        state: issue.state,
+        labels: issue.labels.map((label) => label.name),
+        issueTypeName: issue.issueTypeName,
+        milestoneTitle: issue.milestone.title,
+        blockedByCount: issue.blockedBy.filter((node) => node.state === "open").length,
+        hasParent: false,
+      };
+      if (classifiedEpic(input) || isTrackingOnly(input)) continue;
+      if (!classified(input) || issue.issueTypeName === null || issue.issueTypeIsEnabled !== true) numbers.push(issue.number);
+    }
+    rows.set(milestone.title, numbers.sort((left, right) => left - right));
+  }
+  return rows;
+}
+
 export function toBacklogInput(issue) {
   return {
     number: issue.number,
@@ -1402,8 +1450,13 @@ export async function collectRoadmapIssueFacts(loadPage) {
   let after = null;
   let expectedTotal = null;
   let collectedCount = 0;
+  let pages = 0;
+  const seenCursors = new Set();
 
   do {
+    if (pages >= WINDOW_AUTHORITY_MAX_PAGES || collectedCount >= WINDOW_AUTHORITY_MAX_ITEMS) {
+      throw new RoadmapIssueEnumerationError("ROADMAP_ISSUE_COLLECTION_BOUNDED", "Repository issue enumeration exceeded its ceiling.");
+    }
     const page = await loadPage(after);
     if (
       !page ||
@@ -1417,7 +1470,11 @@ export async function collectRoadmapIssueFacts(loadPage) {
         "Repository issue enumeration returned an invalid page.",
       );
     }
+    pages += 1;
     if (expectedTotal === null) expectedTotal = page.totalCount;
+    if (expectedTotal > WINDOW_AUTHORITY_MAX_ITEMS) {
+      throw new RoadmapIssueEnumerationError("ROADMAP_ISSUE_COLLECTION_BOUNDED", "Repository issue total exceeded its ceiling.");
+    }
     if (page.totalCount !== expectedTotal) {
       throw new RoadmapIssueEnumerationError(
         "ROADMAP_ISSUE_TOTAL_CHANGED",
@@ -1439,21 +1496,37 @@ export async function collectRoadmapIssueFacts(loadPage) {
         );
       }
       collectedCount += 1;
+      if (byNumber.has(node.number)) {
+        throw new RoadmapIssueEnumerationError("ROADMAP_ISSUE_IDENTITY_DUPLICATE", `Repository issue enumeration repeated #${node.number}.`);
+      }
       sourceNumbers.push(node.number);
       byNumber.set(node.number, {
         state: typeof node.state === "string" ? node.state.toLowerCase() : node.state,
         issueTypeName: node.issueType?.name ?? null,
+        issueTypeIsEnabled:
+          node.issueType === null
+            ? null
+            : typeof node.issueType?.isEnabled === "boolean"
+              ? node.issueType.isEnabled
+              : undefined,
         blockedByCount: node.issueDependenciesSummary?.blockedBy,
         hasParent: node.parent !== null,
       });
     }
 
-    if (page.pageInfo.hasNextPage && !page.pageInfo.endCursor) {
+    if (
+      page.pageInfo.hasNextPage &&
+      (typeof page.pageInfo.endCursor !== "string" || page.pageInfo.endCursor.length === 0 || page.pageInfo.endCursor.length > 1024)
+    ) {
       throw new RoadmapIssueEnumerationError(
         "ROADMAP_ISSUE_PAGINATION_INCOMPLETE",
         "Repository issue enumeration has another page but no end cursor.",
       );
     }
+    if (page.pageInfo.hasNextPage && seenCursors.has(page.pageInfo.endCursor)) {
+      throw new RoadmapIssueEnumerationError("ROADMAP_ISSUE_CURSOR_REPEATED", "Repository issue enumeration repeated a cursor.");
+    }
+    if (page.pageInfo.hasNextPage) seenCursors.add(page.pageInfo.endCursor);
     after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (after);
 
@@ -1704,6 +1777,28 @@ export function summarizeWaves({
     }
 
     const classifiedOpen = open.filter(({ input }) => classified(input));
+    let classificationGapNumbers = [];
+    let classificationGapsKnown = true;
+    if (executable) {
+      for (const { issue, input } of open) {
+        try {
+          if (classifiedEpic(input) || isTrackingOnly(input)) continue;
+          if (typeof issue.issueTypeIsEnabled !== "boolean" && issue.issueTypeName !== null) {
+            classificationGapsKnown = false;
+            classificationGapNumbers = [];
+            break;
+          }
+          if (!classified(input) || issue.issueTypeName === null || issue.issueTypeIsEnabled !== true) {
+            classificationGapNumbers.push(issue.number);
+          }
+        } catch {
+          classificationGapsKnown = false;
+          classificationGapNumbers = [];
+          break;
+        }
+      }
+      classificationGapNumbers.sort((left, right) => left - right);
+    }
     const waveEpics = epics.filter(({ issue: epic }) => epicWave.get(epic.number) === milestone.title);
     const completeEpics = waveEpics.filter(({ issue: epic }) => {
       const collection = epicChildren.get(epic.number);
@@ -1726,6 +1821,8 @@ export function summarizeWaves({
       addedRecently,
       growthUnknown,
       refinedOpen: classifiedOpen.length,
+      classificationGapsKnown,
+      classificationGapNumbers,
       parentlessClassified: classifiedOpen.filter(({ input }) => !input.hasParent).length,
       tracking: tracking.length,
       epicsTotal: waveEpics.length,
@@ -1807,6 +1904,8 @@ export function renderRoadmapStatus(summary) {
     `Drift unavailable: **${forecast.unavailableRows} row(s)**; **${forecast.unobservableIdentityCount} unobservable identity transition(s)**.`,
   );
   if (forecast.priorDiagnostic) lines.push("", `Drift diagnostics: ${forecast.priorDiagnostic}.`);
+
+  lines.push("", renderClassificationGapReport(summary.rows));
 
   const hygiene = summary.prioritizationHygiene;
   if (hygiene) {
@@ -1895,6 +1994,25 @@ export function renderRoadmapStatus(summary) {
   return lines.join("\n");
 }
 
+export function renderClassificationGapReport(rows) {
+  if (!Array.isArray(rows)) throw new TypeError("rows must be an array");
+  const lines = ["## Classification gaps", ""];
+  const waveRows = rows.filter(
+    (row) => row?.executable === true && typeof row.title === "string" && THROUGHPUT_TITLE.test(row.title),
+  );
+  if (waveRows.length === 0) return `${lines.join("\n")}none`;
+  for (const row of waveRows) {
+    if (row.classificationGapsKnown !== true || !Array.isArray(row.classificationGapNumbers)) {
+      lines.push(`- ${row.title}: **?** (bounded unknown; incomplete classification authority)`);
+      continue;
+    }
+    const numbers = row.classificationGapNumbers;
+    const suffix = numbers.length === 0 ? "none" : numbers.map((number) => `#${number}`).join(", ");
+    lines.push(`- ${row.title}: **${numbers.length}** — ${suffix}`);
+  }
+  return lines.join("\n");
+}
+
 function countOccurrences(text, marker) {
   let count = 0;
   let cursor = 0;
@@ -1979,7 +2097,7 @@ query($owner:String!, $name:String!, $after:String) {
       nodes {
         number
         state
-        issueType { name }
+        issueType { name isEnabled }
         parent { number }
         issueDependenciesSummary { blockedBy }
       }
@@ -2022,7 +2140,7 @@ query($owner:String!, $name:String!, $after:String) {
         id
         number
         state
-        issueType { name }
+        issueType { id name isEnabled }
         milestone { id number title state }
         issueDependenciesSummary { blockedBy totalBlockedBy }
         labels(first:100) {
@@ -2124,6 +2242,8 @@ export async function main({
   env = process.env,
   request = globalThis.fetch,
   nowMs = Date.now(),
+  dryRun = false,
+  outPath = null,
   writeOutput = (message) => console.log(message),
   writeError = (message) => console.error(message),
   appendSummary = appendStepSummary,
@@ -2234,6 +2354,13 @@ export async function main({
     return 1;
   }
   summary.prioritizationHygiene = summarizePrioritizationHygiene(windowAuthority.authority);
+  const authoritativeGaps = summarizeClassificationGapsFromAuthority(windowAuthority.authority);
+  for (const row of summary.rows) {
+    if (!row.executable || !THROUGHPUT_TITLE.test(row.title)) continue;
+    const numbers = authoritativeGaps.get(row.title);
+    row.classificationGapsKnown = Array.isArray(numbers);
+    row.classificationGapNumbers = numbers ?? [];
+  }
   summary.forecast = createForecastPresentation({ current: currentForecast, drift, nowMs });
   if (roadmapIssue) {
     let record = priorRefinedInventory.record;
@@ -2259,8 +2386,12 @@ export async function main({
   const block = renderRoadmapStatus(summary);
   writeOutput(block);
   await appendSummary(env, block);
+  if (outPath) {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(outPath, `${block}\n`, "utf8");
+  }
 
-  if (roadmapIssue) {
+  if (roadmapIssue && !dryRun) {
     const next = spliceIntoBody(currentRoadmap.body, block);
     if (next === null) {
       writeError(
@@ -2303,18 +2434,52 @@ function optionValue(argv, name) {
 async function runCli(argv = process.argv.slice(2)) {
   try {
     if (argv.includes("--resolve-probe-job")) {
+      if (argv.length !== 1) {
+        console.error("ROADMAP_ARGUMENT_INVALID: --resolve-probe-job does not accept additional arguments.");
+        return 2;
+      }
       await resolveRefinedInventoryProbeJob();
       return 0;
     }
     if (argv.includes("--probe-authority")) {
-      await produceRefinedInventoryProbe({ outPath: optionValue(argv, "--out") });
+      const outPath = optionValue(argv, "--out");
+      if (!outPath || argv.length !== 3 || argv[0] !== "--probe-authority" || argv[1] !== "--out") {
+        console.error("ROADMAP_ARGUMENT_INVALID: --probe-authority requires exactly one --out path.");
+        return 2;
+      }
+      await produceRefinedInventoryProbe({ outPath });
       return 0;
     }
     if (argv.includes("--validate-probe-authority")) {
-      readCanonicalRefinedInventoryProbe(optionValue(argv, "--input"));
+      const inputPath = optionValue(argv, "--input");
+      if (!inputPath || argv.length !== 3 || argv[0] !== "--validate-probe-authority" || argv[1] !== "--input") {
+        console.error("ROADMAP_ARGUMENT_INVALID: --validate-probe-authority requires exactly one --input path.");
+        return 2;
+      }
+      readCanonicalRefinedInventoryProbe(inputPath);
       return 0;
     }
-    return await runRoadmapStatus();
+
+    let dryRun = false;
+    let outPath = null;
+    for (let index = 0; index < argv.length; index += 1) {
+      if (argv[index] === "--dry-run" && !dryRun) {
+        dryRun = true;
+        continue;
+      }
+      if (argv[index] === "--out" && outPath === null && argv[index + 1] && !argv[index + 1].startsWith("--")) {
+        outPath = argv[index + 1];
+        index += 1;
+        continue;
+      }
+      console.error(`ROADMAP_ARGUMENT_INVALID: Unsupported or duplicate argument ${argv[index]}.`);
+      return 2;
+    }
+    if (outPath !== null && !dryRun) {
+      console.error("ROADMAP_ARGUMENT_INVALID: --out is available only with --dry-run.");
+      return 2;
+    }
+    return await runRoadmapStatus(() => main({ dryRun, outPath }));
   } catch (error) {
     console.error(`${error.code ?? error.name}: ${error.message}`);
     return 1;

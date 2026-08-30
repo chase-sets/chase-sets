@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { releaseQualificationScopeRegistry } from "./release-qualification-scope.mjs";
 import {
   COMMENT_MARKER,
+  collectStableIssueAuthority,
   ISSUE_READINESS_RULES,
   ISSUE_READINESS_SCHEMA_VERSION,
   PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION,
@@ -390,6 +391,8 @@ function createHarness(scenario, { comments = [] } = {}) {
   const errors = [];
   const dependencyPages = dependenciesFor(scenario);
   const dependencies = dependencyPages.flat();
+  const labelPages = scenario.labelPages ?? [LABELS];
+  const allLabels = labelPages.flat();
   let issueReads = 0;
   let commentState = [...comments];
   let authorityUpdatedAt = scenario.initialUpdatedAt ?? UPDATED_AT;
@@ -441,8 +444,8 @@ function createHarness(scenario, { comments = [] } = {}) {
               : null,
             parent: scenario.noParent ? null : { number: 5496 },
             labels: {
-              totalCount: scenario.labelsTotalOverride ?? LABELS.length,
-              pageInfo: { hasNextPage: LABELS.length > 1, endCursor: "cursor" },
+              totalCount: scenario.labelsTotalOverride ?? allLabels.length,
+              pageInfo: { hasNextPage: allLabels.length > 1, endCursor: "cursor" },
             },
             blockedBy: {
               totalCount: dependencies.length,
@@ -477,7 +480,15 @@ function createHarness(scenario, { comments = [] } = {}) {
         url: issueReads >= 2 && scenario.finalResponseUrlOverride ? scenario.finalResponseUrlOverride : url,
       });
     }
-    if (url.includes(`/issues/${ISSUE_NUMBER}/labels?`)) return response(LABELS.map((name) => ({ name })));
+    if (url.includes(`/issues/${ISSUE_NUMBER}/labels?`)) {
+      const page = Number(new URL(url).searchParams.get("page") ?? "1");
+      const payload = (labelPages[page - 1] ?? []).map((name, index) => ({ node_id: `label-${page}-${index}-${name}`, name }));
+      const next =
+        page < labelPages.length
+          ? `<https://api.github.com/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}/labels?per_page=100&page=${page + 1}>; rel="next"`
+          : null;
+      return response(payload, { link: next });
+    }
     if (url.includes(`/issues/${ISSUE_NUMBER}/dependencies/blocked_by?`)) {
       const page = Number(new URL(url).searchParams.get("page") ?? "1");
       const payload = dependencyPages[page - 1] ?? [];
@@ -519,6 +530,24 @@ function createHarness(scenario, { comments = [] } = {}) {
     },
   };
 }
+
+describe("stable issue authority seam", () => {
+  it("paginates labels completely with a decisive page-two label and never reads comments or dependency history", async () => {
+    const scenario = { ...fixtureScenario("ready"), labelPages: [["priority:p1"], ["area:ops", "kind:tech-debt"]] };
+    const harness = createHarness(scenario);
+    const authority = await collectStableIssueAuthority({
+      repository: REPOSITORY,
+      number: ISSUE_NUMBER,
+      token: "test-token",
+      client: harness.client,
+    });
+    expect(authority.complete).toBe(true);
+    expect(authority.labels.map(({ name }) => name).sort()).toEqual(["area:ops", "kind:tech-debt", "priority:p1"]);
+    expect(authority.coverage).toMatchObject({ pages: 2, collected: 3, total: 3 });
+    expect(harness.requests.some(({ url }) => url.includes("/comments?"))).toBe(false);
+    expect(harness.requests.some(({ url }) => url.includes("/dependencies/blocked_by?"))).toBe(false);
+  });
+});
 
 async function runScenario(scenario, options = {}) {
   const harness = createHarness(scenario, options);
