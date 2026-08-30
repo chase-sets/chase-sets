@@ -316,4 +316,39 @@ describe("browser e2e wake relay priming", () => {
       ["marketplace", "107", "marketplace:107"],
     ]);
   });
+
+  it("browser-e2e-cursor-priming-fails-on-registered-owner-schema-gap", async () => {
+    const calls = [];
+    const ended = [];
+    const createClient = (connectionString) => ({
+      connect: async () => undefined,
+      end: async () => {
+        ended.push(connectionString);
+      },
+      query: async (sql) => {
+        calls.push({ connectionString, sql });
+        if (connectionString === "postgres://registered-owner" && sql.includes("MAX(global_position)")) {
+          throw new Error('relation "event_store_events" does not exist');
+        }
+        return { rows: [] };
+      },
+    });
+
+    await expect(
+      primeBrowserE2eProjectionWakeRelayCursors({
+        sandbox: {
+          controlDatabaseUrl: "postgres://control",
+          contextDatabaseUrls: { "registered-owner": "postgres://registered-owner" },
+        },
+        createClient,
+      }),
+    ).rejects.toThrow('relation "event_store_events" does not exist');
+    expect(calls).toEqual([
+      {
+        connectionString: "postgres://registered-owner",
+        sql: expect.stringContaining("FROM event_store_events"),
+      },
+    ]);
+    expect(ended).toEqual(["postgres://registered-owner", "postgres://control"]);
+  });
 });

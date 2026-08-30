@@ -39,6 +39,14 @@ export function listContextManifests(options = {}) {
   );
 }
 
+export function contextManifestContributesToApiHost(manifest, hostName) {
+  return (
+    manifest.apiDeployables?.includes(hostName) ||
+    manifest.sourceRuntimeDeployables?.includes(hostName) ||
+    manifest.sourceRuntimeProfiles?.length > 0
+  );
+}
+
 export function normalizeRelative(filePath, fromRoot = repoRoot) {
   return normalizePath(path.relative(fromRoot, filePath));
 }

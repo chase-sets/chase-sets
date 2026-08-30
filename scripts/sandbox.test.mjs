@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,19 +12,26 @@ import {
   normalizeSandboxWorktreeIdentity,
   resolveWorktreeSandbox,
 } from "./lib/sandbox.mjs";
+import { repoRoot } from "./lib/repo.mjs";
 
 const temporaryRoots = [];
 
 function createTempRepo() {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "chase-sets-sandbox-"));
   temporaryRoots.push(rootDir);
-  mkdirSync(path.join(rootDir, "bounded-contexts", "catalog"), { recursive: true });
-  mkdirSync(path.join(rootDir, "bounded-contexts", "marketplace"), { recursive: true });
-  writeFileSync(path.join(rootDir, "bounded-contexts", "catalog", "context.json"), "{}\n");
-  writeFileSync(path.join(rootDir, "bounded-contexts", "catalog", "package.json"), "{}\n");
-  writeFileSync(path.join(rootDir, "bounded-contexts", "marketplace", "context.json"), "{}\n");
-  writeFileSync(path.join(rootDir, "bounded-contexts", "marketplace", "package.json"), "{}\n");
+  writeContext(rootDir, "catalog", { contextName: "catalog", apiDeployables: ["platform-api"] });
+  writeContext(rootDir, "marketplace", {
+    contextName: "marketplace",
+    sourceRuntimeDeployables: ["platform-api"],
+  });
   return rootDir;
+}
+
+function writeContext(rootDir, dirName, manifest) {
+  const contextDir = path.join(rootDir, "bounded-contexts", dirName);
+  mkdirSync(contextDir, { recursive: true });
+  writeFileSync(path.join(contextDir, "context.json"), `${JSON.stringify(manifest)}\n`);
+  writeFileSync(path.join(contextDir, "package.json"), `${JSON.stringify({ name: `@chase-sets/${dirName}` })}\n`);
 }
 
 afterEach(() => {
@@ -148,6 +155,90 @@ describe("worktree sandbox", () => {
     });
 
     expect(listSandboxDatabases(sandbox).map(({ key }) => key)).toEqual(["control", "catalog", "marketplace"]);
+  });
+
+  it("sandbox-platform-api-database-owner-parity matches the generated registry and rejects a deletion mutant", () => {
+    const registrySource = readFileSync(
+      path.join(repoRoot, "deployables", "platform-api", "src", "generated", "api-context-registry.ts"),
+      "utf8",
+    );
+    const generatedContextNames = [...registrySource.matchAll(/^\s+contextName: "([^"]+)",$/gmu)].map(
+      ([, contextName]) => contextName,
+    );
+    const sandbox = resolveWorktreeSandbox({ rootDir: repoRoot, env: {}, contextNames: undefined });
+
+    expect(sandbox.contextNames).toEqual(generatedContextNames);
+    expect(sandbox.contextNames).not.toEqual(generatedContextNames.slice(1));
+
+    const injected = resolveWorktreeSandbox({ rootDir: repoRoot, env: {}, contextNames: ["neutral-injected"] });
+    expect(injected.contextNames).toEqual(["neutral-injected"]);
+    expect(Object.keys(injected.contextDatabaseUrls)).toEqual(["neutral-injected"]);
+  });
+
+  it("sandbox-excludes-behavior-free-context from databases, environment, and cursor targets", () => {
+    const rootDir = createTempRepo();
+    writeContext(rootDir, "neutral-foundation", { contextName: "neutral-foundation" });
+
+    const sandbox = resolveWorktreeSandbox({
+      rootDir,
+      env: { CHASE_SETS_SANDBOX_ID: "behavior-free", CHASE_SETS_SANDBOX_BASE_PORT: "7000" },
+    });
+    const env = buildSandboxEnv(sandbox);
+
+    expect(sandbox.contextNames).toEqual(["catalog", "marketplace"]);
+    expect(sandbox.contextDatabaseUrls).not.toHaveProperty("neutral-foundation");
+    expect(listSandboxDatabases(sandbox).map(({ key }) => key)).toEqual(["control", "catalog", "marketplace"]);
+    expect(env).not.toHaveProperty(getContextDatabaseEnvName("neutral-foundation"));
+  });
+
+  it("sandbox-database-owner-consumer-parity keeps every owner consumer on one resolved set", () => {
+    const rootDir = createTempRepo();
+    writeContext(rootDir, "profile-owner", {
+      contextName: "profile-owner",
+      sourceRuntimeProfiles: ["neutral-profile"],
+    });
+    writeContext(rootDir, "sibling-host", {
+      contextName: "sibling-host",
+      apiDeployables: ["sibling-api"],
+    });
+
+    const sandbox = resolveWorktreeSandbox({
+      rootDir,
+      env: { CHASE_SETS_SANDBOX_ID: "consumers", CHASE_SETS_SANDBOX_BASE_PORT: "7000" },
+    });
+    const env = buildSandboxEnv(sandbox);
+    const ownerNames = ["catalog", "marketplace", "profile-owner"];
+
+    expect(sandbox.contextNames).toEqual(ownerNames);
+    expect(Object.keys(sandbox.contextDatabaseUrls)).toEqual(ownerNames);
+    expect(listSandboxDatabases(sandbox).map(({ key }) => key)).toEqual(["control", ...ownerNames]);
+    expect(ownerNames.map(getContextDatabaseEnvName).filter((envName) => envName in env)).toEqual(
+      ownerNames.map(getContextDatabaseEnvName),
+    );
+    expect(env).not.toHaveProperty(getContextDatabaseEnvName("sibling-host"));
+  });
+
+  it("sandbox-database-owner-discovery-fail-closed excludes ghosts and rejects malformed manifests before env output", () => {
+    const rootDir = createTempRepo();
+    const ghostDir = path.join(rootDir, "bounded-contexts", "neutral-ghost", "node_modules");
+    mkdirSync(ghostDir, { recursive: true });
+    writeFileSync(path.join(ghostDir, "ignored.txt"), "ignored\n");
+
+    expect(resolveWorktreeSandbox({ rootDir, env: {} }).contextNames).toEqual(["catalog", "marketplace"]);
+
+    const malformedDir = path.join(rootDir, "bounded-contexts", "neutral-malformed");
+    const envFilePath = path.join(rootDir, "malformed.env");
+    mkdirSync(malformedDir, { recursive: true });
+    writeFileSync(path.join(malformedDir, "context.json"), '{"contextName":\n');
+    writeFileSync(path.join(malformedDir, "package.json"), "{}\n");
+
+    expect(() =>
+      ensureWorktreeSandboxEnvironment({
+        rootDir,
+        env: { CHASE_SETS_SANDBOX_ENV_FILE: envFilePath },
+      }),
+    ).toThrow(SyntaxError);
+    expect(existsSync(envFilePath)).toBe(false);
   });
 
   it("writes and updates the ignored per-worktree sandbox env file", () => {

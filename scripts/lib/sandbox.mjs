@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { repoRoot } from "./repo.mjs";
+import { contextManifestContributesToApiHost, listContextManifests, repoRoot } from "./repo.mjs";
 
 const defaultSandboxEnvFileName = ".env.sandbox.local";
 const defaultPortBase = 6200;
@@ -123,20 +123,10 @@ export function normalizeSandboxWorktreeIdentity(rootDir) {
   return path.resolve(value).replaceAll("\\", "/").replace(/\/+$/, "");
 }
 
-function readImplementedContextNames(rootDir) {
-  const contextsDir = path.join(rootDir, "bounded-contexts");
-  if (!existsSync(contextsDir)) {
-    return [];
-  }
-
-  return readdirSync(contextsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .filter(
-      (contextName) =>
-        existsSync(path.join(contextsDir, contextName, "context.json")) &&
-        existsSync(path.join(contextsDir, contextName, "package.json")),
-    )
+function readPlatformApiContextNames(rootDir) {
+  return listContextManifests({ repoRoot: rootDir })
+    .filter(({ manifest }) => contextManifestContributesToApiHost(manifest, "platform-api"))
+    .map(({ manifest }) => manifest.contextName)
     .sort((left, right) => left.localeCompare(right, "en"));
 }
 
@@ -203,7 +193,7 @@ export function readSandboxEnvFile(filePath) {
 export function resolveWorktreeSandbox({
   rootDir = repoRoot,
   env = process.env,
-  contextNames = readImplementedContextNames(rootDir),
+  contextNames = readPlatformApiContextNames(rootDir),
 } = {}) {
   // Worktree identity is cross-host data: Git and Docker labels can describe a
   // Windows worktree while this command runs on Linux. Classify that raw value

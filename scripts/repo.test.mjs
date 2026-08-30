@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertWorkspaceRootsCoverPackageDirectories,
+  contextManifestContributesToApiHost,
   listContextManifests,
   listWorkspacePackages,
 } from "./lib/repo.mjs";
@@ -66,6 +67,33 @@ describe("listContextManifests", () => {
 
   it("returns an empty list when bounded-contexts does not exist", () => {
     expect(listContextManifests({ repoRoot: createTempRepo() })).toEqual([]);
+  });
+});
+
+describe("contextManifestContributesToApiHost", () => {
+  it.each([
+    ["apiDeployables", { apiDeployables: ["neutral-api"] }, { apiDeployables: ["sibling-api"] }],
+    [
+      "sourceRuntimeDeployables",
+      { sourceRuntimeDeployables: ["neutral-api"] },
+      { sourceRuntimeDeployables: ["sibling-api"] },
+    ],
+    ["sourceRuntimeProfiles", { sourceRuntimeProfiles: ["neutral-profile"] }, { sourceRuntimeProfiles: [] }],
+  ])("api-host-ownership-predicate-parity admits %s and its exit mutant does not", (_shape, admitted, exited) => {
+    const manifest = { contextName: "neutral-owner", ...admitted };
+
+    expect(contextManifestContributesToApiHost(manifest, "neutral-api")).toBe(true);
+    expect(contextManifestContributesToApiHost({ ...manifest, ...exited }, "neutral-api")).toBe(false);
+  });
+
+  it("excludes a behavior-free manifest and contributions to a different API host", () => {
+    expect(contextManifestContributesToApiHost({ contextName: "neutral-foundation" }, "neutral-api")).toBe(false);
+    expect(
+      contextManifestContributesToApiHost(
+        { contextName: "neutral-sibling", apiDeployables: ["sibling-api"] },
+        "neutral-api",
+      ),
+    ).toBe(false);
   });
 });
 
