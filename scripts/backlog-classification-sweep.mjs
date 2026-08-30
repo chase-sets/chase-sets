@@ -24,6 +24,8 @@ export const REVIEW_REDUCER_PATH = path.join(CONTAINER_ROOT, ".orchestrator", "r
 export const REVIEW_HISTORY_PATH = path.join(CONTAINER_ROOT, ".orchestrator", "dispatch-log.jsonl");
 export const PLAN_PATH = "planning-artifacts/issue-7536/plan.json";
 export const ROADMAP_PATH = "planning-artifacts/issue-7536/roadmap.md";
+export const AUTHORIZED_MILESTONE_NUMBER = 136;
+export const AUTHORIZED_MILESTONE_TITLE = "Wave 1 — Platform Foundation & Representative Staging";
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const GIT_OID = /^[a-f0-9]{40}$/;
@@ -383,6 +385,28 @@ function sameGoverned(left, right) {
   return canonicalJson(left) === canonicalJson(right);
 }
 
+function assertAuthorizedMilestoneIdentity(milestone) {
+  if (
+    !milestone ||
+    milestone.state !== "OPEN" ||
+    (milestone.number === AUTHORIZED_MILESTONE_NUMBER && milestone.title !== AUTHORIZED_MILESTONE_TITLE)
+  )
+    fail("PLAN_MILESTONE_INVALID");
+}
+
+function deriveDecisionTarget(decision, before, labelsByName, typesByName) {
+  const after = applyDecision(before, decision, labelsByName, typesByName);
+  const step = targetStep(decision, before, after, labelsByName, typesByName);
+  return { after, step };
+}
+
+function assertDecisionBoundTarget(decision, target, labelsByName, typesByName) {
+  const { after, step } = deriveDecisionTarget(decision, target.before, labelsByName, typesByName);
+  if (!sameGoverned(after, target.after)) fail("EXPECTED_PREFIX_DECISION_BINDING_INVALID");
+  if (step.kind !== target.steps[0].kind || canonicalJson(step.request) !== canonicalJson(target.steps[0].request))
+    fail("EXPECTED_PREFIX_DECISION_BINDING_INVALID");
+}
+
 function targetStep(decision, before, after, labelsByName, typesByName) {
   const common = {
     index: 0,
@@ -449,7 +473,7 @@ export function buildClassificationPlan({
   const decisions = extractReviewedDecisionAuthority(issueBody.issue.body);
   if (decisions.value.milestoneNumber !== milestoneNumber) fail("DECISION_MILESTONE_INVALID");
   const milestone = authority.window.authority.milestones.nodes.find((entry) => entry.number === milestoneNumber);
-  if (!milestone || milestone.state !== "OPEN") fail("PLAN_MILESTONE_INVALID");
+  assertAuthorizedMilestoneIdentity(milestone);
   const labels = reconcileLabelRegistry(authority.labelRegistry);
   const types = reconcileTypeRegistry(authority.typeRegistry);
   if (authority.permission?.repository !== SWEEP_REPOSITORY || authority.permission?.viewerPermission !== "ADMIN") {
@@ -485,8 +509,7 @@ export function buildClassificationPlan({
     if (!sameGoverned(live, stableFingerprint)) fail("DECISION_GLOBAL_AUTHORITY_MISMATCH");
     if (live.isGap) {
       if (stable.issue.updatedAt !== decision.updatedAt) fail("DECISION_PREIMAGE_REVISION_DRIFT");
-      const after = applyDecision(live, decision, labelsByName, typesByName);
-      const step = targetStep(decision, live, after, labelsByName, typesByName);
+      const { after, step } = deriveDecisionTarget(decision, live, labelsByName, typesByName);
       targets.push({
         number: live.number,
         nodeId: live.nodeId,
@@ -606,6 +629,7 @@ export function validateClassificationPlan(plan) {
   exactKeys(plan, PLAN_KEYS, "PLAN_KEYS_INVALID");
   if (plan.schemaVersion !== PLAN_SCHEMA_VERSION || plan.repository !== SWEEP_REPOSITORY) fail("PLAN_IDENTITY_INVALID");
   validateMilestone(plan.milestone);
+  assertAuthorizedMilestoneIdentity(plan.milestone);
   exactKeys(plan.implementation, ["landedMainSha", "planBranch"], "PLAN_IMPLEMENTATION_INVALID");
   oid(plan.implementation.landedMainSha, "PLAN_MAIN_INVALID");
   if (!PLAN_BRANCH.test(plan.implementation.planBranch)) fail("PLAN_BRANCH_INVALID");
@@ -1611,6 +1635,8 @@ function assertExpectedAuthority(plan, authority, prefix) {
     authority.permission?.viewerPermission !== plan.permission.viewerPermission
   )
     fail("EXPECTED_PREFIX_PERMISSION_DRIFT");
+  const labelsByName = new Map(plan.labelRegistry.value.map((label) => [label.name, label]));
+  const typesByName = new Map(plan.typeRegistry.value.map((type) => [type.name, type]));
   for (const decision of decisionAuthority.value.entries) {
     const stable = authority.issueAuthorities.find((entry) => entry.issue.number === decision.number);
     const target = plan.targets.find((entry) => entry.number === decision.number);
@@ -1618,6 +1644,7 @@ function assertExpectedAuthority(plan, authority, prefix) {
     if (!stable || stable.issue.nodeId !== decision.nodeId || bodySha256(stable.issue.body) !== decision.bodySha256)
       fail("EXPECTED_PREFIX_DECISION_DRIFT");
     if (target) {
+      assertDecisionBoundTarget(decision, target, labelsByName, typesByName);
       const mayBeAfter =
         prefix.pendingIntent?.targetNumber === target.number ||
         prefix.records.some(({ record }) => record.kind === "result" && record.targetNumber === target.number);
@@ -1661,8 +1688,16 @@ function assertExpectedAuthority(plan, authority, prefix) {
   }
 }
 
-export async function admitExpectedPrefix({ client, plan, planPr, reducerPath, historyPath, cwd = process.cwd() }) {
-  const identity = await assertPlanExecutionIdentity({ client, plan, planPr, reducerPath, historyPath, cwd });
+export async function admitExpectedPrefix({
+  client,
+  plan,
+  planPr,
+  reducerPath,
+  historyPath,
+  cwd = process.cwd(),
+  invokeReducer = invokeCanonicalReviewReducer,
+}) {
+  const identity = await assertPlanExecutionIdentity({ client, plan, planPr, reducerPath, historyPath, cwd, invokeReducer });
   const firstComments = await client.listComments(plan.issueBodyAuthority.number);
   const comments = await client.listComments(plan.issueBodyAuthority.number);
   if (digestCanonical(firstComments) !== digestCanonical(comments)) fail("JOURNAL_COLLECTION_UNSTABLE");
@@ -1684,7 +1719,15 @@ export async function admitExpectedPrefix({ client, plan, planPr, reducerPath, h
     decisionIssueNumbers,
   });
   assertExpectedAuthority(plan, authority, prefix);
-  const finalIdentity = await assertPlanExecutionIdentity({ client, plan, planPr, reducerPath, historyPath, cwd });
+  const finalIdentity = await assertPlanExecutionIdentity({
+    client,
+    plan,
+    planPr,
+    reducerPath,
+    historyPath,
+    cwd,
+    invokeReducer,
+  });
   if (identity.planHead !== finalIdentity.planHead || identity.localMain !== finalIdentity.localMain)
     fail("ADMISSION_IDENTITY_UNSTABLE");
   const finalCommentsFirst = await client.listComments(plan.issueBodyAuthority.number);
