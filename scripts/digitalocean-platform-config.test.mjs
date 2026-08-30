@@ -4,9 +4,14 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
-import { assertNoDestructiveChanges, destructiveChangeApprovalFromText } from "./terraform-plan-inspection.mjs";
+import {
+  assertNoDestructiveChanges,
+  destructiveChangeApprovalFromText,
+  terraformPlanSummary,
+} from "./terraform-plan-inspection.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
+const platformVersions = readFileSync(resolve("infrastructure/digitalocean/platform/versions.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
 const platformOutputs = readFileSync(resolve("infrastructure/digitalocean/platform/outputs.tf"), "utf8");
 const platformVariables = readFileSync(resolve("infrastructure/digitalocean/platform/variables.tf"), "utf8");
@@ -315,6 +320,52 @@ function workflowSteps(source, stepName) {
   return steps;
 }
 
+function terraformResourceBlock(source, type, name) {
+  const marker = `resource "${type}" "${name}" {`;
+  const start = source.indexOf(marker);
+  if (start < 0) throw new Error(`Terraform resource ${type}.${name} was not found.`);
+  const nextResource = source.indexOf('\nresource "', start + marker.length);
+  return source.slice(start, nextResource < 0 ? source.length : nextResource);
+}
+
+function carriesExactProviderCredentials(step) {
+  return [
+    "TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+    "TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}",
+    "TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}",
+  ].every((binding) => step.includes(binding));
+}
+
+function isExactManagedPostgresGrantTrustPlan(plan) {
+  const changed = (plan.resource_changes ?? []).filter((resource) =>
+    (resource.change?.actions ?? []).some((action) => !["no-op", "read"].includes(action)),
+  );
+  return (
+    JSON.stringify(
+      changed.map(({ address, type, provider_name: providerName, change }) => ({
+        address,
+        type,
+        providerName,
+        actions: change.actions,
+      })),
+    ) ===
+    JSON.stringify([
+      {
+        address: "terraform_data.context_database_grants[0]",
+        type: "terraform_data",
+        providerName: "terraform.io/builtin/terraform",
+        actions: ["delete", "create"],
+      },
+      {
+        address: "terraform_data.wake_listener_database_grants[0]",
+        type: "terraform_data",
+        providerName: "terraform.io/builtin/terraform",
+        actions: ["delete", "create"],
+      },
+    ])
+  );
+}
+
 function workflowJob(source, jobName) {
   const match = new RegExp(`(^|\\n)  ${jobName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:`).exec(source);
   expect(match).not.toBeNull();
@@ -543,6 +594,132 @@ function platformApiExposedContextNames(runtimeProfile) {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("threads the exact graph-owned authority and v2 trust trigger to both database-grant provisioners", () => {
+    const contextGrants = terraformResourceBlock(platformMain, "terraform_data", "context_database_grants");
+    const wakeListenerGrants = terraformResourceBlock(platformMain, "terraform_data", "wake_listener_database_grants");
+    const expectedBindings = [
+      "DIGITALOCEAN_ACCESS_TOKEN        = var.digitalocean_token",
+      "DIGITALOCEAN_DATABASE_CLUSTER_ID = digitalocean_database_cluster.postgres[0].id",
+      "PGHOST                           = digitalocean_database_cluster.postgres[0].host",
+      "PGPASSWORD                       = digitalocean_database_cluster.postgres[0].password",
+      "PGPORT                           = tostring(digitalocean_database_cluster.postgres[0].port)",
+      "PGUSER                           = digitalocean_database_cluster.postgres[0].user",
+    ];
+
+    for (const resource of [contextGrants, wakeListenerGrants]) {
+      expect(occurrenceCount(resource, '"managed-postgres-grant-trust-v2"')).toBe(1);
+      expect(resource).toContain('command     = "node scripts/apply-digitalocean-database-grant.mjs"');
+      for (const binding of expectedBindings) expect(resource).toContain(binding);
+      expect(resource).not.toMatch(/\bPGDATABASE\s*=/);
+      expect(resource).not.toMatch(/\bPGSSLMODE\s*=/);
+      const command = /^\s*command\s*=\s*(.+)$/m.exec(resource)?.[1] ?? "";
+      expect(command).not.toMatch(
+        /DIGITALOCEAN_(?:ACCESS_TOKEN|DATABASE_CLUSTER_ID)|PGPASSWORD|DATABASE_GRANTS_JSON|--(?:cluster|token)/i,
+      );
+    }
+
+    const providerSource = /digitalocean\s*=\s*\{[\s\S]*?source\s*=\s*"([^"]+)"/.exec(platformVersions)?.[1];
+    expect(providerSource).toBe("digitalocean/digitalocean");
+    expect(platformVariables).toMatch(
+      /variable "digitalocean_token" \{\s*type\s*=\s*string\s*sensitive\s*=\s*true\s*\}/,
+    );
+  });
+
+  it("models exactly the two v2 grant replacements and rejects one-variable plan/provider drift", () => {
+    const plan = {
+      resource_changes: [
+        {
+          address: "terraform_data.context_database_grants[0]",
+          type: "terraform_data",
+          name: "context_database_grants",
+          provider_name: "terraform.io/builtin/terraform",
+          change: { actions: ["delete", "create"] },
+        },
+        {
+          address: "terraform_data.wake_listener_database_grants[0]",
+          type: "terraform_data",
+          name: "wake_listener_database_grants",
+          provider_name: "terraform.io/builtin/terraform",
+          change: { actions: ["delete", "create"] },
+        },
+        {
+          address: "digitalocean_database_cluster.postgres[0]",
+          type: "digitalocean_database_cluster",
+          name: "postgres",
+          provider_name: "registry.terraform.io/digitalocean/digitalocean",
+          change: { actions: ["no-op"] },
+        },
+        {
+          address: 'digitalocean_database_db.contexts["checkout"]',
+          type: "digitalocean_database_db",
+          name: "contexts",
+          provider_name: "registry.terraform.io/digitalocean/digitalocean",
+          change: { actions: ["no-op"] },
+        },
+        {
+          address: 'digitalocean_database_user.contexts["checkout"]',
+          type: "digitalocean_database_user",
+          name: "contexts",
+          provider_name: "registry.terraform.io/digitalocean/digitalocean",
+          change: { actions: ["no-op"] },
+        },
+      ],
+    };
+
+    expect(isExactManagedPostgresGrantTrustPlan(plan)).toBe(true);
+    expect(terraformPlanSummary(plan)).toMatchObject({ add: 2, change: 0, destroy: 2, omittedResources: 0 });
+    for (const resource of plan.resource_changes.slice(2)) {
+      expect(resource.provider_name).toBe("registry.terraform.io/digitalocean/digitalocean");
+      expect(resource.change.actions).toEqual(["no-op"]);
+    }
+
+    const wrongProvider = structuredClone(plan);
+    wrongProvider.resource_changes[0].provider_name = "registry.terraform.io/hashicorp/null";
+    expect(isExactManagedPostgresGrantTrustPlan(wrongProvider)).toBe(false);
+    const clusterReplacement = structuredClone(plan);
+    clusterReplacement.resource_changes[2].change.actions = ["delete", "create"];
+    expect(isExactManagedPostgresGrantTrustPlan(clusterReplacement)).toBe(false);
+    const missingSibling = structuredClone(plan);
+    missingSibling.resource_changes[1].change.actions = ["no-op"];
+    expect(isExactManagedPostgresGrantTrustPlan(missingSibling)).toBe(false);
+  });
+
+  it("models pending-v2 execution, inert day-after state, and a later graph-owned replacement", () => {
+    const replacementRequired = (before, after) => JSON.stringify(before) !== JSON.stringify(after);
+    const v1 = { clusterId: "cluster-a", grantIds: ["db-a:user-a"], trustVersion: "v1" };
+    const v2 = {
+      clusterId: "cluster-a",
+      grantIds: ["db-a:user-a"],
+      trustVersion: "managed-postgres-grant-trust-v2",
+    };
+    expect(replacementRequired(v1, v2)).toBe(true);
+    expect(replacementRequired(v2, structuredClone(v2))).toBe(false);
+    expect(replacementRequired(v2, { ...v2, grantIds: ["db-a:user-b"] })).toBe(true);
+    expect(JSON.stringify(v2)).not.toMatch(/certificate|BEGIN CERTIFICATE|sha256|fingerprint/i);
+
+    const literalRemovalMutant = platformMain.replaceAll('"managed-postgres-grant-trust-v2",', "");
+    for (const name of ["context_database_grants", "wake_listener_database_grants"]) {
+      expect(terraformResourceBlock(literalRemovalMutant, "terraform_data", name)).not.toContain(
+        "managed-postgres-grant-trust-v2",
+      );
+    }
+  });
+
+  it("keeps environment approval followed by one same-job tfplan and applies those exact bytes", () => {
+    for (const jobName of ["deploy-staging", "deploy-production"]) {
+      const job = workflowJob(platformProductionWorkflow, jobName);
+      const planStep = workflowStep(job, "Terraform plan");
+      const applyStep = workflowSteps(job, "Terraform apply").at(-1);
+      expect(job).toContain(`environment: ${jobName === "deploy-staging" ? "staging" : "production"}`);
+      expect(planStep).toContain("working-directory: infrastructure/digitalocean/platform");
+      expect(planStep).toContain("terraform plan -out=tfplan");
+      expect(applyStep).toContain("working-directory: infrastructure/digitalocean/platform");
+      expect(applyStep).toContain("terraform apply -auto-approve tfplan");
+      expect(applyStep).not.toMatch(/terraform\s+plan/);
+      expect(job.indexOf(planStep)).toBeLessThan(job.indexOf(applyStep));
+    }
+  });
+
   it("retires application compute while preserving live DOKS DNS addresses", () => {
     expect(platformMain).not.toMatch(/resource\s+"digitalocean_app"/);
     expect(platformProjects).not.toContain("digitalocean_app.platform.urn");
@@ -1988,9 +2165,14 @@ describe("DigitalOcean platform configuration", () => {
     ];
 
     for (const step of deployPlanApplySteps) {
-      expect(step).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
-      expect(step).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
-      expect(step).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
+      expect(carriesExactProviderCredentials(step)).toBe(true);
+      for (const binding of [
+        "TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+        "TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}",
+        "TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}",
+      ]) {
+        expect(carriesExactProviderCredentials(step.replaceAll(binding, ""))).toBe(false);
+      }
     }
 
     const resetPlanApplySteps = [
@@ -1998,9 +2180,14 @@ describe("DigitalOcean platform configuration", () => {
       ...workflowSteps(platformStagingResetWorkflow, "Terraform apply staging recreate"),
     ];
     for (const step of resetPlanApplySteps) {
-      expect(step).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
-      expect(step).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
-      expect(step).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
+      expect(carriesExactProviderCredentials(step)).toBe(true);
+      for (const binding of [
+        "TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+        "TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}",
+        "TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}",
+      ]) {
+        expect(carriesExactProviderCredentials(step.replaceAll(binding, ""))).toBe(false);
+      }
     }
   });
 
