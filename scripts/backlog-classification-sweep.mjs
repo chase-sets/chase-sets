@@ -1697,7 +1697,15 @@ export async function admitExpectedPrefix({
   cwd = process.cwd(),
   invokeReducer = invokeCanonicalReviewReducer,
 }) {
-  const identity = await assertPlanExecutionIdentity({ client, plan, planPr, reducerPath, historyPath, cwd, invokeReducer });
+  const identity = await assertPlanExecutionIdentity({
+    client,
+    plan,
+    planPr,
+    reducerPath,
+    historyPath,
+    cwd,
+    invokeReducer,
+  });
   const firstComments = await client.listComments(plan.issueBodyAuthority.number);
   const comments = await client.listComments(plan.issueBodyAuthority.number);
   if (digestCanonical(firstComments) !== digestCanonical(comments)) fail("JOURNAL_COLLECTION_UNSTABLE");

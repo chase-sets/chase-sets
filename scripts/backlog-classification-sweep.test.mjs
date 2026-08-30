@@ -81,7 +81,15 @@ function decisionBody(entryOverrides = {}, entriesOverride = null, milestoneNumb
   return `### Context\nSynthetic fixture; every fact is explicitly synthetic.\n\n\`\`\`json\n${JSON.stringify(decision, null, 2)}\n\`\`\`\n`;
 }
 
-function graphIssue({ number, nodeId, issueType, labels, tracking = false, milestoneNumber = SYNTHETIC_MILESTONE, milestoneTitle = SYNTHETIC_TITLE }) {
+function graphIssue({
+  number,
+  nodeId,
+  issueType,
+  labels,
+  tracking = false,
+  milestoneNumber = SYNTHETIC_MILESTONE,
+  milestoneTitle = SYNTHETIC_TITLE,
+}) {
   const effectiveLabels = tracking ? [...labels, { id: "LABEL_TRACKING", name: "status:tracking-only" }] : labels;
   return {
     id: nodeId,
@@ -598,7 +606,10 @@ describe("backlog-classification-sweep/complete-authority-preflight", () => {
   });
 
   it("binds the exact authorized milestone 136 identity to its exact title and rejects a title-only drift", () => {
-    const authorized = fixture({ milestoneNumber: AUTHORIZED_MILESTONE_NUMBER, milestoneTitle: AUTHORIZED_MILESTONE_TITLE });
+    const authorized = fixture({
+      milestoneNumber: AUTHORIZED_MILESTONE_NUMBER,
+      milestoneTitle: AUTHORIZED_MILESTONE_TITLE,
+    });
     const roadmap = renderClassificationPlanningRoadmap(authorized.window.authority);
     const plan = buildClassificationPlan({
       authority: authorized,
@@ -617,7 +628,10 @@ describe("backlog-classification-sweep/complete-authority-preflight", () => {
     });
     expect(validateClassificationPlan(plan)).toEqual(plan);
 
-    const drifted = fixture({ milestoneNumber: AUTHORIZED_MILESTONE_NUMBER, milestoneTitle: "Wave 1 — Renamed Milestone" });
+    const drifted = fixture({
+      milestoneNumber: AUTHORIZED_MILESTONE_NUMBER,
+      milestoneTitle: "Wave 1 — Renamed Milestone",
+    });
     const driftedRoadmap = renderClassificationPlanningRoadmap(drifted.window.authority);
     expectCode(
       () =>
@@ -1220,11 +1234,23 @@ describe("backlog-classification-sweep/bounded-apply-and-crash-recovery", () => 
       });
       const invokeReducer = fakeReducer({ planPr, planHead: fx.headSha });
       const admit = (args) => admitExpectedPrefix({ ...args, invokeReducer });
-      const receipt = await applyClassificationPlan({ client: built.client, plan: fx.plan, planPr, cwd: fx.workDir, admit });
+      const receipt = await applyClassificationPlan({
+        client: built.client,
+        plan: fx.plan,
+        planPr,
+        cwd: fx.workDir,
+        admit,
+      });
       expect(receipt.kind).toBe("apply-receipt");
       expect(built.executeCalls).toBe(1);
       expect(built.comments).toHaveLength(4);
-      const repeated = await applyClassificationPlan({ client: built.client, plan: fx.plan, planPr, cwd: fx.workDir, admit });
+      const repeated = await applyClassificationPlan({
+        client: built.client,
+        plan: fx.plan,
+        planPr,
+        cwd: fx.workDir,
+        admit,
+      });
       expect(repeated).toEqual(receipt);
       expect(built.executeCalls).toBe(1);
     } finally {
@@ -1258,7 +1284,13 @@ describe("backlog-classification-sweep/bounded-apply-and-crash-recovery", () => 
       };
       const invokeReducer = fakeReducer({ planPr, planHead: fx.headSha });
       const admit = (args) => admitExpectedPrefix({ ...args, invokeReducer });
-      const receipt = await applyClassificationPlan({ client: built.client, plan: fx.plan, planPr, cwd: fx.workDir, admit });
+      const receipt = await applyClassificationPlan({
+        client: built.client,
+        plan: fx.plan,
+        planPr,
+        cwd: fx.workDir,
+        admit,
+      });
       expect(receipt.kind).toBe("apply-receipt");
       expect(built.comments).toHaveLength(4);
       expect(built.executeCalls).toBe(1);
@@ -1299,7 +1331,13 @@ describe("backlog-classification-sweep/bounded-apply-and-crash-recovery", () => 
       ).rejects.toThrow("synthetic crash post-read-pre-result");
       expect(built.executeCalls).toBe(1);
       expect(built.comments).toHaveLength(2);
-      const receipt = await applyClassificationPlan({ client: built.client, plan: fx.plan, planPr, cwd: fx.workDir, admit });
+      const receipt = await applyClassificationPlan({
+        client: built.client,
+        plan: fx.plan,
+        planPr,
+        cwd: fx.workDir,
+        admit,
+      });
       expect(receipt.kind).toBe("apply-receipt");
       expect(built.executeCalls).toBe(1);
       expect(built.comments).toHaveLength(4);
@@ -1336,7 +1374,13 @@ describe("backlog-classification-sweep/bounded-apply-and-crash-recovery", () => 
       ).rejects.toThrow("synthetic crash post-result");
       expect(built.executeCalls).toBe(1);
       expect(built.comments).toHaveLength(3);
-      const receipt = await applyClassificationPlan({ client: built.client, plan: fx.plan, planPr, cwd: fx.workDir, admit });
+      const receipt = await applyClassificationPlan({
+        client: built.client,
+        plan: fx.plan,
+        planPr,
+        cwd: fx.workDir,
+        admit,
+      });
       expect(receipt.kind).toBe("apply-receipt");
       expect(built.executeCalls).toBe(1);
       expect(built.comments).toHaveLength(4);
@@ -1413,7 +1457,11 @@ describe("backlog-classification-sweep/plan-journal-integrity", () => {
       targetNumber: target.number,
       stepIndex: step.index,
       requestDigest: digestCanonical(step.request),
-      observedFingerprint: { governed: target.after, updatedAt: target.decisionUpdatedAt, bodySha256: target.bodySha256 },
+      observedFingerprint: {
+        governed: target.after,
+        updatedAt: target.decisionUpdatedAt,
+        bodySha256: target.bodySha256,
+      },
       responseClass: "success",
       outcome: "after-observed",
     });
