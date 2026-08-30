@@ -230,7 +230,10 @@ describe("worktree sandbox", () => {
     const envFilePath = path.join(rootDir, "malformed.env");
     mkdirSync(malformedDir, { recursive: true });
     writeFileSync(path.join(malformedDir, "context.json"), '{"contextName":\n');
-    writeFileSync(path.join(malformedDir, "package.json"), "{}\n");
+    writeFileSync(
+      path.join(malformedDir, "package.json"),
+      `${JSON.stringify({ name: "@chase-sets/neutral-malformed" })}\n`,
+    );
 
     expect(() =>
       ensureWorktreeSandboxEnvironment({
@@ -239,6 +242,47 @@ describe("worktree sandbox", () => {
       }),
     ).toThrow(SyntaxError);
     expect(existsSync(envFilePath)).toBe(false);
+  });
+
+  it("sandbox-environment-drops-legacy-owner-database-url from both the ensure and merge paths", () => {
+    const rootDir = createTempRepo();
+    writeContext(rootDir, "neutral-foundation", {
+      contextName: "neutral-foundation",
+      apiDeployables: ["platform-api"],
+    });
+    const envFilePath = path.join(rootDir, "legacy.env");
+    const baseEnv = {
+      CHASE_SETS_SANDBOX_ID: "legacy",
+      CHASE_SETS_SANDBOX_BASE_PORT: "7000",
+      CHASE_SETS_SANDBOX_ENV_FILE: envFilePath,
+    };
+
+    const { env: legacyEnv } = mergeSandboxEnvFile({ NEUTRAL_RETAINED_SETTING: "kept" }, { rootDir, env: baseEnv });
+    expect(legacyEnv).toHaveProperty("DATABASE_URL_NEUTRAL_FOUNDATION");
+    writeContext(rootDir, "neutral-foundation", { contextName: "neutral-foundation" });
+
+    const { env: ensuredEnv } = ensureWorktreeSandboxEnvironment({ rootDir, env: baseEnv });
+
+    expect(ensuredEnv).not.toHaveProperty("DATABASE_URL_NEUTRAL_FOUNDATION");
+    expect(ensuredEnv.NEUTRAL_RETAINED_SETTING).toBe("kept");
+    expect(ensuredEnv[getContextDatabaseEnvName("catalog")]).toContain("/cs_legacy_catalog");
+    const publishedAfterEnsure = readFileSync(envFilePath, "utf8");
+    expect(publishedAfterEnsure).not.toContain("DATABASE_URL_NEUTRAL_FOUNDATION");
+    expect(publishedAfterEnsure).toContain("NEUTRAL_RETAINED_SETTING=kept");
+
+    writeFileSync(
+      envFilePath,
+      `${publishedAfterEnsure}DATABASE_URL_NEUTRAL_FOUNDATION=postgresql://stale-owner-again\n`,
+    );
+
+    const { env: mergedEnv } = mergeSandboxEnvFile({ NEUTRAL_MERGE_SETTING: "kept-too" }, { rootDir, env: baseEnv });
+
+    expect(mergedEnv).not.toHaveProperty("DATABASE_URL_NEUTRAL_FOUNDATION");
+    expect(mergedEnv.NEUTRAL_RETAINED_SETTING).toBe("kept");
+    expect(mergedEnv.NEUTRAL_MERGE_SETTING).toBe("kept-too");
+    expect(mergedEnv[getContextDatabaseEnvName("marketplace")]).toContain("/cs_legacy_marketplace");
+    const publishedAfterMerge = readFileSync(envFilePath, "utf8");
+    expect(publishedAfterMerge).not.toContain("DATABASE_URL_NEUTRAL_FOUNDATION");
   });
 
   it("writes and updates the ignored per-worktree sandbox env file", () => {

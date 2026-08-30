@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { contextManifestContributesToApiHost, listContextManifests, repoRoot } from "./repo.mjs";
+import { contextManifestContributesToApiHost, listBoundedContextManifests, repoRoot } from "./repo.mjs";
 
 const defaultSandboxEnvFileName = ".env.sandbox.local";
 const defaultPortBase = 6200;
@@ -124,7 +124,7 @@ export function normalizeSandboxWorktreeIdentity(rootDir) {
 }
 
 function readPlatformApiContextNames(rootDir) {
-  return listContextManifests({ repoRoot: rootDir })
+  return listBoundedContextManifests({ repoRoot: rootDir })
     .filter(({ manifest }) => contextManifestContributesToApiHost(manifest, "platform-api"))
     .map(({ manifest }) => manifest.contextName)
     .sort((left, right) => left.localeCompare(right, "en"));
@@ -330,11 +330,28 @@ export function writeSandboxEnvFile(sandbox, values = buildSandboxEnv(sandbox)) 
   return values;
 }
 
+const contextDatabaseUrlEnvPrefix = "DATABASE_URL_";
+
+// A context that leaves the resolved owner set (deleted, renamed, or demoted
+// to behavior-free) must not leave its generated DATABASE_URL_* key behind in
+// a retained env file; a stale key would keep pointing consumers at a
+// database that is no longer part of this sandbox's owner set.
+function pruneStaleContextDatabaseKeys(retainedValues, currentValues) {
+  const pruned = { ...retainedValues };
+  for (const key of Object.keys(pruned)) {
+    if (key.startsWith(contextDatabaseUrlEnvPrefix) && !Object.hasOwn(currentValues, key)) {
+      delete pruned[key];
+    }
+  }
+  return pruned;
+}
+
 export function ensureWorktreeSandboxEnvironment(options = {}) {
   const sandbox = resolveWorktreeSandbox(options);
+  const currentValues = buildSandboxEnv(sandbox);
   const env = writeSandboxEnvFile(sandbox, {
-    ...readSandboxEnvFile(sandbox.envFilePath),
-    ...buildSandboxEnv(sandbox),
+    ...pruneStaleContextDatabaseKeys(readSandboxEnvFile(sandbox.envFilePath), currentValues),
+    ...currentValues,
   });
   return { sandbox, env };
 }
@@ -347,10 +364,11 @@ export function applySandboxEnv(values, env = process.env) {
 
 export function mergeSandboxEnvFile(updates, { rootDir = repoRoot, env = process.env } = {}) {
   const sandbox = resolveWorktreeSandbox({ rootDir, env });
-  const existing = readSandboxEnvFile(sandbox.envFilePath);
+  const currentValues = buildSandboxEnv(sandbox);
+  const existing = pruneStaleContextDatabaseKeys(readSandboxEnvFile(sandbox.envFilePath), currentValues);
   const next = {
     ...existing,
-    ...buildSandboxEnv(sandbox),
+    ...currentValues,
     ...updates,
   };
   writeSandboxEnvFile(sandbox, next);

@@ -39,6 +39,37 @@ export function listContextManifests(options = {}) {
   );
 }
 
+// The sandbox-ownership and registry-generation predicates must agree on
+// which directories are eligible contexts at all: a directory that only has
+// a context.json (no workspace package.json) is a manifest fragment, not an
+// implemented bounded context, and must not become a database/registry
+// owner. This closure is the single admission gate both predicates share.
+export function listBoundedContextManifests(options = {}) {
+  const rootDir = options.repoRoot ?? repoRoot;
+  const workspaces = (
+    options.workspaces ?? listWorkspacePackages({ repoRoot: rootDir, roots: ["bounded-contexts"] })
+  ).filter((workspace) => workspace.root === "bounded-contexts");
+
+  return workspaces
+    .map((workspace) => {
+      const manifestPath = path.join(workspace.dir, "context.json");
+      const manifest = readJson(manifestPath);
+      if (typeof manifest?.contextName !== "string" || !manifest.contextName.trim()) {
+        throw new Error(`Context manifest must declare a non-empty contextName: ${manifestPath}`);
+      }
+
+      return {
+        contextName: manifest.contextName,
+        dirName: workspace.dirName,
+        packageName: workspace.name,
+        dir: workspace.dir,
+        manifest,
+        manifestPath,
+      };
+    })
+    .sort((left, right) => left.contextName.localeCompare(right.contextName, "en"));
+}
+
 export function contextManifestContributesToApiHost(manifest, hostName) {
   return (
     manifest.apiDeployables?.includes(hostName) ||

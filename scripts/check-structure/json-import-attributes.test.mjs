@@ -87,8 +87,53 @@ function collectParamFieldReads(bodyNode, paramName) {
   return fields;
 }
 
+function collectBindingNames(nameNode, names) {
+  if (ts.isIdentifier(nameNode)) {
+    names.add(nameNode.text);
+    return;
+  }
+  if (ts.isObjectBindingPattern(nameNode) || ts.isArrayBindingPattern(nameNode)) {
+    for (const element of nameNode.elements) {
+      if (ts.isBindingElement(element)) {
+        collectBindingNames(element.name, names);
+      }
+    }
+  }
+}
+
+// A call's identifier can be spelled the same as an imported binding while
+// actually resolving to a local function/parameter/variable declared
+// in the source file (a shadow). Following the import in that case
+// would certify fields from code that never runs for that call. Collect
+// every locally declared name conservatively: ambiguous scope is rejected
+// instead of silently attributing a call to the unrelated import.
+function collectLocallyDeclaredNames(rootNode) {
+  const names = new Set();
+  const visit = (node) => {
+    if (ts.isFunctionLike(node)) {
+      if (node.name && ts.isIdentifier(node.name)) {
+        names.add(node.name.text);
+      }
+      for (const param of node.parameters) {
+        collectBindingNames(param.name, names);
+      }
+    } else if (ts.isVariableDeclaration(node)) {
+      collectBindingNames(node.name, names);
+    } else if (ts.isClassDeclaration(node) && node.name) {
+      names.add(node.name.text);
+    } else if (ts.isCatchClause(node) && node.variableDeclaration) {
+      collectBindingNames(node.variableDeclaration.name, names);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(rootNode);
+  return names;
+}
+
 function resolveExternalManifestFields(moduleSpecifier, functionName, argIndex, sourceDir) {
-  if (!sourceDir || !moduleSpecifier.startsWith(".")) return [];
+  if (!sourceDir || !/^\.\.?\//.test(moduleSpecifier)) {
+    throw new Error(`Expected a direct relative module for ${functionName}`);
+  }
   const resolvedPath = path.resolve(sourceDir, moduleSpecifier);
   const externalSource = readFileSync(resolvedPath, "utf8");
   const externalFile = ts.createSourceFile(
@@ -98,31 +143,52 @@ function resolveExternalManifestFields(moduleSpecifier, functionName, argIndex, 
     false,
     ts.ScriptKind.JS,
   );
-  for (const statement of externalFile.statements) {
-    if (!ts.isFunctionDeclaration(statement) || statement.name?.text !== functionName || !statement.body) continue;
-    const param = statement.parameters[argIndex];
-    if (!param || !ts.isIdentifier(param.name)) continue;
-    return [...collectParamFieldReads(statement.body, param.name.text)];
+  const declarations = externalFile.statements.filter(
+    (statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === functionName,
+  );
+  const declaration = declarations[0];
+  if (
+    externalFile.parseDiagnostics.length > 0 ||
+    declarations.length !== 1 ||
+    !declaration.body ||
+    !declaration.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
+    declaration.modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) ||
+    externalFile.statements.some(
+      (statement) => statement !== declaration && collectLocallyDeclaredNames(statement).has(functionName),
+    )
+  ) {
+    throw new Error(`Expected exactly one direct exported function declaration for ${functionName}`);
   }
-  return [];
+  const param = declaration.parameters[argIndex];
+  if (!param || !ts.isIdentifier(param.name)) {
+    throw new Error(`Expected an identifier manifest parameter for ${functionName}`);
+  }
+  if (collectLocallyDeclaredNames(declaration.body).has(param.name.text)) {
+    throw new Error(`Shadowed manifest parameter in ${functionName}`);
+  }
+  return [...collectParamFieldReads(declaration.body, param.name.text)];
 }
 
 function extractRegistryBuilderManifestFields(content, sourceDir) {
   const source = ts.createSourceFile("registry-builders.mjs", content, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
+  if (source.parseDiagnostics.length > 0) throw new Error("Malformed registry builder source");
   const fields = new Set();
   const visitedBuilders = new Set();
+  const localNames = collectLocallyDeclaredNames(source);
 
   const importedFrom = new Map();
   for (const statement of source.statements) {
-    if (
-      ts.isImportDeclaration(statement) &&
-      statement.importClause?.namedBindings &&
-      ts.isNamedImports(statement.importClause.namedBindings) &&
-      ts.isStringLiteral(statement.moduleSpecifier)
-    ) {
-      for (const element of statement.importClause.namedBindings.elements) {
-        importedFrom.set(element.name.text, statement.moduleSpecifier.text);
-      }
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const recordBinding = (name, aliased) => {
+      const bindings = importedFrom.get(name) ?? [];
+      bindings.push({ moduleSpecifier: statement.moduleSpecifier.text, aliased });
+      importedFrom.set(name, bindings);
+    };
+    if (statement.importClause?.name) recordBinding(statement.importClause.name.text, true);
+    const named = statement.importClause?.namedBindings;
+    if (named && ts.isNamespaceImport(named)) recordBinding(named.name.text, true);
+    if (named && ts.isNamedImports(named)) {
+      for (const element of named.elements) recordBinding(element.name.text, Boolean(element.propertyName));
     }
   }
 
@@ -141,15 +207,26 @@ function extractRegistryBuilderManifestFields(content, sourceDir) {
       }
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && importedFrom.has(node.expression.text)) {
         const manifestArgIndex = node.arguments.findIndex((argument) => isContextManifestExpression(argument));
-        if (manifestArgIndex !== -1) {
-          for (const field of resolveExternalManifestFields(
-            importedFrom.get(node.expression.text),
-            node.expression.text,
-            manifestArgIndex,
-            sourceDir,
-          )) {
-            fields.add(field);
-          }
+        if (manifestArgIndex === -1) {
+          ts.forEachChild(node, visit);
+          return;
+        }
+        if (localNames.has(node.expression.text)) {
+          throw new Error(
+            `${statement.name.text}: call to "${node.expression.text}" is shadowed by a local declaration; refusing to follow the import.`,
+          );
+        }
+        const bindings = importedFrom.get(node.expression.text);
+        if (bindings.length !== 1 || bindings[0].aliased) {
+          throw new Error(`Ambiguous or aliased import binding for ${node.expression.text}`);
+        }
+        for (const field of resolveExternalManifestFields(
+          bindings[0].moduleSpecifier,
+          node.expression.text,
+          manifestArgIndex,
+          sourceDir,
+        )) {
+          fields.add(field);
         }
       }
       ts.forEachChild(node, visit);
@@ -427,6 +504,164 @@ describe("manifest host-registration predicate parity", () => {
     `);
 
     expect(extracted.fields).toEqual(["apiDeployables", "seventhField"]);
+  });
+
+  const importedHelperSource = `
+    export function contextManifestContributesToApiHost(manifest, hostName) {
+      return manifest.apiDeployables?.includes(hostName) || manifest.deployableContributions ||
+        manifest.runtimeDeployables || manifest.shellContributions ||
+        manifest.sourceRuntimeDeployables || manifest.sourceRuntimeProfiles;
+    }
+  `;
+
+  it("fails closed when a local function declaration shadows the imported helper", () => {
+    withFixture({ "helper.mjs": importedHelperSource }, ({ rootDir }) => {
+      const source = `
+        import { contextManifestContributesToApiHost } from "./helper.mjs";
+        function buildApiRegistry(_outputPath, hostName, contexts) {
+          function contextManifestContributesToApiHost() {
+            return false;
+          }
+          return contexts.filter((context) => contextManifestContributesToApiHost(context.manifest, hostName));
+        }
+        function buildWorkerRegistry() {}
+        function contributesToWebHost() {}
+      `;
+
+      expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/shadow/i);
+    });
+  });
+
+  it("fails closed when a nested parameter ambiguously shadows the imported helper", () => {
+    withFixture({ "helper.mjs": importedHelperSource }, ({ rootDir }) => {
+      const source = `
+        import { contextManifestContributesToApiHost } from "./helper.mjs";
+        function buildApiRegistry(_outputPath, hostName, contexts) {
+          return contexts
+            .map((context) => context)
+            .filter((context, contextManifestContributesToApiHost) =>
+              contextManifestContributesToApiHost(context.manifest, hostName),
+            );
+        }
+        function buildWorkerRegistry() {}
+        function contributesToWebHost() {}
+      `;
+
+      expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/shadow/i);
+    });
+  });
+
+  it("rejects an import alias even when a matching decoy declaration exists", () => {
+    withFixture(
+      {
+        "helper.mjs": `${importedHelperSource}\nexport function ownerCheck(manifest) { return manifest.apiDeployables; }`,
+      },
+      ({ rootDir }) => {
+        const source = `
+        import { contextManifestContributesToApiHost as ownerCheck } from "./helper.mjs";
+        function buildApiRegistry(_outputPath, hostName, contexts) {
+          return contexts.filter((context) => ownerCheck(context.manifest, hostName));
+        }
+        function buildWorkerRegistry() {}
+        function contributesToWebHost() {}
+      `;
+
+        expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/alias/i);
+      },
+    );
+  });
+
+  it("rejects a re-export instead of a direct declaration", () => {
+    withFixture(
+      {
+        "real-helper.mjs": importedHelperSource,
+        "reexport-helper.mjs": 'export { contextManifestContributesToApiHost } from "./real-helper.mjs";\n',
+      },
+      ({ rootDir }) => {
+        const source = `
+          import { contextManifestContributesToApiHost } from "./reexport-helper.mjs";
+          function buildApiRegistry(_outputPath, hostName, contexts) {
+            return contexts.filter((context) => contextManifestContributesToApiHost(context.manifest, hostName));
+          }
+          function buildWorkerRegistry() {}
+          function contributesToWebHost() {}
+        `;
+
+        expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/direct exported/);
+      },
+    );
+  });
+
+  it("throws when the imported module does not exist", () => {
+    withFixture({}, ({ rootDir }) => {
+      const source = `
+        import { contextManifestContributesToApiHost } from "./missing-helper.mjs";
+        function buildApiRegistry(_outputPath, hostName, contexts) {
+          return contexts.filter((context) => contextManifestContributesToApiHost(context.manifest, hostName));
+        }
+        function buildWorkerRegistry() {}
+        function contributesToWebHost() {}
+      `;
+
+      expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/ENOENT/);
+    });
+  });
+
+  const directHelperBuilder = `
+    import { contextManifestContributesToApiHost } from "./helper.mjs";
+    function buildApiRegistry(_outputPath, hostName, contexts) {
+      return contexts.filter((context) => contextManifestContributesToApiHost(context.manifest, hostName));
+    }
+    function buildWorkerRegistry() {}
+    function contributesToWebHost() {}
+  `;
+
+  it("follows the direct exported helper and detects a seventh field in that real imported source", () => {
+    for (const seventhField of [false, true]) {
+      const helper = seventhField
+        ? importedHelperSource.replace(
+            "manifest.runtimeDeployables",
+            "manifest.seventhField || manifest.runtimeDeployables",
+          )
+        : importedHelperSource;
+      withFixture({ "helper.mjs": helper }, ({ rootDir }) => {
+        expect(extractRegistryBuilderManifestFields(directHelperBuilder, rootDir).fields).toEqual(
+          [...manifestHostRegistrationFields, ...(seventhField ? ["seventhField"] : [])].sort(),
+        );
+      });
+    }
+  });
+
+  it.each([
+    ["duplicate import", 'import { contextManifestContributesToApiHost } from "./second-helper.mjs";'],
+    [
+      "duplicate specifier",
+      'import { contextManifestContributesToApiHost, contextManifestContributesToApiHost } from "./second-helper.mjs";',
+    ],
+    ["top-level shadow", "const contextManifestContributesToApiHost = () => false;"],
+  ])("rejects %s instead of certifying the unrelated six-field helper", (_name, declaration) => {
+    withFixture({ "helper.mjs": importedHelperSource, "second-helper.mjs": importedHelperSource }, ({ rootDir }) => {
+      expect(() => extractRegistryBuilderManifestFields(`${declaration}\n${directHelperBuilder}`, rootDir)).toThrow(
+        /ambiguous|shadow/i,
+      );
+    });
+  });
+
+  it.each([
+    ["duplicate declaration", `${importedHelperSource}\n${importedHelperSource}`],
+    ["unexported declaration", importedHelperSource.replace("export function", "function")],
+    [
+      "destructured parameter",
+      "export function contextManifestContributesToApiHost({ apiDeployables }) { return apiDeployables; }",
+    ],
+    [
+      "shadowed manifest parameter",
+      "export function contextManifestContributesToApiHost(manifest) { return ((manifest) => manifest.apiDeployables)({}); }",
+    ],
+  ])("rejects an imported helper with a %s", (_name, helper) => {
+    withFixture({ "helper.mjs": helper }, ({ rootDir }) => {
+      expect(() => extractRegistryBuilderManifestFields(directHelperBuilder, rootDir)).toThrow(/exported|parameter/i);
+    });
   });
 });
 

@@ -5,9 +5,9 @@ import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import {
   contextManifestContributesToApiHost,
+  listBoundedContextManifests,
   listWorkspacePackages,
   normalizePath,
-  readJson,
   repoRoot,
 } from "./lib/repo.mjs";
 
@@ -133,24 +133,6 @@ function buildTsconfigPaths(workspaces, rootDir) {
   }
 
   return sortObjectKeys(aliases);
-}
-
-function listBoundedContexts(workspaces) {
-  return workspaces
-    .filter((workspace) => workspace.root === "bounded-contexts")
-    .map((workspace) => {
-      const manifestPath = path.join(workspace.dir, "context.json");
-      const manifest = readJson(manifestPath);
-
-      return {
-        contextName: manifest.contextName,
-        dirName: workspace.dirName,
-        packageName: workspace.name,
-        manifest,
-        manifestPath,
-      };
-    })
-    .sort((left, right) => left.contextName.localeCompare(right.contextName));
 }
 
 const localizationRoot = "contracts/localization/locales";
@@ -662,7 +644,7 @@ function syncTsconfigBase(workspaces, options) {
 
 function syncDeployableRegistries(workspaces, options) {
   const { check, drift, rootDir } = options;
-  const contexts = listBoundedContexts(workspaces);
+  const contexts = listBoundedContextManifests({ repoRoot: rootDir, workspaces });
 
   for (const output of buildGeneratedRegistryOutputs(rootDir)) {
     const content =
@@ -694,7 +676,7 @@ function syncLocaleCatalogs(workspaces, options) {
   const { check, drift, rootDir } = options;
   const trackedModulePaths =
     options.trackedLocaleFiles ?? listTrackedLocaleModulePaths(rootDir, { execGit: options.execGit });
-  const contexts = listBoundedContexts(workspaces);
+  const contexts = listBoundedContextManifests({ repoRoot: rootDir, workspaces });
   const plan = buildLocaleCatalogPlan(contexts, trackedModulePaths, rootDir);
 
   for (const output of plan.outputs) {
