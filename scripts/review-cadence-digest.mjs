@@ -219,7 +219,10 @@ async function search({ repo, qualifier, token, request, budget, stream, countOn
     if (body.total_count > 1_000) throw new Unavailable(`${stream}_SEARCH_CAP_EXCEEDED`);
     if (total === null) total = body.total_count;
     if (total !== body.total_count) throw new Unavailable(`${stream}_TOTAL_CHANGED`);
-    if (countOnly) return { total, items: [] };
+    if (countOnly) {
+      budget.addNodes(body.items.length);
+      return { total, items: [] };
+    }
     if (items.length + body.items.length > budget.limits.connectionNodes)
       throw new Unavailable(`${stream}_NODE_BUDGET_EXHAUSTED`);
     budget.addNodes(body.items.length);
@@ -308,7 +311,7 @@ function batchQuery(kind, phase, states) {
   };
 }
 
-function lifecycleIssue(node, stream) {
+function lifecycleIssue(node, stream, budget) {
   const labelsPage = node?.labels;
   if (
     !["OPEN", "CLOSED"].includes(node?.state) ||
@@ -324,6 +327,9 @@ function lifecycleIssue(node, stream) {
     labelsPage.nodes.some((label) => typeof label?.name !== "string")
   )
     throw new Unavailable(`${stream}_ISSUE_FACT_INVALID`);
+  if (labelsPage.nodes.length > budget.limits.connectionNodes)
+    throw new Unavailable(`${stream}_LABELS_NODE_BUDGET_EXHAUSTED`);
+  budget.addNodes(labelsPage.nodes.length);
   return {
     number: node.number,
     state: node.state.toLowerCase(),
@@ -425,7 +431,7 @@ async function batchedConnections(args, issues, kind, phase) {
         const issue = repository[`issue${index}`];
         if (issue?.number !== state.number) throw new Unavailable(`${stream}_ISSUE_IDENTITY_MISMATCH`);
         if (kind === "lifecycle") {
-          const candidate = lifecycleIssue(issue, stream);
+          const candidate = lifecycleIssue(issue, stream, args.budget);
           if (state.issue && issueFact(state.issue) !== issueFact(candidate))
             throw new Unavailable(`${stream}_ISSUE_FACT_MOVED`);
           state.issue = candidate;

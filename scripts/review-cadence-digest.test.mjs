@@ -81,7 +81,10 @@ function authorityRequest(rows, mutate = {}) {
     if (url.pathname === "/search/issues") {
       const query = url.searchParams.get("q");
       const current = query.includes("label:");
-      if (current) return response({ total_count: rows.length, incomplete_results: false, items: [] });
+      if (current) {
+        const perPage = Number(url.searchParams.get("per_page") ?? 100);
+        return response({ total_count: rows.length, incomplete_results: false, items: rows.slice(0, perPage) });
+      }
       const { pageValues, link } = paged(url, updatedRows);
       return response({ total_count: updatedRows.length, incomplete_results: false, items: pageValues }, link);
     }
@@ -431,6 +434,40 @@ ROLE: DOWNSTREAM CONTINUITY — operator execution remains blocked pending the c
       expect(collected.escalations.value.unavailable).toEqual([]);
       expect(renderShelfDigest(collected)).toContain(`**This week's drain target:** [#${number}]`);
     }
+  });
+
+  it("debits count-only search items and every lifecycle label node against the global node budget", async () => {
+    const row = {
+      ...issue(6410, 30),
+      labels: [
+        { name: "status:needs-replan" },
+        ...Array.from({ length: 99 }, (_, index) => ({ name: `synthetic:other-${index + 1}` })),
+      ],
+    };
+
+    const exhausted = await collectDigestAuthority({
+      repo: "synthetic-owner/synthetic-repo",
+      token: "withheld",
+      request: authorityRequest([row]).request,
+      clock: () => new Date(DIGEST_AT),
+      limits: { nodes: 6 },
+    });
+    expect([exhausted.currentCount, exhausted.ageBuckets, exhausted.weeklyDelta, exhausted.escalations]).toEqual(
+      Array.from({ length: 4 }, () => ({ available: false, reason: "GLOBAL_NODE_BUDGET_EXHAUSTED" })),
+    );
+
+    const complete = await collectDigestAuthority({
+      repo: "synthetic-owner/synthetic-repo",
+      token: "withheld",
+      request: authorityRequest([row]).request,
+      clock: () => new Date(DIGEST_AT),
+      limits: { nodes: 208 },
+    });
+    expect(complete.currentCount).toEqual({ available: true, value: 1 });
+    expect(complete.ageBuckets).toMatchObject({ available: true });
+    expect(complete.weeklyDelta).toEqual({ available: true, value: 0 });
+    expect(complete.escalations).toMatchObject({ available: true });
+    expect(complete.budget.nodes).toBe(208);
   });
 
   it("returns unavailable instead of clipping or overrunning bounded shelf authority", async () => {
