@@ -1417,9 +1417,13 @@ export function summarizeClassificationGapsFromAuthority(authority) {
         hasParent: false,
       };
       if (classifiedEpic(input) || isTrackingOnly(input)) continue;
-      if (!classified(input) || issue.issueTypeName === null || issue.issueTypeIsEnabled !== true) numbers.push(issue.number);
+      if (!classified(input) || issue.issueTypeName === null || issue.issueTypeIsEnabled !== true)
+        numbers.push(issue.number);
     }
-    rows.set(milestone.title, numbers.sort((left, right) => left - right));
+    rows.set(
+      milestone.title,
+      numbers.sort((left, right) => left - right),
+    );
   }
   return rows;
 }
@@ -1455,7 +1459,10 @@ export async function collectRoadmapIssueFacts(loadPage) {
 
   do {
     if (pages >= WINDOW_AUTHORITY_MAX_PAGES || collectedCount >= WINDOW_AUTHORITY_MAX_ITEMS) {
-      throw new RoadmapIssueEnumerationError("ROADMAP_ISSUE_COLLECTION_BOUNDED", "Repository issue enumeration exceeded its ceiling.");
+      throw new RoadmapIssueEnumerationError(
+        "ROADMAP_ISSUE_COLLECTION_BOUNDED",
+        "Repository issue enumeration exceeded its ceiling.",
+      );
     }
     const page = await loadPage(after);
     if (
@@ -1473,7 +1480,10 @@ export async function collectRoadmapIssueFacts(loadPage) {
     pages += 1;
     if (expectedTotal === null) expectedTotal = page.totalCount;
     if (expectedTotal > WINDOW_AUTHORITY_MAX_ITEMS) {
-      throw new RoadmapIssueEnumerationError("ROADMAP_ISSUE_COLLECTION_BOUNDED", "Repository issue total exceeded its ceiling.");
+      throw new RoadmapIssueEnumerationError(
+        "ROADMAP_ISSUE_COLLECTION_BOUNDED",
+        "Repository issue total exceeded its ceiling.",
+      );
     }
     if (page.totalCount !== expectedTotal) {
       throw new RoadmapIssueEnumerationError(
@@ -1497,7 +1507,10 @@ export async function collectRoadmapIssueFacts(loadPage) {
       }
       collectedCount += 1;
       if (byNumber.has(node.number)) {
-        throw new RoadmapIssueEnumerationError("ROADMAP_ISSUE_IDENTITY_DUPLICATE", `Repository issue enumeration repeated #${node.number}.`);
+        throw new RoadmapIssueEnumerationError(
+          "ROADMAP_ISSUE_IDENTITY_DUPLICATE",
+          `Repository issue enumeration repeated #${node.number}.`,
+        );
       }
       sourceNumbers.push(node.number);
       byNumber.set(node.number, {
@@ -1516,7 +1529,9 @@ export async function collectRoadmapIssueFacts(loadPage) {
 
     if (
       page.pageInfo.hasNextPage &&
-      (typeof page.pageInfo.endCursor !== "string" || page.pageInfo.endCursor.length === 0 || page.pageInfo.endCursor.length > 1024)
+      (typeof page.pageInfo.endCursor !== "string" ||
+        page.pageInfo.endCursor.length === 0 ||
+        page.pageInfo.endCursor.length > 1024)
     ) {
       throw new RoadmapIssueEnumerationError(
         "ROADMAP_ISSUE_PAGINATION_INCOMPLETE",
@@ -1524,7 +1539,10 @@ export async function collectRoadmapIssueFacts(loadPage) {
       );
     }
     if (page.pageInfo.hasNextPage && seenCursors.has(page.pageInfo.endCursor)) {
-      throw new RoadmapIssueEnumerationError("ROADMAP_ISSUE_CURSOR_REPEATED", "Repository issue enumeration repeated a cursor.");
+      throw new RoadmapIssueEnumerationError(
+        "ROADMAP_ISSUE_CURSOR_REPEATED",
+        "Repository issue enumeration repeated a cursor.",
+      );
     }
     if (page.pageInfo.hasNextPage) seenCursors.add(page.pageInfo.endCursor);
     after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;

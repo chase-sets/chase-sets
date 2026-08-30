@@ -122,11 +122,35 @@ function fixture({ after = false, decisionOverrides = {}, permission = "ADMIN", 
   const classifiedLabels = [byName.get("priority:p2"), byName.get("area:ops"), byName.get("kind:ops")];
   const targetType = after ? byType.get("Bug") : null;
   const issues = [
-    graphIssue({ number: SYNTHETIC_ROOT, nodeId: "SYNTHETIC_ISSUE_ROOT", issueType: byType.get("Slice"), labels: classifiedLabels }),
-    graphIssue({ number: SYNTHETIC_TARGET, nodeId: "SYNTHETIC_ISSUE_TARGET", issueType: targetType, labels: classifiedLabels }),
-    graphIssue({ number: SYNTHETIC_TRACKING, nodeId: "SYNTHETIC_ISSUE_TRACKING", issueType: byType.get("Slice"), labels: classifiedLabels, tracking: true }),
+    graphIssue({
+      number: SYNTHETIC_ROOT,
+      nodeId: "SYNTHETIC_ISSUE_ROOT",
+      issueType: byType.get("Slice"),
+      labels: classifiedLabels,
+    }),
+    graphIssue({
+      number: SYNTHETIC_TARGET,
+      nodeId: "SYNTHETIC_ISSUE_TARGET",
+      issueType: targetType,
+      labels: classifiedLabels,
+    }),
+    graphIssue({
+      number: SYNTHETIC_TRACKING,
+      nodeId: "SYNTHETIC_ISSUE_TRACKING",
+      issueType: byType.get("Slice"),
+      labels: classifiedLabels,
+      tracking: true,
+    }),
   ];
-  if (extraGap) issues.push(graphIssue({ number: SYNTHETIC_EXTRA, nodeId: "SYNTHETIC_ISSUE_EXTRA", issueType: null, labels: classifiedLabels }));
+  if (extraGap)
+    issues.push(
+      graphIssue({
+        number: SYNTHETIC_EXTRA,
+        nodeId: "SYNTHETIC_ISSUE_EXTRA",
+        issueType: null,
+        labels: classifiedLabels,
+      }),
+    );
   const windowAuthority = {
     version: "roadmap-dispatch-window-authority/v1",
     milestones: {
@@ -154,13 +178,22 @@ function fixture({ after = false, decisionOverrides = {}, permission = "ADMIN", 
       labels: classifiedLabels,
     }),
   ];
-  const window = { authority: windowAuthority, digest: digestCanonical(windowAuthority), restIssueNumbers: issues.map((issue) => issue.number), restPages: 2 };
+  const window = {
+    authority: windowAuthority,
+    digest: digestCanonical(windowAuthority),
+    restIssueNumbers: issues.map((issue) => issue.number),
+    restPages: 2,
+  };
   return {
     repository: "chase-sets/chase-sets",
     window,
     labelRegistry: labels,
     typeRegistry: types,
-    permission: { repository: "chase-sets/chase-sets", viewerLogin: "synthetic-operator", viewerPermission: permission },
+    permission: {
+      repository: "chase-sets/chase-sets",
+      viewerLogin: "synthetic-operator",
+      viewerPermission: permission,
+    },
     issueAuthorities,
     compositeDigest: digestCanonical({ window, issueAuthorities }),
   };
@@ -247,9 +280,17 @@ describe("backlog-classification-sweep/complete-authority-preflight", () => {
         if (calls === 1) value.digest = "f".repeat(64);
         return value;
       },
-      collectRegistries: async () => ({ labelRegistry: source.labelRegistry, typeRegistry: source.typeRegistry, permission: source.permission }),
+      collectRegistries: async () => ({
+        labelRegistry: source.labelRegistry,
+        typeRegistry: source.typeRegistry,
+        permission: source.permission,
+      }),
     };
-    const accepted = await collectCompleteSweepAuthority({ client, issueNumber: SYNTHETIC_ROOT, milestoneNumber: SYNTHETIC_MILESTONE });
+    const accepted = await collectCompleteSweepAuthority({
+      client,
+      issueNumber: SYNTHETIC_ROOT,
+      milestoneNumber: SYNTHETIC_MILESTONE,
+    });
     expect(calls).toBe(3);
     expect(accepted.window.digest).toBe(source.window.digest);
   });
@@ -259,7 +300,16 @@ describe("backlog-classification-sweep/complete-authority-preflight", () => {
     disabled.typeRegistry.find((entry) => entry.name === "Bug").isEnabled = false;
     const roadmap = renderClassificationPlanningRoadmap(disabled.window.authority);
     expectCode(
-      () => buildClassificationPlan({ authority: disabled, issueNumber: SYNTHETIC_ROOT, milestoneNumber: SYNTHETIC_MILESTONE, landedMainSha: MAIN, planBranch: BRANCH, capturedAt: CAPTURED_AT, roadmapBytes: roadmap }),
+      () =>
+        buildClassificationPlan({
+          authority: disabled,
+          issueNumber: SYNTHETIC_ROOT,
+          milestoneNumber: SYNTHETIC_MILESTONE,
+          landedMainSha: MAIN,
+          planBranch: BRANCH,
+          capturedAt: CAPTURED_AT,
+          roadmapBytes: roadmap,
+        }),
       "TYPE_REGISTRY_REQUIRED_TYPE_INVALID",
     );
     expectCode(() => buildPlan({ permission: "WRITE" }), "PLAN_PERMISSION_INVALID");
@@ -269,16 +319,7 @@ describe("backlog-classification-sweep/complete-authority-preflight", () => {
     const fakeClient = path.resolve("scripts/fixtures/backlog-classification-sweep-client.mjs");
     await expect(
       main({
-        argv: [
-          "--mode",
-          "apply",
-          "--issue-number",
-          "7536",
-          "--milestone-number",
-          "136",
-          "--github-client",
-          fakeClient,
-        ],
+        argv: ["--mode", "apply", "--issue-number", "7536", "--milestone-number", "136", "--github-client", fakeClient],
         env: { GITHUB_REPOSITORY: "chase-sets/chase-sets", VITEST: "true" },
       }),
     ).rejects.toMatchObject({ code: "CLI_EXECUTION_ARGUMENTS_INVALID" });
@@ -296,7 +337,10 @@ describe("backlog-classification-sweep/reviewed-decision-authority", () => {
     const plan = buildPlan();
     expect(plan.gapNumbers).toEqual([SYNTHETIC_TARGET]);
     expect(plan.targets).toHaveLength(1);
-    expect(plan.targets[0].steps[0]).toMatchObject({ kind: "set-type", request: { issueNodeId: "SYNTHETIC_ISSUE_TARGET" } });
+    expect(plan.targets[0].steps[0]).toMatchObject({
+      kind: "set-type",
+      request: { issueNodeId: "SYNTHETIC_ISSUE_TARGET" },
+    });
   });
 
   it("accepts an exact after-image only with a later provider revision and emits no step", () => {
@@ -317,7 +361,11 @@ describe("backlog-classification-sweep/reviewed-decision-authority", () => {
   it.each([
     ["changed body", { decisionOverrides: { bodySha256: "0".repeat(64) } }, "DECISION_IDENTITY_DRIFT"],
     ["changed node", { decisionOverrides: { nodeId: "OTHER_NODE" } }, "DECISION_IDENTITY_DRIFT"],
-    ["preimage revision drift", { decisionOverrides: { updatedAt: "2026-08-29T22:00:00Z" } }, "DECISION_PREIMAGE_REVISION_DRIFT"],
+    [
+      "preimage revision drift",
+      { decisionOverrides: { updatedAt: "2026-08-29T22:00:00Z" } },
+      "DECISION_PREIMAGE_REVISION_DRIFT",
+    ],
     ["new unmatched gap", { extraGap: true }, "PLAN_GAP_DECISION_MISMATCH"],
   ])("rejects %s", (_name, options, code) => {
     expectCode(() => buildPlan(options), code);
@@ -330,7 +378,16 @@ describe("backlog-classification-sweep/reviewed-decision-authority", () => {
     authority.issueAuthorities[0].issue.body = body;
     const roadmap = renderClassificationPlanningRoadmap(authority.window.authority);
     expectCode(
-      () => buildClassificationPlan({ authority, issueNumber: SYNTHETIC_ROOT, milestoneNumber: SYNTHETIC_MILESTONE, landedMainSha: MAIN, planBranch: BRANCH, capturedAt: CAPTURED_AT, roadmapBytes: roadmap }),
+      () =>
+        buildClassificationPlan({
+          authority,
+          issueNumber: SYNTHETIC_ROOT,
+          milestoneNumber: SYNTHETIC_MILESTONE,
+          landedMainSha: MAIN,
+          planBranch: BRANCH,
+          capturedAt: CAPTURED_AT,
+          roadmapBytes: roadmap,
+        }),
       "PLAN_GAP_DECISION_MISMATCH",
     );
   });
@@ -352,7 +409,11 @@ describe("backlog-classification-sweep/closed-plan-and-hash-domains", () => {
     ["main oid", (plan) => (plan.implementation.landedMainSha = "A".repeat(40)), "PLAN_MAIN_INVALID"],
     ["nested label key", (plan) => (plan.labelRegistry.value[0].extra = true), "PLAN_LABEL_REGISTRY_DIGEST_INVALID"],
     ["target order", (plan) => (plan.targets[0].number = 1), "PLAN_TARGET_STATE_INVALID"],
-    ["request payload", (plan) => (plan.targets[0].steps[0].request.issueTypeId = "substituted"), "PLAN_STEP_TRANSITION_INVALID"],
+    [
+      "request payload",
+      (plan) => (plan.targets[0].steps[0].request.issueTypeId = "substituted"),
+      "PLAN_STEP_TRANSITION_INVALID",
+    ],
   ])("rejects mutant: %s", (_name, mutate, code) => {
     const plan = clone(buildPlan());
     mutate(plan);
@@ -363,7 +424,13 @@ describe("backlog-classification-sweep/closed-plan-and-hash-domains", () => {
 describe("backlog-classification-sweep/plan-pr-review-authority", () => {
   it("refuses a substituted reducer/history identity before execution", () => {
     expectCode(
-      () => invokeCanonicalReviewReducer({ planPr: 1, planHead: HEAD, reducerPath: "C:\\synthetic\\reducer.ps1", historyPath: "C:\\synthetic\\history.jsonl" }),
+      () =>
+        invokeCanonicalReviewReducer({
+          planPr: 1,
+          planHead: HEAD,
+          reducerPath: "C:\\synthetic\\reducer.ps1",
+          historyPath: "C:\\synthetic\\history.jsonl",
+        }),
       "REVIEW_REDUCER_IDENTITY_INVALID",
     );
   });
@@ -461,7 +528,9 @@ describe("backlog-classification-sweep/bounded-apply-and-crash-recovery", () => 
 
   it("leaves one durable intent after a pre-commit 503 and resumes the exact payload once later", async () => {
     const harness = applyHarness({ executeMode: "503-before" });
-    await expect(applyClassificationPlan({ ...harness, planPr: 42 })).rejects.toMatchObject({ code: "TARGET_AFTER_NOT_OBSERVED" });
+    await expect(applyClassificationPlan({ ...harness, planPr: 42 })).rejects.toMatchObject({
+      code: "TARGET_AFTER_NOT_OBSERVED",
+    });
     expect(validateJournalPrefix(harness.comments, harness.plan).pendingIntent).not.toBeNull();
     expect(harness.executeCalls).toBe(1);
     harness.client.executeStep = async () => {
@@ -485,7 +554,9 @@ describe("backlog-classification-sweep/bounded-apply-and-crash-recovery", () => 
     harness.moveAfter();
     await applyClassificationPlan({ ...harness, planPr: 42 });
     expect(harness.executeCalls).toBe(0);
-    const result = validateJournalPrefix(harness.comments, harness.plan).records.find(({ record }) => record.kind === "result").record;
+    const result = validateJournalPrefix(harness.comments, harness.plan).records.find(
+      ({ record }) => record.kind === "result",
+    ).record;
     expect(result).toMatchObject({ responseClass: "ambiguous", outcome: "after-observed" });
   });
 
@@ -499,7 +570,9 @@ describe("backlog-classification-sweep/bounded-apply-and-crash-recovery", () => 
       },
     });
     expect(harness.executeCalls).toBe(0);
-    const result = validateJournalPrefix(harness.comments, harness.plan).records.find(({ record }) => record.kind === "result").record;
+    const result = validateJournalPrefix(harness.comments, harness.plan).records.find(
+      ({ record }) => record.kind === "result",
+    ).record;
     expect(result.responseClass).toBe("ambiguous");
   });
 });
@@ -516,12 +589,17 @@ describe("backlog-classification-sweep/plan-journal-integrity", () => {
     const missing = harness.comments.filter((_comment, index) => index !== 1);
     expectCode(() => validateJournalPrefix(missing, harness.plan), "JOURNAL_SEQUENCE_GAP");
     const substituted = clone(harness.comments);
-    substituted[1].body = substituted[1].body.replace(`"targetNumber":${SYNTHETIC_TARGET}`, `"targetNumber":${SYNTHETIC_EXTRA}`);
+    substituted[1].body = substituted[1].body.replace(
+      `"targetNumber":${SYNTHETIC_TARGET}`,
+      `"targetNumber":${SYNTHETIC_EXTRA}`,
+    );
     expectCode(() => validateJournalPrefix(substituted, harness.plan), "JOURNAL_MARKER_MISMATCH");
 
     const later = clone(harness.plan);
     later.capturedAt = "2026-08-30T03:00:00.000Z";
-    later.planDigest = digestCanonical(Object.fromEntries(Object.entries(later).filter(([key]) => key !== "planDigest")));
+    later.planDigest = digestCanonical(
+      Object.fromEntries(Object.entries(later).filter(([key]) => key !== "planDigest")),
+    );
     expect(validateJournalPrefix(harness.comments, later).records).toEqual([]);
   });
 

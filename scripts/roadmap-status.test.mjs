@@ -1776,7 +1776,9 @@ describe("roadmap-status/classification-gaps-complete-authority", () => {
     const issues = [
       slice(9, WAVE_1, "open", ["priority:p2", "area:ops"], OLD, { issueTypeIsEnabled: true }),
       slice(3, WAVE_1, "open", ["priority:p2", "area:ops", "kind:ops"], OLD, { issueTypeIsEnabled: false }),
-      slice(7, WAVE_1, "open", ["priority:p2", "area:ops", "kind:ops", "status:tracking-only"], OLD, { issueTypeIsEnabled: true }),
+      slice(7, WAVE_1, "open", ["priority:p2", "area:ops", "kind:ops", "status:tracking-only"], OLD, {
+        issueTypeIsEnabled: true,
+      }),
       slice(8, WAVE_1, "open", ["priority:p2"], OLD, { issueTypeName: "Epic", issueTypeIsEnabled: true }),
     ];
     const summary = summarizeWaves({
@@ -1812,7 +1814,15 @@ describe("roadmap-status/classification-gaps-complete-authority", () => {
         {
           totalCount: 2,
           pageInfo: { hasNextPage: true, endCursor: "page-two" },
-          nodes: [{ number: 1, state: "OPEN", issueType: { name: "Slice", isEnabled: true }, parent: null, issueDependenciesSummary: { blockedBy: 0 } }],
+          nodes: [
+            {
+              number: 1,
+              state: "OPEN",
+              issueType: { name: "Slice", isEnabled: true },
+              parent: null,
+              issueDependenciesSummary: { blockedBy: 0 },
+            },
+          ],
         },
       ],
       [
@@ -1820,18 +1830,28 @@ describe("roadmap-status/classification-gaps-complete-authority", () => {
         {
           totalCount: 2,
           pageInfo: { hasNextPage: false, endCursor: null },
-          nodes: [{ number: 2, state: "OPEN", issueType: { name: "Slice", isEnabled: false }, parent: null, issueDependenciesSummary: { blockedBy: 0 } }],
+          nodes: [
+            {
+              number: 2,
+              state: "OPEN",
+              issueType: { name: "Slice", isEnabled: false },
+              parent: null,
+              issueDependenciesSummary: { blockedBy: 0 },
+            },
+          ],
         },
       ],
     ]);
     const facts = await collectRoadmapIssueFacts(async (after) => pages.get(after));
     const issues = [1, 2].map((number) =>
-      mergeRoadmapIssueFacts(
-        slice(number, WAVE_1, "open", ["priority:p2", "area:ops", "kind:ops"]),
-        facts.get(number),
-      ),
+      mergeRoadmapIssueFacts(slice(number, WAVE_1, "open", ["priority:p2", "area:ops", "kind:ops"]), facts.get(number)),
     );
-    const summary = summarizeWaves({ milestones: [WAVE_1], issues, scopeGrowthByIssue: knownGrowth(issues), nowMs: NOW });
+    const summary = summarizeWaves({
+      milestones: [WAVE_1],
+      issues,
+      scopeGrowthByIssue: knownGrowth(issues),
+      nowMs: NOW,
+    });
     expect(summary.rows[0].classificationGapNumbers).toEqual([2]);
   });
 });

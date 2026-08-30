@@ -7,9 +7,8 @@ import { pathToFileURL } from "node:url";
 import { classified, isEpic, isTrackingOnly } from "./backlog-classify.mjs";
 import { collectStableIssueAuthority } from "./issue-readiness.mjs";
 import { canonicalLabelNames, ENABLED_NATIVE_ISSUE_TYPES } from "./label-registry.mjs";
-import {
-  collectRoadmapWindowAuthority,
-} from "./roadmap-status.mjs";
+import { repoRoot } from "./lib/repo.mjs";
+import { collectRoadmapWindowAuthority } from "./roadmap-status.mjs";
 
 export const SWEEP_REPOSITORY = "chase-sets/chase-sets";
 export const PLAN_SCHEMA_VERSION = "issue-7536-classification-plan/v1";
@@ -20,10 +19,9 @@ export const REST_API_VERSION = "2022-11-28";
 export const MAX_LOGICAL_STEPS = 15;
 export const MAX_PAGES = 100;
 export const MAX_ITEMS = 10_000;
-export const REVIEW_REDUCER_PATH =
-  "D:\\Users\\ToddS\\Source\\Repos\\chase-sets\\.orchestrator\\review-head-reducer.ps1";
-export const REVIEW_HISTORY_PATH =
-  "D:\\Users\\ToddS\\Source\\Repos\\chase-sets\\.orchestrator\\dispatch-log.jsonl";
+const CONTAINER_ROOT = path.dirname(repoRoot);
+export const REVIEW_REDUCER_PATH = path.join(CONTAINER_ROOT, ".orchestrator", "review-head-reducer.ps1");
+export const REVIEW_HISTORY_PATH = path.join(CONTAINER_ROOT, ".orchestrator", "dispatch-log.jsonl");
 export const PLAN_PATH = "planning-artifacts/issue-7536/plan.json";
 export const ROADMAP_PATH = "planning-artifacts/issue-7536/roadmap.md";
 
@@ -170,10 +168,15 @@ function parseJson(text, code) {
 }
 
 function validateDecisionEntry(entry) {
-  exactKeys(entry, ["number", "nodeId", "updatedAt", "bodySha256", "addLabels", "setType"], "DECISION_ENTRY_KEYS_INVALID");
+  exactKeys(
+    entry,
+    ["number", "nodeId", "updatedAt", "bodySha256", "addLabels", "setType"],
+    "DECISION_ENTRY_KEYS_INVALID",
+  );
   positiveInteger(entry.number, "DECISION_NUMBER_INVALID");
   requiredString(entry.nodeId, "DECISION_NODE_INVALID");
-  if (typeof entry.updatedAt !== "string" || !Number.isFinite(Date.parse(entry.updatedAt))) fail("DECISION_REVISION_INVALID");
+  if (typeof entry.updatedAt !== "string" || !Number.isFinite(Date.parse(entry.updatedAt)))
+    fail("DECISION_REVISION_INVALID");
   sha(entry.bodySha256, "DECISION_BODY_HASH_INVALID");
   if (
     !Array.isArray(entry.addLabels) ||
@@ -259,7 +262,7 @@ export function governedFingerprint(issue) {
     milestone,
     labels,
   };
-  if (!['OPEN', 'CLOSED'].includes(base.state)) fail("FINGERPRINT_STATE_INVALID");
+  if (!["OPEN", "CLOSED"].includes(base.state)) fail("FINGERPRINT_STATE_INVALID");
   const input = backlogInputFromFingerprint(base);
   const epic = isEpic(input);
   const tracking = isTrackingOnly(input);
@@ -301,7 +304,9 @@ function reconcileLabelRegistry(value) {
     observed.set(label.name, label);
   }
   if (observed.size !== canonical.size) fail("LABEL_REGISTRY_RECONCILIATION_INVALID");
-  return [...observed.values()].sort((left, right) => compareOrdinal(`${left.id}\0${left.name}`, `${right.id}\0${right.name}`));
+  return [...observed.values()].sort((left, right) =>
+    compareOrdinal(`${left.id}\0${left.name}`, `${right.id}\0${right.name}`),
+  );
 }
 
 function reconcileTypeRegistry(value) {
@@ -416,8 +421,9 @@ export function renderClassificationPlanningRoadmap(windowAuthority) {
   return `${[
     "# Executable-horizon classification gaps",
     "",
-    ...rows.map(({ title, gaps }) =>
-      `- ${title}: **${gaps.length}** — ${gaps.length === 0 ? "none" : gaps.map((number) => `#${number}`).join(", ")}`,
+    ...rows.map(
+      ({ title, gaps }) =>
+        `- ${title}: **${gaps.length}** — ${gaps.length === 0 ? "none" : gaps.map((number) => `#${number}`).join(", ")}`,
     ),
   ].join("\n")}\n`;
 }
@@ -524,7 +530,11 @@ export function buildClassificationPlan({
     issueBodyAuthority,
     decisionDigest: decisions.decisionDigest,
     capturedAt,
-    roadmapRender: { path: roadmapPath, sha256: sha256Utf8(roadmapBytes), windowAuthorityDigest: authority.window.digest },
+    roadmapRender: {
+      path: roadmapPath,
+      sha256: sha256Utf8(roadmapBytes),
+      windowAuthorityDigest: authority.window.digest,
+    },
     windowAuthorityDigest: authority.window.digest,
     labelRegistry: { value: labels, digest: digestCanonical(labels) },
     typeRegistry: { value: types, digest: digestCanonical(types) },
@@ -564,7 +574,11 @@ function validateMilestone(value, code = "PLAN_MILESTONE_INVALID") {
 }
 
 function validateFingerprint(value) {
-  exactKeys(value, ["number", "nodeId", "state", "issueType", "milestone", "labels", "isEpic", "isTrackingOnly", "isGap"], "PLAN_FINGERPRINT_KEYS_INVALID");
+  exactKeys(
+    value,
+    ["number", "nodeId", "state", "issueType", "milestone", "labels", "isEpic", "isTrackingOnly", "isGap"],
+    "PLAN_FINGERPRINT_KEYS_INVALID",
+  );
   positiveInteger(value.number, "PLAN_FINGERPRINT_NUMBER_INVALID");
   requiredString(value.nodeId, "PLAN_FINGERPRINT_NODE_INVALID");
   if (!["OPEN", "CLOSED"].includes(value.state)) fail("PLAN_FINGERPRINT_STATE_INVALID");
@@ -580,7 +594,8 @@ function validateFingerprint(value) {
   if (
     new Set(value.labels.map((label) => label.id)).size !== value.labels.length ||
     new Set(value.labels.map((label) => label.name)).size !== value.labels.length
-  ) fail("PLAN_FINGERPRINT_LABELS_INVALID");
+  )
+    fail("PLAN_FINGERPRINT_LABELS_INVALID");
   if ([value.isEpic, value.isTrackingOnly, value.isGap].some((entry) => typeof entry !== "boolean")) {
     fail("PLAN_FINGERPRINT_FLAGS_INVALID");
   }
@@ -599,7 +614,8 @@ export function validateClassificationPlan(plan) {
     plan.environment.repository !== SWEEP_REPOSITORY ||
     plan.environment.graphqlEndpoint !== GRAPHQL_ENDPOINT ||
     plan.environment.restApiVersion !== REST_API_VERSION
-  ) fail("PLAN_ENVIRONMENT_INVALID");
+  )
+    fail("PLAN_ENVIRONMENT_INVALID");
   exactKeys(plan.issueBodyAuthority, ["number", "nodeId", "updatedAt", "sha256"], "PLAN_BODY_AUTHORITY_INVALID");
   positiveInteger(plan.issueBodyAuthority.number, "PLAN_BODY_AUTHORITY_INVALID");
   requiredString(plan.issueBodyAuthority.nodeId, "PLAN_BODY_AUTHORITY_INVALID");
@@ -613,21 +629,38 @@ export function validateClassificationPlan(plan) {
   sha(plan.roadmapRender.windowAuthorityDigest, "PLAN_ROADMAP_INVALID");
   sha(plan.windowAuthorityDigest, "PLAN_WINDOW_DIGEST_INVALID");
   if (plan.roadmapRender.windowAuthorityDigest !== plan.windowAuthorityDigest) fail("PLAN_WINDOW_DIGEST_MISMATCH");
-  for (const [registryName, entry] of [["LABEL", plan.labelRegistry], ["TYPE", plan.typeRegistry]]) {
+  for (const [registryName, entry] of [
+    ["LABEL", plan.labelRegistry],
+    ["TYPE", plan.typeRegistry],
+  ]) {
     exactKeys(entry, ["value", "digest"], `PLAN_${registryName}_REGISTRY_INVALID`);
     sha(entry.digest, `PLAN_${registryName}_REGISTRY_INVALID`);
     if (entry.digest !== digestCanonical(entry.value)) fail(`PLAN_${registryName}_REGISTRY_DIGEST_INVALID`);
   }
-  if (canonicalJson(reconcileLabelRegistry(plan.labelRegistry.value)) !== canonicalJson(plan.labelRegistry.value)) fail("PLAN_LABEL_REGISTRY_ORDER_INVALID");
-  if (canonicalJson(reconcileTypeRegistry(plan.typeRegistry.value)) !== canonicalJson(plan.typeRegistry.value)) fail("PLAN_TYPE_REGISTRY_ORDER_INVALID");
+  if (canonicalJson(reconcileLabelRegistry(plan.labelRegistry.value)) !== canonicalJson(plan.labelRegistry.value))
+    fail("PLAN_LABEL_REGISTRY_ORDER_INVALID");
+  if (canonicalJson(reconcileTypeRegistry(plan.typeRegistry.value)) !== canonicalJson(plan.typeRegistry.value))
+    fail("PLAN_TYPE_REGISTRY_ORDER_INVALID");
   exactKeys(plan.permission, ["repository", "viewerLogin", "viewerPermission", "digest"], "PLAN_PERMISSION_INVALID");
-  if (plan.permission.repository !== SWEEP_REPOSITORY || plan.permission.viewerPermission !== "ADMIN") fail("PLAN_PERMISSION_INVALID");
+  if (plan.permission.repository !== SWEEP_REPOSITORY || plan.permission.viewerPermission !== "ADMIN")
+    fail("PLAN_PERMISSION_INVALID");
   requiredString(plan.permission.viewerLogin, "PLAN_PERMISSION_INVALID");
   sha(plan.permission.digest, "PLAN_PERMISSION_INVALID");
-  if (plan.permission.digest !== digestCanonical({ repository: plan.permission.repository, viewerLogin: plan.permission.viewerLogin, viewerPermission: plan.permission.viewerPermission })) fail("PLAN_PERMISSION_DIGEST_INVALID");
+  if (
+    plan.permission.digest !==
+    digestCanonical({
+      repository: plan.permission.repository,
+      viewerLogin: plan.permission.viewerLogin,
+      viewerPermission: plan.permission.viewerPermission,
+    })
+  )
+    fail("PLAN_PERMISSION_DIGEST_INVALID");
   if (!Array.isArray(plan.issueFingerprints)) fail("PLAN_FINGERPRINTS_INVALID");
   plan.issueFingerprints.forEach(validateFingerprint);
-  strictlyAscending(plan.issueFingerprints.map((entry) => entry.number), "PLAN_FINGERPRINT_ORDER_INVALID");
+  strictlyAscending(
+    plan.issueFingerprints.map((entry) => entry.number),
+    "PLAN_FINGERPRINT_ORDER_INVALID",
+  );
   if (
     plan.issueFingerprints.some(
       (entry) =>
@@ -638,7 +671,8 @@ export function validateClassificationPlan(plan) {
         entry.milestone.title !== plan.milestone.title ||
         entry.milestone.state !== plan.milestone.state,
     )
-  ) fail("PLAN_FINGERPRINT_SCOPE_INVALID");
+  )
+    fail("PLAN_FINGERPRINT_SCOPE_INVALID");
   strictlyAscending(plan.includedNumbers, "PLAN_INCLUDED_INVALID");
   strictlyAscending(plan.excludedNumbers, "PLAN_EXCLUDED_INVALID");
   strictlyAscending(plan.gapNumbers, "PLAN_GAPS_INVALID");
@@ -646,25 +680,47 @@ export function validateClassificationPlan(plan) {
   const combined = [...plan.includedNumbers, ...plan.excludedNumbers].sort((left, right) => left - right);
   if (canonicalJson(combined) !== canonicalJson(fingerprintNumbers)) fail("PLAN_PARTITION_INVALID");
   if (plan.includedNumbers.some((number) => plan.excludedNumbers.includes(number))) fail("PLAN_PARTITION_INVALID");
-  const derivedIncluded = plan.issueFingerprints.filter((entry) => !entry.isEpic && !entry.isTrackingOnly).map((entry) => entry.number);
-  const derivedExcluded = plan.issueFingerprints.filter((entry) => entry.isEpic || entry.isTrackingOnly).map((entry) => entry.number);
-  if (canonicalJson(derivedIncluded) !== canonicalJson(plan.includedNumbers) || canonicalJson(derivedExcluded) !== canonicalJson(plan.excludedNumbers)) fail("PLAN_PARTITION_INVALID");
+  const derivedIncluded = plan.issueFingerprints
+    .filter((entry) => !entry.isEpic && !entry.isTrackingOnly)
+    .map((entry) => entry.number);
+  const derivedExcluded = plan.issueFingerprints
+    .filter((entry) => entry.isEpic || entry.isTrackingOnly)
+    .map((entry) => entry.number);
+  if (
+    canonicalJson(derivedIncluded) !== canonicalJson(plan.includedNumbers) ||
+    canonicalJson(derivedExcluded) !== canonicalJson(plan.excludedNumbers)
+  )
+    fail("PLAN_PARTITION_INVALID");
   const derivedGaps = plan.issueFingerprints.filter((entry) => entry.isGap).map((entry) => entry.number);
   if (canonicalJson(derivedGaps) !== canonicalJson(plan.gapNumbers)) fail("PLAN_GAPS_INVALID");
   if (!Array.isArray(plan.targets)) fail("PLAN_TARGETS_INVALID");
-  strictlyAscending(plan.targets.map((target) => target.number), "PLAN_TARGET_ORDER_INVALID");
+  strictlyAscending(
+    plan.targets.map((target) => target.number),
+    "PLAN_TARGET_ORDER_INVALID",
+  );
   let steps = 0;
   const requestDigests = new Set();
   const planFingerprintByNumber = new Map(plan.issueFingerprints.map((entry) => [entry.number, entry]));
   for (const target of plan.targets) {
-    exactKeys(target, ["number", "nodeId", "decisionUpdatedAt", "bodySha256", "before", "after", "steps"], "PLAN_TARGET_KEYS_INVALID");
+    exactKeys(
+      target,
+      ["number", "nodeId", "decisionUpdatedAt", "bodySha256", "before", "after", "steps"],
+      "PLAN_TARGET_KEYS_INVALID",
+    );
     positiveInteger(target.number, "PLAN_TARGET_INVALID");
     requiredString(target.nodeId, "PLAN_TARGET_INVALID");
     if (!Number.isFinite(Date.parse(target.decisionUpdatedAt))) fail("PLAN_TARGET_INVALID");
     sha(target.bodySha256, "PLAN_TARGET_INVALID");
     validateFingerprint(target.before);
     validateFingerprint(target.after);
-    if (target.before.number !== target.number || target.after.number !== target.number || target.nodeId !== target.before.nodeId || target.before.isGap !== true || target.after.isGap !== false) fail("PLAN_TARGET_STATE_INVALID");
+    if (
+      target.before.number !== target.number ||
+      target.after.number !== target.number ||
+      target.nodeId !== target.before.nodeId ||
+      target.before.isGap !== true ||
+      target.after.isGap !== false
+    )
+      fail("PLAN_TARGET_STATE_INVALID");
     for (const key of ["number", "nodeId", "state", "milestone", "isEpic", "isTrackingOnly"]) {
       if (canonicalJson(target.before[key]) !== canonicalJson(target.after[key])) fail("PLAN_TARGET_STATE_INVALID");
     }
@@ -682,28 +738,45 @@ export function validateClassificationPlan(plan) {
         target.after.issueType?.nodeId !== step.request.issueTypeId ||
         step.request.issueNodeId !== target.nodeId ||
         canonicalJson(target.before.labels) !== canonicalJson(target.after.labels)
-      ) fail("PLAN_STEP_TRANSITION_INVALID");
+      )
+        fail("PLAN_STEP_TRANSITION_INVALID");
     } else {
       exactKeys(step.request, ["labelableId", "labelIds"], "PLAN_STEP_REQUEST_INVALID");
       requiredString(step.request.labelableId, "PLAN_STEP_REQUEST_INVALID");
-      if (!Array.isArray(step.request.labelIds) || step.request.labelIds.length === 0 || new Set(step.request.labelIds).size !== step.request.labelIds.length || step.request.labelIds.some((id) => typeof id !== "string" || id.length === 0)) fail("PLAN_STEP_REQUEST_INVALID");
-      if ([...step.request.labelIds].sort(compareOrdinal).join("\0") !== step.request.labelIds.join("\0")) fail("PLAN_STEP_REQUEST_INVALID");
+      if (
+        !Array.isArray(step.request.labelIds) ||
+        step.request.labelIds.length === 0 ||
+        new Set(step.request.labelIds).size !== step.request.labelIds.length ||
+        step.request.labelIds.some((id) => typeof id !== "string" || id.length === 0)
+      )
+        fail("PLAN_STEP_REQUEST_INVALID");
+      if ([...step.request.labelIds].sort(compareOrdinal).join("\0") !== step.request.labelIds.join("\0"))
+        fail("PLAN_STEP_REQUEST_INVALID");
       const beforeIds = new Set(target.before.labels.map((label) => label.id));
-      const addedIds = target.after.labels.filter((label) => !beforeIds.has(label.id)).map((label) => label.id).sort(compareOrdinal);
+      const addedIds = target.after.labels
+        .filter((label) => !beforeIds.has(label.id))
+        .map((label) => label.id)
+        .sort(compareOrdinal);
       if (
         step.request.labelableId !== target.nodeId ||
         canonicalJson(addedIds) !== canonicalJson(step.request.labelIds) ||
         target.after.labels.length !== target.before.labels.length + step.request.labelIds.length ||
         canonicalJson(target.before.issueType) !== canonicalJson(target.after.issueType)
-      ) fail("PLAN_STEP_TRANSITION_INVALID");
+      )
+        fail("PLAN_STEP_TRANSITION_INVALID");
     }
-    if (step.beforeFingerprint !== digestCanonical(target.before) || step.afterFingerprint !== digestCanonical(target.after)) fail("PLAN_STEP_FINGERPRINT_INVALID");
+    if (
+      step.beforeFingerprint !== digestCanonical(target.before) ||
+      step.afterFingerprint !== digestCanonical(target.after)
+    )
+      fail("PLAN_STEP_FINGERPRINT_INVALID");
     const requestDigest = digestCanonical(step.request);
     if (requestDigests.has(requestDigest)) fail("PLAN_REQUEST_DUPLICATE");
     requestDigests.add(requestDigest);
     steps += 1;
   }
-  if (canonicalJson(plan.targets.map((target) => target.number)) !== canonicalJson(plan.gapNumbers)) fail("PLAN_TARGET_GAP_MISMATCH");
+  if (canonicalJson(plan.targets.map((target) => target.number)) !== canonicalJson(plan.gapNumbers))
+    fail("PLAN_TARGET_GAP_MISMATCH");
   nonNegativeInteger(plan.logicalStepCount, "PLAN_STEP_COUNT_INVALID");
   if (plan.logicalStepCount !== steps || steps > MAX_LOGICAL_STEPS) fail("PLAN_STEP_COUNT_INVALID");
   sha(plan.planDigest, "PLAN_DIGEST_INVALID");
@@ -818,9 +891,10 @@ function parseJournalComment(body) {
   const markers = [...body.matchAll(JOURNAL_MARKER)];
   if (markers.length === 0) return null;
   if (markers.length !== 1) fail("JOURNAL_MARKER_DUPLICATE");
-  const match = /^```json\n([^\n]+)\n```\n<!-- chase-sets:issue-7536-classification:v1 plan=([a-f0-9]{64}) attempt=([a-f0-9-]{36}) seq=(\d+) sha=([a-f0-9]{64}) -->$/.exec(
-    normalizeLf(body),
-  );
+  const match =
+    /^```json\n([^\n]+)\n```\n<!-- chase-sets:issue-7536-classification:v1 plan=([a-f0-9]{64}) attempt=([a-f0-9-]{36}) seq=(\d+) sha=([a-f0-9]{64}) -->$/.exec(
+      normalizeLf(body),
+    );
   if (!match) fail("JOURNAL_COMMENT_SHAPE_INVALID");
   const record = parseJson(match[1], "JOURNAL_JSON_INVALID");
   validateJournalRecord(record);
@@ -829,7 +903,8 @@ function parseJournalComment(body) {
     record.attemptId !== match[3] ||
     String(record.sequence) !== match[4] ||
     journalRecordSha(record) !== match[5]
-  ) fail("JOURNAL_MARKER_MISMATCH");
+  )
+    fail("JOURNAL_MARKER_MISMATCH");
   return { record, sha256: match[5] };
 }
 
@@ -862,7 +937,8 @@ export function validateJournalPrefix(comments, plan, { allowTerminal = true } =
       record.planHead !== genesisIdentity.planHead ||
       (index > 0 && Date.parse(record.createdAt) < Date.parse(records[index - 1].record.createdAt)) ||
       (index === 0 ? record.predecessorSha256 !== null : record.predecessorSha256 !== records[index - 1].sha256)
-    ) fail("JOURNAL_LINEAGE_INVALID");
+    )
+      fail("JOURNAL_LINEAGE_INVALID");
     const expectedKind =
       index === 0
         ? "genesis"
@@ -887,14 +963,16 @@ export function validateJournalPrefix(comments, plan, { allowTerminal = true } =
         record.requestDigest !== digestCanonical(step.request) ||
         (record.kind === "intent" && record.beforeFingerprint !== step.beforeFingerprint) ||
         (record.kind === "result" && digestCanonical(record.observedFingerprint.governed) !== step.afterFingerprint)
-      ) fail("JOURNAL_TARGET_TRANSITION_INVALID");
+      )
+        fail("JOURNAL_TARGET_TRANSITION_INVALID");
     }
     if (record.kind === "apply-receipt") {
       if (
         record.logicalStepCount !== plan.logicalStepCount ||
         canonicalJson(record.targetNumbers) !== canonicalJson(plan.targets.map((target) => target.number)) ||
         record.finalPrefixSha256 !== records[index - 1].sha256
-      ) fail("JOURNAL_APPLY_RECEIPT_INVALID");
+      )
+        fail("JOURNAL_APPLY_RECEIPT_INVALID");
     }
     if (
       record.kind === "verify-receipt" &&
@@ -976,7 +1054,10 @@ async function collectCompositeAttempt(client, issueNumber, milestoneNumber, dec
     ...selectedDecisionNumbers.map((number) => client.collectStableIssue(number).then(projectedStableIssue)),
   ]);
   const issueAuthorities = [root, ...targetAuthorities]
-    .filter((entry, index, entries) => entries.findIndex((candidate) => candidate.issue.number === entry.issue.number) === index)
+    .filter(
+      (entry, index, entries) =>
+        entries.findIndex((candidate) => candidate.issue.number === entry.issue.number) === index,
+    )
     .sort((left, right) => left.issue.number - right.issue.number);
   const result = {
     repository: SWEEP_REPOSITORY,
@@ -995,10 +1076,19 @@ export async function collectCompleteSweepAuthority({
   milestoneNumber = 136,
   decisionIssueNumbers = null,
 }) {
-  if (!client || typeof client.collectWindow !== "function" || typeof client.collectStableIssue !== "function" || typeof client.collectRegistries !== "function") {
+  if (
+    !client ||
+    typeof client.collectWindow !== "function" ||
+    typeof client.collectStableIssue !== "function" ||
+    typeof client.collectRegistries !== "function"
+  ) {
     fail("GITHUB_CLIENT_INVALID");
   }
-  if (decisionIssueNumbers !== null && (!Array.isArray(decisionIssueNumbers) || decisionIssueNumbers.some((number) => !Number.isSafeInteger(number)))) fail("DECISION_ISSUE_SELECTION_INVALID");
+  if (
+    decisionIssueNumbers !== null &&
+    (!Array.isArray(decisionIssueNumbers) || decisionIssueNumbers.some((number) => !Number.isSafeInteger(number)))
+  )
+    fail("DECISION_ISSUE_SELECTION_INVALID");
   const first = await collectCompositeAttempt(client, issueNumber, milestoneNumber, decisionIssueNumbers);
   const second = await collectCompositeAttempt(client, issueNumber, milestoneNumber, decisionIssueNumbers);
   if (first.compositeDigest === second.compositeDigest) return second;
@@ -1017,7 +1107,10 @@ function apiHeaders(token, extra = {}) {
 }
 
 async function responseJson(response, code) {
-  if (!response?.ok) fail(code, `${code}: ${response?.status ?? "NO_RESPONSE"} ${await response?.text?.()}`, { status: response?.status });
+  if (!response?.ok)
+    fail(code, `${code}: ${response?.status ?? "NO_RESPONSE"} ${await response?.text?.()}`, {
+      status: response?.status,
+    });
   try {
     return await response.json();
   } catch {
@@ -1043,15 +1136,28 @@ function parseNextLink(value, expectedPath, expectedPage, expectedState) {
       parsed.searchParams.get("per_page") !== "100" ||
       !/^\d+$/.test(parsed.searchParams.get("page") ?? "") ||
       Number(parsed.searchParams.get("page")) !== expectedPage ||
-      (expectedState === null ? parsed.searchParams.has("state") : parsed.searchParams.get("state") !== expectedState) ||
-      [...parsed.searchParams.keys()].some((key) => !["per_page", "page", ...(expectedState === null ? [] : ["state"])].includes(key))
-    ) fail("REST_PAGINATION_NEXT_UNSAFE");
+      (expectedState === null
+        ? parsed.searchParams.has("state")
+        : parsed.searchParams.get("state") !== expectedState) ||
+      [...parsed.searchParams.keys()].some(
+        (key) => !["per_page", "page", ...(expectedState === null ? [] : ["state"])].includes(key),
+      )
+    )
+      fail("REST_PAGINATION_NEXT_UNSAFE");
     next = parsed.toString();
   }
   return next;
 }
 
-async function collectRestPages({ request, token, initialUrl, expectedPath, expectedState = null, project, maxItems = MAX_ITEMS }) {
+async function collectRestPages({
+  request,
+  token,
+  initialUrl,
+  expectedPath,
+  expectedState = null,
+  project,
+  maxItems = MAX_ITEMS,
+}) {
   const values = [];
   const visited = new Set();
   let next = initialUrl;
@@ -1073,8 +1179,14 @@ async function collectRestPages({ request, token, initialUrl, expectedPath, expe
 }
 
 export function reconcileIssueIdentities(restNumbers, graphNumbers) {
-  const rest = strictlyAscending([...restNumbers].sort((left, right) => left - right), "ISSUE_SOURCE_RECONCILIATION_INVALID");
-  const graph = strictlyAscending([...graphNumbers].sort((left, right) => left - right), "ISSUE_SOURCE_RECONCILIATION_INVALID");
+  const rest = strictlyAscending(
+    [...restNumbers].sort((left, right) => left - right),
+    "ISSUE_SOURCE_RECONCILIATION_INVALID",
+  );
+  const graph = strictlyAscending(
+    [...graphNumbers].sort((left, right) => left - right),
+    "ISSUE_SOURCE_RECONCILIATION_INVALID",
+  );
   if (canonicalJson(rest) !== canonicalJson(graph)) fail("ISSUE_SOURCE_RECONCILIATION_INVALID");
   return rest;
 }
@@ -1089,7 +1201,8 @@ function validateGraphPage(page, code) {
     typeof page.pageInfo.hasNextPage !== "boolean" ||
     !(page.pageInfo.endCursor === null || typeof page.pageInfo.endCursor === "string") ||
     (page.pageInfo.hasNextPage && !page.pageInfo.endCursor)
-  ) fail(code);
+  )
+    fail(code);
 }
 
 async function collectGraphConnection(loadPage, { identity, project, code }) {
@@ -1115,7 +1228,8 @@ async function collectGraphConnection(loadPage, { identity, project, code }) {
     }
     pages += 1;
     if (page.pageInfo.hasNextPage) {
-      if (values.length === before || values.length >= expectedTotal || cursors.has(page.pageInfo.endCursor)) fail(`${code}_CURSOR_INVALID`);
+      if (values.length === before || values.length >= expectedTotal || cursors.has(page.pageInfo.endCursor))
+        fail(`${code}_CURSOR_INVALID`);
       cursors.add(page.pageInfo.endCursor);
       after = page.pageInfo.endCursor;
     } else after = null;
@@ -1133,8 +1247,18 @@ const PLAN_PR_QUERY = `query SweepPlanPr($owner:String!,$name:String!,$number:In
 const PLAN_PR_BY_BRANCH_QUERY = `query SweepPlanPrByBranch($owner:String!,$name:String!,$head:String!){repository(owner:$owner,name:$name){pullRequests(first:2,states:[OPEN],headRefName:$head){totalCount nodes{number}}}}`;
 const COMMENT_TOTAL_QUERY = `query SweepCommentTotal($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){id comments(first:1){totalCount pageInfo{hasNextPage endCursor} nodes{id}}}}}`;
 
-export function createProductionGitHubClient({ repository = SWEEP_REPOSITORY, token, request = globalThis.fetch } = {}) {
-  if (repository !== SWEEP_REPOSITORY || typeof token !== "string" || token.length === 0 || typeof request !== "function") fail("GITHUB_CLIENT_CONFIG_INVALID");
+export function createProductionGitHubClient({
+  repository = SWEEP_REPOSITORY,
+  token,
+  request = globalThis.fetch,
+} = {}) {
+  if (
+    repository !== SWEEP_REPOSITORY ||
+    typeof token !== "string" ||
+    token.length === 0 ||
+    typeof request !== "function"
+  )
+    fail("GITHUB_CLIENT_CONFIG_INVALID");
   const [owner, name] = repository.split("/");
   const graphql = async (query, variables) => {
     const response = await request(GRAPHQL_ENDPOINT, {
@@ -1159,8 +1283,10 @@ export function createProductionGitHubClient({ repository = SWEEP_REPOSITORY, to
     },
     async collectWindow() {
       const window = await collectRoadmapWindowAuthority({
-        loadMilestones: (after) => graphLoad(WINDOW_MILESTONES_QUERY, { owner, name, after }, (data) => data.repository?.milestones),
-        loadIssues: (after) => graphLoad(WINDOW_ISSUES_QUERY, { owner, name, after }, (data) => data.repository?.issues),
+        loadMilestones: (after) =>
+          graphLoad(WINDOW_MILESTONES_QUERY, { owner, name, after }, (data) => data.repository?.milestones),
+        loadIssues: (after) =>
+          graphLoad(WINDOW_ISSUES_QUERY, { owner, name, after }, (data) => data.repository?.issues),
         loadLabels: (id, after) => graphLoad(WINDOW_LABELS_QUERY, { id, after }, (data) => data.node?.labels),
         loadBlockedBy: (id, after) => graphLoad(WINDOW_BLOCKED_QUERY, { id, after }, (data) => data.node?.blockedBy),
       });
@@ -1178,24 +1304,43 @@ export function createProductionGitHubClient({ repository = SWEEP_REPOSITORY, to
       });
       const restNumbers = rest.values.filter((number) => number !== null).sort((left, right) => left - right);
       if (new Set(restNumbers).size !== restNumbers.length) fail("REST_ISSUE_DUPLICATE");
-      const graphNumbers = window.authority.issues.nodes.map((issue) => issue.number).sort((left, right) => left - right);
+      const graphNumbers = window.authority.issues.nodes
+        .map((issue) => issue.number)
+        .sort((left, right) => left - right);
       reconcileIssueIdentities(restNumbers, graphNumbers);
       return { ...window, restIssueNumbers: restNumbers, restPages: rest.pages };
     },
     async collectRegistries() {
       const labels = await collectGraphConnection(
-        (after) => graphLoad(REGISTRY_QUERY, { owner, name, afterLabels: after, afterTypes: null }, (data) => data.repository?.labels),
+        (after) =>
+          graphLoad(
+            REGISTRY_QUERY,
+            { owner, name, afterLabels: after, afterTypes: null },
+            (data) => data.repository?.labels,
+          ),
         {
           identity: (entry) => `${entry.id}\0${entry.name}`,
-          project: (entry) => ({ id: requiredString(entry?.id, "LABEL_REGISTRY_ENTRY_INVALID"), name: requiredString(entry?.name, "LABEL_REGISTRY_ENTRY_INVALID") }),
+          project: (entry) => ({
+            id: requiredString(entry?.id, "LABEL_REGISTRY_ENTRY_INVALID"),
+            name: requiredString(entry?.name, "LABEL_REGISTRY_ENTRY_INVALID"),
+          }),
           code: "LABEL_REGISTRY",
         },
       );
       const types = await collectGraphConnection(
-        (after) => graphLoad(REGISTRY_QUERY, { owner, name, afterLabels: null, afterTypes: after }, (data) => data.organization?.issueTypes),
+        (after) =>
+          graphLoad(
+            REGISTRY_QUERY,
+            { owner, name, afterLabels: null, afterTypes: after },
+            (data) => data.organization?.issueTypes,
+          ),
         {
           identity: (entry) => entry.nodeId,
-          project: (entry) => ({ nodeId: requiredString(entry?.id, "TYPE_REGISTRY_ENTRY_INVALID"), name: requiredString(entry?.name, "TYPE_REGISTRY_ENTRY_INVALID"), isEnabled: entry?.isEnabled }),
+          project: (entry) => ({
+            nodeId: requiredString(entry?.id, "TYPE_REGISTRY_ENTRY_INVALID"),
+            name: requiredString(entry?.name, "TYPE_REGISTRY_ENTRY_INVALID"),
+            isEnabled: entry?.isEnabled,
+          }),
           code: "TYPE_REGISTRY",
         },
       );
@@ -1213,9 +1358,12 @@ export function createProductionGitHubClient({ repository = SWEEP_REPOSITORY, to
     },
     async getRef(branch) {
       if (typeof branch !== "string" || branch.length === 0) fail("GITHUB_REF_INVALID");
-      const response = await request(`https://api.github.com/repos/${repository}/git/ref/heads/${encodeURIComponent(branch)}`, {
-        headers: apiHeaders(token),
-      });
+      const response = await request(
+        `https://api.github.com/repos/${repository}/git/ref/heads/${encodeURIComponent(branch)}`,
+        {
+          headers: apiHeaders(token),
+        },
+      );
       const value = await responseJson(response, "GITHUB_REF_READ_FAILED");
       return oid(value?.object?.sha, "GITHUB_REF_INVALID");
     },
@@ -1227,7 +1375,11 @@ export function createProductionGitHubClient({ repository = SWEEP_REPOSITORY, to
       return value;
     },
     async findPlanPr(branch) {
-      const data = await graphql(PLAN_PR_BY_BRANCH_QUERY, { owner, name, head: requiredString(branch, "PLAN_BRANCH_INVALID") });
+      const data = await graphql(PLAN_PR_BY_BRANCH_QUERY, {
+        owner,
+        name,
+        head: requiredString(branch, "PLAN_BRANCH_INVALID"),
+      });
       const connection = data.repository?.pullRequests;
       if (connection?.totalCount !== 1 || connection.nodes?.length !== 1) fail("PLAN_PR_LOOKUP_INVALID");
       return positiveInteger(connection.nodes[0].number, "PLAN_PR_LOOKUP_INVALID");
@@ -1264,7 +1416,8 @@ export function createProductionGitHubClient({ repository = SWEEP_REPOSITORY, to
         initialUrl: `https://api.github.com${expectedPath}?per_page=100`,
         expectedPath,
         project: (entry) => {
-          if (!positiveInteger(entry?.id, "COMMENT_INVALID") || typeof entry?.body !== "string") fail("COMMENT_INVALID");
+          if (!positiveInteger(entry?.id, "COMMENT_INVALID") || typeof entry?.body !== "string")
+            fail("COMMENT_INVALID");
           return { id: entry.id, body: entry.body };
         },
       });
@@ -1274,11 +1427,14 @@ export function createProductionGitHubClient({ repository = SWEEP_REPOSITORY, to
       return result.values;
     },
     async createComment(issueNumber, body) {
-      const response = await request(`https://api.github.com/repos/${repository}/issues/${positiveInteger(issueNumber)}/comments`, {
-        method: "POST",
-        headers: apiHeaders(token, { "content-type": "application/json" }),
-        body: JSON.stringify({ body }),
-      });
+      const response = await request(
+        `https://api.github.com/repos/${repository}/issues/${positiveInteger(issueNumber)}/comments`,
+        {
+          method: "POST",
+          headers: apiHeaders(token, { "content-type": "application/json" }),
+          body: JSON.stringify({ body }),
+        },
+      );
       return responseJson(response, "COMMENT_CREATE_FAILED");
     },
     async executeStep(step) {
@@ -1301,7 +1457,11 @@ function git(args, { cwd = process.cwd() } = {}) {
 }
 
 function gitRefExists(ref, cwd) {
-  const result = spawnSync("git", ["show-ref", "--verify", ref], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const result = spawnSync("git", ["show-ref", "--verify", ref], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   if (result.status === 0) return true;
   if (result.status === 1) return false;
   fail("GIT_COMMAND_FAILED", result.stderr || `git show-ref failed for ${ref}`);
@@ -1317,17 +1477,29 @@ export function invokeCanonicalReviewReducer({ planPr, planHead, reducerPath, hi
   }
   const result = spawnSync(
     "pwsh",
-    ["-NoProfile", "-File", REVIEW_REDUCER_PATH, "-Pr", String(planPr), "-CurrentHead", planHead, "-HistoryPath", REVIEW_HISTORY_PATH],
+    [
+      "-NoProfile",
+      "-File",
+      REVIEW_REDUCER_PATH,
+      "-Pr",
+      String(planPr),
+      "-CurrentHead",
+      planHead,
+      "-HistoryPath",
+      REVIEW_HISTORY_PATH,
+    ],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
-  if (result.status !== 0 || result.error) fail("REVIEW_REDUCER_EXECUTION_FAILED", result.stderr || result.error?.message);
+  if (result.status !== 0 || result.error)
+    fail("REVIEW_REDUCER_EXECUTION_FAILED", result.stderr || result.error?.message);
   const reduction = parseJson(result.stdout, "REVIEW_REDUCER_OUTPUT_INVALID");
   if (
     reduction?.schema !== "exact-head-review-reducer/v1" ||
     reduction?.pr !== planPr ||
     reduction?.currentHead !== planHead ||
     reduction?.state !== "authorized"
-  ) fail("REVIEW_NOT_AUTHORIZED", `Review reducer state: ${String(reduction?.state)}`);
+  )
+    fail("REVIEW_NOT_AUTHORIZED", `Review reducer state: ${String(reduction?.state)}`);
   return reduction;
 }
 
@@ -1372,10 +1544,12 @@ export async function assertPlanExecutionIdentity({
     pr.mergedAt !== null ||
     pr.mergeQueueEntry !== null ||
     pr.autoMergeRequest !== null
-  ) fail("PLAN_PR_STATE_INVALID");
+  )
+    fail("PLAN_PR_STATE_INVALID");
   if (git(["rev-parse", `${head}^`], { cwd }) !== localMain) fail("PLAN_PR_PARENT_INVALID");
   const files = await client.listPlanFiles(planPr);
-  if (pr.files?.totalCount !== files.length || canonicalJson(files) !== canonicalJson([PLAN_PATH, ROADMAP_PATH])) fail("PLAN_PR_PATH_SET_INVALID");
+  if (pr.files?.totalCount !== files.length || canonicalJson(files) !== canonicalJson([PLAN_PATH, ROADMAP_PATH]))
+    fail("PLAN_PR_PATH_SET_INVALID");
   const prAfterFiles = await client.getPlanPr(planPr);
   const projectPrIdentity = (value) => ({
     number: value.number,
@@ -1390,10 +1564,12 @@ export async function assertPlanExecutionIdentity({
     autoMergeRequest: value.autoMergeRequest,
     filesTotal: value.files?.totalCount,
   });
-  if (canonicalJson(projectPrIdentity(pr)) !== canonicalJson(projectPrIdentity(prAfterFiles))) fail("PLAN_PR_MOVED_DURING_CAPTURE");
+  if (canonicalJson(projectPrIdentity(pr)) !== canonicalJson(projectPrIdentity(prAfterFiles)))
+    fail("PLAN_PR_MOVED_DURING_CAPTURE");
   const planText = await readFile(path.join(cwd, PLAN_PATH), "utf8");
   const roadmapText = await readFile(path.join(cwd, ROADMAP_PATH), "utf8");
-  if (planText !== serializePlan(plan) || sha256Utf8(roadmapText) !== plan.roadmapRender.sha256) fail("PLAN_ARTIFACT_BYTES_INVALID");
+  if (planText !== serializePlan(plan) || sha256Utf8(roadmapText) !== plan.roadmapRender.sha256)
+    fail("PLAN_ARTIFACT_BYTES_INVALID");
   for (const artifactPath of [PLAN_PATH, ROADMAP_PATH]) {
     const reviewedBlob = git(["rev-parse", `${head}:${artifactPath}`], { cwd });
     const localBlob = git(["hash-object", "--no-filters", "--", artifactPath], { cwd });
@@ -1421,20 +1597,26 @@ function assertExpectedAuthority(plan, authority, prefix) {
     body.issue.nodeId !== plan.issueBodyAuthority.nodeId ||
     bodySha256(body.issue.body) !== plan.issueBodyAuthority.sha256 ||
     decisionAuthority.decisionDigest !== plan.decisionDigest
-  ) fail("EXPECTED_PREFIX_BODY_DRIFT");
-  if (prefix.records.length === 0 && body.issue.updatedAt !== plan.issueBodyAuthority.updatedAt) fail("EXPECTED_PREFIX_BODY_REVISION_DRIFT");
-  if (digestCanonical(reconcileLabelRegistry(authority.labelRegistry)) !== plan.labelRegistry.digest) fail("EXPECTED_PREFIX_LABEL_DRIFT");
-  if (digestCanonical(reconcileTypeRegistry(authority.typeRegistry)) !== plan.typeRegistry.digest) fail("EXPECTED_PREFIX_TYPE_DRIFT");
-  if (authority.permission?.repository !== plan.permission.repository || authority.permission?.viewerLogin !== plan.permission.viewerLogin || authority.permission?.viewerPermission !== plan.permission.viewerPermission) fail("EXPECTED_PREFIX_PERMISSION_DRIFT");
+  )
+    fail("EXPECTED_PREFIX_BODY_DRIFT");
+  if (prefix.records.length === 0 && body.issue.updatedAt !== plan.issueBodyAuthority.updatedAt)
+    fail("EXPECTED_PREFIX_BODY_REVISION_DRIFT");
+  if (digestCanonical(reconcileLabelRegistry(authority.labelRegistry)) !== plan.labelRegistry.digest)
+    fail("EXPECTED_PREFIX_LABEL_DRIFT");
+  if (digestCanonical(reconcileTypeRegistry(authority.typeRegistry)) !== plan.typeRegistry.digest)
+    fail("EXPECTED_PREFIX_TYPE_DRIFT");
+  if (
+    authority.permission?.repository !== plan.permission.repository ||
+    authority.permission?.viewerLogin !== plan.permission.viewerLogin ||
+    authority.permission?.viewerPermission !== plan.permission.viewerPermission
+  )
+    fail("EXPECTED_PREFIX_PERMISSION_DRIFT");
   for (const decision of decisionAuthority.value.entries) {
     const stable = authority.issueAuthorities.find((entry) => entry.issue.number === decision.number);
     const target = plan.targets.find((entry) => entry.number === decision.number);
     if (!stable) continue;
-    if (
-      !stable ||
-      stable.issue.nodeId !== decision.nodeId ||
-      bodySha256(stable.issue.body) !== decision.bodySha256
-    ) fail("EXPECTED_PREFIX_DECISION_DRIFT");
+    if (!stable || stable.issue.nodeId !== decision.nodeId || bodySha256(stable.issue.body) !== decision.bodySha256)
+      fail("EXPECTED_PREFIX_DECISION_DRIFT");
     if (target) {
       const mayBeAfter =
         prefix.pendingIntent?.targetNumber === target.number ||
@@ -1444,7 +1626,8 @@ function assertExpectedAuthority(plan, authority, prefix) {
         (mayBeAfter &&
           stable.issue.updatedAt !== target.decisionUpdatedAt &&
           Date.parse(stable.issue.updatedAt) <= Date.parse(target.decisionUpdatedAt))
-      ) fail("EXPECTED_PREFIX_DECISION_DRIFT");
+      )
+        fail("EXPECTED_PREFIX_DECISION_DRIFT");
     } else if (Date.parse(stable.issue.updatedAt) <= Date.parse(decision.updatedAt)) {
       fail("EXPECTED_PREFIX_DECISION_DRIFT");
     }
@@ -1459,19 +1642,22 @@ function assertExpectedAuthority(plan, authority, prefix) {
     if (!value) fail("EXPECTED_PREFIX_WINDOW_DRIFT");
     if (prefix.pendingIntent?.targetNumber === fingerprint.number) {
       const target = plan.targets.find((entry) => entry.number === fingerprint.number);
-      if (!sameGoverned(fingerprint, target.before) && !sameGoverned(fingerprint, target.after)) fail("EXPECTED_PREFIX_PENDING_DRIFT");
+      if (!sameGoverned(fingerprint, target.before) && !sameGoverned(fingerprint, target.after))
+        fail("EXPECTED_PREFIX_PENDING_DRIFT");
     } else if (!sameGoverned(fingerprint, value)) fail("EXPECTED_PREFIX_WINDOW_DRIFT");
   }
   for (const target of plan.targets) {
     const stable = authority.issueAuthorities.find((entry) => entry.issue.number === target.number);
     if (!stable) continue;
-    if (stable.issue.nodeId !== target.nodeId || bodySha256(stable.issue.body) !== target.bodySha256) fail("EXPECTED_PREFIX_TARGET_DRIFT");
+    if (stable.issue.nodeId !== target.nodeId || bodySha256(stable.issue.body) !== target.bodySha256)
+      fail("EXPECTED_PREFIX_TARGET_DRIFT");
     const currentFingerprint = expected.get(target.number);
     if (
       sameGoverned(currentFingerprint, target.before) &&
       prefix.pendingIntent?.targetNumber !== target.number &&
       stable.issue.updatedAt !== target.decisionUpdatedAt
-    ) fail("EXPECTED_PREFIX_TARGET_REVISION_DRIFT");
+    )
+      fail("EXPECTED_PREFIX_TARGET_REVISION_DRIFT");
   }
 }
 
@@ -1484,16 +1670,13 @@ export async function admitExpectedPrefix({ client, plan, planPr, reducerPath, h
   if (
     prefix.records.length > 0 &&
     (prefix.records[0].record.planPr !== planPr || prefix.records[0].record.planHead !== identity.planHead)
-  ) fail("JOURNAL_PLAN_PR_IDENTITY_INVALID");
+  )
+    fail("JOURNAL_PLAN_PR_IDENTITY_INVALID");
   const nextTarget = plan.targets.find(
     (target) => !prefix.records.some(({ record }) => record.kind === "result" && record.targetNumber === target.number),
   );
   const decisionIssueNumbers =
-    prefix.records.length === 0 || prefix.terminal === "apply-receipt"
-      ? null
-      : nextTarget
-        ? [nextTarget.number]
-        : [];
+    prefix.records.length === 0 || prefix.terminal === "apply-receipt" ? null : nextTarget ? [nextTarget.number] : [];
   const authority = await collectCompleteSweepAuthority({
     client,
     issueNumber: plan.issueBodyAuthority.number,
@@ -1502,13 +1685,15 @@ export async function admitExpectedPrefix({ client, plan, planPr, reducerPath, h
   });
   assertExpectedAuthority(plan, authority, prefix);
   const finalIdentity = await assertPlanExecutionIdentity({ client, plan, planPr, reducerPath, historyPath, cwd });
-  if (identity.planHead !== finalIdentity.planHead || identity.localMain !== finalIdentity.localMain) fail("ADMISSION_IDENTITY_UNSTABLE");
+  if (identity.planHead !== finalIdentity.planHead || identity.localMain !== finalIdentity.localMain)
+    fail("ADMISSION_IDENTITY_UNSTABLE");
   const finalCommentsFirst = await client.listComments(plan.issueBodyAuthority.number);
   const finalComments = await client.listComments(plan.issueBodyAuthority.number);
   if (
     digestCanonical(finalCommentsFirst) !== digestCanonical(finalComments) ||
     digestCanonical(comments) !== digestCanonical(finalComments)
-  ) fail("JOURNAL_COLLECTION_UNSTABLE");
+  )
+    fail("JOURNAL_COLLECTION_UNSTABLE");
   const finalPrefix = validateJournalPrefix(finalComments, plan);
   if (digestCanonical(prefix.records) !== digestCanonical(finalPrefix.records)) fail("JOURNAL_PREFIX_MOVED");
   return { identity: finalIdentity, comments: finalComments, prefix: finalPrefix, authority };
@@ -1538,9 +1723,9 @@ async function scanForJournalRecord(client, issueNumber, record) {
   });
   if (
     matches.length > 1 ||
-    (matches.length === 1 &&
-      (matches[0].body !== expectedBody || !matches[0].body.includes(`sha=${expectedSha}`)))
-  ) fail("JOURNAL_CREATE_RECONCILIATION_INVALID");
+    (matches.length === 1 && (matches[0].body !== expectedBody || !matches[0].body.includes(`sha=${expectedSha}`)))
+  )
+    fail("JOURNAL_CREATE_RECONCILIATION_INVALID");
   return matches.length;
 }
 
@@ -1597,7 +1782,8 @@ export async function applyClassificationPlan({
   onBoundary = async () => {},
   admit = admitExpectedPrefix,
 }) {
-  if (admit !== admitExpectedPrefix && client?.authorityKind !== "synthetic-test") fail("TEST_ADMISSION_SEAM_FORBIDDEN");
+  if (admit !== admitExpectedPrefix && client?.authorityKind !== "synthetic-test")
+    fail("TEST_ADMISSION_SEAM_FORBIDDEN");
   validateClassificationPlan(plan);
   let admission = await admit({ client, plan, planPr, reducerPath, historyPath, cwd });
   if (admission.prefix.terminal === "verify-receipt") fail("APPLY_ALREADY_VERIFIED");
@@ -1620,11 +1806,17 @@ export async function applyClassificationPlan({
     const step = target.steps[0];
     admission = await admit({ client, plan, planPr, reducerPath, historyPath, cwd });
     const resultSequence = ordinal * 2 + 2;
-    if (admission.prefix.records.some(({ record }) => record.sequence === resultSequence && record.kind === "result")) continue;
+    if (admission.prefix.records.some(({ record }) => record.sequence === resultSequence && record.kind === "result"))
+      continue;
     let pending = admission.prefix.pendingIntent;
     if (!pending) {
       const observed = observedTarget(target, await client.collectStableIssue(target.number));
-      if (!sameGoverned(observed.governed, target.before) || observed.updatedAt !== target.decisionUpdatedAt || observed.bodySha256 !== target.bodySha256) fail("TARGET_PRE_INTENT_DRIFT");
+      if (
+        !sameGoverned(observed.governed, target.before) ||
+        observed.updatedAt !== target.decisionUpdatedAt ||
+        observed.bodySha256 !== target.bodySha256
+      )
+        fail("TARGET_PRE_INTENT_DRIFT");
       await onBoundary("pre-intent", { admission, target, observed });
       admission = await admit({ client, plan, planPr, reducerPath, historyPath, cwd });
       const context = nextContext(plan, planPr, admission.identity.planHead, admission.prefix, now);
@@ -1642,12 +1834,14 @@ export async function applyClassificationPlan({
     let observed = observedTarget(target, await client.collectStableIssue(target.number));
     let responseClass = "ambiguous";
     if (sameGoverned(observed.governed, target.before)) {
-      if (observed.updatedAt !== target.decisionUpdatedAt || observed.bodySha256 !== target.bodySha256) fail("TARGET_PRE_REQUEST_DRIFT");
+      if (observed.updatedAt !== target.decisionUpdatedAt || observed.bodySha256 !== target.bodySha256)
+        fail("TARGET_PRE_REQUEST_DRIFT");
       await onBoundary("post-intent-pre-request", { admission, target, observed });
       admission = await admit({ client, plan, planPr, reducerPath, historyPath, cwd });
       observed = observedTarget(target, await client.collectStableIssue(target.number));
       if (sameGoverned(observed.governed, target.before)) {
-        if (observed.updatedAt !== target.decisionUpdatedAt || observed.bodySha256 !== target.bodySha256) fail("TARGET_PRE_REQUEST_DRIFT");
+        if (observed.updatedAt !== target.decisionUpdatedAt || observed.bodySha256 !== target.bodySha256)
+          fail("TARGET_PRE_REQUEST_DRIFT");
         let succeeded = false;
         try {
           await client.executeStep(step);
@@ -1663,7 +1857,8 @@ export async function applyClassificationPlan({
     } else if (!sameGoverned(observed.governed, target.after)) {
       fail("PENDING_INTENT_STATE_CONFLICT");
     }
-    if (!sameGoverned(observed.governed, target.after) || observed.bodySha256 !== target.bodySha256) fail("TARGET_AFTER_NOT_OBSERVED");
+    if (!sameGoverned(observed.governed, target.after) || observed.bodySha256 !== target.bodySha256)
+      fail("TARGET_AFTER_NOT_OBSERVED");
     await onBoundary("post-read-pre-result", { admission, target, observed, responseClass });
     admission = await admit({ client, plan, planPr, reducerPath, historyPath, cwd });
     const context = nextContext(plan, planPr, admission.identity.planHead, admission.prefix, now);
@@ -1706,7 +1901,8 @@ export async function verifyClassificationPlan({
   now = () => new Date().toISOString(),
   admit = admitExpectedPrefix,
 }) {
-  if (admit !== admitExpectedPrefix && client?.authorityKind !== "synthetic-test") fail("TEST_ADMISSION_SEAM_FORBIDDEN");
+  if (admit !== admitExpectedPrefix && client?.authorityKind !== "synthetic-test")
+    fail("TEST_ADMISSION_SEAM_FORBIDDEN");
   validateClassificationPlan(plan);
   let admission = await admit({ client, plan, planPr, reducerPath, historyPath, cwd });
   if (admission.prefix.terminal === "verify-receipt") {
@@ -1796,7 +1992,10 @@ async function resolveClient(options, env) {
     if (!path.isAbsolute(options["github-client"])) fail("GITHUB_CLIENT_PATH_NOT_ABSOLUTE");
     const module = await import(pathToFileURL(options["github-client"]).href);
     if (typeof module.createGitHubClient !== "function") fail("GITHUB_CLIENT_MODULE_INVALID");
-    return module.createGitHubClient({ repository: SWEEP_REPOSITORY, token: env.GITHUB_TOKEN ?? "synthetic-test-token" });
+    return module.createGitHubClient({
+      repository: SWEEP_REPOSITORY,
+      token: env.GITHUB_TOKEN ?? "synthetic-test-token",
+    });
   }
   if (env.VITEST || env.NODE_ENV === "test") fail("TEST_GITHUB_CLIENT_REQUIRED");
   return createProductionGitHubClient({ repository: env.GITHUB_REPOSITORY, token: env.GITHUB_TOKEN });
@@ -1822,7 +2021,8 @@ async function assertPlanGeneratorIdentity(client, cwd) {
     git(["rev-parse", "HEAD"], { cwd }) !== localMain ||
     git(["rev-parse", `refs/heads/${branch}`], { cwd }) !== localMain ||
     git(["status", "--porcelain=v1", "--untracked-files=all"], { cwd }).length !== 0
-  ) fail("PLAN_GENERATOR_IDENTITY_INVALID");
+  )
+    fail("PLAN_GENERATOR_IDENTITY_INVALID");
   return { landedMainSha: localMain, planBranch: branch };
 }
 
@@ -1832,13 +2032,19 @@ export async function main({ argv = process.argv.slice(2), env = process.env, cw
   if (env.GITHUB_REPOSITORY !== SWEEP_REPOSITORY) fail("GITHUB_REPOSITORY_INVALID");
   const client = await resolveClient(options, env);
   if (options.mode === "plan") {
-    if (!options.out || !options["roadmap-out"] || options.plan || options.planPr !== null) fail("CLI_PLAN_ARGUMENTS_INVALID");
+    if (!options.out || !options["roadmap-out"] || options.plan || options.planPr !== null)
+      fail("CLI_PLAN_ARGUMENTS_INVALID");
     if (
       path.resolve(cwd, options.out) !== path.resolve(cwd, PLAN_PATH) ||
       path.resolve(cwd, options["roadmap-out"]) !== path.resolve(cwd, ROADMAP_PATH)
-    ) fail("CLI_PLAN_PATHS_INVALID");
+    )
+      fail("CLI_PLAN_PATHS_INVALID");
     const identity = await assertPlanGeneratorIdentity(client, cwd);
-    const authority = await collectCompleteSweepAuthority({ client, issueNumber: options.issueNumber, milestoneNumber: options.milestoneNumber });
+    const authority = await collectCompleteSweepAuthority({
+      client,
+      issueNumber: options.issueNumber,
+      milestoneNumber: options.milestoneNumber,
+    });
     const roadmapBytes = renderClassificationPlanningRoadmap(authority.window.authority);
     const plan = buildClassificationPlan({
       authority,
@@ -1866,7 +2072,8 @@ export async function main({ argv = process.argv.slice(2), env = process.env, cw
       !options["review-history"] ||
       options["roadmap-out"] ||
       options["empty-plan-out"]
-    ) fail("CLI_APPLY_ARGUMENTS_INVALID");
+    )
+      fail("CLI_APPLY_ARGUMENTS_INVALID");
     return applyClassificationPlan({
       client,
       plan,

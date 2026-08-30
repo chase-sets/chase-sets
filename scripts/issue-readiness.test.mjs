@@ -482,7 +482,10 @@ function createHarness(scenario, { comments = [] } = {}) {
     }
     if (url.includes(`/issues/${ISSUE_NUMBER}/labels?`)) {
       const page = Number(new URL(url).searchParams.get("page") ?? "1");
-      const payload = (labelPages[page - 1] ?? []).map((name, index) => ({ node_id: `label-${page}-${index}-${name}`, name }));
+      const payload = (labelPages[page - 1] ?? []).map((name, index) => ({
+        node_id: `label-${page}-${index}-${name}`,
+        name,
+      }));
       const next =
         page < labelPages.length
           ? `<https://api.github.com/repos/${REPOSITORY}/issues/${ISSUE_NUMBER}/labels?per_page=100&page=${page + 1}>; rel="next"`
