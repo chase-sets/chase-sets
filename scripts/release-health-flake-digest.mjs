@@ -1177,7 +1177,6 @@ function validActionRun(run, window) {
   return (
     timestampWithin(run?.created_at, window) &&
     validIso(run?.updated_at) &&
-    Date.parse(run.updated_at) <= Date.parse(window.end) &&
     Number.isInteger(run?.run_attempt) &&
     run.run_attempt > 0 &&
     typeof run?.name === "string" &&

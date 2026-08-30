@@ -207,6 +207,55 @@ describe("release health flake digest", () => {
     expect(digest.collection.sources["actions-current"].shards).toHaveLength(2);
   });
 
+  it("accepts a run created inside the window that finishes after the window ends", async () => {
+    const digest = await collectReleaseHealthFlakeDigest(
+      collectorOptions(
+        completeCollectorFetch({
+          currentRuns: [run(1, 2, "success", "Platform PR", "2026-07-07T12:00:00.000Z", "2026-07-08T12:00:00.000Z")],
+        }),
+      ),
+    );
+    expect(digest.collection.status, JSON.stringify(digest.collection)).toBe("complete");
+    expect(digest.collection.sources["actions-current"].sourceRunIds).toEqual(["1"]);
+    expect(digest.retryCount).toBe(1);
+  });
+
+  it("accepts a boundary-spanning run at a recursively sharded leaf", async () => {
+    const current = buildDigestWindows(CHECKED_AT, 7).current;
+    const midpoint = "2026-07-04T12:00:00.000Z";
+    const leftRuns = Array.from({ length: 600 }, (_, index) =>
+      run(index + 1, 1, "success", "Platform PR", "2026-07-03T00:00:00.000Z"),
+    );
+    const rightRuns = Array.from({ length: 401 }, (_, index) =>
+      run(index + 601, 1, "success", "Platform PR", "2026-07-06T00:00:00.000Z"),
+    );
+    rightRuns[rightRuns.length - 1] = run(
+      1001,
+      2,
+      "success",
+      "Platform PR",
+      "2026-07-06T00:00:00.000Z",
+      "2026-07-09T00:00:00.000Z",
+    );
+    const fetchImpl = async (input) => {
+      const url = new URL(input);
+      if (url.pathname === "/search/issues")
+        return jsonResponse({ total_count: 0, incomplete_results: false, items: [] });
+      const created = url.searchParams.get("created");
+      if (created === `${current.start}..${current.end}`) {
+        return jsonResponse({ total_count: 1001, workflow_runs: leftRuns.slice(0, 100) });
+      }
+      if (created === `${current.start}..${midpoint}`) return pagedRuns(url, leftRuns);
+      if (created === `${midpoint}..${current.end}`) return pagedRuns(url, rightRuns);
+      return jsonResponse({ total_count: 0, workflow_runs: [] });
+    };
+    const digest = await collectReleaseHealthFlakeDigest(collectorOptions(fetchImpl));
+    expect(digest.collection.status, JSON.stringify(digest.collection)).toBe("complete");
+    expect(digest.collection.sources["actions-current"].shards).toHaveLength(2);
+    expect(digest.collection.sources["actions-current"].sourceRunIds).toContain("1001");
+    expect(digest.retryCount).toBe(1);
+  });
+
   it("does not classify clear before a decisive retry beyond the first page", async () => {
     const runs = Array.from({ length: 101 }, (_, index) => run(index + 1));
     runs[100] = run(101, 2, "success");
@@ -591,8 +640,15 @@ describe("release health flake digest", () => {
   });
 });
 
-function run(id, runAttempt = 1, conclusion = "success", name = "Platform PR", createdAt = "2026-07-07T00:00:00.000Z") {
-  return { id, name, run_attempt: runAttempt, conclusion, created_at: createdAt, updated_at: createdAt };
+function run(
+  id,
+  runAttempt = 1,
+  conclusion = "success",
+  name = "Platform PR",
+  createdAt = "2026-07-07T00:00:00.000Z",
+  updatedAt = createdAt,
+) {
+  return { id, name, run_attempt: runAttempt, conclusion, created_at: createdAt, updated_at: updatedAt };
 }
 
 function collectorOptions(fetchImpl) {
