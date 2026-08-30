@@ -70,7 +70,7 @@ git -C <worktree> switch -c <branch> --track origin/main
 
 - Inner loop is watch mode (`pnpm --filter @chase-sets/<workspace> run test:watch`); run the scoped checks for every touched workspace before opening the PR. On concurrent-lane hosts, set `CHASE_SETS_LANE_MODE=1` for local Vitest commands so the shared config uses lane-safe timeouts and capped workers; leave it unset for the strict default and hosted CI profile.
 - Rebase onto latest `origin/main` before every push, and regenerate derived artifacts as part of the rebase (localization fingerprints, design-system ledgers/`COMPONENT_INDEX`).
-- Run `pnpm run verify:static:scoped` before every push. Do not use local full `verify:static` or `verify` as delivery gates; hosted CI owns the unchanged strict full chains on every PR.
+- Run `pnpm run verify:static:scoped` before every push, plus named focused tests for changed script tooling. Do not use local full `verify:static`, full `verify`, or the complete `test:scripts` battery as delivery gates; hosted CI owns those unchanged strict full gates on every PR.
 - External provider contracts (event sets, webhook payloads, API schemas) are verified against the provider's **test-mode surface** (e.g. a Stripe test-mode create), not internal consistency — internal-only validation has passed every internal gate and still been rejected live. Include the test-mode output in Verification.
 - Your verification evidence is input to external validation — you do not self-certify done. Report exactly what you ran and observed.
 

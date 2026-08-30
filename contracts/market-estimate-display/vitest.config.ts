@@ -1,10 +1,8 @@
-import { defineConfig } from "vitest/config";
-import { heavySlotVitestGlobalSetupPath } from "../../scripts/lib/heavy-slot.mjs";
+import { defineWorkspaceTestConfig } from "../../vitest.shared.mjs";
 
-export default defineConfig({
+export default defineWorkspaceTestConfig({
   test: {
     environment: "node",
-    globalSetup: [heavySlotVitestGlobalSetupPath],
     include: ["**/*.test.ts"],
   },
 });

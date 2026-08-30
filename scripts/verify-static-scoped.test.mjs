@@ -16,7 +16,12 @@ import {
   selectVerifyStaticLinks,
   verifyStaticSurfaceMapCompleteness,
 } from "./verify-static-scoped.mjs";
-import { ALWAYS_RUN, MAY_NARROW, VERIFY_STATIC_SURFACES } from "./verify-static-surfaces.mjs";
+import {
+  ALWAYS_RUN,
+  MAY_NARROW,
+  VERIFY_STATIC_SCOPED_EXCLUSIONS,
+  VERIFY_STATIC_SURFACES,
+} from "./verify-static-surfaces.mjs";
 
 const temporaryDirectories = [];
 
@@ -56,6 +61,16 @@ function selectedNames(changedFiles, options = {}) {
     dependencies: noFanoutDependencies(),
     ...options,
   }).selected.map((link) => link.name);
+}
+
+function assertOnlyTestScriptsWasRemoved(basePlan, repairedPlan) {
+  expect(repairedPlan.selected.map(({ name }) => name)).toEqual(
+    basePlan.selected.map(({ name }) => name).filter((name) => name !== "test:scripts"),
+  );
+  expect(repairedPlan.skipped.map(({ link }) => link.name)).toEqual(
+    basePlan.skipped.map(({ link }) => link.name).filter((name) => name !== "test:scripts"),
+  );
+  expect(repairedPlan.excluded.map(({ link }) => link.name)).toEqual(["test:scripts"]);
 }
 
 function execGit(rootDir, args) {
@@ -185,6 +200,15 @@ describe("verify:static surface-map derivation", () => {
     expect(workflow).not.toContain("pnpm run verify:static:scoped");
     expect(workflow).toContain("FORMAT_CHECK_SCOPE: full");
   });
+
+  it("keeps exactly the complete scripts battery outside the focused local contract", () => {
+    const chain = currentChain();
+
+    expect(chain).toHaveLength(29);
+    expect(chain.at(-1)?.name).toBe("test:scripts");
+    expect(Object.keys(VERIFY_STATIC_SCOPED_EXCLUSIONS)).toEqual(["test:scripts"]);
+    expect(packageJson().scripts["verify:static"]).toContain("pnpm run test:scripts");
+  });
 });
 
 describe("changed-path discovery", () => {
@@ -307,7 +331,7 @@ describe("changed-path discovery", () => {
 
 describe("soundness corpus", () => {
   const alwaysRun = Object.entries(VERIFY_STATIC_SURFACES)
-    .filter(([, entry]) => entry.classification === ALWAYS_RUN)
+    .filter(([name, entry]) => name !== "test:scripts" && entry.classification === ALWAYS_RUN)
     .map(([name]) => name);
   const corpus = [
     {
@@ -347,7 +371,7 @@ describe("soundness corpus", () => {
     {
       change: "no-legacy-forms guard implementation only",
       paths: ["scripts/check-no-legacy-forms.mjs"],
-      fullFailures: ["check:no-legacy-forms", "check:structure", "test:scripts"],
+      fullFailures: ["check:no-legacy-forms", "check:structure"],
     },
     {
       change: "ledger only",
@@ -401,7 +425,8 @@ describe("soundness corpus", () => {
         dependencies: noFanoutDependencies(),
       });
 
-      expect(plan.selected).toEqual(chain);
+      expect(plan.selected).toEqual(chain.filter(({ name }) => name !== "test:scripts"));
+      expect(plan.excluded.map(({ link }) => link.name)).toEqual(["test:scripts"]);
       expect(plan.fullReason).toContain("scripts/** changed");
     },
   );
@@ -487,6 +512,81 @@ expect(keySetFingerprint(Object.keys(discoveryEnglishTranslations))).toEqual(eng
   });
 });
 
+describe("focused-local command-plan boundary", () => {
+  const corpus = [
+    {
+      change: "docs-only",
+      options: { changedFiles: ["docs/readme.md"], dependencies: noFanoutDependencies() },
+    },
+    {
+      change: "ordinary scripts change",
+      options: { changedFiles: ["scripts/check-no-legacy-forms.mjs"], dependencies: noFanoutDependencies() },
+    },
+    {
+      change: "root-runtime fanout",
+      options: {
+        changedFiles: ["package.json"],
+        dependencies: {
+          listWorkspacePackages: () => [{ name: "@fixture/one" }],
+          classifyChanges: () => ({ affectedWorkspaces: ["@fixture/one"] }),
+        },
+      },
+    },
+    {
+      change: "malformed changed-file JSON fallback",
+      options: { changedFiles: [], forceFull: true, dependencies: noFanoutDependencies() },
+    },
+    {
+      change: "missing-base fallback",
+      options: { changedFiles: [], forceFull: true, dependencies: noFanoutDependencies() },
+    },
+    {
+      change: "non-Git fallback",
+      options: { changedFiles: [], forceFull: true, dependencies: noFanoutDependencies() },
+    },
+    {
+      change: "classification-failure fallback",
+      options: { changedFiles: [], forceFull: true, dependencies: noFanoutDependencies() },
+    },
+  ];
+
+  it.each(corpus)("$change removes only test:scripts from the base command plan", ({ options }) => {
+    const chain = currentChain();
+    const basePlan = selectVerifyStaticLinks({ chain, repoRoot, scopedExclusions: {}, ...options });
+    const repairedPlan = selectVerifyStaticLinks({ chain, repoRoot, ...options });
+
+    assertOnlyTestScriptsWasRemoved(basePlan, repairedPlan);
+  });
+
+  it("rejects a mutant that restores the complete scripts battery", () => {
+    const chain = currentChain();
+    const options = { chain, changedFiles: ["docs/readme.md"], repoRoot, dependencies: noFanoutDependencies() };
+    const basePlan = selectVerifyStaticLinks({ ...options, scopedExclusions: {} });
+    const restoredBatteryMutant = selectVerifyStaticLinks({ ...options, scopedExclusions: {} });
+
+    expect(() => assertOnlyTestScriptsWasRemoved(basePlan, restoredBatteryMutant)).toThrow();
+  });
+
+  it("rejects a mutant that narrows another fail-closed link", () => {
+    const chain = currentChain();
+    const options = { chain, changedFiles: ["docs/readme.md"], repoRoot, dependencies: noFanoutDependencies() };
+    const basePlan = selectVerifyStaticLinks({ ...options, scopedExclusions: {} });
+    const narrowedGuardMutant = selectVerifyStaticLinks({
+      ...options,
+      surfaces: {
+        ...VERIFY_STATIC_SURFACES,
+        "check:kb-reference-ratchet": {
+          ...VERIFY_STATIC_SURFACES["check:kb-reference-ratchet"],
+          classification: MAY_NARROW,
+          include: [{ kind: "exact", value: "never-selected.fixture" }],
+        },
+      },
+    });
+
+    expect(() => assertOnlyTestScriptsWasRemoved(basePlan, narrowedGuardMutant)).toThrow();
+  });
+});
+
 describe("derived root-runtime fanout", () => {
   const rootRuntimePaths = [
     "package.json",
@@ -508,7 +608,8 @@ describe("derived root-runtime fanout", () => {
       dependencies: { classifyChanges, listWorkspacePackages },
     });
 
-    expect(plan.selected).toEqual(chain);
+    expect(plan.selected).toEqual(chain.filter(({ name }) => name !== "test:scripts"));
+    expect(plan.excluded.map(({ link }) => link.name)).toEqual(["test:scripts"]);
     expect(plan.fullReason).toContain("affected every workspace");
   });
 
@@ -529,7 +630,7 @@ describe("derived root-runtime fanout", () => {
 describe("fail-closed execution and reporting", () => {
   const fixturePackage = {
     scripts: {
-      "verify:static": "pnpm run check:always && pnpm run check:narrow",
+      "verify:static": "pnpm run check:always && pnpm run check:narrow && pnpm run test:scripts",
     },
   };
   const fixtureSurfaces = {
@@ -567,19 +668,19 @@ describe("fail-closed execution and reporting", () => {
     return { ran, stdout, stderr, status };
   }
 
-  it("warns on malformed JSON and runs the full chain", async () => {
+  it("warns on malformed JSON and runs the full local link set", async () => {
     const result = await execute({ env: cleanEnvironment({ CHANGED_FILES_JSON: "{" }) });
     expect(result.stderr.join("\n")).toContain("[STATIC_SCOPE_CHANGED_FILES_INVALID]");
     expect(result.ran).toEqual(["check:always", "check:narrow"]);
   });
 
-  it("warns on an out-of-repository changed path and runs the full chain", async () => {
+  it("warns on an out-of-repository changed path and runs the full local link set", async () => {
     const result = await execute({ env: cleanEnvironment({ CHANGED_FILES_JSON: '["../outside.ts"]' }) });
     expect(result.stderr.join("\n")).toContain("[STATIC_SCOPE_CHANGED_FILES_INVALID]");
     expect(result.ran).toEqual(["check:always", "check:narrow"]);
   });
 
-  it("warns on a missing base ref and runs the full chain", async () => {
+  it("warns on a missing base ref and runs the full local link set", async () => {
     const result = await execute({
       execGit: (args) => {
         if (args[0] === "rev-parse") return "true\n";
@@ -590,7 +691,7 @@ describe("fail-closed execution and reporting", () => {
     expect(result.ran).toEqual(["check:always", "check:narrow"]);
   });
 
-  it("warns outside Git and runs the full chain", async () => {
+  it("warns outside Git and runs the full local link set", async () => {
     const result = await execute({
       execGit: () => {
         throw new Error("not a repository");
@@ -600,7 +701,7 @@ describe("fail-closed execution and reporting", () => {
     expect(result.ran).toEqual(["check:always", "check:narrow"]);
   });
 
-  it("warns when classifier fanout cannot be evaluated and runs the full chain", async () => {
+  it("warns when classifier fanout cannot be evaluated and runs the full local link set", async () => {
     const ran = [];
     const stderr = [];
     const status = await runVerifyStaticScoped({
@@ -640,6 +741,27 @@ describe("fail-closed execution and reporting", () => {
     expect(result.status).toBe(0);
     expect(result.ran).toEqual([]);
     expect(result.stdout.join("\n")).toContain("scanned=0/2");
+  });
+
+  it("acquires one aggregate slot before selected child links run", async () => {
+    const events = [];
+    const status = await runVerifyStaticScoped({
+      repoRoot,
+      env: cleanEnvironment({ CHANGED_FILES_JSON: '["docs/readme.md"]' }),
+      readPackageJson: () => fixturePackage,
+      surfaces: fixtureSurfaces,
+      dependencies: noFanoutDependencies(),
+      acquireSlot: () => events.push("acquire"),
+      runLink: (link) => {
+        events.push(link.name);
+        return 0;
+      },
+      stdout: () => {},
+      stderr: () => {},
+    });
+
+    expect(status).toBe(0);
+    expect(events).toEqual(["acquire", "check:always"]);
   });
 
   it("names every skipped link and its triggering rule", async () => {

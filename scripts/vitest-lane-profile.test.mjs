@@ -1,4 +1,7 @@
 import { strict as assert } from "node:assert";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, test } from "vitest";
 import { configDefaults } from "vitest/config";
 import {
@@ -10,6 +13,7 @@ import {
 import { defineScriptsTestConfig } from "../vitest.scripts.config.mjs";
 import { heavySlotVitestGlobalSetupPath } from "./lib/heavy-slot.mjs";
 import { heavySlotScriptBatteryGlobalSetupPath } from "./lib/heavy-slot-script-battery.mjs";
+import { repoRoot } from "./lib/repo.mjs";
 
 const originalLaneMode = process.env.CHASE_SETS_LANE_MODE;
 
@@ -80,4 +84,44 @@ test("preserves explicit workspace overrides in lane mode", () => {
   assert.equal(config.test.hookTimeout, 10_000);
   assert.equal(config.test.testTimeout, 20_000);
   assert.equal(config.test.maxWorkers, 1);
+});
+
+test("keeps the exact 60+1 tracked Vitest config topology on the shared lane resolver", () => {
+  const trackedConfigs = execFileSync("git", ["ls-files", "--", "*vitest*.config.*"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  })
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .sort();
+  const scriptsConfig = "vitest.scripts.config.mjs";
+  const workspaceConfigs = trackedConfigs.filter((configPath) => configPath !== scriptsConfig);
+
+  assert.equal(trackedConfigs.length, 61);
+  assert.equal(workspaceConfigs.length, 60);
+  assert.deepEqual(
+    trackedConfigs.filter((configPath) => configPath === scriptsConfig),
+    [scriptsConfig],
+  );
+
+  for (const configPath of workspaceConfigs) {
+    const source = readFileSync(path.join(repoRoot, configPath), "utf8");
+    assert.match(source, /from ["'][^"']*vitest\.shared\.mjs["']/, configPath);
+    assert.match(source, /export default define(?:BoundedContext|Workspace)TestConfig\(/, configPath);
+    assert.doesNotMatch(source, /from ["']vitest\/config["']/, configPath);
+  }
+
+  const marketEstimateSource = readFileSync(
+    path.join(repoRoot, "contracts/market-estimate-display/vitest.config.ts"),
+    "utf8",
+  );
+  assert.match(marketEstimateSource, /defineWorkspaceTestConfig/);
+  assert.match(marketEstimateSource, /environment: "node"/);
+  assert.match(marketEstimateSource, /include: \["\*\*\/\*\.test\.ts"\]/);
+
+  const scriptsSource = readFileSync(path.join(repoRoot, scriptsConfig), "utf8");
+  assert.match(scriptsSource, /resolveVitestLaneProfile/);
+  assert.match(scriptsSource, /export default defineScriptsTestConfig\(\)/);
+  assert.match(scriptsSource, /heavySlotScriptBatteryGlobalSetupPath/);
+  assert.match(scriptsSource, /include: \["scripts\/\*\*\/\*\.test\.mjs"\]/);
 });
