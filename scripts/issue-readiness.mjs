@@ -1791,8 +1791,7 @@ function compareFootprintHistory({ baselineSha, currentMain, paths, repositoryRo
 }
 
 function footprintComparison({ body, receipt, currentMain, normalizedPaths, outcome }) {
-  const commonCurrentSha =
-    currentMain && currentMain.localSha === currentMain.githubSha ? currentMain.localSha : null;
+  const commonCurrentSha = currentMain && currentMain.localSha === currentMain.githubSha ? currentMain.localSha : null;
   return {
     outcome,
     issueBodySha256: sha256(body),
@@ -1812,7 +1811,8 @@ function consumeIssueReadinessReceiptDetailed({
   gitRunner = defaultGitRunner,
 }) {
   const body = typeof currentRevision?.body === "string" ? currentRevision.body : "";
-  const notEvaluated = () => footprintComparison({ body, receipt, currentMain, normalizedPaths: null, outcome: "not-evaluated" });
+  const notEvaluated = () =>
+    footprintComparison({ body, receipt, currentMain, normalizedPaths: null, outcome: "not-evaluated" });
   const finish = (result, comparison = notEvaluated()) => ({ result, footprintComparison: comparison });
   if (receipt == null) {
     return finish({ decision: "reject", reasonCode: "RECEIPT_MISSING", structuralStatus: "missing" });
@@ -1981,14 +1981,7 @@ function parseConsumeRequest(source) {
       "currentMain",
     ]) ||
     request.schemaVersion !== ISSUE_READINESS_CONSUME_REQUEST_SCHEMA_VERSION ||
-    !hasExactKeys(request.currentRevision, [
-      "repository",
-      "number",
-      "nodeId",
-      "updatedAt",
-      "body",
-      "bodySha256",
-    ]) ||
+    !hasExactKeys(request.currentRevision, ["repository", "number", "nodeId", "updatedAt", "body", "bodySha256"]) ||
     typeof request.currentRevision.repository !== "string" ||
     !/^[^/]+\/[^/]+$/.test(request.currentRevision.repository) ||
     !Number.isSafeInteger(request.currentRevision.number) ||

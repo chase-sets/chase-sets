@@ -1701,9 +1701,7 @@ describe("consume-time footprint comparison", () => {
       "packages",
       "deployables",
     ]) {
-      expect(extractIssueReadinessFootprint(footprintBody([`- ${root}/witness — x`])).outcome, root).toBe(
-        "declared",
-      );
+      expect(extractIssueReadinessFootprint(footprintBody([`- ${root}/witness — x`])).outcome, root).toBe("declared");
     }
 
     expect(extractIssueReadinessFootprint(footprintBody(["- implementation files are listed later"]))).toEqual({
@@ -1724,11 +1722,10 @@ describe("consume-time footprint comparison", () => {
         footprintBody(["~~~", "- scripts/ignored.mjs — x", "~~~~", "- scripts/kept.mjs — x"]),
       ),
     ).toEqual({ outcome: "declared", paths: ["scripts/kept.mjs"] });
-    expect(
-      extractIssueReadinessFootprint(
-        footprintBody(["```", "- scripts/indeterminate.mjs — x"], ""),
-      ),
-    ).toEqual({ outcome: "unknown", paths: null });
+    expect(extractIssueReadinessFootprint(footprintBody(["```", "- scripts/indeterminate.mjs — x"], ""))).toEqual({
+      outcome: "unknown",
+      paths: null,
+    });
     expect(
       extractIssueReadinessFootprint(
         footprintBody(["- scripts/kept.mjs — x", "- Callers: stop", "- scripts/after.mjs — x"], ""),
