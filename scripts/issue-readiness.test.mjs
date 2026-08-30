@@ -1675,7 +1675,6 @@ describe("consume-time footprint comparison", () => {
       "- scripts/a@{1}.mjs — x",
       "- scripts/a\u0001.mjs — x",
       "- scripts/a\u007f.mjs — x",
-      "- rootfile — x",
       "- scripts/a.mjs scripts/b.mjs",
       "- scripts/a.mjs, scripts/b.mjs",
       "- scripts/a.mjs -",
@@ -1708,6 +1707,10 @@ describe("consume-time footprint comparison", () => {
     }
 
     expect(extractIssueReadinessFootprint(footprintBody(["- implementation files are listed later"]))).toEqual({
+      outcome: "not-declared",
+      paths: [],
+    });
+    expect(extractIssueReadinessFootprint(footprintBody(["- rootfile — x"]))).toEqual({
       outcome: "not-declared",
       paths: [],
     });
