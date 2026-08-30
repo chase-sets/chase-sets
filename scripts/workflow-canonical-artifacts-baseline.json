@@ -1,15 +1,20 @@
 {
   "version": 2,
   "discovery": {
-    "scannedFiles": 59,
-    "scannedSurfaces": 23
+    "scannedFiles": 60,
+    "scannedSurfaces": 25
   },
   "playwrightUploadFence": {
-    "trackedFiles": 59,
-    "workflowFiles": 56,
+    "trackedFiles": 60,
+    "workflowFiles": 57,
     "compositeActionFiles": 3
   },
   "surfaces": [
+    {
+      "workflowFile": ".github/workflows/backlog-roadmap-status.yml",
+      "outPath": "artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json",
+      "uploadPath": "artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json"
+    },
     {
       "workflowFile": ".github/workflows/catalog-integration-staging-reset.yml",
       "outPath": "artifacts/catalog-integration-reset/catalog-integration-reset.json",
@@ -84,6 +89,11 @@
       "workflowFile": ".github/workflows/platform-production-restore-point-cleanup.yml",
       "outPath": "artifacts/release-health/production-db-restore-point-cleanup.json",
       "uploadPath": "artifacts/release-health/production-db-restore-point-cleanup.json"
+    },
+    {
+      "workflowFile": ".github/workflows/platform-production.yml",
+      "outPath": "artifacts/release-health/production-kubernetes-deployment-transition.json",
+      "uploadPath": "artifacts/release-health/production-kubernetes-deployment-transition.json"
     },
     {
       "workflowFile": ".github/workflows/platform-production.yml",

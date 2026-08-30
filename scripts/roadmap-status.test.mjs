@@ -10,7 +10,10 @@ import {
   collectEpicChildren,
   collectRoadmapIssueFacts,
   collectRoadmapWindowAuthority,
+  collectMonthlyRefinedInventory,
+  canonicalRefinedInventoryProbeBytes,
   collectScopeGrowth,
+  deriveMonthlyRefinedInventoryWindow,
   createForecastPresentation,
   deriveForecastInputs,
   END_MARKER,
@@ -23,9 +26,11 @@ import {
   normalizeForecastIssue,
   paginate,
   readPriorForecastRecord,
+  reducePriorRefinedInventoryAuthority,
   reconcileForecastIssueSources,
   reconcileEpicChildren,
   renderRoadmapStatus,
+  renderRefinedInventoryCapMarker,
   resolveCurrentMilestoneEntry,
   RoadmapIssueEnumerationError,
   runRoadmapStatus,
@@ -35,8 +40,10 @@ import {
   summarizeWaves,
   summarizePrioritizationHygiene,
   stabilizeRoadmapWindowAuthority,
+  stabilizeMonthlyRefinedInventory,
   timelineFetchRequired,
   toBacklogInput,
+  validateRefinedInventoryProbePayload,
 } from "./roadmap-status.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -190,6 +197,17 @@ function createMainRequest({
 
     if (parsed.pathname === "/graphql") {
       const { query, variables } = JSON.parse(init.body);
+      if (query.includes("REFINED_INVENTORY_PRS_SENTINEL")) {
+        return jsonResponse({
+          data: {
+            search: {
+              issueCount: 0,
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [],
+            },
+          },
+        });
+      }
       if (query.includes("WINDOW_MILESTONES_SENTINEL")) {
         return jsonResponse({ data: { repository: { milestones: windowPage(milestones.map(windowMilestoneNode)) } } });
       }
@@ -326,6 +344,192 @@ async function runMainFixture(options = {}) {
   );
   return { ...fixture, code, diagnostics, generated, summaries };
 }
+
+function refinedPage(nodes, issueCount = nodes.length, pageInfo = { hasNextPage: false, endCursor: null }) {
+  return { issueCount, pageInfo, nodes };
+}
+
+function refinedNode(number, mergedAt, baseRefName = "main") {
+  return { number, mergedAt, baseRefName };
+}
+
+function capRecord(nowMs = NOW, overrides = {}) {
+  const window = deriveMonthlyRefinedInventoryWindow(nowMs);
+  return {
+    schemaVersion: "roadmap-refined-inventory-cap/v1",
+    generatedAt: new Date(nowMs).toISOString(),
+    month: window.month,
+    windowStart: window.windowStart,
+    windowEndExclusive: window.windowEndExclusive,
+    mergedPrCount: 0,
+    cap: 0,
+    identitySha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ...overrides,
+  };
+}
+
+describe("monthly refined-inventory cap authority", () => {
+  it("derives the exact UTC half-open trailing-28-day query and canonical LF identity bytes", async () => {
+    const nowMs = Date.parse("2026-08-30T18:45:00.000Z");
+    const window = deriveMonthlyRefinedInventoryWindow(nowMs);
+    expect(window).toEqual({
+      month: "2026-08",
+      windowStart: "2026-07-04T00:00:00.000Z",
+      windowEndExclusive: "2026-08-01T00:00:00.000Z",
+      query: "repo:chase-sets/chase-sets is:pr is:merged base:main merged:2026-07-04..2026-07-31",
+    });
+    const pages = [
+      refinedPage([refinedNode(9, "2026-07-31T23:59:59.999Z"), refinedNode(2, "2026-07-04T00:00:00.000Z")], 3, {
+        hasNextPage: true,
+        endCursor: "page-2",
+      }),
+      refinedPage([refinedNode(5, "2026-07-18T12:34:56Z")], 3),
+    ];
+    const result = await collectMonthlyRefinedInventory({ window, loadPage: async () => pages.shift() });
+    expect(result).toMatchObject({ pages: 2, count: 3 });
+    expect(result.canonicalText).toBe(
+      "2|2026-07-04T00:00:00.000Z|main\n5|2026-07-18T12:34:56.000Z|main\n9|2026-07-31T23:59:59.999Z|main",
+    );
+    expect(Buffer.from(result.canonicalText, "utf8").at(-1)).not.toBe(0x0a);
+    expect(result.digest).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("accepts 999 only after ten complete pages and fails closed at 1,000 and 1,001", async () => {
+    const window = deriveMonthlyRefinedInventoryWindow(Date.parse("2026-08-30T00:00:00.000Z"));
+    const rows = Array.from({ length: 999 }, (_, index) =>
+      refinedNode(index + 1, `2026-07-${String(4 + (index % 28)).padStart(2, "0")}T00:00:00.000Z`),
+    );
+    let page = 0;
+    const accepted = await collectMonthlyRefinedInventory({
+      window,
+      loadPage: async () => {
+        const nodes = rows.slice(page * 100, (page + 1) * 100);
+        page += 1;
+        return refinedPage(nodes, 999, { hasNextPage: page < 10, endCursor: page < 10 ? `p${page + 1}` : null });
+      },
+    });
+    expect(accepted).toMatchObject({ pages: 10, count: 999 });
+    for (const total of [1_000, 1_001]) {
+      await expect(
+        collectMonthlyRefinedInventory({ window, loadPage: async () => refinedPage([], total) }),
+      ).rejects.toMatchObject({ code: "ROADMAP_REFINED_INVENTORY_SEARCH_LIMIT" });
+    }
+  });
+
+  it("rejects cursor/total/identity/time/base defects and stabilizes only consecutive equal full digests", async () => {
+    const window = deriveMonthlyRefinedInventoryWindow(Date.parse("2026-08-30T00:00:00.000Z"));
+    const valid = refinedNode(1, "2026-07-10T00:00:00.000Z");
+    await expect(
+      collectMonthlyRefinedInventory({
+        window,
+        loadPage: async (after) =>
+          after === null
+            ? refinedPage([valid], 2, { hasNextPage: true, endCursor: "same" })
+            : refinedPage([refinedNode(2, "2026-07-11T00:00:00.000Z")], 3),
+      }),
+    ).rejects.toMatchObject({ code: "ROADMAP_REFINED_INVENTORY_TOTAL_CHANGED" });
+    for (const invalid of [
+      refinedNode(0, valid.mergedAt),
+      refinedNode(1, "2026-08-01T00:00:00.000Z"),
+      refinedNode(1, valid.mergedAt, "release"),
+    ]) {
+      await expect(
+        collectMonthlyRefinedInventory({ window, loadPage: async () => refinedPage([invalid]) }),
+      ).rejects.toMatchObject({ code: "ROADMAP_REFINED_INVENTORY_IDENTITY_INVALID" });
+    }
+    const attempts = ["a".repeat(64), "b".repeat(64), "b".repeat(64)];
+    const stabilized = await stabilizeMonthlyRefinedInventory(async () => ({
+      pages: 1,
+      count: 1,
+      digest: attempts.shift(),
+      rows: [],
+      canonicalText: "",
+    }));
+    expect(stabilized.acceptedAttempts).toEqual([2, 3]);
+    expect(stabilized.attempts).toHaveLength(3);
+    await expect(
+      stabilizeMonthlyRefinedInventory(async (attempt) => ({
+        pages: 1,
+        count: 1,
+        digest: String(attempt).repeat(64),
+        rows: [],
+        canonicalText: "",
+      })),
+    ).rejects.toMatchObject({ code: "ROADMAP_REFINED_INVENTORY_UNSTABLE" });
+  });
+
+  it("orders absent/current/prior/future/malformed marker reduction and recursively closes the compact record", () => {
+    const current = capRecord();
+    const marker = renderRefinedInventoryCapMarker(current);
+    expect(reducePriorRefinedInventoryAuthority(`${START_MARKER}\n${END_MARKER}`, NOW).status).toBe("absent");
+    expect(reducePriorRefinedInventoryAuthority(`${START_MARKER}\n${marker}\n${END_MARKER}`, NOW)).toEqual({
+      status: "current",
+      record: current,
+      marker,
+    });
+    const prior = capRecord(Date.parse("2026-06-28T00:00:00.000Z"));
+    expect(
+      reducePriorRefinedInventoryAuthority(
+        `${START_MARKER}\n${renderRefinedInventoryCapMarker(prior)}\n${END_MARKER}`,
+        NOW,
+      ).status,
+    ).toBe("prior");
+    const future = capRecord(Date.parse("2026-08-28T00:00:00.000Z"));
+    expect(
+      reducePriorRefinedInventoryAuthority(
+        `${START_MARKER}\n${renderRefinedInventoryCapMarker(future)}\n${END_MARKER}`,
+        NOW,
+      ),
+    ).toMatchObject({ status: "future", code: "ROADMAP_REFINED_INVENTORY_MARKER_FUTURE" });
+    for (const body of [
+      `${marker}\n${START_MARKER}\n${END_MARKER}`,
+      `${START_MARKER}\n${marker}\n${marker}\n${END_MARKER}`,
+      `${START_MARKER}\n${marker.replace('"cap":0', '"cap":1')}\n${END_MARKER}`,
+      `${START_MARKER}\n${marker.replace("}", ',"nested":{"unknown":true}}')}\n${END_MARKER}`,
+    ]) {
+      expect(reducePriorRefinedInventoryAuthority(body, NOW).status).toBe("invalid");
+    }
+  });
+
+  it("closes and canonicalizes the nonce/run/attempt/job/head/query authority payload", () => {
+    const window = deriveMonthlyRefinedInventoryWindow(Date.parse("2026-08-30T00:00:00.000Z"));
+    const digest = "a".repeat(64);
+    const payload = {
+      schemaVersion: "roadmap-refined-inventory-authority-probe/v1",
+      repository: "chase-sets/chase-sets",
+      workflow: "backlog-roadmap-status.yml",
+      runId: 10,
+      runAttempt: 1,
+      jobId: 20,
+      headSha: "b".repeat(40),
+      nonce: "c".repeat(32),
+      checkedAt: "2026-08-30T00:00:00.000Z",
+      query: window.query,
+      month: window.month,
+      windowStart: window.windowStart,
+      windowEndExclusive: window.windowEndExclusive,
+      attempts: [
+        { attempt: 1, pages: 10, count: 999, digest },
+        { attempt: 2, pages: 10, count: 999, digest },
+      ],
+      acceptedAttempts: [1, 2],
+      mergedPrCount: 999,
+      cap: 1998,
+      identitySha256: digest,
+    };
+    expect(validateRefinedInventoryProbePayload(payload)).toBe(true);
+    expect(canonicalRefinedInventoryProbeBytes(payload)).toEqual(Buffer.from(`${JSON.stringify(payload)}\n`, "utf8"));
+    for (const mutant of [
+      { ...payload, unknown: true },
+      { ...payload, attempts: payload.attempts.map((attempt) => ({ ...attempt, unknown: true })) },
+      { ...payload, acceptedAttempts: [2, 3] },
+      { ...payload, cap: 1999 },
+      { ...payload, nonce: "C".repeat(32) },
+    ]) {
+      expect(validateRefinedInventoryProbePayload(mutant)).toBe(false);
+    }
+  });
+});
 
 describe("gate-stable forecast contract", () => {
   it("derives pinned UTC forecasts and literal generated presentation from gate-stable history", () => {
@@ -1992,6 +2196,86 @@ describe("epic child reconciliation", () => {
 });
 
 describe("real main composition", () => {
+  it("preserves a current-month cap marker without PR acquisition while refreshing the canonical refined numerator", async () => {
+    const record = capRecord();
+    const marker = renderRefinedInventoryCapMarker(record);
+    const issue = slice(700, WAVE_1, "open", ["priority:p1", "area:ops", "kind:ops"]);
+    const result = await runMainFixture({
+      issues: [issue],
+      roadmapBody: `${START_MARKER}\nstale numerator\n${marker}\n${END_MARKER}`,
+    });
+    const searchRequests = result.requests.filter(({ body }) => body?.includes("REFINED_INVENTORY_PRS_SENTINEL"));
+    const patches = result.requests.filter(({ method }) => method === "PATCH");
+    const patchedBody = JSON.parse(patches[0].body).body;
+
+    expect(result.code).toBe(0);
+    expect(searchRequests).toEqual([]);
+    expect(patches).toHaveLength(1);
+    expect(result.generated[0]).toContain(
+      `Refined inventory: 1 / cap 0 (authority ${record.month}; merged-PR window ${record.windowStart}..${record.windowEndExclusive})`,
+    );
+    expect(patchedBody.match(/<!-- roadmap-refined-inventory-cap:[^\n]+ -->/g)).toEqual([marker]);
+  });
+
+  it("fails a live-source-omitted acquisition closed before PATCH", async () => {
+    const base = createMainRequest();
+    const request = async (url, init = {}) => {
+      if (
+        new URL(url).pathname === "/graphql" &&
+        JSON.parse(init.body).query.includes("REFINED_INVENTORY_PRS_SENTINEL")
+      ) {
+        return jsonResponse({ data: {} });
+      }
+      return base.request(url, init);
+    };
+    const diagnostics = [];
+    const code = await main({
+      env: mainEnv(),
+      request,
+      nowMs: NOW,
+      writeOutput: () => {},
+      writeError: (message) => diagnostics.push(message),
+    });
+    expect(code).toBe(1);
+    expect(diagnostics).toEqual([expect.stringMatching(/^ROADMAP_REFINED_INVENTORY_PAGE_INVALID:/)]);
+    expect(base.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+  });
+
+  it("leaves the entire prior-month body untouched when rollover acquisition reaches the provider ceiling", async () => {
+    const prior = capRecord(Date.parse("2026-06-28T00:00:00.000Z"));
+    const body = `intro\n${START_MARKER}\nold line\n${renderRefinedInventoryCapMarker(prior)}\n${END_MARKER}\noutro`;
+    const base = createMainRequest({ roadmapBody: body });
+    const request = async (url, init = {}) => {
+      if (
+        new URL(url).pathname === "/graphql" &&
+        JSON.parse(init.body).query.includes("REFINED_INVENTORY_PRS_SENTINEL")
+      ) {
+        return jsonResponse({
+          data: {
+            search: refinedPage([], 1_000),
+          },
+        });
+      }
+      return base.request(url, init);
+    };
+    const code = await main({ env: mainEnv(), request, nowMs: NOW, writeOutput: () => {}, writeError: () => {} });
+    expect(code).toBe(1);
+    expect(base.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+    expect(body).toContain(renderRefinedInventoryCapMarker(prior));
+  });
+
+  it("refuses a valid future-month marker before acquisition or PATCH", async () => {
+    const future = capRecord(Date.parse("2026-08-28T00:00:00.000Z"));
+    const body = `${START_MARKER}\n${renderRefinedInventoryCapMarker(future)}\n${END_MARKER}`;
+    const result = await runMainFixture({ roadmapBody: body });
+    expect(result.code).toBe(1);
+    expect(result.diagnostics).toEqual([expect.stringMatching(/^ROADMAP_REFINED_INVENTORY_MARKER_FUTURE:/)]);
+    expect(
+      result.requests.some(({ body: requestBody }) => requestBody?.includes("REFINED_INVENTORY_PRS_SENTINEL")),
+    ).toBe(false);
+    expect(result.requests.filter(({ method }) => method === "PATCH")).toEqual([]);
+  });
+
   it("publishes the collected pull-window summary identically to stdout, step summary, and PATCH", async () => {
     const wave1Runnable = slice(701, WAVE_1, "open", ["priority:p1", "area:ops", "kind:ops"]);
     const staleP0 = slice(702, WAVE_2, "open", ["priority:p0"]);
@@ -2241,7 +2525,9 @@ describe("real main composition", () => {
       writeError: (message) => diagnostics.push(message),
     });
     expect(code).toBe(2);
-    expect(diagnostics).toEqual(["ROADMAP_ENV_REQUIRED: GITHUB_REPOSITORY and GITHUB_TOKEN are required."]);
+    expect(diagnostics).toEqual([
+      "ROADMAP_GITHUB_TOKEN_REQUIRED: GITHUB_TOKEN is required before provider or issue actions.",
+    ]);
   });
 });
 

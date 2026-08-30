@@ -390,8 +390,14 @@ if (process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url)) {
   const baselinePath = cliOption(argv, "--baseline", defaultBaselinePath);
   const result = scanWorkflowCanonicalArtifacts({ root });
   if (argv.includes("--write-baseline")) {
-    if (!result.playwrightUploadFence.passed) {
-      reportWorkflowCanonicalArtifactGuard(result);
+    const predecessor = readBaseline(root, baselinePath);
+    const predecessorRatchet = evaluateWorkflowCanonicalArtifactRatchet(result, predecessor);
+    if (!predecessorRatchet.passed) {
+      reportWorkflowCanonicalArtifactGuard(result, predecessorRatchet);
+      console.error("refusing to replace a predecessor baseline that rejects the candidate");
+      process.exitCode = 1;
+    } else if (!result.playwrightUploadFence.passed) {
+      reportWorkflowCanonicalArtifactGuard(result, predecessorRatchet);
       console.error("refusing to baseline a raw Playwright upload path");
       process.exitCode = 1;
     } else {
