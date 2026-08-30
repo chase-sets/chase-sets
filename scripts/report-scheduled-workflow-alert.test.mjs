@@ -78,6 +78,15 @@ function actionHarness(options = {}) {
 }
 
 describe("report scheduled workflow alert action", () => {
+  it("does not create, comment on, or update an issue during dry run", async () => {
+    const harness = actionHarness();
+
+    await harness.run();
+
+    expect(harness.calls.map(([operation]) => operation)).toEqual(["search"]);
+    expect(harness.calls.filter(([operation]) => ["create", "comment", "update"].includes(operation))).toEqual([]);
+  });
+
   it("passes github.run_attempt explicitly and emits synthetic attempt 7 in both marker and body during dry run", async () => {
     expect(step.env.ALERT_RUN_ATTEMPT).toBe("${{ github.run_attempt }}");
     const harness = actionHarness();
