@@ -613,7 +613,7 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.authenticityTerms]: "5f32aff78f8bc4ce516460c3c016341c189712d40d5a36a06712df9596ac3f69",
   [citationFencePaths.privacyPolicy]: "4f9a1c91756db4caf4f0708d369bf042cb2524c61b59e3b3411faba725e4ccb0",
   [citationFencePaths.authenticityTest]: "20fce502a9f063be9d26d5c576d97c173de2658e1fd54f7896a1315f4a858b22",
-  [citationFencePaths.staticSurfaces]: "397632e9b9fc15b536ac741512138d7f2b89a1f12669e3215b37d819cd6ac0cb",
+  [citationFencePaths.staticSurfaces]: "008c7a9dfe4475ca97613eece7b4f337be854de440e11ceb24d5b2684677b901",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {

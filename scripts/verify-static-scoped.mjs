@@ -3,8 +3,15 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyChanges } from "./change-scope.mjs";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { listWorkspacePackages, repoRoot as defaultRepoRoot } from "./lib/repo.mjs";
-import { ALWAYS_RUN, MAY_NARROW, VERIFY_STATIC_SURFACES, linkSurfaceMatches } from "./verify-static-surfaces.mjs";
+import {
+  ALWAYS_RUN,
+  MAY_NARROW,
+  VERIFY_STATIC_SCOPED_EXCLUSIONS,
+  VERIFY_STATIC_SURFACES,
+  linkSurfaceMatches,
+} from "./verify-static-surfaces.mjs";
 
 export class StaticScopeDerivationError extends Error {
   constructor(code, message) {
@@ -181,11 +188,22 @@ export function selectVerifyStaticLinks({
   changedFiles,
   repoRoot = defaultRepoRoot,
   surfaces = VERIFY_STATIC_SURFACES,
+  scopedExclusions = VERIFY_STATIC_SCOPED_EXCLUSIONS,
   forceFull = false,
   dependencies = { classifyChanges, listWorkspacePackages },
 } = {}) {
+  const excluded = chain
+    .filter((link) => Object.hasOwn(scopedExclusions, link.name))
+    .map((link) => ({ link, rule: scopedExclusions[link.name] }));
+  const scopedChain = chain.filter((link) => !Object.hasOwn(scopedExclusions, link.name));
+
   if (changedFiles.length === 0 && !forceFull) {
-    return { selected: [], skipped: chain.map((link) => ({ link, rule: "empty derived diff" })), fullReason: null };
+    return {
+      selected: [],
+      skipped: scopedChain.map((link) => ({ link, rule: "empty derived diff" })),
+      excluded,
+      fullReason: null,
+    };
   }
 
   const scriptsChanged = changedFiles.some((filePath) =>
@@ -198,11 +216,11 @@ export function selectVerifyStaticLinks({
       : allWorkspacesAffected(changedFiles, repoRoot, dependencies)
         ? "classifyChanges affected every workspace (derived root-runtime fanout)"
         : null;
-  if (fullReason) return { selected: chain, skipped: [], fullReason };
+  if (fullReason) return { selected: scopedChain, skipped: [], excluded, fullReason };
 
   const selected = [];
   const skipped = [];
-  for (const link of chain) {
+  for (const link of scopedChain) {
     const entry = surfaces[link.name];
     if (!entry) {
       selected.push(link);
@@ -220,7 +238,7 @@ export function selectVerifyStaticLinks({
       skipped.push({ link, rule: entry.rule });
     }
   }
-  return { selected, skipped, fullReason: null };
+  return { selected, skipped, excluded, fullReason: null };
 }
 
 export function resolvePnpmInvocation({ env = process.env, platform = process.platform } = {}) {
@@ -256,6 +274,8 @@ export async function runVerifyStaticScoped({
   stdout = console.log,
   stderr = console.warn,
   surfaces = VERIFY_STATIC_SURFACES,
+  scopedExclusions = VERIFY_STATIC_SCOPED_EXCLUSIONS,
+  acquireSlot = () => false,
   dependencies = { classifyChanges, listWorkspacePackages },
 } = {}) {
   const chain = parseVerifyStaticChain(readPackageJson());
@@ -265,7 +285,7 @@ export async function runVerifyStaticScoped({
     derived = deriveStaticChangedFiles({ repoRoot, env, execGit });
   } catch (error) {
     const code = error instanceof StaticScopeDerivationError ? error.code : "STATIC_SCOPE_DERIVATION_FAILED";
-    stderr(`[${code}] ${error.message}. Running the full verify:static chain.`);
+    stderr(`[${code}] ${error.message}. Running the full local static link set.`);
     derived = { source: "fail-closed fallback", files: [] };
     forceFull = true;
   }
@@ -277,29 +297,36 @@ export async function runVerifyStaticScoped({
       changedFiles: derived.files,
       repoRoot,
       surfaces,
+      scopedExclusions,
       forceFull,
       dependencies,
     });
   } catch (error) {
-    stderr(`[STATIC_SCOPE_CLASSIFICATION_FAILED] ${error.message}. Running the full verify:static chain.`);
+    stderr(`[STATIC_SCOPE_CLASSIFICATION_FAILED] ${error.message}. Running the full local static link set.`);
     plan = selectVerifyStaticLinks({
       chain,
       changedFiles: [],
       repoRoot,
       surfaces,
+      scopedExclusions,
       forceFull: true,
       dependencies,
     });
   }
   if (plan.fullReason) stdout(`[VERIFY_STATIC_FULL] ${plan.fullReason}.`);
+  for (const { link, rule } of plan.excluded) {
+    stdout(`[EXCLUDED-FROM-LOCAL] ${link.name}: ${rule}`);
+  }
   for (const { link, rule } of plan.skipped) {
     stdout(`[SKIPPED-BY-SCOPE] ${link.name}: ${rule}`);
   }
   stdout(
-    `[VERIFY_STATIC_SCOPE] scanned=${plan.selected.length}/${chain.length}; skipped=${plan.skipped.length}; ` +
+    `[VERIFY_STATIC_SCOPE] scanned=${plan.selected.length}/${plan.selected.length + plan.skipped.length}; ` +
+      `skipped=${plan.skipped.length}; excluded=${plan.excluded.length}; ` +
       `changed=${derived.files.length}; source=${derived.source}.`,
   );
 
+  if (plan.selected.length > 0) acquireSlot();
   for (const link of plan.selected) {
     stdout(`[VERIFY_STATIC_RUN] ${link.name}`);
     const status = await runLink(link);
@@ -310,7 +337,7 @@ export async function runVerifyStaticScoped({
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
-  runVerifyStaticScoped()
+  runVerifyStaticScoped({ acquireSlot: () => acquireHeavySlot("repository-gate") })
     .then((status) => {
       process.exitCode = status;
     })

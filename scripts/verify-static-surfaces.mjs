@@ -5,6 +5,13 @@ const exact = (...values) => values.map((value) => ({ kind: "exact", value }));
 const prefix = (...values) => values.map((value) => ({ kind: "prefix", value }));
 const regex = (...values) => values.map((value) => ({ kind: "regex", value }));
 
+// The complete scripts battery remains part of the authoritative hosted
+// verify:static chain, but it is intentionally outside the focused local
+// command plan. Script-tooling authors run the named tests for their change.
+export const VERIFY_STATIC_SCOPED_EXCLUSIONS = Object.freeze({
+  "test:scripts": "complete scripts battery is a hosted-CI gate; run named focused script tests locally",
+});
+
 // This is the auditable link -> input-surface contract for verify:static.
 // ALWAYS_RUN links deliberately have no include rules: their input is not
 // bounded by changed repository paths. MAY_NARROW rules are conservative
