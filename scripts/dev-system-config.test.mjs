@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { browserE2eLifecyclePathEnv } from "./browser-e2e-evidence.mjs";
 import {
   acquireDevSystemHeavySlot,
   applyCurrentPlatformBootstrapSelectors,
@@ -19,6 +23,20 @@ import {
   isBrowserE2eTarget,
   resolveBrowserE2eSystemTarget,
 } from "./dev-system-config.mjs";
+
+const temporaryDirectories = [];
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+function createFreshAttemptDirectory() {
+  const directory = mkdtempSync(path.join(tmpdir(), "chase-sets-browser-e2e-attempt-"));
+  temporaryDirectories.push(directory);
+  return directory;
+}
 
 describe("dev system target env overrides", () => {
   it("configures only the browser e2e platform api with test-safe runtime overrides", () => {
@@ -73,6 +91,74 @@ describe("dev system target env overrides", () => {
       ...worker,
       env: { ...worker.env, ...browserE2ePlatformWorkerEnv },
     });
+  });
+
+  it.each(["browser-e2e", browserE2eProductionTarget])(
+    "gives only the %s worker a fresh contained structured-log mirror",
+    (targetName) => {
+      const attemptDirectory = createFreshAttemptDirectory();
+      const lifecyclePath = path.join(attemptDirectory, "lifecycle.json");
+      const logFilePath = path.join(attemptDirectory, "platform-worker.jsonl");
+      const processes = [
+        { name: "platform-api", env: { PORT: "6182" } },
+        { name: "platform-worker", env: { PORT: "6183" } },
+        { name: "marketplace", env: { PORT: "6173", PLATFORM_API_URL: "http://localhost:6182" }, port: 6173 },
+      ];
+      const environment = { [browserE2eLifecyclePathEnv]: lifecyclePath };
+
+      expect(existsSync(logFilePath)).toBe(false);
+      const selected = applyDevTargetEnvOverrides(targetName, processes, { ci: false, environment });
+
+      expect(selected[0].env).not.toHaveProperty("LOG_FILE_PATH");
+      expect(selected[1].env.LOG_FILE_PATH).toBe(logFilePath);
+      expect(selected[2].env).not.toHaveProperty("LOG_FILE_PATH");
+      expect(buildPlatformChildEnvironment({ PATH: "C:\\tools" }, selected[1].env)).toMatchObject({
+        LOG_FILE_PATH: logFilePath,
+      });
+      expect(existsSync(logFilePath)).toBe(false);
+
+      writeFileSync(logFilePath, "", "utf8");
+      expect(statSync(logFilePath).size).toBe(0);
+    },
+  );
+
+  it("leaves ordinary targets unchanged when browser evidence is absent", () => {
+    const attemptDirectory = createFreshAttemptDirectory();
+    const worker = { name: "platform-worker", env: { PORT: "6183" } };
+    const evidenceEnvironment = {
+      [browserE2eLifecyclePathEnv]: path.join(attemptDirectory, "lifecycle.json"),
+    };
+
+    expect(applyDevTargetEnvOverrides("marketplace-full", [worker], { environment: evidenceEnvironment })).toEqual([
+      worker,
+    ]);
+    expect(applyDevTargetEnvOverrides("browser-e2e", [worker], { ci: false, environment: {} })[0].env).toEqual({
+      PORT: "6183",
+      ...browserE2ePlatformWorkerEnv,
+    });
+  });
+
+  it("refuses a lifecycle evidence path that is not already absolute and resolved", () => {
+    const attemptDirectory = createFreshAttemptDirectory();
+    const unresolvedLifecyclePath = `${attemptDirectory}${path.sep}nested${path.sep}..${path.sep}lifecycle.json`;
+
+    expect(() =>
+      applyDevTargetEnvOverrides("browser-e2e", [{ name: "platform-worker", env: {} }], {
+        environment: { [browserE2eLifecyclePathEnv]: unresolvedLifecyclePath },
+      }),
+    ).toThrow(`${browserE2eLifecyclePathEnv} must be an absolute resolved path.`);
+  });
+
+  it("refuses a worker log path outside the lifecycle evidence directory", () => {
+    const attemptDirectory = createFreshAttemptDirectory();
+    const lifecyclePath = path.join(attemptDirectory, "lifecycle.json");
+    const outsideLogPath = path.join(path.dirname(attemptDirectory), "outside-platform-worker.jsonl");
+
+    expect(() =>
+      applyDevTargetEnvOverrides("browser-e2e", [{ name: "platform-worker", env: { LOG_FILE_PATH: outsideLogPath } }], {
+        environment: { [browserE2eLifecyclePathEnv]: lifecyclePath },
+      }),
+    ).toThrow("platform-worker.jsonl must resolve inside the lifecycle evidence directory.");
   });
 
   it("resolves an explicit production system without changing the development default", () => {
