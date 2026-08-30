@@ -1,5 +1,17 @@
 import process from "node:process";
 import { createHash } from "node:crypto";
+import {
+  appendFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, resolve } from "node:path";
 import { classified, isEpic as classifiedEpic, isTrackingOnly } from "./backlog-classify.mjs";
 import { derivePullWindow, seriesIdentity } from "./dispatch-window.mjs";
 
@@ -9,6 +21,53 @@ import { derivePullWindow, seriesIdentity } from "./dispatch-window.mjs";
 
 export const START_MARKER = "<!-- roadmap-status:start -->";
 export const END_MARKER = "<!-- roadmap-status:end -->";
+export const REFINED_INVENTORY_CAP_SCHEMA_VERSION = "roadmap-refined-inventory-cap/v1";
+export const REFINED_INVENTORY_PROBE_SCHEMA_VERSION = "roadmap-refined-inventory-authority-probe/v1";
+
+const REFINED_INVENTORY_CAP_PREFIX = "<!-- roadmap-refined-inventory-cap:";
+const REFINED_INVENTORY_CAP_SUFFIX = " -->";
+const REFINED_INVENTORY_CAP_KEYS = [
+  "schemaVersion",
+  "generatedAt",
+  "month",
+  "windowStart",
+  "windowEndExclusive",
+  "mergedPrCount",
+  "cap",
+  "identitySha256",
+];
+const REFINED_INVENTORY_ATTEMPT_KEYS = ["attempt", "pages", "count", "digest"];
+const REFINED_INVENTORY_PROBE_KEYS = [
+  "schemaVersion",
+  "repository",
+  "workflow",
+  "runId",
+  "runAttempt",
+  "jobId",
+  "headSha",
+  "nonce",
+  "checkedAt",
+  "query",
+  "month",
+  "windowStart",
+  "windowEndExclusive",
+  "attempts",
+  "acceptedAttempts",
+  "mergedPrCount",
+  "cap",
+  "identitySha256",
+];
+const REFINED_INVENTORY_QUERY_SENTINEL = "REFINED_INVENTORY_PRS_SENTINEL";
+const REFINED_INVENTORY_SEARCH_LIMIT = 1_000;
+const REFINED_INVENTORY_MAX_PAGES = 10;
+const REFINED_INVENTORY_DIGEST = /^[0-9a-f]{64}$/;
+const REFINED_INVENTORY_NONCE = /^[0-9a-f]{32}$/;
+const SHA = /^[0-9a-f]{40}$/;
+const CANONICAL_REPOSITORY = "chase-sets/chase-sets";
+const CANONICAL_WORKFLOW = "backlog-roadmap-status.yml";
+const CANONICAL_ROADMAP_ISSUE = "4129";
+const CANONICAL_PROBE_OUTPUT =
+  "artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TIMELINE_CONCURRENCY = 8;
@@ -71,6 +130,435 @@ function parseTimezoneInstant(value) {
   if (typeof value !== "string" || !/[Tt].*(?:[Zz]|[+-]\d{2}:\d{2})$/.test(value)) return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function canonicalInstant(value) {
+  const parsed = parseTimezoneInstant(value);
+  return parsed !== null && new Date(parsed).toISOString() === value ? parsed : null;
+}
+
+export function deriveMonthlyRefinedInventoryWindow(nowMs = Date.now(), repository = CANONICAL_REPOSITORY) {
+  if (!Number.isFinite(nowMs)) throw authorityError("ROADMAP_REFINED_INVENTORY_TIME_INVALID");
+  if (repository !== CANONICAL_REPOSITORY) throw authorityError("ROADMAP_REFINED_INVENTORY_REPOSITORY_INVALID");
+  const now = new Date(nowMs);
+  const monthStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  const windowStartMs = monthStartMs - 28 * DAY_MS;
+  const month = new Date(monthStartMs).toISOString().slice(0, 7);
+  const windowStart = new Date(windowStartMs).toISOString();
+  const windowEndExclusive = new Date(monthStartMs).toISOString();
+  const lastIncludedDay = new Date(monthStartMs - DAY_MS).toISOString().slice(0, 10);
+  const query = `repo:${repository} is:pr is:merged base:main merged:${windowStart.slice(0, 10)}..${lastIncludedDay}`;
+  return { month, windowStart, windowEndExclusive, query };
+}
+
+function refinedInventoryError(code, message = code) {
+  return authorityError(code, message);
+}
+
+function validateRefinedInventorySearchPage(page, expectedTotal) {
+  if (
+    !hasExactKeys(page, ["issueCount", "pageInfo", "nodes"]) ||
+    !isNonNegativeSafeInteger(page.issueCount) ||
+    !hasExactKeys(page.pageInfo, ["hasNextPage", "endCursor"]) ||
+    typeof page.pageInfo.hasNextPage !== "boolean" ||
+    !(page.pageInfo.endCursor === null || (typeof page.pageInfo.endCursor === "string" && page.pageInfo.endCursor)) ||
+    !Array.isArray(page.nodes) ||
+    page.nodes.length > 100
+  ) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PAGE_INVALID");
+  }
+  if (page.issueCount >= REFINED_INVENTORY_SEARCH_LIMIT) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_SEARCH_LIMIT");
+  }
+  if (expectedTotal !== null && page.issueCount !== expectedTotal) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_TOTAL_CHANGED");
+  }
+}
+
+export async function collectMonthlyRefinedInventory({ loadPage, window }) {
+  if (typeof loadPage !== "function" || !window) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_COLLECTOR_INVALID");
+  }
+  const startMs = canonicalInstant(window.windowStart);
+  const endMs = canonicalInstant(window.windowEndExclusive);
+  if (startMs === null || endMs === null || endMs - startMs !== 28 * DAY_MS) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_WINDOW_INVALID");
+  }
+  const rows = [];
+  const identities = new Set();
+  const cursors = new Set();
+  let expectedTotal = null;
+  let after = null;
+  let pages = 0;
+  while (true) {
+    if (pages >= REFINED_INVENTORY_MAX_PAGES) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PAGINATION_BOUNDED");
+    }
+    const page = await loadPage(after, window.query);
+    validateRefinedInventorySearchPage(page, expectedTotal);
+    expectedTotal ??= page.issueCount;
+    pages += 1;
+    const before = rows.length;
+    for (const node of page.nodes) {
+      if (!hasExactKeys(node, ["number", "mergedAt", "baseRefName"])) {
+        throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_IDENTITY_INVALID");
+      }
+      const mergedAtMs = canonicalInstant(node.mergedAt);
+      if (
+        !isPositiveSafeInteger(node.number) ||
+        identities.has(node.number) ||
+        mergedAtMs === null ||
+        mergedAtMs < startMs ||
+        mergedAtMs >= endMs ||
+        node.baseRefName !== "main"
+      ) {
+        throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_IDENTITY_INVALID");
+      }
+      identities.add(node.number);
+      rows.push({ number: node.number, mergedAt: new Date(mergedAtMs).toISOString(), baseRefName: "main" });
+    }
+    if (rows.length > expectedTotal) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_COUNT_MISMATCH");
+    if (!page.pageInfo.hasNextPage) break;
+    const cursor = page.pageInfo.endCursor;
+    if (!cursor || cursors.has(cursor) || rows.length === before || rows.length >= expectedTotal) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_CURSOR_INVALID");
+    }
+    cursors.add(cursor);
+    after = cursor;
+  }
+  if (rows.length !== expectedTotal) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_COUNT_MISMATCH");
+  rows.sort((left, right) => left.number - right.number);
+  const canonicalText = rows.map((row) => `${row.number}|${row.mergedAt}|${row.baseRefName}`).join("\n");
+  const digest = createHash("sha256").update(Buffer.from(canonicalText, "utf8")).digest("hex");
+  return { pages, count: rows.length, digest, rows, canonicalText };
+}
+
+export async function stabilizeMonthlyRefinedInventory(collectAttempt) {
+  const attempts = [];
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const collection = await collectAttempt(attempt);
+    attempts.push({ attempt, ...collection });
+    if (attempt >= 2 && attempts[attempt - 2].digest === collection.digest) {
+      return {
+        collection,
+        attempts,
+        acceptedAttempts: [attempt - 1, attempt],
+      };
+    }
+  }
+  throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_UNSTABLE");
+}
+
+function validateRefinedInventoryCapRecord(record) {
+  if (
+    !hasExactKeys(record, REFINED_INVENTORY_CAP_KEYS) ||
+    record.schemaVersion !== REFINED_INVENTORY_CAP_SCHEMA_VERSION ||
+    canonicalInstant(record.generatedAt) === null ||
+    !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(record.month) ||
+    record.generatedAt.slice(0, 7) !== record.month ||
+    canonicalInstant(record.windowStart) === null ||
+    canonicalInstant(record.windowEndExclusive) === null ||
+    !isNonNegativeSafeInteger(record.mergedPrCount) ||
+    record.cap !== 2 * record.mergedPrCount ||
+    !REFINED_INVENTORY_DIGEST.test(record.identitySha256)
+  ) {
+    return false;
+  }
+  const expected = deriveMonthlyRefinedInventoryWindow(Date.parse(`${record.month}-15T00:00:00.000Z`));
+  return record.windowStart === expected.windowStart && record.windowEndExclusive === expected.windowEndExclusive;
+}
+
+export function renderRefinedInventoryCapMarker(record) {
+  return `${REFINED_INVENTORY_CAP_PREFIX}${JSON.stringify(record)}${REFINED_INVENTORY_CAP_SUFFIX}`;
+}
+
+export function reducePriorRefinedInventoryAuthority(body, nowMs = Date.now()) {
+  const text = String(body ?? "");
+  if (countOccurrences(text, START_MARKER) !== 1 || countOccurrences(text, END_MARKER) !== 1) {
+    return { status: "invalid", code: "ROADMAP_MARKERS_INVALID" };
+  }
+  const blockStart = text.indexOf(START_MARKER);
+  const blockEnd = text.indexOf(END_MARKER);
+  if (blockEnd < blockStart) return { status: "invalid", code: "ROADMAP_MARKERS_INVALID" };
+  const tokenCount = countOccurrences(text, "roadmap-refined-inventory-cap");
+  const prefixCount = countOccurrences(text, REFINED_INVENTORY_CAP_PREFIX);
+  if (tokenCount === 0 && prefixCount === 0) return { status: "absent", record: null, marker: null };
+  if (prefixCount !== 1 || tokenCount !== 2) {
+    return { status: "invalid", code: "ROADMAP_REFINED_INVENTORY_MARKER_INVALID" };
+  }
+  const markerStart = text.indexOf(REFINED_INVENTORY_CAP_PREFIX);
+  const jsonStart = markerStart + REFINED_INVENTORY_CAP_PREFIX.length;
+  const markerEnd = text.indexOf(REFINED_INVENTORY_CAP_SUFFIX, jsonStart);
+  if (markerEnd < 0 || markerStart <= blockStart || markerEnd + REFINED_INVENTORY_CAP_SUFFIX.length > blockEnd) {
+    return { status: "invalid", code: "ROADMAP_REFINED_INVENTORY_MARKER_INVALID" };
+  }
+  const encoded = text.slice(jsonStart, markerEnd);
+  let record;
+  try {
+    record = JSON.parse(encoded);
+  } catch {
+    return { status: "invalid", code: "ROADMAP_REFINED_INVENTORY_MARKER_INVALID" };
+  }
+  const marker = text.slice(markerStart, markerEnd + REFINED_INVENTORY_CAP_SUFFIX.length);
+  if (!validateRefinedInventoryCapRecord(record) || marker !== renderRefinedInventoryCapMarker(record)) {
+    return { status: "invalid", code: "ROADMAP_REFINED_INVENTORY_MARKER_INVALID" };
+  }
+  const currentMonth = deriveMonthlyRefinedInventoryWindow(nowMs).month;
+  if (record.month > currentMonth) return { status: "future", code: "ROADMAP_REFINED_INVENTORY_MARKER_FUTURE" };
+  if (Date.parse(record.generatedAt) > nowMs) {
+    return { status: "invalid", code: "ROADMAP_REFINED_INVENTORY_MARKER_INVALID" };
+  }
+  return { status: record.month === currentMonth ? "current" : "prior", record, marker };
+}
+
+function capRecordFromCollection(collection, window, nowMs) {
+  return {
+    schemaVersion: REFINED_INVENTORY_CAP_SCHEMA_VERSION,
+    generatedAt: new Date(nowMs).toISOString(),
+    month: window.month,
+    windowStart: window.windowStart,
+    windowEndExclusive: window.windowEndExclusive,
+    mergedPrCount: collection.count,
+    cap: 2 * collection.count,
+    identitySha256: collection.digest,
+  };
+}
+
+export function validateRefinedInventoryProbePayload(payload) {
+  if (
+    !hasExactKeys(payload, REFINED_INVENTORY_PROBE_KEYS) ||
+    payload.schemaVersion !== REFINED_INVENTORY_PROBE_SCHEMA_VERSION ||
+    payload.repository !== CANONICAL_REPOSITORY ||
+    payload.workflow !== CANONICAL_WORKFLOW ||
+    !isPositiveSafeInteger(payload.runId) ||
+    !isPositiveSafeInteger(payload.runAttempt) ||
+    !isPositiveSafeInteger(payload.jobId) ||
+    !SHA.test(payload.headSha) ||
+    !REFINED_INVENTORY_NONCE.test(payload.nonce) ||
+    canonicalInstant(payload.checkedAt) === null ||
+    !Array.isArray(payload.attempts) ||
+    ![2, 3].includes(payload.attempts.length) ||
+    !Array.isArray(payload.acceptedAttempts) ||
+    payload.acceptedAttempts.length !== 2 ||
+    !isNonNegativeSafeInteger(payload.mergedPrCount) ||
+    payload.mergedPrCount >= REFINED_INVENTORY_SEARCH_LIMIT ||
+    payload.cap !== 2 * payload.mergedPrCount ||
+    !REFINED_INVENTORY_DIGEST.test(payload.identitySha256)
+  ) {
+    return false;
+  }
+  let window;
+  try {
+    window = deriveMonthlyRefinedInventoryWindow(Date.parse(`${payload.month}-15T00:00:00.000Z`), payload.repository);
+  } catch {
+    return false;
+  }
+  if (
+    payload.month !== window.month ||
+    payload.windowStart !== window.windowStart ||
+    payload.windowEndExclusive !== window.windowEndExclusive ||
+    payload.query !== window.query
+  ) {
+    return false;
+  }
+  for (let index = 0; index < payload.attempts.length; index += 1) {
+    const attempt = payload.attempts[index];
+    if (
+      !hasExactKeys(attempt, REFINED_INVENTORY_ATTEMPT_KEYS) ||
+      attempt.attempt !== index + 1 ||
+      !Number.isSafeInteger(attempt.pages) ||
+      attempt.pages < 1 ||
+      attempt.pages > REFINED_INVENTORY_MAX_PAGES ||
+      !isNonNegativeSafeInteger(attempt.count) ||
+      attempt.count >= REFINED_INVENTORY_SEARCH_LIMIT ||
+      !REFINED_INVENTORY_DIGEST.test(attempt.digest)
+    ) {
+      return false;
+    }
+  }
+  const [left, right] = payload.acceptedAttempts;
+  if (
+    !Number.isSafeInteger(left) ||
+    right !== left + 1 ||
+    right !== payload.attempts.length ||
+    left < 1 ||
+    payload.attempts[left - 1].digest !== payload.attempts[right - 1].digest
+  ) {
+    return false;
+  }
+  const accepted = payload.attempts[right - 1];
+  return (
+    accepted.count === payload.mergedPrCount &&
+    accepted.digest === payload.identitySha256 &&
+    payload.attempts.every((attempt) => attempt.count === payload.mergedPrCount)
+  );
+}
+
+export function canonicalRefinedInventoryProbeBytes(payload) {
+  if (!validateRefinedInventoryProbePayload(payload)) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_INVALID");
+  }
+  return Buffer.from(`${JSON.stringify(payload)}\n`, "utf8");
+}
+
+function writeCanonicalFileAtomic(outPath, bytes) {
+  const absolute = resolve(outPath);
+  const directory = dirname(absolute);
+  const relativeOutput = outPath.replaceAll("\\", "/").replace(/^\.\//, "");
+  if (relativeOutput !== CANONICAL_PROBE_OUTPUT || absolute !== resolve(CANONICAL_PROBE_OUTPUT)) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_OUTPUT_PATH_INVALID");
+  }
+  let ancestor = directory;
+  while (ancestor !== resolve(ancestor, "..")) {
+    if (existsSync(ancestor)) {
+      const stats = lstatSync(ancestor);
+      if (!stats.isDirectory() || stats.isSymbolicLink()) {
+        throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_OUTPUT_PATH_INVALID");
+      }
+    }
+    if (ancestor === resolve()) break;
+    ancestor = resolve(ancestor, "..");
+  }
+  if (existsSync(absolute) || (existsSync(directory) && readdirSync(directory).length !== 0)) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_OUTPUT_NOT_FRESH");
+  }
+  mkdirSync(directory, { recursive: true });
+  const temporary = `${absolute}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, bytes, { flag: "wx" });
+    renameSync(temporary, absolute);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
+}
+
+export function readCanonicalRefinedInventoryProbe(inputPath) {
+  const absolute = resolve(inputPath);
+  if (!existsSync(absolute) || !lstatSync(absolute).isFile() || lstatSync(absolute).isSymbolicLink()) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_FILE_INVALID");
+  }
+  const bytes = readFileSync(absolute);
+  if (bytes.length < 2 || bytes.length > 512 * 1024 || bytes[0] === 0xef || bytes[1] === 0xbb || bytes[2] === 0xbf) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_FILE_INVALID");
+  }
+  let payload;
+  try {
+    payload = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_FILE_INVALID");
+  }
+  const canonical = canonicalRefinedInventoryProbeBytes(payload);
+  if (!bytes.equals(canonical)) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_FILE_NONCANONICAL");
+  return payload;
+}
+
+async function collectCurrentAttemptJobs({ repository, runId, runAttempt, token, request }) {
+  const jobs = [];
+  const identities = new Set();
+  let expectedTotal = null;
+  for (let page = 1; page <= REFINED_INVENTORY_MAX_PAGES; page += 1) {
+    const response = await gh(
+      `/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}/jobs?per_page=100&page=${page}`,
+      token,
+      {},
+      request,
+    );
+    const payload = await response.json();
+    if (!isNonNegativeSafeInteger(payload?.total_count) || !Array.isArray(payload?.jobs)) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_PAGE_INVALID");
+    }
+    if (payload.total_count >= REFINED_INVENTORY_SEARCH_LIMIT) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_LIMIT");
+    }
+    expectedTotal ??= payload.total_count;
+    if (expectedTotal !== payload.total_count) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_TOTAL_CHANGED");
+    }
+    for (const job of payload.jobs) {
+      if (!isPositiveSafeInteger(job?.id) || typeof job.name !== "string" || typeof job.status !== "string") {
+        throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_INVALID");
+      }
+      if (identities.has(job.id)) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_DUPLICATE");
+      identities.add(job.id);
+      jobs.push(job);
+    }
+    if (jobs.length > expectedTotal) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_COUNT_MISMATCH");
+    if (jobs.length === expectedTotal) return jobs;
+    if (payload.jobs.length !== 100 || jobs.length >= 999) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_COUNT_MISMATCH");
+    }
+  }
+  throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_PAGINATION_BOUNDED");
+}
+
+export async function resolveRefinedInventoryProbeJob({ env = process.env, request = globalThis.fetch } = {}) {
+  const token = env.GITHUB_TOKEN;
+  if (!token) throw refinedInventoryError("ROADMAP_GITHUB_TOKEN_REQUIRED");
+  const repository = env.GITHUB_REPOSITORY;
+  const runId = Number(env.GITHUB_RUN_ID);
+  const runAttempt = Number(env.GITHUB_RUN_ATTEMPT);
+  if (repository !== CANONICAL_REPOSITORY || !isPositiveSafeInteger(runId) || !isPositiveSafeInteger(runAttempt)) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_RUN_IDENTITY_INVALID");
+  }
+  const jobs = await collectCurrentAttemptJobs({ repository, runId, runAttempt, token, request });
+  const matches = jobs.filter((job) => job.name === "probe-authority" && job.status === "in_progress");
+  if (matches.length !== 1) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_JOB_AMBIGUOUS");
+  if (!env.GITHUB_OUTPUT) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_OUTPUT_ENV_REQUIRED");
+  appendFileSync(env.GITHUB_OUTPUT, `job_id=${matches[0].id}\n`, "utf8");
+  return matches[0].id;
+}
+
+export async function produceRefinedInventoryProbe({
+  env = process.env,
+  request = globalThis.fetch,
+  nowMs = Date.now(),
+  outPath,
+} = {}) {
+  const token = env.GITHUB_TOKEN;
+  if (!token) throw refinedInventoryError("ROADMAP_GITHUB_TOKEN_REQUIRED");
+  const repository = env.GITHUB_REPOSITORY;
+  const workflow = env.ROADMAP_WORKFLOW;
+  const runId = Number(env.GITHUB_RUN_ID);
+  const runAttempt = Number(env.GITHUB_RUN_ATTEMPT);
+  const jobId = Number(env.ROADMAP_PROBE_JOB_ID);
+  const headSha = env.GITHUB_SHA;
+  const nonce = env.ROADMAP_AUTHORITY_NONCE;
+  if (
+    repository !== CANONICAL_REPOSITORY ||
+    workflow !== CANONICAL_WORKFLOW ||
+    !isPositiveSafeInteger(runId) ||
+    !isPositiveSafeInteger(runAttempt) ||
+    !isPositiveSafeInteger(jobId) ||
+    !SHA.test(headSha ?? "") ||
+    !REFINED_INVENTORY_NONCE.test(nonce ?? "") ||
+    !outPath
+  ) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_ENV_INVALID");
+  }
+  const acquisition = await collectLiveMonthlyRefinedInventory({ repository, token, request, nowMs });
+  const payload = {
+    schemaVersion: REFINED_INVENTORY_PROBE_SCHEMA_VERSION,
+    repository,
+    workflow,
+    runId,
+    runAttempt,
+    jobId,
+    headSha,
+    nonce,
+    checkedAt: new Date(nowMs).toISOString(),
+    query: acquisition.window.query,
+    month: acquisition.window.month,
+    windowStart: acquisition.window.windowStart,
+    windowEndExclusive: acquisition.window.windowEndExclusive,
+    attempts: acquisition.attempts.map(({ attempt, pages, count, digest }) => ({ attempt, pages, count, digest })),
+    acceptedAttempts: acquisition.acceptedAttempts,
+    mergedPrCount: acquisition.collection.count,
+    cap: 2 * acquisition.collection.count,
+    identitySha256: acquisition.collection.digest,
+  };
+  writeCanonicalFileAtomic(outPath, canonicalRefinedInventoryProbeBytes(payload));
+  return payload;
 }
 
 function throughputIdentity(title) {
@@ -1363,6 +1851,15 @@ export function renderRoadmapStatus(summary) {
       `${totalTracking} tracking-only records are shown separately.`,
   );
 
+  const refinedInventory = summary.refinedInventoryAuthority;
+  if (refinedInventory) {
+    const { record, currentRefined } = refinedInventory;
+    lines.push(
+      "",
+      `Refined inventory: ${currentRefined} / cap ${record.cap} (authority ${record.month}; merged-PR window ${record.windowStart}..${record.windowEndExclusive})`,
+    );
+  }
+
   const epicCapacities = summary.epicCapacities ?? [];
   if (epicCapacities.length > 0) {
     lines.push("", "Epic sub-issue capacity:");
@@ -1391,6 +1888,7 @@ export function renderRoadmapStatus(summary) {
     "",
     "**Refined ≡ classified** = open, non-Epic, executable milestone + `priority:*` + `area:*` + `kind:*`, excluding `status:tracking-only`. Unrefined far-horizon work is expected, not a defect.",
   );
+  if (refinedInventory) lines.push("", renderRefinedInventoryCapMarker(refinedInventory.record));
   if (forecast.retainedComment) lines.push("", forecast.retainedComment, END_MARKER);
   else lines.push("", END_MARKER);
 
@@ -1485,6 +1983,18 @@ query($owner:String!, $name:String!, $after:String) {
         parent { number }
         issueDependenciesSummary { blockedBy }
       }
+    }
+  }
+}`;
+
+const REFINED_INVENTORY_PRS_QUERY = `
+# ${REFINED_INVENTORY_QUERY_SENTINEL}
+query($query:String!, $after:String) {
+  search(query:$query, type:ISSUE, first:100, after:$after) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on PullRequest { number mergedAt baseRefName }
     }
   }
 }`;
@@ -1590,6 +2100,20 @@ async function collectLiveRoadmapWindowAuthority({ owner, name, token, request }
   );
 }
 
+export async function collectLiveMonthlyRefinedInventory({ repository, token, request, nowMs = Date.now() }) {
+  const window = deriveMonthlyRefinedInventoryWindow(nowMs, repository);
+  const stabilized = await stabilizeMonthlyRefinedInventory(async () =>
+    collectMonthlyRefinedInventory({
+      window,
+      loadPage: async (after, query) => {
+        const data = await graphql(REFINED_INVENTORY_PRS_QUERY, { query, after }, token, request);
+        return data.search;
+      },
+    }),
+  );
+  return { window, ...stabilized };
+}
+
 async function appendStepSummary(env, block) {
   if (!env.GITHUB_STEP_SUMMARY) return;
   const { appendFileSync } = await import("node:fs");
@@ -1607,8 +2131,16 @@ export async function main({
   const repo = env.GITHUB_REPOSITORY;
   const token = env.GITHUB_TOKEN;
   const roadmapIssue = env.ROADMAP_ISSUE;
-  if (!repo || !token) {
-    writeError("ROADMAP_ENV_REQUIRED: GITHUB_REPOSITORY and GITHUB_TOKEN are required.");
+  if (!token) {
+    writeError("ROADMAP_GITHUB_TOKEN_REQUIRED: GITHUB_TOKEN is required before provider or issue actions.");
+    return 2;
+  }
+  if (!repo) {
+    writeError("ROADMAP_ENV_REQUIRED: GITHUB_REPOSITORY is required.");
+    return 2;
+  }
+  if (repo !== CANONICAL_REPOSITORY || (roadmapIssue && roadmapIssue !== CANONICAL_ROADMAP_ISSUE)) {
+    writeError("ROADMAP_SOURCE_TARGET_INVALID: writer source and target must be chase-sets/chase-sets#4129.");
     return 2;
   }
 
@@ -1632,8 +2164,16 @@ export async function main({
   reconcileForecastIssueSources(restIssues, issueFacts);
   const issues = restIssues.map((issue) => mergeRoadmapIssueFacts(issue, issueFacts.get(issue.number)));
   let currentRoadmap = null;
+  let priorRefinedInventory = null;
   if (roadmapIssue) {
     currentRoadmap = await (await gh(`/repos/${repo}/issues/${roadmapIssue}`, token, {}, request)).json();
+    priorRefinedInventory = reducePriorRefinedInventoryAuthority(currentRoadmap?.body ?? "", nowMs);
+    if (["invalid", "future"].includes(priorRefinedInventory.status)) {
+      writeError(
+        `${priorRefinedInventory.code}: Issue #${roadmapIssue} refined-inventory authority is unsafe; leaving the body untouched.`,
+      );
+      return 1;
+    }
   }
 
   const collectionSafeIssues = issues.filter((issue) => {
@@ -1695,6 +2235,27 @@ export async function main({
   }
   summary.prioritizationHygiene = summarizePrioritizationHygiene(windowAuthority.authority);
   summary.forecast = createForecastPresentation({ current: currentForecast, drift, nowMs });
+  if (roadmapIssue) {
+    let record = priorRefinedInventory.record;
+    if (priorRefinedInventory.status !== "current") {
+      try {
+        const acquisition = await collectLiveMonthlyRefinedInventory({ repository: repo, token, request, nowMs });
+        record = capRecordFromCollection(acquisition.collection, acquisition.window, nowMs);
+      } catch (error) {
+        if (!(error instanceof RoadmapIssueEnumerationError)) throw error;
+        writeError(`${error.code}: ${error.message}`);
+        return 1;
+      }
+    }
+    let currentRefined = 0;
+    try {
+      currentRefined = issues.filter((issue) => classified(toBacklogInput(issue))).length;
+    } catch (error) {
+      writeError(`ROADMAP_REFINED_INVENTORY_CLASSIFICATION_INVALID: ${error.message}`);
+      return 1;
+    }
+    summary.refinedInventoryAuthority = { record, currentRefined };
+  }
   const block = renderRoadmapStatus(summary);
   writeOutput(block);
   await appendSummary(env, block);
@@ -1732,6 +2293,34 @@ export async function runRoadmapStatus(run = main, writeError = (message) => con
   }
 }
 
+function optionValue(argv, name) {
+  const equals = argv.find((value) => value.startsWith(`${name}=`));
+  if (equals) return equals.slice(name.length + 1);
+  const index = argv.indexOf(name);
+  return index >= 0 ? argv[index + 1] : undefined;
+}
+
+async function runCli(argv = process.argv.slice(2)) {
+  try {
+    if (argv.includes("--resolve-probe-job")) {
+      await resolveRefinedInventoryProbeJob();
+      return 0;
+    }
+    if (argv.includes("--probe-authority")) {
+      await produceRefinedInventoryProbe({ outPath: optionValue(argv, "--out") });
+      return 0;
+    }
+    if (argv.includes("--validate-probe-authority")) {
+      readCanonicalRefinedInventoryProbe(optionValue(argv, "--input"));
+      return 0;
+    }
+    return await runRoadmapStatus();
+  } catch (error) {
+    console.error(`${error.code ?? error.name}: ${error.message}`);
+    return 1;
+  }
+}
+
 if (process.argv[1] && process.argv[1].endsWith("roadmap-status.mjs")) {
-  process.exitCode = await runRoadmapStatus();
+  process.exitCode = await runCli();
 }

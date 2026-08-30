@@ -370,7 +370,8 @@ describe("scheduled enforcing audit boundary", () => {
   const workflowPath = path.join(repoRoot, ".github", "workflows", "backlog-roadmap-status.yml");
   const workflowText = readFileSync(workflowPath, "utf8");
   const workflow = parseYaml(workflowText);
-  const steps = workflow.jobs.status.steps;
+  const writer = workflow.jobs["write-roadmap-status"];
+  const steps = writer.steps;
   const generateIndex = steps.findIndex((step) => step.name === "Generate roadmap status");
   const auditIndex = steps.findIndex((step) => step.name === "Audit canonical label registry");
   const auditStep = steps[auditIndex];
@@ -382,7 +383,8 @@ describe("scheduled enforcing audit boundary", () => {
     expect(auditStep["continue-on-error"]).toBeUndefined();
     expect(auditStep.if).toBeUndefined();
     expect(auditStep.run).not.toMatch(/(?:\|\|\s*true|set\s+\+e|(?:^|\n)\s*exit\s+0\s*$)/m);
-    expect(workflow.jobs.status["continue-on-error"]).toBeUndefined();
+    expect(writer.if).toBe("github.event_name == 'schedule'");
+    expect(writer["continue-on-error"]).toBeUndefined();
   });
 
   it("propagates an audit exit 1 to the job while preserving the completed splice outcome", async () => {
