@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 import {
@@ -55,10 +56,76 @@ function zeroHostContextFiles(entrySource, manifest = { contextName: "atlas" }, 
 
 const registryBuilderNames = ["buildApiRegistry", "buildWorkerRegistry", "contributesToWebHost"];
 
-function extractRegistryBuilderManifestFields(content) {
+function isContextManifestFieldAccess(node) {
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === "context" &&
+    node.expression.name.text === "manifest"
+  );
+}
+
+function isContextManifestExpression(node) {
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "context" &&
+    node.name.text === "manifest"
+  );
+}
+
+function collectParamFieldReads(bodyNode, paramName) {
+  const fields = new Set();
+  const visit = (node) => {
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === paramName) {
+      fields.add(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(bodyNode);
+  return fields;
+}
+
+function resolveExternalManifestFields(moduleSpecifier, functionName, argIndex, sourceDir) {
+  if (!sourceDir || !moduleSpecifier.startsWith(".")) return [];
+  const resolvedPath = path.resolve(sourceDir, moduleSpecifier);
+  const externalSource = readFileSync(resolvedPath, "utf8");
+  const externalFile = ts.createSourceFile(
+    resolvedPath,
+    externalSource,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.JS,
+  );
+  for (const statement of externalFile.statements) {
+    if (!ts.isFunctionDeclaration(statement) || statement.name?.text !== functionName || !statement.body) continue;
+    const param = statement.parameters[argIndex];
+    if (!param || !ts.isIdentifier(param.name)) continue;
+    return [...collectParamFieldReads(statement.body, param.name.text)];
+  }
+  return [];
+}
+
+function extractRegistryBuilderManifestFields(content, sourceDir) {
   const source = ts.createSourceFile("registry-builders.mjs", content, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
   const fields = new Set();
   const visitedBuilders = new Set();
+
+  const importedFrom = new Map();
+  for (const statement of source.statements) {
+    if (
+      ts.isImportDeclaration(statement) &&
+      statement.importClause?.namedBindings &&
+      ts.isNamedImports(statement.importClause.namedBindings) &&
+      ts.isStringLiteral(statement.moduleSpecifier)
+    ) {
+      for (const element of statement.importClause.namedBindings.elements) {
+        importedFrom.set(element.name.text, statement.moduleSpecifier.text);
+      }
+    }
+  }
+
   for (const statement of source.statements) {
     if (
       !ts.isFunctionDeclaration(statement) ||
@@ -69,14 +136,21 @@ function extractRegistryBuilderManifestFields(content) {
     }
     visitedBuilders.add(statement.name.text);
     const visit = (node) => {
-      if (
-        ts.isPropertyAccessExpression(node) &&
-        ts.isPropertyAccessExpression(node.expression) &&
-        ts.isIdentifier(node.expression.expression) &&
-        node.expression.expression.text === "context" &&
-        node.expression.name.text === "manifest"
-      ) {
+      if (isContextManifestFieldAccess(node)) {
         fields.add(node.name.text);
+      }
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && importedFrom.has(node.expression.text)) {
+        const manifestArgIndex = node.arguments.findIndex((argument) => isContextManifestExpression(argument));
+        if (manifestArgIndex !== -1) {
+          for (const field of resolveExternalManifestFields(
+            importedFrom.get(node.expression.text),
+            node.expression.text,
+            manifestArgIndex,
+            sourceDir,
+          )) {
+            fields.add(field);
+          }
+        }
       }
       ts.forEachChild(node, visit);
     };
@@ -335,8 +409,9 @@ describe("manifest-only execution disposition", () => {
 
 describe("manifest host-registration predicate parity", () => {
   it("matches all three live registry builders", () => {
-    const source = readFileSync(new URL("../sync-workspace-metadata.mjs", import.meta.url), "utf8");
-    const extracted = extractRegistryBuilderManifestFields(source);
+    const sourceUrl = new URL("../sync-workspace-metadata.mjs", import.meta.url);
+    const source = readFileSync(sourceUrl, "utf8");
+    const extracted = extractRegistryBuilderManifestFields(source, path.dirname(fileURLToPath(sourceUrl)));
 
     expect(extracted.builders).toEqual([...registryBuilderNames].sort());
     expect(extracted.fields).toEqual([...manifestHostRegistrationFields].sort());
