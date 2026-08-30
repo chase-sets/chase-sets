@@ -620,6 +620,47 @@ function fixtureScenario(id) {
   return scenario;
 }
 
+async function createConsumerCliHarness(prefix = "issue-readiness-request-") {
+  const ready = (await runScenario(fixtureScenario("ready"))).result.receipt;
+  const history = createHistoryRepository();
+  const requestDirectory = mkdtempSync(path.join(tmpdir(), prefix));
+  const requestPath = path.join(requestDirectory, "request.json");
+  const scriptPath = path.join(repoRoot, "scripts", "issue-readiness.mjs");
+  const receipt = receiptAt(ready, history.baselineSha);
+  const body = footprintBody(["- scripts/declared.mjs — x"]);
+  const request = {
+    schemaVersion: "issue-readiness-consume-request/v1",
+    receipt,
+    currentRevision: revisionFor(receipt, body),
+    trustedCheckerSha: history.baselineSha,
+    semanticPressureTest: "pass",
+    currentMain: currentMainAt(history.baselineSha),
+  };
+  const invoke = (candidate) => {
+    writeFileSync(requestPath, JSON.stringify(candidate), "utf8");
+    return spawnSync(
+      process.execPath,
+      [scriptPath, "--consume-request", requestPath, "--repository-root", history.root],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        windowsHide: true,
+      },
+    );
+  };
+  return {
+    body,
+    history,
+    invoke,
+    receipt,
+    request,
+    cleanup() {
+      history.cleanup();
+      rmSync(requestDirectory, { recursive: true, force: true });
+    },
+  };
+}
+
 function prospectiveMetadata(overrides = {}) {
   return {
     repository: REPOSITORY,
@@ -1722,6 +1763,28 @@ describe("consume-time footprint comparison", () => {
         footprintBody(["~~~", "- scripts/ignored.mjs — x", "~~~~", "- scripts/kept.mjs — x"]),
       ),
     ).toEqual({ outcome: "declared", paths: ["scripts/kept.mjs"] });
+    const markerInsideFootprint = [
+      "### Footprint & chain",
+      "```js",
+      "- scripts/declared.mjs — x",
+      "### Operator actions",
+      "- scripts/outside.mjs — x",
+    ].join("\n");
+    expect(extractIssueReadinessFootprint(markerInsideFootprint)).toEqual({
+      outcome: "declared",
+      paths: ["scripts/declared.mjs"],
+    });
+    const markerBeforeFootprint = [
+      "```js",
+      "### Footprint & chain",
+      "- scripts/declared.mjs — x",
+      "### Operator actions",
+      "- scripts/outside.mjs — x",
+    ].join("\n");
+    expect(extractIssueReadinessFootprint(markerBeforeFootprint)).toEqual({
+      outcome: "declared",
+      paths: ["scripts/declared.mjs"],
+    });
     expect(extractIssueReadinessFootprint(footprintBody(["```", "- scripts/indeterminate.mjs — x"], ""))).toEqual({
       outcome: "unknown",
       paths: null,
@@ -1864,6 +1927,97 @@ describe("consume-time footprint comparison", () => {
         }),
       ).toMatchObject({ decision: "dispatch-implementation", reasonCode: "READY_RECEIPT_CURRENT" });
     } finally {
+      history.cleanup();
+    }
+  });
+
+  it("native Git history authority cannot be rewritten by a replacement ref", async () => {
+    const ready = (await runScenario(fixtureScenario("ready"))).result.receipt;
+    const history = createHistoryRepository();
+    try {
+      writeFileSync(path.join(history.root, "scripts/declared.mjs"), "changed\n");
+      const currentSha = history.commit("changed footprint");
+      const receipt = receiptAt(ready, history.baselineSha);
+      const input = {
+        receipt,
+        currentRevision: revisionFor(receipt, footprintBody(["- scripts/declared.mjs — synthetic control"])),
+        trustedCheckerSha: history.baselineSha,
+        semanticPressureTest: "pass",
+        currentMain: currentMainAt(currentSha),
+        repositoryRoot: history.root,
+      };
+
+      expect(consumeIssueReadinessReceipt(input)).toMatchObject({ reasonCode: "FOOTPRINT_DRIFT" });
+      const baselineTree = git(history.root, ["rev-parse", `${history.baselineSha}^{tree}`]);
+      const replacementSha = git(history.root, [
+        "commit-tree",
+        baselineTree,
+        "-p",
+        history.baselineSha,
+        "-m",
+        "synthetic replacement control",
+      ]);
+      git(history.root, ["replace", currentSha, replacementSha]);
+      expect(consumeIssueReadinessReceipt(input)).toMatchObject({
+        decision: "dispatch-planning-repair",
+        reasonCode: "FOOTPRINT_DRIFT",
+      });
+    } finally {
+      history.cleanup();
+    }
+  });
+
+  it("native Git history authority rejects grafts and inherited repository redirection", async () => {
+    const ready = (await runScenario(fixtureScenario("ready"))).result.receipt;
+    const history = createHistoryRepository();
+    const redirectKeys = [
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_COMMON_DIR",
+      "GIT_CONFIG_COUNT",
+      "GIT_DIR",
+      "GIT_GRAFT_FILE",
+      "GIT_INDEX_FILE",
+      "GIT_NAMESPACE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_REPLACE_REF_BASE",
+      "GIT_SHALLOW_FILE",
+      "GIT_WORK_TREE",
+    ];
+    const originalRedirects = new Map(redirectKeys.map((key) => [key, process.env[key]]));
+    const restoreRedirects = () => {
+      for (const [key, value] of originalRedirects) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    };
+    try {
+      writeFileSync(path.join(history.root, "scripts/declared.mjs"), "changed\n");
+      const currentSha = history.commit("changed footprint");
+      const receipt = receiptAt(ready, history.baselineSha);
+      const input = {
+        receipt,
+        currentRevision: revisionFor(receipt, footprintBody(["- scripts/declared.mjs — synthetic control"])),
+        trustedCheckerSha: history.baselineSha,
+        semanticPressureTest: "pass",
+        currentMain: currentMainAt(currentSha),
+        repositoryRoot: history.root,
+      };
+
+      for (const key of redirectKeys) process.env[key] = path.join(history.root, `redirected-${key.toLowerCase()}`);
+      expect(consumeIssueReadinessReceipt(input)).toMatchObject({ reasonCode: "FOOTPRINT_DRIFT" });
+      restoreRedirects();
+      git(history.root, ["config", "advice.graftFileDeprecated", "false"]);
+      writeFileSync(
+        path.join(history.root, ".git", "info", "grafts"),
+        `${currentSha} ${history.baselineSha}\n`,
+        "utf8",
+      );
+      expect(consumeIssueReadinessReceipt(input)).toMatchObject({
+        decision: "reject",
+        reasonCode: "FOOTPRINT_DRIFT_UNKNOWN",
+      });
+    } finally {
+      restoreRedirects();
       history.cleanup();
     }
   });
@@ -2026,31 +2180,9 @@ describe("consume-time footprint comparison", () => {
   });
 
   it("consumer CLI binds one frozen request and canonical result", async () => {
-    const ready = (await runScenario(fixtureScenario("ready"))).result.receipt;
-    const history = createHistoryRepository();
-    const requestDirectory = mkdtempSync(path.join(tmpdir(), "issue-readiness-request-"));
-    const requestPath = path.join(requestDirectory, "request.json");
-    const scriptPath = path.join(repoRoot, "scripts", "issue-readiness.mjs");
+    const cli = await createConsumerCliHarness();
+    const { body, history, invoke, receipt, request } = cli;
     try {
-      const receipt = receiptAt(ready, history.baselineSha);
-      const body = footprintBody(["- scripts/declared.mjs — x"]);
-      const request = {
-        schemaVersion: "issue-readiness-consume-request/v1",
-        receipt,
-        currentRevision: revisionFor(receipt, body),
-        trustedCheckerSha: history.baselineSha,
-        semanticPressureTest: "pass",
-        currentMain: currentMainAt(history.baselineSha),
-      };
-      const invoke = (candidate) => {
-        writeFileSync(requestPath, JSON.stringify(candidate), "utf8");
-        return spawnSync(
-          process.execPath,
-          [scriptPath, "--consume-request", requestPath, "--repository-root", history.root],
-          { cwd: repoRoot, encoding: "utf8", windowsHide: true },
-        );
-      };
-
       const success = invoke(request);
       const expected = {
         schemaVersion: "issue-readiness-consume-result/v1",
@@ -2102,7 +2234,15 @@ describe("consume-time footprint comparison", () => {
         reasonCode: "FOOTPRINT_DRIFT_UNKNOWN",
         footprintComparison: { outcome: "unknown", normalizedPathsSha256: null },
       });
+    } finally {
+      cli.cleanup();
+    }
+  });
 
+  it("consumer CLI preserves receipt precedence for canonical requests", async () => {
+    const cli = await createConsumerCliHarness();
+    const { invoke, request } = cli;
+    try {
       const checkerMismatch = invoke({ ...request, trustedCheckerSha: "b".repeat(40) });
       expect(JSON.parse(checkerMismatch.stdout)).toMatchObject({ reasonCode: "CHECKER_PROVENANCE_MISMATCH" });
       for (const [member, value] of [
@@ -2126,7 +2266,15 @@ describe("consume-time footprint comparison", () => {
         reasonCode: "RECEIPT_MALFORMED",
         footprintComparison: { baselineSha: null },
       });
+    } finally {
+      cli.cleanup();
+    }
+  });
 
+  it("consumer CLI preserves exact failure bytes for invalid request envelopes", async () => {
+    const cli = await createConsumerCliHarness();
+    const { invoke, receipt, request } = cli;
+    try {
       for (const invalid of [
         { ...request, currentRevision: { ...request.currentRevision, bodySha256: "0".repeat(64) } },
         { ...request, footprintComparison: { outcome: "unchanged" } },
@@ -2149,8 +2297,66 @@ describe("consume-time footprint comparison", () => {
         expect(failed.stderr).toBe("ISSUE_READINESS_CONSUME_FAILED\n");
       }
     } finally {
-      history.cleanup();
-      rmSync(requestDirectory, { recursive: true, force: true });
+      cli.cleanup();
+    }
+  });
+
+  it("consumer CLI returns one canonical malformed result for recursively invalid receipts", async () => {
+    const cli = await createConsumerCliHarness("issue-readiness-malformed-request-");
+    const { body, history, invoke, receipt, request } = cli;
+    try {
+      const malformedReceipts = [
+        ["null checked rules", { ...receipt, checkedRules: Array(ISSUE_READINESS_RULES.length).fill(null) }],
+        [
+          "nested null reason code",
+          {
+            ...receipt,
+            checkedRules: receipt.checkedRules.map((entry, index) =>
+              index === 0 ? { ...entry, reasonCodes: [null] } : entry,
+            ),
+          },
+        ],
+        [
+          "nested unknown property",
+          {
+            ...receipt,
+            checkedRules: receipt.checkedRules.map((entry, index) =>
+              index === 0 ? { ...entry, unknown: true } : entry,
+            ),
+          },
+        ],
+        ["nested invalid date", { ...receipt, provenance: { ...receipt.provenance, checkedAt: "not-a-date" } }],
+        [
+          "nested out-of-range count",
+          {
+            ...receipt,
+            coverage: { ...receipt.coverage, labels: { ...receipt.coverage.labels, pages: -1 } },
+          },
+        ],
+      ];
+      for (const [name, malformedReceipt] of malformedReceipts) {
+        const malformedRequest = { ...request, receipt: malformedReceipt };
+        const malformed = invoke(malformedRequest);
+        const expectedMalformed = {
+          schemaVersion: "issue-readiness-consume-result/v1",
+          requestSha256: digest(independentCanonicalJson(malformedRequest)),
+          decision: "reject",
+          reasonCode: "RECEIPT_MALFORMED",
+          structuralStatus: "unknown",
+          footprintComparison: {
+            outcome: "not-evaluated",
+            issueBodySha256: digest(body),
+            baselineSha: null,
+            currentMainSha: history.baselineSha,
+            normalizedPathsSha256: null,
+          },
+        };
+        expect(malformed.status, name).toBe(0);
+        expect(malformed.stdout, name).toBe(`${independentCanonicalJson(expectedMalformed)}\n`);
+        expect(malformed.stderr, name).toBe("");
+      }
+    } finally {
+      cli.cleanup();
     }
   });
 

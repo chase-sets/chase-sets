@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { lstatSync } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -1186,7 +1187,9 @@ export function validateIssueReadinessReceipt(receipt) {
   if (!Array.isArray(receipt.checkedRules) || receipt.checkedRules.length !== ISSUE_READINESS_RULES.length) {
     errors.push("checked-rules-count");
   } else {
-    const ids = receipt.checkedRules.map((entry) => entry.id);
+    const ids = receipt.checkedRules.map((entry) =>
+      hasExactKeys(entry, ["id", "status", "reasonCodes"]) ? entry.id : null,
+    );
     const expectedIds = ISSUE_READINESS_RULES.map((entry) => entry.id);
     if (
       new Set(ids).size !== ids.length ||
@@ -1198,8 +1201,8 @@ export function validateIssueReadinessReceipt(receipt) {
     for (const entry of receipt.checkedRules) {
       if (
         !hasExactKeys(entry, ["id", "status", "reasonCodes"]) ||
-        !["pass", "fail", "unknown"].includes(entry.status) ||
-        !Array.isArray(entry.reasonCodes)
+        !["pass", "fail", "unknown"].includes(entry?.status) ||
+        !Array.isArray(entry?.reasonCodes)
       ) {
         errors.push("checked-rule-shape");
       } else if (
@@ -1222,7 +1225,7 @@ export function validateIssueReadinessReceipt(receipt) {
     const checkedReasonCodes = [
       ...new Set(
         receipt.checkedRules.flatMap((entry) =>
-          Array.isArray(entry.reasonCodes) ? entry.reasonCodes.filter((code) => typeof code === "string") : [],
+          Array.isArray(entry?.reasonCodes) ? entry.reasonCodes.filter((code) => typeof code === "string") : [],
         ),
       ),
     ].sort();
@@ -1286,9 +1289,9 @@ export function validateIssueReadinessReceipt(receipt) {
     reconciledCollection(receipt.coverage?.comments) &&
     receipt.coverage?.form?.parsed === true;
   if (Array.isArray(receipt.checkedRules)) {
-    const passes = receipt.checkedRules.filter((entry) => entry.status === "pass").length;
-    const failures = receipt.checkedRules.filter((entry) => entry.status === "fail").length;
-    const unknowns = receipt.checkedRules.filter((entry) => entry.status === "unknown").length;
+    const passes = receipt.checkedRules.filter((entry) => entry?.status === "pass").length;
+    const failures = receipt.checkedRules.filter((entry) => entry?.status === "fail").length;
+    const unknowns = receipt.checkedRules.filter((entry) => entry?.status === "unknown").length;
     if (
       receipt.status === "ready" &&
       (!verifiedAuthorityCoverage ||
@@ -1553,22 +1556,15 @@ function normalizeFootprintPath({ value, backticked }) {
 
 export function extractIssueReadinessFootprint(body) {
   if (typeof body !== "string") return { outcome: "unknown", paths: null };
-  const structure = scanIssueFormStructure(body);
   const sourceLines = body.split(/\r?\n/);
-  const footprintHeading = structure.headings.find((heading) => heading.label === "Footprint & chain");
-  const nextHeading = footprintHeading
-    ? structure.headings.find((heading) => heading.lineIndex > footprintHeading.lineIndex)
-    : null;
-  const field = footprintHeading
-    ? sourceLines.slice(footprintHeading.lineIndex + 1, nextHeading?.lineIndex ?? sourceLines.length).join("\n")
-    : "";
+  const fieldLines = footprintFieldLines(sourceLines);
   const paths = new Set();
   let attempts = 0;
   let fence = null;
   let unclosedFenceAttempt = false;
 
-  for (const line of field.split(/\r?\n/)) {
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,}) *$/);
+  for (const line of fieldLines) {
+    const fenceMatch = footprintFence(line);
     if (fence) {
       if (fenceMatch && fenceMatch[1][0] === fence.marker && fenceMatch[1].length >= fence.length) {
         fence = null;
@@ -1596,10 +1592,47 @@ export function extractIssueReadinessFootprint(body) {
   return { outcome: "declared", paths: utf8Sorted(paths) };
 }
 
-function defaultGitRunner({ repositoryRoot, args }) {
-  return spawnSync("git", args, {
+function footprintFence(line) {
+  return line.match(/^ {0,3}(`{3,}|~{3,}) *$/);
+}
+
+function footprintFieldLines(sourceLines) {
+  let fence = null;
+  let fieldStart = null;
+  for (const [lineIndex, line] of sourceLines.entries()) {
+    const fenceMatch = footprintFence(line);
+    if (fence) {
+      if (fenceMatch && fenceMatch[1][0] === fence.marker && fenceMatch[1].length >= fence.length) fence = null;
+      continue;
+    }
+    if (fenceMatch) {
+      fence = { marker: fenceMatch[1][0], length: fenceMatch[1].length };
+      continue;
+    }
+    const heading = line.match(/^#{2,3}\s+(.+?)\s*$/);
+    if (!heading) continue;
+    if (fieldStart === null) {
+      if (heading[1] === "Footprint & chain") fieldStart = lineIndex + 1;
+      continue;
+    }
+    return sourceLines.slice(fieldStart, lineIndex);
+  }
+  return fieldStart === null ? [] : sourceLines.slice(fieldStart);
+}
+
+function closedGitEnvironment(environment = process.env) {
+  return Object.freeze({
+    ...Object.fromEntries(Object.entries(environment).filter(([key]) => !key.toUpperCase().startsWith("GIT_"))),
+    GIT_NO_LAZY_FETCH: "1",
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_TERMINAL_PROMPT: "0",
+  });
+}
+
+function defaultGitRunner({ repositoryRoot, args, env }) {
+  return spawnSync("git", [...args], {
     cwd: repositoryRoot,
-    env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_TERMINAL_PROMPT: "0" },
+    env: closedGitEnvironment(env),
     encoding: null,
     windowsHide: true,
     timeout: GIT_TIMEOUT_MS,
@@ -1616,7 +1649,7 @@ function gitOutput(gitRunner, repositoryRoot, args, allowedStatuses = [0]) {
       args: [...args],
       timeoutMs: GIT_TIMEOUT_MS,
       outputCapBytes: GIT_OUTPUT_CAP_BYTES,
-      env: Object.freeze({ GIT_NO_LAZY_FETCH: "1", GIT_TERMINAL_PROMPT: "0" }),
+      env: closedGitEnvironment(),
     });
   } catch {
     return null;
@@ -1646,6 +1679,15 @@ function localRefSha(gitRunner, repositoryRoot) {
 }
 
 function repositoryHasIncompleteObjects(gitRunner, repositoryRoot) {
+  const graftsPathOutput = gitOutput(gitRunner, repositoryRoot, ["rev-parse", "--git-path", "info/grafts"]);
+  const graftsPath = graftsPathOutput ? exactGitLine(graftsPathOutput.stdout, /^[^\0\r\n]+\r?\n$/) : null;
+  if (graftsPath === null) return true;
+  try {
+    lstatSync(path.resolve(repositoryRoot, graftsPath));
+    return true;
+  } catch (error) {
+    if (error?.code !== "ENOENT") return true;
+  }
   const shallow = gitOutput(gitRunner, repositoryRoot, ["rev-parse", "--is-shallow-repository"]);
   const shallowValue = shallow ? exactGitLine(shallow.stdout, /^(?:true|false)\r?\n$/) : null;
   if (shallowValue === null || shallowValue === "true") return true;
