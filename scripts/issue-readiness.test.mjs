@@ -1641,6 +1641,7 @@ describe("consume-time footprint comparison", () => {
       ["- ./packages/example/ — trailing slash", "packages/example"],
       ["- scripts/a.mjs — a   ", "scripts/a.mjs"],
       ["- scripts/no-suffix.mjs", "scripts/no-suffix.mjs"],
+      ["- scripts/a.mjs-x", "scripts/a.mjs-x"],
     ];
     for (const [entry, normalized] of accepted) {
       expect(extractIssueReadinessFootprint(footprintBody([entry])), entry).toEqual({
@@ -1679,7 +1680,6 @@ describe("consume-time footprint comparison", () => {
       "- scripts/a.mjs, scripts/b.mjs",
       "- scripts/a.mjs -",
       "- scripts/a.mjs -    ",
-      "- scripts/a.mjs-x",
       `- scripts/${"x".repeat(513)} — x`,
     ];
     for (const entry of rejected) {
