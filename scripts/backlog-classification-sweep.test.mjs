@@ -921,7 +921,7 @@ describe("backlog-classification-sweep/plan-pr-review-authority", () => {
         invokeReducer,
       });
       expect(admission.prefix).toEqual({ records: [], attemptId: null, terminal: null, pendingIntent: null });
-      expect(admission.authority.compositeDigest).toBe(fx.beforeAuthority.compositeDigest);
+      expect(admission.authority.window.digest).toBe(fx.beforeAuthority.window.digest);
       expect(built.executeCalls).toBe(0);
       expect(built.comments).toHaveLength(0);
     } finally {

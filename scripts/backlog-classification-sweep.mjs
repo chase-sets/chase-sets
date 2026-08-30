@@ -1488,6 +1488,7 @@ function gitRefExists(ref, cwd) {
   });
   if (result.status === 0) return true;
   if (result.status === 1) return false;
+  if (result.status === 128 && result.stderr?.includes(`'${ref}' - not a valid ref`)) return false;
   fail("GIT_COMMAND_FAILED", result.stderr || `git show-ref failed for ${ref}`);
 }
 
