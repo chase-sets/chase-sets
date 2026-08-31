@@ -68,6 +68,43 @@ function formatDuration(timeoutMs) {
   return timeoutMs % 1_000 === 0 ? `${timeoutMs / 1_000}s` : `${timeoutMs}ms`;
 }
 
+const readinessFailureCauseByCode = new Map([
+  ["ABORT_ERR", "request-abort"],
+  ["ECONNREFUSED", "connection-refused"],
+  ["ETIMEDOUT", "connect-timeout"],
+  ["UND_ERR_CONNECT_TIMEOUT", "connect-timeout"],
+  ["EAI_AGAIN", "name-resolution-failure"],
+  ["EAI_FAIL", "name-resolution-failure"],
+  ["EAI_NODATA", "name-resolution-failure"],
+  ["EAI_NONAME", "name-resolution-failure"],
+  ["ENOTFOUND", "name-resolution-failure"],
+]);
+
+function classifyReadinessFailure(error) {
+  const visited = new Set();
+  let candidate = error;
+
+  while ((typeof candidate === "object" && candidate !== null) || typeof candidate === "function") {
+    if (visited.has(candidate)) {
+      break;
+    }
+    visited.add(candidate);
+
+    if (candidate.name === "AbortError") {
+      return "request-abort";
+    }
+    if (typeof candidate.code === "string") {
+      const cause = readinessFailureCauseByCode.get(candidate.code);
+      if (cause) {
+        return cause;
+      }
+    }
+    candidate = candidate.cause;
+  }
+
+  return "other-network-failure";
+}
+
 export function resolveBrowserE2ePhaseOneTimeoutMs(env = process.env) {
   const configured = env[browserE2ePhaseOneTimeoutEnv];
   if (configured === undefined || configured === "") {
@@ -99,11 +136,10 @@ async function probeComponent(component, fetchImpl, requestTimeoutMs) {
       observation: ready ? `HTTP ${response.status}` : `HTTP ${response.status}`,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     return {
       ...component,
       ready: false,
-      observation: message || "request failed",
+      observation: classifyReadinessFailure(error),
     };
   } finally {
     clearTimeout(timeout);

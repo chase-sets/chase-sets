@@ -1,4 +1,6 @@
+import path from "node:path";
 import { buildMinimalProcessEnvironment } from "./lib/process.mjs";
+import { browserE2eLifecyclePathEnv } from "./browser-e2e-evidence.mjs";
 
 const representativeSnapshotEnvironmentNames = Object.freeze([
   "CATALOG_ASSET_LOCAL_ROOT",
@@ -131,6 +133,35 @@ export const browserE2ePlatformWorkerEnv = Object.freeze({
   SUPPORT_REQUEST_DEADLINE_SWEEP_INTERVAL_MS: "0",
 });
 
+const browserE2ePlatformWorkerLogFileName = "platform-worker.jsonl";
+
+function resolveBrowserE2ePlatformWorkerLogPath(environment, configuredLogFilePath) {
+  const lifecyclePath = environment[browserE2eLifecyclePathEnv];
+  if (lifecyclePath === undefined || lifecyclePath === "") {
+    return undefined;
+  }
+  if (!path.isAbsolute(lifecyclePath) || path.resolve(lifecyclePath) !== lifecyclePath) {
+    throw new Error(`${browserE2eLifecyclePathEnv} must be an absolute resolved path.`);
+  }
+
+  const lifecycleDirectory = path.dirname(lifecyclePath);
+  const logFilePath = path.resolve(lifecycleDirectory, browserE2ePlatformWorkerLogFileName);
+  const relativeLogFilePath = path.relative(lifecycleDirectory, logFilePath);
+  if (
+    relativeLogFilePath === "" ||
+    relativeLogFilePath === ".." ||
+    relativeLogFilePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativeLogFilePath)
+  ) {
+    throw new Error(`${browserE2ePlatformWorkerLogFileName} must resolve inside the lifecycle evidence directory.`);
+  }
+  if (configuredLogFilePath !== undefined && path.resolve(configuredLogFilePath) !== logFilePath) {
+    throw new Error(`${browserE2ePlatformWorkerLogFileName} must resolve inside the lifecycle evidence directory.`);
+  }
+
+  return logFilePath;
+}
+
 export const browserE2ePlatformWorkerCiCommand = Object.freeze({
   command: process.platform === "win32" ? "pnpm.cmd" : "pnpm",
   args: Object.freeze(["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"]),
@@ -213,7 +244,11 @@ export function createBrowserE2eProductionIngressDefinitions(processDefinitions,
     }));
 }
 
-export function applyDevTargetEnvOverrides(targetName, processDefinitions, { ci = Boolean(process.env.CI) } = {}) {
+export function applyDevTargetEnvOverrides(
+  targetName,
+  processDefinitions,
+  { ci = Boolean(process.env.CI), environment = process.env } = {},
+) {
   if (!isBrowserE2eTarget(targetName)) {
     return processDefinitions;
   }
@@ -237,11 +272,13 @@ export function applyDevTargetEnvOverrides(targetName, processDefinitions, { ci 
     }
 
     if (definition.name === "platform-worker") {
+      const logFilePath = resolveBrowserE2ePlatformWorkerLogPath(environment, definition.env?.LOG_FILE_PATH);
       return {
         ...definition,
         env: {
           ...definition.env,
           ...browserE2ePlatformWorkerEnv,
+          ...(logFilePath === undefined ? {} : { LOG_FILE_PATH: logFilePath }),
         },
         ...(productionCommand ?? (ci ? browserE2eDirectCiCommands[definition.name] : {})),
       };
