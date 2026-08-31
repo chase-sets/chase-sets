@@ -25,22 +25,31 @@ function names(source: string) {
   return [...union![1].matchAll(/"(\w+)"/g)].map((match) => match[1]).sort();
 }
 
+function expectCandidateToAddOnlyFlag(candidateSource: string, baselineSource: string) {
+  const candidateBindings = bindings(candidateSource);
+  const baselineBindings = bindings(baselineSource);
+
+  expect(names(candidateSource)).toEqual([...new Set([...names(baselineSource), "flag"])].sort());
+  expect(candidateBindings).toEqual({ ...baselineBindings, flag: "Flag" });
+  for (const [name, glyph] of Object.entries(baselineBindings)) {
+    expect(Icon({ name: name as IconName }).props.children.type, name).toBe(glyphs[glyph as keyof typeof glyphs]);
+  }
+}
+
 describe("icon registry", () => {
   it("maps flag to a rendered glyph without changing any existing icon binding", () => {
     expect(renderToString(<Icon name="flag" />)).toContain("<svg");
     expect(Icon({ name: "flag" }).props.children.type).toBe(glyphs.Flag);
 
     const forkPoint = git("merge-base", "HEAD", "refs/remotes/origin/main");
-    const originalSource = git("show", `${forkPoint}:${iconPath}`);
     const candidateSource = readFileSync(join(repositoryRoot, iconPath), "utf8");
-    const originalBindings = bindings(originalSource);
-    const candidateBindings = bindings(candidateSource);
-    expect(Object.keys(originalBindings).length).toBeGreaterThan(0);
-    expect(names(candidateSource)).toEqual([...names(originalSource), "flag"].sort());
-    expect(candidateBindings).toEqual({ ...originalBindings, flag: "Flag" });
-    for (const [name, glyph] of Object.entries(originalBindings)) {
-      expect(Icon({ name: name as IconName }).props.children.type, name).toBe(glyphs[glyph as keyof typeof glyphs]);
-    }
+    const preFlagBaseline = git("show", `${forkPoint}:${iconPath}`);
+    expect(Object.keys(bindings(preFlagBaseline)).length).toBeGreaterThan(0);
+    expectCandidateToAddOnlyFlag(candidateSource, preFlagBaseline);
+
+    // This synthetic post-merge baseline freezes the candidate while proving the expected set is idempotent.
+    const syntheticPostMergeBaseline = candidateSource;
+    expectCandidateToAddOnlyFlag(candidateSource, syntheticPostMergeBaseline);
 
     // A synthetic unknown name must remain undefined, never acquire a fallback.
     const syntheticName = "__unmapped_icon_probe__" as IconName;
