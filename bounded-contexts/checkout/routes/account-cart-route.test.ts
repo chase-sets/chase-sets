@@ -20,7 +20,6 @@ import {
   mockCreateMarketplaceRequestApiClient,
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
-  mockCreateSettlementRequestApiClient,
   mockGetCart,
   mockGetGuestCart,
   MockMarketplaceApiError,
@@ -89,10 +88,6 @@ vi.mock("@chase-sets/payments/server", async () => {
 vi.mock("@chase-sets/marketplace/server", () => ({
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
   MarketplaceApiError: MockMarketplaceApiError,
-}));
-
-vi.mock("@chase-sets/settlement/server", () => ({
-  createSettlementRequestApiClient: mockCreateSettlementRequestApiClient,
 }));
 
 async function readResolvedFreshWriteToken(location: string | null) {

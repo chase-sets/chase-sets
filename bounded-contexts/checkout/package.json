@@ -41,7 +41,6 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/postage-labels": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
-    "@chase-sets/settlement": "workspace:*",
     "hono": "^4.12.12"
   },
   "devDependencies": {

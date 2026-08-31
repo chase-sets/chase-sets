@@ -15,8 +15,7 @@
     "@chase-sets/inventory",
     "@chase-sets/marketplace",
     "@chase-sets/ordering",
-    "@chase-sets/payments",
-    "@chase-sets/settlement"
+    "@chase-sets/payments"
   ],
   "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory", "marketplace"],
   "eventSubscriptions": [

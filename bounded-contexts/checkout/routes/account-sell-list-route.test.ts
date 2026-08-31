@@ -20,7 +20,6 @@ import {
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateSellListReadiness,
-  mockCreateSettlementRequestApiClient,
   mockGetGuestSellList,
   mockGetOfferMatch,
   mockGetPublicOffer,
@@ -90,10 +89,6 @@ vi.mock("@chase-sets/payments/server", async () => {
 vi.mock("@chase-sets/marketplace/server", () => ({
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
   MarketplaceApiError: MockMarketplaceApiError,
-}));
-
-vi.mock("@chase-sets/settlement/server", () => ({
-  createSettlementRequestApiClient: mockCreateSettlementRequestApiClient,
 }));
 
 import { action as accountSellListAction, loader as accountSellListLoader } from "./account-sell-list";
