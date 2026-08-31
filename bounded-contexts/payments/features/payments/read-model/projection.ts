@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -255,17 +256,12 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
         [data.paymentId, data.cancelledAt, event.streamVersion],
       );
     },
-    "payments.payment-refunded": async (event) => {
-      const data = event.data as {
-        paymentId: string;
-        processorStatus: string;
-        refundedAt: string;
-        refundedAmount: string;
-        refundedOrderAmounts?: unknown;
-      };
+    ...defineProjectorHandlers<Pick<ChaseSetsEventPayloads, "payments.payment-refunded">>({
+      "payments.payment-refunded": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE payments_payment_pages
+        await db.query(
+          `UPDATE payments_payment_pages
          SET processor_status = $2,
              status = CASE WHEN amount = $4::numeric THEN 'refunded' ELSE 'partially-refunded' END,
              failure_code = NULL,
@@ -277,16 +273,17 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
              last_stream_version = $6
          WHERE payment_id = $1
            AND last_stream_version < $6`,
-        [
-          data.paymentId,
-          data.processorStatus,
-          data.refundedAt,
-          data.refundedAmount,
-          JSON.stringify(Array.isArray(data.refundedOrderAmounts) ? data.refundedOrderAmounts : []),
-          event.streamVersion,
-        ],
-      );
-    },
+          [
+            data.paymentId,
+            data.processorStatus,
+            data.refundedAt,
+            data.refundedAmount,
+            JSON.stringify(Array.isArray(data.refundedOrderAmounts) ? data.refundedOrderAmounts : []),
+            event.streamVersion,
+          ],
+        );
+      },
+    }),
     "payments.payment-disputed": async (event) => {
       const data = event.data as {
         paymentId: string;

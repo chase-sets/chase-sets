@@ -5,6 +5,14 @@ import type { InventoryHoldServices } from "../../holds/api/runtime";
 import type { InventoryItemServices } from "./runtime";
 import type { InventoryHoldCollisionServices } from "../../hold-collisions/api/runtime";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import {
+  isInventoryAdjustmentReason,
+  isInventoryOfflineSaleChannel,
+  type InventoryAdjustmentReason,
+} from "@chase-sets/event-core/public-event-payloads";
+import { isCanonicalMoneyAmount, normalizeMoneyAmount } from "@chase-sets/primitives/money";
+import { InventoryDomainError } from "../../../support/runtime-support/common";
+import type { InventoryOfflineSaleRequest, InventoryOfflineSaleResult } from "./contracts";
 import { parseGradedCardShape } from "./graded-card-shape";
 
 function parseSelectedOptions(value: unknown) {
@@ -159,6 +167,35 @@ export function inventoryItemRoutes(
     const body = await c.req.json();
     const quantityDelta = Number(body.quantityDelta ?? 0);
     const collisionMode = body.collisionMode ?? "protect-orders";
+    const suppliedReasonCode = body.reasonCode;
+    if (
+      suppliedReasonCode !== undefined &&
+      suppliedReasonCode !== null &&
+      !isInventoryAdjustmentReason(suppliedReasonCode)
+    ) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("inventory.features.inventoryItems.api.route.adjustment.reason.code.invalid"),
+          },
+        },
+        400,
+      );
+    }
+    if (body.note !== undefined && body.note !== null && typeof body.note !== "string") {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("inventory.features.inventoryItems.api.route.adjustment.note.invalid"),
+          },
+        },
+        400,
+      );
+    }
+    let reasonCode = (suppliedReasonCode ?? undefined) as InventoryAdjustmentReason | undefined;
+    const note = body.note === undefined ? undefined : String(body.note ?? "").trim() || null;
     if (collisionMode !== "protect-orders" && collisionMode !== "honor-offline") {
       return c.json(
         {
@@ -182,6 +219,18 @@ export function inventoryItemRoutes(
       );
     }
     if (collisionMode === "honor-offline") {
+      if (reasonCode !== undefined && reasonCode !== "sold-offline") {
+        return c.json(
+          {
+            error: {
+              code: "validation_failed",
+              message: t("inventory.features.inventoryItems.api.route.honor.offline.reason.code.invalid"),
+            },
+          },
+          400,
+        );
+      }
+      reasonCode = "sold-offline";
       if (!actor.roleKey || !["manager", "owner", "platform-admin"].includes(actor.roleKey)) {
         return c.json(
           {
@@ -217,6 +266,8 @@ export function inventoryItemRoutes(
                 itemId: c.req.param("id"),
                 requestedQuantity: -quantityDelta,
                 reason: String(body.reason ?? ""),
+                ...(reasonCode !== undefined ? { reasonCode } : {}),
+                ...(note !== undefined ? { note } : {}),
                 mode: collisionMode,
                 actorRole: actor.roleKey ?? null,
               },
@@ -228,6 +279,8 @@ export function inventoryItemRoutes(
                 itemId: c.req.param("id"),
                 quantityDelta,
                 reason: String(body.reason ?? ""),
+                ...(reasonCode !== undefined ? { reasonCode } : {}),
+                ...(note !== undefined ? { note } : {}),
               },
               c.get("context"),
             );
@@ -280,6 +333,63 @@ export function inventoryItemRoutes(
     });
   });
 
+  app.post("/:id/offline-sales", async (c) => {
+    const actor = c.get("actor");
+    try {
+      const body = parseOfflineSaleRequest(await c.req.json());
+      const mode = body.collisionMode ?? "protect-orders";
+      if (mode === "honor-offline") {
+        if (!actor.roleKey || !["manager", "owner", "platform-admin"].includes(actor.roleKey)) {
+          return c.json(
+            {
+              error: {
+                code: "authorization_forbidden",
+                message: t("inventory.features.inventoryItems.api.route.honor.offline.authority.required"),
+              },
+            },
+            403,
+          );
+        }
+        if (body.confirmSellerCannotFulfill !== true) {
+          return c.json(
+            {
+              error: {
+                code: "honor_offline_confirmation_required",
+                message: t("inventory.features.inventoryItems.api.route.honor.offline.confirmation.required"),
+              },
+            },
+            400,
+          );
+        }
+      }
+
+      const result: InventoryOfflineSaleResult = await holdCollisions.reduceItem(
+        {
+          accountId: actor.accountId,
+          itemId: c.req.param("id"),
+          requestedQuantity: body.quantity,
+          reason: "Offline sale",
+          reasonCode: "sold-offline",
+          ...(body.note !== undefined ? { note: body.note } : {}),
+          mode,
+          actorRole: actor.roleKey ?? null,
+          offlineSale: {
+            idempotencyKey: body.idempotencyKey,
+            salePriceAmount: body.salePriceAmount ?? null,
+            channel: body.channel,
+          },
+        },
+        c.get("context"),
+      );
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof InventoryDomainError) {
+        return c.json({ error: { code: "validation_failed", message: error.message } }, 400);
+      }
+      throw error;
+    }
+  });
+
   app.post("/:id/holds", async (c) => {
     const actor = c.get("actor");
     const body = await c.req.json();
@@ -301,4 +411,69 @@ export function inventoryItemRoutes(
   });
 
   return app;
+}
+
+const offlineSaleRequestFields = new Set([
+  "quantity",
+  "salePriceAmount",
+  "channel",
+  "note",
+  "collisionMode",
+  "confirmSellerCannotFulfill",
+  "idempotencyKey",
+]);
+
+function parseOfflineSaleRequest(value: unknown): InventoryOfflineSaleRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new InventoryDomainError("Offline sale request must be an object.");
+  }
+  const body = value as Record<string, unknown>;
+  const unsupported = Object.keys(body).filter((key) => !offlineSaleRequestFields.has(key));
+  if (unsupported.length > 0) {
+    throw new InventoryDomainError(`Offline sale request contains unsupported field: ${unsupported[0]}.`);
+  }
+  if (typeof body.quantity !== "number" || !Number.isInteger(body.quantity) || body.quantity <= 0) {
+    throw new InventoryDomainError("Offline sales require a positive whole-number quantity.");
+  }
+  let salePriceAmount: string | null | undefined;
+  if (body.salePriceAmount === null) {
+    salePriceAmount = null;
+  } else if (body.salePriceAmount !== undefined) {
+    if (typeof body.salePriceAmount !== "string" || !isCanonicalMoneyAmount(body.salePriceAmount)) {
+      throw new InventoryDomainError("Offline sale price must be a canonical per-unit amount.");
+    }
+    const normalized = normalizeMoneyAmount(body.salePriceAmount);
+    if (normalized !== body.salePriceAmount) {
+      throw new InventoryDomainError("Offline sale price must be a canonical per-unit amount.");
+    }
+    salePriceAmount = normalized;
+  }
+  if (!isInventoryOfflineSaleChannel(body.channel)) {
+    throw new InventoryDomainError("Offline sales require an in-store, card-show, or other channel.");
+  }
+  if (body.note !== undefined && body.note !== null && typeof body.note !== "string") {
+    throw new InventoryDomainError("Offline sale note must be text.");
+  }
+  const collisionMode = body.collisionMode ?? "protect-orders";
+  if (collisionMode !== "protect-orders" && collisionMode !== "honor-offline") {
+    throw new InventoryDomainError("Offline sale collision mode is invalid.");
+  }
+  if (typeof body.idempotencyKey !== "string" || body.idempotencyKey.trim().length === 0) {
+    throw new InventoryDomainError("Offline sales require a nonblank idempotency key.");
+  }
+  if (body.confirmSellerCannotFulfill !== undefined && typeof body.confirmSellerCannotFulfill !== "boolean") {
+    throw new InventoryDomainError("Offline sale confirmation must be a boolean.");
+  }
+
+  return {
+    quantity: body.quantity,
+    ...(salePriceAmount !== undefined ? { salePriceAmount } : {}),
+    channel: body.channel,
+    ...(body.note !== undefined ? { note: body.note === null ? null : body.note.trim() || null } : {}),
+    collisionMode,
+    ...(body.confirmSellerCannotFulfill !== undefined
+      ? { confirmSellerCannotFulfill: body.confirmSellerCannotFulfill }
+      : {}),
+    idempotencyKey: body.idempotencyKey.trim(),
+  };
 }

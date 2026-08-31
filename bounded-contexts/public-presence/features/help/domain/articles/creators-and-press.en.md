@@ -35,7 +35,7 @@ Invite waves are gated on operational readiness between waves, so Chase Sets doe
 
 ## The founders offer
 
-The first 500 accounts to list or make an offer claim a numbered founder badge, shown publicly and kept permanently. Beta access also opens a 60-day 0% seller-fee window: every listing created in that window locks 0% seller fees until it sells. The complete plain-language terms, including exactly how the fee lock behaves, are published at [Founders offer terms](/founders).
+The first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed. Beta access also opens a 60-day 0% seller-fee window: every listing created in that window locks 0% seller fees until it sells. The complete plain-language terms, including exactly how the fee lock behaves, are published at [Founders offer terms](/founders).
 
 ## Marketplace fees
 

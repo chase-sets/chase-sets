@@ -37,7 +37,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      issues: write
+      issues: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -63,8 +63,20 @@ jobs:
           echo "Forced reporter alert dry-run requested by workflow_dispatch." >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
+  reporter:
+    name: Report Review Cadence Digest
+    needs: digest
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
       - name: Report cadence digest alert
-        if: ${{ failure() }}
+        if: ${{ needs.digest.result == 'failure' }}
         uses: ./.github/actions/report-scheduled-workflow-alert
         with:
           github-token: ${{ github.token }}
@@ -75,7 +87,7 @@ jobs:
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.reporter_dry_run == 'true' && 'true' || 'false' }}
 
       - name: Report cadence digest recovery
-        if: ${{ success() }}
+        if: ${{ needs.digest.result == 'success' }}
         uses: ./.github/actions/report-scheduled-workflow-alert
         with:
           github-token: ${{ github.token }}

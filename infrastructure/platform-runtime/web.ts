@@ -8,6 +8,7 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import { t } from "@chase-sets/localization";
 import type { NavigationItem } from "@chase-sets/design-system";
+import { assertMarketplaceRouteContract } from "./portable-route-contract";
 
 export type WebHostName = "admin-web" | "marketplace-web" | "public-web";
 export type WebHostSection = "access" | "catalog" | "commerce" | "growth" | "support" | "platform";
@@ -210,6 +211,9 @@ export function resolveWebHostRouteRecords(
       .filter((contribution) => contribution.deployable === hostName)
       .flatMap((contribution) =>
         contribution.routes.map((route) => {
+          if (hostName === "marketplace-web") {
+            assertMarketplaceRouteContract(entry.contextName, route);
+          }
           const { section: explicitSection, ...routeRecord } = route;
 
           if (hostName !== "admin-web") {

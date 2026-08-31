@@ -1004,6 +1004,42 @@ export async function seedMarketplaceDatabase(
     acceptedSeedListing,
     context,
   );
+
+  await withdrawStrayRepresentativeListings(services, context);
+}
+
+// Pinned identity anchors the browser E2E seed contract depends on for an exact
+// deterministic listing shape (deployables/marketplace/e2e/support/seed-contract.ts):
+// a zero-listing item drives the "no product selected" dock, and a single raw
+// near-mint listing drives implicit price-based product resolution. The
+// out-of-band Representative Commerce State refresh
+// (.github/workflows/platform-staging-representative-commerce-state.yml) is not
+// scenario-seed aware and adds one low-priced "lst_repr_*" listing to every
+// active Catalog Item it walks, silently violating both invariants and
+// out-competing the real listings on price. Reconciling them away here, on
+// every scenario-seed run, makes the deterministic contract self-healing
+// regardless of what the representative refresh has already done.
+const identityAnchorCatalogItemIds = [
+  catalogScenarioItems.bulbasaurBaseSet,
+  catalogScenarioItems.charizardBaseSet,
+] as const;
+
+async function withdrawStrayRepresentativeListings(
+  services: MarketplaceServices,
+  context: EventStoreContext,
+): Promise<void> {
+  const result = await services.db.query<{ listing_id: string; account_id: string }>(
+    `SELECT listing_id, account_id
+     FROM marketplace_listing_pages
+     WHERE catalog_catalog_item_id = ANY($1::text[])
+       AND listing_id LIKE 'lst$_repr$_%' ESCAPE '$'
+       AND status <> 'withdrawn'`,
+    [identityAnchorCatalogItemIds],
+  );
+
+  for (const row of result.rows) {
+    await services.listings.withdrawListing({ accountId: row.account_id, listingId: row.listing_id }, context);
+  }
 }
 
 function createReputationSeedContext(accountId: string, userId: string): EventStoreContext {

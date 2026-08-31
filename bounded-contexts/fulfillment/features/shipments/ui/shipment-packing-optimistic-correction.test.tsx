@@ -5,6 +5,26 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { FulfillmentShipmentPackingPage } from "./shipment-packing-page";
 import type { FulfillmentShipmentDetail } from "./contracts";
 
+vi.mock("./mutation-recovery", () => ({
+  hashShipmentMutationIntent: vi.fn(async () => "intent-hash"),
+  persistShipmentMutationDescriptor: vi.fn(async () => ({
+    schemaVersion: 1,
+    tenantId: "tnt_1",
+    sellerAccountId: "acc_seller",
+    shipmentId: "shp_1",
+    command: "set-line-confirmed",
+    target: "spl_1",
+    intentHash: "intent-hash",
+    mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
+    createdAt: "2026-08-23T00:00:00.000Z",
+    lastObservedAt: "2026-08-23T00:00:00.000Z",
+    state: "submitting",
+    sentAt: null,
+    automaticRecoveryReadAt: null,
+  })),
+  updateShipmentMutationDescriptor: vi.fn(async (descriptor) => descriptor),
+}));
+
 function shipment(): FulfillmentShipmentDetail {
   return {
     shipment_id: "shp_1",
@@ -94,24 +114,37 @@ describe("fulfillment packing optimistic correction", () => {
   });
 
   it("applies a line quantity optimistically, serializes in-flight writes, and rolls back failed latest writes", async () => {
+    let resolveResponse!: (response: Response) => void;
     const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ error: "Line update failed." }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve;
         }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<FulfillmentShipmentPackingPage shipment={shipment()} backHref="/account/sales/shipments" />);
+    render(
+      <FulfillmentShipmentPackingPage
+        shipment={shipment()}
+        backHref="/account/sales/shipments"
+        recoveryScope={{ tenantId: "tnt_1", sellerAccountId: "acc_seller" }}
+      />,
+    );
 
     const increase = screen.getByRole("button", { name: "Increase packed quantity for Charizard" });
     fireEvent.click(increase);
     fireEvent.click(increase);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(screen.getByText("1 of 2 packed")).toBeTruthy();
     expect((increase as HTMLButtonElement).disabled).toBe(true);
+
+    resolveResponse(
+      new Response(JSON.stringify({ error: "Line update failed." }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
 
     await waitFor(() => expect(screen.getByText("0 of 2 packed")).toBeTruthy());
     expect(screen.getByText("Line update failed.")).toBeTruthy();

@@ -132,7 +132,7 @@ export function SettlementPayoutOperationsPage({
       />
 
       <PageSection title={t("settlement.features.payouts.ui.payoutOperationsPage.reconciliation")}>
-        <Card>
+        <Card data-testid="payout-reconciliation-entity" elevation="outlined">
           <Stack gap={3}>
             <Form spacing="none" method="post">
               <HiddenInput type="hidden" name="intent" value="run-reconciliation" />

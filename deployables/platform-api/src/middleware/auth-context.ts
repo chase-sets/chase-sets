@@ -35,8 +35,9 @@ function isInternalIdentityAuthRoute(pathname: string) {
   return pathname.startsWith("/api/identity/internal/auth/");
 }
 
-function isInternalGuestCheckoutClaimRoute(pathname: string) {
+function isInternalGuestCheckoutCapabilityRoute(pathname: string) {
   return (
+    pathname === "/api/auth/guest-checkout/contact" ||
     pathname === "/api/auth/guest-checkout/claim-context" ||
     pathname === "/api/auth/guest-checkout/claim-link/request" ||
     pathname === "/api/auth/guest-checkout/claim-with-magic-link" ||
@@ -62,7 +63,7 @@ export function createIdentityAuthMiddleware(
   return async function identityAuthMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
     const pathname = new URL(c.req.url).pathname;
 
-    if (isInternalIdentityAuthRoute(pathname) || isInternalGuestCheckoutClaimRoute(pathname)) {
+    if (isInternalIdentityAuthRoute(pathname) || isInternalGuestCheckoutCapabilityRoute(pathname)) {
       if (!hasInternalCapability(c.req.raw, internalAuthSecret)) {
         return c.json(authenticationRequiredResponse(), 401);
       }

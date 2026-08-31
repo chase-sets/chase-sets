@@ -11,6 +11,7 @@ import { mapGuestCheckoutClaimLinkRequestedToNotification } from "../../features
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
 import {
+  bindGuestCheckoutContact,
   consumeChallenge,
   consumeGuestCheckoutClaimContinuationToken,
   consumeGuestCheckoutClaimToken,
@@ -60,6 +61,28 @@ function parseCookieHeader(cookieHeader: string | null) {
 function normalizeDisplayName(value: unknown, email: string) {
   const text = String(value ?? "").trim();
   return text || createOwnedUserDisplayName(email);
+}
+
+function guestContactError(code: "guest_contact_required" | "guest_contact_locked") {
+  const messageKey =
+    code === "guest_contact_required"
+      ? "auth.support.apiSupport.guestCheckoutRoutes.guest.contact.is.required"
+      : "auth.support.apiSupport.guestCheckoutRoutes.guest.contact.is.locked";
+  return {
+    error: {
+      code,
+      message: t(messageKey),
+    },
+  };
+}
+
+function readBoundGuestContact(
+  services: AuthServices,
+  tokenRecord: Readonly<{ contact_email: string | null; contact_name: string | null }>,
+) {
+  const contactEmail = services.identity.normalizeEmail(String(tokenRecord.contact_email ?? ""));
+  const contactName = String(tokenRecord.contact_name ?? "").trim();
+  return contactEmail && contactName ? { contactEmail, contactName } : null;
 }
 
 function buildClaimContinuationLink(origin: unknown, paymentId: string, continuation: string) {
@@ -179,18 +202,21 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
   app.post("/guest-checkout/start", async (c) => {
     const body = await c.req.json();
     const email = services.identity.normalizeEmail(String(body.email ?? ""));
-    const displayName = normalizeDisplayName(body.displayName, email);
-    const existingUser = await services.identity.getUserByEmail(email);
-    if (existingUser) {
-      return c.json(
-        {
-          error: {
-            code: "account_sign_in_required",
-            message: t("auth.support.apiSupport.guestCheckoutRoutes.sign.in.to.continue.checkout.with.this.email"),
+    const hasContact = email.length > 0;
+    const displayName = hasContact ? normalizeDisplayName(body.displayName, email) : "Guest";
+    if (hasContact) {
+      const existingUser = await services.identity.getUserByEmail(email);
+      if (existingUser) {
+        return c.json(
+          {
+            error: {
+              code: "account_sign_in_required",
+              message: t("auth.support.apiSupport.guestCheckoutRoutes.sign.in.to.continue.checkout.with.this.email"),
+            },
           },
-        },
-        409,
-      );
+          409,
+        );
+      }
     }
 
     const identityMutations = createIdentityMutations(c);
@@ -205,8 +231,8 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
     await upsertGuestCheckoutToken(services.db, {
       tokenId,
       accountId: account.accountId,
-      contactEmail: email,
-      contactName: displayName,
+      contactEmail: hasContact ? email : null,
+      contactName: hasContact ? displayName : null,
       tokenHash: services.auth.hashSecret(guestToken),
       expiresAt,
     });
@@ -219,6 +245,75 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
       },
       201,
     );
+  });
+
+  app.post("/guest-checkout/contact", async (c) => {
+    const ipLimited = enforceGuestCheckoutClaimIpLimit(c.req.raw);
+    if (ipLimited) {
+      return ipLimited;
+    }
+    const context = await requireGuestCheckoutContext(services, c.req.raw, c.var.actor);
+    if (!context) {
+      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
+    }
+    const accountLimited = enforceGuestCheckoutClaimAccountLimit(context.actor.accountId, "contact");
+    if (accountLimited) {
+      return accountLimited;
+    }
+
+    const body = await c.req.json();
+    const contactEmail = services.identity.normalizeEmail(String(body.email ?? ""));
+    const contactName = String(body.displayName ?? "").trim();
+    if (!contactEmail || !contactName) {
+      return c.json(guestContactError("guest_contact_required"), 400);
+    }
+
+    const requestedContact = { contactEmail, contactName };
+    const currentContact = readBoundGuestContact(services, context.tokenRecord);
+    if (currentContact) {
+      if (currentContact.contactEmail === contactEmail && currentContact.contactName === contactName) {
+        return c.json({ accountId: context.actor.accountId, ...requestedContact });
+      }
+      return c.json(guestContactError("guest_contact_locked"), 409);
+    }
+
+    const existingUser = await services.identity.getUserByEmail(contactEmail);
+    if (existingUser) {
+      return c.json(
+        {
+          error: {
+            code: "account_sign_in_required",
+            message: t("auth.support.apiSupport.guestCheckoutRoutes.sign.in.to.continue.checkout.with.this.email"),
+          },
+        },
+        409,
+      );
+    }
+
+    const tokenHash = services.auth.hashSecret(context.guestToken);
+    const boundRecord = await bindGuestCheckoutContact(services.db, {
+      tokenHash,
+      accountId: context.actor.accountId,
+      contactEmail,
+      contactName,
+    });
+    if (boundRecord) {
+      return c.json({ accountId: context.actor.accountId, ...requestedContact });
+    }
+
+    const latestRecord = await getGuestCheckoutTokenByHash(services.db, tokenHash);
+    if (!latestRecord) {
+      return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.guest.checkout.token.required") }, 401);
+    }
+    const latestContact = readBoundGuestContact(services, latestRecord);
+    if (
+      latestContact?.contactEmail === requestedContact.contactEmail &&
+      latestContact.contactName === requestedContact.contactName
+    ) {
+      return c.json({ accountId: context.actor.accountId, ...requestedContact });
+    }
+
+    return c.json(guestContactError("guest_contact_locked"), 409);
   });
 
   app.post("/guest-checkout/exit", async (c) => {
@@ -245,11 +340,12 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
     }
 
     const body = await c.req.json().catch(() => ({}));
+    const contact = readBoundGuestContact(services, context.tokenRecord);
     return c.json({
       accountId: context.actor.accountId,
       paymentId: String(body.paymentId ?? ""),
-      contactEmail: context.tokenRecord.contact_email,
-      contactName: context.tokenRecord.contact_name,
+      contactEmail: contact?.contactEmail ?? null,
+      contactName: contact?.contactName ?? null,
     });
   });
 
@@ -268,8 +364,12 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
       return accountLimited;
     }
 
-    const email = context.tokenRecord.contact_email;
-    const displayName = context.tokenRecord.contact_name;
+    const contact = readBoundGuestContact(services, context.tokenRecord);
+    if (!contact) {
+      return c.json(guestContactError("guest_contact_required"), 400);
+    }
+    const email = contact.contactEmail;
+    const displayName = contact.contactName;
     const tokenId = createId("cmd");
     const token = services.auth.issueOpaqueToken("claim");
     const continuation = services.auth.issueOpaqueToken("claim-continuation");
@@ -322,12 +422,16 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
       return accountLimited;
     }
 
+    const contact = readBoundGuestContact(services, context.tokenRecord);
+    if (!contact) {
+      return c.json(guestContactError("guest_contact_required"), 400);
+    }
     const identityMutations = createIdentityMutations(c);
     const record = await consumeGuestCheckoutClaimToken(services.db, {
       tokenHash: services.auth.hashSecret(String(body.token ?? "")),
       accountId: context.actor.accountId,
       paymentId: String(body.paymentId ?? "").trim(),
-      email: context.tokenRecord.contact_email,
+      email: contact.contactEmail,
     });
     if (!record) {
       return c.json({ error: t("auth.support.apiSupport.guestCheckoutRoutes.claim.link.is.invalid.or.expired") }, 401);
@@ -402,8 +506,12 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
       return accountLimited;
     }
 
+    const contact = readBoundGuestContact(services, context.tokenRecord);
+    if (!contact) {
+      return c.json(guestContactError("guest_contact_required"), 400);
+    }
     const identityMutations = createIdentityMutations(c);
-    const email = context.tokenRecord.contact_email;
+    const email = contact.contactEmail;
     const displayName = normalizeDisplayName(body.displayName, email);
     const challenge = await consumeChallenge(services.db, {
       challengeId: String(body.challengeId ?? ""),

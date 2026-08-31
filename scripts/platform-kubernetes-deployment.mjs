@@ -7,6 +7,11 @@ import {
   buildDoksIngressValues,
   buildPlatformHelmValues,
   buildPreviewDoksIngressValues,
+  managedPostgresCaDigestAnnotation,
+  managedPostgresCaItemPath,
+  managedPostgresCaMountPath,
+  managedPostgresCaSecretKey,
+  managedPostgresCaVolumeName,
   previewWildcardTlsSecretName,
   previewWildcardTlsSecretNamespace,
 } from "./render-platform-helm-values.mjs";
@@ -15,6 +20,10 @@ import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v2";
+export const PLATFORM_KUBERNETES_DEPLOYMENT_TRANSITION_VERSION = "platform-kubernetes-deployment-transition/v1";
+export const PLATFORM_KUBERNETES_STALE_PENDING_RECOVERY_VERSION = "platform-kubernetes-stale-pending-recovery/v1";
+export const PLATFORM_KUBERNETES_STALE_PENDING_ADMISSION_VERSION =
+  "platform-kubernetes-stale-pending-recovery-admission/v1";
 export const PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION = "platform-kubernetes-scenario-seed/v1";
 export const managedRegistryPullSecretName = "chase-sets";
 export const scenarioSeedMaxActiveDeadlineSeconds = 3_300;
@@ -112,6 +121,10 @@ export function buildHelmUpgradeArgs(options = {}) {
   const imagePullSecret = managedRegistryPullSecret(options.imagePullSecret);
   const requestedEnvOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
   const deploymentEnvironment = requestedEnvOverrides.DEPLOYMENT_ENVIRONMENT;
+  const managedPostgresCaSha256 =
+    deploymentEnvironment === "staging" || deploymentEnvironment === "production"
+      ? requiredLowercaseSha256(options.managedPostgresCaSha256, "managed-postgres-ca-sha256")
+      : null;
   const observabilityEnabled =
     (deploymentEnvironment === "staging" || deploymentEnvironment === "production") &&
     requestedEnvOverrides.OBSERVABILITY_ENABLED !== "false";
@@ -218,6 +231,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...rolloutSetArgs,
     ...waveExposureSetArgs,
     ...previewSchedulingSetArgs,
+    ...(managedPostgresCaSha256 ? ["--set-string", `global.managedPostgresCaSha256=${managedPostgresCaSha256}`] : []),
     "--set-string",
     `global.image.registry=${image.registry}`,
     "--set-string",
@@ -234,6 +248,28 @@ export function buildHelmUpgradeArgs(options = {}) {
       "--set-string",
       `global.envOverrides.${name}=${escapeHelmSetStringValue(value)}`,
     ]),
+  ];
+}
+
+export function buildManagedPostgresCaReconcileArgs(options = {}) {
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const timeout = requiredOption(options.timeout ?? defaultTimeout, "timeout");
+  const digest = requiredLowercaseSha256(options.managedPostgresCaSha256, "managed-postgres-ca-sha256");
+  return [
+    "upgrade",
+    release,
+    chartPath,
+    "--namespace",
+    namespace,
+    "--reuse-values",
+    "--wait",
+    "--timeout",
+    timeout,
+    "--atomic",
+    "--no-hooks",
+    "--set-string",
+    `global.managedPostgresCaSha256=${digest}`,
   ];
 }
 
@@ -624,7 +660,311 @@ export function buildKubernetesRollbackTarget(options = {}) {
     observedDigest: options.observedDigest ?? digest,
     ...(options.imageIdentityProof ? { imageIdentityProof: options.imageIdentityProof } : {}),
     workloadIdentities: options.workloadIdentities ?? [],
+    ...(options.historyHeadRevision != null ? { historyHeadRevision: options.historyHeadRevision } : {}),
+    ...(options.terminalFailedSuffix
+      ? { terminalFailedSuffix: options.terminalFailedSuffix.map((entry) => ({ ...entry })) }
+      : {}),
+    ...(options.preDeployHistory ? { preDeployHistory: options.preDeployHistory.map((entry) => ({ ...entry })) } : {}),
   };
+}
+
+export function selectStableDeployedHelmSource(history) {
+  const deployed = history.filter((entry) => entry.status === "deployed");
+  if (deployed.length !== 1) {
+    throw new Error(
+      `Rollback target capture requires exactly one deployed Helm revision; observed ${deployed.length}.`,
+    );
+  }
+
+  const source = deployed[0];
+  const sourceIndex = history.indexOf(source);
+  const terminalFailedSuffix = history.slice(sourceIndex + 1);
+  const rejectedEntry = terminalFailedSuffix.find((entry) => entry.status !== "failed");
+  if (rejectedEntry) {
+    throw new Error(
+      `Rollback target capture requires every Helm revision after deployed source ${source.revision} to have status "failed"; revision ${rejectedEntry.revision} has status ${JSON.stringify(rejectedEntry.status)}.`,
+    );
+  }
+
+  return {
+    source,
+    historyHead: history.at(-1),
+    terminalFailedSuffix,
+  };
+}
+
+export function selectStableStalePendingUpgrade(history, options = {}) {
+  const sourceRevision = positiveHelmRevision(options.sourceRevision, "sourceRevision");
+  const pendingRevision = positiveHelmRevision(options.pendingRevision, "pendingRevision");
+  const sourceDescription = requiredOption(options.sourceDescription, "sourceDescription");
+  const pendingDescription = requiredOption(options.pendingDescription, "pendingDescription");
+  const deployed = history.filter((entry) => entry.status === "deployed");
+  if (deployed.length !== 1) {
+    throw new Error(
+      `Stale pending-upgrade recovery requires exactly one deployed Helm revision; observed ${deployed.length}.`,
+    );
+  }
+
+  const source = deployed[0];
+  if (source.revision !== sourceRevision || source.description !== sourceDescription) {
+    throw new Error(
+      `Stale pending-upgrade recovery source must be revision ${sourceRevision} with description ${JSON.stringify(sourceDescription)}; observed ${source.revision}/${JSON.stringify(source.description)}.`,
+    );
+  }
+  const sourceIndex = history.indexOf(source);
+  const frontier = history.slice(sourceIndex + 1);
+  if (frontier.length !== 1) {
+    throw new Error(
+      `Stale pending-upgrade recovery requires exactly one revision after source ${sourceRevision}; observed ${frontier.length}.`,
+    );
+  }
+  const pending = frontier[0];
+  if (
+    pending.revision !== pendingRevision ||
+    pendingRevision !== sourceRevision + 1 ||
+    pending.status !== "pending-upgrade" ||
+    pending.description !== pendingDescription
+  ) {
+    throw new Error(
+      `Stale pending-upgrade recovery requires revision ${pendingRevision} status "pending-upgrade" and description ${JSON.stringify(pendingDescription)} immediately after source ${sourceRevision}; observed ${pending.revision}/${JSON.stringify(pending.status)}/${JSON.stringify(pending.description)}.`,
+    );
+  }
+  requiredOption(source.updated, `Helm revision ${sourceRevision} updated timestamp`);
+  requiredOption(pending.updated, `Helm revision ${pendingRevision} updated timestamp`);
+  return { source, pending };
+}
+
+const activeActionsRunStatuses = ["requested", "pending", "queued", "in_progress", "waiting"];
+const productionHelmWriterWorkflows = new Set(["Platform Deploy", "Platform Production Stale Helm Recovery"]);
+
+export function assertExclusiveProductionHelmWriter(census, options = {}) {
+  if (!census || census.schemaVersion !== "github-actions-production-writer-census/v1") {
+    throw new Error("Production Helm recovery requires a complete GitHub Actions writer census.");
+  }
+  const currentRunId = requiredOption(options.currentRunId, "currentRunId");
+  if (String(census.currentRunId) !== String(currentRunId)) {
+    throw new Error(
+      `Production Helm writer census run ${census.currentRunId ?? "absent"} does not match current run ${currentRunId}.`,
+    );
+  }
+  if (!Array.isArray(census.writerRuns)) {
+    throw new Error("Production Helm writer census must contain writerRuns.");
+  }
+  if (census.writerRuns.length !== 1) {
+    throw new Error(
+      `Production Helm recovery requires its run to be the only active writer; observed ${census.writerRuns.length}.`,
+    );
+  }
+  const writer = census.writerRuns[0];
+  if (
+    String(writer.id) !== String(currentRunId) ||
+    writer.name !== "Platform Production Stale Helm Recovery" ||
+    writer.status !== "in_progress"
+  ) {
+    throw new Error(
+      `Production Helm recovery writer must be current in-progress run ${currentRunId}; observed ${writer.id ?? "absent"}/${JSON.stringify(writer.name)}/${JSON.stringify(writer.status)}.`,
+    );
+  }
+  return writer;
+}
+
+function activeHelmHookOperation(item) {
+  if (!Object.hasOwn(item?.metadata?.annotations ?? {}, "helm.sh/hook")) {
+    return false;
+  }
+  if (item.kind === "Job") {
+    const terminal = (item.status?.conditions ?? []).some(
+      (condition) => ["Complete", "Failed"].includes(condition.type) && condition.status === "True",
+    );
+    return !terminal;
+  }
+  if (item.kind === "Pod") {
+    return ["Pending", "Running", "Unknown"].includes(item.status?.phase);
+  }
+  return true;
+}
+
+export async function readHelmOperationCensus(options = {}) {
+  const release = options.release ?? defaultRelease;
+  const namespace = options.namespace ?? defaultNamespace;
+  const result = await runProcess({
+    command: options.kubectlPath ?? "kubectl",
+    args: [
+      "get",
+      "jobs,pods",
+      "--namespace",
+      namespace,
+      "--selector",
+      `app.kubernetes.io/instance=${release}`,
+      "--output",
+      "json",
+    ],
+    spawn: options.spawn,
+    captureOutput: true,
+  });
+  const list = parseJsonCommandOutput(result.stdout, "Helm operation census");
+  if (!list || !Array.isArray(list.items)) {
+    throw new Error("Helm operation census must contain an items array.");
+  }
+  const hooks = list.items
+    .filter((item) => Object.hasOwn(item?.metadata?.annotations ?? {}, "helm.sh/hook"))
+    .map((item) => ({
+      kind: requiredOption(item.kind, "Helm hook operation kind"),
+      name: requiredOption(item.metadata?.name, "Helm hook operation name"),
+      hooks: requiredOption(item.metadata?.annotations?.["helm.sh/hook"], "Helm hook operation annotation"),
+      active: activeHelmHookOperation(item),
+      phase: item.status?.phase ?? null,
+      activeCount: item.status?.active ?? null,
+      conditions: (item.status?.conditions ?? []).map(({ type, status }) => ({ type, status })),
+      creationTimestamp: item.metadata?.creationTimestamp ?? null,
+      deletionTimestamp: item.metadata?.deletionTimestamp ?? null,
+    }))
+    .sort((left, right) => `${left.kind}/${left.name}`.localeCompare(`${right.kind}/${right.name}`, "en"));
+  return {
+    schemaVersion: "platform-kubernetes-helm-operation-census/v1",
+    capturedAt: options.checkedAt ?? new Date().toISOString(),
+    release,
+    namespace,
+    hooks,
+    activeOperations: hooks.filter((hook) => hook.active),
+  };
+}
+
+export function assertNoActiveHelmOperation(census) {
+  if (!census || census.schemaVersion !== "platform-kubernetes-helm-operation-census/v1") {
+    throw new Error("Stale pending-upgrade recovery requires a complete Helm operation census.");
+  }
+  if (!Array.isArray(census.activeOperations)) {
+    throw new Error("Helm operation census must contain activeOperations.");
+  }
+  if (census.activeOperations.length > 0) {
+    throw new Error(
+      `Stale pending-upgrade recovery requires no active Helm hook operation; observed ${census.activeOperations.map(({ kind, name }) => `${kind}/${name}`).join(", ")}.`,
+    );
+  }
+}
+
+export async function readGitHubProductionWriterCensus(options = {}) {
+  const env = options.env ?? process.env;
+  const token = requiredOption(env.GITHUB_TOKEN, "GITHUB_TOKEN");
+  const repository = requiredOption(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
+  const currentRunId = requiredOption(env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
+  const apiUrl = requiredOption(env.GITHUB_API_URL ?? "https://api.github.com", "GITHUB_API_URL").replace(/\/$/, "");
+  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const runsById = new Map();
+
+  for (const status of activeActionsRunStatuses) {
+    let page = 1;
+    let collected = 0;
+    let totalCount = null;
+    do {
+      if (page > 10) {
+        throw new Error(`GitHub Actions ${status} run census exceeded the bounded 10-page limit.`);
+      }
+      const response = await fetchImpl(
+        `${apiUrl}/repos/${repository}/actions/runs?status=${status}&per_page=100&page=${page}`,
+        {
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${token}`,
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`GitHub Actions ${status} run census failed with HTTP ${response.status}.`);
+      }
+      const body = await response.json();
+      if (!Array.isArray(body.workflow_runs) || !Number.isSafeInteger(body.total_count) || body.total_count < 0) {
+        throw new Error(`GitHub Actions ${status} run census returned an invalid response.`);
+      }
+      totalCount ??= body.total_count;
+      if (body.total_count !== totalCount) {
+        throw new Error(`GitHub Actions ${status} run census total moved during pagination.`);
+      }
+      for (const run of body.workflow_runs) {
+        runsById.set(String(run.id), {
+          id: run.id,
+          name: run.name,
+          status: run.status,
+          event: run.event,
+          headSha: run.head_sha,
+          headBranch: run.head_branch,
+          runAttempt: run.run_attempt,
+          actor: run.actor?.login ?? null,
+          createdAt: run.created_at,
+          runStartedAt: run.run_started_at,
+          updatedAt: run.updated_at,
+          htmlUrl: run.html_url,
+        });
+      }
+      collected += body.workflow_runs.length;
+      page += 1;
+    } while (collected < totalCount);
+    if (collected !== totalCount) {
+      throw new Error(
+        `GitHub Actions ${status} run census pagination was incomplete; collected ${collected} of ${totalCount}.`,
+      );
+    }
+  }
+
+  const runs = [...runsById.values()].sort((left, right) => Number(left.id) - Number(right.id));
+  return {
+    schemaVersion: "github-actions-production-writer-census/v1",
+    capturedAt: options.checkedAt ?? new Date().toISOString(),
+    repository,
+    currentRunId: String(currentRunId),
+    statuses: [...activeActionsRunStatuses],
+    runs,
+    writerRuns: runs.filter((run) => productionHelmWriterWorkflows.has(run.name)),
+  };
+}
+
+export function verifyStalePendingRecoveryTransition(admissionHistory, observedHistory, options = {}) {
+  const sourceRevision = positiveHelmRevision(options.sourceRevision, "sourceRevision");
+  const pendingRevision = positiveHelmRevision(options.pendingRevision, "pendingRevision");
+  const resultingRevision = pendingRevision + 1;
+  const admissionByRevision = new Map(admissionHistory.map((entry) => [entry.revision, entry]));
+  const observedByRevision = new Map(observedHistory.map((entry) => [entry.revision, entry]));
+  const newEntries = observedHistory.filter((entry) => entry.revision > pendingRevision);
+  if (newEntries.length !== 1 || newEntries[0].revision !== resultingRevision) {
+    throw new Error(
+      `Stale pending-upgrade recovery requires exactly resulting revision ${resultingRevision}; observed ${newEntries.map((entry) => entry.revision).join(", ") || "none"}.`,
+    );
+  }
+
+  for (const requiredRevision of [sourceRevision, pendingRevision]) {
+    if (!observedByRevision.has(requiredRevision)) {
+      throw new Error(`Stale pending-upgrade recovery removed required revision ${requiredRevision}.`);
+    }
+  }
+
+  for (const observed of observedHistory) {
+    if (observed.revision > pendingRevision) {
+      continue;
+    }
+    const admitted = admissionByRevision.get(observed.revision);
+    if (!admitted) {
+      throw new Error(`Stale pending-upgrade recovery observed unadmitted revision ${observed.revision}.`);
+    }
+    if (observed.description !== admitted.description) {
+      throw new Error(`Stale pending-upgrade recovery moved revision ${admitted.revision}.`);
+    }
+    const expectedStatus =
+      admitted.revision === sourceRevision && admitted.status === "deployed" ? "superseded" : admitted.status;
+    if (observed.status !== expectedStatus) {
+      throw new Error(
+        `Stale pending-upgrade recovery revision ${admitted.revision} must have status ${JSON.stringify(expectedStatus)}; observed ${JSON.stringify(observed.status)}.`,
+      );
+    }
+  }
+  const resulting = newEntries[0];
+  if (!resulting || resulting.status !== "deployed" || resulting.description !== `Rollback to ${sourceRevision}`) {
+    throw new Error(
+      `Stale pending-upgrade recovery resulting revision ${resultingRevision} must be deployed with description ${JSON.stringify(`Rollback to ${sourceRevision}`)}.`,
+    );
+  }
+  return resulting;
 }
 
 export async function captureKubernetesRollbackTarget(options = {}) {
@@ -638,19 +978,7 @@ export async function captureKubernetesRollbackTarget(options = {}) {
   }
   requiredOption(options.releaseTag, "releaseTag");
   const initialHistory = await readHelmHistory(options);
-  const deployed = initialHistory.filter((entry) => entry.status === "deployed");
-  if (deployed.length !== 1) {
-    throw new Error(
-      `Rollback target capture requires exactly one deployed Helm revision; observed ${deployed.length}.`,
-    );
-  }
-  const source = deployed[0];
-  const historyHead = initialHistory.at(-1);
-  if (!historyHead || historyHead.revision !== source.revision) {
-    throw new Error(
-      `Deployed Helm revision ${source.revision} is not the current history head ${historyHead?.revision ?? "absent"}.`,
-    );
-  }
+  const { source, historyHead, terminalFailedSuffix } = selectStableDeployedHelmSource(initialHistory);
 
   const values = await readHelmRevisionValues({ ...options, revision: source.revision });
   const observedIdentity = platformImageIdentityFromValues(values);
@@ -679,8 +1007,302 @@ export async function captureKubernetesRollbackTarget(options = {}) {
     observedDigest: observedIdentity.digest,
     imageIdentityProof,
     workloadIdentities,
+    historyHeadRevision: historyHead.revision,
+    terminalFailedSuffix,
+    preDeployHistory: initialHistory,
     values,
   });
+}
+
+function compactHelmHistory(history) {
+  return history.map(({ revision, status, description }) => ({ revision, status, description }));
+}
+
+export async function recoverStableStalePendingUpgrade(options = {}) {
+  const checkedAt = options.checkedAt ?? new Date().toISOString();
+  const sourceRevision = positiveHelmRevision(options.sourceRevision, "sourceRevision");
+  const pendingRevision = positiveHelmRevision(options.pendingRevision, "pendingRevision");
+  const sourceDescription = requiredOption(options.sourceDescription, "sourceDescription");
+  const pendingDescription = requiredOption(options.pendingDescription, "pendingDescription");
+  const issueNumber = positiveHelmRevision(options.issueNumber, "issueNumber");
+  const env = options.env ?? process.env;
+  const currentRunId = requiredOption(env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
+  const readWriterCensus = options.readWriterCensus ?? readGitHubProductionWriterCensus;
+  const readOperationCensus = options.readOperationCensus ?? readHelmOperationCensus;
+  const rollback = options.rollback ?? rollbackPlatformOnKubernetes;
+  const observations = {
+    writerCensuses: [],
+    operationCensuses: [],
+    preRecoveryHistories: [],
+    postRecoveryHistories: [],
+  };
+  let admission = null;
+  let rollbackEvidence = null;
+  let mutationAttempted = false;
+
+  try {
+    const expectedIdentity = expectedRollbackImageIdentity(options);
+    const lastKnownGoodCommit = requiredOption(options.lastKnownGoodCommit, "lastKnownGoodCommit");
+    if (!/^[0-9a-f]{40}$/i.test(lastKnownGoodCommit)) {
+      throw new Error("lastKnownGoodCommit must be a 40-character Git commit SHA.");
+    }
+    if (expectedIdentity.tag !== lastKnownGoodCommit) {
+      throw new Error("Stale pending-upgrade recovery Helm image tag must equal lastKnownGoodCommit.");
+    }
+    requiredOption(options.releaseTag, "releaseTag");
+
+    const initialCensus = await readWriterCensus({ ...options, checkedAt });
+    observations.writerCensuses.push(initialCensus);
+    assertExclusiveProductionHelmWriter(initialCensus, { currentRunId });
+
+    const initialOperationCensus = await readOperationCensus({ ...options, checkedAt });
+    observations.operationCensuses.push(initialOperationCensus);
+    assertNoActiveHelmOperation(initialOperationCensus);
+
+    const initialHistory = await readHelmHistory({ ...options, includeHistoryMetadata: true });
+    observations.preRecoveryHistories.push(initialHistory);
+    const { source, pending } = selectStableStalePendingUpgrade(initialHistory, {
+      sourceRevision,
+      pendingRevision,
+      sourceDescription,
+      pendingDescription,
+    });
+    const values = await readHelmRevisionValues({ ...options, revision: sourceRevision });
+    const observedIdentity = platformImageIdentityFromValues(values);
+    const imageIdentityProof = assertCapturedRollbackImageIdentity(
+      observedIdentity,
+      expectedIdentity,
+      `Helm revision ${sourceRevision}`,
+      options,
+    );
+    const workloadIdentities = await readApplicationWorkloadIdentities({
+      ...options,
+      values,
+      expectedImageRef: observedIdentity.imageRef,
+    });
+
+    const stableHistory = await readHelmHistory({ ...options, includeHistoryMetadata: true });
+    observations.preRecoveryHistories.push(stableHistory);
+    assertHelmHistoryUnchanged(initialHistory, stableHistory, "stale pending-upgrade recovery admission");
+    selectStableStalePendingUpgrade(stableHistory, {
+      sourceRevision,
+      pendingRevision,
+      sourceDescription,
+      pendingDescription,
+    });
+
+    const stableOperationCensus = await readOperationCensus({ ...options, checkedAt });
+    observations.operationCensuses.push(stableOperationCensus);
+    assertNoActiveHelmOperation(stableOperationCensus);
+
+    const stableCensus = await readWriterCensus({ ...options, checkedAt });
+    observations.writerCensuses.push(stableCensus);
+    assertExclusiveProductionHelmWriter(stableCensus, { currentRunId });
+
+    const rollbackTarget = buildKubernetesRollbackTarget({
+      ...options,
+      values,
+      tag: observedIdentity.tag,
+      digest: observedIdentity.digest,
+      sourceRevision: source.revision,
+      sourceStatus: source.status,
+      sourceDescription: source.description,
+      observedTag: observedIdentity.tag,
+      observedDigest: observedIdentity.digest,
+      imageIdentityProof,
+      workloadIdentities,
+    });
+    admission = {
+      schemaVersion: PLATFORM_KUBERNETES_STALE_PENDING_ADMISSION_VERSION,
+      result: "admitted",
+      checkedAt,
+      issueNumber,
+      release: options.release ?? defaultRelease,
+      namespace: options.namespace ?? defaultNamespace,
+      sourceRevision,
+      pendingRevision,
+      sourceUpdated: source.updated,
+      pendingUpdated: pending.updated,
+      writerCensuses: observations.writerCensuses,
+      operationCensuses: observations.operationCensuses,
+      histories: observations.preRecoveryHistories,
+      rollbackTarget,
+    };
+    await options.onAdmission?.(admission);
+
+    mutationAttempted = true;
+    rollbackEvidence = await rollback({
+      ...options,
+      revision: sourceRevision,
+      rollbackTarget,
+      expectedPreRollbackHistory: compactHelmHistory(stableHistory),
+    });
+    if (rollbackEvidence.result !== "success") {
+      throw new Error(`Exact Helm rollback failed: ${rollbackEvidence.reason ?? "unknown failure"}`);
+    }
+
+    const resultingHistory = await readHelmHistory({ ...options, includeHistoryMetadata: true });
+    observations.postRecoveryHistories.push(resultingHistory);
+    verifyStalePendingRecoveryTransition(stableHistory, resultingHistory, { sourceRevision, pendingRevision });
+    const stableResultingHistory = await readHelmHistory({ ...options, includeHistoryMetadata: true });
+    observations.postRecoveryHistories.push(stableResultingHistory);
+    assertHelmHistoryUnchanged(resultingHistory, stableResultingHistory, "stale pending-upgrade recovery result");
+    verifyStalePendingRecoveryTransition(stableHistory, stableResultingHistory, { sourceRevision, pendingRevision });
+
+    return {
+      schemaVersion: PLATFORM_KUBERNETES_STALE_PENDING_RECOVERY_VERSION,
+      result: "success",
+      checkedAt,
+      issueNumber,
+      admission,
+      rollback: rollbackEvidence,
+      postRecoveryHistories: observations.postRecoveryHistories,
+    };
+  } catch (error) {
+    return {
+      schemaVersion: PLATFORM_KUBERNETES_STALE_PENDING_RECOVERY_VERSION,
+      result: mutationAttempted ? "failure" : "refused",
+      checkedAt,
+      issueNumber,
+      reason: diagnosticFailureReason(error),
+      ...(admission ? { admission } : {}),
+      ...(rollbackEvidence ? { rollback: rollbackEvidence } : {}),
+      observations,
+    };
+  }
+}
+
+function capturedTransitionHistory(rollbackTarget) {
+  if (!rollbackTarget || typeof rollbackTarget !== "object" || Array.isArray(rollbackTarget)) {
+    throw new Error("Deployment transition verification requires a rollback target record.");
+  }
+  if (rollbackTarget.schemaVersion !== PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION) {
+    throw new Error(
+      `Deployment transition verification requires ${PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION}; observed ${JSON.stringify(rollbackTarget.schemaVersion)}.`,
+    );
+  }
+  const history = rollbackTarget.preDeployHistory;
+  if (!Array.isArray(history) || history.length === 0) {
+    throw new Error("Deployment transition rollback target must contain a non-empty preDeployHistory array.");
+  }
+
+  for (const [index, entry] of history.entries()) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Deployment transition preDeployHistory entry ${index} must be an object.`);
+    }
+    positiveHelmRevision(entry.revision, `Deployment transition preDeployHistory entry ${index} revision`);
+    const status = requiredOption(entry.status, `Deployment transition preDeployHistory entry ${index} status`);
+    if (status !== status.trim().toLowerCase()) {
+      throw new Error(`Deployment transition preDeployHistory entry ${index} status must already be normalized.`);
+    }
+    if (typeof entry.description !== "string" || entry.description !== entry.description.trim()) {
+      throw new Error(`Deployment transition preDeployHistory entry ${index} description must already be normalized.`);
+    }
+    if (index > 0 && history[index - 1].revision >= entry.revision) {
+      throw new Error("Deployment transition preDeployHistory revisions must be strictly increasing.");
+    }
+  }
+
+  const capturedHeadRevision = positiveHelmRevision(
+    rollbackTarget.historyHeadRevision,
+    "rollback target historyHeadRevision",
+  );
+  if (history.at(-1).revision !== capturedHeadRevision) {
+    throw new Error(
+      `Deployment transition rollback target history head ${history.at(-1).revision} does not match captured head ${capturedHeadRevision}.`,
+    );
+  }
+
+  const { source, terminalFailedSuffix } = selectStableDeployedHelmSource(history);
+  if (rollbackTarget.sourceRevision !== source.revision || rollbackTarget.sourceStatus !== source.status) {
+    throw new Error(
+      `Deployment transition rollback target source ${rollbackTarget.sourceRevision ?? "absent"}/${JSON.stringify(rollbackTarget.sourceStatus)} does not match captured history source ${source.revision}/${JSON.stringify(source.status)}.`,
+    );
+  }
+  if (JSON.stringify(rollbackTarget.terminalFailedSuffix) !== JSON.stringify(terminalFailedSuffix)) {
+    throw new Error("Deployment transition rollback target terminalFailedSuffix does not match captured history.");
+  }
+  return { history, capturedHeadRevision, source, terminalFailedSuffix };
+}
+
+function reconcileCapturedTransitionHistory({
+  capturedHistory,
+  observedHistory,
+  capturedHeadRevision,
+  source,
+  terminalFailedSuffix,
+}) {
+  const capturedByRevision = new Map(capturedHistory.map((entry) => [entry.revision, entry]));
+  const observedByRevision = new Map(observedHistory.map((entry) => [entry.revision, entry]));
+
+  for (const observedEntry of observedHistory) {
+    if (observedEntry.revision > capturedHeadRevision) {
+      continue;
+    }
+    const capturedEntry = capturedByRevision.get(observedEntry.revision);
+    if (!capturedEntry) {
+      throw new Error(
+        `Observed Helm revision ${observedEntry.revision} was not present in the captured deployment transition history.`,
+      );
+    }
+    const preservesStatus =
+      observedEntry.status === capturedEntry.status ||
+      (capturedEntry.revision === source.revision &&
+        capturedEntry.status === "deployed" &&
+        observedEntry.status === "superseded");
+    if (!preservesStatus || observedEntry.description !== capturedEntry.description) {
+      throw new Error(`Captured Helm revision ${capturedEntry.revision} moved during deployment transition.`);
+    }
+  }
+
+  for (const failedEntry of terminalFailedSuffix) {
+    const observedEntry = observedByRevision.get(failedEntry.revision);
+    if (!observedEntry || observedEntry.status !== "failed" || observedEntry.description !== failedEntry.description) {
+      throw new Error(`Captured terminal failed revision ${failedEntry.revision} moved or disappeared.`);
+    }
+  }
+}
+
+export async function verifyKubernetesDeploymentTransition(options = {}) {
+  const {
+    history: capturedHistory,
+    capturedHeadRevision,
+    source,
+    terminalFailedSuffix,
+  } = capturedTransitionHistory(options.rollbackTarget);
+  const observedHistory = await readHelmHistory(options);
+  const expectedRevision = capturedHeadRevision + 1;
+  const newEntries = observedHistory.filter((entry) => entry.revision > capturedHeadRevision);
+  if (newEntries.length !== 1 || newEntries[0].revision !== expectedRevision) {
+    throw new Error(
+      `Deployment transition expected only revision ${expectedRevision}; observed ${newEntries.map((entry) => entry.revision).join(", ") || "none"}.`,
+    );
+  }
+  reconcileCapturedTransitionHistory({
+    capturedHistory,
+    observedHistory,
+    capturedHeadRevision,
+    source,
+    terminalFailedSuffix,
+  });
+
+  const resultingHead = newEntries[0];
+  if (resultingHead.status !== "deployed") {
+    throw new Error(
+      `Deployment transition requires resulting Helm revision ${resultingHead.revision} to have status "deployed"; observed ${JSON.stringify(resultingHead.status)}.`,
+    );
+  }
+
+  return {
+    schemaVersion: PLATFORM_KUBERNETES_DEPLOYMENT_TRANSITION_VERSION,
+    checkedAt: options.checkedAt ?? new Date().toISOString(),
+    release: options.release ?? defaultRelease,
+    namespace: options.namespace ?? defaultNamespace,
+    capturedHeadRevision,
+    resultingHeadRevision: resultingHead.revision,
+    capturedHistory: capturedHistory.map((entry) => ({ ...entry })),
+    observedHistory,
+  };
 }
 
 function expectedRollbackImageIdentity(options) {
@@ -876,6 +1498,9 @@ async function readHelmHistory(options) {
       if (!entry || typeof entry !== "object") {
         throw new Error(`Helm history entry ${index} must be an object.`);
       }
+      if (options.includeHistoryMetadata && typeof entry.updated !== "string") {
+        throw new Error(`Helm history entry ${index} updated must be a string.`);
+      }
       return {
         revision: positiveHelmRevision(entry.revision, `Helm history entry ${index} revision`),
         status: requiredOption(
@@ -885,6 +1510,13 @@ async function readHelmHistory(options) {
           `Helm history entry ${index} status`,
         ),
         description: String(entry.description ?? "").trim(),
+        ...(options.includeHistoryMetadata
+          ? {
+              updated: requiredOption(String(entry.updated ?? "").trim(), `Helm history entry ${index} updated`),
+              chart: String(entry.chart ?? "").trim(),
+              appVersion: String(entry.app_version ?? "").trim(),
+            }
+          : {}),
       };
     })
     .sort((left, right) => left.revision - right.revision);
@@ -1070,6 +1702,29 @@ export async function deployPlatformToKubernetes(options = {}) {
   });
 }
 
+export async function reconcileManagedPostgresCaOnKubernetes(options = {}) {
+  const helmPath = options.helmPath ?? "helm";
+  const kubectlPath = options.kubectlPath ?? "kubectl";
+  const workloads = options.workloads ?? platformKubernetesWorkloads(options);
+  await runProcess({
+    command: helmPath,
+    args: buildManagedPostgresCaReconcileArgs(options),
+    spawn: options.spawn,
+  });
+  await waitForPlatformWorkloads({
+    ...options,
+    kubectlPath,
+    workloads,
+    acceptedRolloutPhases: ["Paused", "Healthy"],
+  });
+  return buildDeploymentEvidence({
+    ...options,
+    action: "managed-postgres-ca-reconcile",
+    result: "success",
+    workloads,
+  });
+}
+
 export function buildScenarioSeedJobManifest(options = {}) {
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
   const release = requiredOption(options.release ?? defaultRelease, "release");
@@ -1079,10 +1734,14 @@ export function buildScenarioSeedJobManifest(options = {}) {
   if (envOverrides.DEPLOYMENT_ENVIRONMENT !== "staging") {
     throw new Error("The post-deploy scenario seed Job is staging-only; DEPLOYMENT_ENVIRONMENT must be staging.");
   }
+  const managedPostgresCaSha256 = requiredLowercaseSha256(
+    options.managedPostgresCaSha256,
+    "managed-postgres-ca-sha256",
+  );
 
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
   const component = values.components?.["platform-bootstrap"];
-  if (!component || component.kind !== "job") {
+  if (!component || component.kind !== "job" || component.managedPostgresCa !== true) {
     throw new Error("The platform-bootstrap Job definition is required to build the post-deploy scenario seed Job.");
   }
 
@@ -1160,6 +1819,9 @@ export function buildScenarioSeedJobManifest(options = {}) {
             "app.kubernetes.io/instance": release,
             "app.kubernetes.io/component": "scenario-seed",
           },
+          annotations: {
+            [managedPostgresCaDigestAnnotation]: managedPostgresCaSha256,
+          },
         },
         spec: {
           restartPolicy: "Never",
@@ -1177,9 +1839,25 @@ export function buildScenarioSeedJobManifest(options = {}) {
                   : component.command,
               ],
               env,
+              volumeMounts: [
+                {
+                  name: managedPostgresCaVolumeName,
+                  mountPath: managedPostgresCaMountPath,
+                  readOnly: true,
+                },
+              ],
               ...(component.resources && Object.keys(component.resources).length > 0
                 ? { resources: component.resources }
                 : {}),
+            },
+          ],
+          volumes: [
+            {
+              name: managedPostgresCaVolumeName,
+              secret: {
+                secretName,
+                items: [{ key: managedPostgresCaSecretKey, path: managedPostgresCaItemPath }],
+              },
             },
           ],
         },
@@ -1374,6 +2052,9 @@ export async function rollbackPlatformOnKubernetes(options = {}) {
     const sourceRevision = positiveHelmRevision(options.revision, "revision");
     rollbackIdentity.sourceRevision = sourceRevision;
     const initialHistory = await readHelmHistory({ ...options, helmPath });
+    if (options.expectedPreRollbackHistory) {
+      assertHelmHistoryUnchanged(options.expectedPreRollbackHistory, initialHistory, "exact pre-rollback compare");
+    }
     const source = initialHistory.find((entry) => entry.revision === sourceRevision);
     if (!source) {
       throw new Error(`Requested rollback revision ${sourceRevision} is absent from Helm history.`);
@@ -1865,6 +2546,14 @@ function requiredSha256Digest(value, name) {
   return String(normalized).toLowerCase();
 }
 
+function requiredLowercaseSha256(value, name) {
+  const normalized = requiredOption(value, name);
+  if (!/^[0-9a-f]{64}$/.test(String(normalized))) {
+    throw new Error(`${name} must be a lowercase SHA-256 digest.`);
+  }
+  return String(normalized);
+}
+
 function runProcess(options) {
   const spawnImpl = options.spawn ?? spawn;
 
@@ -1950,6 +2639,7 @@ export function parseArgs(argv, env = process.env) {
     !command ||
     ![
       "deploy",
+      "reconcile-managed-postgres-ca",
       "scenario-seed",
       "promote",
       "abort",
@@ -1957,11 +2647,13 @@ export function parseArgs(argv, env = process.env) {
       "diagnostics",
       "plan",
       "capture-rollback-target",
+      "verify-deployment-transition",
+      "recover-stale-pending-upgrade",
       "teardown",
     ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--rollback-target <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|reconcile-managed-postgres-ca|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|verify-deployment-transition|recover-stale-pending-upgrade|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--pending-revision <n>] [--source-description <text>] [--pending-description <text>] [--issue-number <n>] [--admission-out <path>] [--rollback-target <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--managed-postgres-ca-sha256 <digest>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -1983,7 +2675,13 @@ export function parseArgs(argv, env = process.env) {
     quiesceWorkers: readBooleanOption(rest, "--quiesce-workers", env.CHASE_SETS_SCENARIO_SEED_QUIESCE_WORKERS),
     betaWaveSize: readOption(rest, "--beta-wave-size", env.BETA_WAVE_SIZE),
     betaWaveRolloutExposure: readOption(rest, "--beta-wave-rollout-exposure", env.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT),
+    managedPostgresCaSha256: readOption(rest, "--managed-postgres-ca-sha256", env.MANAGED_POSTGRES_CA_SHA256),
     revision: readOption(rest, "--revision", env.CHASE_SETS_HELM_ROLLBACK_REVISION),
+    sourceRevision: readOption(rest, "--revision", env.CHASE_SETS_HELM_ROLLBACK_REVISION),
+    pendingRevision: readOption(rest, "--pending-revision", env.CHASE_SETS_HELM_PENDING_REVISION),
+    sourceDescription: readOption(rest, "--source-description", env.CHASE_SETS_HELM_SOURCE_DESCRIPTION),
+    pendingDescription: readOption(rest, "--pending-description", env.CHASE_SETS_HELM_PENDING_DESCRIPTION),
+    issueNumber: readOption(rest, "--issue-number", env.RECOVERY_ISSUE_NUMBER),
     helmPath: readOption(rest, "--helm", env.HELM_PATH ?? "helm"),
     kubectlPath: readOption(rest, "--kubectl", env.KUBECTL_PATH ?? "kubectl"),
     registryName: readOption(rest, "--registry-name", env.DIGITALOCEAN_CONTAINER_REGISTRY_NAME),
@@ -1996,6 +2694,7 @@ export function parseArgs(argv, env = process.env) {
     releaseTag: readOption(rest, "--release-tag", env.ROLLBACK_RELEASE_TAG ?? ""),
     rollbackTargetPath: readOption(rest, "--rollback-target", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET),
     outPath: readOption(rest, "--out", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET_OUT),
+    admissionOutPath: readOption(rest, "--admission-out", env.PLATFORM_KUBERNETES_RECOVERY_ADMISSION_OUT),
     jobName: readOption(rest, "--job-name", env.PLATFORM_KUBERNETES_SCENARIO_SEED_JOB_NAME),
     githubOutputPath: readOption(rest, "--github-output", env.GITHUB_OUTPUT),
     env,
@@ -2079,6 +2778,11 @@ async function main(argv, env = process.env) {
     return 0;
   }
 
+  if (options.command === "reconcile-managed-postgres-ca") {
+    console.log(JSON.stringify(await reconcileManagedPostgresCaOnKubernetes(options), null, 2));
+    return 0;
+  }
+
   if (options.command === "scenario-seed") {
     const evidence = await runScenarioSeedOnKubernetes(options);
     if (options.outPath) {
@@ -2141,6 +2845,39 @@ async function main(argv, env = process.env) {
     });
     console.log(JSON.stringify(target, null, 2));
     return 0;
+  }
+
+  if (options.command === "verify-deployment-transition") {
+    const rollbackTargetPath = requiredOption(options.rollbackTargetPath, "rollback-target");
+    const rollbackTarget = parseJsonCommandOutput(readFileSync(rollbackTargetPath, "utf8"), "rollback target file");
+    const transition = await verifyKubernetesDeploymentTransition({ ...options, rollbackTarget });
+    if (options.outPath) {
+      await writeJsonRecord(options.outPath, transition);
+    }
+    console.log(JSON.stringify(transition, null, 2));
+    return 0;
+  }
+
+  if (options.command === "recover-stale-pending-upgrade") {
+    const recovery = await recoverStableStalePendingUpgrade({
+      ...options,
+      onAdmission: options.admissionOutPath
+        ? (admission) => writeJsonRecord(options.admissionOutPath, admission)
+        : undefined,
+    });
+    if (options.outPath) {
+      await writeJsonRecord(options.outPath, recovery);
+    }
+    writeGithubOutput(options.githubOutputPath, {
+      result: recovery.result,
+      recovery_source_revision: recovery.admission?.sourceRevision ?? "",
+      recovery_pending_revision: recovery.admission?.pendingRevision ?? "",
+      recovery_resulting_revision: recovery.rollback?.rollbackIdentity?.resultingRevision ?? "",
+      recovery_observed_tag: recovery.rollback?.rollbackIdentity?.observedTag ?? "",
+      recovery_observed_digest: recovery.rollback?.rollbackIdentity?.observedDigest ?? "",
+    });
+    console.log(JSON.stringify(recovery, null, 2));
+    return recovery.result === "success" ? 0 : 1;
   }
 
   if (options.command === "teardown") {

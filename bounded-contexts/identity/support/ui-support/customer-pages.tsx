@@ -50,7 +50,7 @@ export function AuthFormPage({
         </Heading>
         <Text tone="secondary">{description}</Text>
       </Stack>
-      <Card>
+      <Card elevation="tinted">
         <Form spacing="none" action={action} method={method} onSubmit={onSubmit}>
           <Stack gap={3}>
             {hiddenFields?.map((field) => (
@@ -114,7 +114,7 @@ export function CustomerSummaryPage({
       </Stack>
       {controls}
       {sections.map((section) => (
-        <Card key={section.key ?? section.title}>
+        <Card key={section.key ?? section.title} elevation="tinted">
           <Stack gap={2}>
             <Heading level={2} visualSize={6}>
               {section.title}

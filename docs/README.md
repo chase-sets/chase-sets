@@ -53,6 +53,10 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Settings Ownership](./architecture/settings-ownership.md): decision rule for behavior-coupled settings, User-owned presentation preferences, device-local ephemera, and deployable/design-system boundaries.
 - [Platform Policy Conventions](./architecture/platform-policy-conventions.md): the platform-policy/environment-configuration/compiled-constant tier decision rule, `definePolicy` machinery, the feature-flags-are-not-policy boundary, and the business-literal structure guard.
 
+### Mobile architecture
+
+- [Web SSR And Local-Asset Mobile Clients](./adr/0030-web-ssr-and-local-asset-mobile-clients.md): Capacitor/local-assets decision, shared route/data seams, ownership and capability boundaries, service-worker/release policy, current Search and Account traces, risks, and enforceable fitness rules.
+
 ### Checkout and guest flows
 
 - [Checkout Fresh-State Start Gate](./architecture/checkout-fresh-state-start-gate.md): ownership, dependency order, unresolved-fulfillment readiness, first vertical slice, and launch readiness map for the Shopify-simple checkout rebuild.
@@ -214,6 +218,8 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0025: Write-Path Inline Projection Apply](./adr/0025-write-path-inline-projection-apply.md)
 - [ADR 0026: Market-Price Methodology](./adr/0026-market-price-methodology.md)
 - [ADR 0027: Representative Catalog Observation Packs](./adr/0027-representative-catalog-observation-packs.md)
+- [ADR 0029: My Collection Composition And Saved List Ownership](./adr/0029-my-collection-composition-and-saved-list-ownership.md)
+- [ADR 0031: Card Identification Authority And Provider Boundary](./adr/0031-card-identification-authority-and-provider-boundary.md)
 
 ## Generated Markdown
 

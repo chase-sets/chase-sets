@@ -368,6 +368,12 @@ describe("guard candidate provenance", () => {
       ["analyzedTree", "landingCandidate"],
       ["baseTipAtAnalysis", "forkPoint"],
     ]);
+    const movingBaseRef = fixture.gitResponses
+      .find(({ args }) => responseKey(args) === responseKey(["rev-parse", "refs/remotes/origin/main"]))
+      .stdout.trim();
+    expect(movingBaseRef).not.toBe(record.roles.baseTipAtAnalysis.sha);
+    expect(calls).not.toContainEqual(["rev-parse", "refs/remotes/origin/main"]);
+    expect(calls).toContainEqual(["merge-base", record.roles.landingCandidate.sha, record.roles.baseTipAtAnalysis.sha]);
     expect(calls.some((args) => args.includes("pull_request"))).toBe(false);
   });
 
@@ -509,6 +515,68 @@ describe("guard candidate provenance", () => {
         },
         mutant: "TRUST-EVENT-BASE-WITHOUT-PARENTAGE",
         governingVariable: "merge_group.base_sha",
+      },
+      {
+        id: "merge-group-head-contradiction",
+        code: "guard-provenance-invalid",
+        clause: "base-tip-parentage",
+        fixture: mergeGroup,
+        runCandidate: () => {
+          const payload = structuredClone(mergeGroup.eventPayload);
+          payload.merge_group.head_sha = pr.expected.roles.eventBaseSnapshot.sha;
+          return deriveFixture(mergeGroup, { eventPayload: payload });
+        },
+        runMasked: () => deriveFixture(mergeGroup),
+        mutant: "TRUST-EVENT-HEAD-WITHOUT-HEAD-EQUALITY",
+        governingVariable: "merge_group.head_sha",
+      },
+      {
+        id: "merge-group-malformed-head",
+        code: "guard-provenance-invalid",
+        clause: "event-payload",
+        fixture: mergeGroup,
+        runCandidate: () => {
+          const payload = structuredClone(mergeGroup.eventPayload);
+          payload.merge_group.head_sha = "not-a-commit-sha";
+          return deriveFixture(mergeGroup, { eventPayload: payload });
+        },
+        runMasked: () => deriveFixture(mergeGroup),
+        mutant: "ACCEPT-MALFORMED-MERGE-GROUP-HEAD",
+        governingVariable: "merge_group.head_sha shape",
+      },
+      {
+        id: "merge-group-multiple-parents",
+        code: "guard-provenance-invalid",
+        clause: "base-tip-parentage",
+        fixture: mergeGroup,
+        runCandidate: () => {
+          const head = mergeGroup.expected.roles.analyzedTree.sha;
+          const base = mergeGroup.expected.roles.baseTipAtAnalysis.sha;
+          return deriveFixture(mergeGroup, {
+            overrides: override(["rev-list", "--parents", "-n", "1", head], {
+              status: 0,
+              stdout: `${head} ${base} ${pr.expected.roles.eventBaseSnapshot.sha}\n`,
+            }),
+          });
+        },
+        runMasked: () => deriveFixture(mergeGroup),
+        mutant: "ALLOW-MERGE-GROUP-MULTIPLE-PARENTS",
+        governingVariable: "analyzed merge-group parent count",
+      },
+      {
+        id: "merge-group-missing-base-object",
+        code: "guard-provenance-unavailable",
+        clause: "object-existence",
+        fixture: mergeGroup,
+        runCandidate: () => {
+          const base = mergeGroup.expected.roles.baseTipAtAnalysis.sha;
+          return deriveFixture(mergeGroup, {
+            overrides: override(["cat-file", "-e", `${base}^{commit}`], { status: 128, stdout: "" }),
+          });
+        },
+        runMasked: () => deriveFixture(mergeGroup),
+        mutant: "BYPASS-MERGE-GROUP-BASE-OBJECT-EXISTENCE",
+        governingVariable: "cat-file status for merge-group event base",
       },
       {
         id: "unrecognized-event",

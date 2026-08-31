@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { scanPlaywrightArtifactUploads } from "./playwright-artifact-upload-fence.mjs";
 import { validateResponsiveEvidenceArtifacts } from "./validate-responsive-evidence-artifacts.mjs";
 
 const roots = [];
@@ -97,17 +98,17 @@ describe("responsive evidence artifact validation", () => {
     expect(result.violations).toContainEqual(expect.stringContaining("duplicate cross-claim"));
   });
 
-  it("retains ordinary PR Playwright artifacts after successful responsive evidence execution", async () => {
+  it("responsive evidence upload remains strict without a raw Playwright path", async () => {
     const workflow = await readFile(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8");
-    const uploadStep = workflow.slice(
-      workflow.indexOf("- name: Upload Playwright artifacts"),
-      workflow.indexOf("\n\n  build:"),
-    );
+    const e2eJob = workflow.slice(workflow.indexOf("  e2e-tests:"), workflow.indexOf("\n  build:"));
+    const fence = scanPlaywrightArtifactUploads({ root: repoRoot });
 
-    expect(uploadStep).toContain("if: ${{ !cancelled() }}");
-    expect(uploadStep).toContain("artifacts/playwright/test-results");
-    expect(uploadStep).toContain("if-no-files-found: error");
-    expect(uploadStep).not.toContain("if: failure()");
+    expect(e2eJob).toContain('pnpm run test:e2e:suite "${{ matrix.suite_batch }}"');
+    expect(e2eJob).not.toContain("actions/upload-artifact@");
+    expect(e2eJob).not.toContain("artifacts/playwright/report");
+    expect(e2eJob).not.toContain("artifacts/playwright/test-results");
+    expect(fence.status).toBe("pass");
+    expect(fence.findings).toEqual([]);
   });
 });
 

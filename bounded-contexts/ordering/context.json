@@ -337,6 +337,11 @@
       "portName": "authenticityFeePolicyResolver",
       "providedBy": "commercial-terms",
       "purpose": "Resolves the authenticity-check fee policy (m109 #4275) so Ordering can offer and freeze the buyer opt-in fee at checkout preview and order-creation time."
+    },
+    {
+      "portName": "inventoryCleanupAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Required available|not-mounted capability supplying Inventory's read-only reservation and Hold cleanup authority (#7222) so Ordering can decide cleanup from complete Inventory source streams without importing Inventory or reading a projection."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -715,6 +720,21 @@
       "proof": {
         "tests": ["bounded-contexts/ordering/tests/postage-policy-routes.test.ts"]
       }
+    },
+    {
+      "id": "ordering.purchase-cleanup-authority-observation",
+      "owner": "ordering",
+      "risk": "internal",
+      "strategy": "read-model-neutral",
+      "surfaces": [
+        "api-route:bounded-contexts/ordering/features/orders/api/route.ts:POST /purchases/:id/cleanup-authority"
+      ],
+      "exception": {
+        "owner": "ordering",
+        "reason": "observeOrderCleanupAuthority performs no write: it folds the complete ordering.order-* stream and reads Inventory reservation/Hold authority through a read-only host capability, so there is no post-write read and no read model to go stale. The POST verb carries the durable window instant as request state, not a mutation.",
+        "reviewBy": "2027-02-22",
+        "issue": "#7222"
+      }
     }
   ],
   "deployableContributions": [
@@ -747,28 +767,104 @@
           "routePath": "account/purchases/:purchaseId",
           "fileExport": "./routes/account-purchase",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-purchases",
           "routePath": "account/purchases",
           "fileExport": "./routes/account-purchases",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-sale",
           "routePath": "account/sales/:orderId",
           "fileExport": "./routes/account-sale",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-sales",
           "routePath": "account/sales",
           "fileExport": "./routes/account-sales",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     }

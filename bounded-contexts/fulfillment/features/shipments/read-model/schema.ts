@@ -5,7 +5,21 @@ SET packing_confirmed_quantity = quantity
 WHERE packing_confirmed_quantity = 0
   AND packing_confirmed_at IS NOT NULL;`;
 
-const fulfillmentPostageLabelOperationsStatusConstraintSql = `ALTER TABLE fulfillment_postage_label_operations
+const fulfillmentPostageLabelOperationsStatusConstraintSql = `SET LOCAL lock_timeout = '5s';
+
+ALTER TABLE fulfillment_postage_label_operations
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_status_check;
+
+ALTER TABLE fulfillment_postage_label_operations
+  ADD CONSTRAINT fulfillment_postage_label_operations_status_check
+  CHECK (status IN ('reserved', 'invoking', 'ambiguous', 'provider-succeeded', 'effect-applied', 'failed-safe')) NOT VALID;
+
+ALTER TABLE fulfillment_postage_label_operations
+  VALIDATE CONSTRAINT fulfillment_postage_label_operations_status_check;`;
+
+const fulfillmentPostageLabelOperationsLegacyStatusConstraintSql = `SET LOCAL lock_timeout = '5s';
+
+ALTER TABLE fulfillment_postage_label_operations
   DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_status_check;
 
 ALTER TABLE fulfillment_postage_label_operations
@@ -14,6 +28,21 @@ ALTER TABLE fulfillment_postage_label_operations
 
 ALTER TABLE fulfillment_postage_label_operations
   VALIDATE CONSTRAINT fulfillment_postage_label_operations_status_check;`;
+
+const fulfillmentPostageLabelOperationsDropLegacyConstraintsSql = `SET LOCAL lock_timeout = '5s';
+
+ALTER TABLE fulfillment_postage_label_operations
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_status_check,
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_operation_kind_check;`;
+
+const fulfillmentPostageLabelOperationsOperationKindConstraintSql = `SET LOCAL lock_timeout = '5s';
+
+ALTER TABLE fulfillment_postage_label_operations
+  ADD CONSTRAINT fulfillment_postage_label_operations_operation_kind_check
+  CHECK (operation_kind IN ('purchase-usps-label', 'void-label', 'orphan-label-void')) NOT VALID;
+
+ALTER TABLE fulfillment_postage_label_operations
+  VALIDATE CONSTRAINT fulfillment_postage_label_operations_operation_kind_check;`;
 
 const fulfillmentPostageLabelOperationsDuplicateActiveBackfillSql = `WITH duplicate_active_operations AS (
   SELECT
@@ -37,9 +66,169 @@ FROM duplicate_active_operations AS duplicate
 WHERE operation.operation_key = duplicate.operation_key
   AND duplicate.duplicate_rank > 1;`;
 
-const fulfillmentPostageLabelOperationsActiveKindIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_label_operations_active_kind_idx
+const fulfillmentPostageLabelOperationsLegacyActiveKindIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_label_operations_active_kind_idx
   ON fulfillment_postage_label_operations (shipment_id, operation_kind)
   WHERE status IN ('pending', 'provider-succeeded');`;
+
+const fulfillmentPostageLabelOperationsActiveTargetIndexV1Sql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_label_operations_active_target_v1_idx
+  ON fulfillment_postage_label_operations (tenant_id, seller_account_id, shipment_id, operation_kind, target_key)
+  WHERE status IN ('reserved', 'invoking', 'ambiguous', 'provider-succeeded', 'effect-applied');`;
+
+const fulfillmentPostageLabelOperationsDropSupersededActiveKindIndexSql = `DROP INDEX CONCURRENTLY IF EXISTS fulfillment_postage_label_operations_active_kind_idx;`;
+
+const fulfillmentShipmentMutationAuthorityColumnsSql = `SET LOCAL lock_timeout = '5s';
+
+ALTER TABLE fulfillment_shipment_pages
+  ADD COLUMN IF NOT EXISTS tenant_id text NULL;
+
+ALTER TABLE fulfillment_postage_label_operations
+  ADD COLUMN IF NOT EXISTS operation_id text NULL,
+  ADD COLUMN IF NOT EXISTS tenant_id text NULL,
+  ADD COLUMN IF NOT EXISTS seller_account_id text NULL,
+  ADD COLUMN IF NOT EXISTS key_digest text NULL,
+  ADD COLUMN IF NOT EXISTS request_hash text NULL,
+  ADD COLUMN IF NOT EXISTS target_key text NULL,
+  ADD COLUMN IF NOT EXISTS provider_idempotency_key text NULL,
+  ADD COLUMN IF NOT EXISTS provider_result_json jsonb NULL,
+  ADD COLUMN IF NOT EXISTS lifecycle_generation integer NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS claim_token text NULL,
+  ADD COLUMN IF NOT EXISTS claim_expires_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS closed_reason text NULL,
+  ADD COLUMN IF NOT EXISTS provider_invoked boolean NULL DEFAULT false;`;
+
+const fulfillmentShipmentMutationAuthorityBackfillSql = `SET LOCAL lock_timeout = '5s';
+
+ALTER TABLE fulfillment_postage_label_operations
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_lifecycle_present;
+
+ALTER TABLE fulfillment_postage_label_operations
+  ADD CONSTRAINT fulfillment_postage_label_operations_lifecycle_present
+  CHECK (lifecycle_generation IS NOT NULL AND provider_invoked IS NOT NULL) NOT VALID;
+
+ALTER TABLE fulfillment_postage_label_operations
+  VALIDATE CONSTRAINT fulfillment_postage_label_operations_lifecycle_present;
+
+UPDATE fulfillment_postage_label_operations
+SET operation_id = 'pop_' || md5('fulfillment-postage-operation-locator/v1:' || operation_key)
+WHERE operation_id IS NULL;
+
+ALTER TABLE fulfillment_postage_label_operations
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_operation_id_present;
+
+ALTER TABLE fulfillment_postage_label_operations
+  ADD CONSTRAINT fulfillment_postage_label_operations_operation_id_present
+  CHECK (operation_id IS NOT NULL) NOT VALID;
+
+ALTER TABLE fulfillment_postage_label_operations
+  VALIDATE CONSTRAINT fulfillment_postage_label_operations_operation_id_present;
+
+UPDATE fulfillment_postage_label_operations
+SET status = CASE status
+  WHEN 'pending' THEN 'reserved'
+  WHEN 'succeeded' THEN 'effect-applied'
+  WHEN 'failed' THEN 'ambiguous'
+  ELSE status
+END;
+
+CREATE TABLE IF NOT EXISTS fulfillment_shipment_tenant_resolutions (
+  shipment_id text PRIMARY KEY,
+  tenant_id text NULL,
+  seller_account_id text NULL,
+  status text NOT NULL CHECK (status IN ('resolved', 'quarantined')),
+  reason_code text NOT NULL,
+  resolved_at timestamptz NOT NULL
+);
+
+WITH authority AS (
+  SELECT
+    page.shipment_id,
+    MIN(NULLIF(events.tenant_id, '')) AS tenant_id,
+    COUNT(DISTINCT NULLIF(events.tenant_id, '')) AS tenant_count,
+    COUNT(events.event_id) FILTER (
+      WHERE events.event_id IS NOT NULL AND (events.tenant_id IS NULL OR events.tenant_id = '')
+    ) AS empty_tenant_count,
+    MIN(events.payload->>'sellerAccountId') FILTER (WHERE events.event_type = 'fulfillment.shipment.created') AS event_seller,
+    page.seller_account_id AS page_seller
+  FROM fulfillment_shipment_pages AS page
+  LEFT JOIN event_store_events AS events
+    ON events.stream_id = 'fulfillment.shipment-' || page.shipment_id
+  GROUP BY page.shipment_id, page.seller_account_id
+), resolution AS (
+  SELECT
+    shipment_id,
+    CASE WHEN tenant_count = 1 AND empty_tenant_count = 0 AND event_seller = page_seller THEN tenant_id ELSE NULL END AS tenant_id,
+    CASE WHEN tenant_count = 1 AND empty_tenant_count = 0 AND event_seller = page_seller THEN page_seller ELSE NULL END AS seller_account_id,
+    CASE WHEN tenant_count = 1 AND empty_tenant_count = 0 AND event_seller = page_seller THEN 'resolved' ELSE 'quarantined' END AS status,
+    CASE
+      WHEN tenant_count = 0 THEN 'shipment-history-absent'
+      WHEN empty_tenant_count > 0 THEN 'shipment-history-empty-tenant'
+      WHEN tenant_count <> 1 THEN 'shipment-history-mixed-tenant'
+      WHEN event_seller IS DISTINCT FROM page_seller THEN 'shipment-seller-mismatch'
+      ELSE 'authoritative-history'
+    END AS reason_code
+  FROM authority
+)
+INSERT INTO fulfillment_shipment_tenant_resolutions (
+  shipment_id, tenant_id, seller_account_id, status, reason_code, resolved_at
+)
+SELECT shipment_id, tenant_id, seller_account_id, status, reason_code, now()
+FROM resolution
+ON CONFLICT (shipment_id) DO UPDATE
+SET tenant_id = EXCLUDED.tenant_id,
+    seller_account_id = EXCLUDED.seller_account_id,
+    status = EXCLUDED.status,
+    reason_code = EXCLUDED.reason_code,
+    resolved_at = EXCLUDED.resolved_at;
+
+UPDATE fulfillment_shipment_pages AS page
+SET tenant_id = resolution.tenant_id
+FROM fulfillment_shipment_tenant_resolutions AS resolution
+WHERE resolution.shipment_id = page.shipment_id
+  AND resolution.status = 'resolved';
+
+UPDATE fulfillment_postage_label_operations AS operation
+SET tenant_id = resolution.tenant_id,
+    seller_account_id = resolution.seller_account_id,
+    target_key = COALESCE(
+      operation.target_key,
+      operation.shipment_id || ':' || operation.operation_kind || ':retained:' || operation.operation_key
+    ),
+    key_digest = COALESCE(operation.key_digest, operation.operation_key),
+    request_hash = COALESCE(operation.request_hash, md5(operation.request_json::text)),
+    provider_idempotency_key = COALESCE(operation.provider_idempotency_key, operation.idempotency_key)
+FROM fulfillment_shipment_tenant_resolutions AS resolution
+WHERE resolution.shipment_id = operation.shipment_id
+  AND resolution.status = 'resolved';
+
+`;
+
+const fulfillmentShipmentOperationIdIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_label_operations_operation_id_idx
+  ON fulfillment_postage_label_operations (operation_id);`;
+
+const fulfillmentShipmentOperationReceiptIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_label_operations_receipt_idx
+  ON fulfillment_postage_label_operations (tenant_id, seller_account_id, key_digest)
+  WHERE tenant_id IS NOT NULL AND seller_account_id IS NOT NULL AND key_digest IS NOT NULL;`;
+
+const fulfillmentShipmentWebhookAuthorityColumnsSql = `ALTER TABLE fulfillment_postage_provider_events
+  ADD COLUMN IF NOT EXISTS payload_hash text NULL,
+  ADD COLUMN IF NOT EXISTS handoff_state text NULL DEFAULT 'completed',
+  ADD COLUMN IF NOT EXISTS receipt_version integer NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS claim_token text NULL,
+  ADD COLUMN IF NOT EXISTS claim_generation integer NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS claim_expires_at timestamptz NULL;`;
+
+const fulfillmentShipmentWebhookAuthorityConstraintsSql = `SET LOCAL lock_timeout = '5s';
+
+ALTER TABLE fulfillment_postage_provider_events
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_provider_events_handoff_present;
+
+ALTER TABLE fulfillment_postage_provider_events
+  ADD CONSTRAINT fulfillment_postage_provider_events_handoff_present
+  CHECK (handoff_state IS NOT NULL AND receipt_version IS NOT NULL AND claim_generation IS NOT NULL) NOT VALID;
+
+ALTER TABLE fulfillment_postage_provider_events
+  VALIDATE CONSTRAINT fulfillment_postage_provider_events_handoff_present;
+`;
 
 const fulfillmentShipmentPostageLabelDuplicateBackfillSql = `WITH duplicate_postage_labels AS (
   SELECT
@@ -68,6 +257,7 @@ const fulfillmentShipmentDisplayReferenceUniqueIndexSql = `CREATE UNIQUE INDEX C
 export const fulfillmentShipmentSchemaSql = `
 CREATE TABLE IF NOT EXISTS fulfillment_shipment_pages (
   shipment_id text PRIMARY KEY,
+  tenant_id text NULL,
   order_id text NOT NULL,
   buyer_account_id text NOT NULL,
   seller_account_id text NOT NULL,
@@ -187,13 +377,26 @@ CREATE TABLE IF NOT EXISTS fulfillment_label_address_override_audit_pages (
 
 CREATE TABLE IF NOT EXISTS fulfillment_postage_label_operations (
   operation_key text PRIMARY KEY,
-  operation_kind text NOT NULL CHECK (operation_kind IN ('purchase-usps-label', 'void-label')),
+  operation_id text NOT NULL UNIQUE,
+  operation_kind text NOT NULL CHECK (operation_kind IN ('purchase-usps-label', 'void-label', 'orphan-label-void')),
   shipment_id text NOT NULL,
+  tenant_id text NULL,
+  seller_account_id text NULL,
+  key_digest text NULL,
+  request_hash text NULL,
+  target_key text NULL,
   provider_name text NOT NULL,
   provider_mode text NOT NULL,
   idempotency_key text NOT NULL,
+  provider_idempotency_key text NULL,
+  provider_result_json jsonb NULL,
   request_json jsonb NOT NULL DEFAULT '{}'::jsonb,
-  status text NOT NULL CHECK (status IN ('pending', 'provider-succeeded', 'succeeded', 'failed')),
+  status text NOT NULL CHECK (status IN ('reserved', 'invoking', 'ambiguous', 'provider-succeeded', 'effect-applied', 'failed-safe')),
+  lifecycle_generation integer NOT NULL DEFAULT 0,
+  claim_token text NULL,
+  claim_expires_at timestamptz NULL,
+  closed_reason text NULL,
+  provider_invoked boolean NOT NULL DEFAULT false,
   provider_shipment_id text NULL,
   provider_label_id text NULL,
   tracking_identifier text NULL,
@@ -205,6 +408,15 @@ CREATE TABLE IF NOT EXISTS fulfillment_postage_label_operations (
 
 CREATE INDEX IF NOT EXISTS fulfillment_postage_label_operations_status_idx
   ON fulfillment_postage_label_operations (status, updated_at);
+
+CREATE TABLE IF NOT EXISTS fulfillment_shipment_tenant_resolutions (
+  shipment_id text PRIMARY KEY,
+  tenant_id text NULL,
+  seller_account_id text NULL,
+  status text NOT NULL CHECK (status IN ('resolved', 'quarantined')),
+  reason_code text NOT NULL,
+  resolved_at timestamptz NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS fulfillment_postage_provider_events (
   provider_event_id text PRIMARY KEY,
@@ -220,6 +432,12 @@ CREATE TABLE IF NOT EXISTS fulfillment_postage_provider_events (
   received_at timestamptz NOT NULL,
   processing_result text NOT NULL,
   payload_json jsonb NOT NULL DEFAULT '{}'::jsonb
+  ,payload_hash text NULL
+  ,handoff_state text NOT NULL DEFAULT 'completed'
+  ,receipt_version integer NOT NULL DEFAULT 1
+  ,claim_token text NULL
+  ,claim_generation integer NOT NULL DEFAULT 0
+  ,claim_expires_at timestamptz NULL
 );
 
 CREATE INDEX IF NOT EXISTS fulfillment_postage_provider_events_shipment_idx
@@ -241,9 +459,9 @@ export const fulfillmentShipmentSchemaMigrations: readonly BcSchemaMigration[] =
     description: "Normalize postage label operation status checks and active-operation uniqueness.",
     statements: [
       `SET lock_timeout = '5s'`,
-      fulfillmentPostageLabelOperationsStatusConstraintSql,
+      fulfillmentPostageLabelOperationsLegacyStatusConstraintSql,
       fulfillmentPostageLabelOperationsDuplicateActiveBackfillSql,
-      fulfillmentPostageLabelOperationsActiveKindIndexSql,
+      fulfillmentPostageLabelOperationsLegacyActiveKindIndexSql,
     ],
   },
   {
@@ -262,5 +480,23 @@ export const fulfillmentShipmentSchemaMigrations: readonly BcSchemaMigration[] =
       "before this migration ran keep the empty-string default and are excluded from the uniqueness check; the " +
       "projector always populates a real reference for every shipment it creates.",
     statements: [`SET lock_timeout = '5s'`, fulfillmentShipmentDisplayReferenceUniqueIndexSql],
+  },
+  {
+    migrationId: "20260823_fulfillment_shipment_mutation_authority_v1",
+    description: "Bind Shipment and postage mutation receipts to tenant authority and install fenced lifecycles.",
+    statements: [
+      fulfillmentShipmentMutationAuthorityColumnsSql,
+      fulfillmentPostageLabelOperationsDropLegacyConstraintsSql,
+      fulfillmentShipmentMutationAuthorityBackfillSql,
+      fulfillmentShipmentOperationIdIndexSql,
+      fulfillmentShipmentOperationReceiptIndexSql,
+      fulfillmentShipmentWebhookAuthorityColumnsSql,
+      fulfillmentShipmentWebhookAuthorityConstraintsSql,
+      fulfillmentPostageLabelOperationsStatusConstraintSql,
+      fulfillmentPostageLabelOperationsOperationKindConstraintSql,
+      `SET lock_timeout = '5s'`,
+      fulfillmentPostageLabelOperationsDropSupersededActiveKindIndexSql,
+      fulfillmentPostageLabelOperationsActiveTargetIndexV1Sql,
+    ],
   },
 ];

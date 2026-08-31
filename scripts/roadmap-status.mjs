@@ -1,5 +1,19 @@
 import process from "node:process";
+import { createHash } from "node:crypto";
+import {
+  appendFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, resolve } from "node:path";
 import { classified, isEpic as classifiedEpic, isTrackingOnly } from "./backlog-classify.mjs";
+import { derivePullWindow, seriesIdentity } from "./dispatch-window.mjs";
 
 // Generated status for the program roadmap issue. The contract this reports
 // against lives in docs/contributing/backlog-model.md. Numbers are generated
@@ -7,9 +21,58 @@ import { classified, isEpic as classifiedEpic, isTrackingOnly } from "./backlog-
 
 export const START_MARKER = "<!-- roadmap-status:start -->";
 export const END_MARKER = "<!-- roadmap-status:end -->";
+export const REFINED_INVENTORY_CAP_SCHEMA_VERSION = "roadmap-refined-inventory-cap/v1";
+export const REFINED_INVENTORY_PROBE_SCHEMA_VERSION = "roadmap-refined-inventory-authority-probe/v1";
+
+const REFINED_INVENTORY_CAP_PREFIX = "<!-- roadmap-refined-inventory-cap:";
+const REFINED_INVENTORY_CAP_SUFFIX = " -->";
+const REFINED_INVENTORY_CAP_KEYS = [
+  "schemaVersion",
+  "generatedAt",
+  "month",
+  "windowStart",
+  "windowEndExclusive",
+  "mergedPrCount",
+  "cap",
+  "identitySha256",
+];
+const REFINED_INVENTORY_ATTEMPT_KEYS = ["attempt", "pages", "count", "digest"];
+const REFINED_INVENTORY_PROBE_KEYS = [
+  "schemaVersion",
+  "repository",
+  "workflow",
+  "runId",
+  "runAttempt",
+  "jobId",
+  "headSha",
+  "nonce",
+  "checkedAt",
+  "query",
+  "month",
+  "windowStart",
+  "windowEndExclusive",
+  "attempts",
+  "acceptedAttempts",
+  "mergedPrCount",
+  "cap",
+  "identitySha256",
+];
+const REFINED_INVENTORY_QUERY_SENTINEL = "REFINED_INVENTORY_PRS_SENTINEL";
+const REFINED_INVENTORY_SEARCH_LIMIT = 1_000;
+const REFINED_INVENTORY_MAX_PAGES = 10;
+const REFINED_INVENTORY_DIGEST = /^[0-9a-f]{64}$/;
+const REFINED_INVENTORY_NONCE = /^[0-9a-f]{32}$/;
+const SHA = /^[0-9a-f]{40}$/;
+const CANONICAL_REPOSITORY = "chase-sets/chase-sets";
+const CANONICAL_WORKFLOW = "backlog-roadmap-status.yml";
+const CANONICAL_ROADMAP_ISSUE = "4129";
+const CANONICAL_PROBE_OUTPUT =
+  "artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TIMELINE_CONCURRENCY = 8;
+const EPIC_SUB_ISSUE_CAPACITY = 100;
+const EPIC_SUB_ISSUE_WARNING_THRESHOLD = 90;
 const NON_EXECUTABLE_MILESTONES = new Set(["Deferred / Incubation", "Operations"]);
 const MILESTONE_EVENTS = new Set(["milestoned", "demilestoned"]);
 const FORECAST_WINDOW_DAYS = 14;
@@ -67,6 +130,435 @@ function parseTimezoneInstant(value) {
   if (typeof value !== "string" || !/[Tt].*(?:[Zz]|[+-]\d{2}:\d{2})$/.test(value)) return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function canonicalInstant(value) {
+  const parsed = parseTimezoneInstant(value);
+  return parsed !== null && new Date(parsed).toISOString() === value ? parsed : null;
+}
+
+export function deriveMonthlyRefinedInventoryWindow(nowMs = Date.now(), repository = CANONICAL_REPOSITORY) {
+  if (!Number.isFinite(nowMs)) throw authorityError("ROADMAP_REFINED_INVENTORY_TIME_INVALID");
+  if (repository !== CANONICAL_REPOSITORY) throw authorityError("ROADMAP_REFINED_INVENTORY_REPOSITORY_INVALID");
+  const now = new Date(nowMs);
+  const monthStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  const windowStartMs = monthStartMs - 28 * DAY_MS;
+  const month = new Date(monthStartMs).toISOString().slice(0, 7);
+  const windowStart = new Date(windowStartMs).toISOString();
+  const windowEndExclusive = new Date(monthStartMs).toISOString();
+  const lastIncludedDay = new Date(monthStartMs - DAY_MS).toISOString().slice(0, 10);
+  const query = `repo:${repository} is:pr is:merged base:main merged:${windowStart.slice(0, 10)}..${lastIncludedDay}`;
+  return { month, windowStart, windowEndExclusive, query };
+}
+
+function refinedInventoryError(code, message = code) {
+  return authorityError(code, message);
+}
+
+function validateRefinedInventorySearchPage(page, expectedTotal) {
+  if (
+    !hasExactKeys(page, ["issueCount", "pageInfo", "nodes"]) ||
+    !isNonNegativeSafeInteger(page.issueCount) ||
+    !hasExactKeys(page.pageInfo, ["hasNextPage", "endCursor"]) ||
+    typeof page.pageInfo.hasNextPage !== "boolean" ||
+    !(page.pageInfo.endCursor === null || (typeof page.pageInfo.endCursor === "string" && page.pageInfo.endCursor)) ||
+    !Array.isArray(page.nodes) ||
+    page.nodes.length > 100
+  ) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PAGE_INVALID");
+  }
+  if (page.issueCount >= REFINED_INVENTORY_SEARCH_LIMIT) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_SEARCH_LIMIT");
+  }
+  if (expectedTotal !== null && page.issueCount !== expectedTotal) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_TOTAL_CHANGED");
+  }
+}
+
+export async function collectMonthlyRefinedInventory({ loadPage, window }) {
+  if (typeof loadPage !== "function" || !window) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_COLLECTOR_INVALID");
+  }
+  const startMs = canonicalInstant(window.windowStart);
+  const endMs = canonicalInstant(window.windowEndExclusive);
+  if (startMs === null || endMs === null || endMs - startMs !== 28 * DAY_MS) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_WINDOW_INVALID");
+  }
+  const rows = [];
+  const identities = new Set();
+  const cursors = new Set();
+  let expectedTotal = null;
+  let after = null;
+  let pages = 0;
+  while (true) {
+    if (pages >= REFINED_INVENTORY_MAX_PAGES) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PAGINATION_BOUNDED");
+    }
+    const page = await loadPage(after, window.query);
+    validateRefinedInventorySearchPage(page, expectedTotal);
+    expectedTotal ??= page.issueCount;
+    pages += 1;
+    const before = rows.length;
+    for (const node of page.nodes) {
+      if (!hasExactKeys(node, ["number", "mergedAt", "baseRefName"])) {
+        throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_IDENTITY_INVALID");
+      }
+      const mergedAtMs = parseTimezoneInstant(node.mergedAt);
+      if (
+        !isPositiveSafeInteger(node.number) ||
+        identities.has(node.number) ||
+        mergedAtMs === null ||
+        mergedAtMs < startMs ||
+        mergedAtMs >= endMs ||
+        node.baseRefName !== "main"
+      ) {
+        throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_IDENTITY_INVALID");
+      }
+      identities.add(node.number);
+      rows.push({ number: node.number, mergedAt: new Date(mergedAtMs).toISOString(), baseRefName: "main" });
+    }
+    if (rows.length > expectedTotal) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_COUNT_MISMATCH");
+    if (!page.pageInfo.hasNextPage) break;
+    const cursor = page.pageInfo.endCursor;
+    if (!cursor || cursors.has(cursor) || rows.length === before || rows.length >= expectedTotal) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_CURSOR_INVALID");
+    }
+    cursors.add(cursor);
+    after = cursor;
+  }
+  if (rows.length !== expectedTotal) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_COUNT_MISMATCH");
+  rows.sort((left, right) => left.number - right.number);
+  const canonicalText = rows.map((row) => `${row.number}|${row.mergedAt}|${row.baseRefName}`).join("\n");
+  const digest = createHash("sha256").update(Buffer.from(canonicalText, "utf8")).digest("hex");
+  return { pages, count: rows.length, digest, rows, canonicalText };
+}
+
+export async function stabilizeMonthlyRefinedInventory(collectAttempt) {
+  const attempts = [];
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const collection = await collectAttempt(attempt);
+    attempts.push({ attempt, ...collection });
+    if (attempt >= 2 && attempts[attempt - 2].digest === collection.digest) {
+      return {
+        collection,
+        attempts,
+        acceptedAttempts: [attempt - 1, attempt],
+      };
+    }
+  }
+  throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_UNSTABLE");
+}
+
+function validateRefinedInventoryCapRecord(record) {
+  if (
+    !hasExactKeys(record, REFINED_INVENTORY_CAP_KEYS) ||
+    record.schemaVersion !== REFINED_INVENTORY_CAP_SCHEMA_VERSION ||
+    canonicalInstant(record.generatedAt) === null ||
+    !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(record.month) ||
+    record.generatedAt.slice(0, 7) !== record.month ||
+    canonicalInstant(record.windowStart) === null ||
+    canonicalInstant(record.windowEndExclusive) === null ||
+    !isNonNegativeSafeInteger(record.mergedPrCount) ||
+    record.cap !== 2 * record.mergedPrCount ||
+    !REFINED_INVENTORY_DIGEST.test(record.identitySha256)
+  ) {
+    return false;
+  }
+  const expected = deriveMonthlyRefinedInventoryWindow(Date.parse(`${record.month}-15T00:00:00.000Z`));
+  return record.windowStart === expected.windowStart && record.windowEndExclusive === expected.windowEndExclusive;
+}
+
+export function renderRefinedInventoryCapMarker(record) {
+  return `${REFINED_INVENTORY_CAP_PREFIX}${JSON.stringify(record)}${REFINED_INVENTORY_CAP_SUFFIX}`;
+}
+
+export function reducePriorRefinedInventoryAuthority(body, nowMs = Date.now()) {
+  const text = String(body ?? "");
+  if (countOccurrences(text, START_MARKER) !== 1 || countOccurrences(text, END_MARKER) !== 1) {
+    return { status: "invalid", code: "ROADMAP_MARKERS_INVALID" };
+  }
+  const blockStart = text.indexOf(START_MARKER);
+  const blockEnd = text.indexOf(END_MARKER);
+  if (blockEnd < blockStart) return { status: "invalid", code: "ROADMAP_MARKERS_INVALID" };
+  const tokenCount = countOccurrences(text, "roadmap-refined-inventory-cap");
+  const prefixCount = countOccurrences(text, REFINED_INVENTORY_CAP_PREFIX);
+  if (tokenCount === 0 && prefixCount === 0) return { status: "absent", record: null, marker: null };
+  if (prefixCount !== 1 || tokenCount !== 2) {
+    return { status: "invalid", code: "ROADMAP_REFINED_INVENTORY_MARKER_INVALID" };
+  }
+  const markerStart = text.indexOf(REFINED_INVENTORY_CAP_PREFIX);
+  const jsonStart = markerStart + REFINED_INVENTORY_CAP_PREFIX.length;
+  const markerEnd = text.indexOf(REFINED_INVENTORY_CAP_SUFFIX, jsonStart);
+  if (markerEnd < 0 || markerStart <= blockStart || markerEnd + REFINED_INVENTORY_CAP_SUFFIX.length > blockEnd) {
+    return { status: "invalid", code: "ROADMAP_REFINED_INVENTORY_MARKER_INVALID" };
+  }
+  const encoded = text.slice(jsonStart, markerEnd);
+  let record;
+  try {
+    record = JSON.parse(encoded);
+  } catch {
+    return { status: "invalid", code: "ROADMAP_REFINED_INVENTORY_MARKER_INVALID" };
+  }
+  const marker = text.slice(markerStart, markerEnd + REFINED_INVENTORY_CAP_SUFFIX.length);
+  if (!validateRefinedInventoryCapRecord(record) || marker !== renderRefinedInventoryCapMarker(record)) {
+    return { status: "invalid", code: "ROADMAP_REFINED_INVENTORY_MARKER_INVALID" };
+  }
+  const currentMonth = deriveMonthlyRefinedInventoryWindow(nowMs).month;
+  if (record.month > currentMonth) return { status: "future", code: "ROADMAP_REFINED_INVENTORY_MARKER_FUTURE" };
+  if (Date.parse(record.generatedAt) > nowMs) {
+    return { status: "invalid", code: "ROADMAP_REFINED_INVENTORY_MARKER_INVALID" };
+  }
+  return { status: record.month === currentMonth ? "current" : "prior", record, marker };
+}
+
+function capRecordFromCollection(collection, window, nowMs) {
+  return {
+    schemaVersion: REFINED_INVENTORY_CAP_SCHEMA_VERSION,
+    generatedAt: new Date(nowMs).toISOString(),
+    month: window.month,
+    windowStart: window.windowStart,
+    windowEndExclusive: window.windowEndExclusive,
+    mergedPrCount: collection.count,
+    cap: 2 * collection.count,
+    identitySha256: collection.digest,
+  };
+}
+
+export function validateRefinedInventoryProbePayload(payload) {
+  if (
+    !hasExactKeys(payload, REFINED_INVENTORY_PROBE_KEYS) ||
+    payload.schemaVersion !== REFINED_INVENTORY_PROBE_SCHEMA_VERSION ||
+    payload.repository !== CANONICAL_REPOSITORY ||
+    payload.workflow !== CANONICAL_WORKFLOW ||
+    !isPositiveSafeInteger(payload.runId) ||
+    !isPositiveSafeInteger(payload.runAttempt) ||
+    !isPositiveSafeInteger(payload.jobId) ||
+    !SHA.test(payload.headSha) ||
+    !REFINED_INVENTORY_NONCE.test(payload.nonce) ||
+    canonicalInstant(payload.checkedAt) === null ||
+    !Array.isArray(payload.attempts) ||
+    ![2, 3].includes(payload.attempts.length) ||
+    !Array.isArray(payload.acceptedAttempts) ||
+    payload.acceptedAttempts.length !== 2 ||
+    !isNonNegativeSafeInteger(payload.mergedPrCount) ||
+    payload.mergedPrCount >= REFINED_INVENTORY_SEARCH_LIMIT ||
+    payload.cap !== 2 * payload.mergedPrCount ||
+    !REFINED_INVENTORY_DIGEST.test(payload.identitySha256)
+  ) {
+    return false;
+  }
+  let window;
+  try {
+    window = deriveMonthlyRefinedInventoryWindow(Date.parse(`${payload.month}-15T00:00:00.000Z`), payload.repository);
+  } catch {
+    return false;
+  }
+  if (
+    payload.month !== window.month ||
+    payload.windowStart !== window.windowStart ||
+    payload.windowEndExclusive !== window.windowEndExclusive ||
+    payload.query !== window.query
+  ) {
+    return false;
+  }
+  for (let index = 0; index < payload.attempts.length; index += 1) {
+    const attempt = payload.attempts[index];
+    if (
+      !hasExactKeys(attempt, REFINED_INVENTORY_ATTEMPT_KEYS) ||
+      attempt.attempt !== index + 1 ||
+      !Number.isSafeInteger(attempt.pages) ||
+      attempt.pages < 1 ||
+      attempt.pages > REFINED_INVENTORY_MAX_PAGES ||
+      !isNonNegativeSafeInteger(attempt.count) ||
+      attempt.count >= REFINED_INVENTORY_SEARCH_LIMIT ||
+      !REFINED_INVENTORY_DIGEST.test(attempt.digest)
+    ) {
+      return false;
+    }
+  }
+  const [left, right] = payload.acceptedAttempts;
+  if (
+    !Number.isSafeInteger(left) ||
+    right !== left + 1 ||
+    right !== payload.attempts.length ||
+    left < 1 ||
+    payload.attempts[left - 1].digest !== payload.attempts[right - 1].digest
+  ) {
+    return false;
+  }
+  const accepted = payload.attempts[right - 1];
+  return (
+    accepted.count === payload.mergedPrCount &&
+    accepted.digest === payload.identitySha256 &&
+    payload.attempts.every((attempt) => attempt.count === payload.mergedPrCount)
+  );
+}
+
+export function canonicalRefinedInventoryProbeBytes(payload) {
+  if (!validateRefinedInventoryProbePayload(payload)) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_INVALID");
+  }
+  return Buffer.from(`${JSON.stringify(payload)}\n`, "utf8");
+}
+
+function writeCanonicalFileAtomic(outPath, bytes) {
+  const absolute = resolve(outPath);
+  const directory = dirname(absolute);
+  const relativeOutput = outPath.replaceAll("\\", "/").replace(/^\.\//, "");
+  if (relativeOutput !== CANONICAL_PROBE_OUTPUT || absolute !== resolve(CANONICAL_PROBE_OUTPUT)) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_OUTPUT_PATH_INVALID");
+  }
+  let ancestor = directory;
+  while (ancestor !== resolve(ancestor, "..")) {
+    if (existsSync(ancestor)) {
+      const stats = lstatSync(ancestor);
+      if (!stats.isDirectory() || stats.isSymbolicLink()) {
+        throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_OUTPUT_PATH_INVALID");
+      }
+    }
+    if (ancestor === resolve()) break;
+    ancestor = resolve(ancestor, "..");
+  }
+  if (existsSync(absolute) || (existsSync(directory) && readdirSync(directory).length !== 0)) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_OUTPUT_NOT_FRESH");
+  }
+  mkdirSync(directory, { recursive: true });
+  const temporary = `${absolute}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, bytes, { flag: "wx" });
+    renameSync(temporary, absolute);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
+}
+
+export function readCanonicalRefinedInventoryProbe(inputPath) {
+  const absolute = resolve(inputPath);
+  if (!existsSync(absolute) || !lstatSync(absolute).isFile() || lstatSync(absolute).isSymbolicLink()) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_FILE_INVALID");
+  }
+  const bytes = readFileSync(absolute);
+  if (bytes.length < 2 || bytes.length > 512 * 1024 || bytes[0] === 0xef || bytes[1] === 0xbb || bytes[2] === 0xbf) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_FILE_INVALID");
+  }
+  let payload;
+  try {
+    payload = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_FILE_INVALID");
+  }
+  const canonical = canonicalRefinedInventoryProbeBytes(payload);
+  if (!bytes.equals(canonical)) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_FILE_NONCANONICAL");
+  return payload;
+}
+
+async function collectCurrentAttemptJobs({ repository, runId, runAttempt, token, request }) {
+  const jobs = [];
+  const identities = new Set();
+  let expectedTotal = null;
+  for (let page = 1; page <= REFINED_INVENTORY_MAX_PAGES; page += 1) {
+    const response = await gh(
+      `/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}/jobs?per_page=100&page=${page}`,
+      token,
+      {},
+      request,
+    );
+    const payload = await response.json();
+    if (!isNonNegativeSafeInteger(payload?.total_count) || !Array.isArray(payload?.jobs)) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_PAGE_INVALID");
+    }
+    if (payload.total_count >= REFINED_INVENTORY_SEARCH_LIMIT) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_LIMIT");
+    }
+    expectedTotal ??= payload.total_count;
+    if (expectedTotal !== payload.total_count) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_TOTAL_CHANGED");
+    }
+    for (const job of payload.jobs) {
+      if (!isPositiveSafeInteger(job?.id) || typeof job.name !== "string" || typeof job.status !== "string") {
+        throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_INVALID");
+      }
+      if (identities.has(job.id)) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_DUPLICATE");
+      identities.add(job.id);
+      jobs.push(job);
+    }
+    if (jobs.length > expectedTotal) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_COUNT_MISMATCH");
+    if (jobs.length === expectedTotal) return jobs;
+    if (payload.jobs.length !== 100 || jobs.length >= 999) {
+      throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_COUNT_MISMATCH");
+    }
+  }
+  throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_JOB_PAGINATION_BOUNDED");
+}
+
+export async function resolveRefinedInventoryProbeJob({ env = process.env, request = globalThis.fetch } = {}) {
+  const token = env.GITHUB_TOKEN;
+  if (!token) throw refinedInventoryError("ROADMAP_GITHUB_TOKEN_REQUIRED");
+  const repository = env.GITHUB_REPOSITORY;
+  const runId = Number(env.GITHUB_RUN_ID);
+  const runAttempt = Number(env.GITHUB_RUN_ATTEMPT);
+  if (repository !== CANONICAL_REPOSITORY || !isPositiveSafeInteger(runId) || !isPositiveSafeInteger(runAttempt)) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_RUN_IDENTITY_INVALID");
+  }
+  const jobs = await collectCurrentAttemptJobs({ repository, runId, runAttempt, token, request });
+  const matches = jobs.filter((job) => job.name === "probe-authority" && job.status === "in_progress");
+  if (matches.length !== 1) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_JOB_AMBIGUOUS");
+  if (!env.GITHUB_OUTPUT) throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_OUTPUT_ENV_REQUIRED");
+  appendFileSync(env.GITHUB_OUTPUT, `job_id=${matches[0].id}\n`, "utf8");
+  return matches[0].id;
+}
+
+export async function produceRefinedInventoryProbe({
+  env = process.env,
+  request = globalThis.fetch,
+  nowMs = Date.now(),
+  outPath,
+} = {}) {
+  const token = env.GITHUB_TOKEN;
+  if (!token) throw refinedInventoryError("ROADMAP_GITHUB_TOKEN_REQUIRED");
+  const repository = env.GITHUB_REPOSITORY;
+  const workflow = env.ROADMAP_WORKFLOW;
+  const runId = Number(env.GITHUB_RUN_ID);
+  const runAttempt = Number(env.GITHUB_RUN_ATTEMPT);
+  const jobId = Number(env.ROADMAP_PROBE_JOB_ID);
+  const headSha = env.GITHUB_SHA;
+  const nonce = env.ROADMAP_AUTHORITY_NONCE;
+  if (
+    repository !== CANONICAL_REPOSITORY ||
+    workflow !== CANONICAL_WORKFLOW ||
+    !isPositiveSafeInteger(runId) ||
+    !isPositiveSafeInteger(runAttempt) ||
+    !isPositiveSafeInteger(jobId) ||
+    !SHA.test(headSha ?? "") ||
+    !REFINED_INVENTORY_NONCE.test(nonce ?? "") ||
+    !outPath
+  ) {
+    throw refinedInventoryError("ROADMAP_REFINED_INVENTORY_PROBE_ENV_INVALID");
+  }
+  const acquisition = await collectLiveMonthlyRefinedInventory({ repository, token, request, nowMs });
+  const payload = {
+    schemaVersion: REFINED_INVENTORY_PROBE_SCHEMA_VERSION,
+    repository,
+    workflow,
+    runId,
+    runAttempt,
+    jobId,
+    headSha,
+    nonce,
+    checkedAt: new Date(nowMs).toISOString(),
+    query: acquisition.window.query,
+    month: acquisition.window.month,
+    windowStart: acquisition.window.windowStart,
+    windowEndExclusive: acquisition.window.windowEndExclusive,
+    attempts: acquisition.attempts.map(({ attempt, pages, count, digest }) => ({ attempt, pages, count, digest })),
+    acceptedAttempts: acquisition.acceptedAttempts,
+    mergedPrCount: acquisition.collection.count,
+    cap: 2 * acquisition.collection.count,
+    identitySha256: acquisition.collection.digest,
+  };
+  writeCanonicalFileAtomic(outPath, canonicalRefinedInventoryProbeBytes(payload));
+  return payload;
 }
 
 function throughputIdentity(title) {
@@ -571,6 +1063,319 @@ export class RoadmapIssueEnumerationError extends Error {
   }
 }
 
+const WINDOW_AUTHORITY_VERSION = "roadmap-dispatch-window-authority/v1";
+
+function windowAuthorityError(code, message = code) {
+  return new RoadmapIssueEnumerationError(code, message);
+}
+
+function hasOnlyKeys(value, keys) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === keys.length &&
+    keys.every((key) => Object.hasOwn(value, key))
+  );
+}
+
+function requiredString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+function validateWindowPage(page, code) {
+  if (
+    !hasOnlyKeys(page, ["totalCount", "pageInfo", "nodes"]) ||
+    !isNonNegativeSafeInteger(page.totalCount) ||
+    !Array.isArray(page.nodes) ||
+    !hasOnlyKeys(page.pageInfo, ["hasNextPage", "endCursor"]) ||
+    typeof page.pageInfo.hasNextPage !== "boolean" ||
+    !(page.pageInfo.endCursor === null || requiredString(page.pageInfo.endCursor)) ||
+    (page.pageInfo.hasNextPage && !requiredString(page.pageInfo.endCursor))
+  ) {
+    throw windowAuthorityError(code, "Roadmap pull-window authority returned an invalid connection page.");
+  }
+}
+
+async function collectWindowConnection({ loadPage, firstPage = null, validateNode, identity, code }) {
+  const nodes = [];
+  const identities = new Set();
+  const cursors = new Set();
+  let expectedTotal = null;
+  let after = null;
+  let pageFromRoot = firstPage;
+  do {
+    const page = pageFromRoot ?? (await loadPage(after));
+    pageFromRoot = null;
+    const nodesBeforePage = nodes.length;
+    validateWindowPage(page, code);
+    if (expectedTotal === null) expectedTotal = page.totalCount;
+    if (page.totalCount !== expectedTotal) {
+      throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_TOTAL_CHANGED");
+    }
+    for (const node of page.nodes) {
+      const valid = validateNode(node);
+      if (!valid) throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_SCHEMA_INVALID");
+      const key = identity(node);
+      if (identities.has(key)) throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_DUPLICATE_IDENTITY");
+      identities.add(key);
+      nodes.push(node);
+    }
+    if (page.pageInfo.hasNextPage) {
+      if (nodes.length === nodesBeforePage || nodes.length >= expectedTotal) {
+        throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH");
+      }
+      if (cursors.has(page.pageInfo.endCursor)) {
+        throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_CURSOR_REPEATED");
+      }
+      cursors.add(page.pageInfo.endCursor);
+      after = page.pageInfo.endCursor;
+    } else {
+      after = null;
+    }
+  } while (after !== null);
+  if (expectedTotal === null || nodes.length !== expectedTotal) {
+    throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH");
+  }
+  return { totalCount: expectedTotal, nodes };
+}
+
+function validMilestone(node) {
+  return (
+    hasOnlyKeys(node, ["id", "number", "title", "state"]) &&
+    requiredString(node.id) &&
+    isPositiveSafeInteger(node.number) &&
+    requiredString(node.title) &&
+    node.state === "OPEN"
+  );
+}
+
+function validLabel(node) {
+  return hasOnlyKeys(node, ["id", "name"]) && requiredString(node.id) && requiredString(node.name);
+}
+
+function validBlockedBy(node) {
+  return (
+    hasOnlyKeys(node, ["id", "number", "state", "repository"]) &&
+    requiredString(node.id) &&
+    isPositiveSafeInteger(node.number) &&
+    (node.state === "OPEN" || node.state === "CLOSED") &&
+    hasOnlyKeys(node.repository, ["nameWithOwner"]) &&
+    requiredString(node.repository.nameWithOwner)
+  );
+}
+
+function validNullableIssueType(value) {
+  return value === null || (hasOnlyKeys(value, ["name"]) && requiredString(value.name));
+}
+
+function validNullableMilestone(value) {
+  return (
+    value === null ||
+    (hasOnlyKeys(value, ["id", "number", "title", "state"]) &&
+      requiredString(value.id) &&
+      isPositiveSafeInteger(value.number) &&
+      requiredString(value.title) &&
+      (value.state === "OPEN" || value.state === "CLOSED"))
+  );
+}
+
+function validWindowIssue(node) {
+  const validBase =
+    hasOnlyKeys(node, [
+      "id",
+      "number",
+      "state",
+      "issueType",
+      "milestone",
+      "issueDependenciesSummary",
+      "labels",
+      "blockedBy",
+    ]) &&
+    requiredString(node.id) &&
+    isPositiveSafeInteger(node.number) &&
+    node.state === "OPEN" &&
+    validNullableIssueType(node.issueType) &&
+    validNullableMilestone(node.milestone) &&
+    hasOnlyKeys(node.issueDependenciesSummary, ["blockedBy", "totalBlockedBy"]) &&
+    isNonNegativeSafeInteger(node.issueDependenciesSummary.blockedBy) &&
+    isNonNegativeSafeInteger(node.issueDependenciesSummary.totalBlockedBy);
+  if (!validBase) return false;
+  return true;
+}
+
+function canonicalWindowAuthority({ milestones, issues }) {
+  return {
+    version: WINDOW_AUTHORITY_VERSION,
+    milestones: {
+      totalCount: milestones.totalCount,
+      nodes: milestones.nodes
+        .map((node) => ({ id: node.id, number: node.number, title: node.title, state: node.state }))
+        .sort((left, right) => left.id.localeCompare(right.id)),
+    },
+    issues: {
+      totalCount: issues.totalCount,
+      nodes: issues.nodes
+        .map((issue) => ({
+          id: issue.id,
+          number: issue.number,
+          state: issue.state,
+          issueType: issue.issueType === null ? null : { name: issue.issueType.name },
+          milestone:
+            issue.milestone === null
+              ? null
+              : {
+                  id: issue.milestone.id,
+                  number: issue.milestone.number,
+                  title: issue.milestone.title,
+                  state: issue.milestone.state,
+                },
+          issueDependenciesSummary: {
+            blockedBy: issue.issueDependenciesSummary.blockedBy,
+            totalBlockedBy: issue.issueDependenciesSummary.totalBlockedBy,
+          },
+          labels: issue.labels,
+          blockedBy: issue.blockedBy,
+        }))
+        .sort((left, right) => left.id.localeCompare(right.id)),
+    },
+  };
+}
+
+function digestWindowAuthority(authority) {
+  const serialized = JSON.stringify(authority);
+  return createHash("sha256").update(serialized, "utf8").digest("hex");
+}
+
+export async function collectRoadmapWindowAuthority({ loadMilestones, loadIssues, loadLabels, loadBlockedBy }) {
+  const milestones = await collectWindowConnection({
+    loadPage: loadMilestones,
+    validateNode: validMilestone,
+    identity: (node) => node.id,
+    code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_MILESTONE_PAGE_INVALID",
+  });
+  const roots = await collectWindowConnection({
+    loadPage: loadIssues,
+    validateNode: validWindowIssue,
+    identity: (node) => node.id,
+    code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_ISSUE_PAGE_INVALID",
+  });
+  const openMilestonesById = new Map(milestones.nodes.map((milestone) => [milestone.id, milestone]));
+  const issues = [];
+  for (const root of roots.nodes) {
+    if (root.milestone?.state === "OPEN") {
+      const known = openMilestonesById.get(root.milestone.id);
+      if (
+        !known ||
+        known.number !== root.milestone.number ||
+        known.title !== root.milestone.title ||
+        known.state !== root.milestone.state
+      ) {
+        throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_MILESTONE_REFERENCE_INVALID");
+      }
+    }
+    const labels = await collectWindowConnection({
+      loadPage: (after) => loadLabels(root.id, after),
+      firstPage: root.labels,
+      validateNode: validLabel,
+      identity: (node) => `${node.id}\0${node.name}`,
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_LABEL_PAGE_INVALID",
+    });
+    const blockedBy = await collectWindowConnection({
+      loadPage: (after) => loadBlockedBy(root.id, after),
+      firstPage: root.blockedBy,
+      validateNode: validBlockedBy,
+      identity: (node) => `${node.repository.nameWithOwner}\0${node.id}\0${node.number}`,
+      code: "ROADMAP_DISPATCH_WINDOW_AUTHORITY_BLOCKED_BY_PAGE_INVALID",
+    });
+    issues.push({
+      ...root,
+      labels: {
+        totalCount: labels.totalCount,
+        nodes: labels.nodes.sort((left, right) =>
+          `${left.id}\0${left.name}`.localeCompare(`${right.id}\0${right.name}`),
+        ),
+      },
+      blockedBy: {
+        totalCount: blockedBy.totalCount,
+        nodes: blockedBy.nodes.sort((left, right) =>
+          `${left.repository.nameWithOwner}\0${left.id}\0${left.number}`.localeCompare(
+            `${right.repository.nameWithOwner}\0${right.id}\0${right.number}`,
+          ),
+        ),
+      },
+    });
+  }
+  const authority = canonicalWindowAuthority({ milestones, issues: { totalCount: roots.totalCount, nodes: issues } });
+  return { authority, digest: digestWindowAuthority(authority) };
+}
+
+export async function stabilizeRoadmapWindowAuthority(collectAttempt) {
+  const first = await collectAttempt();
+  const second = await collectAttempt();
+  if (first.digest === second.digest) return second;
+  const third = await collectAttempt();
+  if (second.digest === third.digest) return third;
+  throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_UNSTABLE");
+}
+
+function authorityFacts(authority) {
+  return {
+    milestones: authority.milestones.nodes.map((milestone) => ({
+      ...milestone,
+      state: milestone.state.toLowerCase(),
+    })),
+    issues: authority.issues.nodes.map((issue) => ({
+      id: issue.id,
+      number: issue.number,
+      state: issue.state.toLowerCase(),
+      issueTypeName: issue.issueType?.name ?? null,
+      milestone: issue.milestone && { ...issue.milestone, state: issue.milestone.state.toLowerCase() },
+      labels: issue.labels.nodes,
+      blockedBy: issue.blockedBy.nodes.map((node) => ({ ...node, state: node.state.toLowerCase() })),
+    })),
+  };
+}
+
+export function summarizePrioritizationHygiene(authority) {
+  const facts = authorityFacts(authority);
+  const selected = derivePullWindow(facts);
+  const selectedByFamily = new Map(selected.map((milestone) => [seriesIdentity(milestone.title).family, milestone.id]));
+  const noWindowFamilies = facts.milestones
+    .map((milestone) => seriesIdentity(milestone.title)?.family)
+    .filter((family) => family && !selectedByFamily.has(family));
+  const candidates = [];
+  for (const issue of facts.issues) {
+    const series = seriesIdentity(issue.milestone?.title);
+    if (!series || issue.milestone?.state !== "open") continue;
+    const labels = issue.labels.map((label) => label.name);
+    const priorityLabels = labels.filter((label) => label === "priority:p0" || label === "priority:p1");
+    const input = {
+      number: issue.number,
+      state: issue.state,
+      labels,
+      issueTypeName: issue.issueTypeName,
+      milestoneTitle: issue.milestone.title,
+      blockedByCount: issue.blockedBy.filter((node) => node.state === "open").length,
+      hasParent: false,
+    };
+    if (classifiedEpic(input) || priorityLabels.length !== 1) continue;
+    const selectedMilestoneId = selectedByFamily.get(series.family);
+    if (!selectedMilestoneId) {
+      continue;
+    }
+    if (selectedMilestoneId !== issue.milestone.id) {
+      candidates.push({ number: issue.number, priority: priorityLabels[0], milestone: issue.milestone.title });
+    }
+  }
+  candidates.sort((left, right) => left.number - right.number);
+  const byPriority = {
+    p0: candidates.filter((candidate) => candidate.priority === "priority:p0"),
+    p1: candidates.filter((candidate) => candidate.priority === "priority:p1"),
+  };
+  return { selected, candidates, byPriority, noWindowFamilies: [...new Set(noWindowFamilies)].sort() };
+}
+
 export function toBacklogInput(issue) {
   return {
     number: issue.number,
@@ -794,13 +1599,13 @@ export async function collectScopeGrowth({
 
 export function reconcileEpicChildren(epic, children) {
   const expectedTotal = epic.sub_issues_summary?.total;
-  if (!Number.isInteger(expectedTotal) || expectedTotal < 0) {
+  if (!isNonNegativeSafeInteger(expectedTotal) || expectedTotal > EPIC_SUB_ISSUE_CAPACITY) {
     throw new RoadmapIssueEnumerationError(
       "ROADMAP_EPIC_CHILD_TOTAL_INVALID",
       `Epic #${epic.number} has no valid sub_issues_summary.total.`,
     );
   }
-  if (!Array.isArray(children) || children.some((child) => !Number.isInteger(child?.number))) {
+  if (!Array.isArray(children) || children.some((child) => !isPositiveSafeInteger(child?.number))) {
     throw new RoadmapIssueEnumerationError(
       "ROADMAP_EPIC_CHILD_PAGE_INVALID",
       `Epic #${epic.number} returned an invalid sub-issue collection.`,
@@ -817,21 +1622,31 @@ export function reconcileEpicChildren(epic, children) {
   return children;
 }
 
+function classifyEpicCapacity(childCount) {
+  if (childCount >= EPIC_SUB_ISSUE_CAPACITY) {
+    return { state: "saturated", count: childCount };
+  }
+  if (childCount >= EPIC_SUB_ISSUE_WARNING_THRESHOLD) {
+    return { state: "warning", count: childCount, remaining: EPIC_SUB_ISSUE_CAPACITY - childCount };
+  }
+  return { state: "normal", count: childCount };
+}
+
 export async function collectEpicChildren({ epics, loadChildren, concurrency = TIMELINE_CONCURRENCY }) {
   const byEpic = new Map();
   await mapConcurrent(epics, concurrency, async (epic) => {
     const children = reconcileEpicChildren(epic, await loadChildren(epic));
-    byEpic.set(
-      epic.number,
-      children.map((child) => ({ number: child.number, state: child.state, milestone: child.milestone })),
-    );
+    byEpic.set(epic.number, {
+      children: children.map((child) => ({ number: child.number, state: child.state, milestone: child.milestone })),
+      capacity: classifyEpicCapacity(children.length),
+    });
   });
   return byEpic;
 }
 
 /**
  * @param issues all repository issues (open and closed), excluding pull requests
- * @param epicChildren Map<epicNumber, Array<{number, state, milestone}>>
+ * @param epicChildren Map<epicNumber, {children: Array<{number, state, milestone}>, capacity: {state, count, remaining?}}>
  * @param scopeGrowthByIssue Map<issueNumber, known-or-unknown milestone entry>
  * @param nowMs timestamp used for the "added recently" window
  */
@@ -857,7 +1672,7 @@ export function summarizeWaves({
   const milestoneOrder = new Map(milestones.map((milestone, index) => [milestone.title, index]));
   const epicWave = new Map();
   for (const { issue: epic } of epics) {
-    const children = epicChildren.get(epic.number) ?? [];
+    const children = epicChildren.get(epic.number)?.children ?? [];
     let best = null;
     for (const child of children) {
       const title = child.milestone?.title;
@@ -891,9 +1706,14 @@ export function summarizeWaves({
     const classifiedOpen = open.filter(({ input }) => classified(input));
     const waveEpics = epics.filter(({ issue: epic }) => epicWave.get(epic.number) === milestone.title);
     const completeEpics = waveEpics.filter(({ issue: epic }) => {
-      const children = epicChildren.get(epic.number) ?? [];
+      const collection = epicChildren.get(epic.number);
+      const children = collection?.children ?? [];
+      if (collection?.capacity?.state === "saturated") return false;
       return children.length > 0 && children.every((child) => child.state === "closed");
     });
+    const epicsBoundedUnknown = waveEpics.some(
+      ({ issue: epic }) => epicChildren.get(epic.number)?.capacity?.state === "saturated",
+    );
 
     return {
       title: milestone.title,
@@ -910,10 +1730,16 @@ export function summarizeWaves({
       tracking: tracking.length,
       epicsTotal: waveEpics.length,
       epicsComplete: completeEpics.length,
+      epicsBoundedUnknown,
     };
   });
 
-  return { rows, windowDays };
+  const epicCapacities = epics
+    .map(({ issue: epic }) => ({ number: epic.number, ...(epicChildren.get(epic.number)?.capacity ?? {}) }))
+    .filter(({ state }) => state === "warning" || state === "saturated")
+    .sort((left, right) => left.number - right.number);
+
+  return { rows, windowDays, epicCapacities };
 }
 
 export function renderRoadmapStatus(summary) {
@@ -944,7 +1770,12 @@ export function renderRoadmapStatus(summary) {
     const label = row.executable ? row.title : `${row.title} _(not executable)_`;
     const refinedRatio = row.executable ? `${row.refinedOpen}/${row.open}` : "—";
     const parentless = row.executable ? String(row.parentlessClassified) : "—";
-    const epics = row.epicsTotal === 0 ? "—" : `${row.epicsComplete}/${row.epicsTotal}`;
+    const epics =
+      row.epicsTotal === 0
+        ? "—"
+        : row.epicsBoundedUnknown
+          ? `?/${row.epicsTotal}`
+          : `${row.epicsComplete}/${row.epicsTotal}`;
     const growth = !row.executable
       ? "—"
       : row.growthUnknown > 0
@@ -977,6 +1808,29 @@ export function renderRoadmapStatus(summary) {
   );
   if (forecast.priorDiagnostic) lines.push("", `Drift diagnostics: ${forecast.priorDiagnostic}.`);
 
+  const hygiene = summary.prioritizationHygiene;
+  if (hygiene) {
+    lines.push(
+      "",
+      "## Prioritization hygiene",
+      "",
+      `Pull window: ${hygiene.selected.length > 0 ? hygiene.selected.map((milestone) => milestone.title).join("; ") : "none"}.`,
+      `Stale preemption/tie claims: **${hygiene.candidates.length} total** — **${hygiene.byPriority.p0.length} p0**, **${hygiene.byPriority.p1.length} p1**.`,
+    );
+    if (hygiene.candidates.length === 0) lines.push("none");
+    else {
+      for (const candidate of hygiene.candidates) {
+        lines.push(`- #${candidate.number} ${candidate.priority} — ${candidate.milestone}`);
+      }
+    }
+    if (hygiene.noWindowFamilies.length > 0) {
+      lines.push(
+        "",
+        `Pull-window diagnostics: ${hygiene.noWindowFamilies.map((family) => `${family}: no runnable refined milestone`).join("; ")}.`,
+      );
+    }
+  }
+
   const executable = summary.rows.filter((row) => row.executable);
   const totalOpen = executable.reduce((sum, row) => sum + row.open, 0);
   const totalRefined = executable.reduce((sum, row) => sum + row.refinedOpen, 0);
@@ -995,9 +1849,30 @@ export function renderRoadmapStatus(summary) {
     "",
     `Parent attachment (reported, not gating): **${totalParentless} classified slices have no parent**. ` +
       `${totalTracking} tracking-only records are shown separately.`,
-    "",
-    "**Added (7d)** = entered current scope within the window.",
   );
+
+  const refinedInventory = summary.refinedInventoryAuthority;
+  if (refinedInventory) {
+    const { record, currentRefined } = refinedInventory;
+    lines.push(
+      "",
+      `Refined inventory: ${currentRefined} / cap ${record.cap} (authority ${record.month}; merged-PR window ${record.windowStart}..${record.windowEndExclusive})`,
+    );
+  }
+
+  const epicCapacities = summary.epicCapacities ?? [];
+  if (epicCapacities.length > 0) {
+    lines.push("", "Epic sub-issue capacity:");
+    for (const capacity of epicCapacities) {
+      lines.push(
+        capacity.state === "saturated"
+          ? `#${capacity.number} 100/100 (saturated; child inventory bounded unknown)`
+          : `#${capacity.number} ${capacity.count}/100 (${capacity.remaining} remaining)`,
+      );
+    }
+  }
+
+  lines.push("", "**Added (7d)** = entered current scope within the window.");
 
   const unknownRows = executable.filter((row) => row.growthUnknown > 0);
   if (unknownRows.length > 0) {
@@ -1013,6 +1888,7 @@ export function renderRoadmapStatus(summary) {
     "",
     "**Refined ≡ classified** = open, non-Epic, executable milestone + `priority:*` + `area:*` + `kind:*`, excluding `status:tracking-only`. Unrefined far-horizon work is expected, not a defect.",
   );
+  if (refinedInventory) lines.push("", renderRefinedInventoryCapMarker(refinedInventory.record));
   if (forecast.retainedComment) lines.push("", forecast.retainedComment, END_MARKER);
   else lines.push("", END_MARKER);
 
@@ -1111,6 +1987,87 @@ query($owner:String!, $name:String!, $after:String) {
   }
 }`;
 
+const REFINED_INVENTORY_PRS_QUERY = `
+# ${REFINED_INVENTORY_QUERY_SENTINEL}
+query($query:String!, $after:String) {
+  search(query:$query, type:ISSUE, first:100, after:$after) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on PullRequest { number mergedAt baseRefName }
+    }
+  }
+}`;
+
+const WINDOW_MILESTONES_QUERY = `
+# WINDOW_MILESTONES_SENTINEL
+query($owner:String!, $name:String!, $after:String) {
+  repository(owner:$owner, name:$name) {
+    milestones(first:100, after:$after, states:[OPEN]) {
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes { id number title state }
+    }
+  }
+}`;
+
+const WINDOW_ISSUES_QUERY = `
+# WINDOW_ISSUES_SENTINEL
+query($owner:String!, $name:String!, $after:String) {
+  repository(owner:$owner, name:$name) {
+    issues(first:100, after:$after, states:[OPEN]) {
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id
+        number
+        state
+        issueType { name }
+        milestone { id number title state }
+        issueDependenciesSummary { blockedBy totalBlockedBy }
+        labels(first:100) {
+          totalCount
+          pageInfo { hasNextPage endCursor }
+          nodes { id name }
+        }
+        blockedBy(first:100) {
+          totalCount
+          pageInfo { hasNextPage endCursor }
+          nodes { id number state repository { nameWithOwner } }
+        }
+      }
+    }
+  }
+}`;
+
+const WINDOW_LABELS_QUERY = `
+# WINDOW_LABELS_SENTINEL
+query($id:ID!, $after:String) {
+  node(id:$id) {
+    ... on Issue {
+      labels(first:100, after:$after) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes { id name }
+      }
+    }
+  }
+}`;
+
+const WINDOW_BLOCKED_BY_QUERY = `
+# WINDOW_BLOCKED_BY_SENTINEL
+query($id:ID!, $after:String) {
+  node(id:$id) {
+    ... on Issue {
+      blockedBy(first:100, after:$after) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes { id number state repository { nameWithOwner } }
+      }
+    }
+  }
+}`;
+
 async function graphql(query, variables, token, request) {
   const response = await gh(
     "https://api.github.com/graphql",
@@ -1125,6 +2082,36 @@ async function graphql(query, variables, token, request) {
   const payload = await response.json();
   if (payload.errors) throw new Error(`GraphQL failed: ${JSON.stringify(payload.errors)}`);
   return payload.data;
+}
+
+async function collectLiveRoadmapWindowAuthority({ owner, name, token, request }) {
+  const load = async (query, variables, path) => {
+    const data = await graphql(query, variables, token, request);
+    return path(data);
+  };
+  return stabilizeRoadmapWindowAuthority(() =>
+    collectRoadmapWindowAuthority({
+      loadMilestones: (after) =>
+        load(WINDOW_MILESTONES_QUERY, { owner, name, after }, (data) => data.repository?.milestones),
+      loadIssues: (after) => load(WINDOW_ISSUES_QUERY, { owner, name, after }, (data) => data.repository?.issues),
+      loadLabels: (id, after) => load(WINDOW_LABELS_QUERY, { id, after }, (data) => data.node?.labels),
+      loadBlockedBy: (id, after) => load(WINDOW_BLOCKED_BY_QUERY, { id, after }, (data) => data.node?.blockedBy),
+    }),
+  );
+}
+
+export async function collectLiveMonthlyRefinedInventory({ repository, token, request, nowMs = Date.now() }) {
+  const window = deriveMonthlyRefinedInventoryWindow(nowMs, repository);
+  const stabilized = await stabilizeMonthlyRefinedInventory(async () =>
+    collectMonthlyRefinedInventory({
+      window,
+      loadPage: async (after, query) => {
+        const data = await graphql(REFINED_INVENTORY_PRS_QUERY, { query, after }, token, request);
+        return data.search;
+      },
+    }),
+  );
+  return { window, ...stabilized };
 }
 
 async function appendStepSummary(env, block) {
@@ -1144,8 +2131,16 @@ export async function main({
   const repo = env.GITHUB_REPOSITORY;
   const token = env.GITHUB_TOKEN;
   const roadmapIssue = env.ROADMAP_ISSUE;
-  if (!repo || !token) {
-    writeError("ROADMAP_ENV_REQUIRED: GITHUB_REPOSITORY and GITHUB_TOKEN are required.");
+  if (!token) {
+    writeError("ROADMAP_GITHUB_TOKEN_REQUIRED: GITHUB_TOKEN is required before provider or issue actions.");
+    return 2;
+  }
+  if (!repo) {
+    writeError("ROADMAP_ENV_REQUIRED: GITHUB_REPOSITORY is required.");
+    return 2;
+  }
+  if (repo !== CANONICAL_REPOSITORY || (roadmapIssue && roadmapIssue !== CANONICAL_ROADMAP_ISSUE)) {
+    writeError("ROADMAP_SOURCE_TARGET_INVALID: writer source and target must be chase-sets/chase-sets#4129.");
     return 2;
   }
 
@@ -1169,8 +2164,16 @@ export async function main({
   reconcileForecastIssueSources(restIssues, issueFacts);
   const issues = restIssues.map((issue) => mergeRoadmapIssueFacts(issue, issueFacts.get(issue.number)));
   let currentRoadmap = null;
+  let priorRefinedInventory = null;
   if (roadmapIssue) {
     currentRoadmap = await (await gh(`/repos/${repo}/issues/${roadmapIssue}`, token, {}, request)).json();
+    priorRefinedInventory = reducePriorRefinedInventoryAuthority(currentRoadmap?.body ?? "", nowMs);
+    if (["invalid", "future"].includes(priorRefinedInventory.status)) {
+      writeError(
+        `${priorRefinedInventory.code}: Issue #${roadmapIssue} refined-inventory authority is unsafe; leaving the body untouched.`,
+      );
+      return 1;
+    }
   }
 
   const collectionSafeIssues = issues.filter((issue) => {
@@ -1205,7 +2208,6 @@ export async function main({
     writeError(`${error.code}: ${error.message}`);
     return 1;
   }
-
   const summary = summarizeWaves({
     milestones,
     issues,
@@ -1223,7 +2225,37 @@ export async function main({
     writeError(`${error.code}: ${error.message}`);
     return 1;
   }
+  let windowAuthority;
+  try {
+    windowAuthority = await collectLiveRoadmapWindowAuthority({ owner, name, token, request });
+  } catch (error) {
+    if (!(error instanceof RoadmapIssueEnumerationError)) throw error;
+    writeError(`${error.code}: ${error.message}`);
+    return 1;
+  }
+  summary.prioritizationHygiene = summarizePrioritizationHygiene(windowAuthority.authority);
   summary.forecast = createForecastPresentation({ current: currentForecast, drift, nowMs });
+  if (roadmapIssue) {
+    let record = priorRefinedInventory.record;
+    if (priorRefinedInventory.status !== "current") {
+      try {
+        const acquisition = await collectLiveMonthlyRefinedInventory({ repository: repo, token, request, nowMs });
+        record = capRecordFromCollection(acquisition.collection, acquisition.window, nowMs);
+      } catch (error) {
+        if (!(error instanceof RoadmapIssueEnumerationError)) throw error;
+        writeError(`${error.code}: ${error.message}`);
+        return 1;
+      }
+    }
+    let currentRefined = 0;
+    try {
+      currentRefined = issues.filter((issue) => classified(toBacklogInput(issue))).length;
+    } catch (error) {
+      writeError(`ROADMAP_REFINED_INVENTORY_CLASSIFICATION_INVALID: ${error.message}`);
+      return 1;
+    }
+    summary.refinedInventoryAuthority = { record, currentRefined };
+  }
   const block = renderRoadmapStatus(summary);
   writeOutput(block);
   await appendSummary(env, block);
@@ -1261,6 +2293,34 @@ export async function runRoadmapStatus(run = main, writeError = (message) => con
   }
 }
 
+function optionValue(argv, name) {
+  const equals = argv.find((value) => value.startsWith(`${name}=`));
+  if (equals) return equals.slice(name.length + 1);
+  const index = argv.indexOf(name);
+  return index >= 0 ? argv[index + 1] : undefined;
+}
+
+async function runCli(argv = process.argv.slice(2)) {
+  try {
+    if (argv.includes("--resolve-probe-job")) {
+      await resolveRefinedInventoryProbeJob();
+      return 0;
+    }
+    if (argv.includes("--probe-authority")) {
+      await produceRefinedInventoryProbe({ outPath: optionValue(argv, "--out") });
+      return 0;
+    }
+    if (argv.includes("--validate-probe-authority")) {
+      readCanonicalRefinedInventoryProbe(optionValue(argv, "--input"));
+      return 0;
+    }
+    return await runRoadmapStatus();
+  } catch (error) {
+    console.error(`${error.code ?? error.name}: ${error.message}`);
+    return 1;
+  }
+}
+
 if (process.argv[1] && process.argv[1].endsWith("roadmap-status.mjs")) {
-  process.exitCode = await runRoadmapStatus();
+  process.exitCode = await runCli();
 }

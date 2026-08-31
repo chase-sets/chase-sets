@@ -73,6 +73,10 @@ Examples:
 - Pending Payment
 - Cancelled
 
+Notes:
+
+- `ordering.order.cancelled` publishes the Order Status held immediately before the cancelled transition.
+
 ## Self-Service Purchase Cancellation
 
 **Self-Service Purchase Cancellation** is the buyer-initiated cancellation of a paid purchase while the Fulfillment-owned shipment is still awaiting package preparation.
@@ -83,6 +87,19 @@ Notes:
 - Fulfillment owns the operational cutoff.
 - Payments owns any refund created from the cancellation.
 - After package preparation starts, buyers use the Support-owned buyer cancellation request flow.
+- It shares the same pre-packing window as Self-Service Sale Cancellation.
+
+## Self-Service Sale Cancellation
+
+**Self-Service Sale Cancellation** is the seller-initiated cancellation of a paid sale while the Fulfillment-owned shipment is still awaiting package preparation.
+
+Notes:
+
+- Ordering owns the cancellation decision.
+- Fulfillment owns the operational cutoff.
+- Payments owns the buyer's full refund created from the cancellation.
+- The cancellation remains recorded as `seller-cancelled` for the seller cancellation rate.
+- After package preparation starts, sellers use the Support-owned cannot-fulfill flow.
 
 ## Order Split
 
@@ -186,6 +203,37 @@ A **Local Tax Rule** is a development/test rule used by the local stub resolver 
 ## Collection-Required Jurisdiction
 
 A **Collection-Required Jurisdiction** is a state or district where tax readiness shows Chase Sets has crossed the reviewed nexus threshold, has registration coverage or a collection start decision, and must collect sales tax before accepting covered marketplace orders.
+
+## Cleanup Authority
+
+**Cleanup Authority** is Ordering's read-only calculation of whether one Order's inventory commitment may be treated as cleaned up, decided from complete Order, Inventory reservation, and Inventory Hold stream histories.
+
+Notes:
+
+- It is an observation, never a command: it appends no event, issues no cancellation, and calls no provider.
+- Projections and readiness markers are never authority for it. A projection 404 does not prove cleanup.
+- Its states are **Live Cancelable**, **Captured Remedy Required**, **Cancelled Release Pending**, **Cancelled Cleanup Blocked**, and **Cleanup Complete**. "Absent" is never a terminal state.
+- An incomplete Inventory authority, an identity conflict, or an over-bound history is a conflict, never a success.
+
+## Live Cancelable
+
+**Live Cancelable** is the Cleanup Authority state of a valid Order still pending reservation or payment. Nothing is due for cleanup yet, so the observation is retryable.
+
+## Captured Remedy Required
+
+**Captured Remedy Required** is the Cleanup Authority state of any Order history that reached fulfillment readiness, including one a later support cancellation followed. Captured inventory is never cleaned up by this path, so the observation is not retryable.
+
+## Cancelled Release Pending
+
+**Cancelled Release Pending** is the Cleanup Authority state of a cleanup-eligible cancelled Order whose validated Holds are still active, including a Hold Inventory created atomically with a confirmation the Order never recorded. The observation is retryable.
+
+## Cancelled Cleanup Blocked
+
+**Cancelled Cleanup Blocked** is the Cleanup Authority state of a cleanup-eligible cancelled Order whose Hold reached a real terminal that cleanup cannot discharge: consumed, expired, released for a reason outside the governed cancellation mapping, or released before the cancellation. The observation is not retryable.
+
+## Cleanup Complete
+
+**Cleanup Complete** is the Cleanup Authority state reached only when every declared reservation has complete Inventory authority, the Hold set matches the confirmed set exactly, and every Hold was causally released for the governed reason. Zero Holds qualify only when every request was rejected.
 
 ## Planned Counter Orders
 

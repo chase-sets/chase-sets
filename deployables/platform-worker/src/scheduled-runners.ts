@@ -152,6 +152,17 @@ export function createRegisteredScheduledRunners({
   const fulfillment = services.fulfillment as
     | {
         shipments?: {
+          listStalePostageOperationLocators?: (params: {
+            staleBefore: string;
+            afterUpdatedAt?: string | null;
+            afterOperationId?: string | null;
+            limit?: number;
+          }) => Promise<readonly { operationId: string; tenantId: string; shipmentId: string; updatedAt: string }[]>;
+          reconcilePostageOperationLocator?: (locator: {
+            operationId: string;
+            tenantId: string;
+            shipmentId: string;
+          }) => Promise<{ outcome: string }>;
           reconcileStalePostageLabelPurchases?: (params?: {
             staleAfterMs?: number;
             limit?: number;
@@ -615,7 +626,48 @@ export function createRegisteredScheduledRunners({
     );
   }
 
-  if (fulfillment?.shipments?.reconcileStalePostageLabelPurchases) {
+  if (
+    fulfillment?.shipments?.listStalePostageOperationLocators &&
+    fulfillment.shipments.reconcilePostageOperationLocator
+  ) {
+    runners.push(
+      createScheduledJobRunner(
+        "fulfillment.postage-operation-reconciliation",
+        5 * 60 * 1000,
+        controlPlane,
+        async () => {
+          const staleBefore = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+          let afterUpdatedAt: string | null = null;
+          let afterOperationId: string | null = null;
+          let checked = 0;
+          let quarantined = 0;
+          while (true) {
+            const locators = await fulfillment.shipments!.listStalePostageOperationLocators!({
+              staleBefore,
+              afterUpdatedAt,
+              afterOperationId,
+              limit: 100,
+            });
+            for (const locator of locators) {
+              const result = await fulfillment.shipments!.reconcilePostageOperationLocator!(locator);
+              checked += 1;
+              if (result.outcome === "quarantined") quarantined += 1;
+            }
+            if (locators.length < 100) break;
+            const last = locators.at(-1)!;
+            afterUpdatedAt = last.updatedAt;
+            afterOperationId = last.operationId;
+          }
+          logger.info("Fulfillment postage operation reconciliation completed.", {
+            type: "fulfillment.postage-operation-reconciliation",
+            checked,
+            quarantined,
+          });
+          return checked;
+        },
+      ),
+    );
+  } else if (fulfillment?.shipments?.reconcileStalePostageLabelPurchases) {
     runners.push(
       createScheduledJobRunner(
         "fulfillment.postage-label-purchase-reconciliation",

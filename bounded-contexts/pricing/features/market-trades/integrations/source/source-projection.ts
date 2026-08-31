@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 /**
@@ -179,40 +180,36 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
         [data.orderId, data.cancelledAt],
       );
     },
-    "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        lines: Array<{ orderLineId: string }>;
-        createdAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<ChaseSetsEventPayloads, "fulfillment.shipment.created" | "fulfillment.shipment.delivered">
+    >({
+      "fulfillment.shipment.created": async (event) => {
+        const { data } = event;
 
-      for (const line of data.lines) {
-        await db.query(
-          `UPDATE pricing_market_trades
+        for (const line of data.lines) {
+          await db.query(
+            `UPDATE pricing_market_trades
            SET shipment_id = $3,
                updated_at = $4
            WHERE order_id = $1
              AND line_id = $2`,
-          [data.orderId, line.orderLineId, data.shipmentId, event.timing.recordedAt],
-        );
-      }
-    },
-    "fulfillment.shipment.delivered": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        deliveredAt: string;
-      };
+            [data.orderId, line.orderLineId, data.shipmentId, event.timing.recordedAt],
+          );
+        }
+      },
+      "fulfillment.shipment.delivered": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE pricing_market_trades
+        await db.query(
+          `UPDATE pricing_market_trades
          SET settled_at = $2,
              updated_at = $2
          WHERE shipment_id = $1
            AND settled_at IS NULL`,
-        [data.shipmentId, data.deliveredAt],
-      );
-    },
+          [data.shipmentId, data.deliveredAt],
+        );
+      },
+    }),
     "fulfillment.shipment.returned": async (event) => {
       const data = event.data as {
         shipmentId: string;

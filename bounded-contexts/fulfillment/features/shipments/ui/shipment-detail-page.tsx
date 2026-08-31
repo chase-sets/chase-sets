@@ -462,7 +462,7 @@ export function FulfillmentShipmentDetailPage({
               />
             ) : (
               shipment.postage_label_operations.map((operation) => (
-                <Card key={operation.operation_key}>
+                <Card key={operation.operation_key} elevation="tinted" data-elevation-role="furniture">
                   <Stack gap={2}>
                     <Text weight="semibold">
                       {t("fulfillment.features.shipments.ui.shipmentDetailPage.operation.kind.status", {
@@ -545,7 +545,7 @@ export function FulfillmentShipmentDetailPage({
                   {t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.events")}
                 </Text>
                 {shipment.postage_provider_events.map((event) => (
-                  <Card key={event.provider_event_id}>
+                  <Card key={event.provider_event_id} elevation="tinted" data-elevation-role="furniture">
                     <DetailConfidenceModule
                       title={t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.event.kind.status", {
                         eventKind: event.event_kind,
@@ -584,7 +584,7 @@ export function FulfillmentShipmentDetailPage({
       <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.lines")}>
         <Stack gap={3}>
           {shipment.lines.map((line) => (
-            <Card key={line.line_id}>
+            <Card key={line.line_id} elevation="tinted" data-elevation-role="furniture">
               <Stack gap={1}>
                 <Text weight="semibold">{line.item_title}</Text>
                 {line.item_subtitle ? (
@@ -617,7 +617,11 @@ export function FulfillmentShipmentDetailPage({
             />
           ) : (
             shipment.exceptions.map((exception) => (
-              <Card key={`${exception.exception_type}-${exception.raised_at}`}>
+              <Card
+                key={`${exception.exception_type}-${exception.raised_at}`}
+                elevation="tinted"
+                data-elevation-role="furniture"
+              >
                 <Stack gap={1}>
                   <Text weight="semibold">{exception.exception_type}</Text>
                   <Text size="sm" tone="secondary">
@@ -636,7 +640,7 @@ export function FulfillmentShipmentDetailPage({
         <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.actions")}>
           <Stack gap={3}>
             {shipment.status === "awaiting-label" && letterMailpiece ? (
-              <Card>
+              <Card elevation="tinted" data-elevation-role="furniture">
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
                     <MarketplaceNotice
@@ -656,7 +660,7 @@ export function FulfillmentShipmentDetailPage({
             ) : null}
 
             {shipment.status === "awaiting-label" && !letterMailpiece ? (
-              <Card>
+              <Card elevation="tinted" data-elevation-role="furniture">
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
                     <NativeSelect
@@ -716,7 +720,7 @@ export function FulfillmentShipmentDetailPage({
             ) : null}
 
             {shipment.status === "label-attached" ? (
-              <Card>
+              <Card elevation="tinted" data-elevation-role="furniture">
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
                     <Button type="submit" name="intent" value="dispatch-shipment">
@@ -737,7 +741,7 @@ export function FulfillmentShipmentDetailPage({
             ) : null}
 
             {shipment.status === "dispatched" || shipment.status === "exception" ? (
-              <Card>
+              <Card elevation="tinted" data-elevation-role="furniture">
                 <Stack gap={3}>
                   <Form spacing="none" method="post">
                     <Button type="submit" name="intent" value="deliver-shipment">
@@ -762,7 +766,7 @@ export function FulfillmentShipmentDetailPage({
             ) : null}
 
             {canRaiseException(shipment.status) ? (
-              <Card>
+              <Card elevation="tinted" data-elevation-role="furniture">
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
                     <TextInput

@@ -21,13 +21,20 @@ import {
 import { createPostgresEventStore, escapeLikePattern, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { type InventoryApiEnv, buildInventoryApi } from "../../api";
 import { InventoryDomainError } from "../../support/runtime-support/common";
+import {
+  claimInventoryAdjustmentIdempotency,
+  completeInventoryAdjustmentIdempotency,
+  releaseInventoryAdjustmentIdempotency,
+} from "../../support/runtime-support/inventory-adjustment-idempotency";
 import { createInventoryServices } from "../../support/runtime-support/services";
 import { reserveOrderInventoryRequest } from "../../features/reservations/api/order-reservation-workflow";
+import { buildInventoryItemLedgerProjectionHandlers } from "../../features/inventory-items/read-model/ledger-projection";
 import { module as inventoryModule } from "../..";
 
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
@@ -239,6 +246,27 @@ describe("inventory api", () => {
     expect(itemResponse.status).toBe(201);
     const itemBody = await itemResponse.json();
 
+    const adjustmentResponse = await app.request(`/api/inventory/items/${itemBody.id}/adjustments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantityDelta: 2,
+        reason: "Found in back stock",
+        reasonCode: "found",
+        note: "Counted by the owner",
+      }),
+    });
+    expect(adjustmentResponse.status).toBe(200);
+    const operatorLedger = await pools.inventory.query<{ reason_code: string | null; note: string | null }>(
+      `SELECT reason_code, note
+       FROM inventory_item_ledger
+       WHERE item_id = $1 AND kind = 'adjusted'
+       ORDER BY stream_version DESC
+       LIMIT 1`,
+      [itemBody.id],
+    );
+    expect(operatorLedger.rows).toEqual([{ reason_code: "found", note: "Counted by the owner" }]);
+
     const holdResponse = await app.request(`/api/inventory/items/${itemBody.id}/holds`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -257,9 +285,9 @@ describe("inventory api", () => {
     expect(listBody.items).toHaveLength(1);
     expect(listBody.items[0]).toMatchObject({
       product_summary: "Form: Raw | Condition: Near Mint",
-      total_quantity: 10,
+      total_quantity: 12,
       held_quantity: 3,
-      available_quantity: 7,
+      available_quantity: 9,
     });
 
     const detailResponse = await app.request(`/api/inventory/items/${itemBody.id}`);
@@ -282,9 +310,181 @@ describe("inventory api", () => {
     const updatedDetailBody = await updatedDetailResponse.json();
     expect(updatedDetailBody).toMatchObject({
       held_quantity: 0,
-      available_quantity: 10,
+      available_quantity: 12,
     });
     expect(updatedDetailBody.holds[0].status).toBe("released");
+  });
+
+  it("converges fresh and migrated ledger reason columns and keeps a second boot steady", async () => {
+    const fresh = await pools.inventory.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name = 'inventory_item_ledger'
+         AND column_name IN ('reason_code', 'note')
+       ORDER BY column_name`,
+    );
+    expect(fresh.rows).toEqual([{ column_name: "note" }, { column_name: "reason_code" }]);
+
+    await pools.inventory.query("ALTER TABLE inventory_item_ledger DROP COLUMN reason_code, DROP COLUMN note");
+    await pools.inventory.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260819_inventory_item_ledger_adjustment_reason'",
+    );
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    const migrated = await pools.inventory.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name = 'inventory_item_ledger'
+         AND column_name IN ('reason_code', 'note')
+       ORDER BY column_name`,
+    );
+    expect(migrated.rows).toEqual(fresh.rows);
+
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    const migration = await pools.inventory.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM bounded_context_schema_migrations
+       WHERE migration_id = '20260819_inventory_item_ledger_adjustment_reason'`,
+    );
+    expect(migration.rows).toEqual([{ count: "1" }]);
+  });
+
+  it("isolates legacy adjusted fallback from hold and restock rows without rewriting stored data", async () => {
+    const location = await services.storageLocations.createStorageLocation(
+      {
+        accountId: "acc_inventory" as never,
+        name: "Legacy ledger shelf",
+        shipFromCode: "CHI-LEGACY",
+        shipFromAddress,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+    const item = await services.items.createItem(
+      {
+        accountId: "acc_inventory" as never,
+        catalogItemId: catalogSeedIds.items.charizardBaseSet,
+        selectedOptions: [
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+          },
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+          },
+        ],
+        storageLocationId: location.storageLocationId,
+        totalQuantity: 5,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+    await services.items.adjustItem(
+      {
+        accountId: "acc_inventory",
+        itemId: item.itemId,
+        quantityDelta: 1,
+        reason: "Legacy shelf correction",
+      },
+      inventoryContext,
+    );
+    const hold = await services.holds.createHold(
+      {
+        accountId: "acc_inventory" as never,
+        itemId: item.itemId,
+        quantity: 1,
+        reason: "Legacy manual hold",
+        purpose: "manual",
+        sourceRef: null,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+    await services.holds.releaseHold(
+      { accountId: "acc_inventory", holdId: hold.holdId, releaseReason: "manual" },
+      inventoryContext,
+    );
+    const pending = await services.restockDecisions.markPending(
+      {
+        accountId: "acc_inventory",
+        orderId: "ord_legacy_ledger",
+        itemId: item.itemId,
+        quantity: 1,
+        reservationRequestId: "rsv_legacy_ledger",
+        source: "shipment-returned",
+        pendingAt: "2026-08-19T00:00:00.000Z",
+      },
+      inventoryContext,
+    );
+    await services.restockDecisions.recordDecision(
+      { accountId: "acc_inventory", decisionId: pending.decisionId, outcome: "written-off" },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    const physicalRows = await pools.inventory.query<{
+      kind: string;
+      reason: string;
+      reason_code: string | null;
+      note: string | null;
+      stream_id: string;
+      stream_version: string | number;
+    }>(
+      `SELECT kind, reason, reason_code, note, stream_id, stream_version
+       FROM inventory_item_ledger
+       WHERE item_id = $1
+         AND kind IN ('adjusted', 'hold-released', 'restock-decision')
+       ORDER BY kind`,
+      [item.itemId],
+    );
+    expect(physicalRows.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "adjusted", reason: "Legacy shelf correction", reason_code: null }),
+        expect.objectContaining({ kind: "hold-released", reason: "manual", reason_code: null }),
+        expect.objectContaining({ kind: "restock-decision", reason: "written-off", reason_code: null }),
+      ]),
+    );
+
+    const detail = await services.items.getItem(item.itemId, "acc_inventory");
+    expect(detail?.ledger).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "adjusted", reason: "Legacy shelf correction", reason_code: "correction" }),
+        expect.objectContaining({ kind: "hold-released", reason: "manual", reason_code: null }),
+        expect.objectContaining({ kind: "restock-decision", reason: "written-off", reason_code: null }),
+      ]),
+    );
+    const legacyAdjustment = physicalRows.rows.find((row) => row.kind === "adjusted")!;
+    const ledgerCountBefore = await pools.inventory.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM inventory_item_ledger WHERE item_id = $1",
+      [item.itemId],
+    );
+    await buildInventoryItemLedgerProjectionHandlers(pools.inventory)["inventory.item.adjusted"]!(
+      buildTransportEvent(
+        "inventory.item.adjusted",
+        { itemId: item.itemId, quantityDelta: 1, reason: "Legacy shelf correction", sourceRef: null },
+        {
+          id: "evt_legacy_adjustment_replay",
+          streamId: legacyAdjustment.stream_id,
+          streamVersion: Number(legacyAdjustment.stream_version),
+          globalPosition: "999999",
+          tenantId: "tnt_test",
+          audit: { performedByUserId: "usr_test", forAccountId: "acc_inventory" },
+          timing: { occurredAt: "2026-08-19T00:00:00.000Z", recordedAt: "2026-08-19T00:00:01.000Z" },
+        },
+      ),
+    );
+    const ledgerCountAfter = await pools.inventory.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM inventory_item_ledger WHERE item_id = $1",
+      [item.itemId],
+    );
+    expect(ledgerCountAfter.rows).toEqual(ledgerCountBefore.rows);
+    const physicalAfterReadAndReplay = await pools.inventory.query<{ reason_code: string | null }>(
+      "SELECT reason_code FROM inventory_item_ledger WHERE item_id = $1 AND kind = 'adjusted'",
+      [item.itemId],
+    );
+    expect(physicalAfterReadAndReplay.rows).toEqual([{ reason_code: null }]);
   });
 
   it("rolls back the order hold when reservation confirmation loses the dual append race", async () => {
@@ -689,6 +889,178 @@ describe("inventory api", () => {
     });
   });
 
+  it("records partial and refused offline sales without creating a second quantity source", async () => {
+    const createItem = async (name: string) => {
+      const location = await services.storageLocations.createStorageLocation(
+        {
+          accountId: "acc_inventory" as never,
+          name,
+          shipFromCode: name.toUpperCase().replaceAll(" ", "-").slice(0, 20),
+          shipFromAddress,
+        },
+        inventoryContext,
+      );
+      await drainContextProcesses({ subscriptionRunners });
+      const item = await services.items.createItem(
+        {
+          accountId: "acc_inventory" as never,
+          catalogItemId: catalogSeedIds.items.charizardBaseSet,
+          selectedOptions: [
+            {
+              dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+              optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+            },
+            {
+              dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+              optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+            },
+          ],
+          storageLocationId: location.storageLocationId,
+          totalQuantity: 3,
+          acquisitionCostAmount: "75.00",
+        },
+        inventoryContext,
+      );
+      await drainContextProcesses({ subscriptionRunners });
+      return item;
+    };
+
+    const partialItem = await createItem("Partial sale shelf");
+    await services.holds.createHold(
+      {
+        accountId: "acc_inventory" as never,
+        itemId: partialItem.itemId,
+        quantity: 1,
+        reason: "Protected unit",
+        purpose: "manual",
+        sourceRef: null,
+        expiresAt: null,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    const partial = await app.request(`/api/inventory/items/${partialItem.itemId}/offline-sales`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 3,
+        salePriceAmount: "125.00",
+        channel: "card-show",
+        idempotencyKey: "acceptance-partial-sale",
+      }),
+    });
+    expect(partial.status).toBe(200);
+    await expect(partial.json()).resolves.toMatchObject({
+      itemId: partialItem.itemId,
+      requestedQuantity: 3,
+      appliedQuantity: 2,
+      refusedQuantity: 1,
+      collision: { mode: "protect-orders", appliedQuantity: 2, refusedQuantity: 1 },
+    });
+    const partialEvents = await pools.inventory.query<{ event_type: string; payload: Record<string, unknown> }>(
+      `SELECT event_type, payload
+       FROM event_store_events
+       WHERE stream_id = $1
+       ORDER BY stream_version`,
+      [`inventory.item-${partialItem.itemId}`],
+    );
+    expect(partialEvents.rows.slice(-2)).toEqual([
+      expect.objectContaining({
+        event_type: "inventory.item.adjusted",
+        payload: expect.objectContaining({ quantityDelta: -2, reasonCode: "sold-offline" }),
+      }),
+      expect.objectContaining({
+        event_type: "inventory.item.offline-sale-recorded",
+        payload: expect.objectContaining({
+          quantity: 2,
+          salePriceAmount: "125.00",
+          acquisitionCostAmount: "75.00",
+          channel: "card-show",
+        }),
+      }),
+    ]);
+    const partialLedger = await pools.inventory.query<{
+      kind: string;
+      quantity_delta: number;
+      sale_price_amount: string | null;
+      channel: string | null;
+    }>(
+      `SELECT kind, quantity_delta, sale_price_amount, channel
+       FROM inventory_item_ledger
+       WHERE item_id = $1 AND kind IN ('adjusted', 'offline-sale')
+       ORDER BY stream_version`,
+      [partialItem.itemId],
+    );
+    expect(partialLedger.rows).toEqual([
+      { kind: "adjusted", quantity_delta: -2, sale_price_amount: null, channel: null },
+      { kind: "offline-sale", quantity_delta: -2, sale_price_amount: "125.00", channel: "card-show" },
+    ]);
+    const partialEventCount = partialEvents.rows.length;
+    const replay = await app.request(`/api/inventory/items/${partialItem.itemId}/offline-sales`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 3,
+        salePriceAmount: "125.00",
+        channel: "card-show",
+        collisionMode: "protect-orders",
+        idempotencyKey: "acceptance-partial-sale",
+      }),
+    });
+    expect(replay.status).toBe(200);
+    await expect(countStreamEvents(pools.inventory, `inventory.item-${partialItem.itemId}`)).resolves.toBe(
+      partialEventCount,
+    );
+
+    const refusedItem = await createItem("Refused sale shelf");
+    await services.holds.createHold(
+      {
+        accountId: "acc_inventory" as never,
+        itemId: refusedItem.itemId,
+        quantity: 3,
+        reason: "All units protected",
+        purpose: "manual",
+        sourceRef: null,
+        expiresAt: null,
+      },
+      inventoryContext,
+    );
+    await drainContextProcesses({ subscriptionRunners });
+    const refused = await app.request(`/api/inventory/items/${refusedItem.itemId}/offline-sales`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 3,
+        channel: "in-store",
+        idempotencyKey: "acceptance-refused-sale",
+      }),
+    });
+    expect(refused.status).toBe(200);
+    await expect(refused.json()).resolves.toMatchObject({
+      requestedQuantity: 3,
+      appliedQuantity: 0,
+      refusedQuantity: 3,
+    });
+    await expect(
+      countStreamEventsByType(
+        pools.inventory,
+        `inventory.item-${refusedItem.itemId}`,
+        "inventory.item.offline-sale-recorded",
+      ),
+    ).resolves.toBe(0);
+    await expect(
+      countStreamEventsByType(pools.inventory, `inventory.item-${refusedItem.itemId}`, "inventory.item.adjusted"),
+    ).resolves.toBe(0);
+    const refusedLedger = await pools.inventory.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM inventory_item_ledger
+       WHERE item_id = $1 AND kind IN ('adjusted', 'offline-sale')`,
+      [refusedItem.itemId],
+    );
+    expect(Number(refusedLedger.rows[0]?.count ?? 0)).toBe(0);
+  });
+
   it("honors an explicit manager override by atomically releasing affected order commitments", async () => {
     const location = await services.storageLocations.createStorageLocation(
       {
@@ -733,14 +1105,16 @@ describe("inventory api", () => {
     });
     await drainContextProcesses({ subscriptionRunners });
 
-    const response = await app.request(`/api/inventory/items/${item.itemId}/adjustments`, {
+    const response = await app.request(`/api/inventory/items/${item.itemId}/offline-sales`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        quantityDelta: -4,
-        reason: "Counter sale",
+        quantity: 4,
+        salePriceAmount: "125.00",
+        channel: "in-store",
         collisionMode: "honor-offline",
         confirmSellerCannotFulfill: true,
+        idempotencyKey: "acceptance-honor-sale",
       }),
     });
     expect(response.status).toBe(200);
@@ -788,6 +1162,14 @@ describe("inventory api", () => {
         mode: "honor-offline",
         affected_orders: [expect.objectContaining({ orderId: "ord_collision_1" })],
       }),
+    ]);
+    const saleLedger = await pools.inventory.query<{ kind: string; reason_code: string | null }>(
+      "SELECT kind, reason_code FROM inventory_item_ledger WHERE item_id = $1 AND kind IN ('adjusted', 'offline-sale') ORDER BY stream_version",
+      [item.itemId],
+    );
+    expect(saleLedger.rows).toEqual([
+      { kind: "adjusted", reason_code: "sold-offline" },
+      { kind: "offline-sale", reason_code: null },
     ]);
   });
 
@@ -875,6 +1257,7 @@ describe("inventory api", () => {
       },
       inventoryContext,
     );
+    await drainContextProcesses({ subscriptionRunners });
 
     expect(result.collision?.affectedOrders).toEqual([
       expect.objectContaining({
@@ -883,6 +1266,11 @@ describe("inventory api", () => {
         disposition: "released",
       }),
     ]);
+    const collisionLedger = await pools.inventory.query<{ reason_code: string | null }>(
+      "SELECT reason_code FROM inventory_item_ledger WHERE item_id = $1 AND kind = 'adjusted'",
+      [item.itemId],
+    );
+    expect(collisionLedger.rows).toEqual([{ reason_code: "sold-offline" }]);
     await expect(services.reservations.getReservationState("rsv_converted_newest")).resolves.toMatchObject({
       status: "released",
     });
@@ -1007,6 +1395,56 @@ describe("inventory api", () => {
       }),
     });
     expect(writeResponse.status).toBe(403);
+    const offlineSaleResponse = await unauthorizedApp.request("/api/inventory/items/inv_1/offline-sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quantity: 1, channel: "in-store", idempotencyKey: "forbidden-sale" }),
+    });
+    expect(offlineSaleResponse.status).toBe(403);
+  });
+
+  it("does not let a released claim owner complete a reclaimed idempotency row", async () => {
+    await claimInventoryAdjustmentIdempotency(pools.inventory, {
+      idempotencyKey: "stale-completion",
+      accountId: "acc_inventory",
+      itemId: "inv_a",
+      commandFingerprint: "fingerprint-a",
+    });
+    await releaseInventoryAdjustmentIdempotency(pools.inventory, "stale-completion");
+    await claimInventoryAdjustmentIdempotency(pools.inventory, {
+      idempotencyKey: "stale-completion",
+      accountId: "acc_inventory",
+      itemId: "inv_b",
+      commandFingerprint: "fingerprint-b",
+    });
+
+    await expect(
+      completeInventoryAdjustmentIdempotency(pools.inventory, {
+        idempotencyKey: "stale-completion",
+        commandFingerprint: "fingerprint-a",
+        resultItemId: "inv_a",
+        resultVersion: 2,
+        resultCollision: null,
+      }),
+    ).resolves.toBe(false);
+    const row = await pools.inventory.query<{
+      status: string;
+      command_fingerprint: string;
+      result_version: string | null;
+      result_collision: unknown;
+    }>(
+      `SELECT status, command_fingerprint, result_version, result_collision
+       FROM inventory_item_adjustment_idempotency
+       WHERE idempotency_key = 'stale-completion'`,
+    );
+    expect(row.rows).toEqual([
+      {
+        status: "in_progress",
+        command_fingerprint: "fingerprint-b",
+        result_version: null,
+        result_collision: null,
+      },
+    ]);
   });
 
   it("hides cross-account inventory items", async () => {
@@ -1128,6 +1566,16 @@ describe("inventory api", () => {
         }),
       ]),
     );
+    expect(
+      charizardItem?.ledger
+        .filter((entry) => entry.kind === "adjusted")
+        .map((entry) => ({ reason: entry.reason, reason_code: entry.reason_code })),
+    ).toEqual(
+      expect.arrayContaining([
+        { reason: "Cycle count increase", reason_code: "correction" },
+        { reason: "Reserve correction", reason_code: "correction" },
+      ]),
+    );
 
     const gradedCharizardItem = await seededServices.items.getItem(
       inventorySeedIds.items.charizardBaseSetPsa8,
@@ -1173,9 +1621,27 @@ describe("inventory api", () => {
     );
 
     const eventCountBefore = await countEvents(pools.inventory, "inventory.");
+    await pools.inventory.query(
+      `UPDATE event_store_events
+       SET payload = payload - 'reasonCode'
+       WHERE stream_id = $1
+         AND event_type = 'inventory.item.adjusted'`,
+      [`inventory.item-${inventorySeedIds.items.charizardBaseSetNearMint}`],
+    );
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
     await inventoryModule.seed?.(pools.inventory);
     const eventCountAfter = await countEvents(pools.inventory, "inventory.");
     expect(eventCountAfter).toBe(eventCountBefore);
+    const legacyAdjustedPayloads = await pools.inventory.query<{ payload: Record<string, unknown> }>(
+      `SELECT payload
+       FROM event_store_events
+       WHERE stream_id = $1
+         AND event_type = 'inventory.item.adjusted'
+       ORDER BY stream_version`,
+      [`inventory.item-${inventorySeedIds.items.charizardBaseSetNearMint}`],
+    );
+    expect(legacyAdjustedPayloads.rows).toHaveLength(2);
+    expect(legacyAdjustedPayloads.rows.every((row) => !("reasonCode" in row.payload))).toBe(true);
 
     const storageLocations = await seededServices.storageLocations.listStorageLocations({
       accountId: demoIdentitySeedIds.accountId,

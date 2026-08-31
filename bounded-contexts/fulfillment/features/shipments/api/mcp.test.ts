@@ -31,7 +31,7 @@ function mcpRequest(arguments_: Record<string, unknown>, requestActor: ResolvedA
   return {
     actor: requestActor,
     tool: null as never,
-    arguments: arguments_,
+    arguments: { idempotencyKey: "018f47d2-9d2a-4d68-8f33-6fb718c3f001", ...arguments_ },
     request: new Request("https://api.test/mcp"),
     protocol: legacyMcpProtocol,
   };

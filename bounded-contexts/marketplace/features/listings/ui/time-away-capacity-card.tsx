@@ -371,7 +371,7 @@ function OrderCapacitySection({ orderCapacity, openOrderCount }: TimeAwayCapacit
  */
 export function TimeAwayCapacityCard(snapshot: TimeAwayCapacitySnapshot) {
   return (
-    <Card>
+    <Card elevation="tinted">
       <Stack gap={6}>
         <AvailabilitySection {...snapshot} />
         <AwayWindowSection {...snapshot} />

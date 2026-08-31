@@ -159,7 +159,7 @@ export function RecoveredItemsPage({
       </PageSection>
 
       <PageSection title={t("inventory.features.recoveredItems.ui.page.action.title")}>
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Stack gap={3}>
             <Text tone="secondary">{t("inventory.features.recoveredItems.ui.page.action.description")}</Text>
             {lastAction?.error ? <Badge tone="danger">{lastAction.error}</Badge> : null}

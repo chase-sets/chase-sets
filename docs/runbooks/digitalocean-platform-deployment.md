@@ -70,6 +70,6 @@ Spaces and Terraform-state least privilege remain separate follow-up work.
 
 ## Validation
 
-Before publishing an infrastructure change, run Terraform format/validate for each changed root, `pnpm run check:github-actions-runtime`, focused script tests, and `pnpm run verify:static`. Apply the `full-ci` PR label when broad workflow or infrastructure coverage is required.
+Before publishing an infrastructure change, run Terraform format/validate for each changed root, `pnpm run check:github-actions-runtime`, named focused script tests, and `pnpm run verify:static:scoped`. On concurrent-lane hosts, set `CHASE_SETS_LANE_MODE=1` for local Vitest commands. Hosted CI owns the strict full `pnpm run verify:static`, full `pnpm run verify`, and complete `pnpm run test:scripts` gates. Apply the `full-ci` PR label when broad workflow or infrastructure coverage is required.
 
 See [DOKS Platform Operations](./doks-platform-operations.md) for deploy, diagnostics, rollback, bootstrap-hook drill, ingress, certificate, and secret-rotation procedures.

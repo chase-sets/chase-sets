@@ -1281,6 +1281,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             itemId: existingItem.item_id,
             quantityDelta,
             reason: row.quantity_mode === "replace" ? "Import exact quantity" : "Import quantity adjustment",
+            reasonCode: row.quantity_mode === "replace" || quantityDelta < 0 ? "correction" : "intake",
             idempotencyKey: importRowInventoryAdjustmentKey(row.row_id),
           },
           context,

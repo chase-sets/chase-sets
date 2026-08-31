@@ -1,17 +1,9 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type {
+  ChaseSetsEventPayloads,
+  PaymentRefundCausationPayload,
+} from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-
-type RefundCausationData = Readonly<{
-  remedyId?: string | null;
-  coverageId?: string | null;
-  allocation?: Readonly<{
-    sellerFundedAmount?: string | null;
-    platformFundedAmount?: string | null;
-    fundingKind?: string | null;
-  }> | null;
-  refundTrigger?: string | null;
-  reasonCode?: string | null;
-}>;
 
 type RefundCausationColumns = Readonly<{
   remedyId: string | null;
@@ -24,7 +16,7 @@ type RefundCausationColumns = Readonly<{
 }>;
 
 /** Flattens the optional causation payload into read-model columns; all null for a legacy seller-funded refund with no causation. */
-function causationColumns(causation: RefundCausationData | null | undefined): RefundCausationColumns {
+function causationColumns(causation: PaymentRefundCausationPayload | null | undefined): RefundCausationColumns {
   return {
     remedyId: causation?.remedyId ?? null,
     coverageId: causation?.coverageId ?? null,
@@ -37,19 +29,11 @@ function causationColumns(causation: RefundCausationData | null | undefined): Re
 }
 
 export function buildRefundProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
-  return {
+  return defineProjectorHandlers<
+    Pick<ChaseSetsEventPayloads, "payments.refund-requested" | "payments.refund-issued" | "payments.refund-failed">
+  >({
     "payments.refund-requested": async (event) => {
-      const data = event.data as {
-        refundId: string;
-        paymentId: string;
-        orderIds: string[];
-        amount: string;
-        currencyCode: string;
-        reason: string;
-        processorName: string;
-        causation?: RefundCausationData | null;
-        requestedAt: string;
-      };
+      const { data } = event;
       const causation = causationColumns(data.causation);
 
       await db.query(
@@ -122,12 +106,7 @@ export function buildRefundProjectionHandlers(db: PgQueryable): ProjectorHandler
       );
     },
     "payments.refund-issued": async (event) => {
-      const data = event.data as {
-        refundId: string;
-        processorRefundReference: string;
-        processorStatus: string;
-        issuedAt: string;
-      };
+      const { data } = event;
 
       await db.query(
         `UPDATE payments_refund_pages
@@ -145,13 +124,7 @@ export function buildRefundProjectionHandlers(db: PgQueryable): ProjectorHandler
       );
     },
     "payments.refund-failed": async (event) => {
-      const data = event.data as {
-        refundId: string;
-        processorStatus: string;
-        failureCode: string | null;
-        failureMessage: string | null;
-        failedAt: string;
-      };
+      const { data } = event;
 
       await db.query(
         `UPDATE payments_refund_pages
@@ -174,5 +147,5 @@ export function buildRefundProjectionHandlers(db: PgQueryable): ProjectorHandler
         ],
       );
     },
-  };
+  });
 }

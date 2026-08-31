@@ -462,7 +462,7 @@ export function InventoryImportBatchPage({
       />
 
       <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.upload.csv")}>
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Form spacing="none" method="post" encType="multipart/form-data">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create-batch" />
@@ -554,7 +554,7 @@ export function InventoryImportBatchPage({
               />
             ) : null}
             {canCommit ? (
-              <Card>
+              <Card elevation="tinted" data-elevation-role="furniture">
                 <Form spacing="none" method="post">
                   <HiddenInput type="hidden" name="intent" value="commit-batch" />
                   <HiddenInput type="hidden" name="batchId" value={detail.batch_id} />

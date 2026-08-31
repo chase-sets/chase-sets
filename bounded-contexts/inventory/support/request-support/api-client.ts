@@ -13,6 +13,8 @@ export type {
   InventoryItemDetail,
   InventoryItemListItem,
   InventoryListingStockSnapshot,
+  InventoryOfflineSaleRequest,
+  InventoryOfflineSaleResult,
   InventoryRestockDecision,
   InventoryRecoveredItemRow,
   InventoryStorageLocation,

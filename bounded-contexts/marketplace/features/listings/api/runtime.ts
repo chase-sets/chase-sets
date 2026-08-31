@@ -359,14 +359,14 @@ export type MarketplaceListingServices = Readonly<{
    * Terms resolution (m113 repricing-at-scale throughput lane): every
    * listing in `params.updates` belongs to the SAME `params.accountId`, so
    * the account's commercial terms are resolved into one session for the
-   * whole call -- not once per listing or chunk -- and applied locally to
-   * each listing's price. `feeQuoteFingerprint` stays optional
-   * per update: when a caller supplies one (e.g. a human confirming a
-   * previewed price), it must still match the freshly-resolved quote or
-   * the update is isolated as an error, exactly like `updateListingPrice`;
-   * when omitted (bulk/system callers with no separate preview step), the
-   * update applies at the freshly-resolved terms with no confirmation
-   * required.
+   * whole call -- not once per listing or chunk. Each price update requotes
+   * every pre-existing fee-lock tranche from that tranche's own stored
+   * terms. `feeQuoteFingerprint` stays optional per update: when a caller
+   * supplies one (e.g. a human confirming a previewed price), it must still match the freshly-resolved quote or
+   * the update is isolated as an error,
+   * exactly like `updateListingPrice`; when omitted (bulk/system callers
+   * with no separate preview step), the stored terms still apply with no
+   * confirmation required.
    */
   applyBulkListingPriceUpdates: (
     params: Readonly<{
@@ -1794,7 +1794,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             if (update.feeQuoteFingerprint) {
               assertConfirmedFeeQuote(update.feeQuoteFingerprint, quote);
             }
-            const feeLocks = listing.feeLocks.map((lock) => feeLockFromMarketplaceTermsQuote(lock.unitCount, quote));
+            const feeLocks = listing.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, update.priceAmount));
 
             laneItems.push({
               streamId: `marketplace.listing-${update.listingId}`,

@@ -24,11 +24,11 @@ This includes:
 - Staff
 - Administrators
 - Automation users
-- Guest checkout users
+- Users created when a guest Account is claimed
 
 Notes:
 
-- Guest checkout creates a minimal user record plus a corresponding account item.
+- Guest checkout creates an Account only. Claiming that guest Account creates the User and owner Membership.
 - Users may belong to one or more accounts.
 - Users may have multiple credentials and authentication methods.
 - Users are assigned roles through memberships; not permissions directly.
@@ -66,7 +66,7 @@ Notes:
 
 - Accounts do not sign in; users sign in.
 - All commerce activity is attributed to an account.
-- Even guest checkout users have an associated account for their orders and payments (even if it's not visible to them).
+- Guest checkout creates an Account for orders and payments before any User exists; claiming it creates the User and owner Membership.
 - Buying and selling are not account capability classes; accounts may play buyer or seller roles only inside transaction-specific contexts.
 - Seller operational locations remain separate: Inventory owns storage locations for account-held stock, and Fulfillment owns ship-from locations and shipment execution.
 
@@ -81,6 +81,16 @@ Notes:
 - A **Founding Account Badge** is a permanent, numbered Account Badge claimed by an admitted Account's first Qualifying Act, while one of the 500 Founder Numbers remains.
 - A **Trusted Seller Account Badge** marks an Account that operations has approved for standard high-dollar listing and payout-release policies.
 - A **Manual Payout Review Account Badge** marks an Account whose payout release requires enhanced review because Stripe, support, fulfillment, or operations found seller-risk signals.
+
+### Account Enforcement Action
+
+An **Account Enforcement Action** is one immutable Identity fact that suspends, reactivates, or closes an Account and has a never-reused `enf_` identity.
+
+An open Account Enforcement Action is only the restriction currently determining an Account's `suspended` or `closed` status. Reactivation is a terminal action fact and closes the current suspension without remaining open. The latest action fact is therefore distinct from the current open restriction. Marketplace owns its separate Listing Enforcement Action behavior, and graduated account-standing policy is outside this Identity fact.
+
+### Account Enforcement Reason
+
+An **Account Enforcement Reason** is the closed provenance code recorded on an Account Enforcement Action, optionally linked to one Support Request. It explains why the immutable fact was recorded; it never grants authority, changes lifecycle preconditions, or acts as free text.
 
 ### Founders Cohort
 
@@ -515,13 +525,25 @@ The following rules must always hold:
 Closing an Account preserves its Memberships for audit. Membership teardown is explicit and is permitted only after the
 Account is closed; closing the Account itself does not revoke or demote Memberships.
 
-## Planned Account Capabilities And Channel Connections
-
-These planned terms pre-register upcoming account capability, store team, and external channel connection language. They are not shipped behavior until Identity adds the corresponding consent, membership, authorization, and account-management facts.
+## Account Capabilities
 
 ### Account Capability
 
-An **Account Capability** is the planned account-level ability to use a marketplace or integration workflow.
+An **Account Capability** is a named durable product-policy dimension describing functionality that may be made available to an Account.
+
+### Account Capability Declaration
+
+An **Account Capability Declaration** is context-owned catalog metadata that gives an Account Capability its key, description, kind, and kind-shaped default. A tier declaration separately lists its allowed values; an allowed value is not itself a default or a grant.
+
+### Account Capability Registry
+
+An **Account Capability Registry** is the complete immutable, key-sorted catalog assembled from every registered context manifest independently of the mounted runtime profile. Its `owningContext` comes from module registration, not from the capability key's product namespace.
+
+The shipped catalog contains `authenticity.seller-included`, `inventory.locations`, and `mcp.rate-tier`. These are inert declarations without grants, resolution, enforcement, pricing, or UI behavior. In particular, the `mcp` namespace does not change the `platform-operations` owner of `mcp.rate-tier`.
+
+## Planned Account Capabilities And Channel Connections
+
+These planned terms pre-register upcoming Account Capability lifecycle, store team, and external channel connection language. They are not shipped behavior until the owning contexts add the corresponding facts and workflows.
 
 ### Capability Grant
 

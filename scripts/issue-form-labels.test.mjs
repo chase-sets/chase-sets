@@ -202,6 +202,10 @@ describe("issue form label parsing", () => {
     expect(parseIssueFormLabels(FILLED)).toEqual(["priority:p1", "area:catalog", "kind:tech-debt"]);
   });
 
+  it("maps the channels owning-context answer to its registered area label", () => {
+    expect(parseIssueFormLabels("### Owning context\n\nchannels\n")).toEqual(["area:channels"]);
+  });
+
   it("ignores values outside the allowed vocabulary", () => {
     const body = "### Priority\n\np9\n\n### Owning context\n\nnot-a-context\n";
     expect(parseIssueFormLabels(body)).toEqual([]);

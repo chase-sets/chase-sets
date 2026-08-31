@@ -37,6 +37,23 @@ function captureResolutionEvents() {
   };
 }
 
+function expectTintedCard(root: Element | null, label: string) {
+  expect(root, `${label} root`).not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  expect(tokens.has("bg-surface-2"), `${label} includes bg-surface-2`).toBe(true);
+  for (const excluded of [
+    "ds-glass",
+    "border",
+    "border-muted",
+    "shadow-tokenSm",
+    "shadow-tokenLg",
+    "ds-glow",
+    "hover:border-accent",
+    "hover:shadow-tokenMd",
+  ])
+    expect(tokens.has(excluded), `${label} excludes ${excluded}`).toBe(false);
+}
+
 afterEach(() => {
   cleanup();
   window.sessionStorage.clear();
@@ -88,6 +105,11 @@ describe("existing order issue blocks submission", () => {
     );
 
     expect(screen.getByText("Review paused")).toBeTruthy();
+    const reviewSection = screen.getByRole("heading", { name: /your review/i }).closest("section");
+    const heldFeedbackRoot = [...(reviewSection?.children ?? [])].find((element) =>
+      element.classList.contains("rounded-tokenLg"),
+    );
+    expectTintedCard(heldFeedbackRoot ?? null, "held feedback");
     const track = screen.getByRole("link", { name: "Track order issue" });
     expect(track.getAttribute("href")).toBe("/account/support?orderId=ord_1");
     expect(screen.queryByRole("button", { name: "Submit account review" })).toBeNull();
@@ -104,6 +126,7 @@ describe("buyer resolution-first funnel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit account review" }));
 
     expect(screen.getByText("Resolve this issue")).toBeTruthy();
+    expectTintedCard(screen.getByText("Resolve this issue").closest(".rounded-tokenLg"), "resolution interstitial");
     expect(screen.getByRole("link", { name: "Open an order issue" })).toBeTruthy();
     expect(screen.getByText("Leave feedback only")).toBeTruthy();
     expect(events.some((event) => event.event === "review_resolution_interstitial_shown")).toBe(true);
@@ -212,6 +235,11 @@ describe("buyer resolution-first funnel", () => {
 describe("seller order-help action", () => {
   it("offers general order help without buyer payment-protection copy and never blocks submission", () => {
     render(<ReviewSubmissionPage backHref="/account/sales/ord_1" opportunity={opportunity} defaultRating={1} />);
+
+    expectTintedCard(
+      screen.getByRole("button", { name: "Submit account review" }).closest(".rounded-tokenLg"),
+      "review form",
+    );
 
     // Sellers get the persistent problem action but no structured problem indicators.
     expect(screen.queryByText("Was there a problem with this order?")).toBeNull();

@@ -23,10 +23,17 @@ import type {
   EnvironmentDataProfile,
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { buildAccountCapabilityRegistry, type AccountCapabilityRegistry } from "./account-capability-registry";
 import { runtimeProfileMatches, sourceRuntimeHostMatches } from "./host-runtime-selection";
 import { attachRuntimeLifecycleRegistry, type RuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 export type { EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
+export {
+  buildAccountCapabilityRegistry,
+  type AccountCapabilityModuleRegistration,
+  type AccountCapabilityRegistry,
+  type AccountCapabilityRegistryEntry,
+} from "./account-capability-registry";
 
 export type ApiHostName = "platform-api";
 export type ApiHostRuntimeProfile = "landing" | "proof" | "public";
@@ -76,6 +83,7 @@ export type ApiHostContextName<TRegistry extends ApiContextRegistry = ApiContext
   TRegistry[number]["contextName"];
 
 export type ApiHostRuntime = Readonly<{
+  accountCapabilityRegistry: AccountCapabilityRegistry;
   mountedContexts: readonly MountedContextRuntimeEntry[];
   mountedModules: readonly Readonly<{
     module: BcApiModule;
@@ -166,6 +174,7 @@ export function createApiHost(
     runtimeLifecycle?: RuntimeLifecycleRegistry;
   }>,
 ): ApiHostRuntime {
+  const accountCapabilityRegistry = buildAccountCapabilityRegistry(registry);
   const entries = getApiHostEntries(registry, hostName, options.runtimeProfile);
   const services = Object.fromEntries(
     entries.map((entry) => {
@@ -217,6 +226,7 @@ export function createApiHost(
   const projectionGroups = resolveModuleProjectionGroups(mountedContexts, subscriptionRunners);
 
   return {
+    accountCapabilityRegistry,
     mountedContexts,
     mountedModules,
     services,

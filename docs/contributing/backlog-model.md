@@ -21,9 +21,18 @@ Five levels. Only three are GitHub objects.
 | **Slice** | GitHub issue, type **Slice**, normally a sub-issue of its epic | what one lane delivers | daily |
 | **Bug** | GitHub issue, type **Bug** | what is broken now | as found |
 | **Decision** | GitHub issue, type **Decision** | what blocks a slice from starting | as surfaced |
-| **Probe** | GitHub issue, type **Probe** | what evidence a slice needs before dispatch | as surfaced |
+| **Probe** | GitHub issue, type **Probe** | time-boxed evidence gathering: either what a slice needs before dispatch, or evidence available only after its prerequisite has landed, at the exact lifecycle boundary where the observed state exists | as surfaced |
 
-The **native GitHub issue type is the form of the work and is authoritative.**
+The **native GitHub issue type is the form of the work and is authoritative.** A
+Probe's type and no-pull-request closure pattern do not authorize an
+implementation result, staging/deploy verification, a provider or operator
+claim, or an ongoing-monitoring result. Each Probe acceptance criterion names
+its exact authority, captured artifact, lifecycle moment, and bounded
+unknown/failure behavior; post-landing evidence is not collected before the
+landed/deployed state it observes exists. A marked evidence comment plus
+independent operator acceptance may close a Probe without a pull request only
+after that Probe's own acceptance criteria are met; operator acceptance is a
+closure control, not evidence authority.
 `kind:*` remains the *nature* of the work (`product`, `tech-debt`, `security`,
 `test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The legacy
 `kind:epic` label is kept only as a fallback for tooling that predates types;
@@ -106,7 +115,7 @@ battery can fail when the documentation, issue forms, or labeler drift.
 | Family | Purpose | Rule |
 |---|---|---|
 | **Control** | drives workflow, issue routing, or orchestrator behavior | `ci-circuit-repair`, `decision`, `dispatch:flush-window`, `full-ci`, `preview`. Load-bearing; never prune without changing the consumer. |
-| `area:*` | owning bounded context | `area:auth`, `area:catalog`, `area:checkout`, `area:collections`, `area:commercial-terms`, `area:design-system`, `area:discovery`, `area:fulfillment`, `area:identity`, `area:infrastructure`, `area:inventory`, `area:marketplace`, `area:marketplace-web`, `area:notifications`, `area:ops`, `area:ordering`, `area:payments`, `area:platform-runtime`, `area:pricing`, `area:public-presence`, `area:settlement`, `area:support`, `area:tax`. Operational ownership is advisory coverage, not a 1:1 context-directory map. |
+| `area:*` | owning bounded context | `area:auth`, `area:catalog`, `area:checkout`, `area:channels`, `area:collections`, `area:commercial-terms`, `area:design-system`, `area:discovery`, `area:fulfillment`, `area:identity`, `area:infrastructure`, `area:inventory`, `area:marketplace`, `area:marketplace-web`, `area:notifications`, `area:ops`, `area:ordering`, `area:payments`, `area:platform-runtime`, `area:pricing`, `area:public-presence`, `area:settlement`, `area:support`, `area:tax`. Operational ownership is advisory coverage, not a 1:1 context-directory map. |
 | `kind:*` | nature of the work | `kind:epic`, `kind:ops`, `kind:product`, `kind:security`, `kind:tech-debt`, `kind:test`. `kind:epic` remains only as the compatibility fallback for existing untyped issues; new epics use the native **Epic** type. |
 | `priority:*` | dispatch rank | `priority:p0`, `priority:p1`, `priority:p2`, `priority:p3`. On slices only. |
 | `risk:*` | a named risk to call out | `risk:data-quality`, `risk:policy`, `risk:provider`, `risk:semantic-authority`. |

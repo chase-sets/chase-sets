@@ -4,13 +4,15 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
-import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { JsonObject } from "@chase-sets/primitives/json";
-import type { InventoryAdjustmentSourceRef } from "@chase-sets/event-core/public-event-payloads";
+import type {
+  InventoryAdjustmentReason,
+  InventoryAdjustmentSourceRef,
+} from "@chase-sets/event-core/public-event-payloads";
 import type { InventoryCatalogItemServices } from "../integrations/catalog/runtime";
 import {
   createInventoryProductDescriptor,
@@ -20,6 +22,15 @@ import {
 } from "../integrations/catalog/versioning";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
+import {
+  claimInventoryAdjustmentIdempotency,
+  completeInventoryAdjustmentIdempotency,
+  inventoryAdjustmentCommandFingerprint,
+  normalizeInventoryAdjustmentNote,
+  normalizeInventoryIdempotencyKey,
+  recoverInventoryAdjustmentIdempotency,
+  releaseInventoryAdjustmentIdempotency,
+} from "../../../support/runtime-support/inventory-adjustment-idempotency";
 import {
   loadAuthoritativeInventoryStockSnapshot,
   loadInventoryStockSnapshot,
@@ -81,6 +92,8 @@ export type InventoryItemServices = Readonly<{
       itemId: string;
       quantityDelta: number;
       reason: string;
+      reasonCode?: InventoryAdjustmentReason;
+      note?: string | null;
       idempotencyKey?: string | null;
       sourceRef?: InventoryAdjustmentSourceRef;
     }>,
@@ -240,12 +253,15 @@ export function createInventoryItemRuntime(
       };
     },
     adjustItem: async (params, context) => {
-      const idempotencyKey = normalizeIdempotencyKey(params.idempotencyKey);
+      const idempotencyKey = normalizeInventoryIdempotencyKey(params.idempotencyKey);
+      const normalizedNote = params.note === undefined ? undefined : normalizeInventoryAdjustmentNote(params.note);
       const commandFingerprint = inventoryAdjustmentCommandFingerprint({
         accountId: params.accountId,
         itemId: params.itemId,
         quantityDelta: params.quantityDelta,
         reason: params.reason,
+        reasonCode: params.reasonCode,
+        note: normalizedNote,
         sourceRef: params.sourceRef ?? null,
       });
       if (idempotencyKey) {
@@ -268,10 +284,13 @@ export function createInventoryItemRuntime(
           const recovered = await recoverInventoryAdjustmentIdempotency(deps, {
             existing,
             idempotencyKey,
+            commandFingerprint,
             accountId: params.accountId,
             itemId: params.itemId,
             quantityDelta: params.quantityDelta,
             reason: params.reason,
+            reasonCode: params.reasonCode,
+            note: normalizedNote,
             sourceRef: params.sourceRef ?? null,
           });
           if (recovered) {
@@ -313,6 +332,8 @@ export function createInventoryItemRuntime(
               quantityDelta: params.quantityDelta,
               heldQuantity: stock.heldQuantity,
               reason: params.reason,
+              ...(params.reasonCode !== undefined ? { reasonCode: params.reasonCode } : {}),
+              ...(normalizedNote !== undefined ? { note: normalizedNote } : {}),
               sourceRef: params.sourceRef ?? null,
             },
             context,
@@ -327,11 +348,16 @@ export function createInventoryItemRuntime(
       }
 
       if (idempotencyKey) {
-        await completeInventoryAdjustmentIdempotency(deps.db, {
+        const completed = await completeInventoryAdjustmentIdempotency(deps.db, {
           idempotencyKey,
+          commandFingerprint,
           resultItemId: params.itemId,
           resultVersion,
+          resultCollision: null,
         });
+        if (!completed) {
+          throw new InventoryDomainError("Inventory adjustment idempotency claim was replaced before completion.");
+        }
       }
 
       return {
@@ -475,6 +501,7 @@ export function createInventoryItemRuntime(
             quantityDelta: adjustedQuantityBy,
             heldQuantity: existingItem?.held_quantity ?? 0,
             reason: "Automatic listing stock",
+            reasonCode: "intake",
           },
           context,
         });
@@ -531,6 +558,8 @@ async function appendAuthoritativeNegativeAdjustment(
       itemId: string;
       quantityDelta: number;
       reason: string;
+      reasonCode?: InventoryAdjustmentReason;
+      note?: string | null;
       sourceRef?: InventoryAdjustmentSourceRef;
     }>;
     context: EventStoreContext;
@@ -553,6 +582,8 @@ async function appendAuthoritativeNegativeAdjustment(
       quantityDelta: input.params.quantityDelta,
       heldQuantity: stock.heldQuantity,
       reason: input.params.reason,
+      ...(input.params.reasonCode !== undefined ? { reasonCode: input.params.reasonCode } : {}),
+      ...(input.params.note !== undefined ? { note: normalizeInventoryAdjustmentNote(input.params.note) } : {}),
       sourceRef: input.params.sourceRef ?? null,
     });
 
@@ -574,155 +605,6 @@ async function appendAuthoritativeNegativeAdjustment(
   }
 
   throw new InventoryDomainError("Inventory stock changed while applying the adjustment.");
-}
-
-type InventoryAdjustmentIdempotencyRow = Readonly<{
-  inserted: boolean;
-  command_fingerprint: string;
-  status: "in_progress" | "completed";
-  result_item_id: string | null;
-  result_version: string | number | null;
-  created_at: string | Date;
-}>;
-
-function normalizeIdempotencyKey(value: string | null | undefined): string | null {
-  const normalized = value?.trim() ?? "";
-  return normalized.length > 0 ? normalized : null;
-}
-
-function inventoryAdjustmentCommandFingerprint(
-  input: Readonly<{
-    accountId: string;
-    itemId: string;
-    quantityDelta: number;
-    reason: string;
-    sourceRef?: InventoryAdjustmentSourceRef;
-  }>,
-): string {
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        accountId: input.accountId,
-        itemId: input.itemId,
-        quantityDelta: input.quantityDelta,
-        reason: input.reason.trim(),
-        sourceRef: input.sourceRef ?? null,
-      }),
-    )
-    .digest("hex");
-}
-
-async function claimInventoryAdjustmentIdempotency(
-  db: InventoryRuntimeDeps["db"],
-  input: Readonly<{
-    idempotencyKey: string;
-    accountId: string;
-    itemId: string;
-    commandFingerprint: string;
-  }>,
-): Promise<InventoryAdjustmentIdempotencyRow | null> {
-  const result = await db.query<InventoryAdjustmentIdempotencyRow>(
-    `WITH inserted AS (
-       INSERT INTO inventory_item_adjustment_idempotency (
-         idempotency_key,
-         account_id,
-         item_id,
-         command_fingerprint,
-         status,
-         created_at
-       ) VALUES ($1, $2, $3, $4, 'in_progress', now())
-       ON CONFLICT (idempotency_key) DO NOTHING
-       RETURNING true AS inserted, command_fingerprint, status, result_item_id, result_version, created_at
-     )
-     SELECT inserted, command_fingerprint, status, result_item_id, result_version, created_at
-     FROM inserted
-     UNION ALL
-     SELECT false AS inserted, command_fingerprint, status, result_item_id, result_version, created_at
-     FROM inventory_item_adjustment_idempotency
-     WHERE idempotency_key = $1
-       AND NOT EXISTS (SELECT 1 FROM inserted)
-     LIMIT 1`,
-    [input.idempotencyKey, input.accountId, input.itemId, input.commandFingerprint],
-  );
-  const row = result.rows[0] ?? null;
-  return row?.inserted ? null : row;
-}
-
-async function recoverInventoryAdjustmentIdempotency(
-  deps: InventoryRuntimeDeps,
-  input: Readonly<{
-    existing: InventoryAdjustmentIdempotencyRow;
-    idempotencyKey: string;
-    accountId: string;
-    itemId: string;
-    quantityDelta: number;
-    reason: string;
-    sourceRef?: InventoryAdjustmentSourceRef;
-  }>,
-): Promise<{ itemId: string; version: number } | null> {
-  const createdAt = new Date(input.existing.created_at).getTime();
-  const normalizedReason = input.reason.trim();
-  const events = await readCompleteStream(deps.eventStore, { streamId: `inventory.item-${input.itemId}` });
-  const committed = [...events].reverse().find((event) => {
-    if (event.eventType !== "inventory.item.adjusted") {
-      return false;
-    }
-    if (Number.isFinite(createdAt) && new Date(event.recordedAt).getTime() < createdAt) {
-      return false;
-    }
-
-    const payload = event.payload as {
-      itemId?: unknown;
-      quantityDelta?: unknown;
-      reason?: unknown;
-      sourceRef?: unknown;
-    };
-    return (
-      payload.itemId === input.itemId &&
-      payload.quantityDelta === input.quantityDelta &&
-      payload.reason === normalizedReason &&
-      JSON.stringify(payload.sourceRef ?? null) === JSON.stringify(input.sourceRef ?? null) &&
-      event.forAccountId === input.accountId
-    );
-  });
-  if (!committed) {
-    return null;
-  }
-
-  await completeInventoryAdjustmentIdempotency(deps.db, {
-    idempotencyKey: input.idempotencyKey,
-    resultItemId: input.itemId,
-    resultVersion: Number(committed.streamVersion),
-  });
-
-  return {
-    itemId: input.itemId,
-    version: Number(committed.streamVersion),
-  };
-}
-
-async function completeInventoryAdjustmentIdempotency(
-  db: InventoryRuntimeDeps["db"],
-  input: Readonly<{ idempotencyKey: string; resultItemId: string; resultVersion: number }>,
-) {
-  await db.query(
-    `UPDATE inventory_item_adjustment_idempotency
-     SET status = 'completed',
-         result_item_id = $2,
-         result_version = $3,
-         completed_at = now()
-     WHERE idempotency_key = $1`,
-    [input.idempotencyKey, input.resultItemId, input.resultVersion],
-  );
-}
-
-async function releaseInventoryAdjustmentIdempotency(db: InventoryRuntimeDeps["db"], idempotencyKey: string) {
-  await db.query(
-    `DELETE FROM inventory_item_adjustment_idempotency
-     WHERE idempotency_key = $1
-       AND status = 'in_progress'`,
-    [idempotencyKey],
-  );
 }
 
 function isConcurrencyConflict(error: unknown) {

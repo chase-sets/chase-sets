@@ -47,6 +47,7 @@ const canonicalEntries = [
     "area:auth",
     "area:catalog",
     "area:checkout",
+    "area:channels",
     "area:collections",
     "area:commercial-terms",
     "area:design-system",

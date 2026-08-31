@@ -24,6 +24,16 @@ import type {
   SaleListItem,
 } from "./features/orders/api/contracts";
 import type { PackagePlan, PostagePolicy, ProductPhysicalFlag, ShippingOption } from "@chase-sets/product-measures";
+import type { OrderCleanupAuthorityReport } from "./features/orders/api/cleanup-authority";
+
+export type { OrderCleanupAuthorityReport, OrderCleanupAuthorityState } from "./features/orders/api/cleanup-authority";
+
+/**
+ * N8 request body. Exactly one field: the durable instant the caller's
+ * evidence window opened, captured before its first product mutation. No
+ * buyer, Order, or source identity travels in the body.
+ */
+export type ObserveOrderCleanupAuthorityRequest = Readonly<{ windowOpenedAt: string }>;
 
 type OrderingApiApp = ReturnType<typeof buildOrderingApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
@@ -316,6 +326,22 @@ export function createOrderingApiClient({
       return parseJsonResponse(
         await client.account.purchases[":id"].$get({
           param: { id: purchaseId },
+          header: headers,
+        }),
+      );
+    },
+    /**
+     * N8: read-only cleanup-authority observation for one purchase. The route
+     * only exists while the host mounts the Inventory cleanup authority.
+     */
+    async observeCleanupAuthority(
+      purchaseId: string,
+      body: ObserveOrderCleanupAuthorityRequest,
+    ): Promise<OrderCleanupAuthorityReport> {
+      return parseJsonResponse(
+        await client.account.purchases[":id"]["cleanup-authority"].$post({
+          param: { id: purchaseId },
+          json: body,
           header: headers,
         }),
       );

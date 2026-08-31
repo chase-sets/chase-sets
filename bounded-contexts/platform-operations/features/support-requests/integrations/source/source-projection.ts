@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { SupportRequestServices } from "../../api/runtime";
@@ -109,17 +110,17 @@ export function buildSupportShipmentSourceProjectionHandlers(
   remedyEffects?: Pick<SupportRequestServices, "recordRemedyEffect">,
 ): ProjectorHandlerMap {
   return {
-    "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        buyerAccountId: string;
-        sellerAccountId: string;
-        createdAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<
+        ChaseSetsEventPayloads,
+        "fulfillment.shipment.created" | "fulfillment.shipment.dispatched" | "fulfillment.shipment.delivered"
+      >
+    >({
+      "fulfillment.shipment.created": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `INSERT INTO support_shipment_sources (
+        await db.query(
+          `INSERT INTO support_shipment_sources (
            shipment_id,
            order_id,
            buyer_account_id,
@@ -139,41 +140,35 @@ export function buildSupportShipmentSourceProjectionHandlers(
              buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
              updated_at = EXCLUDED.updated_at`,
-        [data.shipmentId, data.orderId, data.buyerAccountId, data.sellerAccountId, data.createdAt],
-      );
-    },
-    "fulfillment.shipment.dispatched": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        dispatchedAt: string;
-      };
+          [data.shipmentId, data.orderId, data.buyerAccountId, data.sellerAccountId, data.createdAt],
+        );
+      },
+      "fulfillment.shipment.dispatched": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE support_shipment_sources
+        await db.query(
+          `UPDATE support_shipment_sources
          SET status = 'dispatched',
              dispatched_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.dispatchedAt],
-      );
-    },
-    "fulfillment.shipment.delivered": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        trackingIdentifier: string | null;
-        deliveredAt: string;
-      };
+          [data.shipmentId, data.dispatchedAt],
+        );
+      },
+      "fulfillment.shipment.delivered": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE support_shipment_sources
+        await db.query(
+          `UPDATE support_shipment_sources
          SET status = 'delivered',
              tracking_identifier = COALESCE($2, tracking_identifier),
              delivered_at = $3,
              updated_at = $3
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.trackingIdentifier, data.deliveredAt],
-      );
-    },
+          [data.shipmentId, data.trackingIdentifier, data.deliveredAt],
+        );
+      },
+    }),
     "fulfillment.shipment.returned": async (event) => {
       const data = event.data as {
         shipmentId: string;

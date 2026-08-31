@@ -7,6 +7,7 @@ import {
   defineEventReactionHandlers,
   defineEventSubscriptionHandlers,
   defineBoundedContextModule,
+  normalizeContextManifest,
   type BcApiEntry,
   type BcContextManifest,
   type BcEventReactionHandlerRegistrations,
@@ -420,6 +421,140 @@ describe("event handler registration types", () => {
 });
 
 describe("defineBoundedContextModule", () => {
+  it("normalizes all three account capability kinds from untrusted manifest JSON", () => {
+    const accountCapabilities: readonly unknown[] = [
+      {
+        key: "authenticity.seller-included",
+        description: "Seller-included authenticity evidence",
+        kind: "boolean",
+        defaultValue: false,
+      },
+      {
+        key: "inventory.locations",
+        description: "Inventory location limit",
+        kind: "limit",
+        defaultValue: 0,
+      },
+      {
+        key: "mcp.rate-tier",
+        description: "MCP rate tier",
+        kind: "tier",
+        allowedValues: ["standard", "priority"],
+        defaultValue: "standard",
+      },
+    ];
+
+    expect(
+      normalizeContextManifest({
+        contextName: "identity",
+        apiBasePath: "/api/identity",
+        streamPrefix: "identity.",
+        accountCapabilities,
+      }).accountCapabilities,
+    ).toEqual(accountCapabilities);
+  });
+
+  it("rejects kind/default mismatches during manifest normalization", () => {
+    const invalidDeclarations: readonly unknown[] = [
+      {
+        key: "account.boolean-test",
+        description: "Boolean test",
+        kind: "boolean",
+        defaultValue: 1,
+      },
+      {
+        key: "account.limit-test",
+        description: "Limit test",
+        kind: "limit",
+        defaultValue: false,
+      },
+      {
+        key: "account.tier-test",
+        description: "Tier test",
+        kind: "tier",
+        allowedValues: ["standard"],
+        defaultValue: false,
+      },
+    ];
+
+    for (const declaration of invalidDeclarations) {
+      expect(() =>
+        normalizeContextManifest({
+          contextName: "identity",
+          apiBasePath: "/api/identity",
+          streamPrefix: "identity.",
+          accountCapabilities: [declaration],
+        }),
+      ).toThrow(/defaultValue/);
+    }
+  });
+
+  it("rejects invalid account capability keys and kinds during manifest normalization", () => {
+    for (const key of ["Rate Tier", "mcp.", ".rate-tier", "mcp..rate-tier", "mcp.rate_tier"]) {
+      expect(() =>
+        normalizeContextManifest({
+          contextName: "platform-operations",
+          apiBasePath: "/api/platform",
+          streamPrefix: "platform-operations.",
+          accountCapabilities: [
+            {
+              key,
+              description: "Invalid key",
+              kind: "boolean",
+              defaultValue: false,
+            },
+          ],
+        }),
+      ).toThrow(new RegExp(`platform-operations.*${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*invalid key`));
+    }
+
+    expect(() =>
+      normalizeContextManifest({
+        contextName: "platform-operations",
+        apiBasePath: "/api/platform",
+        streamPrefix: "platform-operations.",
+        accountCapabilities: [
+          {
+            key: "mcp.rate-tier",
+            description: "Invalid kind",
+            kind: "meter",
+            defaultValue: 0,
+          },
+        ],
+      }),
+    ).toThrow(/mcp\.rate-tier.*unsupported kind 'meter'/);
+  });
+
+  it("preserves absence while forwarding normalized declarations", () => {
+    const absentManifest = normalizeContextManifest({
+      contextName: "inventory",
+      apiBasePath: "/api/inventory",
+      streamPrefix: "inventory.",
+    });
+    const accountCapabilities: readonly unknown[] = [
+      {
+        key: "inventory.locations",
+        description: "Inventory location limit",
+        kind: "limit",
+        defaultValue: 0,
+      },
+    ];
+    const module = defineBoundedContextModule({
+      manifest: {
+        contextName: "inventory",
+        apiBasePath: "/api/inventory",
+        streamPrefix: "inventory.",
+        accountCapabilities,
+      },
+      schemaSql: "",
+      createServices: () => ({}),
+      buildApis: () => [],
+    });
+
+    expect(absentManifest).not.toHaveProperty("accountCapabilities");
+    expect(module.accountCapabilities).toEqual(accountCapabilities);
+  });
+
   it("normalizes JSON-imported projection group gates and runtime profiles", () => {
     const sourceContextMount = "when-all-sources-mounted" as string;
     const resetStrategy = "append-only-no-reset" as string;

@@ -125,13 +125,49 @@ export const inventoryRestockDecisionOutcomes = ["restocked", "written-off"] as 
 
 export type InventoryRestockDecisionOutcome = (typeof inventoryRestockDecisionOutcomes)[number];
 
+export const inventoryAdjustmentReasons = [
+  "sold-offline",
+  "damaged",
+  "lost",
+  "found",
+  "correction",
+  "intake",
+  "return-restocked",
+] as const;
+
+export type InventoryAdjustmentReason = (typeof inventoryAdjustmentReasons)[number];
+
+export function isInventoryAdjustmentReason(value: unknown): value is InventoryAdjustmentReason {
+  return inventoryAdjustmentReasons.includes(value as InventoryAdjustmentReason);
+}
+
 export type InventoryAdjustmentSourceRef = InventoryHoldSourceRef;
 
 export type InventoryItemAdjustedPayload = Readonly<{
   itemId: string;
   quantityDelta: number;
   reason: string;
+  reasonCode?: InventoryAdjustmentReason;
+  note?: string | null;
   sourceRef?: InventoryAdjustmentSourceRef;
+}>;
+
+export const inventoryOfflineSaleChannels = ["in-store", "card-show", "other"] as const;
+
+export type InventoryOfflineSaleChannel = (typeof inventoryOfflineSaleChannels)[number];
+
+export function isInventoryOfflineSaleChannel(value: unknown): value is InventoryOfflineSaleChannel {
+  return inventoryOfflineSaleChannels.includes(value as InventoryOfflineSaleChannel);
+}
+
+export type InventoryItemOfflineSaleRecordedPayload = Readonly<{
+  itemId: string;
+  quantity: number;
+  salePriceAmount: string | null;
+  channel: InventoryOfflineSaleChannel;
+  storageLocationId: string;
+  acquisitionCostAmount: string | null;
+  recordedAt: string;
 }>;
 
 export type InventoryRestockDecisionPendingPayload = Readonly<{
@@ -212,6 +248,7 @@ export type InventoryRecoveredItemValueReportedPayload = Readonly<{
 
 export type InventoryEventPayloads = Readonly<{
   "inventory.item.adjusted": InventoryItemAdjustedPayload;
+  "inventory.item.offline-sale-recorded": InventoryItemOfflineSaleRecordedPayload;
   "inventory.hold.placed": InventoryHoldPlacedPayload;
   "inventory.hold.released": InventoryHoldReleasedPayload;
   "inventory.hold.converted": InventoryHoldConvertedPayload;

@@ -34,6 +34,7 @@ import { validatePolicyValueDiscriminantChokepoint } from "./policy-value-discri
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
+import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
 import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
@@ -501,6 +502,17 @@ function stripContextManifestSurfaceExport(content) {
   return content
     .replace(/^\s*export\s+\{\s*default\s+as\s+contextManifest\s*\}\s+from\s+["']\.\/context\.json["'];?\s*$/gm, "")
     .trim();
+}
+
+export function findContextRootExportViolation(content) {
+  const exportStatements = [...content.matchAll(/^\s*export\b.*$/gm)].map((match) => match[0].trim());
+  const invalidExports = exportStatements.filter(
+    (statement) =>
+      statement !== 'export { default as contextManifest } from "./context.json" with { type: "json" };' &&
+      !statement.startsWith("export const module"),
+  );
+
+  return invalidExports.length > 0 ? "context root entrypoints must export only contextManifest and module" : null;
 }
 
 function extractExportedValueNames(content) {
@@ -1384,6 +1396,16 @@ export async function runStructureCheck(options = {}) {
   }
 
   const contextManifests = await loadContextManifests();
+  for (const context of contextManifests.values()) {
+    const indexPath = path.join(repoRoot, context.root, "index.ts");
+    const violation = findContextRootExportViolation(await readFile(indexPath, "utf8"));
+    if (violation) {
+      addPathViolation(`${context.root}/index.ts`, violation);
+    }
+  }
+
+  const jsonImportAttributesResult = await validateJsonImportAttributes({ repoRoot });
+  violations.push(...jsonImportAttributesResult.violations);
   const boundedContextPackages = [...contextManifests.values()].map(({ packageName }) => packageName);
   const contextMetricsByRoot = new Map(
     [...contextManifests.values()].map((context) => [
@@ -3039,19 +3061,6 @@ export async function runStructureCheck(options = {}) {
 
       if (/^bounded-contexts\/[^/]+\/index\.ts$/.test(normalizedFile) && forbiddenRootSurfaceReexports.test(content)) {
         addViolation(file, "context root entrypoints must not re-export secondary public surfaces");
-      }
-
-      if (/^bounded-contexts\/[^/]+\/index\.ts$/.test(normalizedFile)) {
-        const exportStatements = [...content.matchAll(/^\s*export\b.*$/gm)].map((match) => match[0].trim());
-        const invalidExports = exportStatements.filter(
-          (statement) =>
-            statement !== 'export { default as contextManifest } from "./context.json";' &&
-            !statement.startsWith("export const module"),
-        );
-
-        if (invalidExports.length > 0) {
-          addViolation(file, "context root entrypoints must export only contextManifest and module");
-        }
       }
 
       if (

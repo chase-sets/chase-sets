@@ -6,6 +6,10 @@ import { InvitationAcceptancePage } from "./invitation-acceptance-page";
 
 afterEach(cleanup);
 
+function elevatedCardCount() {
+  return document.querySelectorAll(".rounded-tokenLg.overflow-hidden.shadow-tokenSm").length;
+}
+
 describe("invitation acceptance page", () => {
   it("shows the inviter, account, role, and both credential choices", () => {
     render(
@@ -28,6 +32,7 @@ describe("invitation acceptance page", () => {
     expect(screen.getByRole("button", { name: /accept with passkey/i })).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "Password" }));
     expect(screen.getByRole("button", { name: /accept with password/i })).toBeTruthy();
+    expect(elevatedCardCount()).toBe(1);
   });
 
   it.each([
@@ -39,5 +44,6 @@ describe("invitation acceptance page", () => {
 
     expect(screen.getByText(copy)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /accept/i })).toBeNull();
+    expect(elevatedCardCount()).toBe(0);
   });
 });

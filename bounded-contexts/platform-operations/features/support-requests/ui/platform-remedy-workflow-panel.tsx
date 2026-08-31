@@ -64,7 +64,7 @@ function PlatformRemedyPreview({ preview }: Readonly<{ preview: PlatformRemedyPr
     [t("support.features.supportRequests.ui.supportOperationsPage.remedy.policyVersion"), preview.policyVersion],
   ] as const;
   return (
-    <Surface tone="muted">
+    <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
       <Stack gap={2}>
         <Text weight="semibold">
           {t("support.features.supportRequests.ui.supportOperationsPage.remedy.preview.title")}
@@ -286,7 +286,7 @@ export function PlatformRemedyWorkflowPanel({
 
   return (
     <Stack gap={4}>
-      <Surface>
+      <Surface elevation="tinted" data-elevation-role="furniture">
         <Stack gap={2}>
           <Cluster justify="between">
             <Text weight="semibold">
@@ -331,7 +331,7 @@ export function PlatformRemedyWorkflowPanel({
       </Surface>
 
       {workflow.status === "approval-pending" ? (
-        <Surface>
+        <Surface elevation="tinted" data-elevation-role="furniture">
           <RouterForm method="post" spacing="md">
             <HiddenInput name="supportRequestId" value={request.support_request_id} readOnly />
             <HiddenInput type="hidden" name="idempotencyKey" value={`${workflow.terms.remedyId}:approval`} readOnly />
@@ -382,6 +382,8 @@ export function PlatformRemedyWorkflowPanel({
               <Surface
                 key={effect.effect}
                 tone={retryable || effect.status === "failed-terminal" ? "muted" : undefined}
+                elevation="tinted"
+                data-elevation-role="furniture"
               >
                 <Stack gap={2}>
                   <Cluster justify="between">
@@ -496,7 +498,7 @@ export function PlatformRemedyWorkflowPanel({
         </Stack>
       ) : null}
 
-      <Surface>
+      <Surface elevation="tinted" data-elevation-role="furniture">
         <RouterForm method="post" spacing="md">
           <HiddenInput name="supportRequestId" value={request.support_request_id} readOnly />
           <HiddenInput type="hidden" name="idempotencyKey" value={`${workflow.terms.remedyId}:correction`} readOnly />

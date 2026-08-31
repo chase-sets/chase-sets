@@ -180,6 +180,7 @@ type SellerShipmentActionInput = Readonly<{
   package?: PostagePackage | null;
   exceptionType?: string;
   notes?: string | null;
+  mutationAttemptId: string;
 }>;
 
 type SellerShipmentActionResult = Readonly<{
@@ -222,6 +223,7 @@ async function runSellerShipmentAction(
         recipient: input.recipient,
         overrideReason: input.overrideReason,
         package: input.package,
+        mutationAttemptId: input.mutationAttemptId,
       },
       context,
     );
@@ -233,28 +235,64 @@ async function runSellerShipmentAction(
     return {
       action,
       status,
-      ...(await services.voidLabel({ shipmentId: input.shipmentId, sellerAccountId: input.sellerAccountId }, context)),
+      ...(await services.voidLabel(
+        {
+          shipmentId: input.shipmentId,
+          sellerAccountId: input.sellerAccountId,
+          mutationAttemptId: input.mutationAttemptId,
+        },
+        context,
+      )),
     };
   }
 
   const dispatcher: ShipmentLifecycleDispatcher = {
     startPacking: () =>
-      services.startPackingShipment({ shipmentId: input.shipmentId, sellerAccountId: input.sellerAccountId }, context),
+      services.startPackingShipment(
+        {
+          shipmentId: input.shipmentId,
+          sellerAccountId: input.sellerAccountId,
+          mutationAttemptId: input.mutationAttemptId,
+        },
+        context,
+      ),
     completePacking: () =>
       services.packShipment(
         {
           shipmentId: input.shipmentId,
           sellerAccountId: input.sellerAccountId,
           packageCount: input.packageCount ?? 1,
+          mutationAttemptId: input.mutationAttemptId,
         },
         context,
       ),
     dispatch: () =>
-      services.dispatchShipment({ shipmentId: input.shipmentId, sellerAccountId: input.sellerAccountId }, context),
+      services.dispatchShipment(
+        {
+          shipmentId: input.shipmentId,
+          sellerAccountId: input.sellerAccountId,
+          mutationAttemptId: input.mutationAttemptId,
+        },
+        context,
+      ),
     recordDelivery: () =>
-      services.deliverShipment({ shipmentId: input.shipmentId, sellerAccountId: input.sellerAccountId }, context),
+      services.deliverShipment(
+        {
+          shipmentId: input.shipmentId,
+          sellerAccountId: input.sellerAccountId,
+          mutationAttemptId: input.mutationAttemptId,
+        },
+        context,
+      ),
     returnShipment: () =>
-      services.returnShipment({ shipmentId: input.shipmentId, sellerAccountId: input.sellerAccountId }, context),
+      services.returnShipment(
+        {
+          shipmentId: input.shipmentId,
+          sellerAccountId: input.sellerAccountId,
+          mutationAttemptId: input.mutationAttemptId,
+        },
+        context,
+      ),
     raiseException: () =>
       services.raiseShipmentException(
         {
@@ -262,6 +300,7 @@ async function runSellerShipmentAction(
           sellerAccountId: input.sellerAccountId,
           exceptionType: input.exceptionType ?? "other",
           notes: input.notes,
+          mutationAttemptId: input.mutationAttemptId,
         },
         context,
       ),
@@ -312,6 +351,7 @@ export function createFulfillmentShipmentMcpHandlers(
         recipient: readAddress(args.recipient, "recipient"),
         overrideReason: readMcpStringArgument(args, "overrideReason"),
         package: readPackage(args.package),
+        mutationAttemptId: readRequiredString(args, "idempotencyKey"),
       },
       createActorEventStoreContext(scopedActor),
     );
@@ -333,6 +373,7 @@ export function createFulfillmentShipmentMcpHandlers(
         action: "void-label",
         shipmentId: readMcpTypedIdArgument(args, "shipmentId", "shp"),
         sellerAccountId: scopedActor.accountId,
+        mutationAttemptId: readRequiredString(args, "idempotencyKey"),
       },
       createActorEventStoreContext(scopedActor),
     );
@@ -361,6 +402,7 @@ export function createFulfillmentShipmentMcpHandlers(
           package: readPackage(args.package),
           exceptionType: readMcpStringArgument(args, "exceptionType") ?? undefined,
           notes: readMcpStringArgument(args, "notes"),
+          mutationAttemptId: readRequiredString(args, "idempotencyKey"),
         },
         createActorEventStoreContext(scopedActor),
       );

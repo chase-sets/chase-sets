@@ -258,7 +258,26 @@ function countText(markup: string, text: string) {
   return markup.split(text).length - 1;
 }
 
+function expectTintedSurface(root: Element | null, label: string) {
+  expect(root, `${label} root`).not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  expect(tokens.has("bg-surface-2"), `${label} includes bg-surface-2`).toBe(true);
+  for (const excluded of ["surface-border", "ds-glass", "border", "shadow-tokenSm", "shadow-tokenLg", "ds-glow"])
+    expect(tokens.has(excluded), `${label} excludes ${excluded}`).toBe(false);
+}
+
 describe("checkout session page", () => {
+  it("renders all four checkout form sections as tinted furniture", () => {
+    const { container } = render(<CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} />);
+
+    const rootForField = (name: string) =>
+      container.querySelector(`[name="${name}"]`)?.closest(".rounded-tokenLg") ?? null;
+    expectTintedSurface(rootForField("shippingEmail"), "contact form section");
+    expectTintedSurface(rootForField("shippingName"), "delivery form section");
+    expectTintedSurface(rootForField("shippingOption"), "shipping form section");
+    expectTintedSurface(rootForField("previewPaymentMethodCategory"), "payment form section");
+  });
+
   it("renders simple checkout and keeps unavailable fulfillment in cart review", () => {
     const markup = renderToString(<CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} />);
 

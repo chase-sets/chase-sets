@@ -3,6 +3,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchPage } from "./search-page";
 import { productAlertSettingsHref } from "./product-alert-settings-link";
@@ -166,10 +167,11 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
 }
 
 describe("SearchPage", () => {
-  it("dispatches a Result Set click through the rail analytics path without raw query text", () => {
+  it("dispatches only base Result Set detail activation through search_result_selected", async () => {
     const events: unknown[] = [];
     const listener = (event: Event) => events.push((event as CustomEvent).detail);
     window.addEventListener("chase-sets:item-detail-rail-analytics", listener);
+    const user = userEvent.setup();
 
     try {
       renderSearchPage({
@@ -177,20 +179,37 @@ describe("SearchPage", () => {
         resultSetKey: "b".repeat(64),
         data: { ...searchResponse, queryHash: "a".repeat(64), resultSetKey: "b".repeat(64) },
       });
-      fireEvent.click(screen.getByRole("link", { name: /View details for Prismatic Evolutions Booster Pack/i }));
+      const detailLink = screen.getByRole("link", { name: /View details for Prismatic Evolutions Booster Pack/i });
+      const primaryAction = screen.getByRole("link", { name: "Add product to Sell List" });
+      const modifierStates: boolean[] = [];
+      detailLink.addEventListener("click", (event) => {
+        event.preventDefault();
+        modifierStates.push(event.ctrlKey);
+      });
+      primaryAction.addEventListener("click", (event) => event.preventDefault());
+
+      await user.click(detailLink);
+      await user.keyboard("{Control>}");
+      await user.click(detailLink);
+      await user.keyboard("{/Control}");
+      detailLink.focus();
+      await user.keyboard("{Enter}");
+      await user.click(primaryAction);
+
+      expect(modifierStates).toEqual([false, true, false]);
     } finally {
       window.removeEventListener("chase-sets:item-detail-rail-analytics", listener);
     }
 
-    expect(events).toEqual([
-      {
+    expect(events).toEqual(
+      Array.from({ length: 3 }, () => ({
         event: "search_result_selected",
         position: 1,
         queryHash: "a".repeat(64),
         resultSetKey: "b".repeat(64),
         surface: "search_results",
-      },
-    ]);
+      })),
+    );
     expect(JSON.stringify(events)).not.toContain("private pikachu query");
   });
 
@@ -664,6 +683,37 @@ describe("SearchPage", () => {
     expect(screen.getByRole("link", { name: "Add product to Sell List" }).textContent).toBe("Sell");
     expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).textContent).toBe("Buy");
     expect(screen.getByRole("link", { name: "Watch product" }).textContent).toBe("Watch");
+  });
+
+  it("keeps active and no-active-listing Search Results on the exact Detail Page state contract", () => {
+    renderSearchPage({
+      data: { ...searchResponse, items: [japaneseSearchResult] },
+      categories: [],
+    });
+
+    const activeDetailLink = screen.getByRole("link", { name: "View details for Bulbasaur — Japanese Base Set" });
+    expect(activeDetailLink.getAttribute("href")).toBe("/items/bulbasaur-cat_bulbasaur");
+    expect(activeDetailLink.getAttribute("href")).not.toContain("market=");
+    expect(screen.getByText("From $10.00")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
+      "/items/bulbasaur-cat_bulbasaur?market=buy",
+    );
+
+    cleanup();
+    renderSearchPage({
+      data: { ...searchResponse, items: [standardAbraSearchResult] },
+      categories: [],
+    });
+
+    const inactiveDetailLink = screen.getByRole("link", {
+      name: "View details for Abra — Base Set 43 Standard Set Common",
+    });
+    expect(inactiveDetailLink.getAttribute("href")).toBe("/items/abra-standard-cat_abra_standard");
+    expect(inactiveDetailLink.getAttribute("href")).not.toContain("market=");
+    expect(screen.queryByText(/^From \$/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Add product to Sell List" }).getAttribute("href")).toBe(
+      "/items/abra-standard-cat_abra_standard?market=sell",
+    );
   });
 
   it("renders language as a top-level desktop filter", () => {

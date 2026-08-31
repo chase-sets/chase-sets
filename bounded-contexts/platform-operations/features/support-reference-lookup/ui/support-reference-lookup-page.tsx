@@ -41,7 +41,7 @@ export function SupportReferenceLookupPage({ query, result, searched, error }: S
       <PageHeader title={t(`${routeKey}.title`)} description={t(`${routeKey}.description`)} />
 
       <PageSection title={t(`${routeKey}.search.title`)} description={t(`${routeKey}.search.description`)}>
-        <Surface>
+        <Surface elevation="tinted" data-elevation-role="furniture">
           <Form method="get" spacing="md">
             <TextInput
               label={t(`${routeKey}.search.label`)}
@@ -59,7 +59,7 @@ export function SupportReferenceLookupPage({ query, result, searched, error }: S
       </PageSection>
 
       {error ? (
-        <Surface tone="muted">
+        <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
           <Cluster gap={2}>
             <Badge tone="danger">{t(`${routeKey}.error`)}</Badge>
             <Text size="sm" weight="semibold">
@@ -72,7 +72,7 @@ export function SupportReferenceLookupPage({ query, result, searched, error }: S
       {searched && !error ? (
         <PageSection title={t(`${routeKey}.result.title`)}>
           {result ? (
-            <Surface>
+            <Surface elevation="tinted" data-elevation-role="furniture">
               <Stack gap={3}>
                 <Cluster align="start" justify="between" gap={1}>
                   <Text size="sm" weight="semibold">

@@ -9,6 +9,9 @@ citedPolicies: []
 relatedFlows: ["seller-cannot-fulfill"]
 claimCategories: ["protection", "payouts"]
 promiseTable:
+  - claim: Before packing starts, a seller can cancel a paid sale self-service; the buyer receives a full refund and the cancellation is recorded in the seller cancellation rate.
+    issues: ["#6453"]
+    tests: ["bounded-contexts/ordering/features/orders/api/cancel-sale.db.test.ts", "bounded-contexts/ordering/features/orders/ui/order-detail-page.test.tsx", "bounded-contexts/payments/features/refunds/integrations/ordering/order-cancellation-refund-effect-projection.test.ts"]
   - claim: A seller who cannot fulfill an order raises an urgent support case that routes straight to support review without a buyer-seller negotiation.
     issues: ["#3722"]
     tests: ["bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts", "bounded-contexts/platform-operations/features/support-requests/api/runtime.test.ts"]
@@ -21,9 +24,9 @@ promiseTable:
 ---
 ## The honest move
 
-Sometimes you cannot ship an order you accepted — the item sold elsewhere, it was damaged in storage, or it cannot be found. The right move is to say so quickly rather than let the order sit. Chase Sets treats this as its own support case so the buyer is made whole and your inventory is cleaned up without a drawn-out exchange.
+Sometimes you cannot ship an order you accepted — the item sold elsewhere, it was damaged in storage, or it cannot be found. The right move is to say so quickly rather than let the order sit. Before packing starts, cancel the sale from its order detail. The buyer receives a full refund, and the cancellation is recorded in your seller cancellation rate.
 
-Raise it from the order as a cannot-fulfill case. Confirm that the order cannot be filled, and the case is created for you.
+After packing starts, raise it from the order as a cannot-fulfill case. Confirm that the order cannot be filled, and the case is created for you.
 
 ## What happens next
 

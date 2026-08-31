@@ -20,6 +20,7 @@ Identity owns users and the accounts they act for in Chase Sets.
 - Invitation
 - Founders Cohort
 - Consent
+- Account Capability language and catalog semantics
 
 ## Does Not Own
 
@@ -44,6 +45,12 @@ Identity owns users and the accounts they act for in Chase Sets.
 Identity terminology is defined in [GLOSSARY.md](./GLOSSARY.md). Use that glossary as the canonical style guide for new context glossaries.
 
 User preference ownership is governed by [Settings Ownership](../../docs/architecture/settings-ownership.md). The completed milestone #55 proof is retained in [issue #2704](https://github.com/chase-sets/chase-sets/issues/2704).
+
+## Account Capabilities
+
+An **Account Capability** is a named durable product-policy dimension describing functionality that may be made available to an Account. An **Account Capability Declaration** is context-owned catalog metadata that gives the capability its key, description, kind, and kind-shaped default. An **Account Capability Registry** is the complete immutable, key-sorted catalog assembled from every registered context manifest independently of which contexts a runtime profile mounts.
+
+The initial catalog declarations are `authenticity.seller-included`, `inventory.locations`, and `mcp.rate-tier`. Their product namespaces do not assert context ownership: `mcp.rate-tier` is owned by Platform Operations. These declarations are inert metadata. They provide no grants, resolution, enforcement, pricing, or UI behavior.
 
 ## Core Aggregates and Process Managers
 

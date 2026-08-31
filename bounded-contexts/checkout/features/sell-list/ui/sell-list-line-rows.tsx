@@ -176,7 +176,7 @@ export function SelectedOfferRow({
   const setupHref = sellListLineSetupHref(line);
 
   return (
-    <Surface element="article" tone="default" padding={4}>
+    <Surface element="article" tone="default" padding={4} elevation="outlined">
       <Grid templateColumns="minmax(0,1fr) auto" stackUntil="md" gap={4}>
         <Stack gap={3}>
           <Stack gap={2}>
@@ -279,7 +279,7 @@ export function ProductLineRow({
   const inventoryHref = inventorySetupHref(line);
 
   return (
-    <Surface element="article" tone="default" padding={4}>
+    <Surface element="article" tone="default" padding={4} elevation="outlined">
       <Stack gap={4}>
         <Grid templateColumns="minmax(0,1fr) auto" stackUntil="md" gap={4}>
           <Stack gap={3}>

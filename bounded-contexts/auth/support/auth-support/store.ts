@@ -533,8 +533,8 @@ export async function upsertGuestCheckoutToken(
   params: Readonly<{
     tokenId: string;
     accountId: string;
-    contactEmail: string;
-    contactName: string;
+    contactEmail: string | null;
+    contactName: string | null;
     tokenHash: string;
     expiresAt: string;
   }>,
@@ -563,12 +563,47 @@ export async function upsertGuestCheckoutToken(
   );
 }
 
-export async function getGuestCheckoutTokenByHash(db: PgQueryable, tokenHash: string) {
+export async function bindGuestCheckoutContact(
+  db: PgQueryable,
+  params: Readonly<{
+    tokenHash: string;
+    accountId: string;
+    contactEmail: string;
+    contactName: string;
+  }>,
+) {
   const result = await db.query<{
     token_id: string;
     account_id: string;
     contact_email: string;
     contact_name: string;
+    token_hash: string;
+    expires_at: string;
+    revoked_at: string | null;
+  }>(
+    `UPDATE identity_guest_checkout_tokens
+     SET contact_email = $3,
+         contact_name = $4,
+         updated_at = now()
+     WHERE token_hash = $1
+       AND account_id = $2
+       AND revoked_at IS NULL
+       AND expires_at > now()
+       AND NULLIF(BTRIM(COALESCE(contact_email, '')), '') IS NULL
+       AND NULLIF(BTRIM(COALESCE(contact_name, '')), '') IS NULL
+     RETURNING token_id, account_id, contact_email, contact_name, token_hash, expires_at, revoked_at`,
+    [params.tokenHash, params.accountId, params.contactEmail, params.contactName],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function getGuestCheckoutTokenByHash(db: PgQueryable, tokenHash: string) {
+  const result = await db.query<{
+    token_id: string;
+    account_id: string;
+    contact_email: string | null;
+    contact_name: string | null;
     token_hash: string;
     expires_at: string;
     revoked_at: string | null;

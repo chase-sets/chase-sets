@@ -684,40 +684,100 @@ describe("design system marketplace patterns", () => {
     expect(markup).not.toContain("Reverse Foil");
   });
 
-  it("keeps linked search result detail targets separate from rail actions", () => {
+  it("keeps the linked ListingCard surface native and action-safe", async () => {
+    const onDetailClick = vi.fn();
+    const onActionClick = vi.fn();
+    const user = userEvent.setup();
     const { container } = render(
-      <ListingCard
-        {...listingCardLabels}
-        detailLinkLabel="View details for Abra — Base Set 43 Standard Set Common"
-        href="/items/abra"
-        cardLayout="search-result"
-        title="Abra"
-        subtitle="Base Set 43 Standard Set Common"
-        imageSrc="/assets/abra-224w.webp"
-        imageAlt="Abra — Base Set 43 Standard Set Common"
-        imageSlot="compact-product"
-        primaryAction={
-          <a href="/items/abra?market=buy" aria-label="Add product to Buy Cart">
-            Buy
-          </a>
-        }
-        secondaryAction={false}
-      />,
+      <div>
+        <ListingCard
+          {...listingCardLabels}
+          detailLinkLabel="View details for Abra — Base Set 43 Standard Set Common"
+          href="/items/abra"
+          onDetailClick={(event) => {
+            event.preventDefault();
+            onDetailClick();
+          }}
+          cardLayout="search-result"
+          title="Abra"
+          subtitle="Base Set 43 Standard Set Common"
+          imageSrc="/assets/abra-224w.webp"
+          imageAlt="Abra — Base Set 43 Standard Set Common"
+          imageSlot="compact-product"
+          primaryAction={
+            <button type="button" onClick={onActionClick}>
+              Buy
+            </button>
+          }
+          secondaryAction={<button type="button">Sell</button>}
+          compareAction={<button type="button">Compare</button>}
+        />
+        <ListingCard
+          {...listingCardLabels}
+          title="Unlinked Abra"
+          primaryAction={<button type="button">Unlinked action</button>}
+        />
+      </div>,
     );
 
     const detailLink = screen.getByRole("link", { name: "View details for Abra — Base Set 43 Standard Set Common" });
     const heading = screen.getByRole("heading", { name: "Abra" });
+    const linkedArticle = detailLink.closest("article");
+    const unlinkedArticle = screen.getByRole("heading", { name: "Unlinked Abra" }).closest("article");
+    const focusRing = detailLink.nextElementSibling;
+    const actionRail = screen.getByRole("button", { name: "Buy" }).parentElement;
+
+    expect(linkedArticle).toBeTruthy();
+    expect(unlinkedArticle).toBeTruthy();
     expect(detailLink.textContent).toBe("");
     expect(detailLink.getAttribute("href")).toBe("/items/abra");
     expect(detailLink.closest("h3")).toBeNull();
-    expect(detailLink.parentElement?.contains(heading)).toBe(true);
+    expect(detailLink.parentElement).toBe(linkedArticle);
+    expect(linkedArticle?.querySelectorAll(":scope > a")).toHaveLength(1);
+    expect(linkedArticle?.querySelector(":scope > h3 a")).toBeNull();
     expect(heading.hasAttribute("aria-labelledby")).toBe(false);
     expect(screen.getByRole("img", { name: "Abra — Base Set 43 Standard Set Common" })).toBeTruthy();
-    expect(detailLink.className).toContain("pointer-events-auto");
-    expect(container.querySelector('article > a[href="/items/abra"]')).toBeNull();
-    expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
-      "/items/abra?market=buy",
-    );
+    expect(detailLink.className).toBe("peer absolute inset-0 z-10");
+    expect(focusRing?.getAttribute("aria-hidden")).toBe("true");
+    expect(focusRing?.className).toContain("focus-ring");
+    expect(focusRing?.className).toContain("pointer-events-none");
+    expect(focusRing?.className).toContain("inset-1.5");
+    expect(focusRing?.className).toContain("z-40");
+    expect(focusRing?.className).toContain("rounded-tokenSm");
+    expect(detailLink.className).not.toContain("focus-ring");
+    expect(actionRail?.className).toContain("pointer-events-auto");
+    expect(actionRail?.className).toContain("relative");
+    expect(actionRail?.className).toContain("z-30");
+    expect(
+      screen.getByRole("img", { name: "Abra — Base Set 43 Standard Set Common" }).closest(".z-20")?.className,
+    ).toContain("pointer-events-none");
+    expect(heading.closest(".z-20")?.className).toContain("pointer-events-none");
+
+    for (const article of [linkedArticle, unlinkedArticle]) {
+      expect(article?.className).toContain("hover:border-[color-mix(in_srgb,var(--primary)_38%,var(--border))]");
+      expect(article?.className).toContain("focus-within:border-accent");
+    }
+    expect(linkedArticle?.className).toContain("cursor-pointer");
+    expect(unlinkedArticle?.className).not.toContain("cursor-pointer");
+    expect(unlinkedArticle?.querySelector(":scope > a")).toBeNull();
+    expect(linkedArticle?.getAttribute("role")).toBeNull();
+    expect(linkedArticle?.getAttribute("tabindex")).toBeNull();
+    expect(linkedArticle?.getAttribute("onclick")).toBeNull();
+
+    await user.tab();
+    expect(document.activeElement).toBe(detailLink);
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Buy" }));
+
+    await user.click(screen.getByRole("button", { name: "Buy" }));
+    expect(onActionClick).toHaveBeenCalledTimes(1);
+    expect(onDetailClick).not.toHaveBeenCalled();
+    fireEvent.click(actionRail!);
+    expect(onActionClick).toHaveBeenCalledTimes(1);
+    expect(onDetailClick).not.toHaveBeenCalled();
+    await user.click(detailLink);
+    expect(onDetailClick).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll('article > a[href="/items/abra"]')).toHaveLength(1);
   });
 
   it("uses consumer-provided accessible action labels", () => {

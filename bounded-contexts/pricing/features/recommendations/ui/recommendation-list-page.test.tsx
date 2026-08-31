@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AccountRecommendationListItem } from "../read-model/queries";
@@ -39,7 +41,7 @@ const recommendation = {
 } satisfies AccountRecommendationListItem;
 
 describe("PricingRecommendationListPage", () => {
-  it("renders batch recommendation controls and feed signals", () => {
+  it("renders feed signals and flattens batch-control furniture", () => {
     const html = renderToString(<PricingRecommendationListPage recommendations={[recommendation]} />);
 
     expect(html).toContain("Refresh");
@@ -55,6 +57,11 @@ describe("PricingRecommendationListPage", () => {
     expect(html).toContain("Delivered: 4; Returned: 1");
     expect(html).toContain("Update active");
     expect(html).toContain("Competition anchor");
+    const rendered = document.createElement("div");
+    rendered.innerHTML = html;
+    const batchFurniture = rendered.querySelector('[data-testid="recommendation-batch-furniture"]');
+    expect(batchFurniture?.closest(".ds-glass")).toBeNull();
+    expect(batchFurniture?.closest(".shadow-tokenSm")).toBeNull();
     expect(html).not.toContain("Publish listing");
   });
 

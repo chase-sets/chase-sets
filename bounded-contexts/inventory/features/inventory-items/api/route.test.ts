@@ -67,7 +67,14 @@ function buildApp(
       items,
       createHoldServices(),
       options.holdCollisions ?? {
-        reduceItem: vi.fn(async (params) => ({ itemId: params.itemId, version: 3, collision: null })),
+        reduceItem: vi.fn(async (params) => ({
+          itemId: params.itemId,
+          version: 3,
+          requestedQuantity: params.requestedQuantity,
+          appliedQuantity: params.requestedQuantity,
+          refusedQuantity: 0,
+          collision: null,
+        })),
         projectors: [],
       },
     ),
@@ -188,6 +195,9 @@ describe("inventory item routes", () => {
     const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>(async () => ({
       itemId: "inv_1",
       version: 3,
+      requestedQuantity: 4,
+      appliedQuantity: 2,
+      refusedQuantity: 2,
       collision: {
         mode: "protect-orders",
         authorizedByRole: null,
@@ -235,6 +245,87 @@ describe("inventory item routes", () => {
     );
   });
 
+  it("forwards optional adjustment reason fields and preserves legacy omission", async () => {
+    const adjustItem = vi.fn<InventoryItemServices["adjustItem"]>(async (params) => ({
+      itemId: params.itemId,
+      version: 2,
+    }));
+    const app = buildApp(createItemServices({ adjustItem }));
+
+    const extended = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantityDelta: 1,
+        reason: "Found during shelf count",
+        reasonCode: "found",
+        note: "  Behind the display case  ",
+      }),
+    });
+    const legacy = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quantityDelta: 1, reason: "Legacy count" }),
+    });
+
+    expect(extended.status).toBe(200);
+    expect(legacy.status).toBe(200);
+    expect(adjustItem).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ reasonCode: "found", note: "Behind the display case" }),
+      context,
+    );
+    expect(adjustItem.mock.calls[1]?.[0]).not.toHaveProperty("reasonCode");
+    expect(adjustItem.mock.calls[1]?.[0]).not.toHaveProperty("note");
+  });
+
+  it("rejects unknown reason codes and derives sold-offline for honor offline", async () => {
+    const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>(async (params) => ({
+      itemId: params.itemId,
+      version: 3,
+      requestedQuantity: params.requestedQuantity,
+      appliedQuantity: params.requestedQuantity,
+      refusedQuantity: 0,
+      collision: null,
+    }));
+    const app = buildApp(createItemServices(), {
+      roleKey: "manager",
+      holdCollisions: { reduceItem, projectors: [] },
+    });
+
+    const unknown = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quantityDelta: 1, reason: "Count", reasonCode: "other" }),
+    });
+    const conflicting = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantityDelta: -1,
+        reason: "Counter sale",
+        reasonCode: "damaged",
+        collisionMode: "honor-offline",
+        confirmSellerCannotFulfill: true,
+      }),
+    });
+    const derived = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantityDelta: -1,
+        reason: "Counter sale",
+        collisionMode: "honor-offline",
+        confirmSellerCannotFulfill: true,
+      }),
+    });
+
+    expect(unknown.status).toBe(400);
+    expect(conflicting.status).toBe(400);
+    expect(derived.status).toBe(200);
+    expect(reduceItem).toHaveBeenCalledWith(expect.objectContaining({ reasonCode: "sold-offline" }), context);
+  });
+
   it("requires manager-or-owner authority and explicit confirmation for honor offline", async () => {
     const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>();
     const collisions = { reduceItem, projectors: [] } satisfies InventoryHoldCollisionServices;
@@ -256,6 +347,182 @@ describe("inventory item routes", () => {
     await expect(unconfirmed.json()).resolves.toMatchObject({
       error: { code: "honor_offline_confirmation_required" },
     });
+    expect(reduceItem).not.toHaveBeenCalled();
+  });
+
+  it("records a typed offline sale through the existing reduction service", async () => {
+    const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>(async (params) => ({
+      itemId: params.itemId,
+      version: 4,
+      requestedQuantity: params.requestedQuantity,
+      appliedQuantity: 2,
+      refusedQuantity: 1,
+      collision: {
+        mode: "protect-orders",
+        authorizedByRole: null,
+        requestedQuantity: 3,
+        appliedQuantity: 2,
+        refusedQuantity: 1,
+        heldQuantity: 1,
+        availableQuantity: 2,
+        releasedHoldQuantity: 0,
+        affectedOrders: [],
+      },
+    }));
+    const app = buildApp(createItemServices(), { holdCollisions: { reduceItem, projectors: [] } });
+
+    const response = await app.request("/items/inv_1/offline-sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 3,
+        salePriceAmount: "125.00",
+        channel: "card-show",
+        note: "  Saturday table  ",
+        idempotencyKey: " sale-1 ",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      itemId: "inv_1",
+      version: 4,
+      requestedQuantity: 3,
+      appliedQuantity: 2,
+      refusedQuantity: 1,
+      collision: expect.objectContaining({ mode: "protect-orders", appliedQuantity: 2, refusedQuantity: 1 }),
+    });
+    expect(reduceItem).toHaveBeenCalledWith(
+      {
+        accountId: "acc_inventory",
+        itemId: "inv_1",
+        requestedQuantity: 3,
+        reason: "Offline sale",
+        reasonCode: "sold-offline",
+        note: "Saturday table",
+        mode: "protect-orders",
+        actorRole: null,
+        offlineSale: {
+          idempotencyKey: "sale-1",
+          salePriceAmount: "125.00",
+          channel: "card-show",
+        },
+      },
+      context,
+    );
+  });
+
+  it.each(["125", "abc", "-1.00", "1e5", "", "99999999999.00"])(
+    "rejects malformed canonical money %j before offline-sale reduction",
+    async (salePriceAmount) => {
+      const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>();
+      const app = buildApp(createItemServices(), { holdCollisions: { reduceItem, projectors: [] } });
+
+      const response = await app.request("/items/inv_1/offline-sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quantity: 1,
+          salePriceAmount,
+          channel: "in-store",
+          idempotencyKey: "sale-1",
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(reduceItem).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["null", { salePriceAmount: null }],
+    ["absent", {}],
+  ])("preserves %s offline-sale price behavior", async (_name, priceFields) => {
+    const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>(async (params) => ({
+      itemId: params.itemId,
+      version: 2,
+      requestedQuantity: params.requestedQuantity,
+      appliedQuantity: params.requestedQuantity,
+      refusedQuantity: 0,
+      collision: null,
+    }));
+    const app = buildApp(createItemServices(), { holdCollisions: { reduceItem, projectors: [] } });
+
+    const response = await app.request("/items/inv_1/offline-sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 1,
+        ...priceFields,
+        channel: "in-store",
+        idempotencyKey: "sale-1",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(reduceItem).toHaveBeenCalledWith(
+      expect.objectContaining({ offlineSale: expect.objectContaining({ salePriceAmount: null }) }),
+      context,
+    );
+  });
+
+  it.each([
+    ["zero quantity", { quantity: 0, channel: "in-store", idempotencyKey: "sale-1" }],
+    ["fractional quantity", { quantity: 1.5, channel: "in-store", idempotencyKey: "sale-1" }],
+    ["unknown channel", { quantity: 1, channel: "other-marketplace", idempotencyKey: "sale-1" }],
+    ["blank key", { quantity: 1, channel: "other", idempotencyKey: " " }],
+    ["caller sold time", { quantity: 1, channel: "other", idempotencyKey: "sale-1", soldAt: "2026-01-01" }],
+    ["caller recorded time", { quantity: 1, channel: "other", idempotencyKey: "sale-1", recordedAt: "2026-01-01" }],
+    ["currency", { quantity: 1, channel: "other", idempotencyKey: "sale-1", currencyCode: "USD" }],
+  ])("rejects %s in an offline sale request", async (_name, body) => {
+    const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>();
+    const app = buildApp(createItemServices(), { holdCollisions: { reduceItem, projectors: [] } });
+
+    const response = await app.request("/items/inv_1/offline-sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    expect(response.status).toBe(400);
+    expect(reduceItem).not.toHaveBeenCalled();
+  });
+
+  it("retains role and explicit confirmation checks for honor-offline sales", async () => {
+    const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>();
+    const fulfillmentApp = buildApp(createItemServices(), {
+      roleKey: "fulfillment",
+      holdCollisions: { reduceItem, projectors: [] },
+    });
+    const body = {
+      quantity: 1,
+      channel: "in-store",
+      collisionMode: "honor-offline",
+      idempotencyKey: "sale-1",
+    };
+    expect(
+      (
+        await fulfillmentApp.request("/items/inv_1/offline-sales", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      ).status,
+    ).toBe(403);
+
+    const managerApp = buildApp(createItemServices(), {
+      roleKey: "manager",
+      holdCollisions: { reduceItem, projectors: [] },
+    });
+    expect(
+      (
+        await managerApp.request("/items/inv_1/offline-sales", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      ).status,
+    ).toBe(400);
     expect(reduceItem).not.toHaveBeenCalled();
   });
 });

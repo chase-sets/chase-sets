@@ -1,7 +1,6 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import {
   Badge,
-  Card,
   DataTable,
   EmptyState,
   Grid,
@@ -115,40 +114,35 @@ function AccountBalanceSummary({ wallet }: { wallet: SettlementWalletRow }) {
   const restricted = wallet.negative_balance_status !== "in-good-standing";
 
   return (
-    <PageSection title={t("settlement.features.wallets.ui.walletWorkbenchPage.balance")}>
+    <PageSection
+      data-testid="wallet-balance-summary-furniture"
+      title={t("settlement.features.wallets.ui.walletWorkbenchPage.balance")}
+    >
       <Grid columns={{ base: 1, md: 2, lg: 4 }} gap={3}>
-        <Card>
-          <Stack gap={1}>
-            <Text size="sm" tone="secondary">
-              {t("settlement.features.wallets.ui.walletWorkbenchPage.available")}
-            </Text>
-            <Text size="lg">{formatMoney(wallet.available_balance_amount, wallet.currency_code)}</Text>
-          </Stack>
-        </Card>
-        <Card>
-          <Stack gap={1}>
-            <Text size="sm" tone="secondary">
-              {t("settlement.features.wallets.ui.walletWorkbenchPage.pending")}
-            </Text>
-            <Text size="lg">{formatMoney(wallet.pending_balance_amount, wallet.currency_code)}</Text>
-          </Stack>
-        </Card>
-        <Card>
-          <Stack gap={1}>
-            <Text size="sm" tone="secondary">
-              {t("settlement.features.wallets.ui.walletWorkbenchPage.lifetime.credits")}
-            </Text>
-            <Text size="lg">{formatMoney(wallet.total_credited_amount, wallet.currency_code)}</Text>
-          </Stack>
-        </Card>
-        <Card>
-          <Stack gap={1}>
-            <Text size="sm" tone="secondary">
-              {t("settlement.features.wallets.ui.walletWorkbenchPage.lifetime.debits")}
-            </Text>
-            <Text size="lg">{formatMoney(wallet.total_debited_amount, wallet.currency_code)}</Text>
-          </Stack>
-        </Card>
+        <Stack gap={1}>
+          <Text size="sm" tone="secondary">
+            {t("settlement.features.wallets.ui.walletWorkbenchPage.available")}
+          </Text>
+          <Text size="lg">{formatMoney(wallet.available_balance_amount, wallet.currency_code)}</Text>
+        </Stack>
+        <Stack gap={1}>
+          <Text size="sm" tone="secondary">
+            {t("settlement.features.wallets.ui.walletWorkbenchPage.pending")}
+          </Text>
+          <Text size="lg">{formatMoney(wallet.pending_balance_amount, wallet.currency_code)}</Text>
+        </Stack>
+        <Stack gap={1}>
+          <Text size="sm" tone="secondary">
+            {t("settlement.features.wallets.ui.walletWorkbenchPage.lifetime.credits")}
+          </Text>
+          <Text size="lg">{formatMoney(wallet.total_credited_amount, wallet.currency_code)}</Text>
+        </Stack>
+        <Stack gap={1}>
+          <Text size="sm" tone="secondary">
+            {t("settlement.features.wallets.ui.walletWorkbenchPage.lifetime.debits")}
+          </Text>
+          <Text size="lg">{formatMoney(wallet.total_debited_amount, wallet.currency_code)}</Text>
+        </Stack>
       </Grid>
       <Inline gap={2} align="center">
         <Badge tone={negativeBalanceTone(wallet.negative_balance_status)}>

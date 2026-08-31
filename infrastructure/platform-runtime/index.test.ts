@@ -10,7 +10,7 @@ import {
   seedApiHostIfEmpty,
   type ApiContextRegistry,
 } from "./api";
-import type { EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
+import type { BcMarketplaceRouteModule, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import { createWorkerHost, createWorkerRunnerLoop, type WorkerContextRegistry, type WorkerRunner } from "./worker";
 import { getWebHostSections, resolveWebHostNavItems, resolveWebHostRouteRecords, type WebContextRegistry } from "./web";
 import { resolveWebHostRouteConfigRecords, toRouteConfigEntry } from "./web-route-config";
@@ -162,6 +162,35 @@ const apiRegistry = [
   },
 ] as const satisfies ApiContextRegistry;
 
+const marketplaceRouteFixture = [
+  {
+    routeId: "category",
+    routePath: "categories/:categorySlug",
+    fileExport: "./routes/search",
+    routeType: "route",
+    sourceContext: "marketplace",
+    delivery: "portable",
+    authorization: { kind: "public" },
+    canonicalLink: { kind: "route-derived" },
+    availability: { web: true, mobile: true },
+    pageComponentExport: "SearchPage",
+    portableDataOperations: { load: true, mutation: false },
+  },
+  {
+    routeId: "search",
+    routePath: "search",
+    fileExport: "./routes/search",
+    routeType: "route",
+    sourceContext: "marketplace",
+    delivery: "portable",
+    authorization: { kind: "public" },
+    canonicalLink: { kind: "route-derived" },
+    availability: { web: true, mobile: true },
+    pageComponentExport: "SearchPage",
+    portableDataOperations: { load: true, mutation: false },
+  },
+] as const satisfies readonly BcMarketplaceRouteModule[];
+
 const webRegistry = [
   {
     contextName: "catalog",
@@ -207,22 +236,7 @@ const webRegistry = [
       deployableContributions: [
         {
           deployable: "marketplace-web",
-          routes: [
-            {
-              routeId: "category",
-              routePath: "categories/:categorySlug",
-              fileExport: "./routes/search",
-              routeType: "route",
-              sourceContext: "marketplace",
-            },
-            {
-              routeId: "search",
-              routePath: "search",
-              fileExport: "./routes/search",
-              routeType: "route",
-              sourceContext: "marketplace",
-            },
-          ],
+          routes: marketplaceRouteFixture,
         },
       ],
       shellContributions: [
@@ -378,6 +392,193 @@ describe("platform host api registry", () => {
         },
       }),
     ).toThrow(/missing a pool for context 'auth'/);
+  });
+
+  it("assembles one complete Account Capability registry independently of mounted runtime profile and input order", () => {
+    const authenticityEntry = {
+      contextName: "authenticity",
+      packageName: "@test/authenticity",
+      manifest: {
+        contextName: "authenticity",
+        apiDeployables: ["platform-api"],
+        apiRuntimeProfiles: ["public"],
+      },
+      module: {
+        ...createModule("authenticity"),
+        accountCapabilities: [
+          {
+            key: "authenticity.seller-included",
+            description: "Seller-included authenticity evidence",
+            kind: "boolean",
+            defaultValue: false,
+          },
+        ],
+      },
+    } as const;
+    const inventoryEntry = {
+      contextName: "inventory",
+      packageName: "@test/inventory",
+      manifest: {
+        contextName: "inventory",
+        apiDeployables: ["platform-api"],
+        apiRuntimeProfiles: ["proof"],
+      },
+      module: {
+        ...createModule("inventory"),
+        accountCapabilities: [
+          {
+            key: "inventory.locations",
+            description: "Inventory location limit",
+            kind: "limit",
+            defaultValue: 0,
+          },
+        ],
+      },
+    } as const;
+    const platformOperationsEntry = {
+      contextName: "platform-operations",
+      packageName: "@test/platform-operations",
+      manifest: {
+        contextName: "platform-operations",
+        apiDeployables: ["platform-api"],
+        apiRuntimeProfiles: ["landing"],
+      },
+      module: {
+        ...createModule("platform-operations"),
+        accountCapabilities: [
+          {
+            key: "mcp.rate-tier",
+            description: "MCP rate tier",
+            kind: "tier",
+            allowedValues: ["standard"],
+            defaultValue: "standard",
+          },
+        ],
+      },
+    } as const;
+
+    const landing = createApiHost(
+      [inventoryEntry, authenticityEntry, platformOperationsEntry] satisfies ApiContextRegistry,
+      "platform-api",
+      {
+        pools: { "platform-operations": createPool() as never },
+        runtimeProfile: "landing",
+      },
+    );
+    const proof = createApiHost(
+      [platformOperationsEntry, inventoryEntry, authenticityEntry] satisfies ApiContextRegistry,
+      "platform-api",
+      {
+        pools: { inventory: createPool() as never },
+        runtimeProfile: "proof",
+      },
+    );
+    const publicRuntime = createApiHost(
+      [authenticityEntry, platformOperationsEntry, inventoryEntry] satisfies ApiContextRegistry,
+      "platform-api",
+      {
+        pools: { authenticity: createPool() as never },
+        runtimeProfile: "public",
+      },
+    );
+
+    expect(landing.mountedContexts.map(({ contextName }) => contextName)).toEqual(["platform-operations"]);
+    expect(proof.mountedContexts.map(({ contextName }) => contextName)).toEqual(["inventory"]);
+    expect(publicRuntime.mountedContexts.map(({ contextName }) => contextName)).toEqual(["authenticity"]);
+    expect(proof.accountCapabilityRegistry).toEqual(landing.accountCapabilityRegistry);
+    expect(publicRuntime.accountCapabilityRegistry).toEqual(landing.accountCapabilityRegistry);
+    expect(landing.accountCapabilityRegistry.map(({ key }) => key)).toEqual([
+      "authenticity.seller-included",
+      "inventory.locations",
+      "mcp.rate-tier",
+    ]);
+  });
+
+  it("rejects malformed and duplicate declarations before any context services are created", () => {
+    const validCreateServices = vi.fn(() => ({}));
+    const invalidCreateServices = vi.fn(() => ({}));
+    const validEntry = {
+      contextName: "identity",
+      packageName: "@test/identity",
+      manifest: { contextName: "identity", apiDeployables: ["platform-api"] },
+      module: {
+        ...createModule("identity"),
+        createServices: validCreateServices,
+        accountCapabilities: [
+          {
+            key: "identity.test",
+            description: "Identity test",
+            kind: "boolean",
+            defaultValue: false,
+          },
+        ],
+      },
+    } as const;
+    const invalidEntry = {
+      contextName: "inventory",
+      packageName: "@test/inventory",
+      manifest: {
+        contextName: "inventory",
+        apiDeployables: ["platform-api"],
+        apiRuntimeProfiles: ["proof"],
+      },
+      module: {
+        ...createModule("inventory"),
+        createServices: invalidCreateServices,
+        accountCapabilities: [
+          {
+            key: "inventory.locations",
+            description: "Inventory location limit",
+            kind: "limit",
+            defaultValue: -1,
+          },
+        ],
+      },
+    } as const;
+
+    expect(() =>
+      createApiHost([validEntry, invalidEntry] as never, "platform-api", {
+        pools: { identity: createPool() as never },
+        runtimeProfile: "public",
+      }),
+    ).toThrow(/inventory\.locations.*finite non-negative/);
+    expect(validCreateServices).not.toHaveBeenCalled();
+    expect(invalidCreateServices).not.toHaveBeenCalled();
+
+    const duplicateEntry = {
+      ...invalidEntry,
+      module: {
+        ...invalidEntry.module,
+        accountCapabilities: [
+          {
+            key: "identity.test",
+            description: "Duplicate identity test",
+            kind: "boolean",
+            defaultValue: false,
+          },
+        ],
+      },
+    } as const;
+    expect(() =>
+      createApiHost([validEntry, duplicateEntry] as never, "platform-api", {
+        pools: { identity: createPool() as never },
+        runtimeProfile: "public",
+      }),
+    ).toThrow(/identity\.test.*identity.*inventory/);
+    expect(validCreateServices).not.toHaveBeenCalled();
+    expect(invalidCreateServices).not.toHaveBeenCalled();
+  });
+
+  it("always exposes an immutable empty Account Capability registry for an empty catalog", () => {
+    const runtime = createApiHost(apiRegistry, "platform-api", {
+      pools: {
+        identity: createPool() as never,
+        auth: createPool() as never,
+      },
+    });
+
+    expect(runtime.accountCapabilityRegistry).toEqual([]);
+    expect(Object.isFrozen(runtime.accountCapabilityRegistry)).toBe(true);
   });
 
   it("fails API host mounting when an active module exposes an unresolved declaration", () => {

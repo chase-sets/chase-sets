@@ -346,7 +346,7 @@ function useRepresentativeCatalogRuntime() {
         mountRole: "source-only",
         module: orderingModule,
         pool: activePools.ordering,
-        ports: undefined,
+        ports: { inventoryCleanupAuthority: { kind: "not-mounted" } },
       },
       {
         contextName: "discovery",

@@ -71,7 +71,7 @@ export function CheckoutPaymentSection({
   }
 
   return (
-    <Surface elevated glow>
+    <Surface elevation="tinted">
       <CheckoutFormSection
         title={t("checkout.features.sessions.ui.checkoutPage.payment")}
         description={t("checkout.features.sessions.ui.checkoutPage.payment.section.description")}

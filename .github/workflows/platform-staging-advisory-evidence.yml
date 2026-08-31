@@ -158,6 +158,11 @@ jobs:
             echo "Staging catalog asset runtime env outputs are required before scenario seeding." >&2
             exit 1
           fi
+          managed_postgres_ca_sha256="$(helm get values "$CHASE_SETS_HELM_RELEASE" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --output json | jq -r '.global.managedPostgresCaSha256 // empty')"
+          if ! [[ "$managed_postgres_ca_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "The deployed staging Helm release is not managed-Postgres-CA mount-aware." >&2
+            exit 1
+          fi
           pnpm run platform:kubernetes-deployment -- scenario-seed \
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret chase-sets \
@@ -170,6 +175,7 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --quiesce-workers false \
+            --managed-postgres-ca-sha256 "$managed_postgres_ca_sha256" \
             --timeout 60m \
             --out artifacts/staging-advisory-evidence/scenario-seed.json
 
@@ -278,10 +284,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: staging-advisory-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            artifacts/staging-advisory-evidence
-            artifacts/playwright/report
-            artifacts/playwright/test-results
+          path: artifacts/staging-advisory-evidence/summary.json
           if-no-files-found: error
           retention-days: 30
 

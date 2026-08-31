@@ -340,7 +340,7 @@ export function CustomerRemedyStatus({
         {view.refundTiming}
       </Text>
       {!view.terminal && view.nextAction ? (
-        <Surface tone="muted">
+        <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
           <Stack gap={1}>
             <Text size="xs" tone="secondary" weight="semibold">
               {t("support.features.supportRequests.ui.customerRemedyStatus.nextAction.label")}

@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { ReviewDetailPage } from "./review-detail-page";
 import type { ReviewDetail } from "./contracts";
 
@@ -37,6 +39,25 @@ const review = {
   reply_submitted_at: null,
   reply_withdrawn_at: null,
 } satisfies ReviewDetail;
+
+afterEach(cleanup);
+
+function expectTintedCard(root: Element | null) {
+  expect(root, "reply form root").not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  expect(tokens.has("bg-surface-2"), "reply form includes bg-surface-2").toBe(true);
+  for (const excluded of [
+    "ds-glass",
+    "border",
+    "border-muted",
+    "shadow-tokenSm",
+    "shadow-tokenLg",
+    "ds-glow",
+    "hover:border-accent",
+    "hover:shadow-tokenMd",
+  ])
+    expect(tokens.has(excluded), `reply form excludes ${excluded}`).toBe(false);
+}
 
 describe("review detail page", () => {
   it("renders account-to-account review labels", () => {
@@ -173,6 +194,18 @@ describe("review detail page", () => {
   });
 
   describe("subject reply compose form (m108)", () => {
+    it("renders the reply form as tinted furniture", () => {
+      render(
+        <ReviewDetailPage
+          backHref="/account/reviews/received"
+          review={review}
+          viewerAccountId={review.subject_account_id}
+        />,
+      );
+
+      expectTintedCard(screen.getByRole("button", { name: "Post response" }).closest(".rounded-tokenLg"));
+    });
+
     it("renders the compose form for the subject of a revealed, active review with no reply", () => {
       const markup = renderToString(
         <ReviewDetailPage

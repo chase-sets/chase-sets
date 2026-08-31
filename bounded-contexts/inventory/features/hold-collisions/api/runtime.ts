@@ -1,13 +1,29 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
-import type { InventoryHoldOrderSourceRef } from "@chase-sets/event-core/public-event-payloads";
+import type {
+  InventoryAdjustmentReason,
+  InventoryHoldOrderSourceRef,
+  InventoryOfflineSaleChannel,
+} from "@chase-sets/event-core/public-event-payloads";
+import { isInventoryOfflineSaleChannel } from "@chase-sets/event-core/public-event-payloads";
+import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
+import {
+  claimInventoryAdjustmentIdempotency,
+  completeInventoryAdjustmentIdempotency,
+  inventoryAdjustmentCommandFingerprint,
+  normalizeInventoryAdjustmentNote,
+  normalizeInventoryIdempotencyKey,
+  releaseInventoryAdjustmentIdempotency,
+  type InventoryAdjustmentIdempotencyRow,
+} from "../../../support/runtime-support/inventory-adjustment-idempotency";
 import {
   decideInventoryItem,
   evolveInventoryItem,
@@ -15,6 +31,7 @@ import {
   type InventoryItemEvent,
 } from "../../inventory-items/domain/domain";
 import { createInventoryItemAdjustedCsatOutcomeFact } from "../../inventory-items/api/request-support/customer-feedback-outcome-fact";
+import type { InventoryOfflineSaleResult } from "../../inventory-items/api/contracts";
 import {
   decideInventoryHold,
   evolveInventoryHold,
@@ -47,10 +64,13 @@ type ActiveHoldRow = Readonly<{
   committed_at: string | Date;
 }>;
 
-export type InventoryHoldCollisionResult = Readonly<{
-  itemId: string;
-  version: number;
-  collision: InventoryHoldCollisionPlan | null;
+export type InventoryHoldCollisionResult = InventoryOfflineSaleResult;
+export type { InventoryOfflineSaleResult } from "../../inventory-items/api/contracts";
+
+export type InventoryOfflineSaleReduction = Readonly<{
+  idempotencyKey: string;
+  salePriceAmount: string | null;
+  channel: InventoryOfflineSaleChannel;
 }>;
 
 export type InventoryHoldCollisionServices = Readonly<{
@@ -60,8 +80,11 @@ export type InventoryHoldCollisionServices = Readonly<{
       itemId: string;
       requestedQuantity: number;
       reason: string;
+      reasonCode?: InventoryAdjustmentReason;
+      note?: string | null;
       mode?: InventoryHoldCollisionMode;
       actorRole?: string | null;
+      offlineSale?: InventoryOfflineSaleReduction;
     }>,
     context: EventStoreContext,
   ) => Promise<InventoryHoldCollisionResult>;
@@ -101,150 +124,255 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
 
   return {
     reduceItem: async (params, context) => {
-      for (let attempt = 1; attempt <= 3; attempt += 1) {
-        try {
-          const item = await itemRepository.load(`inventory.item-${params.itemId}`);
-          if (item.state.id !== params.itemId || item.state.accountId !== params.accountId) {
-            throw new InventoryDomainError("Inventory item not found.");
-          }
-          if (!Number.isInteger(params.requestedQuantity) || params.requestedQuantity <= 0) {
-            throw new InventoryDomainError("Inventory reductions require a positive whole-number quantity.");
-          }
-          if (params.requestedQuantity > item.state.totalQuantity) {
-            throw new InventoryDomainError("Inventory quantity cannot fall below zero.");
-          }
+      const mode = params.mode ?? "protect-orders";
+      const normalizedNote = params.note === undefined ? undefined : normalizeInventoryAdjustmentNote(params.note);
+      const offlineSale = normalizeOfflineSaleReduction(params.offlineSale);
+      const commandFingerprint = offlineSale
+        ? inventoryAdjustmentCommandFingerprint({
+            accountId: params.accountId,
+            itemId: params.itemId,
+            quantityDelta: -params.requestedQuantity,
+            reason: "Offline sale",
+            reasonCode: "sold-offline",
+            note: normalizedNote,
+            sourceRef: null,
+            salePriceAmount: offlineSale.salePriceAmount,
+            channel: offlineSale.channel,
+            collisionMode: mode,
+          })
+        : null;
+      let claimOwned = false;
 
-          const activeHolds = await loadActiveHolds(deps, params, context);
-          const mode = params.mode ?? "protect-orders";
-          const collision = planInventoryHoldCollision({
-            totalQuantity: item.state.totalQuantity,
+      if (offlineSale && commandFingerprint) {
+        const existing = await claimInventoryAdjustmentIdempotency<InventoryHoldCollisionPlan>(deps.db, {
+          idempotencyKey: offlineSale.idempotencyKey,
+          accountId: params.accountId,
+          itemId: params.itemId,
+          commandFingerprint,
+        });
+        if (existing) {
+          if (existing.command_fingerprint !== commandFingerprint) {
+            throw new InventoryDomainError("Inventory adjustment idempotency key was reused for different input.");
+          }
+          const completed = completedOfflineSaleResult(existing, params.requestedQuantity);
+          if (completed) {
+            return completed;
+          }
+          if (existing.status === "completed") {
+            throw new InventoryDomainError("Inventory offline sale idempotency result is incomplete.");
+          }
+          const recovered = await recoverOfflineSaleResult(deps, {
+            existing,
+            idempotencyKey: offlineSale.idempotencyKey,
+            commandFingerprint,
+            accountId: params.accountId,
+            itemId: params.itemId,
             requestedQuantity: params.requestedQuantity,
-            mode,
-            actorRole: params.actorRole ?? null,
-            activeHolds,
+            salePriceAmount: offlineSale.salePriceAmount,
+            channel: offlineSale.channel,
+            context,
           });
-          const releasedHoldQuantity = collision?.releasedHoldQuantity ?? 0;
-          const appliedQuantity = collision?.appliedQuantity ?? params.requestedQuantity;
-          const heldQuantity = activeHolds.reduce((total, hold) => total + hold.quantity, 0) - releasedHoldQuantity;
-          const itemEvents =
-            appliedQuantity === 0
-              ? []
-              : decideInventoryItem(item.state, {
-                  type: "AdjustInventoryItemQuantity",
-                  csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-                    accountId: params.accountId as AccountId,
-                    itemId: params.itemId as InventoryItemId,
-                    idempotencyKey: `inventory:hold-collision:${params.itemId}:${attempt}:${Date.now()}`,
-                  }),
-                  quantityDelta: -appliedQuantity,
-                  heldQuantity,
-                  reason: params.reason,
-                });
+          if (recovered) {
+            return recovered;
+          }
+          throw new InventoryDomainError("Inventory adjustment idempotency key is already being processed.");
+        }
+        claimOwned = true;
+      }
 
-          const appends: AppendToStreamInput[] = [
-            ...(itemEvents.length > 0
-              ? [
+      try {
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          try {
+            const item = await itemRepository.load(`inventory.item-${params.itemId}`);
+            if (item.state.id !== params.itemId || item.state.accountId !== params.accountId) {
+              throw new InventoryDomainError("Inventory item not found.");
+            }
+            if (!Number.isInteger(params.requestedQuantity) || params.requestedQuantity <= 0) {
+              throw new InventoryDomainError("Inventory reductions require a positive whole-number quantity.");
+            }
+            if (params.requestedQuantity > item.state.totalQuantity) {
+              throw new InventoryDomainError("Inventory quantity cannot fall below zero.");
+            }
+
+            const activeHolds = await loadActiveHolds(deps, params, context);
+            if (mode === "honor-offline" && params.reasonCode !== undefined && params.reasonCode !== "sold-offline") {
+              throw new InventoryDomainError("Honor offline requires reasonCode sold-offline.");
+            }
+            const reasonCode = mode === "honor-offline" ? "sold-offline" : params.reasonCode;
+            const collision = planInventoryHoldCollision({
+              totalQuantity: item.state.totalQuantity,
+              requestedQuantity: params.requestedQuantity,
+              mode,
+              actorRole: params.actorRole ?? null,
+              activeHolds,
+            });
+            const releasedHoldQuantity = collision?.releasedHoldQuantity ?? 0;
+            const appliedQuantity = collision?.appliedQuantity ?? params.requestedQuantity;
+            const heldQuantity = activeHolds.reduce((total, hold) => total + hold.quantity, 0) - releasedHoldQuantity;
+            const itemEvents =
+              appliedQuantity === 0
+                ? []
+                : decideInventoryItem(
+                    item.state,
+                    offlineSale
+                      ? {
+                          type: "RecordOfflineSale",
+                          csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+                            accountId: params.accountId as AccountId,
+                            itemId: params.itemId as InventoryItemId,
+                            idempotencyKey: offlineSale.idempotencyKey,
+                          }),
+                          quantity: appliedQuantity,
+                          heldQuantity,
+                          salePriceAmount: offlineSale.salePriceAmount,
+                          channel: offlineSale.channel,
+                          ...(normalizedNote !== undefined ? { note: normalizedNote } : {}),
+                          recordedAt: new Date().toISOString(),
+                        }
+                      : {
+                          type: "AdjustInventoryItemQuantity",
+                          csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+                            accountId: params.accountId as AccountId,
+                            itemId: params.itemId as InventoryItemId,
+                            idempotencyKey: `inventory:hold-collision:${params.itemId}:${attempt}:${Date.now()}`,
+                          }),
+                          quantityDelta: -appliedQuantity,
+                          heldQuantity,
+                          reason: params.reason,
+                          ...(reasonCode !== undefined ? { reasonCode } : {}),
+                          ...(normalizedNote !== undefined ? { note: normalizedNote } : {}),
+                        },
+                  );
+
+            const appends: AppendToStreamInput[] = [
+              ...(itemEvents.length > 0
+                ? [
+                    {
+                      streamId: `inventory.item-${params.itemId}`,
+                      expectedVersion: item.version,
+                      events: itemEvents.map((event) => itemCodec.encode(event)),
+                      context,
+                    },
+                  ]
+                : []),
+            ];
+
+            if (collision?.mode === "honor-offline") {
+              for (const affected of collision.affectedOrders) {
+                const hold = await holdRepository.load(`inventory.hold-${affected.holdId}`);
+                const reservation = await reservationRepository.load(
+                  `inventory.reservation-${affected.reservationRequestId}`,
+                );
+                const releasedAt = new Date().toISOString();
+                const holdEvents = decideInventoryHold(hold.state, {
+                  type: "ReleaseInventoryHold",
+                  releasedAt,
+                  releaseReason: "hold-collision",
+                });
+                const reservationEvents = decideInventoryReservation(reservation.state, {
+                  type: "ReleaseInventoryReservation",
+                  releasedAt,
+                  releaseReason: "hold-collision",
+                });
+                appends.push(
                   {
-                    streamId: `inventory.item-${params.itemId}`,
-                    expectedVersion: item.version,
-                    events: itemEvents.map((event) => itemCodec.encode(event)),
+                    streamId: `inventory.hold-${affected.holdId}`,
+                    expectedVersion: hold.version,
+                    events: holdEvents.map((event) => holdCodec.encode(event)),
                     context,
                   },
-                ]
-              : []),
-          ];
-
-          if (collision?.mode === "honor-offline") {
-            for (const affected of collision.affectedOrders) {
-              const hold = await holdRepository.load(`inventory.hold-${affected.holdId}`);
-              const reservation = await reservationRepository.load(
-                `inventory.reservation-${affected.reservationRequestId}`,
-              );
-              const releasedAt = new Date().toISOString();
-              const holdEvents = decideInventoryHold(hold.state, {
-                type: "ReleaseInventoryHold",
-                releasedAt,
-                releaseReason: "hold-collision",
-              });
-              const reservationEvents = decideInventoryReservation(reservation.state, {
-                type: "ReleaseInventoryReservation",
-                releasedAt,
-                releaseReason: "hold-collision",
-              });
-              appends.push(
-                {
-                  streamId: `inventory.hold-${affected.holdId}`,
-                  expectedVersion: hold.version,
-                  events: holdEvents.map((event) => holdCodec.encode(event)),
-                  context,
-                },
-                {
-                  streamId: `inventory.reservation-${affected.reservationRequestId}`,
-                  expectedVersion: reservation.version,
-                  events: reservationEvents.map((event) => reservationCodec.encode(event)),
-                  context,
-                },
-              );
+                  {
+                    streamId: `inventory.reservation-${affected.reservationRequestId}`,
+                    expectedVersion: reservation.version,
+                    events: reservationEvents.map((event) => reservationCodec.encode(event)),
+                    context,
+                  },
+                );
+              }
             }
-          }
 
-          if (collision) {
-            const collisionId = createId("ihc");
-            const recordedAt = new Date().toISOString();
-            const collisionEvents = decideInventoryHoldCollision(initialInventoryHoldCollisionState, {
-              type: "RecordInventoryHoldCollision",
-              collisionId,
-              accountId: params.accountId,
+            if (collision) {
+              const collisionId = createId("ihc");
+              const recordedAt = new Date().toISOString();
+              const collisionEvents = decideInventoryHoldCollision(initialInventoryHoldCollisionState, {
+                type: "RecordInventoryHoldCollision",
+                collisionId,
+                accountId: params.accountId,
+                itemId: params.itemId,
+                storageLocationId: item.state.storageLocationId!,
+                reason: params.reason,
+                recordedAt,
+                totalQuantityBefore: item.state.totalQuantity,
+                plan: collision,
+              });
+              appends.push({
+                streamId: `inventory.hold-collision-${collisionId}`,
+                expectedVersion: "no_stream",
+                events: collisionEvents.map((event) => collisionCodec.encode(event)),
+                context,
+              });
+            }
+
+            // A zero-available protect-orders collision still advances the item
+            // authority stream so a simultaneous hold placement cannot commit
+            // against the snapshot used for this decision.
+            if (itemEvents.length === 0) {
+              const authorityEvents = decideInventoryItem(item.state, {
+                type: "ClaimInventoryStockAuthority",
+                authorityRef: collision ? `collision:${params.itemId}` : `reduction:${params.itemId}`,
+                operation: "stock-reduction",
+                quantity: params.requestedQuantity,
+              });
+              appends.unshift({
+                streamId: `inventory.item-${params.itemId}`,
+                expectedVersion: item.version,
+                events: authorityEvents.map((event) => itemCodec.encode(event)),
+                context,
+              });
+            }
+
+            const results = await appendToStreams(appends);
+            claimOwned = false;
+            const stored = results.flatMap((result) => result.storedEvents);
+            recordCommittedEvents(stored);
+            const itemStored = results.find((result) => result.streamId === `inventory.item-${params.itemId}`);
+            const result: InventoryHoldCollisionResult = {
               itemId: params.itemId,
-              storageLocationId: item.state.storageLocationId!,
-              reason: params.reason,
-              recordedAt,
-              totalQuantityBefore: item.state.totalQuantity,
-              plan: collision,
-            });
-            appends.push({
-              streamId: `inventory.hold-collision-${collisionId}`,
-              expectedVersion: "no_stream",
-              events: collisionEvents.map((event) => collisionCodec.encode(event)),
-              context,
-            });
+              version: itemStored?.storedEvents.at(-1)?.streamVersion ?? item.version,
+              requestedQuantity: params.requestedQuantity,
+              appliedQuantity,
+              refusedQuantity: collision?.refusedQuantity ?? 0,
+              collision,
+            };
+            if (offlineSale && commandFingerprint) {
+              const completed = await completeInventoryAdjustmentIdempotency(deps.db, {
+                idempotencyKey: offlineSale.idempotencyKey,
+                commandFingerprint,
+                resultItemId: result.itemId,
+                resultVersion: result.version,
+                resultCollision: result.collision,
+              });
+              if (!completed) {
+                throw new InventoryDomainError(
+                  "Inventory offline sale idempotency claim was replaced before completion.",
+                );
+              }
+            }
+            return result;
+          } catch (error) {
+            if (attempt < 3 && isConcurrencyConflict(error)) {
+              continue;
+            }
+            throw error;
           }
-
-          // A zero-available protect-orders collision still advances the item
-          // authority stream so a simultaneous hold placement cannot commit
-          // against the snapshot used for this decision.
-          if (itemEvents.length === 0) {
-            const authorityEvents = decideInventoryItem(item.state, {
-              type: "ClaimInventoryStockAuthority",
-              authorityRef: collision ? `collision:${params.itemId}` : `reduction:${params.itemId}`,
-              operation: "stock-reduction",
-              quantity: params.requestedQuantity,
-            });
-            appends.unshift({
-              streamId: `inventory.item-${params.itemId}`,
-              expectedVersion: item.version,
-              events: authorityEvents.map((event) => itemCodec.encode(event)),
-              context,
-            });
-          }
-
-          const results = await appendToStreams(appends);
-          const stored = results.flatMap((result) => result.storedEvents);
-          recordCommittedEvents(stored);
-          const itemStored = results.find((result) => result.streamId === `inventory.item-${params.itemId}`);
-          return {
-            itemId: params.itemId,
-            version: itemStored?.storedEvents.at(-1)?.streamVersion ?? item.version,
-            collision,
-          };
-        } catch (error) {
-          if (attempt < 3 && isConcurrencyConflict(error)) {
-            continue;
-          }
-          throw error;
         }
+        throw new InventoryDomainError("Inventory stock changed while resolving the hold collision.");
+      } catch (error) {
+        if (claimOwned && offlineSale) {
+          await releaseInventoryAdjustmentIdempotency(deps.db, offlineSale.idempotencyKey);
+        }
+        throw error;
       }
-      throw new InventoryDomainError("Inventory stock changed while resolving the hold collision.");
     },
     projectors: [
       createProjectionHandlerSet({
@@ -321,6 +449,220 @@ function orderSourceRef(value: unknown): InventoryHoldOrderSourceRef | null {
     orderId: String(value.orderId),
     reservationRequestId: String(value.reservationRequestId),
   };
+}
+
+function normalizeOfflineSaleReduction(
+  value: InventoryOfflineSaleReduction | undefined,
+): InventoryOfflineSaleReduction | null {
+  if (!value) {
+    return null;
+  }
+  const idempotencyKey = normalizeInventoryIdempotencyKey(value.idempotencyKey);
+  if (!idempotencyKey) {
+    throw new InventoryDomainError("Offline sales require a nonblank idempotency key.");
+  }
+  if (!isInventoryOfflineSaleChannel(value.channel)) {
+    throw new InventoryDomainError("Offline sales require a supported channel.");
+  }
+  return {
+    idempotencyKey,
+    salePriceAmount: value.salePriceAmount === null ? null : normalizeMoneyAmount(value.salePriceAmount),
+    channel: value.channel,
+  };
+}
+
+function completedOfflineSaleResult(
+  existing: InventoryAdjustmentIdempotencyRow<InventoryHoldCollisionPlan>,
+  requestedQuantity: number,
+): InventoryOfflineSaleResult | null {
+  if (existing.status !== "completed" || !existing.result_item_id || existing.result_version === null) {
+    return null;
+  }
+  const collision = parseInventoryHoldCollisionPlan(existing.result_collision);
+  if (existing.result_collision !== null && !collision) {
+    throw new InventoryDomainError("Inventory offline sale idempotency collision result is invalid.");
+  }
+  return {
+    itemId: existing.result_item_id,
+    version: Number(existing.result_version),
+    requestedQuantity,
+    appliedQuantity: collision?.appliedQuantity ?? requestedQuantity,
+    refusedQuantity: collision?.refusedQuantity ?? 0,
+    collision,
+  };
+}
+
+async function recoverOfflineSaleResult(
+  deps: InventoryRuntimeDeps,
+  input: Readonly<{
+    existing: InventoryAdjustmentIdempotencyRow<InventoryHoldCollisionPlan>;
+    idempotencyKey: string;
+    commandFingerprint: string;
+    accountId: string;
+    itemId: string;
+    requestedQuantity: number;
+    salePriceAmount: string | null;
+    channel: InventoryOfflineSaleChannel;
+    context: EventStoreContext;
+  }>,
+): Promise<InventoryOfflineSaleResult | null> {
+  const collisionResult = await deps.db.query<{ payload: unknown }>(
+    `SELECT payload
+     FROM event_store_events
+     WHERE tenant_id = $1
+       AND stream_context_name = 'inventory'
+       AND event_type = 'inventory.hold-collision-recorded'
+       AND payload ->> 'itemId' = $2
+       AND (payload ->> 'requestedQuantity')::integer = $3
+       AND recorded_at >= $4
+     ORDER BY recorded_at ASC, stream_id ASC
+     LIMIT 2`,
+    [input.context.tenantId, input.itemId, input.requestedQuantity, input.existing.created_at],
+  );
+  if (collisionResult.rows.length > 1) {
+    throw new InventoryDomainError("Inventory offline sale recovery found ambiguous collision evidence.");
+  }
+  const collision = parseInventoryHoldCollisionPlan(collisionResult.rows[0]?.payload ?? null);
+  if (collisionResult.rows.length === 1 && !collision) {
+    throw new InventoryDomainError("Inventory offline sale recovery found invalid collision evidence.");
+  }
+  const appliedQuantity = collision?.appliedQuantity ?? input.requestedQuantity;
+  const createdAt = new Date(input.existing.created_at).getTime();
+  const itemStreamId = `inventory.item-${input.itemId}`;
+  const events = await readCompleteStream(deps.eventStore, { streamId: itemStreamId });
+  let committed: (typeof events)[number] | undefined;
+  if (appliedQuantity === 0) {
+    committed = [...events].reverse().find((event) => {
+      if (Number.isFinite(createdAt) && new Date(event.recordedAt).getTime() < createdAt) {
+        return false;
+      }
+      const payload = event.payload as { itemId?: unknown; operation?: unknown; quantity?: unknown };
+      return (
+        event.eventType === "inventory.item.stock-authority-claimed" &&
+        payload.itemId === input.itemId &&
+        payload.operation === "stock-reduction" &&
+        payload.quantity === input.requestedQuantity &&
+        event.forAccountId === input.accountId
+      );
+    });
+  } else {
+    if (!Number.isFinite(createdAt)) {
+      return null;
+    }
+    const matchingAdjustedIndexes = events.flatMap((event, index) => {
+      const recordedAt = new Date(event.recordedAt).getTime();
+      if (event.eventType !== "inventory.item.adjusted" || !Number.isFinite(recordedAt) || recordedAt < createdAt) {
+        return [];
+      }
+      const payload = event.payload as { csatOutcomeFact?: unknown };
+      const csatOutcomeFact = payload.csatOutcomeFact;
+      return csatOutcomeFact &&
+        typeof csatOutcomeFact === "object" &&
+        !Array.isArray(csatOutcomeFact) &&
+        (csatOutcomeFact as { idempotencyKey?: unknown }).idempotencyKey === input.idempotencyKey
+        ? [index]
+        : [];
+    });
+    if (matchingAdjustedIndexes.length !== 1) {
+      return null;
+    }
+
+    const adjusted = events[matchingAdjustedIndexes[0]];
+    const offlineSale = events[matchingAdjustedIndexes[0] + 1];
+    if (!adjusted) {
+      return null;
+    }
+    const adjustedPayload = adjusted.payload as { itemId?: unknown; quantityDelta?: unknown };
+    const offlineSalePayload = offlineSale?.payload as
+      | {
+          itemId?: unknown;
+          quantity?: unknown;
+          salePriceAmount?: unknown;
+          channel?: unknown;
+        }
+      | undefined;
+    if (
+      adjusted.streamId !== itemStreamId ||
+      adjusted.forAccountId !== input.accountId ||
+      adjustedPayload.itemId !== input.itemId ||
+      adjustedPayload.quantityDelta !== -appliedQuantity ||
+      !offlineSale ||
+      offlineSale.streamId !== itemStreamId ||
+      offlineSale.streamVersion !== adjusted.streamVersion + 1 ||
+      offlineSale.eventType !== "inventory.item.offline-sale-recorded" ||
+      !Number.isFinite(new Date(offlineSale.recordedAt).getTime()) ||
+      new Date(offlineSale.recordedAt).getTime() < createdAt ||
+      offlineSale.forAccountId !== input.accountId ||
+      offlineSalePayload?.itemId !== input.itemId ||
+      offlineSalePayload.quantity !== appliedQuantity ||
+      (offlineSalePayload.salePriceAmount ?? null) !== input.salePriceAmount ||
+      offlineSalePayload.channel !== input.channel
+    ) {
+      return null;
+    }
+    committed = offlineSale;
+  }
+  if (!committed) {
+    return null;
+  }
+
+  const result: InventoryOfflineSaleResult = {
+    itemId: input.itemId,
+    version: Number(committed.streamVersion),
+    requestedQuantity: input.requestedQuantity,
+    appliedQuantity,
+    refusedQuantity: collision?.refusedQuantity ?? 0,
+    collision,
+  };
+  const completed = await completeInventoryAdjustmentIdempotency(deps.db, {
+    idempotencyKey: input.idempotencyKey,
+    commandFingerprint: input.commandFingerprint,
+    resultItemId: result.itemId,
+    resultVersion: result.version,
+    resultCollision: result.collision,
+  });
+  return completed ? result : null;
+}
+
+function parseInventoryHoldCollisionPlan(value: unknown): InventoryHoldCollisionPlan | null {
+  if (value === null) {
+    return null;
+  }
+  let candidate = value;
+  if (typeof candidate === "string") {
+    try {
+      candidate = JSON.parse(candidate);
+    } catch {
+      return null;
+    }
+  }
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+  const plan = candidate as Partial<InventoryHoldCollisionPlan>;
+  if (
+    (plan.mode !== "protect-orders" && plan.mode !== "honor-offline") ||
+    !Number.isInteger(plan.requestedQuantity) ||
+    !Number.isInteger(plan.appliedQuantity) ||
+    !Number.isInteger(plan.refusedQuantity) ||
+    !Number.isInteger(plan.heldQuantity) ||
+    !Number.isInteger(plan.availableQuantity) ||
+    !Number.isInteger(plan.releasedHoldQuantity) ||
+    !Array.isArray(plan.affectedOrders)
+  ) {
+    return null;
+  }
+  return {
+    mode: plan.mode,
+    authorizedByRole: plan.authorizedByRole ?? null,
+    requestedQuantity: plan.requestedQuantity,
+    appliedQuantity: plan.appliedQuantity,
+    refusedQuantity: plan.refusedQuantity,
+    heldQuantity: plan.heldQuantity,
+    availableQuantity: plan.availableQuantity,
+    releasedHoldQuantity: plan.releasedHoldQuantity,
+    affectedOrders: plan.affectedOrders,
+  } as InventoryHoldCollisionPlan;
 }
 
 function isConcurrencyConflict(error: unknown) {

@@ -69,7 +69,7 @@ export function PolicyConsolePage({
       />
 
       <PageSection title={t(`${routeKey}.commercialTermsLinkTitle`)}>
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Inset>
             <Stack gap={2}>
               <Text>{t(`${routeKey}.commercialTermsLinkDescription`)}</Text>

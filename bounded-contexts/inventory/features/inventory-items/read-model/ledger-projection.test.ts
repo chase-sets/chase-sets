@@ -25,7 +25,9 @@ const orderSourceRef = {
 
 describe("inventory item ledger projection", () => {
   it("projects item creation and adjustment rows with on-hand deltas", async () => {
-    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const db = {
+      query: vi.fn(async (_sql: string, _values: readonly unknown[] = []) => ({ rows: [] })),
+    };
     const handlers = buildInventoryItemLedgerProjectionHandlers(db);
 
     await handlers["inventory.item.created"]!(
@@ -42,6 +44,8 @@ describe("inventory item ledger projection", () => {
           itemId: "inv_1",
           quantityDelta: -1,
           reason: "Shelf count correction",
+          reasonCode: "correction",
+          note: "Counted after moving the shelf",
         },
         2,
       ),
@@ -57,6 +61,10 @@ describe("inventory item ledger projection", () => {
       null,
       null,
       "Inventory item created",
+      null,
+      null,
+      null,
+      null,
       null,
       "system",
       "inventory.item.created",
@@ -74,6 +82,10 @@ describe("inventory item ledger projection", () => {
       null,
       null,
       "Shelf count correction",
+      "correction",
+      "Counted after moving the shelf",
+      null,
+      null,
       null,
       "seller",
       "inventory.item.adjusted",
@@ -132,7 +144,7 @@ describe("inventory item ledger projection", () => {
       "hold-expired",
       "hold-consumed",
     ]);
-    expect(inserts.map(([, values]) => values?.[10])).toEqual(["system", "system", "system", "system", "system"]);
+    expect(inserts.map(([, values]) => values?.[14])).toEqual(["system", "system", "system", "system", "system"]);
     expect(inserts.at(-1)?.[1]).toEqual([
       "inventory.hold-hld_1:5",
       "inv_1",
@@ -143,11 +155,61 @@ describe("inventory item ledger projection", () => {
       1,
       "order",
       "Fulfillment dispatched",
+      null,
+      null,
+      null,
+      null,
       JSON.stringify(orderSourceRef),
       "system",
       "inventory.hold.consumed",
       "inventory.hold-hld_1",
       5,
+      "2026-07-06T01:00:01.000Z",
+    ]);
+  });
+
+  it("retains the adjusted row and adds one deterministic offline-sale row", async () => {
+    const db = {
+      query: vi.fn(async (_sql: string, _values: readonly unknown[] = []) => ({ rows: [] })),
+    };
+    const handlers = buildInventoryItemLedgerProjectionHandlers(db);
+
+    await handlers["inventory.item.adjusted"]!(
+      event(
+        "inventory.item.adjusted",
+        { itemId: "inv_1", quantityDelta: -3, reason: "Offline sale", reasonCode: "sold-offline" },
+        2,
+      ),
+    );
+    await handlers["inventory.item.offline-sale-recorded"]!(
+      event(
+        "inventory.item.offline-sale-recorded",
+        { itemId: "inv_1", quantity: 3, salePriceAmount: "125.00", channel: "card-show" },
+        3,
+      ),
+    );
+
+    expect(db.query.mock.calls.map(([, values]) => values?.[4])).toEqual(["adjusted", "offline-sale"]);
+    expect(db.query.mock.calls[0]?.[1]?.[9]).toBe("sold-offline");
+    expect(db.query.mock.calls[1]?.[1]).toEqual([
+      "inventory.item-inv_1:3",
+      "inv_1",
+      "acc_seller",
+      "2026-07-06T01:00:00.000Z",
+      "offline-sale",
+      -3,
+      null,
+      null,
+      "Offline sale",
+      null,
+      null,
+      "125.00",
+      "card-show",
+      null,
+      "system",
+      "inventory.item.offline-sale-recorded",
+      "inventory.item-inv_1",
+      3,
       "2026-07-06T01:00:01.000Z",
     ]);
   });

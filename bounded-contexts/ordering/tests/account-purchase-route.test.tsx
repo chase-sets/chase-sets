@@ -8,6 +8,7 @@ import {
   encodeCommitReceipt,
 } from "@chase-sets/http/responses";
 import { CHASE_SETS_READ_AFTER_WRITE_HEADER, CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
 const { mockUseLoaderData, mockUseActionData, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
@@ -38,6 +39,24 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 });
 
 import MarketplaceAccountPurchaseRoute, { action, loader } from "../routes/account-purchase";
+
+const destinationFixture = {
+  name: "Recipient Only",
+  company: "Dock 7",
+  line1: "455 Market St",
+  line2: "Suite 8",
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+  phone: "phone-sentinel",
+  email: "email-sentinel@example.test",
+  verification: {
+    status: "verified",
+    source: "verification-sentinel",
+    checkedAt: "2026-04-02T00:00:00.000Z",
+  },
+} satisfies AddressSnapshot;
 
 const order = {
   order_id: "ord_1",
@@ -71,18 +90,7 @@ const order = {
   terms_schedule_id: "cts_default",
   terms_agreement_id: null,
   terms_resolved_at: "2026-04-02T00:00:00.000Z",
-  shipping_destination_snapshot: {
-    name: "Buyer",
-    company: null,
-    line1: "2 Market St",
-    line2: null,
-    city: "Chicago",
-    state: "IL",
-    postalCode: "60601",
-    country: "US",
-    phone: null,
-    email: null,
-  },
+  shipping_destination_snapshot: destinationFixture,
   shipping_origin_snapshot: {
     name: "Seller",
     company: null,
@@ -310,6 +318,7 @@ describe("marketplace account purchase route", () => {
   });
 
   it("renders a verified-purchase account review CTA", () => {
+    expect(order.shipping_destination_snapshot.verification?.source).toBe("verification-sentinel");
     mockUseLoaderData.mockReturnValue({
       purchase: order,
       reviewOutcome: {
@@ -335,9 +344,13 @@ describe("marketplace account purchase route", () => {
     );
 
     expect(screen.getByText("Leave account review")).toBeTruthy();
+    const destinations = screen.getAllByRole("region", { name: "Shipping destination" });
+    expect(destinations).toHaveLength(1);
+    expect(destinations[0]?.querySelectorAll("address")).toHaveLength(1);
   });
 
   it("hides the review CTA when the order is not verified for review", () => {
+    expect(order.shipping_destination_snapshot.verification?.source).toBe("verification-sentinel");
     mockUseLoaderData.mockReturnValue({
       purchase: order,
       reviewOutcome: { status: "ready", opportunity: null },
@@ -353,6 +366,7 @@ describe("marketplace account purchase route", () => {
   });
 
   it("shows direct cancellation for a fulfillment-ready purchase inside the cancellation window", () => {
+    expect(order.shipping_destination_snapshot.verification?.source).toBe("verification-sentinel");
     mockUseLoaderData.mockReturnValue({
       purchase: {
         ...order,
@@ -374,6 +388,7 @@ describe("marketplace account purchase route", () => {
   });
 
   it("routes cancellation to support after fulfillment starts", () => {
+    expect(order.shipping_destination_snapshot.verification?.source).toBe("verification-sentinel");
     mockUseLoaderData.mockReturnValue({
       purchase: {
         ...order,

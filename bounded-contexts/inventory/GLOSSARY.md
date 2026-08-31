@@ -86,6 +86,37 @@ Values:
 - `manual`: an account-initiated Inventory action released the hold.
 - `superseded`: a newer hold or lifecycle transition replaced the hold.
 
+## Inventory Reservation Authority
+
+**Inventory Reservation Authority** is the complete `inventory.reservation-*` stream history for one Ordering reservation request, read as the canonical answer to whether that request was confirmed or rejected.
+
+Notes:
+
+- Valid authority is exactly a v1 `inventory.reservation.confirmed` or `inventory.reservation.rejected`, optionally followed by a v2 `inventory.reservation.released` that may only follow a confirmation.
+- A rejection proves no Hold was ever created; a confirmation supplies the Hold created atomically with it.
+- Missing, over-bound, malformed, mixed, repeated, or non-terminal history is not authority. It is never treated as "no reservation".
+- The UNLOGGED `inventory_reservation_pages` projection is never this authority.
+
+## Hold Cleanup Authority
+
+**Hold Cleanup Authority** is the complete `inventory.hold-*` stream history for one Hold, read as the canonical answer to whether that Hold is still active or reached a real terminal.
+
+Notes:
+
+- A direct Order Hold is `placed` with Hold Purpose `order` and an exact Hold Source Reference; a converted checkout Hold is `placed` with purpose `checkout`, extended zero or more times, then `converted` to purpose `order`.
+- At most one `released`, `consumed`, or `expired` terminal may appear, and nothing may follow it.
+- Reading Hold Cleanup Authority never releases, consumes, or otherwise mutates the Hold.
+
+## Hold Source Lookup
+
+A **Hold Source Lookup** is the reverse, exact-tenant query from an Ordering order id to the Hold streams whose Hold Source Reference carries it.
+
+Notes:
+
+- It covers both source-bearing events: a direct `inventory.hold.placed` with purpose `order` and an `inventory.hold.converted` that promotes a checkout Hold.
+- Results are ordered by first matching global position, then stream id, and are bounded so an order with more Holds than the contract allows is refused rather than truncated.
+- Its authority is the event stream, never a projection.
+
 ## Hold Collision
 
 A **Hold Collision** occurs when a requested stock reduction is larger than Available Quantity because active Inventory Holds already commit part of the Inventory Item.
@@ -129,9 +160,45 @@ Values:
 
 ## Inventory Adjustment Reason
 
-Values added by returned-stock decisions:
+An **Inventory Adjustment Reason** is the typed reason an Inventory quantity adjustment occurred. It accompanies the required free-text reason without replacing it.
 
+Values:
+
+- `sold-offline`: an Honor Offline reduction recorded stock sold outside an online order.
+- `damaged`: an operator removed stock that was damaged.
+- `lost`: an operator removed stock that could not be found.
+- `found`: an operator added stock that was found.
+- `correction`: an operator, seed, or import reconciled recorded stock with known truth.
+- `intake`: stock entered Inventory through listing-stock setup or an additive import.
 - `return-restocked`: a seller restocked units from a returned order after reviewing the item.
+
+`written-off` is a Restock Decision Outcome, not an Inventory Adjustment Reason. A written-off decision changes no quantity and emits no adjustment.
+
+## Adjustment Note
+
+An **Adjustment Note** is optional operator context attached to an Inventory adjustment. A blank note is stored as no note, and it never replaces or derives from the required free-text reason.
+
+## Offline Sale
+
+An **Offline Sale** is an immutable Inventory fact that records stock sold in person or outside a connected marketplace channel. It preserves sale provenance while the companion Inventory Item adjustment remains the quantity source of truth.
+
+## Offline Sale Channel
+
+An **Offline Sale Channel** identifies where an Offline Sale occurred.
+
+Values:
+
+- `in-store`: sold at the account's store or counter.
+- `card-show`: sold at a card show or similar in-person event.
+- `other`: sold through another non-connected offline channel.
+
+## Sale Price Amount
+
+**Sale Price Amount** is the optional canonical per-unit amount recorded on an Offline Sale. It is sales provenance without currency, payment, settlement, or provider-receipt meaning.
+
+## Cost Basis Snapshot
+
+A **Cost Basis Snapshot** is the Inventory Item's per-unit Acquisition Cost captured when an Offline Sale is recorded. It remains part of the immutable sale fact even if the item's current cost later changes.
 
 ## Storage Location
 
@@ -176,7 +243,7 @@ Notes:
 
 ## Acquisition Cost
 
-**Acquisition Cost** is the seller's recorded cost to acquire stock in inventory.
+**Acquisition Cost** is the seller's recorded per-unit cost to acquire stock in inventory.
 
 ## Recovered Item
 
@@ -305,7 +372,3 @@ A **Channel Inventory Snapshot** is the planned channel-reported quantity state 
 ### Channel Fulfillment Rule
 
 A **Channel Fulfillment Rule** is the planned Inventory-owned rule that decides which stock can satisfy channel demand.
-
-### Offline Sale
-
-An **Offline Sale** is the planned Inventory fact that stock left availability through an in-person or non-channel sale.

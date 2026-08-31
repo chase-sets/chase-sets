@@ -62,13 +62,21 @@ const activePolicy = policy("opp_active", "Current policy", "active");
 const draftPolicy = policy("opp_draft", "Candidate policy", "draft");
 const retiredPolicy = policy("opp_retired", "Archived policy", "retired");
 
-function renderPage(selectedPolicy: PostagePolicyAdminViewModel | null = null) {
+function renderPage(
+  selectedPolicy: PostagePolicyAdminViewModel | null = null,
+  options: { errorMessage?: string; previewResult?: never } = {},
+) {
   const router = createMemoryRouter(
     [
       {
         path: "/commerce/postage-policies",
         element: (
-          <PostagePolicyListPage items={[activePolicy, draftPolicy, retiredPolicy]} selectedPolicy={selectedPolicy} />
+          <PostagePolicyListPage
+            items={[activePolicy, draftPolicy, retiredPolicy]}
+            selectedPolicy={selectedPolicy}
+            errorMessage={options.errorMessage}
+            previewResult={options.previewResult}
+          />
         ),
         action: async () => null,
       },
@@ -82,9 +90,76 @@ function renderPage(selectedPolicy: PostagePolicyAdminViewModel | null = null) {
   return render(<RouterProvider router={router} />);
 }
 
+function expectTintedCard(root: Element | null, label: string) {
+  expect(root, `${label} root`).not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  expect(tokens.has("bg-surface-2"), `${label} includes bg-surface-2`).toBe(true);
+  for (const excluded of [
+    "ds-glass",
+    "border",
+    "border-muted",
+    "shadow-tokenSm",
+    "shadow-tokenLg",
+    "ds-glow",
+    "hover:border-accent",
+    "hover:shadow-tokenMd",
+  ])
+    expect(tokens.has(excluded), `${label} excludes ${excluded}`).toBe(false);
+}
+
 afterEach(cleanup);
 
 describe("postage policy lifecycle home", () => {
+  it("renders every list and drawer furniture root with tinted chrome", () => {
+    const { container } = renderPage(draftPolicy, {
+      errorMessage: "Policy preview failed.",
+      previewResult: {
+        packagePlanVersion: "measured-package-plan-v1",
+        packageCount: 1,
+        packages: [{ mailpieceClass: "parcel", serviceLevel: "ground" }],
+        letterEligibility: { eligible: false, reasons: ["parcel-required"] },
+        postagePolicySnapshot: {
+          policyVersion: "operator-postage-v1",
+          parcelRequired: true,
+          parcelReasons: ["policy"],
+          signatureRequired: false,
+          signatureReasons: [],
+          insuranceRequired: false,
+          insuranceReasons: [],
+          insuredValueAmount: null,
+          shippingEvidenceTier: "tracked-parcel",
+        },
+      } as never,
+    });
+
+    const rootForIntent = (intent: string) =>
+      document.querySelector(`input[name="intent"][value="${intent}"]`)?.closest(".rounded-tokenLg") ?? null;
+    expectTintedCard(
+      container.querySelector('form[method="post"]')?.closest(".rounded-tokenLg") ?? null,
+      "create draft",
+    );
+    expectTintedCard(rootForIntent("activate"), "activate action");
+    expectTintedCard(rootForIntent("retire"), "retire action");
+    expectTintedCard(rootForIntent("clone"), "clone action");
+    expectTintedCard(rootForIntent("revise"), "revise action");
+    expectTintedCard(rootForIntent("preview"), "preview form");
+    const dialog = screen.getByRole("dialog", { name: "Candidate policy" });
+    const policyId = [...dialog.querySelectorAll("p")].find((element) => element.textContent?.includes("opp_draft"));
+    expectTintedCard(policyId?.closest(".rounded-tokenLg") ?? null, "policy state");
+    expectTintedCard(within(dialog).getByText("Preview Result").closest(".rounded-tokenLg"), "preview result");
+
+    const errors = screen.getAllByText("Policy preview failed.");
+    expect(errors).toHaveLength(2);
+    expectTintedCard(
+      errors.find((error) => error.closest('[role="dialog"]') === null)?.closest(".rounded-tokenLg") ?? null,
+      "list error",
+    );
+    expectTintedCard(
+      errors.find((error) => error.closest('[role="dialog"]') !== null)?.closest(".rounded-tokenLg") ?? null,
+      "drawer error",
+    );
+  });
+
   it("separates active policies, candidates awaiting activation, and the retired archive", () => {
     renderPage();
 

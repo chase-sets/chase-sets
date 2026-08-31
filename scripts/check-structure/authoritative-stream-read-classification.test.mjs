@@ -22,22 +22,28 @@ const candidateKeys = [
 const diagnosticKeys = ["file", "line", "node", "outcome", "sourceFile", "sourceStart"];
 
 const production = classification.analyzeAuthoritativeStreamReads({ repoRoot });
+const approvedStandaloneRoot = "bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.tsx";
+const excludedStandaloneTestRoot = "bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.test.tsx";
 
 describe("authoritative-stream-read-classification-acceptance-control", () => {
   it("loads the exact tracked Program corpus and reports the anchor-tree classification", () => {
     expect(ts.version).toBe("6.0.3");
-    expect(production.roots).toHaveLength(2_892);
+    expect(production.roots).toHaveLength(2_916);
+    expect(production.roots.filter((root) => root.endsWith("/offline-sale-form.tsx"))).toEqual([
+      approvedStandaloneRoot,
+    ]);
+    expect(production.roots).not.toContain(excludedStandaloneTestRoot);
     expect(production.totals).toMatchObject({
-      roots: 2_892,
-      loadedRoots: 2_892,
+      roots: 2_916,
+      loadedRoots: 2_916,
       extensionCounts: {
-        ".ts": 2_259,
-        ".tsx": 614,
+        ".ts": 2_279,
+        ".tsx": 616,
         ".mts": 7,
         ".cts": 0,
         ".js": 0,
         ".jsx": 0,
-        ".mjs": 12,
+        ".mjs": 14,
         ".cjs": 0,
       },
       discoveredCallCandidates: 8,

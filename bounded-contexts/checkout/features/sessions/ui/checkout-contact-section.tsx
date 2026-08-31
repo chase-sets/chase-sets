@@ -16,7 +16,7 @@ export function CheckoutContactSection({ showContactForm, isOfferIntent, email }
   }
 
   return (
-    <Surface elevated glow>
+    <Surface elevation="tinted">
       <CheckoutFormSection title={t("checkout.features.sessions.ui.checkoutPage.contact")}>
         <TextInput
           label={t("checkout.features.sessions.ui.checkoutPage.email")}

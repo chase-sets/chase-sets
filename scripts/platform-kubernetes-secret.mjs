@@ -9,6 +9,10 @@ const defaultGeneratedBy = "node ./scripts/platform-kubernetes-secret.mjs";
 const previewPostgresAdminUrlKey = "PLATFORM_PREVIEW_POSTGRES_ADMIN_URL";
 const previewPostgresSuperuserPasswordKey = "PREVIEW_POSTGRES_SUPERUSER_PASSWORD";
 const previewPostgresApplicationPasswordKey = "PREVIEW_POSTGRES_APPLICATION_PASSWORD";
+const platformRuntimeSecretFieldManager = "chase-sets-platform-runtime";
+export const managedPostgresCaSecretName = "chase-sets-platform-runtime";
+export const managedPostgresCaSecretKey = "managed-postgres-ca.crt";
+export const managedPostgresCaFieldManager = "chase-sets-managed-postgres-ca";
 
 export function collectPlatformSecretKeys(values = buildPlatformHelmValues(), options = {}) {
   const keys = new Set();
@@ -279,7 +283,20 @@ export async function applyPlatformSecretManifest(options = {}) {
     await applyManifest({ manifest: bundle.previewPostgresSecret, kubectlPath, spawn: options.spawn });
   }
 
-  await applyManifest({ manifest, kubectlPath, spawn: options.spawn });
+  await applyManifest({
+    manifest,
+    kubectlPath,
+    spawn: options.spawn,
+    args: [
+      "apply",
+      "--server-side",
+      "--force-conflicts",
+      "--field-manager",
+      platformRuntimeSecretFieldManager,
+      "-f",
+      "-",
+    ],
+  });
 
   return {
     name: manifest.metadata.name,
@@ -287,6 +304,101 @@ export async function applyPlatformSecretManifest(options = {}) {
     keyCount: Object.keys(manifest.data ?? {}).length,
     ...(bundle.previewPostgresSecret ? { previewPostgresSecretName: bundle.previewPostgresSecret.metadata.name } : {}),
   };
+}
+
+export function buildManagedPostgresCaSecretManifest(options = {}) {
+  const namespace = options.namespace;
+  const certificate = options.certificate;
+  if (!namespace) {
+    throw new Error("Managed Postgres CA Secret namespace is required.");
+  }
+  if (!Buffer.isBuffer(certificate) || certificate.length === 0) {
+    throw new Error("Managed Postgres CA certificate bytes are required.");
+  }
+  if (!options.resourceVersion) {
+    throw new Error("Existing managed Postgres CA Secret resourceVersion is required.");
+  }
+
+  return {
+    apiVersion: "v1",
+    kind: "Secret",
+    metadata: {
+      name: managedPostgresCaSecretName,
+      namespace,
+      resourceVersion: String(options.resourceVersion),
+    },
+    data: {
+      [managedPostgresCaSecretKey]: certificate.toString("base64"),
+    },
+  };
+}
+
+export async function applyManagedPostgresCaSecret(options = {}) {
+  const resourceVersion =
+    options.resourceVersion ??
+    (await readManagedPostgresCaSecretResourceVersion({
+      namespace: options.namespace,
+      kubectlPath: options.kubectlPath ?? "kubectl",
+      spawn: options.spawn,
+    }));
+  const manifest = buildManagedPostgresCaSecretManifest({ ...options, resourceVersion });
+  if (
+    manifest?.kind !== "Secret" ||
+    manifest?.metadata?.name !== managedPostgresCaSecretName ||
+    !manifest?.metadata?.namespace ||
+    !manifest?.metadata?.resourceVersion ||
+    typeof manifest?.data?.[managedPostgresCaSecretKey] !== "string"
+  ) {
+    throw new Error("Managed Postgres CA reconciliation must target only the canonical Secret key.");
+  }
+
+  await applyManifest({
+    manifest,
+    kubectlPath: options.kubectlPath ?? "kubectl",
+    spawn: options.spawn,
+    args: ["apply", "--server-side", "--field-manager", managedPostgresCaFieldManager, "-f", "-"],
+  });
+
+  return {
+    name: managedPostgresCaSecretName,
+    namespace: manifest.metadata.namespace,
+    key: managedPostgresCaSecretKey,
+  };
+}
+
+async function readManagedPostgresCaSecretResourceVersion(options) {
+  const spawnImpl = options.spawn ?? spawn;
+  const args = [
+    "get",
+    "secret",
+    managedPostgresCaSecretName,
+    "--namespace",
+    options.namespace,
+    "--output",
+    "jsonpath={.metadata.resourceVersion}",
+  ];
+  const resourceVersion = await new Promise((resolve, reject) => {
+    const child = spawnImpl(options.kubectlPath, args, {
+      stdio: ["ignore", "pipe", "inherit"],
+      windowsHide: true,
+    });
+    let stdout = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0 && stdout.trim()) {
+        resolve(stdout.trim());
+        return;
+      }
+      reject(new Error("The existing managed Postgres CA Secret resourceVersion could not be read."));
+    });
+  });
+  if (!/^[A-Za-z0-9._-]+$/.test(resourceVersion)) {
+    throw new Error("The existing managed Postgres CA Secret resourceVersion was invalid.");
+  }
+  return resourceVersion;
 }
 
 function buildPreviewPostgresSecretMaterial(options) {
@@ -447,7 +559,8 @@ async function applyManifest(options) {
   const kubectlPath = options.kubectlPath;
 
   await new Promise((resolve, reject) => {
-    const child = spawnImpl(kubectlPath, ["apply", "-f", "-"], {
+    const args = options.args ?? ["apply", "-f", "-"];
+    const child = spawnImpl(kubectlPath, args, {
       stdio: ["pipe", "inherit", "inherit"],
       windowsHide: true,
     });
@@ -458,7 +571,7 @@ async function applyManifest(options) {
         resolve();
         return;
       }
-      reject(new Error(`${kubectlPath} apply -f - exited with code ${code ?? "unknown"}.`));
+      reject(new Error(`${kubectlPath} ${args.join(" ")} exited with code ${code ?? "unknown"}.`));
     });
     child.stdin.end(input);
   });

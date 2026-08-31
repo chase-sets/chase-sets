@@ -4,6 +4,14 @@
   "localeCatalogs": ["contracts/localization/locales/en/inventory.ts"],
   "ownedNouns": ["inventory-item", "inventory-hold", "import-batch", "recovered-item", "storage-location"],
   "streamPrefix": "inventory.",
+  "accountCapabilities": [
+    {
+      "key": "inventory.locations",
+      "description": "Declares the Account's inventory location limit.",
+      "kind": "limit",
+      "defaultValue": 0
+    }
+  ],
   "apiBasePath": "/api/inventory",
   "slices": [
     "inventory-items",
@@ -402,6 +410,7 @@
         "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/commit",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/adjustments",
+        "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/offline-sales",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/holds",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /listing-stock/ensure",
         "api-route:bounded-contexts/inventory/features/storage-locations/api/route.ts:PATCH /:id",
@@ -580,6 +589,35 @@
       }
     },
     {
+      "id": "inventory.offline-sale-route-aware-fresh-read",
+      "owner": "inventory",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.tsx:H5572ea7ef0df#1",
+        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory.tsx",
+        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx"
+      ],
+      "visibleDestination": {
+        "apiContextName": "inventory",
+        "apiRoutePath": "/items/:id",
+        "description": "Record sale from /account/inventory/items/:itemId stays on that item detail and fresh-reads the written item. Record sale from the paginated /account/inventory list stays on the selected limit/offset page, carries the command receipt with the written item id, then fresh-reads that item. The list reconciles the row only when it remains on the selected page; otherwise rows, count, total, and pagination stay unchanged while the result uses the separately returned fresh item. No stale list quantity receives completed wording.",
+        "readModelTables": ["inventory_items", "inventory_holds", "inventory_item_ledger"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "A valid receipt gates the item read. A delayed or failed fresh item read preserves the existing list page and renders the submitted outcome as unverified instead of completed."
+        }
+      },
+      "proof": {
+        "authoritativeResponse": "recordOfflineSale returns the committed Inventory command receipt and typed applied/refused outcome. The detail loader and list's receipt-gated getItem read observe the Inventory item projection before a completed quantity is rendered.",
+        "tests": [
+          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
+          "bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.test.tsx",
+          "bounded-contexts/inventory/features/inventory-items/ui/inventory-item-pages.test.tsx"
+        ]
+      }
+    },
+    {
       "id": "inventory.storage-location-list-fresh-read",
       "owner": "inventory",
       "risk": "important",
@@ -638,42 +676,156 @@
           "routePath": "account/inventory",
           "fileExport": "./routes/marketplace/account-inventory",
           "routeType": "route",
-          "sourceContext": "inventory"
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-inventory-imports",
           "routePath": "account/inventory/imports",
           "fileExport": "./routes/marketplace/account-inventory-imports",
           "routeType": "route",
-          "sourceContext": "inventory"
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-inventory-import",
           "routePath": "account/inventory/imports/:batchId",
           "fileExport": "./routes/marketplace/account-inventory-imports",
           "routeType": "route",
-          "sourceContext": "inventory"
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-inventory-locations",
           "routePath": "account/inventory/locations",
           "fileExport": "./routes/marketplace/account-inventory-locations",
           "routeType": "route",
-          "sourceContext": "inventory"
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-inventory-item",
           "routePath": "account/inventory/items/:itemId",
           "fileExport": "./routes/marketplace/account-inventory-item",
           "routeType": "route",
-          "sourceContext": "inventory"
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-inventory-restock-decisions",
           "routePath": "account/inventory/restock-decisions",
           "fileExport": "./routes/marketplace/account-inventory-restock-decisions",
           "routeType": "route",
-          "sourceContext": "inventory"
+          "sourceContext": "inventory",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "inventory",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     },

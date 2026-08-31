@@ -1,10 +1,16 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { InventoryHoldPurpose, InventoryHoldSourceRef } from "@chase-sets/event-core/public-event-payloads";
+import type {
+  InventoryAdjustmentReason,
+  InventoryHoldPurpose,
+  InventoryHoldSourceRef,
+  InventoryOfflineSaleChannel,
+} from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 type LedgerKind =
   | "created"
   | "adjusted"
+  | "offline-sale"
   | "hold-placed"
   | "hold-converted"
   | "hold-consumed"
@@ -49,6 +55,8 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         holdQuantity: null,
         purpose: null,
         reason: "Inventory item created",
+        reasonCode: null,
+        note: null,
         sourceRef: null,
         actor: actorFromAudit(event.audit),
       });
@@ -58,6 +66,8 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         itemId: string;
         quantityDelta: number;
         reason: string;
+        reasonCode?: InventoryAdjustmentReason;
+        note?: string | null;
         sourceRef?: InventoryHoldSourceRef;
       };
       const accountId = accountIdFromAudit(event.audit);
@@ -71,7 +81,34 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         holdQuantity: null,
         purpose: null,
         reason: data.reason,
+        reasonCode: data.reasonCode ?? null,
+        note: data.note ?? null,
         sourceRef: data.sourceRef ?? null,
+        actor: actorFromAudit(event.audit),
+      });
+    },
+    "inventory.item.offline-sale-recorded": async (event) => {
+      const data = event.data as {
+        itemId: string;
+        quantity: number;
+        salePriceAmount: string | null;
+        channel: InventoryOfflineSaleChannel;
+      };
+
+      await insertLedgerEntry(db, {
+        event,
+        itemId: data.itemId,
+        accountId: accountIdFromAudit(event.audit),
+        kind: "offline-sale",
+        quantityDelta: -data.quantity,
+        holdQuantity: null,
+        purpose: null,
+        reason: "Offline sale",
+        reasonCode: null,
+        note: null,
+        salePriceAmount: data.salePriceAmount,
+        channel: data.channel,
+        sourceRef: null,
         actor: actorFromAudit(event.audit),
       });
     },
@@ -95,6 +132,8 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         holdQuantity: data.quantity,
         purpose: data.purpose ?? "manual",
         reason: data.reason,
+        reasonCode: null,
+        note: null,
         sourceRef: data.sourceRef ?? null,
         actor: (data.purpose ?? "manual") === "manual" ? actorFromAudit(event.audit) : "system",
       });
@@ -117,6 +156,8 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         holdQuantity: hold.quantity,
         purpose: hold.purpose,
         reason: reasonFromData(event.data, "Sale recorded"),
+        reasonCode: null,
+        note: null,
         sourceRef: sourceRefFromData(event.data) ?? hold.source_ref,
         actor: "system",
       });
@@ -146,6 +187,8 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         holdQuantity: data.quantity,
         purpose: "order",
         reason: data.reason || data.outcome,
+        reasonCode: null,
+        note: null,
         sourceRef: data.sourceRef ?? null,
         actor: "seller",
       });
@@ -173,6 +216,8 @@ async function insertHoldTerminalLedgerEntry(
     holdQuantity: hold.quantity,
     purpose: hold.purpose,
     reason: reasonFromData(event.data, fallbackReason),
+    reasonCode: null,
+    note: null,
     sourceRef: sourceRefFromData(event.data) ?? hold.source_ref,
     actor: kind === "hold-released" && hold.purpose === "manual" ? actorFromAudit(event.audit) : "system",
   });
@@ -261,6 +306,10 @@ async function insertLedgerEntry(
     holdQuantity: number | null;
     purpose: InventoryHoldPurpose | null;
     reason: string;
+    reasonCode: InventoryAdjustmentReason | null;
+    note: string | null;
+    salePriceAmount?: string | null;
+    channel?: InventoryOfflineSaleChannel | null;
     sourceRef: InventoryHoldSourceRef;
     actor: "seller" | "system";
   }>,
@@ -276,6 +325,10 @@ async function insertLedgerEntry(
        hold_quantity,
        purpose,
        reason,
+       reason_code,
+       note,
+       sale_price_amount,
+       channel,
        source_ref,
        actor,
        event_type,
@@ -283,7 +336,7 @@ async function insertLedgerEntry(
        stream_version,
        recorded_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
      ON CONFLICT (ledger_entry_id) DO NOTHING`,
     [
       `${input.event.streamId}:${input.event.streamVersion}`,
@@ -295,6 +348,10 @@ async function insertLedgerEntry(
       input.holdQuantity,
       input.purpose,
       input.reason,
+      input.reasonCode,
+      input.note,
+      input.salePriceAmount ?? null,
+      input.channel ?? null,
       input.sourceRef ? JSON.stringify(input.sourceRef) : null,
       input.actor,
       input.event.type,

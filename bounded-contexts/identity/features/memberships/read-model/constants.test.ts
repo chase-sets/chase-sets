@@ -1,6 +1,46 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { buildMembershipProjectionHandlers } from "./projection";
 import { ROLE_PERMISSIONS } from "./constants";
 import { ROLE_KEYS } from "../../../support/runtime-support/common";
+
+describe("reported-content grant projection callers", () => {
+  it("projects the platform-admin-only grant on membership creation and role change", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({
+      rows: [{ user_id: "usr_synthetic_grant", account_id: "acc_synthetic_grant", status: "active" }],
+    }));
+    const handlers = buildMembershipProjectionHandlers({ query } as unknown as PgQueryable);
+    for (const roleKey of ["platform-admin", "owner", "manager", "fulfillment", "viewer"]) {
+      for (const eventType of ["identity.membership.granted", "identity.membership.role-changed"]) {
+        query.mockClear();
+        await handlers[eventType]!(
+          buildTransportEvent(
+            eventType,
+            {
+              membershipId: "mbr_synthetic_grant",
+              userId: "usr_synthetic_grant",
+              accountId: "acc_synthetic_grant",
+              roleKey,
+            },
+            {
+              streamId: "identity.membership-mbr_synthetic_grant",
+              timing: { occurredAt: "2026-08-31T00:00:00.000Z", recordedAt: "2026-08-31T00:00:00.000Z" },
+            },
+          ),
+        );
+        const write = query.mock.calls.find(([sql]) => /(?:INSERT INTO|UPDATE)\s+"?identity_memberships"?\s/.test(sql));
+        expect(write, `${eventType}: ${roleKey}`).toBeDefined();
+        const permissionJson = write![1]!.find((value) => typeof value === "string" && value.startsWith("["));
+        expect(typeof permissionJson).toBe("string");
+        expect(
+          (JSON.parse(permissionJson as string) as string[]).includes("reported-content.view"),
+          `${eventType}: ${roleKey}`,
+        ).toBe(roleKey === "platform-admin");
+      }
+    }
+  });
+});
 
 describe("identity role permissions", () => {
   it("keeps feedback operator authority on platform staff roles only", () => {

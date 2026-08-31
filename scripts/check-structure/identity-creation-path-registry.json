@@ -207,17 +207,17 @@
       "members": [
         {
           "file": "bounded-contexts/auth/support/api-support/guest-checkout-routes.ts",
-          "line": 197,
+          "line": 223,
           "constructor": "createGuestAccount"
         },
         {
           "file": "bounded-contexts/auth/support/api-support/guest-checkout-routes.ts",
-          "line": 137,
+          "line": 160,
           "constructor": "createUser"
         },
         {
           "file": "bounded-contexts/auth/support/api-support/guest-checkout-routes.ts",
-          "line": 154,
+          "line": 177,
           "constructor": "claimGuestAccount"
         }
       ]

@@ -153,6 +153,45 @@ Readiness states:
 - `setup-required`: The provider method exists in history but needs buyer action, mandate repair, or provider reconciliation before reuse.
 - `removed`: The buyer or provider detached the credential; Checkout must not offer it, but historical Payments keep their Saved Checkout Instrument reference.
 
+## Provider Object Class
+
+A **Provider Object Class** is one of the six governed categories of Stripe test-mode object that an Ink & Foil evidence window may create, fixed by Decision #6728: captured PaymentIntent, uncaptured PaymentIntent, SetupIntent, Stripe Checkout Session, Stripe Customer, and Stripe Account Session.
+
+Notes:
+
+- The class list, per-class Residue Budget, and per-class Disposition Terminal are immutable under `provider-object-disposition/v1` (issue #6733); no caller input may override them.
+
+## Provider Object Disposition
+
+A **Provider Object Disposition** is the bounded outcome recorded for one Provider Object Class in a single evidence window: whether disposition was not attempted, ambiguous, or reached its class-specific Disposition Terminal, and how many objects were observed.
+
+Notes:
+
+- Recorded only in the `provider-object-disposition/v1` receipt; it never carries a provider identifier, raw provider response, or free-text diagnostic.
+- An unattempted or ambiguous disposition never counts as satisfying a Residue Budget.
+
+## Residue Budget
+
+A **Residue Budget** is the maximum known count of a Provider Object Class permitted to remain in a non-terminal provider state at the end of one evidence window, fixed per class and scope by Decision #6728.
+
+Notes:
+
+- Every Residue Budget is a stated number, never a range; class 5 (Stripe Customer) is measured per e2e identity and persists across windows, every other class is measured per window.
+- An unknown or not-attempted disposition never satisfies a Residue Budget, even at zero.
+
+## Disposition Terminal
+
+A **Disposition Terminal** is the class-specific final state a `provider-object-disposition/v1` receipt may represent for one Provider Object Class, fixed by Decision #6728's Option B (for example `not-created` for a Stripe Checkout Session or `retained-reused` for a Stripe Customer).
+
+## Stripe Checkout Session
+
+A **Stripe Checkout Session** (`cs_`) is the Stripe-hosted, non-embedded payment or setup session object created at `/v1/checkout/sessions`.
+
+Notes:
+
+- Distinct from the product checkout session, which is Chase Sets' own buyer-facing checkout flow and is not a Stripe object; the two must never be conflated in Payments terminology or evidence.
+- Option B's evidence windows use the embedded setup path only, so no Stripe Checkout Session is created; its Disposition Terminal is `not-created`.
+
 ## AP2 Mandate
 
 An **AP2 Mandate** is verifiable autonomous-payment authority that may allow a trusted agent to complete checkout without manual buyer UI confirmation.

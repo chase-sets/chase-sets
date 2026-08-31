@@ -1,20 +1,20 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export function buildSettlementFulfillmentSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        buyerAccountId: string;
-        sellerAccountId: string;
-        trackingIdentifier?: string | null;
-        createdAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<
+        ChaseSetsEventPayloads,
+        "fulfillment.shipment.created" | "fulfillment.shipment.dispatched" | "fulfillment.shipment.delivered"
+      >
+    >({
+      "fulfillment.shipment.created": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `INSERT INTO settlement_order_fulfillment_sources (
+        await db.query(
+          `INSERT INTO settlement_order_fulfillment_sources (
            shipment_id,
            order_id,
            buyer_account_id,
@@ -38,34 +38,34 @@ export function buildSettlementFulfillmentSourceProjectionHandlers(db: PgQueryab
            updated_at = EXCLUDED.updated_at,
            last_stream_version = EXCLUDED.last_stream_version
          WHERE settlement_order_fulfillment_sources.last_stream_version < EXCLUDED.last_stream_version`,
-        [
-          data.shipmentId,
-          data.orderId,
-          data.buyerAccountId,
-          data.sellerAccountId,
-          data.trackingIdentifier ?? null,
-          data.createdAt,
-          event.streamVersion,
-        ],
-      );
-    },
-    "fulfillment.shipment.dispatched": async (event) => {
-      const data = event.data as { shipmentId: string; dispatchedAt: string };
-      await db.query(
-        `UPDATE settlement_order_fulfillment_sources
+          [
+            data.shipmentId,
+            data.orderId,
+            data.buyerAccountId,
+            data.sellerAccountId,
+            null,
+            data.createdAt,
+            event.streamVersion,
+          ],
+        );
+      },
+      "fulfillment.shipment.dispatched": async (event) => {
+        const { data } = event;
+        await db.query(
+          `UPDATE settlement_order_fulfillment_sources
          SET status = 'dispatched',
              dispatched_at = $2,
              updated_at = $2,
              last_stream_version = $3
          WHERE shipment_id = $1
            AND last_stream_version < $3`,
-        [data.shipmentId, data.dispatchedAt, event.streamVersion],
-      );
-    },
-    "fulfillment.shipment.delivered": async (event) => {
-      const data = event.data as { shipmentId: string; trackingIdentifier?: string | null; deliveredAt: string };
-      await db.query(
-        `UPDATE settlement_order_fulfillment_sources
+          [data.shipmentId, data.dispatchedAt, event.streamVersion],
+        );
+      },
+      "fulfillment.shipment.delivered": async (event) => {
+        const { data } = event;
+        await db.query(
+          `UPDATE settlement_order_fulfillment_sources
          SET status = 'delivered',
              tracking_identifier = COALESCE($2, tracking_identifier),
              delivered_at = $3,
@@ -73,9 +73,10 @@ export function buildSettlementFulfillmentSourceProjectionHandlers(db: PgQueryab
              last_stream_version = $4
          WHERE shipment_id = $1
            AND last_stream_version < $4`,
-        [data.shipmentId, data.trackingIdentifier ?? null, data.deliveredAt, event.streamVersion],
-      );
-    },
+          [data.shipmentId, data.trackingIdentifier ?? null, data.deliveredAt, event.streamVersion],
+        );
+      },
+    }),
     "fulfillment.shipment.returned": async (event) => {
       const data = event.data as { shipmentId: string; returnedAt: string };
       await db.query(

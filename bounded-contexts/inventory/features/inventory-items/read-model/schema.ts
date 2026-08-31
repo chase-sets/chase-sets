@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS inventory_item_ledger (
   hold_quantity integer NULL,
   purpose text NULL,
   reason text NOT NULL,
+  reason_code text NULL,
+  note text NULL,
+  sale_price_amount numeric(12,2) NULL,
+  channel text NULL,
   source_ref jsonb NULL,
   actor text NOT NULL,
   event_type text NOT NULL,
@@ -51,6 +55,7 @@ CREATE TABLE IF NOT EXISTS inventory_item_adjustment_idempotency (
   status text NOT NULL CHECK (status IN ('in_progress', 'completed')),
   result_item_id text NULL,
   result_version bigint NULL CHECK (result_version IS NULL OR result_version >= 0),
+  result_collision jsonb NULL,
   created_at timestamptz NOT NULL,
   completed_at timestamptz NULL
 );
@@ -68,6 +73,28 @@ export const inventoryItemSchemaMigrations: readonly BcSchemaMigration[] = [
   ON inventory_item_ledger (item_id, occurred_at DESC, ledger_entry_id DESC)`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_item_ledger_account_item_idx
   ON inventory_item_ledger (account_id, item_id, occurred_at DESC)`,
+    ],
+  },
+  {
+    migrationId: "20260819_inventory_item_ledger_adjustment_reason",
+    description: "Add the typed adjustment reason and optional operator note to the stock ledger.",
+    statements: [
+      `ALTER TABLE inventory_item_ledger
+  ADD COLUMN IF NOT EXISTS reason_code text`,
+      `ALTER TABLE inventory_item_ledger
+  ADD COLUMN IF NOT EXISTS note text`,
+    ],
+  },
+  {
+    migrationId: "20260825_inventory_offline_sale",
+    description: "Persist offline-sale ledger detail and collision-aware idempotency results.",
+    statements: [
+      `ALTER TABLE inventory_item_ledger
+  ADD COLUMN IF NOT EXISTS sale_price_amount numeric(12,2)`,
+      `ALTER TABLE inventory_item_ledger
+  ADD COLUMN IF NOT EXISTS channel text`,
+      `ALTER TABLE inventory_item_adjustment_idempotency
+  ADD COLUMN IF NOT EXISTS result_collision jsonb`,
     ],
   },
 ];

@@ -124,13 +124,13 @@ export function StorageLocationPage({
       />
 
       {errorMessage ? (
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Text>{errorMessage}</Text>
         </Card>
       ) : null}
 
       <PageSection title={t("inventory.features.storageLocations.ui.storageLocationPage.create.location")}>
-        <Card>
+        <Card elevation="tinted" data-elevation-role="furniture">
           <Form spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create-location" />
@@ -161,7 +161,7 @@ export function StorageLocationPage({
       <PageSection title={t("inventory.features.storageLocations.ui.storageLocationPage.current.locations")}>
         <Stack gap={4}>
           {locations.map((location) => (
-            <Card key={location.storage_location_id}>
+            <Card key={location.storage_location_id} elevation="elevated" data-elevation-role="entity">
               <Stack gap={3}>
                 <Stack gap={1}>
                   <Text weight="semibold">{location.name}</Text>

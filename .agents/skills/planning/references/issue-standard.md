@@ -14,8 +14,9 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
 - **Decisions already made.** Settled rulings with links (ADR, epic comment,
   decision issue). A worker never re-litigates a settled decision; a worker who
   hits an UNsettled one stops and escalates (see the delivery skill).
-- **Acceptance criteria — each with its evidence method.** Every AC names how it
-  is proven: a test name, a verifier script, a screenshot, an ops check. This is
+- **Acceptance criteria — each with its evidence method.** Every AC binds an
+  observable property and names the cheapest discriminating way it is proven:
+  a test name, a verifier script, a screenshot, an ops check. This is
   also the Closes-automation defense: structured ACs are what the orchestrator's
   bookkeeping verifies before treating the issue as done. An AC whose contract
   must be accepted by an **external provider** (payment-provider event sets,
@@ -47,6 +48,9 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   bootstrap, import, or reconciliation paths also invoke, the footprint
   enumerates **every caller** — the sibling-seed-path class is the ledger's top
   re-biter and its root cause is an incomplete caller inventory.
+  A zero-consumer surface freeze records its consuming issue as a native
+  **Blocks** dependency, or is parked with a stated un-park condition; "no
+  production consumer" alone is not a freeze rationale.
 - **Operator actions.** Enumerate credentials, sign-ins, approvals, and live
   watch windows, or state `none`. An
   operator dependency discovered mid-lane stalls delivery on human latency;

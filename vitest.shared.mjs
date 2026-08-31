@@ -22,6 +22,16 @@ export const boundedContextTestInclude = [
   "tests/**/*.test.tsx",
 ];
 
+export function resolveVitestLaneProfile(env = process.env) {
+  if (env.CHASE_SETS_LANE_MODE !== "1") return {};
+
+  return {
+    hookTimeout: 300_000,
+    testTimeout: 300_000,
+    maxWorkers: 2,
+  };
+}
+
 export function defineWorkspaceTestConfig(overrides = {}) {
   const { test: testOverrides = {}, ...viteOverrides } = overrides;
 
@@ -32,6 +42,7 @@ export function defineWorkspaceTestConfig(overrides = {}) {
       include: ["**/*.test.ts", "**/*.test.tsx"],
       hookTimeout: 120_000,
       testTimeout: 120_000,
+      ...resolveVitestLaneProfile(),
       ...testOverrides,
       globalSetup: [heavySlotVitestGlobalSetupPath, ...[testOverrides.globalSetup ?? []].flat()],
       exclude: [...configDefaults.exclude, "**/dist/**", ...(testOverrides.exclude ?? [])],

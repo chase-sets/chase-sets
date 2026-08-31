@@ -268,4 +268,66 @@ describe("marketplace OpenAPI parity", () => {
     expect(documentedFreshReadOperations).toBeGreaterThan(0);
     expect(violations).toEqual([]);
   });
+
+  it("documents the closed per-unit offline-sale request and typed result", () => {
+    const openApi = readJson<OpenApiDocument>(openApiPath);
+    const operation = openApi.paths["/api/inventory/items/{id}/offline-sales"]?.post as {
+      description?: string;
+      requestBody?: { content?: { "application/json"?: { schema?: Record<string, unknown> } } };
+      responses?: Record<string, unknown>;
+    };
+    const requestSchema = operation.requestBody?.content?.["application/json"]?.schema as {
+      additionalProperties?: boolean;
+      required?: readonly string[];
+      properties?: Record<string, unknown>;
+    };
+    const success = operation.responses?.["200"] as {
+      content?: { "application/json"?: { schema?: Record<string, unknown> } };
+    };
+    const responseSchema = success.content?.["application/json"]?.schema as {
+      additionalProperties?: boolean;
+      required?: readonly string[];
+      properties?: Record<string, unknown>;
+    };
+
+    expect(requestSchema).toMatchObject({
+      additionalProperties: false,
+      required: ["quantity", "channel", "idempotencyKey"],
+      properties: {
+        quantity: { type: "integer", minimum: 1 },
+        salePriceAmount: { type: "string", nullable: true, description: expect.stringContaining("per-unit") },
+        channel: { enum: ["in-store", "card-show", "other"] },
+        collisionMode: { enum: ["protect-orders", "honor-offline"], default: "protect-orders" },
+        idempotencyKey: { type: "string", minLength: 1 },
+      },
+    });
+    expect(Object.keys(requestSchema.properties ?? {})).toEqual([
+      "quantity",
+      "salePriceAmount",
+      "channel",
+      "note",
+      "collisionMode",
+      "confirmSellerCannotFulfill",
+      "idempotencyKey",
+    ]);
+    expect(operation.description).toContain("server stamps the recorded time");
+    expect(operation.description).toContain("Currency");
+    expect(responseSchema).toMatchObject({
+      additionalProperties: false,
+      required: ["itemId", "version", "requestedQuantity", "appliedQuantity", "refusedQuantity", "collision"],
+      properties: {
+        collision: {
+          nullable: true,
+          properties: {
+            affectedOrders: { type: "array" },
+          },
+        },
+      },
+    });
+    expect(operation.responses).toMatchObject({
+      "400": { $ref: "#/components/responses/ValidationFailed" },
+      "401": { $ref: "#/components/responses/AuthenticationRequired" },
+      "403": { $ref: "#/components/responses/Forbidden" },
+    });
+  });
 });

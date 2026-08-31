@@ -72,7 +72,7 @@ function payout(overrides: Partial<SettlementPayoutRow> = {}): SettlementPayoutR
 }
 
 describe("SettlementMoneyDashboardPage", () => {
-  it("renders the wallet, next payout, blocked count, localized failure reason, and corrective actions", () => {
+  it("renders money actions and keeps the payout-request entity elevated", () => {
     const html = renderToString(
       <SettlementMoneyDashboardPage
         wallet={wallet}
@@ -105,6 +105,9 @@ describe("SettlementMoneyDashboardPage", () => {
     expect(html).toContain("Review the recent payout failure before requesting more funds.");
     expect(html).toContain("Retry payout");
     expect(html).toContain("Contact support");
+    expect(html).toContain(
+      'data-testid="payout-request-entity" class="ds-glass rounded-tokenLg border border-muted shadow-tokenSm overflow-hidden p-4"',
+    );
     expect(html).not.toContain("provider-payout-secret");
     expect(html).not.toContain("provider-transfer-secret");
   });
@@ -125,5 +128,23 @@ describe("SettlementMoneyDashboardPage", () => {
 
     expect(html).toContain("Finish payout setup");
     expect(html).toContain("/account/desk/settings");
+  });
+
+  it("caps the full-available shortcut label through the payout policy", () => {
+    const html = renderToString(
+      <SettlementMoneyDashboardPage
+        wallet={{ ...wallet, available_balance_amount: "999999.00" }}
+        entries={[]}
+        payouts={[]}
+        payoutReadiness={readiness}
+        evaluatedAt="2026-07-15T12:00:00.000Z"
+        canRequestPayouts
+        canSetupPayouts
+        canReconcilePayouts={false}
+      />,
+    );
+
+    expect(html).toContain('name="availableAmount" value="999999.00"');
+    expect(html).toContain("Full available · $10,000.00");
   });
 });

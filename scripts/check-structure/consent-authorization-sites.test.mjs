@@ -63,6 +63,15 @@ import {
 } from "./consent-authorization-sites.mjs";
 import { deriveGuardCandidateProvenance } from "./guard-candidate-provenance.mjs";
 import {
+  ConsentAuthorizationEvidenceError,
+  collectConsentAuthorizationEvidenceWorkUnitViolations,
+  consentAuthorizationEvidenceFailureCodes,
+  consentAuthorizationEvidenceWorkUnitCeilings,
+  deriveConsentAuthorizationEvidenceInventory,
+  executeConsentAuthorizationMutationEvidence,
+  mutationEvidenceCases,
+} from "./consent-authorization-mutation-evidence.mjs";
+import {
   compareTypeScriptOwnerContexts,
   deriveTypeScriptOwnerContexts,
   loadTypeScriptOwnerContextArtifact,
@@ -125,15 +134,15 @@ const batteryWorkUnitCeilings = Object.freeze({
 });
 
 const committedTotalChildProcessSpawnsByEnvironment = Object.freeze({
-  plain: 344,
-  "pull-request-merge-ref": 345,
-  "merge-group": 342,
+  plain: 347,
+  "pull-request-merge-ref": 348,
+  "merge-group": 344,
 });
 
 const committedProvenanceGitSpawnsByEnvironment = Object.freeze({
   plain: 11,
   "pull-request-merge-ref": 13,
-  "merge-group": 10,
+  "merge-group": 9,
 });
 
 function sha256(value) {
@@ -150,6 +159,43 @@ function repoFileSha256(relativePath) {
 
 function readJsonFixture(relativePath) {
   return JSON.parse(repoFile(relativePath));
+}
+
+function trackedRepositoryFiles() {
+  return execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    encoding: "buffer",
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+    .toString("utf8")
+    .split("\0")
+    .filter(Boolean);
+}
+
+function deriveVirtualEvidenceInventory({ additions = {}, replacements = {}, trackedFiles, controls = {} } = {}) {
+  const baseTrackedFiles = trackedFiles ?? trackedRepositoryFiles();
+  const virtualBytes = new Map(
+    [...Object.entries(additions), ...Object.entries(replacements)].map(([relativePath, bytes]) => [
+      relativePath,
+      Buffer.from(bytes),
+    ]),
+  );
+  return deriveConsentAuthorizationEvidenceInventory({
+    rootDir: repoRoot,
+    trackedFiles: [...new Set([...baseTrackedFiles, ...Object.keys(additions)])],
+    readBytes: (relativePath) => virtualBytes.get(relativePath) ?? readFileSync(path.join(repoRoot, relativePath)),
+    controls,
+  });
+}
+
+function capturedEvidenceFailureCode(action) {
+  try {
+    action();
+    return "pass";
+  } catch (error) {
+    if (error instanceof ConsentAuthorizationEvidenceError) return error.code;
+    throw error;
+  }
 }
 
 function rawGit(cwd) {
@@ -226,8 +272,13 @@ const enumeration = loadConsentAuthorizationCaseEnumeration();
 const enumerationSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-case-enumeration-v1.schema.json`);
 const receiptSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-mutation-v1.schema.json`);
 const aggregateSchema = readJsonFixture(`${fixtureRoot}/consent-authorization-mutation-aggregate-v1.schema.json`);
-const evidenceReceipt = readJsonFixture("scripts/check-structure/consent-authorization-evidence-receipt.json");
-Object.assign(batteryWorkUnits, evidenceReceipt.digestBound.workUnits);
+const liveMutationEvidence = await executeConsentAuthorizationMutationEvidence();
+const {
+  receipts: liveMutationReceipts,
+  aggregate: liveMutationAggregate,
+  inventoryResult: liveMutationInventory,
+} = liveMutationEvidence;
+Object.assign(batteryWorkUnits, liveMutationInventory.workUnits);
 const ownerContexts = loadTypeScriptOwnerContextArtifact();
 const ownerContextPartition = loadTypeScriptOwnerContextPartition();
 const ownerContextSchema = loadTypeScriptOwnerContextSchema();
@@ -255,7 +306,7 @@ const committedBatteryWorkUnits = Object.freeze({
   analyzerSourceRewriteModuleImports: 0,
   executedGuardNodeSubprocesses: 0,
   totalChildProcessSpawns: committedTotalChildProcessSpawnsByEnvironment[realTreeResult.environment],
-  ...evidenceReceipt.digestBound.workUnits,
+  ...liveMutationInventory.workUnits,
 });
 const realTreeProvenance = {
   environment: realTreeResult.environment,
@@ -405,12 +456,15 @@ function buildPullRequestScratchRepo(prefix) {
 function buildMergeGroupScratchRepo(prefix) {
   const scratch = initScratchRepo(prefix);
   writeProductSurface(scratch);
-  const base = commitScratch(scratch, "base");
+  const originMain = commitScratch(scratch, "main tip before the merge queue");
+  writeScratchFile(scratch, "docs/preceding-candidate.md", "The preceding merge-group candidate is the next base.\n");
+  const base = commitScratch(scratch, "preceding merge-group candidate");
   writeScratchFile(scratch, "docs/landing-note.md", "The landing candidate is itself the prospective merged result.\n");
   const head = commitScratch(scratch, "landing candidate");
-  runGit(scratch, ["update-ref", "refs/remotes/origin/main", base]);
+  runGit(scratch, ["update-ref", "refs/remotes/origin/main", originMain]);
   return {
     scratch,
+    originMain,
     base,
     head,
     deriveProvenance: (execGit = scratchExecGit(scratch)) =>
@@ -477,12 +531,18 @@ function buildClassifiedEnvironmentEvidence() {
 
   const mergeGroup = buildMergeGroupScratchRepo("consent-mg-env-");
   const mergeGroupResult = analyzeHostedScratch(mergeGroup);
+  const mergeGroupParentage = runGit(mergeGroup.scratch, ["rev-list", "--parents", "-n", "1", mergeGroup.head]).trim();
   rmSync(mergeGroup.scratch, { recursive: true, force: true });
 
   return {
     plain: { result: plainResult, head: plain.head },
     pullRequest: { environment: pullRequest, result: pullRequestResult },
-    mergeGroup: { result: mergeGroupResult, head: mergeGroup.head },
+    mergeGroup: {
+      environment: mergeGroup,
+      result: mergeGroupResult,
+      head: mergeGroup.head,
+      parentage: mergeGroupParentage,
+    },
     observations: [
       observationOf(plainResult, plain.head),
       observationOf(pullRequestResult, pullRequest.head),
@@ -1418,6 +1478,10 @@ describe("Consent authorization sites", () => {
     expect(pullRequest.result.partitionDigest).toBe(registry.partitionDigest);
 
     expect(mergeGroup.result.candidateHead).toBe(mergeGroup.head);
+    expect(mergeGroup.result.provenance.roles.baseTipAtAnalysis.sha).toBe(mergeGroup.environment.base);
+    expect(mergeGroup.result.provenance.roles.forkPoint.sha).toBe(mergeGroup.environment.base);
+    expect(mergeGroup.environment.originMain).not.toBe(mergeGroup.environment.base);
+    expect(mergeGroup.parentage).toBe(`${mergeGroup.head} ${mergeGroup.environment.base}`);
     expect(mergeGroup.result.partitionDigest).toBe(registry.partitionDigest);
   });
 
@@ -3018,6 +3082,95 @@ describe("Consent authorization sites", () => {
     });
   }
 
+  it("executes all 39 mutation cases once and reconciles every live evidence clause", () => {
+    const expectedCaseIds = [...enumeration.cases].toSorted();
+    const descriptorByCaseId = new Map(mutationEvidenceCases.map((descriptor) => [descriptor.caseId, descriptor]));
+    const observedCaseIds = liveMutationReceipts.map(({ caseId }) => caseId).toSorted();
+    const expectedReconciliation = Object.fromEntries(
+      ["salvageHeadTotal", "retiredTotal", "carriedTotal", "addedTotal", "total"].map((key) => [
+        key,
+        enumeration.reconciliation[key],
+      ]),
+    );
+
+    expect(mutationEvidenceCases).toHaveLength(39);
+    expect(liveMutationReceipts).toHaveLength(39);
+    expect(observedCaseIds).toEqual(expectedCaseIds);
+    expect(new Set(observedCaseIds).size).toBe(39);
+    for (const receipt of liveMutationReceipts) {
+      const descriptor = descriptorByCaseId.get(receipt.caseId);
+      expect(descriptor).toBeDefined();
+      expect(receipt.provenance).toEqual(realTreeProvenance);
+      expect(receipt.candidateSubrun).toMatchObject({ exitCode: 0, result: "pass" });
+      expect(receipt.mutantSubrun.exitCode).toBeGreaterThan(0);
+      expect(receipt.mutantSubrun.result).toBe("fail");
+      expect(receipt.firstFailingClauseId).toBe(descriptor.clauseId);
+      expect(receipt.noEarlierClause).toMatchObject({ differingPaths: expect.any(Array), proof: expect.any(String) });
+      expect(receipt.mutationActive).toBe(true);
+      expect(receipt.preservedVariableHashes.candidate).toEqual(receipt.preservedVariableHashes.mutant);
+    }
+    expect(liveMutationAggregate.provenance).toEqual(realTreeProvenance);
+    expect(liveMutationAggregate.counts).toEqual({
+      total: 39,
+      candidateGreen: 39,
+      mutantRed: 39,
+      active: 39,
+      preserved: 39,
+    });
+    expect(liveMutationAggregate.reconciliation).toEqual(expectedReconciliation);
+    expect(liveMutationAggregate.valid).toBe(true);
+    process.stdout.write(
+      `consent-authorization-live-evidence=${JSON.stringify({ counts: liveMutationAggregate.counts, reconciliation: liveMutationAggregate.reconciliation })}\n`,
+    );
+  });
+
+  it("derives and fail-closes the complete 111-member governing-input inventory", () => {
+    const paths = liveMutationInventory.inventory.map(({ path: relativePath }) => relativePath);
+    expect(liveMutationInventory.importClosure).toEqual([
+      "packages/typescript-compiler-api/index.mjs",
+      "scripts/check-structure/consent-authorization-mutation-evidence.mjs",
+      "scripts/check-structure/consent-authorization-sites.mjs",
+      "scripts/check-structure/guard-candidate-provenance.mjs",
+      "scripts/check-structure/identity-creation-path-registry.mjs",
+      "scripts/check-structure/typescript-owner-context-derivation.mjs",
+      "scripts/lib/repo.mjs",
+    ]);
+    expect(liveMutationInventory.inventory).toHaveLength(111);
+    expect(paths).not.toContain(suitePath);
+    expect(liveMutationInventory.reconciliation).toEqual({
+      derivedOutsideTracked: [],
+      trackedFootprintMissingFromDerived: [],
+    });
+
+    const plantedFixture = "scripts/check-structure/fixtures/guard-candidate-provenance/planted.json";
+    const fixtureMutant = deriveVirtualEvidenceInventory({ additions: { [plantedFixture]: "{}\n" } });
+    expect(fixtureMutant.inventory.map(({ path: relativePath }) => relativePath)).toContain(plantedFixture);
+
+    const plantedModule = "scripts/check-structure/consent-authorization-planted.mjs";
+    const moduleMutant = deriveVirtualEvidenceInventory({
+      additions: { [plantedModule]: "export const planted = true;\n" },
+      replacements: {
+        [analyzerPath]: `${repoFile(analyzerPath)}\nimport "./consent-authorization-planted.mjs";\n`,
+      },
+    });
+    expect(moduleMutant.importClosure).toContain(plantedModule);
+
+    const missingTrackedModule = trackedRepositoryFiles().filter(
+      (relativePath) => relativePath !== "scripts/check-structure/guard-candidate-provenance.mjs",
+    );
+    expect(
+      capturedEvidenceFailureCode(() => deriveVirtualEvidenceInventory({ trackedFiles: missingTrackedModule })),
+    ).toBe(consentAuthorizationEvidenceFailureCodes.inventory);
+    expect(
+      capturedEvidenceFailureCode(() =>
+        deriveVirtualEvidenceInventory({ controls: { suppressExportedRoot: provenanceFixtureRoot } }),
+      ),
+    ).toBe(consentAuthorizationEvidenceFailureCodes.inventory);
+    process.stdout.write(
+      `consent-authorization-evidence-inventory=${JSON.stringify({ count: liveMutationInventory.inventory.length, sha256: liveMutationInventory.inventorySha256, reconciliation: liveMutationInventory.reconciliation })}\n`,
+    );
+  });
+
   it("matches the offline evidence module against the committed case enumeration", () => {
     const caseIds = mutationEvidenceCaseIds(repoFile(mutationEvidencePath));
     expect(caseIds).toHaveLength(39);
@@ -3044,6 +3197,24 @@ describe("Consent authorization sites", () => {
     expect(Object.values(committedTotalChildProcessSpawnsByEnvironment).every((value) => value <= 408)).toBe(true);
     expect(sha256(JSON.stringify(realTreeResult))).toBe(realTreeResultDigest);
     expect(Object.isFrozen(realTreeResult)).toBe(true);
+
+    expect(liveMutationInventory.workUnits).toEqual({
+      reconciliationGitLsFilesSpawns: 1,
+      compilerSurfaceSourceParses: 7,
+      trackedFilesDigested: 111,
+    });
+    expect(collectConsentAuthorizationEvidenceWorkUnitViolations(liveMutationInventory.workUnits)).toEqual([]);
+    const ceilingMutantRefusals = {};
+    for (const [counter, ceiling] of Object.entries(consentAuthorizationEvidenceWorkUnitCeilings)) {
+      const mutant = Object.freeze({ ...liveMutationInventory.workUnits, [counter]: ceiling + 1 });
+      const expectedViolation = `${counter}: observed ${ceiling + 1} exceeds ceiling ${ceiling}`;
+      const violations = collectConsentAuthorizationEvidenceWorkUnitViolations(mutant);
+      expect(violations).toEqual([expectedViolation]);
+      ceilingMutantRefusals[counter] = expectedViolation;
+    }
+    process.stdout.write(
+      `consent-authorization-evidence-work-units=${JSON.stringify({ observed: liveMutationInventory.workUnits, ceilings: consentAuthorizationEvidenceWorkUnitCeilings, ceilingMutantRefusals })}\n`,
+    );
 
     const widened = {
       ...committedBatteryWorkUnits,

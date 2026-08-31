@@ -145,8 +145,11 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.api.route.authentication.context.missing.6": "Authentication context missing.",
   "fulfillment.features.shipments.api.route.authentication.context.missing.7": "Authentication context missing.",
   "fulfillment.features.shipments.api.route.authentication.context.missing.8": "Authentication context missing.",
+  "fulfillment.features.shipments.api.route.authentication.context.required": "Authentication context is required.",
   "fulfillment.features.shipments.api.route.authentication.required": "Authentication required.",
   "fulfillment.features.shipments.api.route.forbidden": "Forbidden.",
+  "fulfillment.features.shipments.api.route.idempotency.key.required":
+    "A canonical UUIDv4 Idempotency-Key is required.",
   "fulfillment.features.shipments.api.route.request.failed": "Request failed.",
   "fulfillment.features.shipments.api.route.shipment.not.found": "Shipment not found.",
   "fulfillment.features.shipments.api.route.shipment.not.found.2": "Shipment not found.",
@@ -154,6 +157,14 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.api.runtime.label.purchase.failed.2": "Label purchase failed.",
   "fulfillment.features.shipments.api.runtime.postage.label.provider.adapter.is.not":
     "Postage label provider adapter is not configured.",
+  "fulfillment.features.shipments.ui.shipmentMutationBoundary.action.recovery": "Shipment action recovery",
+  "fulfillment.features.shipments.ui.shipmentMutationBoundary.recovery.state":
+    "Recovery state: {state}. No action was replayed automatically.",
+  "fulfillment.features.shipments.ui.shipmentMutationBoundary.secure.recovery.description":
+    "Shipment actions become available after secure browser recovery storage is ready.",
+  "fulfillment.features.shipments.ui.shipmentMutationBoundary.secure.recovery.required":
+    "Secure shipment recovery required",
+  "fulfillment.features.shipments.ui.shipmentMutationBoundary.storage.required": "Secure recovery storage is required.",
   "fulfillment.features.shipments.integrations.source.sourceSchema.create.table.if.not.exists.fulfillment":
     "\nCREATE TABLE IF NOT EXISTS fulfillment_account_pages (\n  account_id text PRIMARY KEY,\n  display_name text NOT NULL,\n  status text NOT NULL,\n  updated_at timestamptz NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS fulfillment_account_pages_status_idx\n  ON fulfillment_account_pages (status, updated_at DESC, account_id ASC);\n\nCREATE TABLE IF NOT EXISTS fulfillment_order_sources (\n  order_id text PRIMARY KEY,\n  buyer_account_id text NOT NULL,\n  seller_account_id text NOT NULL,\n  shipping_option text NOT NULL,\n  status text NOT NULL,\n  created_at timestamptz NOT NULL,\n  updated_at timestamptz NOT NULL,\n  ready_for_fulfillment_at timestamptz NULL,\n  cancelled_at timestamptz NULL\n);\n\nCREATE INDEX IF NOT EXISTS fulfillment_order_sources_status_idx\n  ON fulfillment_order_sources (status, updated_at DESC, order_id DESC);\n\nCREATE TABLE IF NOT EXISTS fulfillment_order_source_lines (\n  order_id text NOT NULL REFERENCES fulfillment_order_sources (order_id) ON DELETE CASCADE,\n  line_id text NOT NULL,\n  line_index integer NOT NULL,\n  catalog_catalog_item_id text NOT NULL,\n  product_id text NOT NULL,\n  item_title text NOT NULL,\n  item_subtitle text NULL,\n  product_summary text NULL,\n  quantity integer NOT NULL,\n  PRIMARY KEY (order_id, line_id)\n);\n\nCREATE INDEX IF NOT EXISTS fulfillment_order_source_lines_order_idx\n  ON fulfillment_order_source_lines (order_id, line_index ASC, line_id ASC);\n",
   "fulfillment.features.shipments.readModel.queries.select.page.shipment.id.page.order":

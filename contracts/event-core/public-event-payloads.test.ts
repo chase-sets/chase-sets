@@ -2,8 +2,11 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  accountEnforcementReasonCodes,
+  accountEnforcementReversalReasonCodes,
   inventoryHoldPurposes,
   inventoryHoldReleaseReasons,
+  inventoryOfflineSaleChannels,
   inventoryRestockDecisionOutcomes,
 } from "@chase-sets/event-core/public-event-payloads";
 import type {
@@ -11,13 +14,29 @@ import type {
   ChaseSetsEventPayloads,
   CheckoutSessionCancelledPayload,
   EmptyEventPayload,
+  FulfillmentShipmentCancelledPayload,
+  FulfillmentShipmentCreatedPayload,
+  FulfillmentShipmentDeliveredPayload,
+  FulfillmentShipmentDispatchedPayload,
+  FulfillmentShipmentLabelAttachedPayload,
+  FulfillmentShipmentPackagePreparedPayload,
+  FulfillmentShipmentPackingStartedPayload,
+  IdentityAccountClosedPayload,
+  IdentityAccountReactivatedPayload,
+  IdentityAccountSuspendedPayload,
   IdentityFounderNumberClaimedPayload,
   InventoryHoldPlacedPayload,
+  InventoryItemOfflineSaleRecordedPayload,
   MarketplaceEventPayloads,
   MarketplaceListingCreatedPayload,
   MarketplaceSalesFeeLineSnapshotPayload,
+  OrderingOrderCancelledPayload,
   OrderingOrderCreatedPayload,
   PaymentCapturedPayload,
+  PaymentRefundedPayload,
+  PaymentRefundFailedPayload,
+  PaymentRefundIssuedPayload,
+  PaymentRefundRequestedPayload,
   PlatformFeedbackSubmittedPayload,
   PlatformOperationsReportedContentActionRecordedPayload,
   PlatformOperationsRiskAlertActionRecordedPayload,
@@ -28,6 +47,40 @@ import type {
   WaitlistReferralCodeReservedPayload,
   WaitlistReferralLinkProvisionedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
+
+const modernSuspendedPayload: IdentityAccountSuspendedPayload = {
+  enforcement: {
+    version: 1,
+    enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    reason: "policy-violation",
+    reference: null,
+  },
+};
+const legacySuspendedPayload: IdentityAccountSuspendedPayload = {};
+const missingSuspendedVersion: IdentityAccountSuspendedPayload = {
+  // @ts-expect-error a partial modern payload is corrupt rather than legacy.
+  enforcement: {
+    enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    reason: "policy-violation",
+    reference: null,
+  },
+};
+const missingReactivatedVersion: IdentityAccountReactivatedPayload = {
+  // @ts-expect-error every modern reactivation payload requires the version discriminator.
+  enforcement: {
+    enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAW",
+    reason: "appeal-upheld",
+    reference: null,
+  },
+};
+const missingClosedVersion: IdentityAccountClosedPayload = {
+  // @ts-expect-error every modern closure payload requires the version discriminator.
+  enforcement: {
+    enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAX",
+    reason: "operator-other",
+    reference: null,
+  },
+};
 
 const shardDirectory = path.join(import.meta.dirname, "public-event-payloads");
 const aggregateFileName = "index.ts";
@@ -91,6 +144,30 @@ describe("public event payload shard partition", () => {
 });
 
 describe("public event payload runtime value exports", () => {
+  it("exports the closed account enforcement reason vocabularies", () => {
+    expect(accountEnforcementReasonCodes).toEqual([
+      "policy-violation",
+      "fulfillment-failure",
+      "payment-risk",
+      "identity-verification",
+      "seller-requested",
+      "operator-other",
+    ]);
+    expect(accountEnforcementReversalReasonCodes).toEqual([
+      "appeal-upheld",
+      "issue-resolved",
+      "operator-error",
+      "operator-other",
+    ]);
+    expect([
+      modernSuspendedPayload,
+      legacySuspendedPayload,
+      missingSuspendedVersion,
+      missingReactivatedVersion,
+      missingClosedVersion,
+    ]).toHaveLength(5);
+  });
+
   it("exports the inventory hold purposes unchanged through the aggregate", () => {
     expect(inventoryHoldPurposes).toEqual(["order", "manual", "checkout", "pos", "channel", "transfer"]);
   });
@@ -109,6 +186,10 @@ describe("public event payload runtime value exports", () => {
 
   it("exports the inventory restock decision outcomes unchanged through the aggregate", () => {
     expect(inventoryRestockDecisionOutcomes).toEqual(["restocked", "written-off"]);
+  });
+
+  it("exports the closed Inventory offline-sale channels", () => {
+    expect(inventoryOfflineSaleChannels).toEqual(["in-store", "card-show", "other"]);
   });
 });
 
@@ -131,6 +212,18 @@ const aggregateTypeIdentity = {
     ChaseSetsEventPayloads["identity.founders-cohort.founder-number-claimed"],
     IdentityFounderNumberClaimedPayload
   >,
+  "identity.account.suspended": true satisfies IsExactly<
+    ChaseSetsEventPayloads["identity.account.suspended"],
+    IdentityAccountSuspendedPayload
+  >,
+  "identity.account.reactivated": true satisfies IsExactly<
+    ChaseSetsEventPayloads["identity.account.reactivated"],
+    IdentityAccountReactivatedPayload
+  >,
+  "identity.account.closed": true satisfies IsExactly<
+    ChaseSetsEventPayloads["identity.account.closed"],
+    IdentityAccountClosedPayload
+  >,
   "checkout.session.cancelled": true satisfies IsExactly<
     ChaseSetsEventPayloads["checkout.session.cancelled"],
     CheckoutSessionCancelledPayload
@@ -139,9 +232,17 @@ const aggregateTypeIdentity = {
     ChaseSetsEventPayloads["inventory.hold.placed"],
     InventoryHoldPlacedPayload
   >,
+  "inventory.item.offline-sale-recorded": true satisfies IsExactly<
+    ChaseSetsEventPayloads["inventory.item.offline-sale-recorded"],
+    InventoryItemOfflineSaleRecordedPayload
+  >,
   "ordering.order.created": true satisfies IsExactly<
     ChaseSetsEventPayloads["ordering.order.created"],
     OrderingOrderCreatedPayload
+  >,
+  "ordering.order.cancelled": true satisfies IsExactly<
+    ChaseSetsEventPayloads["ordering.order.cancelled"],
+    OrderingOrderCancelledPayload
   >,
   "marketplace.listing.created": true satisfies IsExactly<
     ChaseSetsEventPayloads["marketplace.listing.created"],
@@ -154,6 +255,50 @@ const aggregateTypeIdentity = {
   "payments.payment-captured": true satisfies IsExactly<
     ChaseSetsEventPayloads["payments.payment-captured"],
     PaymentCapturedPayload
+  >,
+  "fulfillment.shipment.created": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.created"],
+    FulfillmentShipmentCreatedPayload
+  >,
+  "fulfillment.shipment.packing-started": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.packing-started"],
+    FulfillmentShipmentPackingStartedPayload
+  >,
+  "fulfillment.shipment.package-prepared": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.package-prepared"],
+    FulfillmentShipmentPackagePreparedPayload
+  >,
+  "fulfillment.shipment.label-attached": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.label-attached"],
+    FulfillmentShipmentLabelAttachedPayload
+  >,
+  "fulfillment.shipment.dispatched": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.dispatched"],
+    FulfillmentShipmentDispatchedPayload
+  >,
+  "fulfillment.shipment.delivered": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.delivered"],
+    FulfillmentShipmentDeliveredPayload
+  >,
+  "fulfillment.shipment.cancelled": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.cancelled"],
+    FulfillmentShipmentCancelledPayload
+  >,
+  "payments.payment-refunded": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.payment-refunded"],
+    PaymentRefundedPayload
+  >,
+  "payments.refund-requested": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.refund-requested"],
+    PaymentRefundRequestedPayload
+  >,
+  "payments.refund-issued": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.refund-issued"],
+    PaymentRefundIssuedPayload
+  >,
+  "payments.refund-failed": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.refund-failed"],
+    PaymentRefundFailedPayload
   >,
   "settlement.support-hold.released.v1": true satisfies IsExactly<
     ChaseSetsEventPayloads["settlement.support-hold.released.v1"],
@@ -172,6 +317,18 @@ const aggregateTypeIdentity = {
     PlatformFeedbackSubmittedPayload
   >,
 } as const;
+
+const historicalFulfillmentShipmentDispatchedPayload = {
+  shipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  dispatchedAt: "2026-04-01T00:00:00.000Z",
+} as const satisfies FulfillmentShipmentDispatchedPayload;
+
+const partiallyEnrichedFulfillmentShipmentDispatchedPayload = {
+  shipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  orderId: "ord_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  dispatchedAt: "2026-04-01T00:00:00.000Z",
+  // @ts-expect-error dispatch routing enrichment is all-or-nothing.
+} as const satisfies FulfillmentShipmentDispatchedPayload;
 
 const publicPresenceReferralTypeIdentity = {
   reserved: true satisfies IsExactly<
@@ -213,6 +370,44 @@ const preservedCrossRegistration = {
   >,
 } as const;
 
+const enrichedOrderingCancelledPayload = {
+  orderId: "ord_1",
+  cancelledAt: "2026-03-31T00:00:00.000Z",
+  reason: "buyer-cancelled",
+  buyerEmail: "jane@example.com",
+  buyerAccountId: "acc_buyer",
+  statusBeforeCancellation: "pending-payment",
+  reservationRequests: [],
+} as const satisfies OrderingOrderCancelledPayload;
+
+const historicalOrderingCancelledPayload = {
+  orderId: "ord_1",
+  cancelledAt: "2026-03-31T00:00:00.000Z",
+  reason: "buyer-cancelled",
+  buyerEmail: "jane@example.com",
+  reservationRequests: [],
+} as const satisfies OrderingOrderCancelledPayload;
+
+const syntheticFutureOrderingCancelledPayload = {
+  orderId: "ord_synthetic_future",
+  cancelledAt: "2036-03-31T00:00:00.000Z",
+  reason: "synthetic-future-reason",
+  buyerEmail: null,
+  buyerAccountId: "acc_synthetic_future",
+  statusBeforeCancellation: "synthetic-future-status",
+  reservationRequests: [],
+} as const satisfies OrderingOrderCancelledPayload;
+
+const explicitNullOrderingCancelledPayload = {
+  orderId: "ord_explicit_null",
+  cancelledAt: "2026-03-31T00:00:00.000Z",
+  reason: null,
+  buyerEmail: null,
+  buyerAccountId: null,
+  statusBeforeCancellation: null,
+  reservationRequests: [],
+} as const satisfies OrderingOrderCancelledPayload;
+
 /**
  * The marketplace-owned fee-line snapshot is embedded by Ordering. One declaration must
  * back both shards, or a future edit could fork the fee line silently.
@@ -229,7 +424,70 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(13);
+    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(29);
+  });
+
+  it("preserves the historical optionality of the unversioned dispatch fact", () => {
+    expect(historicalFulfillmentShipmentDispatchedPayload).toEqual({
+      shipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      dispatchedAt: "2026-04-01T00:00:00.000Z",
+    });
+    expect(partiallyEnrichedFulfillmentShipmentDispatchedPayload).toHaveProperty("orderId");
+  });
+
+  it("public cancelled payload remains optional, open, and nullable", () => {
+    type IncorrectCancelledPayload = Readonly<{
+      orderId: string;
+      cancelledAt: string;
+      reason?: string | null;
+      buyerEmail?: string | null;
+      buyerAccountId?: string;
+      statusBeforeCancellation?: "pending-reservation" | "pending-payment" | "ready-for-fulfillment";
+      reservationRequests: readonly unknown[];
+    }>;
+
+    const invalidEnriched: IncorrectCancelledPayload = enrichedOrderingCancelledPayload;
+    const invalidHistorical: IncorrectCancelledPayload = historicalOrderingCancelledPayload;
+    // @ts-expect-error the intentionally closed decoder rejects a synthetic future status.
+    const invalidFuture: IncorrectCancelledPayload = syntheticFutureOrderingCancelledPayload;
+    // @ts-expect-error the intentionally non-nullable decoder rejects explicit nulls.
+    const invalidNull: IncorrectCancelledPayload = explicitNullOrderingCancelledPayload;
+
+    expect(enrichedOrderingCancelledPayload).toEqual({
+      orderId: "ord_1",
+      cancelledAt: "2026-03-31T00:00:00.000Z",
+      reason: "buyer-cancelled",
+      buyerEmail: "jane@example.com",
+      buyerAccountId: "acc_buyer",
+      statusBeforeCancellation: "pending-payment",
+      reservationRequests: [],
+    });
+    expect(historicalOrderingCancelledPayload).toEqual({
+      orderId: "ord_1",
+      cancelledAt: "2026-03-31T00:00:00.000Z",
+      reason: "buyer-cancelled",
+      buyerEmail: "jane@example.com",
+      reservationRequests: [],
+    });
+    expect(syntheticFutureOrderingCancelledPayload).toEqual({
+      orderId: "ord_synthetic_future",
+      cancelledAt: "2036-03-31T00:00:00.000Z",
+      reason: "synthetic-future-reason",
+      buyerEmail: null,
+      buyerAccountId: "acc_synthetic_future",
+      statusBeforeCancellation: "synthetic-future-status",
+      reservationRequests: [],
+    });
+    expect(explicitNullOrderingCancelledPayload).toEqual({
+      orderId: "ord_explicit_null",
+      cancelledAt: "2026-03-31T00:00:00.000Z",
+      reason: null,
+      buyerEmail: null,
+      buyerAccountId: null,
+      statusBeforeCancellation: null,
+      reservationRequests: [],
+    });
+    expect([invalidEnriched, invalidHistorical, invalidFuture, invalidNull]).toHaveLength(4);
   });
 
   it("keeps the Public Presence referral authority payloads in the aggregate", () => {

@@ -345,6 +345,13 @@ export type OrderPendingPaymentRecordedEvent = DomainEvent<
   }>
 >;
 
+/**
+ * `statusBeforeCancellation` is derived from the aggregate's own status field. It excludes
+ * the pre-creation null sentinel and the post-transition cancelled steady state, so an
+ * emitter cannot write either value or a status outside the aggregate vocabulary.
+ */
+export type OrderStatusBeforeCancellation = Exclude<OrderingOrderState["status"], "cancelled" | null>;
+
 export type OrderCancelledEvent = DomainEvent<
   "ordering.order.cancelled",
   Readonly<{
@@ -352,6 +359,8 @@ export type OrderCancelledEvent = DomainEvent<
     cancelledAt: string;
     reason: string;
     buyerEmail: string | null;
+    buyerAccountId: AccountId | null;
+    statusBeforeCancellation: OrderStatusBeforeCancellation;
     reservationRequests: OrderingReservationRequest[];
   }>
 >;
@@ -895,7 +904,7 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
       return events;
     }
     case "RecordReservationRejected": {
-      assert(state.orderId !== null, "Order must be created first.");
+      assert(state.orderId !== null && state.status !== null, "Order must be created first.");
       if (state.status === "cancelled") {
         return [];
       }
@@ -940,6 +949,10 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
             cancelledAt: command.rejectedAt,
             reason: "inventory-unavailable",
             buyerEmail: state.shippingDestinationSnapshot?.email?.trim() || null,
+            buyerAccountId: state.buyerAccountId,
+            // Read before the fold to cancelled; `updateReservationRequest` returns new
+            // arrays and never mutates `state`, so this is still the pre-transition status.
+            statusBeforeCancellation: state.status,
             reservationRequests: updated.reservationRequests,
           },
         },
@@ -1006,6 +1019,10 @@ export const decideOrderingOrder: AggregateDecider<OrderingOrderState, OrderingO
             cancelledAt: normalizeRequiredText(command.cancelledAt, "Order cancellation must record a timestamp."),
             reason: normalizeRequiredText(command.reason, "Order cancellation must include a reason."),
             buyerEmail: state.shippingDestinationSnapshot?.email?.trim() || null,
+            buyerAccountId: state.buyerAccountId,
+            // Read before the fold to cancelled, narrowed by the assertion above to the
+            // three non-cancelled statuses this command accepts.
+            statusBeforeCancellation: state.status,
             reservationRequests: state.reservationRequests,
           },
         },

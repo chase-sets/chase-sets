@@ -90,7 +90,122 @@ const latestConfirmation: CheckoutSellListConfirmationRow = {
   },
 };
 
+function expectSurfaceChrome(
+  root: Element | null,
+  label: string,
+  included: readonly string[],
+  excluded: readonly string[],
+) {
+  expect(root, `${label} root`).not.toBeNull();
+  const tokens = new Set((root as HTMLElement).className.split(/\s+/));
+  for (const token of included) expect(tokens.has(token), `${label} includes ${token}`).toBe(true);
+  for (const token of excluded) expect(tokens.has(token), `${label} excludes ${token}`).toBe(false);
+}
+
+const tintedSurfaceExcluded = [
+  "surface-border",
+  "ds-glass",
+  "border",
+  "shadow-tokenSm",
+  "shadow-tokenLg",
+  "ds-glow",
+] as const;
+const outlinedSurfaceExcluded = ["surface-border", "ds-glass", "shadow-tokenSm", "shadow-tokenLg", "ds-glow"] as const;
+
 describe("checkout sell list page", () => {
+  it("pins selected-offer, product-line, and seller-readiness roots to their ratified chrome", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine, { ...productLine, item_title: "Blastoise", item_subtitle: "Base Set 2" }]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+        offerReviews={[
+          {
+            lineId: "sll_offer",
+            status: "ready",
+            terms: {
+              basis_amount: "350.00",
+              marketplace_sales_fee_unit_amount: "35.00",
+              seller_net_unit_amount: "315.00",
+              shipping_allowance_percentage_bps: 0,
+              fee_quote_fingerprint: "fee_selected",
+            },
+            comparison: null,
+            message: null,
+          },
+        ]}
+        productOfferReviews={[
+          {
+            lineId: "sll_product",
+            status: "unavailable",
+            offers: [],
+            message: "No matching offers.",
+          },
+        ]}
+      />,
+    );
+
+    const selectedOfferTrigger = screen.getByRole("button", { name: "Review Charizard offers and terms" });
+    const productLineTrigger = screen.getByRole("button", { name: "Review Blastoise offers and terms" });
+    fireEvent.click(selectedOfferTrigger);
+    let dialog = screen.getByRole("dialog", { name: "Charizard offers and terms" });
+    expectSurfaceChrome(
+      within(dialog).getByText("Selected offer").closest(".rounded-tokenLg"),
+      "selected offer row",
+      ["border", "border-muted", "bg-elevated"],
+      outlinedSurfaceExcluded,
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent.click(productLineTrigger);
+    dialog = screen.getByRole("dialog", { name: "Blastoise offers and terms" });
+    expectSurfaceChrome(
+      dialog.querySelector("article.rounded-tokenLg"),
+      "product line row",
+      ["border", "border-muted", "bg-elevated"],
+      outlinedSurfaceExcluded,
+    );
+    expectSurfaceChrome(
+      screen.getByText(/seller.?checkout readiness/i).closest(".rounded-tokenLg"),
+      "seller-checkout readiness",
+      ["bg-surface-2"],
+      tintedSurfaceExcluded,
+    );
+  });
+
+  it("renders pending fresh-write and latest confirmation as tinted furniture", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[]}
+        recoveryState={{
+          kind: "pending-fresh-write",
+          message: "Your Sell List is updating.",
+          refreshHref: "/account/sell-list?afterWrite=receipt",
+          isAutoRevalidating: true,
+        }}
+      />,
+    );
+    expectSurfaceChrome(
+      screen.getByText("Your Sell List is updating.").closest(".rounded-tokenLg"),
+      "pending fresh write",
+      ["bg-surface-2"],
+      tintedSurfaceExcluded,
+    );
+
+    cleanup();
+    render(
+      <CheckoutSellListPage
+        sellListLines={[]}
+        latestConfirmation={latestConfirmation}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+    expectSurfaceChrome(
+      screen.getByText("Seller confirmation saved").closest(".rounded-tokenLg"),
+      "latest confirmation",
+      ["bg-surface-2"],
+      tintedSurfaceExcluded,
+    );
+  });
+
   it("renders a simple seller review with readiness and payout before checkout", () => {
     const markup = renderToString(
       <CheckoutSellListPage
@@ -278,7 +393,28 @@ describe("checkout sell list page", () => {
     expect(within(dialog).getByText("$315.00")).toBeTruthy();
     expect(within(dialog).getAllByText("$311.50").length).toBeGreaterThan(0);
 
-    fireEvent.click(within(dialog).getByRole("checkbox", { name: "Select Ash Ketchum offer" }));
+    expectSurfaceChrome(
+      within(dialog).getByText("Standard terms").closest(".rounded-tokenLg"),
+      "standard terms",
+      ["bg-surface-2"],
+      tintedSurfaceExcluded,
+    );
+    expectSurfaceChrome(
+      within(dialog).getByText("Seller terms").closest(".rounded-tokenLg"),
+      "seller terms",
+      ["bg-surface-2"],
+      tintedSurfaceExcluded,
+    );
+
+    const offerOption = within(dialog).getByRole("checkbox", { name: "Select Ash Ketchum offer" });
+    expectSurfaceChrome(
+      offerOption.closest(".rounded-tokenLg"),
+      "OfferOption",
+      ["border", "border-muted", "bg-surface"],
+      outlinedSurfaceExcluded,
+    );
+
+    fireEvent.click(offerOption);
     expect(screen.getByText("1 offer selected")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Accept selected" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Decline selected" })).toBeTruthy();

@@ -48,7 +48,7 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
 
   if (invitation.status !== "pending") {
     return (
-      <Card>
+      <Card elevation="tinted">
         <Stack gap={2}>
           <Text size="lg" weight="semibold">
             {t(terminalCopyKeys[invitation.status])}
@@ -134,7 +134,7 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
         ]}
       />
       {method === "passkey" ? (
-        <Card glow>
+        <Card elevation="elevated" glow>
           <Form ref={passkeyForm} action={action} method="post" onSubmit={acceptWithPasskey}>
             <Stack gap={3}>
               {commonFields}
@@ -158,7 +158,7 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
           </Form>
         </Card>
       ) : (
-        <Card>
+        <Card elevation="elevated">
           <Form action={action} method="post">
             <Stack gap={3}>
               {commonFields}

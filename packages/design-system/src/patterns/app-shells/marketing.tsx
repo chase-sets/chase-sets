@@ -2,6 +2,7 @@ import type { HTMLAttributes, ImgHTMLAttributes, ReactNode } from "react";
 import { Button } from "../../components/actions";
 import { Card, Stat, StatGrid } from "../../components/data-display";
 import { Badge, type BadgeProps } from "../../components/feedback";
+import { Eyebrow } from "../../primitives/typography";
 import { resolveDensityMode, type DensityInput } from "../../theme/tokens";
 import { cx } from "../../utils/cx";
 
@@ -168,9 +169,7 @@ export function MarketingImageHero({
       >
         <div className={cx("flex max-w-3xl flex-col justify-start lg:justify-center", isCompact ? "gap-3" : "gap-4")}>
           <div className={cx("grid", isCompact ? "gap-2" : "gap-3")}>
-            {eyebrow ? (
-              <div className="text-xs font-semibold uppercase tracking-wide text-primary">{eyebrow}</div>
-            ) : null}
+            {eyebrow ? <Eyebrow variant="primary">{eyebrow}</Eyebrow> : null}
             <h1
               className={cx(
                 "max-w-2xl font-display font-semibold leading-tight text-foreground md:leading-hero",

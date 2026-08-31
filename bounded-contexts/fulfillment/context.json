@@ -106,7 +106,8 @@
         "fulfillment_shipment_exception_pages",
         "fulfillment_label_address_override_audit_pages",
         "fulfillment_postage_label_operations",
-        "fulfillment_postage_provider_events"
+        "fulfillment_postage_provider_events",
+        "fulfillment_shipment_tenant_resolutions"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
@@ -188,6 +189,15 @@
               "readModelTable": "fulfillment_postage_provider_events"
             }
           ]
+        },
+        {
+          "routePath": "/account/sales/shipments/:id/mutation-recovery",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            { "readModelTable": "fulfillment_shipment_pages" },
+            { "readModelTable": "fulfillment_postage_label_operations" },
+            { "readModelTable": "fulfillment_shipment_tenant_resolutions" }
+          ]
         }
       ]
     },
@@ -236,8 +246,38 @@
           "behavior": "Seller shipment redirects carry the Fulfillment command receipt as afterWrite; seller shipment loaders forward the receipt to the Fulfillment API freshness gate and render temporary shipment recovery copy for fresh 404 or projection_freshness_timeout responses."
         }
       }
+    },
+    {
+      "id": "fulfillment.shipment-mutation-owner-recovery",
+      "owner": "fulfillment",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["account-sale-shipments", "account-sale-shipment", "account-sale-shipment-packing"],
+        "actions": ["Recover an interrupted Shipment mutation by its retained owner attempt"],
+        "command": "Read-only Shipment mutation recovery"
+      },
+      "destination": {
+        "routeIds": ["account-sale-shipments", "account-sale-shipment", "account-sale-shipment-packing"],
+        "apiContextName": "fulfillment",
+        "apiRoutePath": "/account/sales/shipments/:id/mutation-recovery",
+        "readModelTables": [
+          "fulfillment_shipment_pages",
+          "fulfillment_postage_label_operations",
+          "fulfillment_shipment_tenant_resolutions"
+        ],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The encrypted browser descriptor performs one header-keyed recovery GET after response loss; absence remains confirming and focus, reconnect, navigation, and refresh never replay a write."
+        }
+      }
     }
   ],
+  "rawFetchCensus": "complete",
   "mutationConsistencyInventory": [
     {
       "id": "fulfillment.shipment-command-snapshots",
@@ -342,7 +382,10 @@
       "owner": "fulfillment",
       "risk": "important",
       "strategy": "optimistic-with-correction",
-      "surfaces": ["route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing.tsx"],
+      "surfaces": [
+        "raw-fetch:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:POST Hd5352f45e551#1",
+        "route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing.tsx"
+      ],
       "visibleDestination": {
         "routeId": "account-sale-shipment-packing",
         "description": "Packing line quantity controls update the visible packed count immediately, serialize each line's newest write with a per-line request sequence, reconcile to the command snapshot, and roll back only the latest failed write."
@@ -352,6 +395,25 @@
         "tests": [
           "bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-optimistic-correction.test.tsx",
           "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "fulfillment.shipment-mutation-owner-recovery-fetch",
+      "owner": "fulfillment",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "raw-fetch:bounded-contexts/fulfillment/features/shipments/ui/shipment-mutation-boundary.tsx:GET H086ffdc28797#1"
+      ],
+      "visibleDestination": {
+        "description": "The one automatic recovery GET returns only the Fulfillment owner receipt and current Shipment authority; it never retries a mutation."
+      },
+      "proof": {
+        "authoritativeResponse": "shipment-mutation-boundary.tsx addresses the Fulfillment mutation-recovery route with the retained owner key in the header and classifies only its bounded response.",
+        "tests": [
+          "bounded-contexts/fulfillment/features/shipments/api/route.test.ts",
+          "deployables/marketplace/e2e/shipment-mutation-recovery.spec.ts"
         ]
       }
     },
@@ -417,42 +479,156 @@
           "fileExport": "./routes/marketplace/account-sale-shipment-packing-slips",
           "routeType": "route",
           "placement": "root",
-          "sourceContext": "fulfillment"
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-sale-shipment-packing",
           "routePath": "account/sales/shipments/:shipmentId/packing",
           "fileExport": "./routes/marketplace/account-sale-shipment-packing",
           "routeType": "route",
-          "sourceContext": "fulfillment"
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-shipment",
           "routePath": "account/shipments/:shipmentId",
           "fileExport": "./routes/marketplace/account-shipment",
           "routeType": "route",
-          "sourceContext": "fulfillment"
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-shipments",
           "routePath": "account/shipments",
           "fileExport": "./routes/marketplace/account-shipments",
           "routeType": "route",
-          "sourceContext": "fulfillment"
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-sale-shipment",
           "routePath": "account/sales/shipments/:shipmentId",
           "fileExport": "./routes/marketplace/account-sale-shipment",
           "routeType": "route",
-          "sourceContext": "fulfillment"
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-sale-shipments",
           "routePath": "account/sales/shipments",
           "fileExport": "./routes/marketplace/account-sale-shipments",
           "routeType": "route",
-          "sourceContext": "fulfillment"
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "fulfillment",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     },

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -450,6 +450,167 @@ const dependentSliceBaseCapture = {
     cluster_preview: "true",
   },
 };
+
+const hostedDbAdmissionStatusForms = ["added", "modified", "removed", "renamed"];
+
+const hostedDbAdmissionCorpusSeeds = [
+  {
+    name: "DB-only scheduler path",
+    changedFiles: ["scripts/run-workspaces.mjs"],
+    eventName: "pull_request",
+    expected: { db: true, e2e: false, integrationRisk: false, clusterPreview: false },
+    expectedAffectedWorkspaces: baseCapturedSchedulerFanoutWorkspaces,
+    deltaReason: "DB-required footprint executes on the PR fast lane independently of the shared targeted lane",
+  },
+  {
+    name: "non-DB issue-readiness path",
+    changedFiles: ["scripts/issue-readiness.mjs"],
+    eventName: "pull_request",
+    expected: { db: false, e2e: false, integrationRisk: false, clusterPreview: false },
+    expectedAffectedWorkspaces: [],
+    deltaReason: null,
+  },
+  {
+    name: "integration-risk context metadata path",
+    changedFiles: ["bounded-contexts/pricing/context.json"],
+    eventName: "pull_request",
+    expected: { db: true, e2e: false, integrationRisk: true, clusterPreview: false },
+    expectedAffectedWorkspaces: [
+      "@chase-sets/app-admin-web",
+      "@chase-sets/app-marketplace-web",
+      "@chase-sets/app-platform-api",
+      "@chase-sets/app-platform-worker",
+      "@chase-sets/app-public-web",
+      "@chase-sets/discovery",
+      "@chase-sets/marketplace-seed-testing",
+      "@chase-sets/platform-runtime",
+      "@chase-sets/pricing",
+    ],
+    deltaReason: null,
+  },
+  {
+    name: "merge-group full-battery control",
+    changedFiles: ["scripts/issue-readiness.mjs"],
+    eventName: "merge_group",
+    expected: { db: false, e2e: false, integrationRisk: false, clusterPreview: false },
+    expectedAffectedWorkspaces: [],
+    deltaReason: null,
+  },
+  {
+    name: "DB-and-E2E overlap",
+    changedFiles: ["bounded-contexts/catalog/routes/admin/integrations.tsx"],
+    eventName: "pull_request",
+    expected: { db: true, e2e: true, integrationRisk: false, clusterPreview: false },
+    expectedAffectedWorkspaces: [
+      "@chase-sets/app-admin-web",
+      "@chase-sets/app-platform-api",
+      "@chase-sets/app-platform-worker",
+      "@chase-sets/catalog",
+      "@chase-sets/discovery",
+      "@chase-sets/inventory",
+      "@chase-sets/marketplace-seed-testing",
+    ],
+    deltaReason: "DB-required footprint executes on the PR fast lane independently of the shared targeted lane",
+  },
+  {
+    name: "DB-and-preview overlap",
+    changedFiles: ["scripts/run-workspaces.mjs", "infrastructure/helm/platform/values.yaml"],
+    eventName: "pull_request",
+    expected: { db: true, e2e: false, integrationRisk: false, clusterPreview: true },
+    expectedAffectedWorkspaces: baseCapturedSchedulerFanoutWorkspaces,
+    deltaReason: "DB-required footprint executes on the PR fast lane independently of the shared targeted lane",
+  },
+  {
+    name: "sibling seeding entry surface",
+    siblingKind: "seeding",
+    changedFiles: ["bounded-contexts/catalog/features/source-observations/api/seed.ts"],
+    eventName: "pull_request",
+    expected: { db: true, e2e: true, integrationRisk: false, clusterPreview: false },
+    deltaReason: "DB-required footprint executes on the PR fast lane independently of the shared targeted lane",
+  },
+  {
+    name: "sibling bootstrap entry surface",
+    siblingKind: "bootstrap",
+    changedFiles: ["deployables/platform-api/src/bootstrap.ts"],
+    eventName: "pull_request",
+    expected: { db: true, e2e: true, integrationRisk: false, clusterPreview: false },
+    deltaReason: "DB-required footprint executes on the PR fast lane independently of the shared targeted lane",
+  },
+  {
+    name: "sibling import entry surface",
+    siblingKind: "import",
+    changedFiles: [
+      "bounded-contexts/catalog/features/source-observations/api/source-observation-provider-import-runtime.ts",
+    ],
+    eventName: "pull_request",
+    expected: { db: true, e2e: true, integrationRisk: false, clusterPreview: false },
+    deltaReason: "DB-required footprint executes on the PR fast lane independently of the shared targeted lane",
+  },
+  {
+    name: "sibling reconciliation entry surface",
+    siblingKind: "reconciliation",
+    changedFiles: [
+      "bounded-contexts/settlement/features/liability-reconciliation/read-model/liability-reconciliation.ts",
+    ],
+    eventName: "pull_request",
+    expected: { db: true, e2e: false, integrationRisk: false, clusterPreview: false },
+    deltaReason: "DB-required footprint executes on the PR fast lane independently of the shared targeted lane",
+  },
+];
+
+const hostedDbAdmissionCorpus = hostedDbAdmissionCorpusSeeds.flatMap((seed) =>
+  hostedDbAdmissionStatusForms.map((status) => ({ ...seed, status })),
+);
+
+const hostedDbConsumerInventory = [
+  { name: "platform-pr/db-tests condition", changesAdmission: true },
+  { name: "platform-pr/e2e-tests condition", changesAdmission: false },
+  { name: "platform-pr/PR Required DB aggregation", changesAdmission: true },
+  { name: "platform-pr/PR Required E2E aggregation", changesAdmission: false },
+  { name: "platform-pr/preview-deploy-smoke admission", changesAdmission: true },
+  { name: "scripts/release-deployment-scope.mjs", changesAdmission: false },
+  { name: "scripts/release-qualification-scope.mjs", changesAdmission: false },
+  { name: "scripts/verify-static-scoped.mjs", changesAdmission: false },
+  { name: "scripts/verify-static-scoped.test.mjs", changesAdmission: false },
+  { name: "scripts/public-web-route-smoke-workflows.test.mjs", changesAdmission: false },
+  { name: "scripts/change-scope.test.mjs", changesAdmission: false },
+  { name: "scripts/lib/risk-policy-v1.test.mjs", changesAdmission: false },
+  { name: "scripts/digitalocean-platform-config.test.mjs", changesAdmission: false },
+];
+
+function hostedLaneFor({ eventName, integrationRiskRequired }) {
+  const fullBatteryRequired = eventName === "merge_group";
+  return {
+    fullBatteryRequired,
+    targetedHeavyRequired: fullBatteryRequired || integrationRiskRequired,
+  };
+}
+
+function statusAwareRiskFiles({ changedFiles, status }) {
+  return changedFiles.map((filename) =>
+    status === "renamed" ? { filename, previousFilename: filename, status } : { filename, status },
+  );
+}
+
+function priorHostedAdmission(scope, lane) {
+  return {
+    dbJobExecutes: lane.targetedHeavyRequired && scope.dbTestsRequired,
+    dbRequiredByName: lane.targetedHeavyRequired && scope.dbTestsRequired,
+    e2eJobExecutes: lane.targetedHeavyRequired && scope.e2eTestsRequired,
+    e2eRequiredByName: lane.targetedHeavyRequired && scope.e2eTestsRequired,
+    affectedWorkspaces: scope.affectedWorkspaces,
+  };
+}
+
+function isolatedHostedDbAdmission(scope, lane) {
+  return {
+    dbJobExecutes: scope.dbTestsRequired,
+    dbRequiredByName: scope.dbTestsRequired,
+    e2eJobExecutes: lane.targetedHeavyRequired && scope.e2eTestsRequired,
+    e2eRequiredByName: lane.targetedHeavyRequired && scope.e2eTestsRequired,
+    affectedWorkspaces: scope.affectedWorkspaces,
+  };
+}
 
 function workspaceWithScripts(baseDir, root, dirName, name, scripts) {
   return {
@@ -1464,6 +1625,179 @@ describe("change-scope", () => {
     );
   });
 
+  it("locks the hosted DB old-versus-new admission corpus over real paths and every status form", () => {
+    expect(hostedDbAdmissionCorpus).toHaveLength(
+      hostedDbAdmissionCorpusSeeds.length * hostedDbAdmissionStatusForms.length,
+    );
+    expect(new Set(hostedDbAdmissionCorpus.map(({ name, status }) => `${name}:${status}`)).size).toBe(
+      hostedDbAdmissionCorpus.length,
+    );
+
+    for (const seed of hostedDbAdmissionCorpusSeeds) {
+      expect(hostedDbAdmissionCorpus.filter((entry) => entry.name === seed.name).map((entry) => entry.status)).toEqual(
+        hostedDbAdmissionStatusForms,
+      );
+      for (const filename of seed.changedFiles) {
+        expect(
+          existsSync(path.join(repoRoot, filename)),
+          `${seed.name} must use the real repository path ${filename}`,
+        ).toBe(true);
+      }
+    }
+
+    for (const testCase of hostedDbAdmissionCorpus) {
+      const scope = classifyChanges({ changedFiles: testCase.changedFiles });
+      const statusAwareIntegrationRisk = classifyIntegrationRisk({
+        changedFiles: statusAwareRiskFiles(testCase),
+      });
+      const lane = hostedLaneFor({
+        eventName: testCase.eventName,
+        integrationRiskRequired: statusAwareIntegrationRisk.required,
+      });
+      const prior = priorHostedAdmission(scope, lane);
+      const next = isolatedHostedDbAdmission(scope, lane);
+      const changesAdmission =
+        prior.dbJobExecutes !== next.dbJobExecutes || prior.dbRequiredByName !== next.dbRequiredByName;
+
+      expect(scope.dbTestsRequired, `${testCase.name}:${testCase.status} db_tests`).toBe(testCase.expected.db);
+      expect(scope.e2eTestsRequired, `${testCase.name}:${testCase.status} e2e_tests`).toBe(testCase.expected.e2e);
+      expect(scope.integrationRiskRequired, `${testCase.name}:${testCase.status} integration risk`).toBe(
+        testCase.expected.integrationRisk,
+      );
+      expect(statusAwareIntegrationRisk.required, `${testCase.name}:${testCase.status} status-aware risk`).toBe(
+        testCase.expected.integrationRisk,
+      );
+      expect(scope.clusterPreviewRequired, `${testCase.name}:${testCase.status} preview`).toBe(
+        testCase.expected.clusterPreview,
+      );
+      expect(lane.fullBatteryRequired, `${testCase.name}:${testCase.status} full battery`).toBe(
+        testCase.eventName === "merge_group",
+      );
+      expect(Boolean(testCase.deltaReason), `${testCase.name}:${testCase.status} named delta reason`).toBe(
+        changesAdmission,
+      );
+      expect(next.e2eJobExecutes).toBe(prior.e2eJobExecutes);
+      expect(next.e2eRequiredByName).toBe(prior.e2eRequiredByName);
+      expect(next.affectedWorkspaces).toEqual(prior.affectedWorkspaces);
+      if (testCase.expectedAffectedWorkspaces) {
+        expect(next.affectedWorkspaces, `${testCase.name}:${testCase.status} affected_workspaces`).toEqual(
+          testCase.expectedAffectedWorkspaces,
+        );
+      }
+
+      if (testCase.name === "DB-and-E2E overlap") {
+        expect(next).toMatchObject({
+          dbJobExecutes: true,
+          dbRequiredByName: true,
+          e2eJobExecutes: false,
+          e2eRequiredByName: false,
+        });
+      }
+    }
+  });
+
+  it("makes every sibling seed-path and shared-targeted-lane mutant bite the locked corpus", () => {
+    const siblingMutantTable = hostedDbAdmissionCorpusSeeds
+      .filter((entry) => entry.siblingKind)
+      .map((entry) => {
+        const scope = classifyChanges({ changedFiles: entry.changedFiles });
+        const lane = hostedLaneFor({
+          eventName: entry.eventName,
+          integrationRiskRequired: scope.integrationRiskRequired,
+        });
+        const baseline = isolatedHostedDbAdmission(scope, lane);
+        const mutant = isolatedHostedDbAdmission({ ...scope, dbTestsRequired: false }, lane);
+        return {
+          mutant: `omit-${entry.siblingKind}-from-db-scope`,
+          path: entry.changedFiles[0],
+          baselineExecutes: baseline.dbJobExecutes,
+          mutantExecutes: mutant.dbJobExecutes,
+          killed: baseline.dbJobExecutes && !mutant.dbJobExecutes,
+        };
+      });
+
+    expect(siblingMutantTable.length).toBeGreaterThan(0);
+    expect(siblingMutantTable.map((entry) => entry.mutant)).toEqual([
+      "omit-seeding-from-db-scope",
+      "omit-bootstrap-from-db-scope",
+      "omit-import-from-db-scope",
+      "omit-reconciliation-from-db-scope",
+    ]);
+    expect(siblingMutantTable.every((entry) => entry.killed)).toBe(true);
+
+    const overlap = hostedDbAdmissionCorpusSeeds.find((entry) => entry.name === "DB-and-E2E overlap");
+    const overlapScope = classifyChanges({ changedFiles: overlap.changedFiles });
+    const overlapLane = hostedLaneFor({
+      eventName: overlap.eventName,
+      integrationRiskRequired: overlapScope.integrationRiskRequired,
+    });
+    const isolated = isolatedHostedDbAdmission(overlapScope, overlapLane);
+    const sharedPredicateMutant = priorHostedAdmission(overlapScope, {
+      ...overlapLane,
+      targetedHeavyRequired: true,
+    });
+    const sharedPredicateMutantRow = {
+      mutant: "raise-shared-targeted-heavy-required",
+      isolatedDbExecutes: isolated.dbJobExecutes,
+      isolatedE2eExecutes: isolated.e2eJobExecutes,
+      mutantDbExecutes: sharedPredicateMutant.dbJobExecutes,
+      mutantE2eExecutes: sharedPredicateMutant.e2eJobExecutes,
+      killed: isolated.dbJobExecutes && !isolated.e2eJobExecutes && sharedPredicateMutant.e2eJobExecutes,
+    };
+
+    expect(sharedPredicateMutantRow.killed).toBe(true);
+    console.info("hosted-db sibling mutant table", siblingMutantTable);
+    console.info("hosted-db shared-predicate mutant", sharedPredicateMutantRow);
+  });
+
+  it("enumerates all thirteen classifier and workflow consumers with exactly three moving admissions", () => {
+    expect(hostedDbConsumerInventory.map((entry) => entry.name)).toEqual([
+      "platform-pr/db-tests condition",
+      "platform-pr/e2e-tests condition",
+      "platform-pr/PR Required DB aggregation",
+      "platform-pr/PR Required E2E aggregation",
+      "platform-pr/preview-deploy-smoke admission",
+      "scripts/release-deployment-scope.mjs",
+      "scripts/release-qualification-scope.mjs",
+      "scripts/verify-static-scoped.mjs",
+      "scripts/verify-static-scoped.test.mjs",
+      "scripts/public-web-route-smoke-workflows.test.mjs",
+      "scripts/change-scope.test.mjs",
+      "scripts/lib/risk-policy-v1.test.mjs",
+      "scripts/digitalocean-platform-config.test.mjs",
+    ]);
+    expect(hostedDbConsumerInventory).toHaveLength(13);
+    expect(hostedDbConsumerInventory.filter((entry) => entry.changesAdmission).map((entry) => entry.name)).toEqual([
+      "platform-pr/db-tests condition",
+      "platform-pr/PR Required DB aggregation",
+      "platform-pr/preview-deploy-smoke admission",
+    ]);
+
+    const frozenSourceConsumers = [
+      [
+        "scripts/release-deployment-scope.mjs",
+        'import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";',
+      ],
+      ["scripts/release-qualification-scope.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
+      ["scripts/verify-static-scoped.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
+      ["scripts/verify-static-scoped.test.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
+      ["scripts/public-web-route-smoke-workflows.test.mjs", 'import { classifyChanges } from "./change-scope.mjs";'],
+      [
+        "scripts/change-scope.test.mjs",
+        'import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";',
+      ],
+      ["scripts/lib/risk-policy-v1.test.mjs", "expect(changeScope).toContain('from \"./lib/risk-policy-v1.mjs\"');"],
+      [
+        "scripts/digitalocean-platform-config.test.mjs",
+        'const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");',
+      ],
+    ];
+
+    for (const [filename, frozenFragment] of frozenSourceConsumers) {
+      expect(readFileSync(path.join(repoRoot, filename), "utf8"), filename).toContain(frozenFragment);
+    }
+  });
+
   it("keeps unrelated scripts-only changes out of workspace and gate fanout", () => {
     const scope = classifyChanges({ changedFiles: ["scripts/unrelated-maintenance.mjs"] });
 
@@ -1490,6 +1824,41 @@ describe("change-scope", () => {
       exposurePostureChanged: false,
       exposurePostureCategories: [],
     });
+  });
+
+  it("requires deployment for the isolated Kubernetes deployment helper and test pair", () => {
+    const scope = classifyChanges({
+      changedFiles: ["scripts/platform-kubernetes-deployment.mjs", "scripts/platform-kubernetes-deployment.test.mjs"],
+    });
+
+    expect(scope).toMatchObject({
+      deployRequired: true,
+      clusterPreviewRequired: true,
+      dockerImageRequired: false,
+      buildRequired: false,
+    });
+  });
+
+  it("requires deployment for the exact production stale Helm recovery workflow", () => {
+    const scope = classifyChanges({
+      changedFiles: [".github/workflows/platform-production-stale-helm-recovery.yml"],
+    });
+
+    expect(scope).toMatchObject({
+      deployRequired: true,
+      clusterPreviewRequired: true,
+      dockerImageRequired: false,
+      buildRequired: false,
+    });
+    expect(
+      classifyChanges({ changedFiles: [".github/workflows/synthetic-unrelated-advisory.yml"] }).deployRequired,
+    ).toBe(false);
+  });
+
+  it("does not require deployment for an unrelated scripts path", () => {
+    expect(classifyChanges({ changedFiles: ["scripts/synthetic-unrelated-maintenance.mjs"] }).deployRequired).toBe(
+      false,
+    );
   });
 
   it("does not expand bounded-context unit test changes to runtime dependents or E2E", () => {
@@ -1796,7 +2165,7 @@ describe("change-scope", () => {
     expect(scope.composeSmokeRequired).toBe(false);
   });
 
-  it("routes Helm chart changes through manifest validation and a cluster preview without a docker image", () => {
+  it("routes Helm chart changes through ordinary staged deployment without a docker image", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -1806,13 +2175,21 @@ describe("change-scope", () => {
 
     expect(scope.workflowLintRequired).toBe(true);
     expect(scope.terraformRequired).toBe(false);
-    expect(scope.deployRequired).toBe(false);
+    expect(scope.deployRequired).toBe(true);
     expect(scope.dockerImageRequired).toBe(false);
     // #4864: Helm changes are a deploy surface in their own right, even
     // without a docker image, because they alter what the cluster preview
     // (and staging/production) actually deploys.
     expect(scope.clusterPreviewRequired).toBe(true);
     expect(scope.composeSmokeRequired).toBe(false);
+
+    const docsScope = classifyChanges({
+      baseDir,
+      changedFiles: ["docs/runbooks/digitalocean-platform-deployment.md"],
+      workspaces: [workspace(baseDir, "deployables", "public-web", "@test/public-web")],
+    });
+    expect(docsScope.docsOnly).toBe(true);
+    expect(docsScope.deployRequired).toBe(false);
   });
 
   it("routes the platform Kubernetes Secret helper through workflow lint and a cluster preview without deploying", () => {

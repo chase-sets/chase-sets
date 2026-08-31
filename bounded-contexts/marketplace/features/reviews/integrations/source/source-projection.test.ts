@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
@@ -474,6 +474,33 @@ describe("marketplace review source projection eligibility", () => {
 // so the reputation MCP tools can resolve `subjectAccountSlug` without a
 // cross-context runtime dependency.
 describe("marketplace review account source projection", () => {
+  it("accepts all modern account enforcement payloads as additive", async () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    const handlers = buildReviewAccountProjectionHandlers({ query } as never);
+    for (const [type, status, reason] of [
+      ["identity.account.suspended", "suspended", "policy-violation"],
+      ["identity.account.reactivated", "active", "appeal-upheld"],
+      ["identity.account.closed", "closed", "operator-other"],
+    ] as const) {
+      const lifecycleEvent = {
+        ...event(type, {
+          enforcement: {
+            version: 1,
+            enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV",
+            reason,
+            reference: null,
+          },
+        }),
+        streamId: "identity.account-acc_compat" as never,
+      };
+      await handlers[type]!(lifecycleEvent);
+      expect(query).toHaveBeenLastCalledWith(expect.stringContaining(`status = '${status}'`), [
+        "acc_compat",
+        lifecycleEvent.timing.recordedAt,
+      ]);
+    }
+  });
+
   class ReviewAccountSourceDb implements PgQueryable {
     public readonly accounts = new Map<string, { display_name: string; slug: string | null; status: string }>();
 

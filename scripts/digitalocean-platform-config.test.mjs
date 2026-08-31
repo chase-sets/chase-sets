@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
+import { classifyChanges } from "./change-scope.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
 import { assertNoDestructiveChanges, destructiveChangeApprovalFromText } from "./terraform-plan-inspection.mjs";
 
@@ -52,6 +53,10 @@ const environmentDnsVariables = readFileSync(
 );
 const environmentDnsProjects = readFileSync(resolve("infrastructure/digitalocean/environment-dns/projects.tf"), "utf8");
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+const platformProductionStaleHelmRecoveryWorkflow = readFileSync(
+  resolve(".github/workflows/platform-production-stale-helm-recovery.yml"),
+  "utf8",
+);
 const exportManagedPostgresAuthorityAction = readFileSync(
   resolve(".github/actions/export-managed-postgres-authority/action.yml"),
   "utf8",
@@ -318,6 +323,103 @@ function workflowJob(source, jobName) {
   const rest = source.slice(start + 1);
   const next = rest.search(/\n  [A-Za-z0-9_-]+:/);
   return next === -1 ? source.slice(start) : source.slice(start, start + 1 + next);
+}
+
+function workflowJobCondition(source, jobName) {
+  const lines = workflowJob(source, jobName).replaceAll("\r\n", "\n").split("\n");
+  const ifIndex = lines.findIndex((line) => line.startsWith("    if: "));
+  expect(ifIndex).not.toBe(-1);
+
+  if (lines[ifIndex] !== "    if: >") {
+    return lines[ifIndex].slice("    if: ".length).trim();
+  }
+
+  const expressionLines = [];
+  for (const line of lines.slice(ifIndex + 1)) {
+    if (/^    \S/.test(line)) {
+      break;
+    }
+    if (line.trim()) {
+      expressionLines.push(line.trim());
+    }
+  }
+  return expressionLines.join(" ");
+}
+
+function productionReconciliationNeedsSuccessfulStaging(source) {
+  const job = workflowJob(source, "reconcile-managed-postgres-ca-production").replaceAll("\r\n", "\n");
+  return (
+    job.includes("    needs:\n      - resolve-release\n      - reconcile-managed-postgres-ca-staging\n") &&
+    workflowJobCondition(source, "reconcile-managed-postgres-ca-production").includes(
+      "needs['reconcile-managed-postgres-ca-staging'].result == 'success'",
+    ) &&
+    !job.includes("always()")
+  );
+}
+
+function dayAfterManagedPostgresCaJobsAreEligible(source, scope) {
+  const stagingCondition = workflowJobCondition(source, "reconcile-managed-postgres-ca-staging");
+  const productionCondition = workflowJobCondition(source, "reconcile-managed-postgres-ca-production");
+  return (
+    scope.deployRequired === false &&
+    stagingCondition === "needs.resolve-release.outputs.deployment_required != 'true'" &&
+    productionCondition.includes("needs.resolve-release.outputs.deployment_required != 'true'") &&
+    productionCondition.includes("needs['reconcile-managed-postgres-ca-staging'].result == 'success'")
+  );
+}
+
+function workflowPrerequisite(condition, outputName, jobName) {
+  const outputToken = `needs['change-scope'].outputs.${outputName}`;
+  const jobToken = `needs['${jobName}'].result == 'success'`;
+  const outputIndex = condition.indexOf(outputToken);
+  expect(outputIndex).not.toBe(-1);
+  const start = condition.lastIndexOf("(", outputIndex);
+  const end = condition.indexOf(")", condition.indexOf(jobToken, outputIndex));
+  expect(start).not.toBe(-1);
+  expect(end).not.toBe(-1);
+  return condition.slice(start, end + 1);
+}
+
+function evaluateWorkflowBooleanExpression(expression, values) {
+  let javascriptExpression = expression;
+  for (const [token, value] of Object.entries(values).sort(([left], [right]) => right.length - left.length)) {
+    javascriptExpression = javascriptExpression.replaceAll(token, JSON.stringify(value));
+  }
+  expect(javascriptExpression).not.toMatch(/\b(?:needs|github|contains)\b/);
+  expect(javascriptExpression).toMatch(/^[\s()!&|='"a-z]+$/);
+  return Function(`"use strict"; return (${javascriptExpression});`)();
+}
+
+function workflowShellFunction(source, functionName) {
+  const normalized = source.replaceAll("\r\n", "\n");
+  const marker = `          ${functionName}() {`;
+  const start = normalized.indexOf(marker);
+  expect(start).not.toBe(-1);
+  const end = normalized.indexOf("\n          }", start);
+  expect(end).not.toBe(-1);
+  return normalized.slice(start, end + "\n          }".length);
+}
+
+function workflowRequiredCall(source, jobName) {
+  const escapedName = jobName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = source.match(
+    new RegExp(`^\\s+(require(?:_targeted_heavy|_heavy)?_job) "${escapedName}" "([^"]+)" "([^"]+)"$`, "m"),
+  );
+  expect(match).not.toBeNull();
+  return { helper: match[1], resultArgument: match[2], requiredArgument: match[3], line: match[0].trim() };
+}
+
+function evaluateRequiredWorkflowCall(call, { templateValues, targetedHeavyRequired = false }) {
+  const resolveArgument = (argument) => {
+    const match = argument.match(/^\$\{\{\s*(.+?)\s*\}\}$/);
+    expect(match).not.toBeNull();
+    expect(templateValues).toHaveProperty(match[1]);
+    return templateValues[match[1]];
+  };
+  const result = resolveArgument(call.resultArgument);
+  const affected = resolveArgument(call.requiredArgument) === "true";
+  const required = call.helper === "require_targeted_heavy_job" ? targetedHeavyRequired && affected : affected;
+  return required ? result === "success" : result === "skipped" || result === "success";
 }
 
 function terraformServiceBlock(source, serviceName) {
@@ -588,8 +690,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionRestorePointCleanupWorkflow).toContain('cron: "17 3,9,15,21 * * *"');
     expect(platformProductionRestorePointCleanupWorkflow).toContain('default: "6"');
     expect(platformProductionRestorePointCleanupWorkflow).toContain(
-      `min_age_hours="\${{ github.event.inputs.min_age_hours || '6' }}"`,
+      `MIN_AGE_HOURS: \${{ github.event.inputs.min_age_hours || '6' }}`,
     );
+    expect(platformProductionRestorePointCleanupWorkflow).toContain('--min-age-hours "$MIN_AGE_HOURS"');
     expect(platformProductionRestorePointCleanupWorkflow).toContain("PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES");
   });
 
@@ -786,6 +889,132 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("artifacts/release-health/production-readiness-gate.json");
   });
 
+  it("reconciles managed Postgres CA trust exactly once per staging and production deploy before Helm selection", () => {
+    const credentialNames = [
+      "TF_VAR_digitalocean_token",
+      "TF_VAR_spaces_access_id",
+      "TF_VAR_spaces_secret_key",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "DIGITALOCEAN_ACCESS_TOKEN",
+    ];
+    const stagingTrust = workflowStep(platformProductionWorkflow, "Reconcile staging managed Postgres CA trust");
+    const productionTrust = workflowStep(platformProductionWorkflow, "Reconcile production managed Postgres CA trust");
+    const stagingUrlExport = workflowStep(platformProductionWorkflow, "Export staging Kubernetes database URLs");
+    const productionUrlExport = workflowStep(platformProductionWorkflow, "Export production Kubernetes database URLs");
+
+    for (const [environment, step] of [
+      ["staging", stagingTrust],
+      ["production", productionTrust],
+    ]) {
+      expect(step).toContain("uses: ./.github/actions/export-managed-postgres-authority");
+      expect(step).toContain("mode: trust-only-kubernetes-secret");
+      expect(step).toContain(`environment: ${environment}`);
+      expect(step).toContain("namespace: ${{ env.CHASE_SETS_KUBERNETES_NAMESPACE }}");
+      for (const credential of credentialNames) expect(step).toContain(`${credential}:`);
+      expect(step).not.toContain("contexts:");
+      expect(step).not.toContain("connection-mode:");
+    }
+    expect(workflowSteps(platformProductionWorkflow, "Reconcile staging managed Postgres CA trust")).toHaveLength(1);
+    expect(workflowSteps(platformProductionWorkflow, "Reconcile production managed Postgres CA trust")).toHaveLength(1);
+    expect(stagingUrlExport).not.toContain("DIGITALOCEAN_ACCESS_TOKEN:");
+    expect(productionUrlExport).not.toContain("DIGITALOCEAN_ACCESS_TOKEN:");
+
+    const stagingSecret = platformProductionWorkflow.indexOf("- name: Apply staging Kubernetes runtime secrets");
+    const stagingTrustIndex = platformProductionWorkflow.indexOf("- name: Reconcile staging managed Postgres CA trust");
+    const stagingHelm = platformProductionWorkflow.indexOf("- name: Deploy staging Kubernetes release");
+    expect(stagingSecret).toBeLessThan(stagingTrustIndex);
+    expect(stagingTrustIndex).toBeLessThan(stagingHelm);
+
+    const productionSecret = platformProductionWorkflow.indexOf("- name: Apply production Kubernetes runtime secrets");
+    const productionTrustIndex = platformProductionWorkflow.indexOf(
+      "- name: Reconcile production managed Postgres CA trust",
+    );
+    const productionRollbackTarget = platformProductionWorkflow.indexOf("- name: Capture production rollback target");
+    const productionTerraformApply = platformProductionWorkflow.indexOf(
+      "- name: Terraform apply",
+      productionRollbackTarget,
+    );
+    const productionRollbackReadiness = platformProductionWorkflow.indexOf(
+      "- name: Evaluate production rollback readiness",
+    );
+    const productionHelm = platformProductionWorkflow.indexOf("- name: Deploy production Kubernetes release");
+    expect(productionRollbackTarget).toBeLessThan(productionTerraformApply);
+    expect(productionSecret).toBeLessThan(productionTrustIndex);
+    expect(productionTrustIndex).toBeLessThan(productionRollbackReadiness);
+    expect(productionRollbackReadiness).toBeLessThan(productionHelm);
+  });
+
+  it("rolls day-after managed Postgres CA changes through staging before production", () => {
+    const stagingJob = workflowJob(platformProductionWorkflow, "reconcile-managed-postgres-ca-staging");
+    const productionJob = workflowJob(platformProductionWorkflow, "reconcile-managed-postgres-ca-production");
+    const stagingGate = workflowStep(productionJob, "Require successful staging managed Postgres CA reconciliation");
+    const stagingReceipt = workflowStep(stagingJob, "Record successful staging managed Postgres CA reconciliation");
+    const stagingPublish = workflowStep(stagingJob, "Publish successful staging managed Postgres CA reconciliation");
+
+    expect(stagingJob).toContain("environment: staging");
+    expect(stagingJob).toContain("group: platform-deploy-staging");
+    expect(productionJob).toContain("environment: production");
+    expect(productionJob).toContain("group: platform-deploy-production");
+    expect(stagingJob).not.toContain("matrix:");
+    expect(productionJob).not.toContain("matrix:");
+    expect(productionReconciliationNeedsSuccessfulStaging(platformProductionWorkflow)).toBe(true);
+
+    const dependencyLine = "      - reconcile-managed-postgres-ca-staging\n";
+    expect(occurrenceCount(platformProductionWorkflow.replaceAll("\r\n", "\n"), dependencyLine)).toBe(1);
+    const dependencyRemovalMutant = platformProductionWorkflow.replaceAll("\r\n", "\n").replace(dependencyLine, "");
+    expect(productionReconciliationNeedsSuccessfulStaging(dependencyRemovalMutant)).toBe(false);
+
+    expect(stagingGate).toContain("uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131");
+    expect(stagingGate).toContain("name: managed-postgres-ca-staging-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(productionJob.indexOf(stagingGate)).toBeLessThan(productionJob.indexOf("digitalocean/action-doctl"));
+    expect(productionJob.indexOf(stagingGate)).toBeLessThan(
+      productionJob.indexOf(workflowStep(productionJob, "Reconcile day-after managed Postgres CA trust")),
+    );
+
+    for (const [environment, job] of [
+      ["staging", stagingJob],
+      ["production", productionJob],
+    ]) {
+      const trustStep = workflowStep(job, "Reconcile day-after managed Postgres CA trust");
+      const rolloutEvaluation = workflowStep(job, "Evaluate managed Postgres CA pod-template reconciliation");
+      const rolloutStep = workflowStep(job, "Reconcile managed Postgres CA pod templates");
+      expect(trustStep).toContain("uses: ./.github/actions/export-managed-postgres-authority");
+      expect(trustStep).toContain("mode: trust-only-kubernetes-secret");
+      expect(trustStep).toContain(`environment: ${environment}`);
+      expect(rolloutEvaluation).toContain('helm get values "$CHASE_SETS_HELM_RELEASE"');
+      expect(rolloutEvaluation).toContain(".global.managedPostgresCaSha256 // empty");
+      expect(rolloutEvaluation).toContain(
+        'desired="${{ steps.managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}"',
+      );
+      expect(rolloutEvaluation).toContain('if [ "$deployed" = "$desired" ]; then');
+      expect(rolloutEvaluation).toContain('echo "changed=false"');
+      expect(rolloutEvaluation).toContain('echo "changed=true"');
+      expect(rolloutStep).toContain("if: steps.managed_postgres_ca_rollout.outputs.changed == 'true'");
+      expect(rolloutStep).toContain(`--runtime-env "DEPLOYMENT_ENVIRONMENT=${environment}"`);
+    }
+
+    expect(stagingPublish).toContain("uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(stagingPublish).toContain(
+      "name: managed-postgres-ca-staging-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
+    expect(stagingPublish).toContain("if-no-files-found: error");
+    expect(stagingJob.indexOf(stagingReceipt)).toBeLessThan(stagingJob.indexOf(stagingPublish));
+
+    const helmOnlyScope = classifyChanges({
+      changedFiles: ["infrastructure/helm/platform/templates/deployment.yaml"],
+      workspaces: [],
+    });
+    const docsOnlyScope = classifyChanges({
+      changedFiles: ["docs/runbooks/digitalocean-platform-deployment.md"],
+      workspaces: [],
+    });
+    expect(dayAfterManagedPostgresCaJobsAreEligible(platformProductionWorkflow, helmOnlyScope)).toBe(false);
+    expect(dayAfterManagedPostgresCaJobsAreEligible(platformProductionWorkflow, docsOnlyScope)).toBe(true);
+    expect(platformKubernetesDeploymentScript).toContain('"--reuse-values"');
+    expect(platformKubernetesDeploymentScript).toContain('"--no-hooks"');
+  });
+
   it("captures staging wake drill worker status through the internal DOKS worker endpoint", () => {
     const wakeDrillJob = workflowJob(platformStagingWakeDrillsWorkflow, "staging-wake-drill");
     const kubeconfigStep = workflowStep(wakeDrillJob, "Configure staging Kubernetes context");
@@ -919,9 +1148,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(cleanupStep).toContain("if: steps.deploy_lane.outputs.deferred != 'true'");
     expect(cleanupStep).toContain("--retain-recent-sha-tree-tags=25");
     expect(platformRegistryCleanupWorkflow).toContain(
-      "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}",
+      "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || github.event.inputs.dry_run }}",
     );
-    expect(cleanupStep).toContain('--dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN}"');
+    expect(cleanupStep).toContain('--dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_RESOLVED_DRY_RUN}"');
     expect(cleanupStep).toContain("--out artifacts/release-health/digitalocean-registry-cleanup.json");
     expect(cleanupStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN }}");
     expect(validateStep).toContain("if: ${{ always() }}");
@@ -1148,10 +1377,14 @@ describe("DigitalOcean platform configuration", () => {
       expect(job).toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
     }
 
-    for (const job of [dbProfileJob, e2eJob]) {
-      expect(job).toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
-      expect(job).toContain("needs['change-scope'].outputs.integration_risk_required == 'true'");
-    }
+    expect(workflowJobCondition(platformPrWorkflow, "db-tests")).toBe(
+      "needs['change-scope'].outputs.db_tests == 'true'",
+    );
+    expect(dbProfileJob).not.toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
+    expect(dbProfileJob).not.toContain("needs['change-scope'].outputs.integration_risk_required == 'true'");
+    expect(workflowJobCondition(platformPrWorkflow, "e2e-tests")).toBe(
+      "(needs['change-scope'].outputs.full_battery_required == 'true' || needs['change-scope'].outputs.integration_risk_required == 'true') && needs['change-scope'].outputs.e2e_tests == 'true'",
+    );
 
     expect(terraformObservabilityJob).toContain("if: needs['change-scope'].outputs.terraform == 'true'");
     expect(terraformObservabilityJob).not.toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
@@ -1179,7 +1412,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(requiredJob).toContain(
       "targeted_heavy_required=\"${{ needs['change-scope'].outputs.targeted_heavy_required }}\"",
     );
-    expect(requiredJob).toContain('require_targeted_heavy_job "DB Profile Tests"');
+    expect(requiredJob).toContain('require_job "DB Profile Tests"');
+    expect(requiredJob).not.toContain('require_targeted_heavy_job "DB Profile Tests"');
     expect(requiredJob).toContain('require_targeted_heavy_job "E2E Tests"');
     expect(requiredJob).toContain('require_heavy_job "Build"');
     expect(requiredJob).toContain('require_heavy_job "Docker Image Build"');
@@ -1188,6 +1422,212 @@ describe("DigitalOcean platform configuration", () => {
     expect(requiredJob).toContain('require_heavy_job "Terraform Production Plan"');
     expect(requiredJob).toContain('require_job "Terraform Observability Plan"');
     expect(requiredJob).toContain('require_job "Workflow Lint"');
+  });
+
+  it("derives isolated DB admission and unchanged E2E admission from the workflow text", () => {
+    const dbCondition = workflowJobCondition(platformPrWorkflow, "db-tests");
+    const e2eCondition = workflowJobCondition(platformPrWorkflow, "e2e-tests");
+    const overlapValues = {
+      "needs['change-scope'].outputs.full_battery_required": "false",
+      "needs['change-scope'].outputs.integration_risk_required": "false",
+      "needs['change-scope'].outputs.db_tests": "true",
+      "needs['change-scope'].outputs.e2e_tests": "true",
+    };
+
+    expect(evaluateWorkflowBooleanExpression(dbCondition, overlapValues)).toBe(true);
+    expect(evaluateWorkflowBooleanExpression(e2eCondition, overlapValues)).toBe(false);
+    expect(dbCondition).toBe("needs['change-scope'].outputs.db_tests == 'true'");
+    expect(e2eCondition).toBe(
+      "(needs['change-scope'].outputs.full_battery_required == 'true' || needs['change-scope'].outputs.integration_risk_required == 'true') && needs['change-scope'].outputs.e2e_tests == 'true'",
+    );
+
+    const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
+    expect(dbProfileJob).toContain("timeout-minutes: 20");
+    expect(dbProfileJob).toContain("image: pgvector/pgvector:pg16");
+    expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
+    expect(dbProfileJob).toContain("target_max_locks_per_transaction=512");
+    expect(dbProfileJob).toContain(
+      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}"',
+    );
+    expect(readFileSync(resolve("package.json"), "utf8")).toContain(
+      '"verify:test-db": "node ./scripts/db-test-preflight.mjs && node ./scripts/run-workspaces.mjs \\"test:db*\\" --concurrency=2"',
+    );
+  });
+
+  it("evaluates the preview DB prerequisite truth table and retained-bypass mutant from workflow text", () => {
+    const previewCondition = workflowJobCondition(platformPrWorkflow, "preview-deploy-smoke");
+    const dbPrerequisite = workflowPrerequisite(previewCondition, "db_tests", "db-tests");
+    const e2ePrerequisite = workflowPrerequisite(previewCondition, "e2e_tests", "e2e-tests");
+    const expectedPreviewCondition = `
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs['change-scope'].result == 'success' &&
+      (needs['change-scope'].outputs.cluster_preview == 'true' ||
+       contains(github.event.pull_request.labels.*.name, 'preview')) &&
+      (needs['change-scope'].outputs.local_checks != 'true' || needs.static.result == 'success') &&
+      needs.typecheck.result == 'success' &&
+      (needs['change-scope'].outputs.unit_tests != 'true' || needs['unit-tests'].result == 'success') &&
+      (needs['change-scope'].outputs.db_tests != 'true' || needs['db-tests'].result == 'success') &&
+      (needs['change-scope'].outputs.full_battery_required != 'true' ||
+       needs['change-scope'].outputs.e2e_tests != 'true' ||
+       needs['e2e-tests'].result == 'success') &&
+      (needs['change-scope'].outputs.full_battery_required != 'true' ||
+       needs['change-scope'].outputs.build != 'true' ||
+       needs.build.result == 'success') &&
+      (needs['change-scope'].outputs.full_battery_required != 'true' ||
+       needs['change-scope'].outputs.docker_image != 'true' ||
+       needs['docker-image'].result == 'success') &&
+      (needs['change-scope'].outputs.workflow_lint != 'true' || needs['workflow-lint'].result == 'success') &&
+      (needs['change-scope'].outputs.full_battery_required != 'true' ||
+       needs['change-scope'].outputs.terraform != 'true' ||
+       (needs['terraform-preview-plan'].result == 'success' &&
+        needs['terraform-staging-plan'].result == 'success' &&
+        needs['terraform-production-plan'].result == 'success'))
+    `
+      .replace(/\s+/g, " ")
+      .trim();
+
+    expect(previewCondition.replace(/\s+/g, " ").trim()).toBe(expectedPreviewCondition);
+    expect(dbPrerequisite).toBe(
+      "(needs['change-scope'].outputs.db_tests != 'true' || needs['db-tests'].result == 'success')",
+    );
+    expect(e2ePrerequisite).toBe(
+      "(needs['change-scope'].outputs.full_battery_required != 'true' || needs['change-scope'].outputs.e2e_tests != 'true' || needs['e2e-tests'].result == 'success')",
+    );
+
+    const results = ["failure", "skipped", "cancelled", "success"];
+    const truthTable = [];
+    for (const dbTests of ["true", "false"]) {
+      for (const result of results) {
+        const admitted = evaluateWorkflowBooleanExpression(dbPrerequisite, {
+          "needs['change-scope'].outputs.db_tests": dbTests,
+          "needs['db-tests'].result": result,
+        });
+        truthTable.push({ dbTests, result, admitted });
+        expect(admitted).toBe(dbTests === "true" ? result === "success" : true);
+      }
+    }
+
+    const retainedBypassMutant =
+      "(needs['change-scope'].outputs.full_battery_required != 'true' || needs['change-scope'].outputs.db_tests != 'true' || needs['db-tests'].result == 'success')";
+    const retainedBypassMutantAdmitsFailure = evaluateWorkflowBooleanExpression(retainedBypassMutant, {
+      "needs['change-scope'].outputs.full_battery_required": "false",
+      "needs['change-scope'].outputs.db_tests": "true",
+      "needs['db-tests'].result": "failure",
+    });
+    expect(retainedBypassMutantAdmitsFailure).toBe(true);
+    expect(
+      evaluateWorkflowBooleanExpression(dbPrerequisite, {
+        "needs['change-scope'].outputs.db_tests": "true",
+        "needs['db-tests'].result": "failure",
+      }),
+    ).toBe(false);
+    console.info("hosted-db preview truth table", truthTable);
+    console.info("hosted-db retained-preview-bypass mutant", { retainedBypassMutantAdmitsFailure });
+  });
+
+  it("evaluates DB aggregation truth tables and the retained-targeted-lane mutant from gate shell text", () => {
+    const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
+    const dbCall = workflowRequiredCall(requiredJob, "DB Profile Tests");
+    const e2eCall = workflowRequiredCall(requiredJob, "E2E Tests");
+    const requireJobFunction = workflowShellFunction(requiredJob, "require_job");
+    const targetedHelper = workflowShellFunction(requiredJob, "require_targeted_heavy_job");
+
+    expect(dbCall.line).toBe(
+      'require_job "DB Profile Tests" "${{ needs[\'db-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.db_tests }}"',
+    );
+    expect(e2eCall.line).toBe(
+      'require_targeted_heavy_job "E2E Tests" "${{ needs[\'e2e-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.e2e_tests }}"',
+    );
+    expect(requireJobFunction).toBe(`          require_job() {
+            local name="$1"
+            local result="$2"
+            local required="$3"
+
+            if [ "$required" = "true" ]; then
+              if [ "$result" != "success" ]; then
+                echo "\${name} was required but finished with result '\${result}'." >&2
+                exit 1
+              fi
+              return
+            fi
+
+            if [ "$result" != "skipped" ] && [ "$result" != "success" ]; then
+              echo "\${name} was not required but finished with unexpected result '\${result}'." >&2
+              exit 1
+            fi
+          }`);
+    expect(targetedHelper).toBe(`          require_targeted_heavy_job() {
+            local name="$1"
+            local result="$2"
+            local affected="$3"
+
+            if [ "$targeted_heavy_required" = "true" ] && [ "$affected" = "true" ]; then
+              require_job "$name" "$result" "true"
+              return
+            fi
+
+            require_job "$name" "$result" "false"
+          }`);
+
+    const expectedRequiredCalls = [
+      'require_job "Known Failure Guard" "${{ needs[\'known-failure-guard\'].result }}" "true"',
+      'require_job "Change Scope" "${{ needs[\'change-scope\'].result }}" "true"',
+      'require_job "Static Checks" "${{ needs.static.result }}" "${{ needs[\'change-scope\'].outputs.local_checks }}"',
+      'require_job "Typecheck" "${{ needs.typecheck.result }}" "true"',
+      'require_job "Unit Tests" "${{ needs[\'unit-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.unit_tests }}"',
+      'require_job "Workflow Lint" "${{ needs[\'workflow-lint\'].result }}" "${{ needs[\'change-scope\'].outputs.workflow_lint }}"',
+      dbCall.line,
+      e2eCall.line,
+      'require_heavy_job "Build" "${{ needs.build.result }}" "${{ needs[\'change-scope\'].outputs.build }}"',
+      'require_heavy_job "Docker Image Build" "${{ needs[\'docker-image\'].result }}" "${{ needs[\'change-scope\'].outputs.docker_image }}"',
+      'require_heavy_job "Terraform Preview Plan" "${{ needs[\'terraform-preview-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
+      'require_heavy_job "Terraform Staging Plan" "${{ needs[\'terraform-staging-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
+      'require_heavy_job "Terraform Production Plan" "${{ needs[\'terraform-production-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
+      'require_job "Terraform Observability Plan" "${{ needs[\'terraform-observability-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
+    ];
+    const actualRequiredCalls = requiredJob
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => /^require(?:_targeted_heavy|_heavy)?_job "[A-Z]/.test(line));
+    expect(actualRequiredCalls).toEqual(expectedRequiredCalls);
+
+    const truthTable = [];
+    for (const dbTests of ["true", "false"]) {
+      for (const result of ["failure", "skipped", "cancelled", "success"]) {
+        const admitted = evaluateRequiredWorkflowCall(dbCall, {
+          targetedHeavyRequired: false,
+          templateValues: {
+            "needs['db-tests'].result": result,
+            "needs['change-scope'].outputs.db_tests": dbTests,
+          },
+        });
+        truthTable.push({ dbTests, result, admitted });
+        expect(admitted).toBe(dbTests === "true" ? result === "success" : result === "skipped" || result === "success");
+      }
+    }
+
+    const retainedTargetedMutant = { ...dbCall, helper: "require_targeted_heavy_job" };
+    const mutantAdmitsFastLaneSkip = evaluateRequiredWorkflowCall(retainedTargetedMutant, {
+      targetedHeavyRequired: false,
+      templateValues: {
+        "needs['db-tests'].result": "skipped",
+        "needs['change-scope'].outputs.db_tests": "true",
+      },
+    });
+    expect(mutantAdmitsFastLaneSkip).toBe(true);
+    expect(
+      evaluateRequiredWorkflowCall(dbCall, {
+        targetedHeavyRequired: false,
+        templateValues: {
+          "needs['db-tests'].result": "skipped",
+          "needs['change-scope'].outputs.db_tests": "true",
+        },
+      }),
+    ).toBe(false);
+    console.info("hosted-db PR Required aggregation truth table", truthTable);
+    console.info("hosted-db retained-targeted-lane mutant", { mutantAdmitsFastLaneSkip });
   });
 
   it("requires preview deploy and smoke for deploy-scoped same-repository PRs without blocking forks", () => {
@@ -1885,6 +2325,68 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
+  it("bounds production stale pending-upgrade recovery to the exact #7504 main workflow", () => {
+    const recoveryJob = workflowJob(
+      platformProductionStaleHelmRecoveryWorkflow,
+      "recover-production-stale-helm-upgrade",
+    );
+    const authenticateStep = workflowStep(recoveryJob, "Authenticate immutable recovery identities");
+    const contextStep = workflowStep(recoveryJob, "Configure production Kubernetes context");
+    const ociStep = workflowStep(recoveryJob, "Authenticate production OCI identity");
+    const recoverStep = workflowStep(recoveryJob, "Recover exact stable stale pending-upgrade frontier");
+    const verifyIdentitiesStep = workflowStep(recoveryJob, "Verify immutable identities after recovery");
+    const uploadStep = workflowStep(recoveryJob, "Upload production stale Helm recovery evidence");
+
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("group: platform-registry-mutation");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("cancel-in-progress: false");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("actions: read");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("recover issue 7504 stale pending upgrade");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain(
+      "https://github.com/chase-sets/chase-sets/issues/7504",
+    );
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("github.ref != 'refs/heads/main'");
+    expect(recoveryJob).toContain("environment: production");
+    expect(recoveryJob).not.toMatch(/branches\/main\/protection|deployment-branch-policies|can_admins_bypass/);
+    expect(recoveryJob).not.toMatch(/recovery-authority|recovery-retry|prevent_self_review|required_reviewers/);
+
+    expect(authenticateStep).toContain("git/ref/heads/main");
+    expect(authenticateStep).toContain('if [ "$GITHUB_SHA" != "$current_main" ]');
+    expect(authenticateStep).toContain('marker_commit="$(git rev-parse origin/production)"');
+    expect(authenticateStep).toContain('if [ "$marker_commit" != "$RECOVERY_MARKER_COMMIT" ]');
+    expect(authenticateStep).toContain('tag_commit="$(git rev-list -n 1 "$RECOVERY_RELEASE_TAG")"');
+    expect(contextStep).toContain("doks/production.tfstate");
+    expect(contextStep).toContain("terraform output -raw cluster_id");
+    expect(contextStep).toContain("terraform output -raw cluster_name");
+    expect(contextStep).not.toMatch(/terraform\s+(?:apply|destroy)|helm\s+(?:rollback|upgrade|uninstall)/);
+
+    expect(ociStep).toContain('if [ "$registry_name" != "chase-sets" ]');
+    expect(ociStep).toContain('if [ "$index_digest" != "$RECOVERY_OCI_INDEX_DIGEST" ]');
+    expect(ociStep).toContain("docker buildx imagetools inspect");
+    expect(recoverStep).toContain("recover-stale-pending-upgrade");
+    expect(recoverStep).toContain('--revision "$RECOVERY_SOURCE_REVISION"');
+    expect(recoverStep).toContain('--pending-revision "$RECOVERY_PENDING_REVISION"');
+    expect(recoverStep).toContain('--source-description "$RECOVERY_SOURCE_DESCRIPTION"');
+    expect(recoverStep).toContain('--pending-description "$RECOVERY_PENDING_DESCRIPTION"');
+    expect(recoverStep).toContain('--admission-out "$evidence_dir/admission.json"');
+    expect(recoverStep).toContain('--out "$evidence_dir/recovery.json"');
+    expect(recoverStep).not.toMatch(/helm\s+(?:rollback|upgrade|uninstall)|kubectl\s+(?:patch|delete)/);
+    expect(verifyIdentitiesStep).toContain('if [ "$marker_commit" != "$RECOVERY_MARKER_COMMIT" ]');
+    expect(verifyIdentitiesStep).toContain('[ "$index_digest" != "$RECOVERY_OCI_INDEX_DIGEST" ]');
+    expect(verifyIdentitiesStep).toContain(
+      '[ "${{ steps.recover.outputs.recovery_observed_digest }}" != "$RECOVERY_PLATFORM_DIGEST" ]',
+    );
+
+    const orderedSteps = [authenticateStep, contextStep, ociStep, recoverStep, verifyIdentitiesStep, uploadStep];
+    expect(orderedSteps.map((step) => recoveryJob.indexOf(step))).toEqual(
+      [...orderedSteps].map((step) => recoveryJob.indexOf(step)).sort((left, right) => left - right),
+    );
+    expect(uploadStep).toContain("if: always()");
+    expect(uploadStep).toContain("if-no-files-found: error");
+    expect(uploadStep).toContain(
+      "platform-production-stale-helm-recovery-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
+  });
+
   it("captures production rollback identity before mutation and passes the exact successful revision", () => {
     const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
     const captureStep = workflowStep(productionJob, "Capture production rollback target");
@@ -1893,8 +2395,11 @@ describe("DigitalOcean platform configuration", () => {
     const releaseStateStep = workflowStep(productionJob, "Resolve terminal release state");
     const releaseHealthStep = workflowStep(productionJob, "Write release health summary");
 
-    expect(platformProductionWorkflow.indexOf("- name: Capture production rollback target")).toBeLessThan(
-      platformProductionWorkflow.indexOf("- name: Deploy production Kubernetes release"),
+    expect(productionJob.indexOf("- name: Capture production rollback target")).toBeLessThan(
+      productionJob.indexOf("- name: Terraform apply"),
+    );
+    expect(productionJob.indexOf("- name: Reconcile production managed Postgres CA trust")).toBeLessThan(
+      productionJob.indexOf("- name: Evaluate production rollback readiness"),
     );
     expect(captureStep).toContain("capture-rollback-target");
     expect(captureStep).toContain('--tag="$last_known_good_commit"');
@@ -1920,6 +2425,61 @@ describe("DigitalOcean platform configuration", () => {
     expect(releaseHealthStep).toContain(
       "ROLLBACK_WORKLOAD_IDENTITIES: ${{ steps.production_rollback.outputs.rollback_workload_identities || '[]' }}",
     );
+  });
+
+  it("verifies and uploads the exact production Kubernetes transition before every failure handler and marker", () => {
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const promoteStep = workflowStep(productionJob, "Promote production Argo Rollouts");
+    const verifyStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
+    const uploadStep = workflowStep(productionJob, "Upload production Kubernetes deployment transition");
+    const abortStep = workflowStep(productionJob, "Abort production Argo Rollouts");
+    const diagnosticsStep = workflowStep(productionJob, "Capture post-cutover production Kubernetes diagnostics");
+    const rollbackStep = workflowStep(productionJob, "Roll back production Kubernetes release");
+    const markerStep = workflowStep(productionJob, "Mark production release");
+    const releaseHealthUpload = workflowStep(productionJob, "Upload release health summary");
+
+    const orderedSteps = [promoteStep, verifyStep, uploadStep, abortStep, diagnosticsStep, rollbackStep, markerStep];
+    expect(orderedSteps.map((step) => productionJob.indexOf(step))).toEqual(
+      [...orderedSteps].map((step) => productionJob.indexOf(step)).sort((left, right) => left - right),
+    );
+    expect(productionJob.indexOf('echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"')).toBeLessThan(
+      productionJob.indexOf(verifyStep),
+    );
+
+    expect(verifyStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
+    expect(verifyStep).not.toContain("ARGO_ROLLOUTS_ENABLED == 'true'");
+    expect(verifyStep).toContain("verify-deployment-transition");
+    expect(verifyStep).toContain('--rollback-target "artifacts/release-health/production-rollback-target.json"');
+    expect(verifyStep).toContain('--out "artifacts/release-health/production-kubernetes-deployment-transition.json"');
+    expect(verifyStep).not.toMatch(/DIGITALOCEAN_ACCESS_TOKEN|SPACES_ACCESS_ID|SPACES_SECRET_KEY|TF_VAR_/);
+
+    expect(uploadStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
+    expect(uploadStep).not.toContain("ARGO_ROLLOUTS_ENABLED == 'true'");
+    expect(uploadStep).toContain("uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(uploadStep).toContain("name: production-kubernetes-deployment-transition");
+    expect(uploadStep).toContain("path: artifacts/release-health/production-kubernetes-deployment-transition.json");
+    expect(uploadStep).toContain("if-no-files-found: error");
+    expect(uploadStep).not.toMatch(/DIGITALOCEAN_ACCESS_TOKEN|SPACES_ACCESS_ID|SPACES_SECRET_KEY|TF_VAR_/);
+    expect(releaseHealthUpload).toContain("artifacts/release-health/production-kubernetes-deployment-transition.json");
+  });
+
+  it("keeps deployment-transition verification out of staging, rollback, and incident-resolution call sites", () => {
+    for (const workflow of [
+      platformStagingHelmRecoveryWorkflow,
+      platformStagingRollbackDrillWorkflow,
+      platformRollbackReadinessWorkflow,
+    ]) {
+      expect(workflow).not.toContain("verify-deployment-transition");
+    }
+
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const rollbackStep = workflowStep(productionJob, "Roll back production Kubernetes release");
+    expect(rollbackStep).toContain("platform:kubernetes-deployment -- rollback");
+    expect(rollbackStep).not.toContain("verify-deployment-transition");
+
+    const incidentJob = workflowJob(platformProductionWorkflow, "close-resolved-deploy-incidents");
+    expect(incidentJob).toContain('startswith("Incident: Platform Deploy ")');
+    expect(incidentJob).not.toContain("verify-deployment-transition");
   });
 
   it("runs the database restore drill as a confirmed staging-only monthly workflow", () => {
@@ -2137,7 +2697,15 @@ describe("DigitalOcean platform configuration", () => {
       "Seed staging Kubernetes scenario data",
     );
     const stagingBuyNowProbesStep = workflowStep(platformProductionWorkflow, "Staging Buy Now freshness probes");
+    const stagingBlockingProbeEvidenceStep = workflowStep(
+      platformProductionWorkflow,
+      "Upload staging blocking probe release-health evidence",
+    );
     const stagingBuyNowEvidenceStep = workflowStep(platformProductionWorkflow, "Upload staging Buy Now probe evidence");
+    const stagingAdvisoryEvidenceUploadStep = workflowStep(
+      platformStagingAdvisoryEvidenceWorkflow,
+      "Upload staging advisory evidence",
+    );
     const stagingAccountCartCanaryStep = workflowStep(
       platformProductionWorkflow,
       "Staging account-cart freshness canary",
@@ -2182,6 +2750,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(advisoryEvidenceJob).toContain('"scenario-seed"');
     expect(advisoryEvidenceJob).toContain('"marketplace-e2e"');
     expect(advisoryEvidenceJob).toContain("failedPhases:$failedPhases");
+    expect(stagingAdvisoryEvidenceUploadStep).toContain("if: always()");
+    expect(stagingAdvisoryEvidenceUploadStep).not.toContain("if: failure()");
+    expect(stagingAdvisoryEvidenceUploadStep).toContain("path: artifacts/staging-advisory-evidence/summary.json");
+    expect(stagingAdvisoryEvidenceUploadStep).toContain("if-no-files-found: error");
+    expect(stagingAdvisoryEvidenceUploadStep).toContain("retention-days: 30");
+    expect(stagingAdvisoryEvidenceUploadStep).not.toContain("artifacts/playwright");
     expect(advisoryEvidenceJob.indexOf("- name: Upload staging advisory evidence")).toBeLessThan(
       advisoryEvidenceJob.indexOf("- name: Fail scenario-seed advisory signal"),
     );
@@ -2291,6 +2865,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowProbesStep).toContain("--flow account");
     expect(stagingBuyNowProbesStep).toContain("artifacts/release-health/guest-buy-now-freshness-probe.json");
     expect(stagingBuyNowProbesStep).toContain("artifacts/release-health/account-buy-now-freshness-probe.json");
+    expect(stagingBlockingProbeEvidenceStep).toContain("if: failure()");
+    expect(stagingBlockingProbeEvidenceStep).toContain("name: staging-blocking-probe-playwright-artifacts");
+    expect(stagingBlockingProbeEvidenceStep).toContain("artifacts/release-health/guest-buy-now-freshness-probe.json");
+    expect(stagingBlockingProbeEvidenceStep).toContain("artifacts/release-health/account-buy-now-freshness-probe.json");
+    expect(stagingBlockingProbeEvidenceStep).not.toContain("artifacts/playwright");
     expect(stagingBuyNowProbesStep).toContain("guest_failure_reason=");
     expect(stagingBuyNowProbesStep).toContain("account_failure_reason=");
     expect(stagingBuyNowProbesStep).toContain(

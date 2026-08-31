@@ -22,6 +22,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Flag,
   Flame,
   Grid2X2,
   Heart,
@@ -112,6 +113,7 @@ export type IconName =
   | "eyeOff"
   | "home"
   | "bell"
+  | "flag"
   | "message"
   | "help"
   | "calendar"
@@ -201,6 +203,7 @@ const iconMap: Record<IconName, LucideIcon> = {
   eyeOff: EyeOff,
   home: Home,
   bell: Bell,
+  flag: Flag,
   message: MessageSquare,
   help: CircleHelp,
   calendar: CalendarDays,

@@ -26,7 +26,11 @@ export type {
   InventoryListingStockSnapshot,
   InventoryHold,
   InventoryItemLedgerEntry,
+  InventoryOfflineSaleRequest,
+  InventoryOfflineSaleResult,
 } from "./features/inventory-items/api/contracts";
+export { inventoryOfflineSaleChannels } from "@chase-sets/event-core/public-event-payloads";
+export type { InventoryOfflineSaleChannel } from "@chase-sets/event-core/public-event-payloads";
 export type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
 export type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
 export type { InventoryRecoveredItemRow } from "./features/recovered-items/read-model/queries";
@@ -35,6 +39,8 @@ import type {
   InventoryEnsuredListingStock,
   InventoryItemDetail,
   InventoryItemListItem,
+  InventoryOfflineSaleRequest,
+  InventoryOfflineSaleResult,
 } from "./features/inventory-items/api/contracts";
 import type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
 import type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
@@ -265,6 +271,15 @@ export function createInventoryApiClient({
     async adjustItem(id: string, body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.items[":id"].adjustments.$post({
+          param: { id },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async recordOfflineSale(id: string, body: InventoryOfflineSaleRequest): Promise<InventoryOfflineSaleResult> {
+      return parseJsonResponse(
+        await client.items[":id"]["offline-sales"].$post({
           param: { id },
           json: body,
           header: headers,

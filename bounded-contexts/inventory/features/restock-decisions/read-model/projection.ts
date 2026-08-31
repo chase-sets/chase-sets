@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export function buildInventoryRestockDecisionProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -90,15 +91,9 @@ export function buildInventoryRestockDecisionProjectionHandlers(db: PgQueryable)
 }
 
 export function buildInventoryFulfillmentSourceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
-  return {
+  return defineProjectorHandlers<Pick<ChaseSetsEventPayloads, "fulfillment.shipment.created">>({
     "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        buyerAccountId: string;
-        sellerAccountId: string;
-        createdAt: string;
-      };
+      const { data } = event;
 
       await db.query(
         `INSERT INTO inventory_fulfillment_shipment_sources (
@@ -117,5 +112,5 @@ export function buildInventoryFulfillmentSourceProjectionHandlers(db: PgQueryabl
         [data.shipmentId, data.orderId, data.buyerAccountId, data.sellerAccountId, data.createdAt],
       );
     },
-  };
+  });
 }

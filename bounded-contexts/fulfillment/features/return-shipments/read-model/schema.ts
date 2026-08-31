@@ -178,7 +178,12 @@ CREATE TABLE IF NOT EXISTS fulfillment_return_shipment_provider_events (
   occurred_at timestamptz NOT NULL,
   received_at timestamptz NOT NULL,
   processing_result text NOT NULL,
-  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb
+  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  payload_hash text NULL,
+  handoff_state text NOT NULL DEFAULT 'completed',
+  claim_token text NULL,
+  claim_generation integer NOT NULL DEFAULT 0,
+  claim_expires_at timestamptz NULL
 );
 
 CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_provider_events_shipment_idx
@@ -186,6 +191,18 @@ CREATE INDEX IF NOT EXISTS fulfillment_return_shipment_provider_events_shipment_
 `;
 
 export const fulfillmentReturnShipmentSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260823_fulfillment_return_shipment_webhook_handoff_v1",
+    description: "Seal reverse-tracking webhook identity, payload hash, and claim handoff before effects.",
+    statements: [
+      `ALTER TABLE fulfillment_return_shipment_provider_events
+         ADD COLUMN IF NOT EXISTS payload_hash text NULL,
+         ADD COLUMN IF NOT EXISTS handoff_state text NOT NULL DEFAULT 'completed',
+         ADD COLUMN IF NOT EXISTS claim_token text NULL,
+         ADD COLUMN IF NOT EXISTS claim_generation integer NOT NULL DEFAULT 0,
+         ADD COLUMN IF NOT EXISTS claim_expires_at timestamptz NULL`,
+    ],
+  },
   {
     migrationId: "20260718_fulfillment_return_shipment_label_columns",
     description: "Converge existing Return Shipment customer and operator pages on label and postage details.",

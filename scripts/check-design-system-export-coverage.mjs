@@ -108,6 +108,7 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "EvidenceList",
   "EvidencePanel",
   "EvidenceStringList",
+  "Eyebrow",
   "FeatureCard",
   "Field",
   "Fieldset",

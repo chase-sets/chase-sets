@@ -127,6 +127,11 @@ export type ReadStreamInput = Readonly<{
 
 export type ReadAllInput = Readonly<{
   afterGlobalPosition?: GlobalPosition;
+  /**
+   * Inclusive reconciliation horizon. When supplied, the store refuses the
+   * read if this position is above its current gap-safe head.
+   */
+  atOrBeforeGlobalPosition?: GlobalPosition;
   tenantId?: TenantId;
   eventTypes?: readonly string[];
   streamPrefixes?: readonly string[];

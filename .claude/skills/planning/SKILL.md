@@ -77,6 +77,15 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    - every child **attached as a sub-issue** of its epic (one parent per slice);
    - every chain link recorded as a **GitHub issue dependency**, not only as a
      `Blocked by #N` line;
+   - when a replacement round dispositions a predecessor, before removing its
+     parent link in the same registration pass, confirm that the predecessor's
+     disposition is already recorded, exactly one durable disposition comment
+     or record names the successor set, and every successor carries a
+     reverse-reference to the predecessor; first attach every successor that
+     carries the parent's acceptance as a child of that parent; only after every
+     attached successor carries that parentage, detach the predecessor from the
+     parent in the same registration pass. If no successor is attached to the
+     parent, keep the predecessor's parent link;
    - every open slice classified (`refined ≡ classified`) with a wave milestone
      + `priority:*` + `area:*` + `kind:*`, excluding Epics,
      `status:tracking-only`, `Deferred / Incubation`, and `Operations` (the
@@ -124,9 +133,11 @@ Then run the normal pipeline with three changes:
   for *sibling* issues; adjacency is not coverage. #6105 and #6106 replaced
   #6058, and reading them as covering #5684 would have silently dropped consent
   bundle content, activation authority, and the affirmation UI.
-- **Decomposition answers the findings explicitly.** Each blocking finding maps
-  to a slice, an accepted constraint written into the issue text, or a stated
-  reason it no longer applies at current main.
+- **Decomposition preserves the findings' properties.** Each blocking finding
+  maps to a slice, an accepted constraint written into the issue text, or a
+  stated reason it no longer applies at current main. A reviewer's prescribed
+  remedy is a correctness floor, not a mandated architecture; when the remedy
+  adds machinery, record the smaller alternative considered.
 - **The pressure test is mandatory**, not tier-dependent. This plan already
   failed once.
 

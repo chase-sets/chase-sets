@@ -50,7 +50,9 @@ const schedulerOwnedArtifacts = new Set([
   "scripts/fixtures/workspace-unit-duration-replay-v1.json",
 ]);
 const deploymentScriptPatterns = [
+  /^\.github\/workflows\/platform-production-stale-helm-recovery\.yml$/,
   /^scripts\/digitalocean-/,
+  /^scripts\/platform-kubernetes-deployment\.mjs$/,
   /^scripts\/platform-smoke/,
   /^scripts\/stripe-money-smoke-test/,
   /^scripts\/apply-digitalocean-database-grant\.mjs$/,
@@ -366,7 +368,7 @@ export function classifyChanges({
   const runtimeChanged = runtimeAffectedWorkspaces.length > 0 || rootRuntimeChanged;
   const dockerImageRequired = runtimeChanged || dockerChanged;
   const terraformRequired = terraformChanged || deploymentScriptChanged;
-  const deployRequired = dockerImageRequired || deploymentScriptChanged || previewDeployTerraformChanged;
+  const deployRequired = dockerImageRequired || deploymentScriptChanged || previewDeployTerraformChanged || helmChanged;
   // Cluster-preview scoping: narrower than `deployRequired` above.
   // Deploy surfaces (Helm, preview-relevant Terraform, the Dockerfile,
   // deployment/DOKS/ingress/secret scripts, and platform-*.yml workflows)

@@ -1,4 +1,4 @@
-export { default as contextManifest } from "./context.json";
+export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
   buildEventReactionsFromManifest,
@@ -7,7 +7,7 @@ import {
   type BcContextManifest,
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import contextManifest from "./context.json";
+import contextManifest from "./context.json" with { type: "json" };
 import { marketplaceRetentionExemptions, marketplaceRetentionSweeps } from "./support/runtime-support/retention-policy";
 import {
   buildMarketplaceAccountProjectionHandlers,

@@ -23,6 +23,7 @@ global:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  managedPostgresCaSha256: ""
 observability:
   enabled: false
   environment: ""
@@ -157,6 +158,7 @@ components:
           - 50
           - 100
         pauseAfterWeight: 10
+    managedPostgresCa: false
   marketplace:
     enabled: true
     kind: "service"
@@ -232,6 +234,7 @@ components:
           - 50
           - 100
         pauseAfterWeight: 10
+    managedPostgresCa: true
   admin-web:
     enabled: true
     kind: "service"
@@ -264,6 +267,7 @@ components:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 6
+    managedPostgresCa: false
   platform-api:
     enabled: true
     kind: "service"
@@ -563,6 +567,7 @@ components:
           - 50
           - 100
         pauseAfterWeight: 10
+    managedPostgresCa: true
   platform-worker:
     enabled: true
     kind: "worker"
@@ -881,6 +886,7 @@ components:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 6
+    managedPostgresCa: true
   platform-bootstrap:
     enabled: true
     kind: "job"
@@ -1059,3 +1065,4 @@ components:
         pollIntervalMs: 2000
         restoreOnFailure: true
         ignoreMissingDeployments: true
+    managedPostgresCa: true

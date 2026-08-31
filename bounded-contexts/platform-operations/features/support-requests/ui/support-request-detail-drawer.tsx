@@ -626,13 +626,13 @@ function OtherActions({
       <Stack gap={4}>
         {canMutate
           ? alternateActions.map((action) => (
-              <Surface key={action} tone="muted">
+              <Surface key={action} tone="muted" elevation="tinted" data-elevation-role="furniture">
                 <OperatorActionForm action={action} request={request} actionHref={actionHref} />
               </Surface>
             ))
           : null}
         {canMutate ? (
-          <Surface tone="muted">
+          <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
             <RouterForm method="post" action={actionHref} spacing="md" data-support-action="note">
               <HiddenInput name="intent" value="note" readOnly />
               <Textarea
@@ -650,7 +650,7 @@ function OtherActions({
           </Surface>
         ) : null}
         {request.status === "resolved" ? (
-          <Surface tone="muted">
+          <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
             <RouterForm method="post" action={actionHref} spacing="md" data-support-action="close">
               <HiddenInput name="intent" value="close" readOnly />
               <Text size="sm" tone="secondary">
@@ -674,7 +674,7 @@ function OtherActions({
           </Surface>
         ) : null}
         {canMutate ? (
-          <Surface tone="muted">
+          <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
             <RouterForm method="post" action={actionHref} spacing="md" data-support-action="cancel">
               <HiddenInput name="intent" value="cancel" readOnly />
               <Textarea
@@ -735,12 +735,12 @@ export function EntityDetailDrawer({
     >
       <Stack gap={5}>
         {successMessage ? (
-          <Surface tone="muted">
+          <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
             <Badge tone="success">{successMessage}</Badge>
           </Surface>
         ) : null}
         {actionError ? (
-          <Surface tone="muted">
+          <Surface tone="muted" elevation="tinted" data-elevation-role="furniture">
             <Badge tone="danger">{actionError}</Badge>
           </Surface>
         ) : null}
@@ -774,7 +774,7 @@ export function EntityDetailDrawer({
         />
 
         {!isTerminalStatus(request.status) && (request.contested || request.status === "ready-for-support") ? (
-          <Surface>
+          <Surface elevation="tinted" data-elevation-role="furniture">
             <CaseAdjudicationPanel request={request} />
           </Surface>
         ) : null}
@@ -784,7 +784,12 @@ export function EntityDetailDrawer({
             <Text weight="semibold">
               {t("support.features.supportRequests.ui.supportOperationsPage.recommendedAction")}
             </Text>
-            <Surface tone="muted" data-support-primary-action={primaryAction}>
+            <Surface
+              tone="muted"
+              elevation="tinted"
+              data-elevation-role="furniture"
+              data-support-primary-action={primaryAction}
+            >
               <OperatorActionForm action={primaryAction} request={request} actionHref={actionHref} />
             </Surface>
           </Stack>

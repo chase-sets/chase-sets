@@ -111,7 +111,7 @@ describe("platform worker projection wake interest graph", () => {
 
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
       count: 227,
-      sha256: "0a4bda462dda5aace7f8b1f033fcf928212f8c007d42fdd9e48e4b6e162138b0",
+      sha256: "f69b156f1845dfd327776d55120154f4963051a80b4587073820e398b9be0351",
     });
     expect(
       fingerprint(
@@ -318,6 +318,9 @@ function createPlatformWorkerHost(runtimeProfile: "landing" | "proof" | "public"
       operationsRecorder: { record: () => undefined },
       postageLabelProvider: createSandboxPostageLabelProvider(),
       draftListingCreator: { createDraftListings: async () => [] },
+      // Real-registry composition: the worker states the Ordering
+      // cleanup-authority capability explicitly as not-mounted (#7222).
+      inventoryCleanupAuthority: { kind: "not-mounted" },
       notificationAdapter: { send: async () => undefined },
       agentWebhookOrderResolvers: {
         resolveOrderRecipient: async () => null,

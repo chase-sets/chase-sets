@@ -34,45 +34,47 @@ jobs:
           pnpm run ops -- release-health:flake-digest \
             --out artifacts/release-health/ci-flake-digest.json \
             --markdown-out artifacts/release-health/ci-flake-digest.md \
+            --issue-body-out artifacts/release-health/ci-flake-digest-issue.md \
             --github-output "$GITHUB_OUTPUT"
           cat artifacts/release-health/ci-flake-digest.md >> "$GITHUB_STEP_SUMMARY"
-          jq -r '.issueBody' artifacts/release-health/ci-flake-digest.json > artifacts/release-health/ci-flake-digest-issue.md
 
       - name: Link canonical rolling delivery health
         run: |
           echo >> "$GITHUB_STEP_SUMMARY"
           echo "Rolling event and stage posture: [Platform Delivery Health](https://github.com/${GITHUB_REPOSITORY}/actions/workflows/platform-delivery-health.yml)." >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Validate canonical flake digest payloads
+        env:
+          RELEASE_HEALTH_FLAKE_DIGEST_OUT: artifacts/release-health/ci-flake-digest.json
+          RELEASE_HEALTH_FLAKE_DIGEST_MARKDOWN_OUT: artifacts/release-health/ci-flake-digest.md
+          RELEASE_HEALTH_FLAKE_DIGEST_ISSUE_BODY_OUT: artifacts/release-health/ci-flake-digest-issue.md
+        run: |
+          pnpm run ops -- release-health:flake-digest \
+            --validate-payloads true
+
+      - name: Upload canonical flake digest artifact
+        id: artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: platform-ci-flake-digest
           path: artifacts/release-health/ci-flake-digest*
           if-no-files-found: error
 
-      - name: Create or update flake breach issue
-        if: steps.digest.outputs.breach_count != '0'
+      - name: Reconcile canonical flake digest issue
         env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_TITLE: ${{ steps.digest.outputs.issue_title }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          existing_issue="$(
-            gh issue list \
-              --repo "$GITHUB_REPOSITORY" \
-              --state open \
-              --search "${ISSUE_TITLE} in:title" \
-              --json number \
-              --jq '.[0].number // ""'
-          )"
-          if [ -n "$existing_issue" ]; then
-            gh issue comment "$existing_issue" \
-              --repo "$GITHUB_REPOSITORY" \
-              --body-file artifacts/release-health/ci-flake-digest-issue.md
-          else
-            gh issue create \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "$ISSUE_TITLE" \
-              --body-file artifacts/release-health/ci-flake-digest-issue.md \
-              --label kind:test \
-              --label kind:ops \
-              --label priority:p2
-          fi
+          pnpm run ops -- release-health:flake-digest \
+            --publish-issues true \
+            --out artifacts/release-health/ci-flake-digest.json \
+            --markdown-out artifacts/release-health/ci-flake-digest.md \
+            --issue-body-out artifacts/release-health/ci-flake-digest-issue.md \
+            --artifact-id "${{ steps.artifact.outputs.artifact-id }}" \
+            --artifact-digest "sha256:${{ steps.artifact.outputs.artifact-digest }}" \
+            --artifact-producer-outcome "${{ steps.artifact.outcome }}" \
+            --producer-workflow platform-ci-flake-digest.yml \
+            --producer-job digest \
+            --producer-step artifact \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --head-sha "${{ github.sha }}"

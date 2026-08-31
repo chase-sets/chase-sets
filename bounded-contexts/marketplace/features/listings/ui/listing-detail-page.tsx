@@ -163,7 +163,7 @@ export function MarketplaceListingDetailPage({
 
       <PageSection title={t("marketplace.features.listings.ui.listingDetailPage.listing.overview")}>
         <Stack gap={4}>
-          <Card>
+          <Card elevation="elevated">
             <Stack gap={4}>
               <Stack gap={2}>
                 <Inline>
@@ -349,7 +349,7 @@ export function MarketplaceListingDetailPage({
           })}
           tone={(feeHistory?.length ?? 0) > 0 ? "info" : "neutral"}
         >
-          <Card>
+          <Card elevation="tinted">
             <Stack gap={3}>
               {(feeHistory ?? []).length > 0 ? (
                 feeHistory!.map((entry) => (
@@ -404,7 +404,7 @@ export function MarketplaceListingDetailPage({
 
       <PageSection id="update-listing" title={t("marketplace.features.listings.ui.listingDetailPage.update.listing")}>
         <Stack gap={4}>
-          <Card>
+          <Card elevation="tinted">
             <Form spacing="none" method="post">
               <Stack gap={3}>
                 <TextInput
@@ -453,7 +453,7 @@ export function MarketplaceListingDetailPage({
             ) : null}
           </Card>
 
-          <Card>
+          <Card elevation="tinted">
             <Form spacing="none" method="post">
               <Stack gap={3}>
                 <HiddenInput type="hidden" name="intent" value="update-quantity-cap" />
@@ -480,7 +480,7 @@ export function MarketplaceListingDetailPage({
             summary={listingPurchaseLimitSummary(listing)}
             tone="info"
           >
-            <Card>
+            <Card elevation="tinted">
               <Form spacing="none" method="post">
                 <Stack gap={3}>
                   <HiddenInput type="hidden" name="intent" value="update-purchase-limits" />
@@ -515,7 +515,7 @@ export function MarketplaceListingDetailPage({
             </Card>
           </ProgressiveDisclosure>
 
-          <Card>
+          <Card elevation="tinted">
             <Stack gap={3}>
               <Form spacing="none" method="post">
                 <HiddenInput type="hidden" name="intent" value="publish" />

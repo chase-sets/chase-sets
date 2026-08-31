@@ -23,6 +23,15 @@
     "remedy-approval"
   ],
   "streamPrefix": "platform-operations.",
+  "accountCapabilities": [
+    {
+      "key": "mcp.rate-tier",
+      "description": "Declares the Account's MCP rate tier.",
+      "kind": "tier",
+      "allowedValues": ["standard"],
+      "defaultValue": "standard"
+    }
+  ],
   "apiBasePath": "/api/platform",
   "slices": [
     "operations-attention-queue",
@@ -835,14 +844,52 @@
           "routePath": "account/support",
           "fileExport": "./routes/marketplace/account-support",
           "routeType": "route",
-          "sourceContext": "platform-operations"
+          "sourceContext": "platform-operations",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "platform-operations",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-support-detail",
           "routePath": "account/support/:id",
           "fileExport": "./routes/marketplace/account-support-detail",
           "routeType": "route",
-          "sourceContext": "platform-operations"
+          "sourceContext": "platform-operations",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "platform-operations",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     },

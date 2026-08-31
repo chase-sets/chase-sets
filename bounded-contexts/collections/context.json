@@ -203,7 +203,7 @@
         "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H889f0611e195#1",
         "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /account/list-additions",
         "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /account/saved-list-intents/:id/claim",
-        "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /guest/saved-list-intents"
+        "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /saved-list-intents"
       ],
       "visibleDestination": {
         "routeIds": ["search", "item-detail"],
