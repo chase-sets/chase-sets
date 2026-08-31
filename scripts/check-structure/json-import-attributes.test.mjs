@@ -119,7 +119,7 @@ function collectLocallyDeclaredNames(rootNode) {
       }
     } else if (ts.isVariableDeclaration(node)) {
       collectBindingNames(node.name, names);
-    } else if (ts.isClassDeclaration(node) && node.name) {
+    } else if ((ts.isClassDeclaration(node) || ts.isClassExpression(node)) && node.name) {
       names.add(node.name.text);
     } else if (ts.isCatchClause(node) && node.variableDeclaration) {
       collectBindingNames(node.variableDeclaration.name, names);
@@ -547,6 +547,35 @@ describe("manifest host-registration predicate parity", () => {
         function contributesToWebHost() {}
       `;
 
+      expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/shadow/i);
+    });
+  });
+
+  it("fails closed when a named class expression shadows the imported helper", () => {
+    const helper = `
+      export function owner(manifest) {
+        return manifest.apiDeployables || manifest.deployableContributions || manifest.runtimeDeployables ||
+          manifest.shellContributions || manifest.sourceRuntimeDeployables || manifest.sourceRuntimeProfiles;
+      }
+    `;
+    const builderBody = `
+      function buildApiRegistry(_outputPath, hostName, contexts) {
+        const predicate = class owner {
+          static select(context) {
+            return owner(context.manifest, hostName);
+          }
+        };
+        return contexts.filter((context) => predicate.select(context));
+      }
+      function buildWorkerRegistry() {}
+      function contributesToWebHost() {}
+    `;
+    const source = `import { owner } from "./helper.mjs";\n${builderBody}`;
+
+    const build = new Function("owner", `${builderBody}; return buildApiRegistry;`)(() => true);
+    expect(() => build(null, "platform-api", [{ manifest: {} }])).toThrow(/Class constructor owner/);
+
+    withFixture({ "helper.mjs": helper }, ({ rootDir }) => {
       expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/shadow/i);
     });
   });
