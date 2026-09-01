@@ -486,8 +486,8 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(registry.entries).toHaveLength(58);
-    expect(replay.observations).toHaveLength(83);
+    expect(registry.entries).toHaveLength(59);
+    expect(replay.observations).toHaveLength(84);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {
@@ -873,7 +873,7 @@ describe("closed duration scheduling contracts", () => {
     }
   });
 
-  it("replays the two authoritative attempt-one jobs at exact FIFO and LPT phase makespans", () => {
+  it("replays the three authoritative attempt-one jobs at exact FIFO and LPT phase makespans", () => {
     const replay = readJson(replayPath);
     const observedPhaseBoundaries = new Map([
       [
@@ -891,6 +891,10 @@ describe("closed duration scheduling contracts", () => {
       [
         "30060154233\u000089380059115\u0000test:unit--test-profile=db",
         ["2026-07-24T01:55:22.5641532Z", "2026-07-24T02:00:56.8796117Z"],
+      ],
+      [
+        "33471778258\u000099742894811\u0000test--exclude-test-profile=db",
+        ["2026-09-01T04:58:21.4760028Z", "2026-09-01T05:00:02.8423969Z"],
       ],
     ]);
     const phases = new Map();
@@ -934,10 +938,11 @@ describe("closed duration scheduling contracts", () => {
       "30054895589\u000089364607063\u0000test:unit--test-profile=db",
       "30060154233\u000089380059115\u0000test--exclude-test-profile=db",
       "30060154233\u000089380059115\u0000test:unit--test-profile=db",
+      "33471778258\u000099742894811\u0000test--exclude-test-profile=db",
     ]);
     expect([...phases.keys()]).toEqual([...observedPhaseBoundaries.keys()]);
-    expect(fifoMs).toBe(882_800);
-    expect(lptMs).toBe(793_100);
-    expect(reduction).toBe("10.2");
+    expect(fifoMs).toBe(984_200);
+    expect(lptMs).toBe(794_800);
+    expect(reduction).toBe("19.2");
   });
 });

@@ -116,6 +116,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/fulfillment",
   "@chase-sets/http",
   "@chase-sets/identity",
+  "@chase-sets/identity-seed",
   "@chase-sets/inventory",
   "@chase-sets/local-email-capture",
   "@chase-sets/localization",

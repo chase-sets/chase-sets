@@ -747,6 +747,15 @@
       "workspace": "@chase-sets/settlement",
       "script": "test:unit",
       "observedDurationMs": 53762
+    },
+    {
+      "runId": 33471778258,
+      "runAttempt": 1,
+      "jobId": 99742894811,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/identity-seed",
+      "script": "test",
+      "observedDurationMs": 1661
     }
   ]
 }

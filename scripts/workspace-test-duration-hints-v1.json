@@ -14,6 +14,7 @@
     { "workspace": "@chase-sets/easypost-postage", "script": "test", "estimatedDurationSeconds": 4 },
     { "workspace": "@chase-sets/event-core", "script": "test", "estimatedDurationSeconds": 6 },
     { "workspace": "@chase-sets/http", "script": "test", "estimatedDurationSeconds": 5 },
+    { "workspace": "@chase-sets/identity-seed", "script": "test", "estimatedDurationSeconds": 2 },
     { "workspace": "@chase-sets/local-email-capture", "script": "test", "estimatedDurationSeconds": 4 },
     { "workspace": "@chase-sets/localization", "script": "test", "estimatedDurationSeconds": 6 },
     { "workspace": "@chase-sets/market-estimate-display", "script": "test", "estimatedDurationSeconds": 4 },
