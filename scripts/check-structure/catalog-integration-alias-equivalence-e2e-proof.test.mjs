@@ -59,7 +59,10 @@ describe("Catalog Alias Equivalence end-to-end milestone proof (#1913)", () => {
     const byKey = new Map(runCatalogAliasEquivalenceE2eProof().scenarios.map((scenario) => [scenario.key, scenario]));
     const species = byKey.get("species-helps");
     assert.equal(species.nativeName, "サボネア");
+    assert.equal(species.cardCategory, "Pokemon");
+    assert.equal(species.englishMirrorPresent, true);
     assert.equal(species.speciesAliasProduced, true);
+    assert.equal(species.officialEnglishEquivalentProduced, true);
     assert.equal(species.englishReachable, true);
     assert.equal(species.englishDisplayName, "Cacnea (サボネア)");
     for (const key of ["trainer-no-dex", "energy-no-dex"]) {
@@ -71,6 +74,7 @@ describe("Catalog Alias Equivalence end-to-end milestone proof (#1913)", () => {
     assert.equal(missing.officialEnglishEquivalentProduced, false);
     assert.equal(missing.englishReachable, false);
     assert.equal(missing.englishDisplayName, "ピカチュウ");
+    assert.equal(byKey.get("revoked").englishReachable, true);
     assert.equal(byKey.get("revoked").englishDisplayName, "Sprigatito (ニャオハ)");
   });
 

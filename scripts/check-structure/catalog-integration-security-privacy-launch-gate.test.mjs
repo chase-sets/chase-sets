@@ -22,6 +22,7 @@ describe("Catalog integration security/privacy launch gate", () => {
     assert.equal(packet.checklistVersion, catalogSecurityPrivacyLaunchGateChecklistVersion);
     assert.equal(packet.signoff.owner, "catalog-source-observations");
     assert.equal(packet.signoff.reviewer, "catalog-release-lead");
+    assert.equal(packet.realProviderProof.linkedGateIssue, "#1064");
     assert.deepEqual(
       packet.checklist.map((item) => item.key),
       catalogSecurityPrivacyLaunchGateChecklist.map((item) => item.key),
@@ -34,6 +35,7 @@ describe("Catalog integration security/privacy launch gate", () => {
       packet.governance.coveredDataClasses,
       catalogIntegrationDataGovernancePolicies.map((policy) => policy.key),
     );
+    assert.equal(packet.resetDrop.targetTables.includes("catalog_items"), false);
     assert.equal(packet.resetDrop.targetTables.includes("orders"), false);
     for (const surface of [
       "read-model contracts",
@@ -46,6 +48,14 @@ describe("Catalog integration security/privacy launch gate", () => {
       "documentation",
     ]) {
       assert.ok(packet.retirement.policy.surfaces.includes(surface), surface);
+    }
+    for (const outcome of [
+      "soft deprecation",
+      "support-only preserved route",
+      "documentation-only deprecation",
+      "hidden flag fallback",
+    ]) {
+      assert.ok(packet.retirement.policy.forbiddenOutcomes.includes(outcome), outcome);
     }
   });
 
