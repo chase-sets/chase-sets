@@ -13,13 +13,13 @@ describe("Support Fulfillment source reactions", () => {
       buildTransportEvent(
         "fulfillment.return-shipment.facility-intake-completed.v1",
         {
-        returnShipmentId: "rsh_1",
-        remedyId: "rmd_1",
-        supportRequestId: "sup_1",
-        intake: {
-          receivedAt: "2026-07-14T12:00:00.000Z",
-          idempotencyKey: "intake-1",
-        },
+          returnShipmentId: "rsh_1",
+          remedyId: "rmd_1",
+          supportRequestId: "sup_1",
+          intake: {
+            receivedAt: "2026-07-14T12:00:00.000Z",
+            idempotencyKey: "intake-1",
+          },
         },
         {
           id: "evt_intake_1",
