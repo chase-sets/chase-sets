@@ -37,6 +37,21 @@ function createApp(services: unknown, permissions: readonly string[] | null) {
 }
 
 describe("settlement account-facing Wallet Adjustment detail route", () => {
+  it("returns the negative-balance collection evaluation's service-owned count snapshot", async () => {
+    const evaluateNegativeBalanceCollections = vi.fn(async () => ({ escalated: 3, skipped: 2 }));
+    const app = createApp({ evaluateNegativeBalanceCollections }, ["payouts.reconcile"]);
+
+    const response = await app.request("/wallet/negative-balances/evaluate-collections", {
+      method: "POST",
+      body: JSON.stringify({ limit: 5 }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(evaluateNegativeBalanceCollections).toHaveBeenCalledWith({ limit: 5 }, context);
+    await expect(response.json()).resolves.toEqual({ escalated: 3, skipped: 2 });
+  });
+
   it("returns the redacted adjustment when it belongs to the caller's own account", async () => {
     const getWalletAdjustmentForAccount = vi.fn(async () => ({
       status: "posted" as const,

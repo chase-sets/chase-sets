@@ -46,7 +46,6 @@ function requireWalletAccess(
   return { actor, response: null };
 }
 
-
 export function createWalletRoutes(services: WalletServices) {
   const app = new Hono<SettlementApiEnv>();
 
