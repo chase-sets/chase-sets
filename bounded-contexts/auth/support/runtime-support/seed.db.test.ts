@@ -8,7 +8,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { module as authModule } from "../../index";
 import { createAuthServices } from "./services";
 import { toSessionStreamId } from "../../features/sessions/domain/auth-flow";

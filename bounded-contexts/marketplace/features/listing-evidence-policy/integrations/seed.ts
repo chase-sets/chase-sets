@@ -1,6 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { LISTING_EVIDENCE_LAUNCH_POLICY_VALUE, marketplaceListingEvidencePolicy } from "../domain/policy";
 

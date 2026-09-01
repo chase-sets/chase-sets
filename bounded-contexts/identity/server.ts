@@ -171,4 +171,4 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
 export function createActorEventStoreContext(actor: ResolvedActor) {
   return createGenericActorEventStoreContext(actor);
 }
-export { identitySeedIds } from "./support/seed-support/ids";
+export { identitySeedIds } from "@chase-sets/identity-seed";

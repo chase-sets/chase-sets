@@ -19,7 +19,7 @@ import {
   type PayoutEvent,
   type PayoutState,
 } from "../../features/payouts/domain/domain";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { settlementReservedSeedIds } from "@chase-sets/settlement/seed-support/ids";
 import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";

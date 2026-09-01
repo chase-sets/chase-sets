@@ -9,7 +9,7 @@
       "path": "bounded-contexts/identity/support/runtime-support/scenario-data.ts",
       "status": "renamed",
       "previousPath": "bounded-contexts/identity/support/runtime-support/seed.ts",
-      "content": "import { identitySeedIds } from \"@chase-sets/identity/seed-support/ids\";\nexport function scenarioData() {\n  return identitySeedIds;\n}\n"
+      "content": "import { identitySeedIds } from \"@chase-sets/identity-seed\";\nexport function scenarioData() {\n  return identitySeedIds;\n}\n"
     },
     {
       "path": "bounded-contexts/identity/support/runtime-support/demo-data.ts",

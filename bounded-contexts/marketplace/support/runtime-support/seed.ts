@@ -1,7 +1,7 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";

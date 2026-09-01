@@ -3,7 +3,7 @@ import { loadSeedAggregateState, type SeedAggregateState } from "@chase-sets/bou
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { catalogScenarioItems, catalogSeedIds, type SeedCatalogItemId } from "@chase-sets/catalog-seed";
-import { demoIdentitySeedIds, identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { demoIdentitySeedIds, identitySeedIds } from "@chase-sets/identity-seed";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   inventorySeedIds,

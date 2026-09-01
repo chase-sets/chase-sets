@@ -447,6 +447,9 @@
       "@chase-sets/identity": [
         "./bounded-contexts/identity/index.ts"
       ],
+      "@chase-sets/identity-seed": [
+        "./contracts/identity-seed/index.ts"
+      ],
       "@chase-sets/identity/context": [
         "./bounded-contexts/identity/context.json"
       ],
