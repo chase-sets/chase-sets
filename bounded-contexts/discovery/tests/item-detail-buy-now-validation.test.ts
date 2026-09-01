@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendFreshWriteToken,
-  appendPostWriteHandoffFromSources,
+  appendPostWriteHandoff,
   decodeFreshWriteReceipt,
   readCompactPostWriteToken,
   readFreshWriteToken,
@@ -208,19 +208,15 @@ const selectedSellerListingHandoff = {
 } as const;
 
 function appendSelectedSellerListingFreshWrite(path: string, listingId = "lst_item_detail") {
-  return appendPostWriteHandoffFromSources(
-    path,
-    [commandResult({ id: listingId }, "marketplace")],
-    selectedSellerListingHandoff,
-  );
+  return appendPostWriteHandoff(path, commandResult({ id: listingId }, "marketplace"), selectedSellerListingHandoff);
 }
 
 function appendSelectedSellerListingFreshWriteWithHandoff(
   path: string,
-  handoff: Parameters<typeof appendPostWriteHandoffFromSources>[2],
+  handoff: Parameters<typeof appendPostWriteHandoff>[2],
   listingId = "lst_item_detail",
 ) {
-  return appendPostWriteHandoffFromSources(path, [commandResult({ id: listingId }, "marketplace")], handoff);
+  return appendPostWriteHandoff(path, commandResult({ id: listingId }, "marketplace"), handoff);
 }
 
 describe("item detail buy now validation and watch intents", () => {

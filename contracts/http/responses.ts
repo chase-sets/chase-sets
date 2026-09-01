@@ -814,15 +814,6 @@ export function appendPostWriteHandoff(
   return appendPostWriteHandoffFromMetadataSources(path, [source], handoff, nowMs);
 }
 
-export function appendPostWriteHandoffFromSources(
-  path: string,
-  sources: readonly unknown[],
-  handoff: PostWriteHandoff,
-  nowMs = Date.now(),
-): string {
-  return appendPostWriteHandoffFromMetadataSources(path, sources, handoff, nowMs);
-}
-
 export function navigateAfterWrite(
   commandResult: unknown,
   destinationRoute: string,
@@ -831,13 +822,18 @@ export function navigateAfterWrite(
   return navigateAfterWriteFromSources([commandResult], destinationRoute, options);
 }
 
-export function navigateAfterWriteFromSources(
+function navigateAfterWriteFromSources(
   commandResults: readonly unknown[],
   destinationRoute: string,
   options: NavigateAfterWriteOptions = {},
 ): string {
   return options.handoff
-    ? appendPostWriteHandoffFromSources(destinationRoute, commandResults, options.handoff, options.nowMs)
+    ? appendPostWriteHandoffFromMetadataSources(
+        destinationRoute,
+        commandResults,
+        options.handoff,
+        options.nowMs ?? Date.now(),
+      )
     : appendFreshWriteTokenFromSources(destinationRoute, commandResults, options.nowMs);
 }
 

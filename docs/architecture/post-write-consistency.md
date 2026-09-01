@@ -12,7 +12,7 @@ The consistency floor is durable domain state plus context-owned projections. Pu
 
 For projection-backed post-write navigation, the documented default is the shared helper pair:
 
-1. Source actions call `navigateAfterWrite(commandResult, destinationRoute, options)` or `navigateAfterWriteFromSources(commandResults, destinationRoute, options)`.
+1. Source actions call `navigateAfterWrite(commandResult, destinationRoute, options)`.
 2. Destination loaders call `loadAfterWrite({ request, load, isNotFound, ... })`.
 3. Routes map the returned `data`, `pending`, or `permanent-failure` result into a context-owned recovery boundary when available.
 
@@ -152,7 +152,7 @@ User-visible recovery should name the user task, not the infrastructure. "Prepar
 Use this section as the canonical link target for per-context migration issues.
 
 1. Classify the mutation in `mutationConsistencyInventory`; use `fresh-read` only when an immediate projection-backed read can hide the committed write.
-2. Replace manual URL construction with `navigateAfterWrite` or `navigateAfterWriteFromSources`; pass a semantic `handoff` option only when a stale successful response can hide the expected outcome.
+2. Replace manual URL construction with `navigateAfterWrite`; pass a semantic `handoff` option only when a stale successful response can hide the expected outcome.
 3. Replace bespoke loader retry code with `loadAfterWrite`; keep unrelated secondary reads on a non-fresh request when they should not inherit the write receipt.
 4. Wire the route's recovery boundary to the helper result: `data` renders normally, `pending` renders bounded preparing/retry copy, and `permanent-failure` preserves not-found/access/domain recovery.
 5. Declare exact `readFreshnessRoutes` dependencies with `readModelTable` whenever the table has one projection owner; use `projectionName` only for multi-table or projection-level waits and document the reason.

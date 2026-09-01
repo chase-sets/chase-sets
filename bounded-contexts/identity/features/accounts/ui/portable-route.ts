@@ -6,7 +6,7 @@ import type {
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   encodeFreshWriteReceipt,
-  navigateAfterWriteFromSources,
+  navigateAfterWrite,
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
 import type { PortableClientFetch } from "@chase-sets/platform-runtime/portable-client";
@@ -127,7 +127,7 @@ export async function mutatePortableAccountRoute(
       name: String(input.formData.get("name") ?? ""),
       displayName: String(input.formData.get("displayName") ?? ""),
     });
-    return { kind: "navigate", to: navigateAfterWriteFromSources([result], "/account") };
+    return { kind: "navigate", to: navigateAfterWrite(result, "/account") };
   } catch (error) {
     if (error instanceof IdentityApiError) {
       if (error.status === 400 || error.status === 422) {

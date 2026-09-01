@@ -46,7 +46,7 @@ function createTempRepo() {
 function writeRoute(root, relativeFile, helpers) {
   const absolute = path.join(root, relativeFile);
   mkdirSync(path.dirname(absolute), { recursive: true });
-  const platformRuntimeHelpers = new Set(["loadAfterWrite", "navigateAfterWrite", "navigateAfterWriteFromSources"]);
+  const platformRuntimeHelpers = new Set(["loadAfterWrite", "navigateAfterWrite"]);
   const importModule = helpers.some((helper) => platformRuntimeHelpers.has(helper))
     ? "@chase-sets/platform-runtime/http"
     : "@chase-sets/http/responses";
@@ -1025,7 +1025,7 @@ describe("read-after-write route inventory guard", () => {
     const result = await validate(root, createContextManifest(root));
 
     expect(result.violations).toContain(
-      "bounded-contexts/checkout/support/request-support/raw-handoff.ts: raw postWriteHandoff query metadata is not allowed; use appendPostWriteHandoff or appendPostWriteHandoffFromSources",
+      "bounded-contexts/checkout/support/request-support/raw-handoff.ts: raw postWriteHandoff query metadata is not allowed; use appendPostWriteHandoff",
     );
   });
 

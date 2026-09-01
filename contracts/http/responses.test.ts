@@ -7,7 +7,6 @@ import {
   appendFreshWriteToken,
   appendFreshWriteTokenFromSources,
   appendPostWriteHandoff,
-  appendPostWriteHandoffFromSources,
   attachResponseMetadata,
   classifyFreshWriteReadError,
   classifyPostWriteDestinationResult,
@@ -22,7 +21,6 @@ import {
   loadAfterWrite,
   materializePostWriteTokenPayload,
   navigateAfterWrite,
-  navigateAfterWriteFromSources,
   postWriteRecoveryKindForFreshWriteReadError,
   postWriteRecoveryKindForHandoffState,
   preserveFreshWriteMetadata,
@@ -34,6 +32,7 @@ import {
   readResponseConsistencyMetadata,
   recoverFreshWriteReadError,
   redirectAfterWrite,
+  redirectAfterWriteFromSources,
 } from "./responses";
 import {
   semanticHandoffFixtureAddLine,
@@ -342,24 +341,38 @@ describe("response consistency metadata", () => {
     ).toBe("/account/cart");
   });
 
-  it("combines multiple command receipts for semantic post-write handoffs", () => {
-    const href = appendPostWriteHandoffFromSources(
-      "/account/listings/lst_1",
+  it("redirects with combined source receipts and semantic post-write handoff metadata", () => {
+    const response = redirectAfterWriteFromSources(
       [
-        { commitPositions: [source], commitEventIds: ["evt_1"] },
-        { commitPosition: "44", commitPositions: [laterSource], commitEventIds: ["evt_2"] },
+        { commitPositions: [source, checkoutSource], commitEventIds: ["evt_1", "evt_checkout"] },
+        { commitPosition: "44", commitPositions: [laterSource], commitEventIds: ["evt_2", "evt_1"] },
       ],
+      "/checkout/chk_1?paymentMethodCategory=card#summary",
       {
-        kind: "marketplace.listing.publish",
-        expectation: "resource-updated",
-        surface: "account-listing",
+        handoff: {
+          kind: "marketplace.listing.publish",
+          expectation: "resource-updated",
+          surface: "account-listing",
+        },
+        headers: { "X-Proof": "kept" },
+        nowMs: 1234,
+        status: 303,
       },
-      1234,
     );
+    const location = response.headers.get("Location");
+    if (!location) throw new Error("Expected a post-write redirect Location header.");
+    const locationUrl = new URL(location, "https://chase-sets.local");
 
-    expect(readFreshWriteToken(href, 1234)).toMatchObject({
+    expect(response.status).toBe(303);
+    expect(response.headers.get("X-Proof")).toBe("kept");
+    expect(locationUrl.pathname).toBe("/checkout/chk_1");
+    expect(locationUrl.searchParams.get("paymentMethodCategory")).toBe("card");
+    expect(locationUrl.hash).toBe("#summary");
+    expect(readFreshWriteToken(location, 1234)).toEqual({
+      observedAtMs: 1234,
       commitPosition: "44",
       sources: [
+        checkoutSource,
         {
           sourceContextName: "marketplace",
           maxGlobalPosition: "44",
@@ -367,7 +380,7 @@ describe("response consistency metadata", () => {
         },
       ],
     });
-    expect(readPostWriteHandoff(href, 1234)).toEqual({
+    expect(readPostWriteHandoff(location, 1234)).toEqual({
       kind: "marketplace.listing.publish",
       expectation: "resource-updated",
       surface: "account-listing",
@@ -644,21 +657,19 @@ describe("response consistency metadata", () => {
     expect(href).toContain("feedbackWorkflow=listing-publish");
   });
 
-  it("combines multiple command receipts through the default-safe source primitive", () => {
-    const href = navigateAfterWriteFromSources(
-      [
-        { commitPositions: [source], commitEventIds: ["evt_1"] },
-        { commitPositions: [checkoutSource], commitEventIds: ["evt_checkout"] },
-      ],
-      "/checkout/chk_1",
-      { nowMs: 1234 },
-    );
-
-    expect(readFreshWriteToken(href, 1234)).toEqual({
-      observedAtMs: 1234,
-      sources: [checkoutSource, source],
+  it("keeps the exact redirect destination when multiple command results have no receipt", () => {
+    const destination = "/checkout/chk_1?paymentMethodCategory=card#summary";
+    const response = redirectAfterWriteFromSources([{ status: "accepted" }, { status: "accepted" }], destination, {
+      headers: { "X-Proof": "kept" },
+      nowMs: 1234,
+      status: 303,
     });
-    expect(readPostWriteHandoff(href, 1234)).toBeNull();
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("X-Proof")).toBe("kept");
+    expect(response.headers.get("Location")).toBe(destination);
+    expect(readFreshWriteToken(destination, 1234)).toBeNull();
+    expect(readPostWriteHandoff(destination, 1234)).toBeNull();
   });
 
   it("creates cookie-backed continuation redirects with document reload and fresh-write evidence", () => {
