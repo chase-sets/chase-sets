@@ -2,18 +2,21 @@ import {
   composeDisplayWithNativeSecondary,
   selectDisplayAlias,
   type ResolvedDisplayAlias,
-} from "../../../catalog-items/read-model/display-alias-policy";
-import type { CatalogAliasCandidate, CatalogAliasReviewStateKey } from "../../../alias-equivalence/domain/alias";
-import { extractTcgdexAliasCandidates } from "../providers/tcgdex-alias-extraction";
+} from "../../bounded-contexts/catalog/features/catalog-items/read-model/display-alias-policy";
+import type {
+  CatalogAliasCandidate,
+  CatalogAliasReviewStateKey,
+} from "../../bounded-contexts/catalog/features/alias-equivalence/domain/alias";
+import { extractTcgdexAliasCandidates } from "../../bounded-contexts/catalog/features/source-observations/api/providers/tcgdex-alias-extraction";
 import {
   planPromotionAliases,
   type PromotionAliasCandidate,
   type PromotionAliasTargetResolution,
-} from "../promotion/provider-promotion-alias-planner";
+} from "../../bounded-contexts/catalog/features/source-observations/api/promotion/provider-promotion-alias-planner";
 import {
   assertCatalogIntegrationDiagnosticTaxonomyCoverage,
   type CatalogIntegrationDiagnosticCode,
-} from "./catalog-integration-diagnostic-taxonomy";
+} from "../../bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-diagnostic-taxonomy";
 
 // ---------------------------------------------------------------------------
 // Catalog Alias Equivalence end-to-end proof

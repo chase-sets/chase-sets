@@ -1,11 +1,11 @@
-import type { CatalogProviderIngestionUnitProductDomain } from "../providers/provider-integration-mapping-contract";
+import type { CatalogProviderIngestionUnitProductDomain } from "../../bounded-contexts/catalog/features/source-observations/api/providers/provider-integration-mapping-contract";
 import {
   catalogProviderIntegrationProfileVersions,
   catalogProviderProfileVersionIngestionUnitKey,
   catalogProviderProfileVersionProductDomain,
   type CatalogProviderIntegrationProfileVersionRecord,
-} from "../provider-integration-profiles";
-import { classifyProviderProductionClass } from "../../../completion-report/read-model/query";
+} from "../../bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles";
+import { classifyProviderProductionClass } from "../../bounded-contexts/catalog/features/completion-report/read-model/query";
 
 // Structural readiness guard for production signoff coverage. The active
 // provider profile/unit registry is the executable source of truth for which

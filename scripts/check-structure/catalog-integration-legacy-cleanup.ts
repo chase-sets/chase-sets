@@ -1,7 +1,7 @@
 import type {
   CatalogIntegrationDataSurfaceKey,
   CatalogIntegrationDataVerificationReport,
-} from "./catalog-integration-data-migration-reset";
+} from "../../bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-migration-reset";
 
 export type CatalogIntegrationLegacyCleanupSurfaceKind = "data-surface" | "bootstrap-path";
 
