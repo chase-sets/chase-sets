@@ -182,20 +182,6 @@ export function createSettlementApiClient({
         }),
       );
     },
-    async postRefundDebit(body: Record<string, unknown>) {
-      return parseJsonResponse(await client.wallet["refund-debits"].$post({ json: body, header: headers }));
-    },
-    async postDisputeHold(body: Record<string, unknown>) {
-      return parseJsonResponse(await client.wallet["dispute-holds"].$post({ json: body, header: headers }));
-    },
-    async postDisputeRelease(body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client.wallet["dispute-releases"].$post({
-          json: body,
-          header: headers,
-        }),
-      );
-    },
     async listPayouts(query = ""): Promise<ListResponse<SettlementPayoutRow>> {
       return parseJsonResponse(
         await client.payouts.$get({

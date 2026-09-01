@@ -801,10 +801,7 @@
       "risk": "critical",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-holds",
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-releases",
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/negative-balances/evaluate-collections",
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/refund-debits"
+        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/negative-balances/evaluate-collections"
       ],
       "visibleDestination": {
         "description": "Operator wallet mutations return the committed ledger-entry snapshot or negative-balance collections counts without waiting for the wallet ledger read model."
