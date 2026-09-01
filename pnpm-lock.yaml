@@ -276,9 +276,6 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
-      '@chase-sets/settlement':
-        specifier: workspace:*
-        version: link:../settlement
       hono:
         specifier: ^4.12.12
         version: 4.12.18

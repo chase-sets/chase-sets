@@ -17,7 +17,6 @@ import {
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateSellListReadiness,
-  mockCreateSettlementRequestApiClient,
   mockGetGuestSellList,
   mockGetPayoutReadiness,
   mockGetSellListConfirmation,
@@ -85,10 +84,6 @@ vi.mock("@chase-sets/payments/server", async () => {
 vi.mock("@chase-sets/marketplace/server", () => ({
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
   MarketplaceApiError: MockMarketplaceApiError,
-}));
-
-vi.mock("@chase-sets/settlement/server", () => ({
-  createSettlementRequestApiClient: mockCreateSettlementRequestApiClient,
 }));
 
 import { action as sellCheckoutSessionAction, loader as sellCheckoutSessionLoader } from "./sell-checkout-session";
