@@ -959,7 +959,7 @@ describe("Catalog Alias persistence (DB-backed)", () => {
   // published `catalog_item_resolved_aliases` row is exactly what Discovery
   // search (#1911) consumes, and the display identity is what an English-locale
   // buyer reads (#1914). This is the connective DB proof for the deterministic
-  // packet in catalog-integration-alias-equivalence-e2e-proof.ts.
+  // packet in scripts/check-structure/catalog-integration-alias-equivalence-e2e-proof.ts.
   // -------------------------------------------------------------------------
   it("walks TCGdex Japanese import -> review -> promote -> publish -> English search fact + display, then revokes (#1913)", async () => {
     const englishMirror: TcgdexEnglishMirrorLoader = async ({ entity, id }) => {

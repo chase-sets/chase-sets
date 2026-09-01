@@ -70,4 +70,4 @@ PR and release evidence for this gate should name:
 - [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)
 - [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md)
 - [Catalog Integration Real-Provider Proof](./catalog-integration-real-provider-proof.md)
-- [Catalog Integration Security Privacy Launch Gate](./catalog-integration-security-privacy-launch-gate.md)
+- [Catalog Integration Security Privacy Launch Gate](./catalog-integration-security-privacy-launch-gate.md), enforced by `scripts/check-structure/catalog-integration-security-privacy-launch-gate.test.mjs`

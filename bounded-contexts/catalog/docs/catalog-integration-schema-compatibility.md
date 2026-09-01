@@ -17,8 +17,8 @@ bounded-contexts/catalog/features/source-observations/api/catalog-integration-sc
 Pre-launch cleanup, the executable migration/reset policy, and the reset evidence contract are owned by [Catalog Integration Reset and Cleanup](./catalog-integration-reset-and-cleanup.md), implemented in:
 
 ```text
-bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-migration-reset.ts
-bounded-contexts/catalog/features/source-observations/api/catalog-integration-legacy-cleanup.ts
+bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-migration-reset.ts
+scripts/check-structure/catalog-integration-legacy-cleanup.ts
 ```
 
 ## Launch Boundary

@@ -14,7 +14,7 @@ is the executable source of truth for which product domains and provider units
 can participate in the complete production Catalog synchronization. Every active
 production-capable unit in that registry must be covered by exactly one
 product-domain section below. The
-`catalog-integration-production-signoff-coverage` guard reconciles the registry
+`scripts/check-structure/catalog-integration-production-signoff-coverage.ts` reconciles the registry
 against this document and the provider-sync runbook, so a future
 production-capable domain or provider unit that lacks signoff coverage fails
 visibly instead of relying on a hardcoded issue table. Validation-only,

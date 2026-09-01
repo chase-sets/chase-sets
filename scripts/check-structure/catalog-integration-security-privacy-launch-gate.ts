@@ -1,25 +1,25 @@
 import {
   catalogIntegrationControlPlaneActionPolicies,
   type CatalogIntegrationControlPlaneActionPolicy,
-} from "../admin/admin-control-plane-rbac";
-import { catalogIntegrationAuditEvidenceEventNames } from "./catalog-integration-audit-evidence";
+} from "../../bounded-contexts/catalog/features/source-observations/api/admin/admin-control-plane-rbac";
+import { catalogIntegrationAuditEvidenceEventNames } from "../../bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-audit-evidence";
 import {
   catalogIntegrationDataGovernancePolicies,
   getCatalogIntegrationDataGovernancePolicy,
   type CatalogIntegrationGovernedDataClassKey,
-} from "./catalog-integration-data-governance";
+} from "../../bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-governance";
 import {
   catalogIntegrationDataResetEnvironmentPlans,
   catalogIntegrationDataResetTargetTables,
-} from "./catalog-integration-data-migration-reset";
-import { catalogRealProviderProofSchemaVersion } from "../../tests/catalog-integration-real-provider-proof";
+} from "../../bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-migration-reset";
+import { catalogRealProviderProofSchemaVersion } from "../../bounded-contexts/catalog/features/source-observations/tests/catalog-integration-real-provider-proof";
 import {
   catalogPrimaryWorkbenchActions,
   catalogPrimaryWorkbenchDeploySkewPolicies,
   catalogPrimaryWorkbenchRetirementPolicy,
   type CatalogPrimaryWorkbenchActionContract,
   type CatalogPrimaryWorkbenchRetirementPolicy,
-} from "../admin/primary-workbench-admin-contracts";
+} from "../../bounded-contexts/catalog/features/source-observations/api/admin/primary-workbench-admin-contracts";
 
 export const catalogSecurityPrivacyLaunchGateSchemaVersion = "catalog-security-privacy-launch-gate/v1" as const;
 export const catalogSecurityPrivacyLaunchGateChecklistVersion =
