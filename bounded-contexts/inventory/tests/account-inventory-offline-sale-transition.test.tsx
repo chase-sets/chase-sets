@@ -11,6 +11,7 @@ import {
 import MarketplaceInventoryRoute, {
   action as inventoryAction,
   loader as inventoryLoader,
+  transitionReceiptlessRetention,
 } from "../routes/marketplace/account-inventory";
 import MarketplaceInventoryItemRoute, {
   action as inventoryItemAction,
@@ -137,6 +138,42 @@ function deferred<T>() {
 }
 
 describe("account inventory offline-sale router transition", () => {
+  it("applies receiptless retention transitions by location and submission identity", () => {
+    const result = laterReceiptlessSale;
+    const receiptless = (locationKey: string, itemId = "inv_1", idempotencyKey = "sale-1") => ({
+      locationKey,
+      stateResult: undefined,
+      action: { kind: "receiptless" as const, identity: { itemId, idempotencyKey }, result },
+    });
+    const actionless = (locationKey: string) => ({ locationKey, stateResult: undefined, action: null });
+    const retained = transitionReceiptlessRetention(null, receiptless("loc-1"));
+
+    expect(retained?.result).toBe(result);
+    expect(transitionReceiptlessRetention(retained, actionless("loc-1"))).toBe(retained);
+    expect(transitionReceiptlessRetention(retained, actionless("loc-2"))).toBeNull();
+    expect(
+      transitionReceiptlessRetention(retained, {
+        locationKey: "loc-1",
+        stateResult: undefined,
+        action: { kind: "receipt" },
+      }),
+    ).toBeNull();
+    expect(
+      transitionReceiptlessRetention(retained, {
+        locationKey: "loc-1",
+        stateResult: undefined,
+        action: { kind: "error", identity: { itemId: "inv_1", idempotencyKey: "sale-1" } },
+      }),
+    ).toBe(retained);
+    expect(
+      transitionReceiptlessRetention(retained, {
+        locationKey: "loc-1",
+        stateResult: undefined,
+        action: { kind: "error", identity: { itemId: "inv_2", idempotencyKey: "sale-2" } },
+      }),
+    ).toBeNull();
+  });
+
   it("survives action serialization, revalidates with the outer receipt, and preserves the selected list location", async () => {
     const requests: { url: string; method: string; headers: Headers }[] = [];
     let listReads = 0;

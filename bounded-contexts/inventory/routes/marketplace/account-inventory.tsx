@@ -43,6 +43,61 @@ type InventoryListActionErrorData = Readonly<{
   intent: InventoryListActionIntent;
 }>;
 
+type ReceiptlessRetentionIdentity = Readonly<{
+  itemId: string;
+  idempotencyKey: string;
+}>;
+
+type ReceiptlessRetentionAction =
+  | Readonly<{ kind: "receiptless"; identity: ReceiptlessRetentionIdentity; result: InventoryOfflineSaleResult }>
+  | Readonly<{ kind: "receipt" }>
+  | Readonly<{ kind: "error"; identity: ReceiptlessRetentionIdentity }>
+  | null;
+
+export type ReceiptlessRetentionSnapshot = Readonly<{
+  locationKey: string;
+  stateResult: InventoryOfflineSaleResult | undefined;
+  action: ReceiptlessRetentionAction;
+}>;
+
+type ReceiptlessRetention = Readonly<{
+  locationKey: string;
+  stateResult: InventoryOfflineSaleResult | undefined;
+  identity: ReceiptlessRetentionIdentity;
+  result: InventoryOfflineSaleResult;
+}>;
+
+export function transitionReceiptlessRetention(
+  previous: ReceiptlessRetention | null,
+  snapshot: ReceiptlessRetentionSnapshot,
+): ReceiptlessRetention | null {
+  if (snapshot.action?.kind === "receipt") {
+    return null;
+  }
+
+  if (snapshot.action?.kind === "receiptless") {
+    return {
+      locationKey: snapshot.locationKey,
+      stateResult: snapshot.stateResult,
+      identity: snapshot.action.identity,
+      result: snapshot.action.result,
+    };
+  }
+
+  if (!previous || previous.locationKey !== snapshot.locationKey || previous.stateResult !== snapshot.stateResult) {
+    return null;
+  }
+
+  if (snapshot.action?.kind === "error") {
+    return snapshot.action.identity.itemId === previous.identity.itemId &&
+      snapshot.action.identity.idempotencyKey === previous.identity.idempotencyKey
+      ? previous
+      : null;
+  }
+
+  return previous;
+}
+
 function isOfflineSaleActionData(value: unknown): value is OfflineSaleActionData {
   return typeof value === "object" && value !== null && "offlineSale" in value && "commandReceipt" in value;
 }
@@ -285,19 +340,31 @@ export default function MarketplaceInventoryRoute() {
   const stateResult = locationState.offlineSaleResult as InventoryOfflineSaleResult | undefined;
   const preservedLocationState = useRef(locationState);
   const [preservedOfflineSaleFormTokens, setPreservedOfflineSaleFormTokens] = useState(data.offlineSaleFormTokens);
-  const retainedReceiptlessOfflineSaleResult = useRef<InventoryOfflineSaleResult | null>(null);
-  const renderedStateResult = useRef(stateResult);
-
-  if (stateResult !== renderedStateResult.current) {
-    renderedStateResult.current = stateResult;
-    retainedReceiptlessOfflineSaleResult.current = null;
+  const submissionIdentity = useRef<ReceiptlessRetentionIdentity | null>(null);
+  const retainedReceiptlessOfflineSaleResult = useRef<ReceiptlessRetention | null>(null);
+  const navigationFormData = navigation.formData;
+  if (navigation.state === "submitting" && navigationFormData?.get("intent") === "record-offline-sale") {
+    const itemId = String(navigationFormData.get("itemId") ?? "").trim();
+    const idempotencyKey = String(navigationFormData.get("idempotencyKey") ?? "").trim();
+    if (itemId && idempotencyKey) {
+      submissionIdentity.current = { itemId, idempotencyKey };
+    }
   }
 
-  if (offlineSaleAction && !offlineSaleAction.commandReceipt) {
-    retainedReceiptlessOfflineSaleResult.current = offlineSaleAction.offlineSale;
-  }
-
-  const currentReceiptlessResult = retainedReceiptlessOfflineSaleResult.current;
+  const actionTransition: ReceiptlessRetentionAction = offlineSaleAction
+    ? offlineSaleAction.commandReceipt
+      ? { kind: "receipt" }
+      : submissionIdentity.current
+        ? { kind: "receiptless", identity: submissionIdentity.current, result: offlineSaleAction.offlineSale }
+        : null
+    : hasOfflineSaleError && submissionIdentity.current
+      ? { kind: "error", identity: submissionIdentity.current }
+      : null;
+  retainedReceiptlessOfflineSaleResult.current = transitionReceiptlessRetention(
+    retainedReceiptlessOfflineSaleResult.current,
+    { locationKey: currentPath, stateResult, action: actionTransition },
+  );
+  const currentReceiptlessResult = retainedReceiptlessOfflineSaleResult.current?.result ?? null;
   const visibleOfflineSaleResult =
     offlineSaleAction?.offlineSale ?? currentReceiptlessResult ?? (hasOfflineSaleError ? null : stateResult) ?? null;
   const visibleOfflineSaleFreshness = offlineSaleAction
