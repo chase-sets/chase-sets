@@ -413,7 +413,7 @@
         "routeId": "account",
         "actions": ["Update account profile"],
         "command": "UpdateAccountProfile",
-        "helperUses": ["navigateAfterWriteFromSources"],
+        "helperUses": ["navigateAfterWrite"],
         "files": ["bounded-contexts/identity/features/accounts/ui/portable-route.ts"]
       },
       "destination": {

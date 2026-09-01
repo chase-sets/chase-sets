@@ -9,15 +9,12 @@ const freshWriteHelperNames = new Set([
   "appendFreshWriteToken",
   "appendFreshWriteTokenFromSources",
   "appendPostWriteHandoff",
-  "appendPostWriteHandoffFromSources",
   "evaluatePostWriteHandoff",
   "defineResourceRoute",
   "formActionRedirect",
-  "formActionRedirectFromSources",
   "loadAfterWrite",
   "loadFreshlyWrittenResource",
   "navigateAfterWrite",
-  "navigateAfterWriteFromSources",
   "navigateAfterWriteFromSourcesWithCompactToken",
   "navigateAfterWriteFromSourcesWithPlatformPostWriteToken",
   "navigateAfterWriteWithCompactToken",
@@ -27,7 +24,6 @@ const freshWriteHelperNames = new Set([
 ]);
 const semanticPostWriteHandoffHelperNames = new Set([
   "appendPostWriteHandoff",
-  "appendPostWriteHandoffFromSources",
   "evaluatePostWriteHandoff",
   "readPostWriteHandoff",
   "readPostWriteHandoffState",
@@ -36,29 +32,19 @@ const receiptProducingFreshWriteHelperNames = new Set([
   "appendFreshWriteToken",
   "appendFreshWriteTokenFromSources",
   "appendPostWriteHandoff",
-  "appendPostWriteHandoffFromSources",
   "navigateAfterWrite",
-  "navigateAfterWriteFromSources",
   "navigateAfterWriteFromSourcesWithCompactToken",
   "navigateAfterWriteFromSourcesWithPlatformPostWriteToken",
   "navigateAfterWriteWithCompactToken",
   "navigateAfterWriteWithPlatformPostWriteToken",
   "formActionRedirect",
-  "formActionRedirectFromSources",
 ]);
-const routeRuntimeContractHelperNames = new Set([
-  "defineResourceRoute",
-  "formActionRedirect",
-  "formActionRedirectFromSources",
-]);
+const routeRuntimeContractHelperNames = new Set(["defineResourceRoute", "formActionRedirect"]);
 
 function helperUseSatisfiesClaim(usedHelpers, claimedHelper) {
   if (usedHelpers.has(claimedHelper)) return true;
   if (usedHelpers.has("defineResourceRoute") && claimedHelper === "loadAfterWrite") return true;
-  if (
-    (usedHelpers.has("formActionRedirect") || usedHelpers.has("formActionRedirectFromSources")) &&
-    receiptProducingFreshWriteHelperNames.has(claimedHelper)
-  ) {
+  if (usedHelpers.has("formActionRedirect") && receiptProducingFreshWriteHelperNames.has(claimedHelper)) {
     return true;
   }
   return false;
@@ -67,7 +53,7 @@ function helperUseSatisfiesClaim(usedHelpers, claimedHelper) {
 function helperUsageIsCovered(usedHelper, coveredHelpers) {
   if (coveredHelpers.has(usedHelper)) return true;
   if (usedHelper === "defineResourceRoute" && coveredHelpers.has("loadAfterWrite")) return true;
-  if (usedHelper === "formActionRedirect" || usedHelper === "formActionRedirectFromSources") {
+  if (usedHelper === "formActionRedirect") {
     return [...coveredHelpers].some((helper) => receiptProducingFreshWriteHelperNames.has(helper));
   }
   return false;
@@ -1631,9 +1617,7 @@ export async function validateReadAfterWriteRouteInventory(options) {
   const reportEntries = [];
 
   for (const file of rawPostWriteHandoffMetadataUsages) {
-    violations.push(
-      `${file}: raw postWriteHandoff query metadata is not allowed; use appendPostWriteHandoff or appendPostWriteHandoffFromSources`,
-    );
+    violations.push(`${file}: raw postWriteHandoff query metadata is not allowed; use appendPostWriteHandoff`);
   }
 
   for (const context of contextManifests.values()) {

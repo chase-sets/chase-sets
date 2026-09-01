@@ -3,7 +3,7 @@ import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   attachResponseMetadata,
   encodeFreshWriteReceipt,
-  navigateAfterWriteFromSources,
+  navigateAfterWrite,
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
 import type { PortableClientFetch } from "@chase-sets/platform-runtime/portable-client";
@@ -82,7 +82,31 @@ describe("portable Account route", () => {
 
     expect(outcome.kind).toBe("navigate");
     if (outcome.kind !== "navigate") throw new Error("Expected portable account mutation to navigate.");
+    expect(new URL(outcome.to, "https://mobile.local").pathname).toBe("/account");
     expect(readFreshWriteToken(outcome.to)).toMatchObject({ commitPosition: "42" });
+  });
+
+  it("keeps account navigation unchanged when the PUT response has no receipt", async () => {
+    const fetch: PortableClientFetch = (input) => {
+      const url = urlOf(input);
+      if (url.pathname === "/api/auth/session") {
+        return Promise.resolve(
+          Response.json({ actor: { accountId: "acct_1", permissions: ["accounts.view", "accounts.manage"] } }),
+        );
+      }
+      return Promise.resolve(Response.json({ account_id: "acct_1" }));
+    };
+    const formData = new FormData();
+    formData.set("intent", "update-profile");
+    formData.set("name", "Trader");
+    formData.set("displayName", "Trader");
+
+    await expect(
+      mutatePortableAccountRoute(
+        { url: new URL("https://mobile.local/account"), params: {}, formData },
+        { apiOrigin: "https://api.chasesets.test", fetch },
+      ),
+    ).resolves.toEqual({ kind: "navigate", to: "/account" });
   });
 
   it("forwards a tokenized load receipt to the account read", async () => {
@@ -99,7 +123,7 @@ describe("portable Account route", () => {
       return Promise.resolve(Response.json({}));
     };
     const result = attachResponseMetadata({ account_id: "acct_1" }, commitResponse({ account_id: "acct_1" }));
-    const destination = navigateAfterWriteFromSources([result], "/account");
+    const destination = navigateAfterWrite(result, "/account");
     const receipt = readFreshWriteToken(destination);
     if (!receipt) throw new Error("Expected test navigation to carry a fresh-write receipt.");
 
