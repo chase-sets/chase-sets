@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildSupportShipmentSourceProjectionHandlers } from "./source-projection";
 
 describe("Support Fulfillment source reactions", () => {
@@ -8,27 +9,29 @@ describe("Support Fulfillment source reactions", () => {
       { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) } as never,
       { recordRemedyEffect },
     );
-    await handlers["fulfillment.return-shipment.facility-intake-completed.v1"]!({
-      id: "evt_intake_1",
-      type: "fulfillment.return-shipment.facility-intake-completed.v1",
-      streamId: "fulfillment.return-shipment-rsh_1",
-      streamVersion: 6,
-      globalPosition: 10,
-      tenantId: "tnt_1",
-      data: {
-        returnShipmentId: "rsh_1",
-        remedyId: "rmd_1",
-        supportRequestId: "sup_1",
-        intake: {
-          receivedAt: "2026-07-14T12:00:00.000Z",
-          idempotencyKey: "intake-1",
+    await handlers["fulfillment.return-shipment.facility-intake-completed.v1"]!(
+      buildTransportEvent(
+        "fulfillment.return-shipment.facility-intake-completed.v1",
+        {
+          returnShipmentId: "rsh_1",
+          remedyId: "rmd_1",
+          supportRequestId: "sup_1",
+          intake: {
+            receivedAt: "2026-07-14T12:00:00.000Z",
+            idempotencyKey: "intake-1",
+          },
         },
-      },
-      metadata: {},
-      audit: { performedByUserId: "usr_operator", forAccountId: "acc_platform" },
-      trace: {},
-      timing: { occurredAt: "2026-07-14T12:00:00.000Z", recordedAt: "2026-07-14T12:00:00.000Z" },
-    } as never);
+        {
+          id: "evt_intake_1",
+          streamId: "fulfillment.return-shipment-rsh_1",
+          streamVersion: 6,
+          globalPosition: "10",
+          tenantId: "tnt_1",
+          audit: { performedByUserId: "usr_operator", forAccountId: "acc_platform" },
+          trace: {},
+        },
+      ),
+    );
 
     expect(recordRemedyEffect).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -44,14 +47,9 @@ describe("Support Fulfillment source reactions", () => {
   });
 
   function trackingEvent(type: string, extra: Record<string, unknown>) {
-    return {
-      id: `evt_${type}`,
+    return buildTransportEvent(
       type,
-      streamId: "fulfillment.return-shipment-rsh_1",
-      streamVersion: 3,
-      globalPosition: 5,
-      tenantId: "tnt_1",
-      data: {
+      {
         returnShipmentId: "rsh_1",
         remedyId: "rmd_1",
         supportRequestId: "sup_1",
@@ -64,11 +62,16 @@ describe("Support Fulfillment source reactions", () => {
         },
         ...extra,
       },
-      metadata: {},
-      audit: { performedByUserId: "usr_system", forAccountId: "acc_platform" },
-      trace: {},
-      timing: { occurredAt: "2026-07-14T12:00:00.000Z", recordedAt: "2026-07-14T12:00:00.000Z" },
-    } as never;
+      {
+        id: `evt_${type}`,
+        streamId: "fulfillment.return-shipment-rsh_1",
+        streamVersion: 3,
+        globalPosition: "5",
+        tenantId: "tnt_1",
+        audit: { performedByUserId: "usr_system", forAccountId: "acc_platform" },
+        trace: {},
+      },
+    );
   }
 
   it("releases the refund by recording the delivered effect when delivered is the authorized trigger", async () => {

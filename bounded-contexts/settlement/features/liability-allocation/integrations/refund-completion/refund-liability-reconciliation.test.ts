@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import { buildSettlementPaymentInputProjectionHandlers } from "../../../wallets/integrations/payment-source/payment-source-projection";
 import type { ProtectionCoverageSettlementPort } from "../../api/ports";
@@ -41,19 +42,16 @@ function createCoverage(coverageRow: Record<string, unknown> | null) {
 }
 
 function transportEvent(type: string, data: Record<string, unknown>, streamVersion = 5) {
-  return {
+  return buildTransportEvent(type, data, {
     id: "evt_refund",
-    type,
     streamId: "payments.payment-pay_1",
     streamVersion,
     globalPosition: "1",
     tenantId: "tnt_test",
-    data,
-    metadata: {},
     audit: { performedByUserId: "usr_test", forAccountId: "acc_buyer" },
     trace: {},
     timing: { occurredAt: "2026-05-01T00:00:00.000Z", recordedAt: "2026-05-01T00:00:00.000Z" },
-  } as never;
+  });
 }
 
 const sellerPayouts = [
