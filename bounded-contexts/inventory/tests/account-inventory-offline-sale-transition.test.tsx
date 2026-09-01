@@ -531,7 +531,7 @@ describe("account inventory offline-sale router transition", () => {
     expect(itemReads).toBeGreaterThanOrEqual(2);
   });
 
-  it("retains a receiptless list replay as unverified without navigating or claiming completion", async () => {
+  it("retains a receiptless list replay through revalidation without navigating or claiming completion", async () => {
     stubMobileViewport();
     vi.stubGlobal(
       "fetch",
@@ -594,6 +594,10 @@ describe("account inventory offline-sale router transition", () => {
     await user.type(screen.getByLabelText("Quantity sold"), "1");
     await user.selectOptions(screen.getByLabelText("Sale channel"), "card-show");
     await user.click(screen.getByRole("button", { name: "Record sale" }));
+
+    await act(async () => {
+      await router.revalidate();
+    });
 
     const presentation = await screen.findByText(/could not be verified/i);
     expect(presentation.closest('[role="alert"]')?.textContent).not.toContain("Completed:");

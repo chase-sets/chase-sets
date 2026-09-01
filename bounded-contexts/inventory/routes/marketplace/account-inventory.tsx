@@ -285,10 +285,19 @@ export default function MarketplaceInventoryRoute() {
   const stateResult = locationState.offlineSaleResult as InventoryOfflineSaleResult | undefined;
   const preservedLocationState = useRef(locationState);
   const [preservedOfflineSaleFormTokens, setPreservedOfflineSaleFormTokens] = useState(data.offlineSaleFormTokens);
-  const [retainedReceiptlessOfflineSaleResult, setRetainedReceiptlessOfflineSaleResult] =
-    useState<InventoryOfflineSaleResult | null>(null);
+  const retainedReceiptlessOfflineSaleResult = useRef<InventoryOfflineSaleResult | null>(null);
+  const renderedStateResult = useRef(stateResult);
 
-  const currentReceiptlessResult = hasOfflineSaleError ? retainedReceiptlessOfflineSaleResult : null;
+  if (stateResult !== renderedStateResult.current) {
+    renderedStateResult.current = stateResult;
+    retainedReceiptlessOfflineSaleResult.current = null;
+  }
+
+  if (offlineSaleAction && !offlineSaleAction.commandReceipt) {
+    retainedReceiptlessOfflineSaleResult.current = offlineSaleAction.offlineSale;
+  }
+
+  const currentReceiptlessResult = retainedReceiptlessOfflineSaleResult.current;
   const visibleOfflineSaleResult =
     offlineSaleAction?.offlineSale ?? currentReceiptlessResult ?? (hasOfflineSaleError ? null : stateResult) ?? null;
   const visibleOfflineSaleFreshness = offlineSaleAction
@@ -310,16 +319,6 @@ export default function MarketplaceInventoryRoute() {
       setPreservedOfflineSaleFormTokens(data.offlineSaleFormTokens);
     }
   }, [data.offlineSaleFormTokens, hasOfflineSaleError, locationState, navigation.state, offlineSaleAction]);
-
-  useEffect(() => {
-    setRetainedReceiptlessOfflineSaleResult(null);
-  }, [stateResult]);
-
-  useEffect(() => {
-    if (offlineSaleAction && !offlineSaleAction.commandReceipt) {
-      setRetainedReceiptlessOfflineSaleResult(offlineSaleAction.offlineSale);
-    }
-  }, [offlineSaleAction]);
 
   useEffect(() => {
     if (!offlineSaleAction?.commandReceipt) {
