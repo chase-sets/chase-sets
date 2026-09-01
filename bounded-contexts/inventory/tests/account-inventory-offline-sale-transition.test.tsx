@@ -136,6 +136,23 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function waitForActionNavigationToSettle(router: ReturnType<typeof createMemoryRouter>) {
+  return new Promise<void>((resolve) => {
+    let actionNavigationStarted = false;
+    const unsubscribe = router.subscribe((state) => {
+      if (state.navigation.state !== "idle") {
+        actionNavigationStarted = true;
+        return;
+      }
+
+      if (actionNavigationStarted) {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
+
 describe("account inventory offline-sale router transition", () => {
   it("survives action serialization, revalidates with the outer receipt, and preserves the selected list location", async () => {
     const requests: { url: string; method: string; headers: Headers }[] = [];
@@ -593,9 +610,13 @@ describe("account inventory offline-sale router transition", () => {
     await user.click(within(mobileCards).getByRole("button", { name: "Record sale" }));
     await user.type(screen.getByLabelText("Quantity sold"), "1");
     await user.selectOptions(screen.getByLabelText("Sale channel"), "card-show");
+    const actionNavigation = waitForActionNavigationToSettle(router);
     await user.click(screen.getByRole("button", { name: "Record sale" }));
+    await act(async () => {
+      await actionNavigation;
+    });
 
-    const presentation = await screen.findByText(/could not be verified/i);
+    const presentation = screen.getByText(/could not be verified/i);
     expect(presentation.closest('[role="alert"]')?.textContent).not.toContain("Completed:");
     expect(presentation.closest('[role="alert"]')?.textContent).not.toContain("Authoritative available quantity");
     expect(router.state.location.search).not.toContain("afterWrite");
@@ -655,9 +676,13 @@ describe("account inventory offline-sale router transition", () => {
     await screen.findByText("Sold item");
     await user.type(screen.getByLabelText("Quantity sold"), "1");
     await user.selectOptions(screen.getByLabelText("Sale channel"), "card-show");
+    const actionNavigation = waitForActionNavigationToSettle(router);
     await user.click(screen.getByRole("button", { name: "Record sale" }));
+    await act(async () => {
+      await actionNavigation;
+    });
 
-    const presentation = await screen.findByText(/could not be verified/i);
+    const presentation = screen.getByText(/could not be verified/i);
     expect(presentation.closest('[role="alert"]')?.textContent).not.toContain("Completed:");
     expect(presentation.closest('[role="alert"]')?.textContent).not.toContain("Authoritative available quantity");
     expect(router.state.location.search).not.toContain("afterWrite");
