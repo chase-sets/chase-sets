@@ -8,7 +8,7 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import type { MarketplaceOfferAcceptedPayload } from "@chase-sets/event-core";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { defaultPostagePolicy } from "@chase-sets/product-measures";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";

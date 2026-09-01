@@ -13,7 +13,7 @@ import {
   type RefundEvent,
   type RefundState,
 } from "../../features/refunds/domain/domain";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { orderingReservedSeedIds } from "@chase-sets/ordering/seed-support/ids";
 import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";

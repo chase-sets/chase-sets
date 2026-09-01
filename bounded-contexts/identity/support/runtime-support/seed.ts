@@ -9,8 +9,8 @@ import {
   type SeedAggregateReconciler,
 } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { isDeepStrictEqual } from "node:util";
-import { identitySeedIds } from "../seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";

@@ -1,5 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
 import type { TenantId } from "@chase-sets/primitives/typed-ids";
 
 export const seedContext: EventStoreContext = {

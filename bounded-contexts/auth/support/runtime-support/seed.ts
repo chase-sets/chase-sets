@@ -13,7 +13,7 @@ import {
   type SessionEvent,
   type SessionState,
 } from "../../features/sessions/domain/domain";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import type { AccountId, SessionId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 function createAuthSeedContext(): EventStoreContext {

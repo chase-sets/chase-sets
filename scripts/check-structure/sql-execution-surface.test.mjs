@@ -820,8 +820,8 @@ describe("repository-wide SQL execution partition", () => {
     const legacyPartition = partitionFromFiles(repoRoot, legacyModules);
     const partition = partitionFromFiles(repoRoot, governedModules);
 
-    expect(legacyModules).toHaveLength(2289);
-    expect(governedModules).toHaveLength(2284);
+    expect(legacyModules).toHaveLength(2292);
+    expect(governedModules).toHaveLength(2287);
     expect(removedModules).toEqual(exactRemovedModules);
     expect(removedClassification.modules.map(({ file, outcome }) => ({ file, outcome }))).toEqual(
       exactRemovedModules.map((file) => ({ file, outcome: "not-sql" })),
@@ -831,12 +831,12 @@ describe("repository-wide SQL execution partition", () => {
 
     expect(legacyPartition.sqlExecuting).toHaveLength(378);
     expect(legacyPartition.unprovableForm).toHaveLength(3);
-    expect(legacyPartition.notSql).toHaveLength(1908);
+    expect(legacyPartition.notSql).toHaveLength(1911);
     expect(legacyPartition.unresolvedMemberRoots.count).toBe(263);
     expect(partition.sqlExecuting).toEqual(legacyPartition.sqlExecuting);
     expect(partition.unprovableForm).toEqual(legacyPartition.unprovableForm);
     expect(partition.notSql).toEqual(legacyPartition.notSql.filter((file) => !exactRemovedModules.includes(file)));
-    expect(partition.notSql).toHaveLength(1903);
+    expect(partition.notSql).toHaveLength(1906);
     expect(partition.unresolvedMemberRoots).toEqual(legacyPartition.unresolvedMemberRoots);
     expect(partition.sqlExecuting.filter((file) => !legacyPartition.sqlExecuting.includes(file))).toEqual([]);
     expect(partition.unprovableForm.filter((file) => !legacyPartition.unprovableForm.includes(file))).toEqual([]);
@@ -844,7 +844,8 @@ describe("repository-wide SQL execution partition", () => {
       governedModules.length,
     );
     console.log(
-      `SQL module inventory 2287 -> ${governedModules.length}; partition 377/3/1907 -> ` +
+      `SQL module inventory ${legacyModules.length} -> ${governedModules.length}; partition ` +
+        `${legacyPartition.sqlExecuting.length}/${legacyPartition.unprovableForm.length}/${legacyPartition.notSql.length} -> ` +
         `${partition.sqlExecuting.length}/${partition.unprovableForm.length}/${partition.notSql.length}; ` +
         `unresolvedMemberRoots=${partition.unresolvedMemberRoots.count}; removed=${removedModules.join(",")}`,
     );

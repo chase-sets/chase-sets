@@ -8,7 +8,7 @@
   "slices": ["shipments", "return-shipments"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
+  "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["identity", "payments", "ordering"],
   "eventSubscriptions": [
     {

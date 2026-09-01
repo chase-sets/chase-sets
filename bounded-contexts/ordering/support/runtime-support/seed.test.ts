@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { defaultPostagePolicy } from "@chase-sets/product-measures";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { OrderingDomainError } from "../../features/orders/domain/common";

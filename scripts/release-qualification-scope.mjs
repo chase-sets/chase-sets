@@ -129,6 +129,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "checkout-order-source": "money-movement-contract",
     "event-core": "event-store-persistence",
     http: "runtime-library",
+    "identity-seed": "seed-machinery",
     localization: "runtime-library",
     "market-estimate-display": "runtime-library",
     "money-movement": "money-movement-contract",
@@ -405,7 +406,7 @@ const sqlDdlPattern =
 const migrationContractPattern = /\bBcSchemaMigration\b|\bmigrationId\s*:/;
 const destructiveDataPattern = /\bDELETE\s+FROM\b|\bTRUNCATE\s+TABLE\b|\bDROP\s+TABLE\b/i;
 const seedContractPattern =
-  /@chase-sets\/[a-z0-9-]+\/seed-support\/|\bBcSeedOptions\b|\bEnvironmentDataProfile\b|\bseedProfileEnabled\b|\bscenario-seed\b|bounded-context-runtime\/seeding/;
+  /@chase-sets\/(?:[a-z0-9-]+\/seed-support\/|[a-z0-9-]+-seed\b)|\bBcSeedOptions\b|\bEnvironmentDataProfile\b|\bseedProfileEnabled\b|\bscenario-seed\b|bounded-context-runtime\/seeding/;
 const liveProviderContentPattern =
   /from\s+["']stripe["']|require\(["']stripe["']\)|api\.stripe\.com|@easypost\/api|api\.easypost\.com|@aws-sdk\/client-ses|from\s+["']twilio["']|api\.twilio\.com|digitaloceanspaces\.com|api\.digitalocean\.com|\bdoctl\s|\bkubectl\s|\bhelm\s+(?:upgrade|install|uninstall|rollback)\b/;
 

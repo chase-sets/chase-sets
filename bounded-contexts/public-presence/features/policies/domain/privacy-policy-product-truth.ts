@@ -398,7 +398,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
       "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:62-67",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "bounded-contexts/settlement/package.json:44",
+      "bounded-contexts/settlement/package.json:45",
     ],
     factualSummary:
       "The payout setup page calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
@@ -413,7 +413,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx:89-101",
-      "bounded-contexts/settlement/package.json:44",
+      "bounded-contexts/settlement/package.json:45",
     ],
     factualSummary:
       "The Stripe Connect notification banner calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",

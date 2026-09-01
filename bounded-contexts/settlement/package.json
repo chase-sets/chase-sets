@@ -32,6 +32,7 @@
     "@chase-sets/event-core-postgres": "workspace:*",
     "@chase-sets/http": "workspace:*",
     "@chase-sets/identity": "workspace:*",
+    "@chase-sets/identity-seed": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/money-movement": "workspace:*",
     "@chase-sets/notification-outbox": "workspace:*",
