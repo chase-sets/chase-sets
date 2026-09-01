@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildDiscoveryMarketProjectionHandlers } from "../support/market-support/projection";
 import {
@@ -7,14 +8,12 @@ import {
 } from "../features/item-detail/read-model/queries";
 
 function createEvent(type: string, data: Record<string, unknown>, recordedAt: string) {
-  return {
-    type,
+  return buildTransportEvent(type, data, {
     streamId: "marketplace.offer-offer_charizard",
     streamVersion: 1,
     globalPosition: "1",
-    data,
-    timing: { recordedAt },
-  };
+    timing: { occurredAt: recordedAt, recordedAt },
+  });
 }
 
 describe("item detail offer matches", () => {
@@ -42,7 +41,7 @@ describe("item detail offer matches", () => {
           submittedAt: "2026-05-12T00:00:00.000Z",
         },
         "2026-05-12T00:00:00.000Z",
-      ) as never,
+      ),
     );
 
     expect(calls[0].sql).toContain("feedback");
@@ -84,7 +83,7 @@ describe("item detail offer matches", () => {
           lifecycleAt: "2026-05-13T00:00:00.000Z",
         },
         "2026-05-13T00:00:00.000Z",
-      ) as never,
+      ),
     );
     await handlers["marketplace.review-hold.released"]?.(
       createEvent(
@@ -95,7 +94,7 @@ describe("item detail offer matches", () => {
           lifecycleAt: "2026-05-14T00:00:00.000Z",
         },
         "2026-05-14T00:00:00.000Z",
-      ) as never,
+      ),
     );
 
     const holdUpdates = calls.filter(({ sql }) => sql.includes("UPDATE discovery_market_account_reviews"));
@@ -134,7 +133,7 @@ describe("item detail offer matches", () => {
           quantityRequested: 1,
         },
         "2026-04-28T00:00:00.000Z",
-      ) as never,
+      ),
     );
     await handlers["marketplace.offer.accepted"]?.(
       createEvent(
@@ -145,7 +144,7 @@ describe("item detail offer matches", () => {
           acceptedAt: "2026-04-28T01:00:00.000Z",
         },
         "2026-04-28T01:00:00.000Z",
-      ) as never,
+      ),
     );
 
     expect(calls[0].sql).toContain("INSERT INTO discovery_offer_demand_matches");
@@ -196,7 +195,7 @@ describe("item detail offer matches", () => {
           products: [{ productId: "cat_charizard::raw", weightOz: 4 }],
         },
         "2026-04-28T00:00:00.000Z",
-      ) as never,
+      ),
     );
     await handlers["inventory.item.created"]?.({
       ...createEvent(
@@ -205,7 +204,7 @@ describe("item detail offer matches", () => {
         "2026-04-28T00:01:00.000Z",
       ),
       streamId: "inventory.item-itm_charizard",
-    } as never);
+    });
 
     expect(calls[0].sql).toContain("DELETE FROM discovery_market_product_measures");
     expect(calls[1].sql).toContain("INSERT INTO discovery_market_product_measures");
@@ -238,7 +237,7 @@ describe("item detail offer matches", () => {
           shipFromAddress: { country: "US" },
         },
         "2026-04-28T00:00:00.000Z",
-      ) as never,
+      ),
     );
     await handlers["checkout.sell-list.line-added"]?.({
       ...createEvent(
@@ -255,7 +254,7 @@ describe("item detail offer matches", () => {
         "2026-04-28T00:01:00.000Z",
       ),
       streamId: "checkout.sell-list-acc_seller",
-    } as never);
+    });
 
     expect(calls[0].sql).toContain("INSERT INTO discovery_market_supply_locations");
     expect(calls[0].params).toEqual([
