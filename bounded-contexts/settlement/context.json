@@ -796,26 +796,19 @@
       }
     },
     {
-      "id": "settlement.wallet-operator-ledger-entry-snapshots",
+      "id": "settlement.wallet-negative-balance-collections-snapshots",
       "owner": "settlement",
       "risk": "critical",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-holds",
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-releases",
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/negative-balances/evaluate-collections",
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/refund-debits"
+        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/negative-balances/evaluate-collections"
       ],
       "visibleDestination": {
-        "description": "Operator wallet mutations return the committed ledger-entry snapshot or negative-balance collections counts without waiting for the wallet ledger read model."
+        "description": "Negative-balance collection evaluation returns the service-owned escalated and skipped count snapshot without waiting for a read model."
       },
       "proof": {
-        "authoritativeResponse": "WalletServices.postEntry builds the response from the settlement.wallet.ledger-entry-posted event that was just committed, duplicate idempotency-key retries return an explicit idempotent duplicate response instead of asking the operator to repeat the input, and evaluateNegativeBalanceCollections returns command-owned escalated/skipped counts.",
-        "tests": [
-          "bounded-contexts/settlement/features/wallets/api/route.test.ts",
-          "bounded-contexts/settlement/features/wallets/domain/domain.test.ts",
-          "bounded-contexts/settlement/features/wallets/read-model/queries.test.ts"
-        ]
+        "authoritativeResponse": "evaluateNegativeBalanceCollections returns the command-owned escalated and skipped count snapshot.",
+        "tests": ["bounded-contexts/settlement/features/wallets/api/route.test.ts"]
       }
     },
     {
