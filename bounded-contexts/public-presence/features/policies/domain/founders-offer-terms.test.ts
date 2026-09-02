@@ -533,7 +533,7 @@ function assertCitations(candidate: PublicPolicyArtifact, sourceOverrides: Reado
     const matches = assumptions.filter(({ assertion }) => assertion.startsWith(assertionStart));
     expect(matches, assertionStart).toHaveLength(1);
     const refs = matches[0]!.evidenceRef.split("; ");
-    expect(refs.toSorted(), `${assertionStart}: clause references`).toEqual(citations.map(([ref]) => ref).toSorted());
+    expect([...refs].sort(), `${assertionStart}: clause references`).toEqual(citations.map(([ref]) => ref).sort());
     for (const [ref, ...patterns] of citations) {
       const [, path, from, to] = /^(.+):(\d+)-(\d+)$/.exec(ref)!;
       const lines = (sourceOverrides[path!] ?? readSource(path!)).split(/\r?\n/);
