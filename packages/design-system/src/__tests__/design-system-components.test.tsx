@@ -544,6 +544,31 @@ describe("design system components", () => {
     expect(onValueChange).toHaveBeenCalledWith("nm");
   });
 
+  it("names the combobox trigger and rejects unnamed controls in its field", () => {
+    const labeled = render(
+      <ChaseRoot>
+        <Combobox
+          label="Condition"
+          placeholder="Filter print condition"
+          items={[{ value: "nm", label: "Near Mint" }]}
+        />
+      </ChaseRoot>,
+    );
+    const labeledField = within(labeled.container);
+
+    expect(labeledField.getByRole("button", { name: "Condition" })).toBeTruthy();
+    expect(labeledField.queryByRole("button", { name: "" })).toBeNull();
+    expect(labeledField.queryByRole("combobox", { name: "" })).toBeNull();
+
+    const unlabeled = render(
+      <ChaseRoot>
+        <Combobox placeholder="Filter card condition" items={[{ value: "lp", label: "Lightly Played" }]} />
+      </ChaseRoot>,
+    );
+
+    expect(within(unlabeled.container).getByRole("button", { name: "" })).toBeTruthy();
+  });
+
   it("renders secondary descriptions in combobox options", async () => {
     const user = userEvent.setup();
 
@@ -871,6 +896,31 @@ describe("design system components", () => {
     await user.click(await screen.findByRole("option", { name: "Pikachu" }));
 
     expect(onValueChange).toHaveBeenCalledWith("Pikachu");
+  });
+
+  it("names the autocomplete trigger and rejects unnamed controls in its field", () => {
+    const labeled = render(
+      <ChaseRoot>
+        <Autocomplete
+          label="Character"
+          placeholder="Find a character"
+          items={[{ value: "charizard", label: "Charizard" }]}
+        />
+      </ChaseRoot>,
+    );
+    const labeledField = within(labeled.container);
+
+    expect(labeledField.getByRole("button", { name: "Character" })).toBeTruthy();
+    expect(labeledField.queryByRole("button", { name: "" })).toBeNull();
+    expect(labeledField.queryByRole("combobox", { name: "" })).toBeNull();
+
+    const unlabeled = render(
+      <ChaseRoot>
+        <Autocomplete placeholder="Find a trainer" items={[{ value: "misty", label: "Misty" }]} />
+      </ChaseRoot>,
+    );
+
+    expect(within(unlabeled.container).getByRole("button", { name: "" })).toBeTruthy();
   });
 
   it("increments number fields through Base UI controls", async () => {
