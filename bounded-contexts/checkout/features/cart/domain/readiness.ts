@@ -17,6 +17,9 @@ export type CartReadinessLine = Readonly<{
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string;
+  item_subtitle?: string | null;
+  selected_options?: readonly Readonly<{ dimensionId: string; optionId: string }>[];
+  product_summary?: string | null;
   quantity: number;
   fulfillment_mode: "optimize" | "locked-listing";
   locked_listing_id: string | null;
@@ -24,6 +27,11 @@ export type CartReadinessLine = Readonly<{
   availability_state: CartReadinessAvailabilityState;
   seller_options: readonly CartReadinessSellerOption[];
   updated_at: string;
+}>;
+
+export type CartReadinessUnionSource = Readonly<{
+  accountId: string;
+  presentedAnonymousCartId: string;
 }>;
 
 export type CartReadinessLineOutcome = "checkout" | "save-for-later" | "removed";
@@ -417,7 +425,7 @@ function buildFulfillmentGroups(
     .sort((left, right) => left.groupId.localeCompare(right.groupId));
 }
 
-function sourceRevisionFor(lines: readonly CartReadinessLine[]) {
+function legacySourceRevisionFor(lines: readonly CartReadinessLine[]) {
   return stableHash(
     lines.map((line) => ({
       lineId: line.line_id,
@@ -440,9 +448,52 @@ function sourceRevisionFor(lines: readonly CartReadinessLine[]) {
   );
 }
 
+function normalizedUnionSellerOptions(options: readonly CartReadinessSellerOption[]) {
+  return [...options]
+    .map((option) => ({
+      listingId: option.listing_id,
+      sellerAccountId: option.seller_account_id ?? null,
+      sellerDisplayName: option.seller_display_name,
+      priceAmount: option.price_amount,
+      availableQuantity: option.available_quantity,
+      productMeasureSnapshot: option.product_measure_snapshot,
+    }))
+    .sort((left, right) => left.listingId.localeCompare(right.listingId));
+}
+
+function unionSourceRevisionFor(lines: readonly CartReadinessLine[], source: CartReadinessUnionSource) {
+  return stableHash({
+    accountId: source.accountId.trim(),
+    presentedAnonymousCartId: source.presentedAnonymousCartId.trim(),
+    lines: [...lines]
+      .sort((left, right) => left.line_id.localeCompare(right.line_id))
+      .map((line) => ({
+        lineId: line.line_id,
+        catalogItemId: line.catalog_catalog_item_id,
+        productId: line.product_id,
+        itemTitle: line.item_title,
+        itemSubtitle: line.item_subtitle ?? null,
+        selectedOptions: [...(line.selected_options ?? [])]
+          .map((option) => ({ dimensionId: option.dimensionId, optionId: option.optionId }))
+          .sort(
+            (left, right) =>
+              left.dimensionId.localeCompare(right.dimensionId) || left.optionId.localeCompare(right.optionId),
+          ),
+        productSummary: line.product_summary ?? null,
+        quantity: line.quantity,
+        fulfillmentMode: line.fulfillment_mode,
+        lockedListingId: line.locked_listing_id,
+        sellerPreferenceId: line.seller_preference_id,
+        availabilityState: line.availability_state,
+        sellerOptions: normalizedUnionSellerOptions(line.seller_options),
+      })),
+  });
+}
+
 export function createCartReadinessSnapshot(
   lines: readonly CartReadinessLine[],
   decisions?: CartReadinessDecisionInput | null,
+  unionSource?: CartReadinessUnionSource | null,
 ): CartReadinessSnapshot {
   const sortedLines = [...lines].sort((left, right) => left.line_id.localeCompare(right.line_id));
   const normalized = normalizeDecisions(decisions);
@@ -486,7 +537,9 @@ export function createCartReadinessSnapshot(
 
   const status =
     includedLineIds.length === 0 ? "blocked" : unresolvedLineIds.length > 0 ? "needs-resolution" : ("ready" as const);
-  const sourceRevision = sourceRevisionFor(sortedLines);
+  const sourceRevision = unionSource
+    ? unionSourceRevisionFor(sortedLines, unionSource)
+    : legacySourceRevisionFor(sortedLines);
   const fulfillmentGroups =
     status === "ready"
       ? buildFulfillmentGroups(sortedLines, includedLineIds, optimizationAccepted, optimizationProposal)
@@ -571,8 +624,9 @@ export function applyCartReadinessToLines<TLine extends CartReadinessLine>(
 export function validateCartReadinessSnapshot(
   lines: readonly CartReadinessLine[],
   provided: Pick<CartReadinessSnapshot, "snapshotId" | "sourceRevision"> & { decisions?: CartReadinessDecisionInput },
+  unionSource?: CartReadinessUnionSource | null,
 ) {
-  const current = createCartReadinessSnapshot(lines, provided.decisions);
+  const current = createCartReadinessSnapshot(lines, provided.decisions, unionSource);
   return {
     current,
     valid: current.snapshotId === provided.snapshotId && current.sourceRevision === provided.sourceRevision,

@@ -437,6 +437,141 @@ describeDb("seller-options readiness against the checkout read model", () => {
     expect(snapshot.fulfillmentGroups.map((group) => group.sellerAccountId).sort()).toEqual(["acc_blue", "acc_red"]);
   });
 
+  it("executes the production union query with Account whole-row precedence and distinct same-product lines", async () => {
+    const anonymousCartId = "anon_postgres_union";
+    await seedReadModel(
+      [
+        seededLine({
+          line_id: "cli_account_only",
+          item_title: "Account only",
+          locked_listing_id: "lst_account",
+          seller_preference_id: "lst_account",
+          updated_at: "2026-06-17T00:00:00.000Z",
+        }),
+        seededLine({
+          line_id: "cli_shared",
+          item_title: "Account winner",
+          quantity: 1,
+          locked_listing_id: "lst_account",
+          seller_preference_id: "lst_account",
+          updated_at: "2026-06-16T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: anonymousCartId,
+          line_id: "cli_shared",
+          item_title: "Anonymous loser",
+          quantity: 3,
+          locked_listing_id: "lst_anonymous",
+          seller_preference_id: "lst_anonymous",
+          updated_at: "2026-06-30T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: anonymousCartId,
+          line_id: "cli_anonymous_only",
+          item_title: "Anonymous only",
+          locked_listing_id: "lst_anonymous",
+          seller_preference_id: "lst_anonymous",
+          updated_at: "2026-06-29T00:00:00.000Z",
+        }),
+        seededLine({ buyer_account_id: "acc_foreign", line_id: "cli_foreign" }),
+        seededLine({ buyer_account_id: "anon_unpresented", line_id: "cli_unpresented" }),
+      ],
+      [
+        seededOption({ listing_id: "lst_account", price_amount: "25.00" }),
+        seededOption({ listing_id: "lst_anonymous", price_amount: "26.00" }),
+      ],
+    );
+
+    const unionLines = await listCartLines(pool, buyerAccountId, anonymousCartId);
+
+    expect(unionLines.map((line) => line.line_id)).toEqual(["cli_account_only", "cli_shared", "cli_anonymous_only"]);
+    expect(unionLines.find((line) => line.line_id === "cli_shared")).toMatchObject({
+      buyer_account_id: buyerAccountId,
+      item_title: "Account winner",
+      quantity: 1,
+      locked_listing_id: "lst_account",
+      seller_preference_id: "lst_account",
+    });
+    expect(unionLines.filter((line) => line.product_id === "cat_charizard::form:raw")).toHaveLength(3);
+    expect((await listCartLines(pool, buyerAccountId)).map((line) => line.line_id)).toEqual([
+      "cli_account_only",
+      "cli_shared",
+    ]);
+
+    const source = { accountId: buyerAccountId, presentedAnonymousCartId: anonymousCartId };
+    const before = createCartReadinessSnapshot(unionLines, undefined, source);
+    await pool.query(
+      `UPDATE checkout_cart_line_pages SET item_title = 'Changed losing row', quantity = 2,
+         product_id = 'cat_loser::', locked_listing_id = 'lst_loser', updated_at = '2026-07-01'
+       WHERE buyer_account_id = $1 AND line_id = 'cli_shared'`,
+      [anonymousCartId],
+    );
+    const afterLosingChange = createCartReadinessSnapshot(
+      await listCartLines(pool, buyerAccountId, anonymousCartId),
+      undefined,
+      source,
+    );
+    expect(afterLosingChange).toEqual(before);
+
+    await pool.query("DELETE FROM checkout_cart_line_pages WHERE buyer_account_id = $1 AND line_id = 'cli_shared'", [
+      buyerAccountId,
+    ]);
+    const newlyWinningLines = await listCartLines(pool, buyerAccountId, anonymousCartId);
+    expect(newlyWinningLines.find((line) => line.line_id === "cli_shared")).toMatchObject({
+      buyer_account_id: anonymousCartId,
+      item_title: "Changed losing row",
+      product_id: "cat_loser::",
+      quantity: 2,
+    });
+    const afterWinnerChange = createCartReadinessSnapshot(newlyWinningLines, undefined, source);
+    expect(afterWinnerChange.sourceRevision).not.toBe(before.sourceRevision);
+    expect(afterWinnerChange.snapshotId).not.toBe(before.snapshotId);
+  });
+
+  it("keeps union identity through real SQL copy relocation and orders equal-time lines by ID within each owner", async () => {
+    const anonymousCartId = "anon_relocation";
+    const moving = seededLine({ buyer_account_id: anonymousCartId, line_id: "cli_moving" });
+    await seedReadModel(
+      [
+        seededLine({ line_id: "cli_b" }),
+        seededLine({ line_id: "cli_a" }),
+        moving,
+        seededLine({ buyer_account_id: anonymousCartId, line_id: "cli_z" }),
+      ],
+      [seededOption()],
+    );
+    const source = { accountId: buyerAccountId, presentedAnonymousCartId: anonymousCartId };
+    const beforeLines = await listCartLines(pool, buyerAccountId, anonymousCartId);
+    expect(beforeLines.map((line) => line.line_id)).toEqual(["cli_a", "cli_b", "cli_moving", "cli_z"]);
+    const before = createCartReadinessSnapshot(beforeLines, undefined, source);
+
+    await seedReadModel(
+      [
+        {
+          ...moving,
+          buyer_account_id: buyerAccountId,
+          updated_at: "2026-07-01T00:00:00.000Z",
+        },
+      ],
+      [],
+    );
+    const duringLines = await listCartLines(pool, buyerAccountId, anonymousCartId);
+    expect(duringLines.map((line) => line.line_id)).toEqual(["cli_moving", "cli_a", "cli_b", "cli_z"]);
+    expect(duringLines.find((line) => line.line_id === "cli_moving")?.buyer_account_id).toBe(buyerAccountId);
+    const during = createCartReadinessSnapshot(duringLines, undefined, source);
+    await pool.query("DELETE FROM checkout_cart_line_pages WHERE buyer_account_id = $1 AND line_id = $2", [
+      anonymousCartId,
+      moving.line_id,
+    ]);
+    const after = createCartReadinessSnapshot(
+      await listCartLines(pool, buyerAccountId, anonymousCartId),
+      undefined,
+      source,
+    );
+    expect(during).toEqual(before);
+    expect(after).toEqual(before);
+  });
+
   it("ties discovery add-to-cart selection to a ready, optimization-bearing snapshot through one SQL source", async () => {
     const selectedListingId = "lst_dear";
     await seedReadModel(

@@ -12,6 +12,7 @@ import type {
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { cartReadinessDecisionsFromSnapshot, createCartReadinessSnapshot } from "../../cart/domain/readiness";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
+import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
 import type { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
 import { createCheckoutSessionRuntime } from "./runtime";
@@ -145,6 +146,48 @@ function createCartServices(lines: readonly CheckoutCartLineRow[] = [readyCartLi
     checkout: vi.fn(async () => ({ version: 1 })),
     createReadinessSnapshot: vi.fn(async () => createCartReadinessSnapshot(lines)),
   };
+}
+
+function createUnionCartServices(
+  accountLines: readonly CheckoutCartLineRow[],
+  anonymousLines: readonly CheckoutCartLineRow[],
+  anonymousCartId = "anon_cart_a",
+) {
+  const { eventStore } = createInMemoryEventStore();
+  const resolveLines = (presentedAnonymousCartId?: string | null) => {
+    const candidates =
+      presentedAnonymousCartId === anonymousCartId ? [...accountLines, ...anonymousLines] : [...accountLines];
+    const seen = new Set<string>();
+    return candidates.filter((line) => {
+      if (seen.has(line.line_id)) {
+        return false;
+      }
+      seen.add(line.line_id);
+      return true;
+    });
+  };
+  return {
+    ...createCheckoutCartRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+    }),
+    listCartLines: vi.fn<CheckoutCartServices["listCartLines"]>(async (_accountId, presentedAnonymousCartId) =>
+      resolveLines(presentedAnonymousCartId),
+    ),
+    removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async ({ lineId }) => ({ lineId, version: 1 })),
+    checkout: vi.fn(async () => ({ version: 1 })),
+    createReadinessSnapshot: vi.fn<CheckoutCartServices["createReadinessSnapshot"]>(async (params) => {
+      const lines = resolveLines(params.presentedAnonymousCartId);
+      return createCartReadinessSnapshot(
+        lines,
+        params.decisions,
+        params.presentedAnonymousCartId
+          ? { accountId: params.accountId, presentedAnonymousCartId: params.presentedAnonymousCartId }
+          : undefined,
+      );
+    }),
+  } satisfies CheckoutCartServices;
 }
 
 function createBuyNowReadinessDb() {
@@ -547,6 +590,376 @@ describe("checkout session runtime", () => {
       ]),
     );
   });
+
+  it.each([
+    {
+      name: "anonymous-only",
+      accountLines: [] as CheckoutCartLineRow[],
+      anonymousLines: [{ ...readyCartLine, buyer_account_id: "anon_raw_marker" }],
+      expectedLineIds: ["cli_1"],
+      expectedError: null,
+    },
+    {
+      name: "distinct Account and anonymous lines",
+      accountLines: [readyCartLine],
+      anonymousLines: [
+        { ...secondSellerCartLine, buyer_account_id: "anon_raw_marker", product_id: readyCartLine.product_id },
+      ],
+      expectedLineIds: ["cli_1", "cli_second"],
+      expectedError: null,
+    },
+    {
+      name: "empty exact union",
+      accountLines: [] as CheckoutCartLineRow[],
+      anonymousLines: [] as CheckoutCartLineRow[],
+      expectedLineIds: [] as string[],
+      expectedError: "cart_empty",
+    },
+  ])("creates the expected buyer-bound cart session for $name", async (testCase) => {
+    const anonymousCartId = "anon_raw_marker";
+    const cart = createUnionCartServices(testCase.accountLines, testCase.anonymousLines, anonymousCartId);
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart,
+    });
+    const unionLines = [...testCase.accountLines, ...testCase.anonymousLines].filter(
+      (line, index, lines) => lines.findIndex((candidate) => candidate.line_id === line.line_id) === index,
+    );
+    const readiness = createCartReadinessSnapshot(unionLines, undefined, {
+      accountId: "acc_buyer",
+      presentedAnonymousCartId: anonymousCartId,
+    });
+    const create = () =>
+      services.createFromCart(
+        {
+          accountId: "acc_buyer" as never,
+          presentedAnonymousCartId: anonymousCartId,
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+          sessionIdOverride: `chk_union_${testCase.name.replaceAll(" ", "_")}` as never,
+        },
+        context,
+      );
+
+    if (testCase.expectedError) {
+      await expect(create()).rejects.toMatchObject({ code: testCase.expectedError });
+      expect(allEvents).toEqual([]);
+      return;
+    }
+
+    const created = await create();
+    const result = await services.selectShippingOption(
+      {
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+        shippingOption: "priority",
+      },
+      context,
+    );
+    const publicRowJson = JSON.stringify(result.session);
+    const startedEvent = allEvents.find((event) => event.eventType === "checkout.session.started");
+
+    expect(result.session.buyer_account_id).toBe("acc_buyer");
+    expect(result.session.lines.map((line) => line.cartLineId).sort()).toEqual([...testCase.expectedLineIds].sort());
+    expect(startedEvent?.payload).toMatchObject({ presentedAnonymousCartId: anonymousCartId });
+    expect(publicRowJson).not.toContain(anonymousCartId);
+    expect(publicRowJson).not.toContain("presentedAnonymousCartId");
+  });
+
+  it("rejects missing or different union authority before appending a session-start event", async () => {
+    const anonymousCartId = "anon_cart_a";
+    const accountLine = readyCartLine;
+    const anonymousDuplicate = {
+      ...readyCartLine,
+      buyer_account_id: anonymousCartId,
+      updated_at: "2026-07-01T00:00:00.000Z",
+    };
+    const cart = createUnionCartServices([accountLine], [anonymousDuplicate], anonymousCartId);
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart,
+    });
+    const readiness = createCartReadinessSnapshot([accountLine], undefined, {
+      accountId: "acc_buyer",
+      presentedAnonymousCartId: anonymousCartId,
+    });
+    const input = {
+      accountId: "acc_buyer" as never,
+      readinessSnapshotId: readiness.snapshotId,
+      readinessSourceRevision: readiness.sourceRevision,
+    };
+
+    await expect(services.createFromCart(input, context)).rejects.toMatchObject({
+      code: "readiness_snapshot_stale",
+    });
+    await expect(
+      services.createFromCart({ ...input, presentedAnonymousCartId: "anon_cart_b" }, context),
+    ).rejects.toMatchObject({ code: "readiness_snapshot_stale" });
+    expect(allEvents).toEqual([]);
+  });
+
+  it("uses persisted union provenance for all four active revalidation callers", async () => {
+    const anonymousCartId = "anon_raw_marker";
+    const anonymousLine = { ...readyCartLine, buyer_account_id: anonymousCartId };
+    const cart = createUnionCartServices([], [anonymousLine], anonymousCartId);
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart,
+    });
+    const readiness = createCartReadinessSnapshot([anonymousLine], undefined, {
+      accountId: "acc_buyer",
+      presentedAnonymousCartId: anonymousCartId,
+    });
+    const sessionIds = {
+      assert: "chk_union_assert",
+      reservations: "chk_union_reservations",
+      orders: "chk_union_orders",
+      get: "chk_union_get",
+    } as const;
+    for (const sessionId of Object.values(sessionIds)) {
+      await services.createFromCart(
+        {
+          accountId: "acc_buyer" as never,
+          presentedAnonymousCartId: anonymousCartId,
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+          sessionIdOverride: sessionId as never,
+        },
+        context,
+      );
+    }
+    for (const sessionId of [sessionIds.assert, sessionIds.orders]) {
+      await services.setShippingAddress(
+        { sessionId, accountId: "acc_buyer" as never, shippingAddress: serviceableShippingAddress },
+        context,
+      );
+    }
+    cart.listCartLines.mockClear();
+
+    await services.assertReadyForOrderCreation({
+      sessionId: sessionIds.assert,
+      accountId: "acc_buyer" as never,
+    });
+    await services.recordCheckoutReservations(
+      { sessionId: sessionIds.reservations, accountId: "acc_buyer" as never, reservations: [] },
+      context,
+    );
+    await services.recordOrdersCreated(
+      {
+        sessionId: sessionIds.orders,
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_union"],
+        fulfilledLineKeys: ["cli_1"],
+      },
+      context,
+    );
+    await services.getSession(sessionIds.get, "acc_buyer");
+
+    expect(cart.listCartLines).toHaveBeenCalledTimes(4);
+    expect(cart.listCartLines.mock.calls).toEqual(Array.from({ length: 4 }, () => ["acc_buyer", anonymousCartId]));
+  });
+
+  it("keeps union revalidation valid across copy relocation and stales on a winning-line change", async () => {
+    const anonymousCartId = "anon_cart_relocation";
+    const anonymousLine = { ...readyCartLine, buyer_account_id: anonymousCartId };
+    const cart = createUnionCartServices([], [anonymousLine], anonymousCartId);
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart,
+    });
+    const readiness = createCartReadinessSnapshot([anonymousLine], undefined, {
+      accountId: "acc_buyer",
+      presentedAnonymousCartId: anonymousCartId,
+    });
+    await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        presentedAnonymousCartId: anonymousCartId,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_union_relocation" as never,
+      },
+      context,
+    );
+    const relocatedLine = {
+      ...anonymousLine,
+      buyer_account_id: "acc_buyer",
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    };
+    cart.listCartLines.mockResolvedValue([relocatedLine]);
+
+    await expect(services.getSession("chk_union_relocation", "acc_buyer")).resolves.toMatchObject({
+      session_id: "chk_union_relocation",
+    });
+
+    cart.listCartLines.mockResolvedValue([
+      {
+        ...relocatedLine,
+        quantity: 2,
+        seller_options: relocatedLine.seller_options.map((option) => ({ ...option, available_quantity: 2 })),
+      },
+    ]);
+    await expect(services.getSession("chk_union_relocation", "acc_buyer")).rejects.toMatchObject({
+      code: "readiness_snapshot_stale",
+    });
+  });
+
+  it.each([false, true])("rejects stale union facts at all four callers with projected row=%s", async (projected) => {
+    const anonymousCartId = "anon_raw_marker";
+    const cart = createUnionCartServices(
+      [],
+      [{ ...readyCartLine, buyer_account_id: anonymousCartId }],
+      anonymousCartId,
+    );
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    let rows: CheckoutSessionRow[] = [];
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows })) },
+      cart,
+    });
+    const readiness = await cart.createReadinessSnapshot({
+      accountId: "acc_buyer",
+      presentedAnonymousCartId: anonymousCartId,
+    });
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        presentedAnonymousCartId: anonymousCartId,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+      },
+      context,
+    );
+    const params = { sessionId: created.sessionId, accountId: "acc_buyer" as never };
+    const updated = await services.setShippingAddress(
+      { ...params, shippingAddress: serviceableShippingAddress },
+      context,
+    );
+    if (projected) rows = [updated.session];
+    const publicRow = await services.getSession(created.sessionId, "acc_buyer");
+    expect(publicRow?.session_id).toBe(created.sessionId);
+    expect(JSON.stringify(publicRow)).not.toContain(anonymousCartId);
+    expect(JSON.stringify(publicRow)).not.toContain("presentedAnonymousCartId");
+    expect(allEvents.find((event) => event.eventType === "checkout.session.started")?.payload).toMatchObject({
+      presentedAnonymousCartId: anonymousCartId,
+    });
+
+    cart.listCartLines.mockResolvedValue([{ ...readyCartLine, item_title: "Changed winning title" }]);
+    cart.listCartLines.mockClear();
+    const eventCount = allEvents.length;
+    for (const invoke of [
+      () => services.getSession(created.sessionId, "acc_buyer"),
+      () => services.assertReadyForOrderCreation(params),
+      () => services.recordCheckoutReservations({ ...params, reservations: [] }, context),
+      () => services.recordOrdersCreated({ ...params, orderIds: ["ord_stale"] }, context),
+    ]) {
+      await expect(invoke()).rejects.toMatchObject({
+        code: "readiness_snapshot_stale",
+        message: "Cart readiness changed. Review your cart before checkout.",
+      });
+    }
+    expect(cart.listCartLines.mock.calls).toEqual(Array.from({ length: 4 }, () => ["acc_buyer", anonymousCartId]));
+    expect(allEvents).toHaveLength(eventCount);
+    expect(cart.removeLine).not.toHaveBeenCalled();
+    expect(cart.checkout).not.toHaveBeenCalled();
+  });
+
+  it("preserves aggregate cancellation refusal and reservation guards while getSession still checks readiness", async () => {
+    const anonymousCartId = "anon_raw_marker";
+    const cart = createUnionCartServices([], [readyCartLine], anonymousCartId);
+    const { eventStore } = createInMemoryEventStore();
+    let rows: CheckoutSessionRow[] = [];
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows })) },
+      cart,
+    });
+    const readiness = await cart.createReadinessSnapshot({
+      accountId: "acc_buyer",
+      presentedAnonymousCartId: anonymousCartId,
+    });
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        presentedAnonymousCartId: anonymousCartId,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+      },
+      context,
+    );
+    const params = { sessionId: created.sessionId, accountId: "acc_buyer" as never };
+    const cancelled = await services.cancelSession(params, context);
+    rows = [cancelled.session];
+    cart.listCartLines.mockClear();
+    await expect(services.assertReadyForOrderCreation(params)).rejects.toMatchObject({ code: "checkout_cancelled" });
+    await expect(
+      services.recordOrdersCreated({ ...params, orderIds: ["ord_cancelled"] }, context),
+    ).rejects.toMatchObject({
+      code: "checkout_cancelled",
+    });
+    await expect(services.recordCheckoutReservations({ ...params, reservations: [] }, context)).rejects.toThrow(
+      "Cancelled checkout sessions cannot reserve inventory.",
+    );
+    expect(cart.listCartLines).not.toHaveBeenCalled();
+    await expect(services.getSession(created.sessionId, "acc_buyer")).resolves.toMatchObject({
+      cancelled_at: expect.any(String),
+    });
+    expect(cart.listCartLines).toHaveBeenCalledWith("acc_buyer", anonymousCartId);
+  });
+
+  it("preserves projected Account-only cancellation readiness", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const cart = createUnionCartServices([readyCartLine], []);
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      cart,
+      db: {
+        query: vi.fn(async () => ({
+          rows: [createSessionPageRow(readiness, { cancelled_at: "2026-06-09T01:00:00.000Z" })],
+        })),
+      },
+    });
+    await expect(services.getSession("chk_1", "acc_buyer")).resolves.toMatchObject({
+      cancelled_at: expect.any(String),
+    });
+    expect(cart.listCartLines).toHaveBeenCalledWith("acc_buyer");
+    cart.listCartLines.mockResolvedValue([]);
+    await expect(services.getSession("chk_1", "acc_buyer")).rejects.toMatchObject({ code: "readiness_snapshot_stale" });
+  });
+
+  it.each([{ order_ids: ["ord_1"] }, { payment_id: "pay_1" }, { submitted_offer_id: "off_1" }])(
+    "retains projected committed guards for %j",
+    async (overrides) => {
+      const { eventStore } = createInMemoryEventStore();
+      const cart = createUnionCartServices([], []);
+      const services = createCheckoutSessionRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        cart,
+        db: { query: vi.fn(async () => ({ rows: [createSessionPageRow(null, overrides)] })) },
+      });
+      await expect(services.getSession("chk_1", "acc_buyer")).resolves.toMatchObject(overrides);
+      expect(cart.listCartLines).not.toHaveBeenCalled();
+    },
+  );
 
   it("can update a just-created Buy Now session before checkout_session_pages has projected it", async () => {
     const { eventStore } = createInMemoryEventStore();

@@ -239,6 +239,43 @@ describe("checkout UCP handlers", () => {
     );
   });
 
+  it("keeps UCP cart checkout Account-only when anonymous-looking input and headers are presented", async () => {
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers({ sessions });
+    const operation = input({
+      source: {
+        type: "cart",
+        readiness: { snapshot_id: "cr_ready", source_revision: "cr_source" },
+        anonymous_cart_id: "anon_raw_marker",
+      },
+      presented_anonymous_cart_id: "anon_raw_marker",
+    });
+
+    const response = await handlers.restHandlers.create_checkout({
+      ...operation,
+      request: new Request(operation.request, {
+        headers: {
+          ...Object.fromEntries(operation.request.headers.entries()),
+          "x-checkout-anonymous-cart-id": "anon_raw_marker",
+        },
+      }),
+    });
+
+    expect(response.ucp.status).toBe("ok");
+    expect(sessions.createFromCart).toHaveBeenCalledWith(
+      {
+        accountId: "acc_buyer",
+        shippingOption: undefined,
+        optimizationGoal: undefined,
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: undefined,
+      },
+      context,
+    );
+    expect(JSON.stringify(vi.mocked(sessions.createFromCart).mock.calls)).not.toContain("anon_raw_marker");
+  });
+
   it("updates shipping details on an existing checkout session", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers({ sessions });
