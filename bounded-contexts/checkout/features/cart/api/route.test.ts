@@ -3,6 +3,7 @@ import {
   createTestApp,
   type TestActorOverrides,
 } from "@chase-sets/bounded-context-runtime/test-support";
+import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
 import type {
@@ -276,6 +277,89 @@ describe("checkout cart routes", () => {
         optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
       },
     });
+  });
+
+  it("passes a normalized presented anonymous cart key without exposing it in the response or telemetry", async () => {
+    const services = createServices();
+    const { events, telemetry } = collectCheckoutObservabilityEvents();
+    const app = buildApp({
+      actor: accountCartActor({ permissions: [] }),
+      services,
+      checkoutObservabilityTelemetry: telemetry,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/cart/readiness", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-cart-id": "  anon_raw_marker  ",
+          "x-account-id": "acc_attacker",
+        },
+        body: JSON.stringify({ accountId: "acc_attacker" }),
+      }),
+    );
+    const responseText = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(services.createReadinessSnapshot).toHaveBeenCalledWith({
+      accountId: "acc_buyer",
+      presentedAnonymousCartId: "anon_raw_marker",
+      decisions: { lineOutcomes: [], optimization: null },
+    });
+    expect(responseText).not.toContain("anon_raw_marker");
+    expect(JSON.stringify(events)).not.toContain("anon_raw_marker");
+  });
+
+  it.each(["   ", "cart_not_anonymous"])(
+    "keeps Account readiness account-only for malformed anonymous header %j",
+    async (headerValue) => {
+      const services = createServices();
+      const app = buildApp({ actor: accountCartActor({ permissions: [] }), services });
+
+      const response = await app.fetch(
+        new Request("http://checkout.test/account/cart/readiness", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-checkout-anonymous-cart-id": headerValue,
+          },
+          body: JSON.stringify({}),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(services.createReadinessSnapshot).toHaveBeenCalledWith({
+        accountId: "acc_buyer",
+        decisions: { lineOutcomes: [], optimization: null },
+      });
+    },
+  );
+
+  it("does not resolve readiness without an actor or request context", async () => {
+    const unauthenticatedServices = createServices();
+    const unauthenticated = buildApp({ actor: null, services: unauthenticatedServices });
+    const request = () =>
+      new Request("http://checkout.test/account/cart/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": "anon_raw_marker" },
+        body: JSON.stringify({}),
+      });
+
+    expect((await unauthenticated.fetch(request())).status).toBe(401);
+    expect(unauthenticatedServices.createReadinessSnapshot).not.toHaveBeenCalled();
+
+    const missingContextServices = createServices();
+    const missingContext = new Hono<CheckoutApiEnv>();
+    missingContext.use("*", async (c, next) => {
+      c.set("actor", accountCartActor({ permissions: [] }));
+      c.set("context", null);
+      await next();
+    });
+    missingContext.route("/account", createAccountCartRoutes(missingContextServices));
+
+    expect((await missingContext.fetch(request())).status).toBe(401);
+    expect(missingContextServices.createReadinessSnapshot).not.toHaveBeenCalled();
   });
 
   it("creates a guest checkout account cart readiness snapshot after anonymous cart merge", async () => {

@@ -14,6 +14,7 @@ import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout
 import { recordCartReadinessObservability } from "./cart-readiness-observability";
 import { parseCartReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutCartServices } from "./runtime";
+import { normalizePresentedAnonymousCartId } from "./contracts";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const MAX_ANONYMOUS_CART_LINES = 50;
@@ -197,9 +198,24 @@ export function createAccountCartRoutes(
       return access.response;
     }
 
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.cart.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
     const body = await c.req.json().catch(() => ({}));
+    const presentedAnonymousCartId = normalizePresentedAnonymousCartId(c.req.header("x-checkout-anonymous-cart-id"));
     const snapshot = await services.createReadinessSnapshot({
       accountId: access.actor.accountId,
+      ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
       decisions: parseCartReadinessDecisionInput(body),
     });
     recordCartReadinessObservability(checkoutObservabilityTelemetry, snapshot, {

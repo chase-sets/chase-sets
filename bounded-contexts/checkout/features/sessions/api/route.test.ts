@@ -553,6 +553,149 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("passes only the actor-bound Account and normalized anonymous source without exposing the key", async () => {
+    const services = createServices();
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-account-id": "acc_attacker",
+          "x-checkout-anonymous-cart-id": "  anon_raw_marker  ",
+        },
+        body: JSON.stringify({
+          accountId: "acc_attacker",
+          source: {
+            type: "cart",
+            readinessSnapshotId: "cr_union",
+            readinessSourceRevision: "cr_union_source",
+          },
+        }),
+      }),
+    );
+    const responseText = await response.text();
+
+    expect(response.status).toBe(201);
+    expect(services.createFromCart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        presentedAnonymousCartId: "anon_raw_marker",
+        readinessSnapshotId: "cr_union",
+        readinessSourceRevision: "cr_union_source",
+      }),
+      expect.any(Object),
+    );
+    expect(responseText).not.toContain("anon_raw_marker");
+  });
+
+  it.each(["   ", "cart_not_anonymous"])(
+    "does not treat malformed anonymous header %j as cart authority",
+    async (headerValue) => {
+      const services = createServices();
+      const app = buildApp(services);
+
+      const response = await app.fetch(
+        new Request("http://checkout.test/account/checkout-sessions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-checkout-anonymous-cart-id": headerValue,
+          },
+          body: JSON.stringify({
+            source: {
+              type: "cart",
+              readinessSnapshotId: "cr_ready",
+              readinessSourceRevision: "cr_source",
+            },
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(201);
+      expect(services.createFromCart).toHaveBeenCalledWith(
+        expect.not.objectContaining({ presentedAnonymousCartId: expect.anything() }),
+        expect.any(Object),
+      );
+    },
+  );
+
+  it("redacts an adversarial anonymous key from generic stale errors and telemetry", async () => {
+    const consoleSpies = (["log", "info", "warn", "error"] as const).map((method) => vi.spyOn(console, method));
+    try {
+      const telemetry = { recordCheckoutEvent: vi.fn() };
+      const services = createServices({
+        createFromCart: vi.fn(async () => {
+          throw new CheckoutDomainError(
+            "Cart readiness changed. Review your cart before checkout.",
+            "readiness_snapshot_stale",
+          );
+        }),
+      });
+      const app = buildApp(services, createBuyerActor(), telemetry);
+
+      const response = await app.fetch(
+        new Request("http://checkout.test/account/checkout-sessions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-checkout-anonymous-cart-id": "anon_raw_marker",
+          },
+          body: JSON.stringify({
+            source: {
+              type: "cart",
+              readinessSnapshotId: "cr_union",
+              readinessSourceRevision: "cr_union_source",
+            },
+          }),
+        }),
+      );
+      const responseText = await response.text();
+
+      expect(response.status).toBe(400);
+      expect(responseText).toContain("readiness_snapshot_stale");
+      expect(responseText).not.toContain("anon_raw_marker");
+      expect(JSON.stringify(telemetry.recordCheckoutEvent.mock.calls)).not.toContain("anon_raw_marker");
+      expect(services.createFromCart).toHaveBeenCalledWith(
+        expect.objectContaining({ presentedAnonymousCartId: "anon_raw_marker" }),
+        expect.any(Object),
+      );
+      expect(JSON.stringify(consoleSpies.map((spy) => spy.mock.calls))).not.toContain("anon_raw_marker");
+    } finally {
+      for (const spy of consoleSpies) spy.mockRestore();
+    }
+  });
+
+  it("does not create cart sessions without an actor or request context", async () => {
+    const request = () =>
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-cart-id": "anon_raw_marker",
+        },
+        body: JSON.stringify({
+          source: { type: "cart", readinessSnapshotId: "cr_union", readinessSourceRevision: "cr_union_source" },
+        }),
+      });
+    const unauthenticatedServices = createServices();
+    expect((await buildApp(unauthenticatedServices, null).fetch(request())).status).toBe(401);
+    expect(unauthenticatedServices.createFromCart).not.toHaveBeenCalled();
+
+    const missingContextServices = createServices();
+    const missingContextApp = new Hono<CheckoutApiEnv>();
+    missingContextApp.use("*", async (c, next) => {
+      c.set("actor", createBuyerActor());
+      c.set("context", null);
+      await next();
+    });
+    missingContextApp.route("/account", createAccountCheckoutSessionRoutes(missingContextServices));
+
+    expect((await missingContextApp.fetch(request())).status).toBe(401);
+    expect(missingContextServices.createFromCart).not.toHaveBeenCalled();
+  });
+
   it("sets verified shipping addresses silently", async () => {
     const verifiedAddress = {
       ...shippingAddress,
@@ -691,6 +834,47 @@ describe("checkout session routes", () => {
       createFromCart.mock.calls[1]?.[0].sessionIdOverride,
     );
     expect(String(firstBody.session_id)).not.toContain("entry_attempt_1");
+  });
+
+  it("binds cart entry idempotency to the normalized presented anonymous source", async () => {
+    const createFromCart = vi.fn(async (params: Parameters<CheckoutSessionServices["createFromCart"]>[0]) => ({
+      sessionId: params.sessionIdOverride ?? ("chk_missing_override" as never),
+    }));
+    const app = buildApp(createServices({ createFromCart }));
+    const body = JSON.stringify({
+      entryAttemptKey: "entry_attempt_union",
+      source: { type: "cart", readinessSnapshotId: "cr_ready", readinessSourceRevision: "cr_source" },
+    });
+    const send = (anonymousCartId?: string) =>
+      app.fetch(
+        new Request("http://checkout.test/account/checkout-sessions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(anonymousCartId === undefined ? {} : { "x-checkout-anonymous-cart-id": anonymousCartId }),
+          },
+          body,
+        }),
+      );
+
+    expect((await send("anon_cart_a")).status).toBe(201);
+    expect((await send("anon_cart_b")).status).toBe(201);
+    expect((await send("  anon_cart_a  ")).status).toBe(201);
+    expect((await send()).status).toBe(201);
+    expect((await send("   ")).status).toBe(201);
+    expect((await send("acc_attacker")).status).toBe(201);
+    expect(createFromCart.mock.calls[0]?.[0].sessionIdOverride).not.toBe(
+      createFromCart.mock.calls[1]?.[0].sessionIdOverride,
+    );
+    expect(createFromCart.mock.calls[2]?.[0].sessionIdOverride).toBe(
+      createFromCart.mock.calls[0]?.[0].sessionIdOverride,
+    );
+    for (const [params] of createFromCart.mock.calls.slice(3)) {
+      // Fixed legacy digest: including an explicit undefined source key instead
+      // produces chk_3f16ec6142debd548dcaa84bff3812c9.
+      expect(params.sessionIdOverride).toBe("chk_a98dcec9800de0f45d95eaf358974dc0");
+      expect(params).not.toHaveProperty("presentedAnonymousCartId");
+    }
   });
 
   it("rejects old-shaped cart readiness payloads without adapting them into checkout facts", async () => {

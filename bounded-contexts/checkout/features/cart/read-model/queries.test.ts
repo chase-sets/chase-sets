@@ -77,6 +77,7 @@ class CartReadModelDb implements PgQueryable {
 
   public lastSql = "";
   public lastValues: readonly unknown[] = [];
+  public queryCount = 0;
 
   async query<Row = Record<string, unknown>>(
     sql: string,
@@ -84,13 +85,29 @@ class CartReadModelDb implements PgQueryable {
   ): Promise<PgQueryResult<Row>> {
     this.lastSql = sql;
     this.lastValues = values;
+    this.queryCount += 1;
     const buyerAccountId = String(values[0]);
-    const sellerOptionsLimit = Number(values[1]);
+    const presentedAnonymousCartId = values[1] === null || values[1] === undefined ? null : String(values[1]);
+    const sellerOptionsLimit = Number(values[2]);
+    const ownerIds = [buyerAccountId, presentedAnonymousCartId].filter(
+      (ownerId, index, values): ownerId is string => Boolean(ownerId) && values.indexOf(ownerId) === index,
+    );
+    const seenLineIds = new Set<string>();
     const rows = this.lines
-      .filter((line) => line.buyer_account_id === buyerAccountId)
+      .filter((line) => ownerIds.includes(line.buyer_account_id))
       .sort(
-        (left, right) => right.updated_at.localeCompare(left.updated_at) || left.line_id.localeCompare(right.line_id),
+        (left, right) =>
+          ownerIds.indexOf(left.buyer_account_id) - ownerIds.indexOf(right.buyer_account_id) ||
+          right.updated_at.localeCompare(left.updated_at) ||
+          left.line_id.localeCompare(right.line_id),
       )
+      .filter((line) => {
+        if (seenLineIds.has(line.line_id)) {
+          return false;
+        }
+        seenLineIds.add(line.line_id);
+        return true;
+      })
       .map((line) => ({
         ...line,
         seller_options: this.options
@@ -192,6 +209,47 @@ function option(overrides: Partial<SellerOption> = {}): SellerOption {
 }
 
 describe("listCartLines seller_options join", () => {
+  it("resolves Account plus presented anonymous lines in one query with Account whole-row precedence", async () => {
+    const accountWinner = line({
+      buyer_account_id: "acc_buyer",
+      line_id: "cli_shared",
+      product_id: "prd_account",
+      locked_listing_id: "lst_account",
+      updated_at: "2026-06-10T00:00:00.000Z",
+    });
+    const anonymousLoser = line({
+      buyer_account_id: "anon_cart",
+      line_id: "cli_shared",
+      product_id: "prd_anonymous",
+      locked_listing_id: "lst_anonymous",
+      updated_at: "2026-06-20T00:00:00.000Z",
+    });
+    const accountOnly = line({
+      line_id: "cli_account",
+      product_id: "prd_same",
+      updated_at: "2026-06-11T00:00:00.000Z",
+    });
+    const anonymousOnly = line({
+      buyer_account_id: "anon_cart",
+      line_id: "cli_anonymous",
+      product_id: "prd_same",
+      updated_at: "2026-06-30T00:00:00.000Z",
+    });
+    const db = new CartReadModelDb([anonymousOnly, anonymousLoser, accountWinner, accountOnly], []);
+
+    const rows = await listCartLines(db, "acc_buyer", "anon_cart");
+
+    expect(db.queryCount).toBe(1);
+    expect(db.lastValues).toEqual(["acc_buyer", "anon_cart", CART_SELLER_OPTIONS_PER_LINE_LIMIT]);
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_account", "cli_shared", "cli_anonymous"]);
+    expect(rows.find((row) => row.line_id === "cli_shared")).toMatchObject({
+      buyer_account_id: "acc_buyer",
+      product_id: "prd_account",
+      locked_listing_id: "lst_account",
+    });
+    expect(rows.filter((row) => row.product_id === "prd_same")).toHaveLength(2);
+  });
+
   it("joins active seller options into each cart line cheapest-first", async () => {
     const db = new CartReadModelDb(
       [line()],
@@ -485,7 +543,12 @@ describe("listCartLines seller_options join", () => {
     await listCartLines(db, "acc_buyer");
 
     expect(db.lastSql).toContain("LEFT JOIN LATERAL");
-    expect(db.lastValues).toEqual(["acc_buyer", CART_SELLER_OPTIONS_PER_LINE_LIMIT]);
+    expect(db.lastValues).toEqual(["acc_buyer", null, CART_SELLER_OPTIONS_PER_LINE_LIMIT]);
+    expect(db.lastSql).toContain("WITH requested_owners AS");
+    expect(db.lastSql).toContain("PARTITION BY cart_line.line_id");
+    expect(db.lastSql).toContain("ORDER BY requested_owner.owner_precedence ASC");
+    expect(db.lastSql).toContain("WHERE ranked_line.owner_line_rank = 1");
+    expect(db.lastSql).toContain("ORDER BY line.owner_precedence ASC, line.updated_at DESC, line.line_id ASC");
     expect(db.lastSql).toContain("FROM checkout_marketplace_seller_options option");
     // Seller identity (display name / slug) is resolved through the identity-maintained
     // seller-accounts join table, with the denormalized columns as a fallback.
@@ -505,7 +568,7 @@ describe("listCartLines seller_options join", () => {
     expect(db.lastSql).toContain("option.product_id = line.product_id");
     expect(db.lastSql).toContain("option.status = 'active'");
     expect(db.lastSql).toContain("ORDER BY option.price_amount ASC, option.listing_id ASC");
-    expect(db.lastSql).toContain("LIMIT $2");
+    expect(db.lastSql).toContain("LIMIT $3");
     // available_quantity must be holds-accurate: capped by the listing quantity
     // cap, reduced by active holds, and backed by the marketplace cap while
     // inventory supply counters are still catching up.

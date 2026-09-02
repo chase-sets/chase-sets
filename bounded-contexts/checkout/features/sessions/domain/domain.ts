@@ -103,6 +103,7 @@ export type CheckoutSessionState = Readonly<{
   fulfillmentPreviewRevision: string | null;
   fulfillmentPreviewSnapshot: CheckoutFulfillmentPreview | null;
   cartReadinessSnapshot: CartReadinessSnapshot | null;
+  presentedAnonymousCartId: string | null;
   splitGroupHandoff: CheckoutSplitGroupHandoff | null;
   shippingOption: ShippingOption;
   shippingAddress: CheckoutShippingAddress | null;
@@ -126,6 +127,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   fulfillmentPreviewRevision: null,
   fulfillmentPreviewSnapshot: null,
   cartReadinessSnapshot: null,
+  presentedAnonymousCartId: null,
   splitGroupHandoff: null,
   shippingOption: "standard",
   shippingAddress: null,
@@ -150,6 +152,7 @@ export type StartCheckoutSessionCommand = Readonly<{
   fulfillmentPreviewRevision?: string | null;
   fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
   cartReadinessSnapshot?: CartReadinessSnapshot | null;
+  presentedAnonymousCartId?: string | null;
   shippingOption: ShippingOption;
   lines: readonly CheckoutSessionLine[];
   createdAt: string;
@@ -240,6 +243,7 @@ export type CheckoutSessionStartedEvent = DomainEvent<
     fulfillmentPreviewRevision: string | null;
     fulfillmentPreviewSnapshot: CheckoutFulfillmentPreview | null;
     cartReadinessSnapshot: CartReadinessSnapshot | null;
+    presentedAnonymousCartId?: string | null;
     splitGroupHandoff: CheckoutSplitGroupHandoff | null;
     shippingOption: ShippingOption;
     lines: CheckoutSessionLine[];
@@ -595,6 +599,8 @@ export const decideCheckoutSession: AggregateDecider<
       const lines = command.lines.map(normalizeLine);
       assert(lines.length > 0, "Checkout session must include at least one line.");
       const cartReadinessSnapshot = normalizeCartReadinessSnapshot(command.sourceType, command.cartReadinessSnapshot);
+      const presentedAnonymousCartId =
+        command.sourceType === "cart" ? normalizeOptionalText(command.presentedAnonymousCartId) : null;
       const splitGroupHandoff = normalizeSplitGroupHandoff(command.sourceType, cartReadinessSnapshot, lines);
       const fulfillmentPreviewRevision = normalizeOptionalText(command.fulfillmentPreviewRevision);
       return [
@@ -611,6 +617,7 @@ export const decideCheckoutSession: AggregateDecider<
               command.fulfillmentPreviewSnapshot,
             ),
             cartReadinessSnapshot,
+            presentedAnonymousCartId,
             splitGroupHandoff,
             shippingOption: normalizeShippingOption(command.shippingOption),
             lines,
@@ -830,6 +837,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         fulfillmentPreviewRevision: event.data.fulfillmentPreviewRevision ?? null,
         fulfillmentPreviewSnapshot: event.data.fulfillmentPreviewSnapshot ?? null,
         cartReadinessSnapshot: event.data.cartReadinessSnapshot ?? null,
+        presentedAnonymousCartId: event.data.presentedAnonymousCartId ?? null,
         splitGroupHandoff: event.data.splitGroupHandoff ?? null,
         shippingOption: event.data.shippingOption,
         shippingAddress: null,

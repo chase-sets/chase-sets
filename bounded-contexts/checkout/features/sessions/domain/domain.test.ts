@@ -61,6 +61,33 @@ const cartReadinessSnapshot = createCartReadinessSnapshot([
 ]);
 
 describe("checkout session domain", () => {
+  it("retains presented anonymous provenance internally and replays old started events as Account-only", () => {
+    const [started] = decideCheckoutSession(initialCheckoutSessionState, {
+      type: "StartCheckoutSession",
+      sessionId: "chk_union" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sourceType: "cart",
+      shippingOption: "standard",
+      cartReadinessSnapshot,
+      presentedAnonymousCartId: "anon_raw_marker",
+      lines: [line],
+      createdAt: "2026-04-29T00:00:00.000Z",
+    });
+
+    expect(started?.type).toBe("checkout.session.started");
+    if (!started || started.type !== "checkout.session.started") {
+      throw new Error("Expected checkout.session.started.");
+    }
+    expect(started.data).toMatchObject({ presentedAnonymousCartId: "anon_raw_marker" });
+    expect(evolveCheckoutSession(initialCheckoutSessionState, started).presentedAnonymousCartId).toBe(
+      "anon_raw_marker",
+    );
+
+    const { presentedAnonymousCartId: _omitted, ...oldData } = started.data;
+    const oldState = evolveCheckoutSession(initialCheckoutSessionState, { ...started, data: oldData });
+    expect(oldState.presentedAnonymousCartId).toBeNull();
+  });
+
   it("starts, selects shipping, records orders, and records payment once", () => {
     const started = decideCheckoutSession(initialCheckoutSessionState, {
       type: "StartCheckoutSession",

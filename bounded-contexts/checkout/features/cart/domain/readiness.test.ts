@@ -71,6 +71,8 @@ describe("cart readiness snapshots", () => {
       ],
     });
     expect(snapshot.snapshotId).toMatch(/^cr_/);
+    expect(snapshot.sourceRevision).toBe("cr_vqnd8s");
+    expect(snapshot.snapshotId).toBe("cr_13oh49v");
     expect(snapshot.fulfillmentGroups[0]?.groupId).toMatch(/^cfg_/);
     expect(snapshot.fulfillmentGroups[0]?.supportReference).toMatch(/^CSG-/);
     expect(cartReadinessLineHasFulfillment(readyLine)).toBe(true);
@@ -349,6 +351,80 @@ describe("cart readiness snapshots", () => {
       valid: false,
       current: { status: "ready" },
     });
+  });
+
+  it("binds union readiness to the presented source while staying stable across a semantic copy relocation", () => {
+    const unionLine: CartReadinessLine = {
+      ...readyLine,
+      item_subtitle: "Unlimited",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Raw card",
+      seller_options: [
+        readyLine.seller_options[0]!,
+        {
+          ...readyLine.seller_options[0]!,
+          listing_id: "lst_alternate",
+          price_amount: "30.00",
+        },
+      ],
+    };
+    const source = { accountId: " acc_buyer ", presentedAnonymousCartId: " anon_cart_a " };
+    const beforeCopy = createCartReadinessSnapshot([unionLine], undefined, source);
+    const duringCopy = createCartReadinessSnapshot(
+      [{ ...unionLine, updated_at: "2026-07-01T00:00:00.000Z" }],
+      undefined,
+      source,
+    );
+    const afterCopy = createCartReadinessSnapshot(
+      [
+        {
+          ...unionLine,
+          seller_options: [...unionLine.seller_options].reverse(),
+          updated_at: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+      undefined,
+      source,
+    );
+
+    expect(duringCopy.sourceRevision).toBe(beforeCopy.sourceRevision);
+    expect(afterCopy.sourceRevision).toBe(beforeCopy.sourceRevision);
+    expect(afterCopy.snapshotId).toBe(beforeCopy.snapshotId);
+    expect(
+      createCartReadinessSnapshot([unionLine], undefined, {
+        accountId: "acc_buyer",
+        presentedAnonymousCartId: "anon_cart_b",
+      }).sourceRevision,
+    ).not.toBe(beforeCopy.sourceRevision);
+    expect(createCartReadinessSnapshot([unionLine]).sourceRevision).not.toBe(beforeCopy.sourceRevision);
+  });
+
+  it.each([
+    ["catalog item", { catalog_catalog_item_id: "cat_changed" }],
+    ["product", { product_id: "cat_1::form:graded" }],
+    ["title", { item_title: "Changed title" }],
+    ["subtitle", { item_subtitle: "Changed subtitle" }],
+    ["selected options", { selected_options: [{ dimensionId: "form", optionId: "graded" }] }],
+    ["product summary", { product_summary: "Changed summary" }],
+    ["quantity", { quantity: 2 }],
+    ["fulfillment", { fulfillment_mode: "optimize", locked_listing_id: null }],
+    ["seller preference", { seller_preference_id: "lst_preferred" }],
+    ["availability", { availability_state: "changed" }],
+    [
+      "seller option",
+      {
+        seller_options: readyLine.seller_options.map((option) => ({
+          ...option,
+          available_quantity: option.available_quantity + 1,
+        })),
+      },
+    ],
+  ] as const)("changes the union revision when the winning line %s changes", (_label, change) => {
+    const source = { accountId: "acc_buyer", presentedAnonymousCartId: "anon_cart_a" };
+    const baseline = createCartReadinessSnapshot([readyLine], undefined, source);
+    const changed = createCartReadinessSnapshot([{ ...readyLine, ...change }], undefined, source);
+
+    expect(changed.sourceRevision).not.toBe(baseline.sourceRevision);
   });
 
   it("keeps a locked line ready and offers a Save-$X proposal when a cheaper option exists", () => {
