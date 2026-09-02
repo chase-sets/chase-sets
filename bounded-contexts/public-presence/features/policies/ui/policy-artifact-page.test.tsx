@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router";
 import { agentConnectorTermsPolicyArtifact } from "../domain/agent-connector-terms";
 import { authenticityServiceTermsPolicyArtifact } from "../domain/authenticity-service-terms";
 import { resolveUnresolvedPublicDisclosureText } from "../domain/canonical-claims";
+import { foundersOfferTermsPolicyArtifact } from "../domain/founders-offer-terms";
 import { paymentsTermsPolicyArtifact } from "../domain/payments-terms";
 import type { PublicPolicyArtifact } from "../domain/policy-artifact";
 import { privacyPolicyArtifact } from "../domain/privacy-policy";
@@ -14,6 +15,8 @@ import {
   AuthenticityTermsRouteAdapter,
   buildPolicyArtifactMeta,
   buildPrivacyPolicyMeta,
+  buildFoundersOfferTermsMeta,
+  FoundersOfferTermsRouteAdapter,
   PaymentsTermsRouteAdapter,
   PrivacyPolicyRouteAdapter,
   SellerAgreementRouteAdapter,
@@ -28,6 +31,12 @@ type PolicyArtifactPageProps = Parameters<typeof PolicyArtifactPage>[0];
 const pageCopyIsNotInjectable: "copy" extends keyof PolicyArtifactPageProps ? false : true = true;
 
 const policyRouteAdapters = [
+  {
+    path: "/founders",
+    artifact: foundersOfferTermsPolicyArtifact,
+    pendingTitle: "Counsel review required before this document takes effect",
+    render: (artifact?: PublicPolicyArtifact) => <FoundersOfferTermsRouteAdapter artifact={artifact} />,
+  },
   {
     path: "/terms",
     artifact: termsOfServicePolicyArtifact,
@@ -82,7 +91,7 @@ function publishedArtifact(artifact: PublicPolicyArtifact): PublicPolicyArtifact
       ...artifact.metadata,
       publicationStatus: "published",
       effectiveAt: publishedEffectiveAt,
-      counselApprovalReference: `LEGAL-${artifact.metadata.policyKey.toUpperCase()}-TEST-2026-08-15`,
+      counselApprovalReference: `SYNTHETIC-${artifact.metadata.policyKey.toUpperCase()}-COUNSEL-TEST-ONLY`,
       rolloutJurisdictionsOrProductLimits: ["Test-only reviewed launch scope."],
     },
     sections: artifact.sections.map((section) => ({
@@ -128,6 +137,32 @@ describe("policy artifact page", () => {
       expect(page?.getAttribute("data-policy-effective-at")).toBe(publishedEffectiveAt);
     });
   }
+
+  it("renders all six Founders subjects with one TOC anchor each and intentional pending indexability", () => {
+    const { container } = renderRouteAdapter(() => <FoundersOfferTermsRouteAdapter />);
+    for (const section of foundersOfferTermsPolicyArtifact.sections) {
+      expect(screen.getByRole("heading", { level: 2, name: section.title })).toBeTruthy();
+      expect(container.textContent).toContain(section.draftText);
+      expect(container.querySelectorAll(`a[href="#${section.id}"]`)).toHaveLength(1);
+    }
+    const defaultMeta = buildPolicyArtifactMeta(foundersOfferTermsPolicyArtifact, {
+      title: "Synthetic",
+      description: "Synthetic",
+    });
+    const assertIndexable = (descriptors: ReturnType<typeof buildFoundersOfferTermsMeta>) =>
+      expect(descriptors, "founders indexability exception").not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "robots" })]),
+      );
+    expect(defaultMeta).toContainEqual({ name: "robots", content: "noindex, nofollow" });
+    assertIndexable(buildFoundersOfferTermsMeta());
+    expect(() => assertIndexable(defaultMeta)).toThrow("founders indexability exception");
+    const flipped = buildPolicyArtifactMeta(
+      foundersOfferTermsPolicyArtifact,
+      { title: "Synthetic", description: "Synthetic" },
+      { noindexWhilePending: true },
+    );
+    expect(() => assertIndexable(flipped)).toThrow("founders indexability exception");
+  });
 
   it("does not expose a page-copy prop that lets route adapters pre-decide publication posture", () => {
     expect(pageCopyIsNotInjectable).toBe(true);
