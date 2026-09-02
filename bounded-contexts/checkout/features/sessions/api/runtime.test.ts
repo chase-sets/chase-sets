@@ -883,10 +883,11 @@ describe("checkout session runtime", () => {
     const anonymousCartId = "anon_raw_marker";
     const cart = createUnionCartServices([], [readyCartLine], anonymousCartId);
     const { eventStore } = createInMemoryEventStore();
+    let rows: CheckoutSessionRow[] = [];
     const services = createCheckoutSessionRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
-      db: { query: vi.fn(async () => ({ rows: [] })) },
+      db: { query: vi.fn(async () => ({ rows })) },
       cart,
     });
     const readiness = await cart.createReadinessSnapshot({
@@ -903,7 +904,8 @@ describe("checkout session runtime", () => {
       context,
     );
     const params = { sessionId: created.sessionId, accountId: "acc_buyer" as never };
-    await services.cancelSession(params, context);
+    const cancelled = await services.cancelSession(params, context);
+    rows = [cancelled.session];
     cart.listCartLines.mockClear();
     await expect(services.assertReadyForOrderCreation(params)).rejects.toMatchObject({ code: "checkout_cancelled" });
     await expect(
@@ -921,9 +923,8 @@ describe("checkout session runtime", () => {
     expect(cart.listCartLines).toHaveBeenCalledWith("acc_buyer", anonymousCartId);
   });
 
-  it("preserves projected cancellation readiness without loading the aggregate", async () => {
+  it("preserves projected Account-only cancellation readiness", async () => {
     const { eventStore } = createInMemoryEventStore();
-    const readStream = vi.spyOn(eventStore, "readStream");
     const cart = createUnionCartServices([readyCartLine], []);
     const readiness = createCartReadinessSnapshot([readyCartLine]);
     const services = createCheckoutSessionRuntime({
@@ -939,11 +940,9 @@ describe("checkout session runtime", () => {
     await expect(services.getSession("chk_1", "acc_buyer")).resolves.toMatchObject({
       cancelled_at: expect.any(String),
     });
-    expect(readStream).not.toHaveBeenCalled();
     expect(cart.listCartLines).toHaveBeenCalledWith("acc_buyer");
     cart.listCartLines.mockResolvedValue([]);
     await expect(services.getSession("chk_1", "acc_buyer")).rejects.toMatchObject({ code: "readiness_snapshot_stale" });
-    expect(readStream).not.toHaveBeenCalled();
   });
 
   it.each([{ order_ids: ["ord_1"] }, { payment_id: "pay_1" }, { submitted_offer_id: "off_1" }])(

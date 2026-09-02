@@ -1069,7 +1069,13 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     getSession: async (sessionId, accountId) => {
       const projectedSession = await getCheckoutSession(deps.db, sessionId, accountId);
       const aggregateState =
-        !projectedSession || !hasCommittedSessionSideEffects(projectedSession)
+        !projectedSession ||
+        !hasCommittedSessionSideEffects(projectedSession) ||
+        (projectedSession.source_type === "cart" &&
+          Boolean(projectedSession.cancelled_at) &&
+          !projectedSession.payment_id &&
+          !projectedSession.submitted_offer_id &&
+          projectedSession.order_ids.length === 0)
           ? await loadSessionStateForBuyerOrNull(sessionId, accountId)
           : null;
       const aggregateSession = aggregateState ? stateToCheckoutSessionRow(aggregateState) : null;
