@@ -193,9 +193,18 @@ export async function saveSubscriptionCheckpoint(
   lastGlobalPosition: GlobalPosition,
   context?: ProjectionRunContext,
 ): Promise<void> {
+  const checkpointKey = createCheckpointKey(subscription);
   const fencingToken = leaseFencingToken(context);
-  const result = await db.query(
-    `WITH saved_checkpoint AS (
+  await withProjectionTransaction(
+    db,
+    context,
+    async (client) => {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('event_subscription_checkpoints:' || $1::text, 0))",
+        [checkpointKey],
+      );
+      const result = await client.query(
+        `WITH saved_checkpoint AS (
      INSERT INTO ${SUBSCRIPTION_CHECKPOINTS_TABLE} (
        checkpoint_key,
        projection_name,
@@ -244,21 +253,23 @@ export async function saveSubscriptionCheckpoint(
          EXCLUDED.last_global_position
        ),
        updated_at = EXCLUDED.updated_at`,
-    [
-      createCheckpointKey(subscription),
-      subscription.projectionName,
-      subscription.sourceContextName,
-      subscription.subscriptionVersion,
-      lastGlobalPosition,
-      context?.ownerId ?? null,
-      fencingToken,
-    ],
+        [
+          checkpointKey,
+          subscription.projectionName,
+          subscription.sourceContextName,
+          subscription.subscriptionVersion,
+          lastGlobalPosition,
+          context?.ownerId ?? null,
+          fencingToken,
+        ],
+      );
+      if (result.rowCount != null && result.rowCount < 1) {
+        throw new Error(`Subscription checkpoint '${checkpointKey}' rejected stale lease fencing token.`);
+      }
+    },
+    {},
+    { abortSignal: context?.signal },
   );
-  if (result.rowCount != null && result.rowCount < 1) {
-    throw new Error(
-      `Subscription checkpoint '${createCheckpointKey(subscription)}' rejected stale lease fencing token.`,
-    );
-  }
 }
 
 async function loadSubscriptionApplicationStatus(
