@@ -32,6 +32,7 @@ import {
   decideCheckoutSession,
   evolveCheckoutSession,
   initialCheckoutSessionState,
+  retainedOrderCartCleanup,
   type CheckoutSessionCommand,
   type CheckoutSessionEvent,
   type CheckoutSessionLine,
@@ -77,6 +78,13 @@ export type CheckoutSessionMutationResult = Readonly<{
     eventIds: readonly string[];
   }[];
 }>;
+
+/** Safe at HTTP/UCP boundaries: never retain a key-bearing lower-layer cause. */
+export class OrderCartCleanupError extends CheckoutDomainError {
+  constructor(readonly commitMetadata: Omit<CheckoutSessionMutationResult, "sessionId" | "session"> = {}) {
+    super("Cart cleanup could not finish. Retry checkout.");
+  }
+}
 
 export type CheckoutSessionCreateResult = Readonly<{
   sessionId: CheckoutSessionId;
@@ -207,6 +215,10 @@ export type CheckoutSessionServices = Readonly<{
       fulfilledLineKeys?: readonly string[];
       orderWriteCommitPositions?: readonly CheckoutSourceCommitPosition[];
     }>,
+    context: EventStoreContext,
+  ) => Promise<CheckoutSessionMutationResult>;
+  resumeOrderCartCleanup: (
+    params: Readonly<{ sessionId: string; accountId: AccountId }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
   recordCheckoutReservations: (
@@ -575,6 +587,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       throw new CheckoutDomainError("Checkout session not found.");
     }
 
+    retainedOrderCartCleanup(loaded.state);
     return loaded.state;
   }
 
@@ -587,6 +600,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       return null;
     }
 
+    retainedOrderCartCleanup(loaded.state);
     return loaded.state;
   }
 
@@ -628,6 +642,58 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       ...commitMetadataFromStoredEvents(result.storedEvents),
     };
   }
+
+  function assertCleanupContext(accountId: AccountId, context: EventStoreContext) {
+    if (!context?.tenantId || !context.audit?.performedByUserId || context.audit.forAccountId !== accountId) {
+      throw new CheckoutDomainError("Checkout buyer context is required.");
+    }
+  }
+
+  async function cleanupCommitMetadata(sessionId: string, state: CheckoutSessionState) {
+    const events = await readCompleteStream(deps.eventStore, { streamId: `checkout.session-${sessionId}` });
+    const metadata = commitMetadataFromStoredEvents(events);
+    return { ...metadata, commitPositions: [...metadata.commitPositions, ...state.orderWriteCommitPositions] };
+  }
+
+  const resumeOrderCartCleanup: CheckoutSessionServices["resumeOrderCartCleanup"] = async (params, context) => {
+    assertCleanupContext(params.accountId, context);
+    let metadata: OrderCartCleanupError["commitMetadata"] = {};
+    try {
+      const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      const cleanup = retainedOrderCartCleanup(state);
+      metadata = await cleanupCommitMetadata(params.sessionId, state);
+      if (!cleanup || cleanup.status === "complete") {
+        return { sessionId: params.sessionId, session: stateToCheckoutSessionRow(state), ...metadata };
+      }
+      for (const ownerKey of cleanup.plan.sourceOwnerKeys) {
+        for (const lineId of cleanup.plan.lineIds) {
+          try {
+            await deps.cart.removeLine({ accountId: ownerKey as AccountId, lineId: lineId as CartLineId }, context);
+          } catch (error) {
+            if (!(error instanceof CheckoutDomainError && error.message === "Cart line not found.")) throw error;
+          }
+        }
+      }
+      const completed = await applySessionCommandForBuyer(
+        {
+          ...params,
+          command: { type: "CompleteOrderCartCleanup", completedAt: new Date().toISOString() },
+        },
+        context,
+      );
+      const current = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      return { ...completed, ...(await cleanupCommitMetadata(params.sessionId, current)) };
+    } catch {
+      // Completion may have committed before its acknowledgement was lost.
+      try {
+        const current = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+        metadata = await cleanupCommitMetadata(params.sessionId, current);
+      } catch {
+        /* Preserve the last known committed metadata while the store remains unavailable. */
+      }
+      throw new OrderCartCleanupError(metadata);
+    }
+  };
 
   async function startSession(
     params: Readonly<{
@@ -960,53 +1026,52 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       assertBuyerDeliveryAddressServiceable(state.shippingAddress);
       return stateToCheckoutSessionRow(state);
     },
+    resumeOrderCartCleanup,
     recordOrdersCreated: async (params, context) => {
+      assertCleanupContext(params.accountId, context);
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      if (state.orderIds.length > 0) return resumeOrderCartCleanup(params, context);
       assertSessionNotCancelled(state);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
       assertOrderableSessionFulfillmentAssigned(state);
       assertBuyerDeliveryAddressServiceable(state.shippingAddress);
-      const result = await applySessionCommandForBuyer(
-        {
-          sessionId: params.sessionId,
-          accountId: params.accountId,
-          command: {
-            type: "RecordOrdersCreated",
-            orderIds: params.orderIds as OrderId[],
-            orderWriteCommitPositions: params.orderWriteCommitPositions,
-            recordedAt: new Date().toISOString(),
+      let result: CheckoutSessionMutationResult;
+      try {
+        result = await applySessionCommandForBuyer(
+          {
+            sessionId: params.sessionId,
+            accountId: params.accountId,
+            command: {
+              type: "RecordOrdersCreated",
+              orderIds: params.orderIds as OrderId[],
+              fulfilledLineKeys: params.fulfilledLineKeys,
+              orderWriteCommitPositions: params.orderWriteCommitPositions,
+              recordedAt: new Date().toISOString(),
+            },
           },
-        },
-        context,
-      );
-      const session = result.session;
-
-      if (session.source_type === "cart") {
-        const fulfilledLineKeys = new Set(params.fulfilledLineKeys ?? []);
-        const sessionCartLineIds = session.lines
-          .map((line) => line.cartLineId)
-          .filter((lineId): lineId is string => Boolean(lineId));
-        const fulfilledCartLineIds =
-          fulfilledLineKeys.size > 0
-            ? sessionCartLineIds.filter((lineId) => fulfilledLineKeys.has(lineId))
-            : sessionCartLineIds;
-
-        if (fulfilledCartLineIds.length > 0) {
-          for (const lineId of fulfilledCartLineIds) {
-            await deps.cart.removeLine(
-              {
-                accountId: params.accountId,
-                lineId: lineId as CartLineId,
-              },
-              context,
-            );
-          }
-        } else if (fulfilledLineKeys.size === 0) {
-          await deps.cart.checkout(params.accountId, context);
+          context,
+        );
+      } catch {
+        // An append can commit and lose its acknowledgement. Recover only actual stored metadata.
+        let metadata: OrderCartCleanupError["commitMetadata"] = {};
+        try {
+          const current = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+          metadata = await cleanupCommitMetadata(params.sessionId, current);
+        } catch {
+          /* The next authorized retry reloads durable intent if the store is unavailable. */
         }
+        throw new OrderCartCleanupError(metadata);
       }
-
-      return result;
+      if (
+        result.session.source_type === "cart" &&
+        !result.session.lines.some((line) => line.cartLineId) &&
+        (params.fulfilledLineKeys?.length ?? 0) === 0 &&
+        result.commitEventIds?.length
+      ) {
+        await deps.cart.checkout(state.buyerAccountId!, context);
+        return result;
+      }
+      return resumeOrderCartCleanup(params, context);
     },
     recordCheckoutReservations: async (params, context) => {
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);

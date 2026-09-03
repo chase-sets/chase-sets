@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createCartReadinessSnapshot } from "../../cart/domain/readiness";
-import { decideCheckoutSession, evolveCheckoutSession, initialCheckoutSessionState } from "./domain";
+import {
+  decideCheckoutSession,
+  evolveCheckoutSession,
+  initialCheckoutSessionState,
+  retainedOrderCartCleanup,
+  type CheckoutSessionState,
+  type CheckoutSessionEvent,
+} from "./domain";
 
 const line = {
   listingId: "lst_1",
@@ -315,5 +322,104 @@ describe("checkout session domain", () => {
       throw new Error("Expected checkout session started event.");
     }
     expect(started[0].data.splitGroupHandoff).toBeNull();
+  });
+});
+
+describe("union cleanup retained state replay", () => {
+  function started() {
+    return decideCheckoutSession(initialCheckoutSessionState, {
+      type: "StartCheckoutSession",
+      sessionId: "chk_replay" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sourceType: "cart",
+      presentedAnonymousCartId: "anon_raw_cleanup_marker",
+      shippingOption: "standard",
+      cartReadinessSnapshot,
+      lines: [line],
+      createdAt: "2026-09-01T00:00:00Z",
+    }).reduce(evolveCheckoutSession, initialCheckoutSessionState);
+  }
+  function pending() {
+    const state: CheckoutSessionState = { ...started(), shippingAddress, lines: [line, line] };
+    const events = decideCheckoutSession(state, {
+      type: "RecordOrdersCreated",
+      orderIds: ["ord_1" as never],
+      recordedAt: "2026-09-01T01:00:00Z",
+    });
+    return { state: events.reduce(evolveCheckoutSession, state), events };
+  }
+  it("reads old no-plan events and snapshots as inert, without reconstructing intent", () => {
+    const { events } = pending();
+    const event = events[0]!;
+    if (event.type !== "checkout.session.orders-created") throw new Error("Expected order event");
+    const { orderCartCleanupPlan: _omitted, ...data } = event.data;
+    const legacy = evolveCheckoutSession({ ...started(), shippingAddress }, { ...event, data });
+    expect(retainedOrderCartCleanup(legacy)).toBeUndefined();
+    expect(retainedOrderCartCleanup(JSON.parse(JSON.stringify(legacy)))).toBeUndefined();
+    expect(
+      decideCheckoutSession(legacy, {
+        type: "RecordOrdersCreated",
+        orderIds: ["ord_other" as never],
+        fulfilledLineKeys: ["cli_other"],
+        recordedAt: "later",
+      }),
+    ).toEqual([]);
+  });
+  it("retains deduplicated immutable intent and explicit pending/complete day-after states", () => {
+    const { state } = pending();
+    expect(state.orderCartCleanup).toEqual({
+      status: "pending",
+      plan: {
+        buyerAccountId: "acc_buyer",
+        sourceOwnerKeys: ["acc_buyer", "anon_raw_cleanup_marker"],
+        lineIds: ["cli_1"],
+      },
+    });
+    expect(
+      decideCheckoutSession(state, {
+        type: "RecordOrdersCreated",
+        orderIds: ["ord_other" as never],
+        fulfilledLineKeys: ["other"],
+        recordedAt: "later",
+      }),
+    ).toEqual([]);
+    const completion = { type: "CompleteOrderCartCleanup", completedAt: "2026-09-02T00:00:00Z" } as const;
+    const complete = decideCheckoutSession(state, completion).reduce(evolveCheckoutSession, state);
+    expect(complete.orderCartCleanup?.status).toBe("complete");
+    expect(decideCheckoutSession(complete, completion)).toEqual([]);
+    expect(complete.updatedAt).toBe(state.updatedAt);
+    expect(() => decideCheckoutSession(started(), completion)).toThrow("no retained cart cleanup plan");
+  });
+  it.each([
+    null,
+    {},
+    { buyerAccountId: "acc_foreign", sourceOwnerKeys: ["acc_foreign"], lineIds: ["cli_1"] },
+    { buyerAccountId: "acc_buyer", sourceOwnerKeys: ["acc_buyer", "anon_other"], lineIds: ["cli_1"] },
+    { buyerAccountId: "acc_buyer", sourceOwnerKeys: ["acc_buyer", "anon_raw_cleanup_marker"], lineIds: ["foreign"] },
+    {
+      buyerAccountId: "acc_buyer",
+      sourceOwnerKeys: ["acc_buyer", "anon_raw_cleanup_marker"],
+      lineIds: ["cli_1", "cli_1"],
+    },
+  ])("refuses malformed present plan %j in history and snapshots", (plan) => {
+    const state: CheckoutSessionState = { ...started(), shippingAddress };
+    expect(() =>
+      evolveCheckoutSession(state, {
+        type: "checkout.session.orders-created",
+        data: {
+          sessionId: state.sessionId,
+          orderIds: ["ord_1"],
+          orderWriteCommitPositions: [],
+          orderCartCleanupPlan: plan,
+          recordedAt: "now",
+        },
+      } as unknown as CheckoutSessionEvent),
+    ).toThrow("Invalid retained cart cleanup plan.");
+    expect(() =>
+      retainedOrderCartCleanup({
+        ...pending().state,
+        orderCartCleanup: { status: "pending", plan },
+      } as unknown as CheckoutSessionState),
+    ).toThrow("Invalid retained cart cleanup plan.");
   });
 });

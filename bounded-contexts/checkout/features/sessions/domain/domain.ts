@@ -95,6 +95,17 @@ export type CheckoutShippingAddress = Readonly<{
   verification?: AddressVerificationSnapshot | null;
 }>;
 
+export type OrderCartCleanupPlan = Readonly<{
+  buyerAccountId: AccountId;
+  sourceOwnerKeys: readonly string[];
+  lineIds: readonly string[];
+}>;
+
+export type OrderCartCleanup = Readonly<{
+  status: "pending" | "complete";
+  plan: OrderCartCleanupPlan;
+}>;
+
 export type CheckoutSessionState = Readonly<{
   sessionId: CheckoutSessionId | null;
   buyerAccountId: AccountId | null;
@@ -110,6 +121,7 @@ export type CheckoutSessionState = Readonly<{
   authenticityCheckOptIn: CheckoutAuthenticityCheckOptIn | null;
   lines: CheckoutSessionLine[];
   orderIds: readonly OrderId[];
+  orderCartCleanup?: OrderCartCleanup;
   orderWriteCommitPositions: readonly CheckoutSourceCommitPosition[];
   checkoutReservations: readonly CheckoutSessionReservation[];
   paymentId: PaymentId | null;
@@ -192,9 +204,15 @@ export type SelectAuthenticityCheckOptInCommand = Readonly<{
 
 export type RecordOrdersCreatedCommand = Readonly<{
   type: "RecordOrdersCreated";
+  fulfilledLineKeys?: readonly string[];
   orderIds: readonly OrderId[];
   orderWriteCommitPositions?: readonly CheckoutSourceCommitPosition[];
   recordedAt: string;
+}>;
+
+export type CompleteOrderCartCleanupCommand = Readonly<{
+  type: "CompleteOrderCartCleanup";
+  completedAt: string;
 }>;
 
 export type RecordCheckoutReservationsCommand = Readonly<{
@@ -229,6 +247,7 @@ export type CheckoutSessionCommand =
   | SelectAuthenticityCheckOptInCommand
   | RecordCheckoutReservationsCommand
   | RecordOrdersCreatedCommand
+  | CompleteOrderCartCleanupCommand
   | RecordPaymentStartedCommand
   | RecordOfferSubmittedCommand
   | CancelCheckoutSessionCommand;
@@ -303,9 +322,15 @@ export type CheckoutOrdersCreatedEvent = DomainEvent<
   Readonly<{
     sessionId: CheckoutSessionId;
     orderIds: OrderId[];
+    orderCartCleanupPlan?: OrderCartCleanupPlan;
     orderWriteCommitPositions: CheckoutSourceCommitPosition[];
     recordedAt: string;
   }>
+>;
+
+export type CheckoutCartCleanupCompletedEvent = DomainEvent<
+  "checkout.session.cart-cleanup-completed",
+  Readonly<{ sessionId: CheckoutSessionId; completedAt: string }>
 >;
 
 export type CheckoutReservationsRecordedEvent = DomainEvent<
@@ -353,6 +378,7 @@ export type CheckoutSessionEvent =
   | CheckoutAuthenticityCheckOptInSelectedEvent
   | CheckoutReservationsRecordedEvent
   | CheckoutOrdersCreatedEvent
+  | CheckoutCartCleanupCompletedEvent
   | CheckoutPaymentStartedEvent
   | CheckoutOfferSubmittedEvent
   | CheckoutSessionCancelledEvent;
@@ -588,6 +614,54 @@ function assertSessionActive(state: CheckoutSessionState, message = "Checkout se
   assert(state.cancelledAt === null, message);
 }
 
+function cleanupSourceOwnerKeys(state: CheckoutSessionState): string[] {
+  return [
+    ...new Set([state.buyerAccountId!, ...(state.presentedAnonymousCartId ? [state.presentedAnonymousCartId] : [])]),
+  ];
+}
+
+function orderCartCleanupPlan(
+  state: CheckoutSessionState,
+  fulfilledLineKeys: readonly string[] = [],
+): OrderCartCleanupPlan | undefined {
+  if (state.sourceType !== "cart") return undefined;
+  const sessionLineIds = state.lines.flatMap((line) => (line.cartLineId ? [line.cartLineId] : []));
+  // Preserve the initial Account-only whole-cart fallback outside the retained line lifecycle.
+  if (sessionLineIds.length === 0 && fulfilledLineKeys.length === 0) return undefined;
+  const selected = new Set(fulfilledLineKeys);
+  return {
+    buyerAccountId: state.buyerAccountId!,
+    sourceOwnerKeys: cleanupSourceOwnerKeys(state),
+    lineIds: [...new Set(sessionLineIds.filter((id) => selected.size === 0 || selected.has(id)))],
+  };
+}
+
+/** Validate retained intent, including snapshots; absence alone denotes legacy history. */
+export function retainedOrderCartCleanup(state: CheckoutSessionState): OrderCartCleanup | undefined {
+  if (!("orderCartCleanup" in state)) return undefined;
+  const cleanup = state.orderCartCleanup;
+  const plan = cleanup?.plan;
+  const expectedSources = cleanupSourceOwnerKeys(state);
+  assert(
+    state.sourceType === "cart" &&
+      state.orderIds.length > 0 &&
+      (cleanup?.status === "pending" || cleanup?.status === "complete") &&
+      plan !== null &&
+      typeof plan === "object" &&
+      plan.buyerAccountId === state.buyerAccountId &&
+      Array.isArray(plan.sourceOwnerKeys) &&
+      plan.sourceOwnerKeys.length === expectedSources.length &&
+      plan.sourceOwnerKeys.every((key, index) => typeof key === "string" && key === expectedSources[index]) &&
+      Array.isArray(plan.lineIds) &&
+      new Set(plan.lineIds).size === plan.lineIds.length &&
+      plan.lineIds.every(
+        (id) => typeof id === "string" && id.length > 0 && state.lines.some((line) => line.cartLineId === id),
+      ),
+    "Invalid retained cart cleanup plan.",
+  );
+  return cleanup;
+}
+
 export const decideCheckoutSession: AggregateDecider<
   CheckoutSessionState,
   CheckoutSessionCommand,
@@ -723,7 +797,8 @@ export const decideCheckoutSession: AggregateDecider<
           },
         },
       ];
-    case "RecordOrdersCreated":
+    case "RecordOrdersCreated": {
+      retainedOrderCartCleanup(state);
       assert(state.sessionId !== null, "Checkout session must be started first.");
       assertSessionActive(state, "Cancelled checkout sessions cannot create orders.");
       assert(state.shippingAddress !== null, "Checkout requires a shipping address before orders are created.");
@@ -731,17 +806,34 @@ export const decideCheckoutSession: AggregateDecider<
       if (state.orderIds.length > 0) {
         return [];
       }
+      const cleanupPlan = orderCartCleanupPlan(state, command.fulfilledLineKeys);
       return [
         {
           type: "checkout.session.orders-created",
           data: {
             sessionId: state.sessionId,
             orderIds: normalizeOrderIds(command.orderIds),
+            ...(cleanupPlan ? { orderCartCleanupPlan: cleanupPlan } : {}),
             orderWriteCommitPositions: normalizeCommitPositions(command.orderWriteCommitPositions),
             recordedAt: normalizeRequiredText(command.recordedAt, "Order recording must include a timestamp."),
           },
         },
       ];
+    }
+    case "CompleteOrderCartCleanup": {
+      const cleanup = retainedOrderCartCleanup(state);
+      assert(state.sessionId !== null && cleanup !== undefined, "Checkout has no retained cart cleanup plan.");
+      if (cleanup.status === "complete") return [];
+      return [
+        {
+          type: "checkout.session.cart-cleanup-completed",
+          data: {
+            sessionId: state.sessionId,
+            completedAt: normalizeRequiredText(command.completedAt, "Cart cleanup must record a timestamp."),
+          },
+        },
+      ];
+    }
     case "RecordCheckoutReservations":
       assert(state.sessionId !== null, "Checkout session must be started first.");
       assertSessionActive(state, "Cancelled checkout sessions cannot reserve inventory.");
@@ -898,10 +990,13 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         fulfillmentPreviewSnapshot: null,
         updatedAt: event.data.selectedAt,
       };
-    case "checkout.session.orders-created":
-      return {
+    case "checkout.session.orders-created": {
+      const next: CheckoutSessionState = {
         ...state,
         orderIds: event.data.orderIds,
+        ...("orderCartCleanupPlan" in event.data
+          ? { orderCartCleanup: { status: "pending", plan: event.data.orderCartCleanupPlan! } as const }
+          : {}),
         checkoutReservations: state.checkoutReservations.map((reservation) => ({
           ...reservation,
           status: "converted",
@@ -909,6 +1004,14 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         orderWriteCommitPositions: event.data.orderWriteCommitPositions ?? [],
         updatedAt: event.data.recordedAt,
       };
+      retainedOrderCartCleanup(next);
+      return next;
+    }
+    case "checkout.session.cart-cleanup-completed": {
+      const cleanup = retainedOrderCartCleanup(state);
+      assert(cleanup !== undefined && event.data.sessionId === state.sessionId, "Invalid cart cleanup completion.");
+      return { ...state, orderCartCleanup: { ...cleanup, status: "complete" } };
+    }
     case "checkout.session.reservations-recorded":
       return {
         ...state,

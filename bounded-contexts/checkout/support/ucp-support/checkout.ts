@@ -1,3 +1,4 @@
+import { getMutationResultCommandReceipt, type ResponseConsistencyMetadata } from "@chase-sets/http/responses";
 import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
 import {
@@ -14,6 +15,7 @@ import {
 } from "../request-support/checkout-confirmation";
 import type { CheckoutServices } from "../runtime-support/services";
 import { CheckoutDomainError } from "../runtime-support/common";
+import { OrderCartCleanupError, type CheckoutSessionMutationResult } from "../../features/sessions/api/runtime";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 import type { CheckoutOptimizationGoal, CheckoutShippingAddress } from "../../features/sessions/domain/domain";
 import { parseCartReadinessDecisionInput, type CartReadinessDecisionInput } from "../../features/cart/domain/readiness";
@@ -86,6 +88,23 @@ type CheckoutIntentBody = Readonly<{
   fulfillment_preview_revision?: unknown;
 }>;
 
+function orderingCommitPositions(source: unknown) {
+  const metadata =
+    getMutationResultCommandReceipt(source) ??
+    (typeof source === "object" && source !== null ? (source as ResponseConsistencyMetadata) : null);
+  return (metadata?.commitPositions ?? []).filter((position) => position.sourceContextName === "ordering");
+}
+
+function cleanupWriteMetadata(result: Partial<CheckoutSessionMutationResult> | undefined) {
+  return result
+    ? {
+        ...(result.commitPosition ? { commit_position: result.commitPosition } : {}),
+        ...(result.commitEventIds ? { commit_event_ids: result.commitEventIds } : {}),
+        ...(result.commitPositions ? { commit_positions: result.commitPositions } : {}),
+      }
+    : {};
+}
+
 export function createCheckoutUcpHandlers(
   checkout: Pick<CheckoutServices, "sessions">,
   options: Readonly<{
@@ -110,22 +129,27 @@ export function createCheckoutUcpHandlers(
   ): Promise<UcpEnvelope> => {
     assertNoUnsupportedCustomerEconomicsInput(body);
 
-    const shippingAddress = readShippingAddress(body.shippingAddress ?? body.shipping_address);
-    if (shippingAddress) {
-      await checkout.sessions.setShippingAddress(
-        {
-          sessionId,
-          accountId: access.actor.accountId as AccountId,
-          shippingAddress,
-        },
+    let cleanupResult: CheckoutSessionMutationResult | undefined;
+    let refreshedSession = await checkout.sessions.getSession(sessionId, access.actor.accountId);
+    if (!refreshedSession) return checkoutNotFound();
+    if (refreshedSession.order_ids.length > 0) {
+      cleanupResult = await checkout.sessions.resumeOrderCartCleanup(
+        { sessionId, accountId: access.actor.accountId as AccountId },
         access.context,
       );
+      refreshedSession = cleanupResult.session;
+    } else {
+      const shippingAddress = readShippingAddress(body.shippingAddress ?? body.shipping_address);
+      if (shippingAddress) {
+        await checkout.sessions.setShippingAddress(
+          { sessionId, accountId: access.actor.accountId as AccountId, shippingAddress },
+          access.context,
+        );
+        refreshedSession = await checkout.sessions.getSession(sessionId, access.actor.accountId);
+        if (!refreshedSession) return checkoutNotFound();
+      }
     }
 
-    const refreshedSession = await checkout.sessions.getSession(sessionId, access.actor.accountId);
-    if (!refreshedSession) {
-      return checkoutNotFound();
-    }
     if (refreshedSession.cancelled_at) {
       return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(refreshedSession, options) });
     }
@@ -156,6 +180,7 @@ export function createCheckoutUcpHandlers(
       return createUcpEnvelope(
         "requires_action",
         {
+          ...cleanupWriteMetadata(cleanupResult),
           checkout: checkoutPayload,
           action: {
             type: "trusted_checkout_handoff",
@@ -180,25 +205,50 @@ export function createCheckoutUcpHandlers(
         sessionId,
         accountId: access.actor.accountId as AccountId,
       });
-      const checkoutOrders = await createCheckoutOrdersThroughOrdering(input.request, readySession, {
-        fulfillmentPreviewRevision: readNullableString(
-          body.fulfillmentPreviewRevision ?? body.fulfillment_preview_revision,
-        ),
-        acknowledgedMaterialChanges:
-          body.acknowledgedMaterialChanges === true || body.acknowledged_material_changes === true,
-      });
-      orderIds = checkoutOrders.orderIds;
-      orderCreationWriteResult = checkoutOrders.writeResult;
-      await checkout.sessions.recordOrdersCreated(
-        {
-          sessionId,
-          accountId: access.actor.accountId as AccountId,
-          orderIds,
-          fulfilledLineKeys: checkoutOrders.readyLineKeys,
-        },
-        access.context,
-      );
+      refreshedSession = readySession;
+      orderIds = [...readySession.order_ids];
+      if (orderIds.length > 0) {
+        cleanupResult = await checkout.sessions.resumeOrderCartCleanup(
+          { sessionId, accountId: access.actor.accountId as AccountId },
+          access.context,
+        );
+        refreshedSession = cleanupResult.session;
+        orderIds = [...refreshedSession.order_ids];
+      } else {
+        const checkoutOrders = await createCheckoutOrdersThroughOrdering(input.request, readySession, {
+          fulfillmentPreviewRevision: readNullableString(
+            body.fulfillmentPreviewRevision ?? body.fulfillment_preview_revision,
+          ),
+          acknowledgedMaterialChanges:
+            body.acknowledgedMaterialChanges === true || body.acknowledged_material_changes === true,
+        });
+        orderIds = checkoutOrders.orderIds;
+        orderCreationWriteResult = checkoutOrders.writeResult;
+        const ordersResult = await checkout.sessions.recordOrdersCreated(
+          {
+            sessionId,
+            accountId: access.actor.accountId as AccountId,
+            orderIds,
+            fulfilledLineKeys: checkoutOrders.readyLineKeys,
+            orderWriteCommitPositions: orderingCommitPositions(orderCreationWriteResult),
+          },
+          access.context,
+        );
+        cleanupResult = ordersResult;
+        refreshedSession = ordersResult.session;
+        orderIds = [...refreshedSession.order_ids];
+      }
     }
+
+    orderCreationWriteResult ??=
+      refreshedSession.order_write_commit_positions.length > 0
+        ? {
+            commandReceipt: {
+              commitEventIds: refreshedSession.order_write_commit_positions.flatMap((position) => position.eventIds),
+              commitPositions: refreshedSession.order_write_commit_positions,
+            },
+          }
+        : undefined;
 
     const requestedBalanceCreditAmount = readNullableString(
       body.requestedBalanceCreditAmount ?? body.requested_balance_credit_amount,
@@ -262,6 +312,7 @@ export function createCheckoutUcpHandlers(
       return createUcpEnvelope(
         "requires_action",
         {
+          ...cleanupWriteMetadata(cleanupResult),
           checkout: completedCheckoutPayload,
           payment_id: paymentId,
           order_ids: orderIds,
@@ -289,6 +340,7 @@ export function createCheckoutUcpHandlers(
     }
 
     return createUcpEnvelope("ok", {
+      ...cleanupWriteMetadata(cleanupResult),
       checkout: completedCheckoutPayload,
       payment_id: paymentId,
       order_ids: orderIds,
@@ -418,79 +470,99 @@ export function createCheckoutUcpHandlers(
         return access.error;
       }
 
-      const sessionId = readCheckoutSessionId(input);
-      const session = sessionId ? await checkout.sessions.getSession(sessionId, access.actor.accountId) : null;
-      if (!session) {
-        return checkoutNotFound();
-      }
-
-      const body = await readInputObject<Readonly<Record<string, unknown>>>(input);
-      const checkoutPayload = sessionToUcpCheckout(session, options);
-      const guardedPaymentResponse = await options.paymentHandoff?.evaluateCompleteRequest(body, checkoutPayload);
-      if (guardedPaymentResponse?.kind === "respond") {
-        const responsePayload = withTrustedCheckoutHandoffUrl(
-          stripUcpEnvelope(guardedPaymentResponse.response),
-          sessionId,
-        );
-        return createUcpEnvelope(
-          guardedPaymentResponse.response.ucp.status,
-          {
-            checkout: checkoutPayload,
-            ...responsePayload,
-          },
-          guardedPaymentResponse.response.messages ?? [],
-        );
-      }
-
-      if (
-        guardedPaymentResponse?.kind === "headless-agentic-payment" ||
-        guardedPaymentResponse?.kind === "headless-stored-payment-method"
-      ) {
-        try {
-          const approach: HeadlessPaymentApproach =
-            guardedPaymentResponse.kind === "headless-agentic-payment"
-              ? {
-                  kind: "agentic",
-                  agenticPayment: guardedPaymentResponse.agenticPayment,
-                  humanPresent: guardedPaymentResponse.humanPresent,
-                  evidence: guardedPaymentResponse.evidence,
-                }
-              : {
-                  kind: "stored-pm",
-                  savedCheckoutInstrumentId: guardedPaymentResponse.savedCheckoutInstrumentId,
-                };
-          return await completeHeadlessCheckout(input, access, sessionId, body, checkoutPayload, approach);
-        } catch (error) {
-          return validationError(error);
+      try {
+        const sessionId = readCheckoutSessionId(input);
+        let session = sessionId ? await checkout.sessions.getSession(sessionId, access.actor.accountId) : null;
+        if (!session) {
+          return checkoutNotFound();
         }
-      }
 
-      if (session.payment_id || session.submitted_offer_id) {
-        return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options) });
-      }
-      if (session.cancelled_at) {
-        return createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options) });
-      }
+        const body = await readInputObject<Readonly<Record<string, unknown>>>(input);
+        let cleanupResult: CheckoutSessionMutationResult | undefined;
+        if (session.order_ids.length > 0) {
+          cleanupResult = await checkout.sessions.resumeOrderCartCleanup(
+            { sessionId, accountId: access.actor.accountId as AccountId },
+            access.context,
+          );
+          session = cleanupResult.session;
+        }
+        const checkoutPayload = sessionToUcpCheckout(session, options);
+        const guardedPaymentResponse = await options.paymentHandoff?.evaluateCompleteRequest(body, checkoutPayload);
+        if (guardedPaymentResponse?.kind === "respond") {
+          const responsePayload = withTrustedCheckoutHandoffUrl(
+            stripUcpEnvelope(guardedPaymentResponse.response),
+            sessionId,
+          );
+          return createUcpEnvelope(
+            guardedPaymentResponse.response.ucp.status,
+            {
+              ...cleanupWriteMetadata(cleanupResult),
+              checkout: checkoutPayload,
+              ...responsePayload,
+            },
+            guardedPaymentResponse.response.messages ?? [],
+          );
+        }
 
-      return createUcpEnvelope(
-        "requires_action",
-        {
-          checkout: sessionToUcpCheckout(session, options),
-          action: {
-            type: "trusted_checkout_handoff",
-            url: `/checkout/buy/session/${session.session_id}`,
-            reason:
-              "Checkout completion requires buyer review in trusted UI until Payments enables production AP2 mandate verification and payment-handler handoff.",
-          },
-        },
-        [
+        if (
+          guardedPaymentResponse?.kind === "headless-agentic-payment" ||
+          guardedPaymentResponse?.kind === "headless-stored-payment-method"
+        ) {
+          try {
+            const approach: HeadlessPaymentApproach =
+              guardedPaymentResponse.kind === "headless-agentic-payment"
+                ? {
+                    kind: "agentic",
+                    agenticPayment: guardedPaymentResponse.agenticPayment,
+                    humanPresent: guardedPaymentResponse.humanPresent,
+                    evidence: guardedPaymentResponse.evidence,
+                  }
+                : {
+                    kind: "stored-pm",
+                    savedCheckoutInstrumentId: guardedPaymentResponse.savedCheckoutInstrumentId,
+                  };
+            return await completeHeadlessCheckout(input, access, sessionId, body, checkoutPayload, approach);
+          } catch (error) {
+            return validationError(error);
+          }
+        }
+
+        if (session.payment_id || session.submitted_offer_id) {
+          return createUcpEnvelope("ok", {
+            ...cleanupWriteMetadata(cleanupResult),
+            checkout: sessionToUcpCheckout(session, options),
+          });
+        }
+        if (session.cancelled_at) {
+          return createUcpEnvelope("ok", {
+            ...cleanupWriteMetadata(cleanupResult),
+            checkout: sessionToUcpCheckout(session, options),
+          });
+        }
+
+        return createUcpEnvelope(
+          "requires_action",
           {
-            severity: "warning",
-            code: "trusted_ui_required",
-            message: "Use trusted checkout handoff before creating orders or payment through an AI agent.",
+            ...cleanupWriteMetadata(cleanupResult),
+            checkout: sessionToUcpCheckout(session, options),
+            action: {
+              type: "trusted_checkout_handoff",
+              url: `/checkout/buy/session/${session.session_id}`,
+              reason:
+                "Checkout completion requires buyer review in trusted UI until Payments enables production AP2 mandate verification and payment-handler handoff.",
+            },
           },
-        ],
-      );
+          [
+            {
+              severity: "warning",
+              code: "trusted_ui_required",
+              message: "Use trusted checkout handoff before creating orders or payment through an AI agent.",
+            },
+          ],
+        );
+      } catch (error) {
+        return validationError(error);
+      }
     },
     cancel_checkout: async (input: UcpOperationHandlerInput) => {
       const access = requireCheckoutAccess(input, "orders.manage");
@@ -980,11 +1052,21 @@ function checkoutNotFound() {
 }
 
 function validationError(error: unknown) {
-  return createUcpEnvelope("error", {}, [
-    {
-      severity: "error",
-      code: error instanceof CheckoutDomainError ? error.code : "validation_failed",
-      message: error instanceof Error ? error.message : String(error),
-    },
-  ]);
+  return createUcpEnvelope(
+    "error",
+    error instanceof OrderCartCleanupError
+      ? {
+          commit_position: error.commitMetadata.commitPosition,
+          commit_event_ids: error.commitMetadata.commitEventIds,
+          commit_positions: error.commitMetadata.commitPositions,
+        }
+      : {},
+    [
+      {
+        severity: "error",
+        code: error instanceof CheckoutDomainError ? error.code : "validation_failed",
+        message: error instanceof Error ? error.message : String(error),
+      },
+    ],
+  );
 }
