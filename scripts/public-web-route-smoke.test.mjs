@@ -4,8 +4,8 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { helpArticles } from "../bounded-contexts/public-presence/features/help/domain/generated/articles.ts";
 import { derivePublicWebRouteInventory } from "./public-web-route-inventory.mjs";
 import {
@@ -13,6 +13,7 @@ import {
   parsePublicWebRouteSmokeCliArgs,
   PRODUCTION_SHAPED_LARGEST_RESPONSE_BYTES,
   PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS,
+  smokePublicWebRoutes,
   STRICT_PUBLIC_ROUTE_MEMBER_IDS,
 } from "./public-web-route-smoke.mjs";
 import { repoRoot } from "./lib/repo.mjs";
@@ -262,6 +263,71 @@ async function createDeadlineScopeMutant() {
       await rm(temporaryDirectory, { force: true, recursive: true });
     },
   };
+}
+
+async function createRetryDeadlineBypassMutant() {
+  const sourcePath = new URL("./public-web-route-smoke.mjs", import.meta.url);
+  const gateCheck = "if (remaining <= 0 || milliseconds > remaining)";
+  let source = await readFile(sourcePath, "utf8");
+  if (source.split(gateCheck).length !== 2) {
+    throw new Error("Retry-deadline negative control could not locate the retry gate.");
+  }
+  source = source
+    .replace(gateCheck, "if (remaining <= 0)")
+    .replace(
+      "../bounded-contexts/public-presence/features/help/domain/policy-value-state.ts",
+      new URL("../bounded-contexts/public-presence/features/help/domain/policy-value-state.ts", sourcePath).href,
+    )
+    .replace("./public-web-route-inventory.mjs", new URL("./public-web-route-inventory.mjs", sourcePath).href);
+  const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "public-route-smoke-retry-deadline-mutant-"));
+  const mutantPath = path.join(temporaryDirectory, "public-web-route-smoke.mjs");
+  await writeFile(mutantPath, source, "utf8");
+  return {
+    smoke: (await import(pathToFileURL(mutantPath).href)).smokePublicWebRoutes,
+    async remove() {
+      await rm(temporaryDirectory, { force: true, recursive: true });
+    },
+  };
+}
+
+async function exerciseRetryGateWithControlledClock(smoke) {
+  vi.useFakeTimers();
+  let monotonicNow = 0;
+  const now = vi.spyOn(performance, "now").mockImplementation(() => monotonicNow);
+  let requests = 0;
+  let settled;
+  try {
+    const outcome = smoke({
+      baseUrl: "https://public-web.test",
+      mode: "no-5xx",
+      inventory,
+      attempts: 20,
+      retryDelayMs: 100,
+      timeoutMs: 100,
+      gateTimeoutMs: 350,
+      fetchImpl: async () => {
+        requests += 1;
+        return new Response("<html><body>still failing</body></html>", { status: 500 });
+      },
+      logger: { log() {}, warn() {} },
+    }).then(
+      () => ({ error: null }),
+      (error) => ({ error }),
+    );
+    outcome.then((value) => {
+      settled = value;
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    while (!settled && monotonicNow < 500) {
+      monotonicNow += 100;
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    return { ...(await outcome), monotonicNow, requests };
+  } finally {
+    now.mockRestore();
+    vi.useRealTimers();
+  }
 }
 
 describe("public web route smoke real CLI", () => {
@@ -531,24 +597,27 @@ describe("public web route smoke real CLI", () => {
     expect(result.code).toBe(0);
   });
 
-  it("bounds retries by the total gate deadline", async () => {
-    const fixture = await startServer((_request, response) => {
-      writeHtml(response, "<html><body>still failing</body></html>", 500);
-    });
-    const result = await runCli(fixture.baseUrl, "no-5xx", [
-      "--attempts",
-      "20",
-      "--retry-delay-ms",
-      "100",
-      "--timeout-ms",
-      "100",
-      "--gate-timeout-ms",
-      "350",
-    ]);
+  it("bounds retries by the total gate deadline without process-startup timing", async () => {
+    const result = await exerciseRetryGateWithControlledClock(smokePublicWebRoutes);
 
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain(`[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.gateDeadlineExceeded}]`);
-    expect(result.elapsedMs).toBeLessThan(1_000);
+    expect(result.error?.message).toContain(`[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.gateDeadlineExceeded}]`);
+    expect(result.error?.message).toContain("before retry");
+    expect(result.monotonicNow).toBe(300);
+    expect(result.requests).toBe(4);
+  });
+
+  it("rejects a retry-deadline bypass mutant under the same controlled clock", async () => {
+    const mutant = await createRetryDeadlineBypassMutant();
+    try {
+      const result = await exerciseRetryGateWithControlledClock(mutant.smoke);
+
+      expect(result.error?.message).toContain(`[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.gateDeadlineExceeded}]`);
+      expect(result.error?.message).toContain("before its request");
+      expect(result.monotonicNow).toBe(400);
+      expect(result.requests).toBe(4);
+    } finally {
+      await mutant.remove();
+    }
   });
 
   it.each(["success", "5xx", "timeout", "byte-bound", "abort"])(
