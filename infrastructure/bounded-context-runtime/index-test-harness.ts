@@ -169,6 +169,9 @@ export function createMockPool(): MockPool {
       if (sql === "SELECT set_config('idle_in_transaction_session_timeout', $1, true)") {
         return { rows: [], rowCount: 0 };
       }
+      if (sql === "SELECT pg_advisory_xact_lock(hashtextextended('event_subscription_checkpoints:' || $1::text, 0))") {
+        return { rows: [], rowCount: 1 };
+      }
 
       if (sql.includes("pg_sequence_last_value")) {
         const configuredHead = sourceHeadByPool.get(pool);
@@ -582,6 +585,17 @@ export function createEventCoreMock() {
 
 export function createEventCorePostgresMock() {
   return {
+    EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY: "-8041932795057830931",
+    buildStreamPrefixFilterSql: (streamPrefixes: readonly string[], nextParamIndex: number) => {
+      const prefixes = [...new Set(streamPrefixes)];
+      if (prefixes.length === 0) {
+        return null;
+      }
+      return {
+        predicate: `(${prefixes.map((_prefix, index) => `stream_id LIKE $${nextParamIndex + index} || '%'`).join(" OR ")})`,
+        params: prefixes,
+      };
+    },
     withPgTransaction: async (_pool: object, work: (client: object) => Promise<unknown>) => work(_pool),
     readGapSafeEventStoreHead: async (pool: MockPool) => {
       const result = await pool.query("SELECT pg_sequence_last_value('event_store_events') AS head");

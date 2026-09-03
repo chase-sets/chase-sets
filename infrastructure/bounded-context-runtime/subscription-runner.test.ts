@@ -32,12 +32,19 @@ const readStreamCallsByPool = vi.hoisted(() => new Map<object, ReadStreamCall[]>
 const ignoreReadStreamLimitByPool = vi.hoisted(() => new Set<object>());
 
 vi.mock("@chase-sets/event-core", () => createEventCoreMock());
-vi.mock("@chase-sets/event-core-postgres", () => {
+vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@chase-sets/event-core-postgres")>();
   const eventCorePostgres = createEventCorePostgresMock();
   const createPostgresEventStore = eventCorePostgres.createPostgresEventStore;
+  const {
+    EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY: _eventStoreGlobalAppendAdvisoryLockKey,
+    buildStreamPrefixFilterSql: _buildStreamPrefixFilterSql,
+    ...mockedEventCorePostgres
+  } = eventCorePostgres;
 
   return {
-    ...eventCorePostgres,
+    ...actual,
+    ...mockedEventCorePostgres,
     createPostgresEventStore: (options: { pool: object }) => {
       const store = createPostgresEventStore(options);
       return {
@@ -840,6 +847,7 @@ describe("bounded context subscription runner", () => {
   it("resumes from the last saved checkpoint after a partial failure", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
     sourceEventsByPool.set(sourcePool, [
       createStoredEvent("1", "inventory.item.created", { itemId: "rec_1" }),
       createStoredEvent("2", "inventory.item.created", { itemId: "rec_2" }),
@@ -867,6 +875,9 @@ describe("bounded context subscription runner", () => {
     expect(getCheckpointWriteCountStore(targetPool).get("marketplace-inventory-supply-projection:inventory:v1")).toBe(
       1,
     );
+    expect(
+      targetQuery.mock.calls.filter(([sql]) => String(sql).includes("event_subscription_checkpoints:'")),
+    ).toHaveLength(1);
 
     const resumedPositions: string[] = [];
     const resumedRunner = createSubscriptionRunner("marketplace", targetPool as never, sourcePool as never, {
@@ -885,6 +896,9 @@ describe("bounded context subscription runner", () => {
 
     await resumedRunner.runOnce();
     expect(resumedPositions).toEqual(["2"]);
+    expect(
+      targetQuery.mock.calls.filter(([sql]) => String(sql).includes("event_subscription_checkpoints:'")),
+    ).toHaveLength(2);
   });
 
   it("re-executes a whole batch individually after a transient mid-batch failure instead of replaying the recorded error", async () => {
@@ -1828,6 +1842,7 @@ describe("bounded context subscription runner", () => {
   it("rate-limits durable checkpoint fast-forward for idle unrelated source advances", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
     sourceHeadByPool.set(sourcePool, "1");
     const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
       subscriptionName: "inventory.catalog-item-projection",
@@ -1847,17 +1862,28 @@ describe("bounded context subscription runner", () => {
 
     expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("1");
     expect(getCheckpointWriteCountStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe(1);
+    expect(
+      targetQuery.mock.calls.filter(([sql]) => String(sql).includes("event_subscription_checkpoints:'")),
+    ).toHaveLength(1);
     expect(runner.getStatus()).toMatchObject({
       lastGlobalPosition: "2",
       sourceHeadGlobalPosition: "2",
       outstandingEventCount: "0",
       state: "caught-up",
     });
+
+    await runner.runOnce({ settleIdleCheckpoints: true });
+    expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("2");
+    expect(getCheckpointWriteCountStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe(2);
+    expect(
+      targetQuery.mock.calls.filter(([sql]) => String(sql).includes("event_subscription_checkpoints:'")),
+    ).toHaveLength(2);
   });
 
   it("passes subscription filters to readAll and advances past irrelevant source tail", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
     sourceEventsByPool.set(sourcePool, [
       createStoredEvent("1", "marketplace.listing.created", { listingId: "lst_1" }, "marketplace.listing-lst_1"),
       createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_1" }, "catalog.item-cat_1"),
@@ -1892,6 +1918,10 @@ describe("bounded context subscription runner", () => {
     ]);
     expect(seenPositions).toEqual(["2"]);
     expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("3");
+    expect(getCheckpointWriteCountStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe(2);
+    expect(
+      targetQuery.mock.calls.filter(([sql]) => String(sql).includes("event_subscription_checkpoints:'")),
+    ).toHaveLength(2);
     expect(runner.getStatus()).toMatchObject({
       lastGlobalPosition: "3",
       sourceHeadGlobalPosition: "3",
@@ -1960,7 +1990,8 @@ describe("bounded context subscription runner", () => {
     const targetSql = targetQuery.mock.calls.map(([sql]) => String(sql));
     expect(getReadAllCalls(sourcePool)[0]).toMatchObject({ limit: 100 });
     expect(handler).toHaveBeenCalledTimes(5);
-    expect(targetSql.filter((sql) => sql === "BEGIN")).toHaveLength(1);
+    expect(targetSql.filter((sql) => sql === "BEGIN")).toHaveLength(2);
+    expect(targetSql.filter((sql) => sql === "COMMIT")).toHaveLength(2);
     expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_applications"))).toHaveLength(1);
     expect(
       targetSql.filter((sql) => sql.includes("SELECT event_id, status") && sql.includes("FOR UPDATE")),
@@ -1977,6 +2008,8 @@ describe("bounded context subscription runner", () => {
       ),
     ).toHaveLength(0);
     expect(getCheckpointWriteCountStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe(1);
+    expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_checkpoints"))).toHaveLength(1);
+    expect(targetSql.filter((sql) => sql.includes("event_subscription_checkpoints:'"))).toHaveLength(1);
   });
 
   it("uses checkpoint batch size as the projection transaction chunk boundary", async () => {
@@ -2007,9 +2040,11 @@ describe("bounded context subscription runner", () => {
 
     const targetSql = targetQuery.mock.calls.map(([sql]) => String(sql));
     expect(handler).toHaveBeenCalledTimes(2);
-    expect(targetSql.filter((sql) => sql === "BEGIN")).toHaveLength(2);
-    expect(targetSql.filter((sql) => sql === "COMMIT")).toHaveLength(2);
+    expect(targetSql.filter((sql) => sql === "BEGIN")).toHaveLength(4);
+    expect(targetSql.filter((sql) => sql === "COMMIT")).toHaveLength(4);
     expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_applications"))).toHaveLength(2);
+    expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_checkpoints"))).toHaveLength(2);
+    expect(targetSql.filter((sql) => sql.includes("event_subscription_checkpoints:'"))).toHaveLength(2);
     expect(getCheckpointWriteCountStore(targetPool).get("discovery-search-item-projection:catalog:v5")).toBe(2);
   });
 
@@ -2044,9 +2079,11 @@ describe("bounded context subscription runner", () => {
 
     const targetSql = targetQuery.mock.calls.map(([sql]) => String(sql));
     expect(handler).toHaveBeenCalledTimes(3);
-    expect(targetSql.filter((sql) => sql === "BEGIN")).toHaveLength(3);
-    expect(targetSql.filter((sql) => sql === "COMMIT")).toHaveLength(3);
+    expect(targetSql.filter((sql) => sql === "BEGIN")).toHaveLength(6);
+    expect(targetSql.filter((sql) => sql === "COMMIT")).toHaveLength(6);
     expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_applications"))).toHaveLength(3);
+    expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_checkpoints"))).toHaveLength(3);
+    expect(targetSql.filter((sql) => sql.includes("event_subscription_checkpoints:'"))).toHaveLength(3);
     expect(
       targetSql.filter((sql) => sql.includes("SELECT event_id, status") && sql.includes("FOR UPDATE")),
     ).toHaveLength(0);

@@ -1,9 +1,11 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
+import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { describe, expect, it } from "vitest";
 import {
   areSubscribedReceiptEventsApplied,
   createCheckpointKey,
   loadSubscriptionCheckpointRecoveryState,
+  saveSubscriptionCheckpoint,
 } from "./subscription-store";
 
 const tenantShardingTrap =
@@ -65,6 +67,112 @@ describe("loadSubscriptionCheckpointRecoveryState", () => {
   });
 });
 
+describe("saveSubscriptionCheckpoint", () => {
+  const subscription = {
+    projectionName: "catalog.items",
+    sourceContextName: "catalog",
+    subscriptionVersion: 3,
+  };
+
+  it("locks the canonical checkpoint before saving it in one bounded transaction", async () => {
+    const fixture = createSavePool();
+
+    await expect(
+      saveSubscriptionCheckpoint(fixture.pool, subscription, parseGlobalPosition("42"), {
+        ownerId: "worker-a",
+        fencingToken: "7",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(fixture.queries.map(({ sql }) => sql)).toEqual([
+      "BEGIN",
+      "SELECT set_config('idle_in_transaction_session_timeout', $1, true)",
+      "SELECT set_config('statement_timeout', $1, true)",
+      "SELECT pg_advisory_xact_lock(hashtextextended('event_subscription_checkpoints:' || $1::text, 0))",
+      expect.stringContaining("WITH saved_checkpoint AS"),
+      "COMMIT",
+    ]);
+    expect(fixture.queries[3]?.params).toEqual(["catalog.items:catalog:v3"]);
+    expect(fixture.queries[4]?.params).toEqual([
+      "catalog.items:catalog:v3",
+      "catalog.items",
+      "catalog",
+      3,
+      "42",
+      "worker-a",
+      "7",
+    ]);
+    expect(fixture.releases).toEqual([undefined]);
+  });
+
+  it("omits disabled timeout settings without changing the lock and save boundary", async () => {
+    const fixture = createSavePool();
+
+    await saveSubscriptionCheckpoint(fixture.pool, subscription, parseGlobalPosition("42"), {
+      idleInTransactionSessionTimeoutMs: 0,
+      transactionTimeoutMs: 0,
+    });
+
+    expect(fixture.queries.map(({ sql }) => sql)).toEqual([
+      "BEGIN",
+      "SELECT pg_advisory_xact_lock(hashtextextended('event_subscription_checkpoints:' || $1::text, 0))",
+      expect.stringContaining("WITH saved_checkpoint AS"),
+      "COMMIT",
+    ]);
+  });
+
+  it.each([
+    { label: "absent", fencingToken: undefined, expected: null },
+    { label: "empty", fencingToken: "", expected: null },
+    { label: "invalid", fencingToken: "7x", expected: null },
+    { label: "zero", fencingToken: "0", expected: "0" },
+    { label: "numeric", fencingToken: "12", expected: "12" },
+  ])("preserves $label fencing-token normalization", async ({ fencingToken, expected }) => {
+    const fixture = createSavePool();
+
+    await saveSubscriptionCheckpoint(
+      fixture.pool,
+      subscription,
+      parseGlobalPosition("5"),
+      fencingToken === undefined ? undefined : { ownerId: "worker-b", fencingToken },
+    );
+
+    const save = fixture.queries.find(({ sql }) => sql.includes("WITH saved_checkpoint AS"));
+    expect(save?.params?.[5]).toBe(fencingToken === undefined ? null : "worker-b");
+    expect(save?.params?.[6]).toBe(expected);
+  });
+
+  it("rolls back when the existing fence rejects the save", async () => {
+    const fixture = createSavePool({ saveRowCount: 0 });
+
+    await expect(
+      saveSubscriptionCheckpoint(fixture.pool, subscription, parseGlobalPosition("5"), {
+        ownerId: "stale-worker",
+        fencingToken: "4",
+      }),
+    ).rejects.toThrow("Subscription checkpoint 'catalog.items:catalog:v3' rejected stale lease fencing token.");
+
+    expect(fixture.queries.map(({ sql }) => sql).slice(-2)).toEqual([
+      expect.stringContaining("WITH saved_checkpoint AS"),
+      "ROLLBACK",
+    ]);
+    expect(fixture.queries.some(({ sql }) => sql === "COMMIT")).toBe(false);
+    expect(fixture.releases).toEqual([undefined]);
+  });
+
+  it.each(["lock", "save", "commit"] as const)("propagates a %s failure and releases the client", async (step) => {
+    const failure = Object.assign(new Error(`${step} failed`), { code: "XX999" });
+    const fixture = createSavePool({ failure: { step, error: failure } });
+
+    await expect(saveSubscriptionCheckpoint(fixture.pool, subscription, parseGlobalPosition("5"))).rejects.toBe(
+      failure,
+    );
+
+    expect(fixture.queries.at(-1)?.sql).toBe("ROLLBACK");
+    expect(fixture.releases).toEqual([undefined]);
+  });
+});
+
 describe("areSubscribedReceiptEventsApplied", () => {
   it("uses one indexed statement for the subscribed receipt subset without COUNT(*) backlog reads", async () => {
     const queries: Readonly<{ sql: string; params: readonly unknown[] }>[] = [];
@@ -99,3 +207,39 @@ describe("areSubscribedReceiptEventsApplied", () => {
     ]);
   });
 });
+
+function createSavePool(
+  options: {
+    saveRowCount?: number;
+    failure?: Readonly<{ step: "lock" | "save" | "commit"; error: Error }>;
+  } = {},
+) {
+  const queries: Array<Readonly<{ sql: string; params?: readonly unknown[] }>> = [];
+  const releases: unknown[] = [];
+  const query = async (sql: string, params?: readonly unknown[]) => {
+    queries.push({ sql, ...(params ? { params } : {}) });
+    const step = sql.includes("pg_advisory_xact_lock")
+      ? "lock"
+      : sql.includes("WITH saved_checkpoint AS")
+        ? "save"
+        : sql === "COMMIT"
+          ? "commit"
+          : undefined;
+    if (step && options.failure?.step === step) {
+      throw options.failure.error;
+    }
+    return {
+      rows: [],
+      rowCount: step === "save" ? (options.saveRowCount ?? 1) : 0,
+    };
+  };
+  const pool = {
+    query,
+    connect: async () => ({
+      query,
+      release: (error?: unknown) => releases.push(error),
+    }),
+  };
+
+  return { pool: pool as never, queries, releases };
+}

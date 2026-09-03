@@ -12,7 +12,7 @@ import {
   type PgPoolClient,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   bootstrapContextDatabase,
   createSubscriptionRunner,
@@ -30,6 +30,10 @@ import {
   resetMultiContextTestSchemas,
 } from "./test-support";
 import { withProjectionTransaction } from "./projection-transactions";
+import {
+  createCheckpointKey,
+  saveSubscriptionCheckpoint as savePersistedSubscriptionCheckpoint,
+} from "./subscription-store";
 
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 
@@ -474,6 +478,478 @@ describeDb("projection operations Postgres integration", () => {
     await expect(loadSubscriptionCheckpoint(primaryRunner.checkpointKey)).resolves.toBe("1");
   });
 
+  it("serializes first checkpoint saves before their statement snapshots", async () => {
+    const subscription = createItemsSubscription();
+    const checkpointKey = createCheckpointKey(subscription);
+    const first = createControlledSavePool(pools.target, { holdBeforeCommit: true });
+    const second = createControlledSavePool(pools.target);
+    const firstSave = saveSubscriptionCheckpoint(first.pool, subscription, "10");
+    let secondSave: Promise<void> | undefined;
+
+    try {
+      await first.checkpointCompleted.promise;
+      secondSave = saveSubscriptionCheckpoint(second.pool, subscription, "1");
+      await second.lockSubmitted.promise;
+
+      const waitEvidence = await waitForBackendBlock(pools.target, first.backendPid, second.backendPid);
+      expect(waitEvidence.blocking_pids).toContain(first.backendPid);
+      expect(waitEvidence.wait_event_type).toBe("Lock");
+      expect(waitEvidence.wait_event).toBe("advisory");
+      expect(waitEvidence.locks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ pid: first.backendPid, locktype: "advisory", granted: true }),
+          expect.objectContaining({ pid: second.backendPid, locktype: "advisory", granted: false }),
+        ]),
+      );
+      const firstLock = waitEvidence.locks.find((lock) => lock.pid === first.backendPid);
+      const secondLock = waitEvidence.locks.find((lock) => lock.pid === second.backendPid);
+      expect(secondLock).toMatchObject({
+        database: firstLock?.database,
+        classid: firstLock?.classid,
+        objid: firstLock?.objid,
+        objsubid: firstLock?.objsubid,
+      });
+      expect(second.checkpointStarted.resolved).toBe(false);
+
+      const independentProjection = { ...subscription, projectionName: "other-items" };
+      const independentVersion = { ...subscription, subscriptionVersion: 2 };
+      const independentLockIds = await Promise.all(
+        [subscription, independentProjection, independentVersion].map(async (candidate) => {
+          const result = await pools.target.query<{ lock_id: string }>(
+            "SELECT hashtextextended('event_subscription_checkpoints:' || $1::text, 0)::text AS lock_id",
+            [createCheckpointKey(candidate)],
+          );
+          return result.rows[0]?.lock_id;
+        }),
+      );
+      expect(new Set(independentLockIds).size).toBe(3);
+      await expect(
+        Promise.all([
+          saveSubscriptionCheckpoint(pools.target, independentProjection, "3"),
+          saveSubscriptionCheckpoint(pools.target, independentVersion, "4"),
+          saveSubscriptionCheckpoint(pools.source, subscription, "5"),
+        ]),
+      ).resolves.toEqual([undefined, undefined, undefined]);
+
+      first.releaseCommit.resolve();
+      const settlements = await Promise.allSettled([firstSave, secondSave]);
+      expect(settlements).toEqual([
+        { status: "fulfilled", value: undefined },
+        { status: "fulfilled", value: undefined },
+      ]);
+      expect(first.checkpointQueries).toHaveLength(1);
+      expect(second.checkpointQueries).toHaveLength(1);
+      expect(first.checkpointQueries[0]?.params).toEqual([checkpointKey, "items", "source", 1, "10", null, null]);
+      expect(second.checkpointQueries[0]?.params?.[4]).toBe("1");
+      await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+        checkpoint: "10",
+        recoveryMarker: "10",
+      });
+      await expect(readCheckpointState(pools.source, checkpointKey)).resolves.toMatchObject({
+        checkpoint: "5",
+        recoveryMarker: "5",
+      });
+
+      const version = await pools.target.query<{ server_version: string }>("SHOW server_version");
+      const indexes = await pools.target.query<{ indexname: string; indexdef: string }>(
+        `SELECT indexname, indexdef
+         FROM pg_indexes
+         WHERE schemaname = current_schema()
+           AND tablename = 'event_subscription_checkpoints'
+         ORDER BY indexname`,
+      );
+      expect(version.rows[0]?.server_version).toMatch(/^\d+\.\d+/);
+      expect(indexes.rows.map(({ indexname }) => indexname)).toEqual([
+        "event_subscription_checkpoints_pkey",
+        "event_subscription_checkpoints_projection_source_version_idx",
+      ]);
+      console.info(
+        "checkpoint-serialization evidence",
+        JSON.stringify({
+          serverVersion: version.rows[0]?.server_version,
+          indexes: indexes.rows,
+          checkpointKey,
+          firstBackendPid: first.backendPid,
+          secondBackendPid: second.backendPid,
+          waitEvidence,
+          settlements,
+          firstSql: first.checkpointQueries,
+          secondSql: second.checkpointQueries,
+          final: await readCheckpointState(pools.target, checkpointKey),
+        }),
+      );
+    } finally {
+      first.releaseCommit.resolve();
+      await Promise.allSettled([firstSave, ...(secondSave ? [secondSave] : [])]);
+    }
+  });
+
+  it("keeps checkpoint recovery decisions after the preceding save commits", async () => {
+    const subscription = createItemsSubscription();
+    const checkpointKey = createCheckpointKey(subscription);
+    const committedFirst = createControlledSavePool(pools.target, { holdBeforeCommit: true });
+    const bypassedSecond = createControlledSavePool(pools.target, { bypassCheckpointLock: true });
+    const committedSave = saveSubscriptionCheckpoint(committedFirst.pool, subscription, "10");
+    const controlledPools = [committedFirst, bypassedSecond];
+    const savePromises: Promise<void>[] = [committedSave];
+    let bypassedSave: Promise<void> | undefined;
+
+    try {
+      await committedFirst.checkpointCompleted.promise;
+      bypassedSave = saveSubscriptionCheckpoint(bypassedSecond.pool, subscription, "1");
+      savePromises.push(bypassedSave);
+      await bypassedSecond.checkpointStarted.promise;
+      const bypassWait = await waitForBackendBlock(pools.target, committedFirst.backendPid, bypassedSecond.backendPid);
+      expect(bypassWait.blocking_pids).toContain(committedFirst.backendPid);
+      expect(bypassWait.wait_event).not.toBe("advisory");
+
+      committedFirst.releaseCommit.resolve();
+      const bypassSettlements = await Promise.allSettled([committedSave, bypassedSave]);
+      expect(bypassSettlements.map(({ status }) => status)).toEqual(["fulfilled", "fulfilled"]);
+      const bypassFinal = await readCheckpointState(pools.target, checkpointKey);
+      expect(bypassFinal).toMatchObject({ checkpoint: "1", recoveryMarker: "10" });
+
+      await clearCheckpointState(pools.target, checkpointKey);
+      const rolledBackFirst = createControlledSavePool(pools.target, {
+        holdBeforeCommit: true,
+        failCommitBeforeQuery: new Error("synthetic pre-commit failure"),
+      });
+      const survivingSecond = createControlledSavePool(pools.target);
+      controlledPools.push(rolledBackFirst, survivingSecond);
+      const rolledBackSave = saveSubscriptionCheckpoint(rolledBackFirst.pool, subscription, "10");
+      savePromises.push(rolledBackSave);
+      await rolledBackFirst.checkpointCompleted.promise;
+      const survivingSave = saveSubscriptionCheckpoint(survivingSecond.pool, subscription, "1");
+      savePromises.push(survivingSave);
+      await survivingSecond.lockSubmitted.promise;
+      const rollbackWait = await waitForBackendBlock(
+        pools.target,
+        rolledBackFirst.backendPid,
+        survivingSecond.backendPid,
+      );
+      rolledBackFirst.releaseCommit.resolve();
+      const rollbackSettlements = await Promise.allSettled([rolledBackSave, survivingSave]);
+      expect(rollbackSettlements).toEqual([
+        { status: "rejected", reason: expect.objectContaining({ message: "synthetic pre-commit failure" }) },
+        { status: "fulfilled", value: undefined },
+      ]);
+      const rollbackFinal = await readCheckpointState(pools.target, checkpointKey);
+      expect(rollbackFinal).toMatchObject({ checkpoint: "1", recoveryMarker: "1" });
+
+      await clearCheckpointState(pools.target, checkpointKey);
+      const lowerFirst = createControlledSavePool(pools.target, { holdBeforeCommit: true });
+      const higherSecond = createControlledSavePool(pools.target);
+      controlledPools.push(lowerFirst, higherSecond);
+      const lowerSave = saveSubscriptionCheckpoint(lowerFirst.pool, subscription, "1");
+      savePromises.push(lowerSave);
+      await lowerFirst.checkpointCompleted.promise;
+      const higherSave = saveSubscriptionCheckpoint(higherSecond.pool, subscription, "10");
+      savePromises.push(higherSave);
+      await higherSecond.lockSubmitted.promise;
+      await waitForBackendBlock(pools.target, lowerFirst.backendPid, higherSecond.backendPid);
+      lowerFirst.releaseCommit.resolve();
+      const reverseSettlements = await Promise.allSettled([lowerSave, higherSave]);
+      expect(reverseSettlements.map(({ status }) => status)).toEqual(["fulfilled", "fulfilled"]);
+      const reverseFinal = await readCheckpointState(pools.target, checkpointKey);
+      expect(reverseFinal).toMatchObject({ checkpoint: "10", recoveryMarker: "10" });
+
+      console.info(
+        "checkpoint-recovery evidence",
+        JSON.stringify({
+          checkpointKey,
+          bypassWait,
+          bypassSettlements,
+          bypassFinal,
+          rollbackWait,
+          rollbackSettlements: rollbackSettlements.map(({ status }) => status),
+          rollbackFinal,
+          reverseSettlements,
+          reverseFinal,
+        }),
+      );
+    } finally {
+      for (const controlledPool of controlledPools) {
+        controlledPool.releaseCommit.resolve();
+      }
+      await Promise.allSettled(savePromises);
+    }
+  });
+
+  it("preserves checkpoint recovery, owner, and nullable fence matrices", async () => {
+    const subscription = createItemsSubscription();
+    const checkpointKey = createCheckpointKey(subscription);
+
+    await saveSubscriptionCheckpoint(pools.target, subscription, "2");
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "2",
+      recoveryMarker: "2",
+      ownerId: null,
+      fencingToken: null,
+    });
+
+    await clearCheckpointState(pools.target, checkpointKey);
+    await seedCheckpointState(pools.target, subscription, {
+      checkpoint: "10",
+      recoveryMarker: "10",
+      ownerId: "owner-a",
+      fencingToken: "7",
+    });
+    await expect(
+      saveSubscriptionCheckpoint(pools.target, subscription, "20", {
+        ownerId: "older-owner",
+        fencingToken: "6",
+      }),
+    ).rejects.toThrow("rejected stale lease fencing token");
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "10",
+      recoveryMarker: "10",
+      ownerId: "owner-a",
+      fencingToken: "7",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "1", {
+      ownerId: "equal-owner",
+      fencingToken: "7",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "10",
+      recoveryMarker: "10",
+      ownerId: "equal-owner",
+      fencingToken: "7",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "12", {
+      ownerId: "newer-owner",
+      fencingToken: "8",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "12",
+      recoveryMarker: "12",
+      ownerId: "newer-owner",
+      fencingToken: "8",
+    });
+
+    await clearCheckpointState(pools.target, checkpointKey);
+    await seedCheckpointState(pools.target, subscription, {
+      checkpoint: "10",
+      recoveryMarker: null,
+      ownerId: "before-recovery",
+      fencingToken: "7",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "1", {
+      ownerId: "invalid-token-owner",
+      fencingToken: "invalid",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "1",
+      recoveryMarker: "1",
+      ownerId: "invalid-token-owner",
+      fencingToken: "7",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "0", {
+      ownerId: "normal-owner",
+      fencingToken: "7",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+      checkpoint: "1",
+      recoveryMarker: "1",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "2", {
+      ownerId: "normal-owner",
+      fencingToken: "7",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+      checkpoint: "2",
+      recoveryMarker: "2",
+    });
+
+    await clearCheckpointState(pools.target, checkpointKey);
+    await seedCheckpointState(pools.target, subscription, {
+      checkpoint: "10",
+      recoveryMarker: "9",
+      ownerId: null,
+      fencingToken: null,
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "1", {
+      ownerId: "zero-owner",
+      fencingToken: "0",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "1",
+      recoveryMarker: "9",
+      ownerId: "zero-owner",
+      fencingToken: "0",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "0", {
+      ownerId: "invalid-owner",
+      fencingToken: "not-a-number",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "1",
+      recoveryMarker: "9",
+      ownerId: "invalid-owner",
+      fencingToken: "0",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "10", {
+      ownerId: "numeric-owner",
+      fencingToken: "5",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "10",
+      recoveryMarker: "10",
+      ownerId: "numeric-owner",
+      fencingToken: "5",
+    });
+  });
+
+  it("rolls back checkpoint saves on lease loss and abort while waiting for the lock", async () => {
+    const subscription = createItemsSubscription();
+    const checkpointKey = createCheckpointKey(subscription);
+
+    await expect(
+      saveSubscriptionCheckpoint(pools.target, subscription, "1", {
+        throwIfLeaseLost: () => {
+          throw new Error("lease lost before lock acquisition");
+        },
+      }),
+    ).rejects.toThrow("lease lost before lock acquisition");
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({ checkpoint: null });
+
+    let leaseLost = false;
+    const postStatementPool = createControlledSavePool(pools.target, {
+      afterCheckpoint: () => {
+        leaseLost = true;
+      },
+    });
+    await expect(
+      saveSubscriptionCheckpoint(postStatementPool.pool, subscription, "2", {
+        throwIfLeaseLost: () => {
+          if (leaseLost) {
+            throw new Error("lease lost after checkpoint statement");
+          }
+        },
+      }),
+    ).rejects.toThrow("lease lost after checkpoint statement");
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({ checkpoint: null });
+
+    const holder = createControlledSavePool(pools.target, { holdBeforeCommit: true });
+    const waiter = createControlledSavePool(pools.target);
+    const holderSave = saveSubscriptionCheckpoint(holder.pool, subscription, "10");
+    const abort = new AbortController();
+    let waitingSave: Promise<void> | undefined;
+    try {
+      await holder.checkpointCompleted.promise;
+      waitingSave = saveSubscriptionCheckpoint(waiter.pool, subscription, "1", { signal: abort.signal });
+      await waiter.lockSubmitted.promise;
+      await waitForBackendBlock(pools.target, holder.backendPid, waiter.backendPid);
+      abort.abort(new Error("checkpoint lock wait aborted"));
+      await expect(waitingSave).rejects.toThrow("checkpoint lock wait aborted");
+      holder.releaseCommit.resolve();
+      await expect(holderSave).resolves.toBeUndefined();
+      await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+        checkpoint: "10",
+        recoveryMarker: "10",
+      });
+    } finally {
+      holder.releaseCommit.resolve();
+      await Promise.allSettled([holderSave, ...(waitingSave ? [waitingSave] : [])]);
+    }
+  });
+
+  it("preserves retained checkpoint identity errors and marker atomicity", async () => {
+    const subscription = createItemsSubscription();
+    const checkpointKey = createCheckpointKey(subscription);
+    await pools.target.query(
+      `INSERT INTO event_subscription_checkpoints (
+         checkpoint_key,
+         projection_name,
+         source_context_name,
+         subscription_version,
+         last_global_position,
+         updated_at
+       ) VALUES ('retained-noncanonical-key', $1, $2, $3, 4, now())`,
+      [subscription.projectionName, subscription.sourceContextName, subscription.subscriptionVersion],
+    );
+
+    await expect(saveSubscriptionCheckpoint(pools.target, subscription, "5")).rejects.toMatchObject({
+      code: "23505",
+      constraint: "event_subscription_checkpoints_projection_source_version_idx",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({ checkpoint: null });
+    await expect(readCheckpointState(pools.target, "retained-noncanonical-key")).resolves.toMatchObject({
+      checkpoint: "4",
+      recoveryMarker: null,
+    });
+
+    await clearCheckpointState(pools.target, "retained-noncanonical-key");
+    await pools.target.query(
+      `CREATE OR REPLACE FUNCTION fail_subscription_recovery_marker_for_test()
+       RETURNS trigger
+       LANGUAGE plpgsql
+       AS $$
+       BEGIN
+         IF NEW.projection_kind = 'subscription' AND NEW.projection_key = '${checkpointKey}' THEN
+           RAISE EXCEPTION 'synthetic recovery marker failure';
+         END IF;
+         RETURN NEW;
+       END;
+       $$`,
+    );
+    await pools.target.query(
+      `CREATE TRIGGER fail_subscription_recovery_marker_for_test
+       BEFORE INSERT OR UPDATE ON event_projection_recovery_markers
+       FOR EACH ROW EXECUTE FUNCTION fail_subscription_recovery_marker_for_test()`,
+    );
+    try {
+      await expect(saveSubscriptionCheckpoint(pools.target, subscription, "6")).rejects.toThrow(
+        "synthetic recovery marker failure",
+      );
+      await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({ checkpoint: null });
+    } finally {
+      await pools.target.query(
+        "DROP TRIGGER IF EXISTS fail_subscription_recovery_marker_for_test ON event_projection_recovery_markers",
+      );
+      await pools.target.query("DROP FUNCTION IF EXISTS fail_subscription_recovery_marker_for_test() ");
+    }
+  });
+
+  it("resumes committed application after checkpoint persistence fails", async () => {
+    const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+    const checkpointFailure = new Error("checkpoint persistence unavailable");
+    const failingPool = createFailingCheckpointPool(pools.target, checkpointFailure);
+    const runner = createSubscriptionRunner("target", failingPool, pools.source, createItemsSubscription());
+    const projectionAttempts: string[] = [];
+    targetPorts.beforeProjectionWrite = async (itemId) => {
+      projectionAttempts.push(itemId);
+    };
+
+    await sourceEventStore.appendToStream({
+      streamId: "source.item-checkpoint-failure",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [
+        {
+          eventType: "source.item-recorded",
+          payload: { itemId: "item-checkpoint-failure" },
+        },
+      ],
+    });
+
+    await expect(runner.runOnce(createProjectionRunContext())).rejects.toBe(checkpointFailure);
+    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-checkpoint-failure", seen_count: 1 }]);
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
+      { event_id: expect.any(String), status: "applied" },
+    ]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBeNull();
+
+    const resumedRunner = createSubscriptionRunner("target", pools.target, pools.source, createItemsSubscription());
+    await expect(resumedRunner.runOnce(createProjectionRunContext())).resolves.toMatchObject({
+      processed: 1,
+      lastGlobalPosition: "1",
+    });
+    expect(projectionAttempts).toEqual(["item-checkpoint-failure"]);
+    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-checkpoint-failure", seen_count: 1 }]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("1");
+  });
+
   it("batch-applies clean subscription events with bounded DB round trips", async () => {
     const targetQueries: string[] = [];
     const sourceEventStore = createPostgresEventStore({ pool: pools.source });
@@ -529,6 +1005,9 @@ describeDb("projection operations Postgres integration", () => {
         (sql) => sql.includes("FROM event_projection_blocked_streams") && sql.includes("stream_id = $2"),
       ),
     ).toHaveLength(0);
+    expect(targetQueries.filter((sql) => sql === "BEGIN")).toHaveLength(2);
+    expect(targetQueries.filter((sql) => sql === "COMMIT")).toHaveLength(2);
+    expect(targetQueries.filter((sql) => sql.includes("event_subscription_checkpoints:'"))).toHaveLength(1);
     expect(targetQueries.filter((sql) => sql.includes("INSERT INTO event_subscription_checkpoints"))).toHaveLength(1);
   });
 
@@ -933,16 +1412,272 @@ function createQueryCapturePool(pool: PgTransactionalPool, queries: string[]): P
   };
 }
 
+function saveSubscriptionCheckpoint(
+  pool: PgTransactionalPool,
+  subscription: Pick<BcEventSubscription, "projectionName" | "sourceContextName" | "subscriptionVersion">,
+  lastGlobalPosition: string,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  return savePersistedSubscriptionCheckpoint(pool, subscription, parseGlobalPosition(lastGlobalPosition), context);
+}
+
+function createControlledSavePool(
+  pool: PgTransactionalPool,
+  options: Readonly<{
+    holdBeforeCommit?: boolean;
+    bypassCheckpointLock?: boolean;
+    failCommitBeforeQuery?: Error;
+    afterCheckpoint?: () => void;
+  }> = {},
+) {
+  const lockSubmitted = createDeferred<void>();
+  const checkpointStarted = createDeferred<void>();
+  const checkpointCompleted = createDeferred<void>();
+  const releaseCommit = createDeferred<void>();
+  const checkpointQueries: Array<Readonly<{ sql: string; params: readonly unknown[] }>> = [];
+  let backendPid = 0;
+  if (!options.holdBeforeCommit) {
+    releaseCommit.resolve();
+  }
+
+  const controlledPool: PgTransactionalPool = {
+    idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
+    query: <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => pool.query<Row>(sql, params),
+    connect: async () => {
+      const client = await pool.connect();
+      const pidResult = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+      backendPid = Number(pidResult.rows[0]?.pid);
+      return {
+        query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+          if (sql.includes("pg_advisory_xact_lock") && sql.includes("event_subscription_checkpoints:")) {
+            lockSubmitted.resolve();
+            if (options.bypassCheckpointLock) {
+              return { rows: [] as Row[], rowCount: 1 };
+            }
+          }
+          if (sql.includes("WITH saved_checkpoint AS")) {
+            checkpointQueries.push({ sql, params: params ?? [] });
+            checkpointStarted.resolve();
+            const result = await client.query<Row>(sql, params);
+            checkpointCompleted.resolve();
+            options.afterCheckpoint?.();
+            return result;
+          }
+          if (sql === "COMMIT") {
+            await releaseCommit.promise;
+            if (options.failCommitBeforeQuery) {
+              throw options.failCommitBeforeQuery;
+            }
+          }
+          return client.query<Row>(sql, params);
+        },
+        release: (error?: unknown) => client.release(error),
+      };
+    },
+  };
+
+  return {
+    pool: controlledPool,
+    get backendPid() {
+      return backendPid;
+    },
+    lockSubmitted,
+    checkpointStarted,
+    checkpointCompleted,
+    releaseCommit,
+    checkpointQueries,
+  };
+}
+
+function createFailingCheckpointPool(pool: PgTransactionalPool, failure: Error): PgTransactionalPool {
+  return {
+    idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
+    query: <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => pool.query<Row>(sql, params),
+    connect: async () => {
+      const client = await pool.connect();
+      return {
+        query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+          if (sql.includes("WITH saved_checkpoint AS")) {
+            throw failure;
+          }
+          return client.query<Row>(sql, params);
+        },
+        release: (error?: unknown) => client.release(error),
+      };
+    },
+  };
+}
+
+type CheckpointState = Readonly<{
+  checkpoint: string | null;
+  recoveryMarker: string | null;
+  ownerId: string | null;
+  fencingToken: string | null;
+}>;
+
+async function readCheckpointState(pool: PgTransactionalPool, checkpointKey: string): Promise<CheckpointState> {
+  const result = await pool.query<{
+    checkpoint: string | number | bigint;
+    recovery_marker: string | number | bigint | null;
+    lease_owner_id: string | null;
+    lease_fencing_token: string | number | bigint | null;
+  }>(
+    `SELECT checkpoint.last_global_position AS checkpoint,
+            marker.last_global_position AS recovery_marker,
+            checkpoint.lease_owner_id,
+            checkpoint.lease_fencing_token
+     FROM event_subscription_checkpoints AS checkpoint
+     LEFT JOIN event_projection_recovery_markers AS marker
+       ON marker.projection_kind = 'subscription'
+      AND marker.projection_key = checkpoint.checkpoint_key
+     WHERE checkpoint.checkpoint_key = $1`,
+    [checkpointKey],
+  );
+  const row = result.rows[0];
+  return {
+    checkpoint: row ? String(row.checkpoint) : null,
+    recoveryMarker: row?.recovery_marker == null ? null : String(row.recovery_marker),
+    ownerId: row?.lease_owner_id ?? null,
+    fencingToken: row?.lease_fencing_token == null ? null : String(row.lease_fencing_token),
+  };
+}
+
+async function clearCheckpointState(pool: PgTransactionalPool, checkpointKey: string): Promise<void> {
+  await pool.query(
+    `DELETE FROM event_projection_recovery_markers
+     WHERE projection_kind = 'subscription' AND projection_key = $1`,
+    [checkpointKey],
+  );
+  await pool.query(`DELETE FROM event_subscription_checkpoints WHERE checkpoint_key = $1`, [checkpointKey]);
+}
+
+async function seedCheckpointState(
+  pool: PgTransactionalPool,
+  subscription: Pick<BcEventSubscription, "projectionName" | "sourceContextName" | "subscriptionVersion">,
+  state: Readonly<{
+    checkpoint: string;
+    recoveryMarker: string | null;
+    ownerId: string | null;
+    fencingToken: string | null;
+  }>,
+): Promise<void> {
+  const checkpointKey = createCheckpointKey(subscription);
+  await pool.query(
+    `INSERT INTO event_subscription_checkpoints (
+       checkpoint_key,
+       projection_name,
+       source_context_name,
+       subscription_version,
+       last_global_position,
+       lease_owner_id,
+       lease_fencing_token,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7::bigint, now())`,
+    [
+      checkpointKey,
+      subscription.projectionName,
+      subscription.sourceContextName,
+      subscription.subscriptionVersion,
+      state.checkpoint,
+      state.ownerId,
+      state.fencingToken,
+    ],
+  );
+  if (state.recoveryMarker !== null) {
+    await pool.query(
+      `INSERT INTO event_projection_recovery_markers (
+         projection_kind,
+         projection_key,
+         last_global_position,
+         updated_at
+       ) VALUES ('subscription', $1, $2::bigint, now())`,
+      [checkpointKey, state.recoveryMarker],
+    );
+  }
+}
+
+type BackendWaitEvidence = Readonly<{
+  wait_event_type: string | null;
+  wait_event: string | null;
+  blocking_pids: readonly number[];
+  locks: readonly Readonly<{
+    pid: number;
+    locktype: string;
+    database: string | null;
+    classid: string | null;
+    objid: string | null;
+    objsubid: string | null;
+    mode: string;
+    granted: boolean;
+  }>[];
+}>;
+
+async function waitForBackendBlock(
+  pool: PgTransactionalPool,
+  blockingPid: number,
+  blockedPid: number,
+): Promise<BackendWaitEvidence> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const activity = await pool.query<{
+      wait_event_type: string | null;
+      wait_event: string | null;
+      blocking_pids: number[];
+    }>(
+      `SELECT wait_event_type, wait_event, pg_blocking_pids(pid) AS blocking_pids
+       FROM pg_stat_activity
+       WHERE pid = $1`,
+      [blockedPid],
+    );
+    const row = activity.rows[0];
+    if (row?.blocking_pids.map(Number).includes(blockingPid)) {
+      const locks = await pool.query<BackendWaitEvidence["locks"][number]>(
+        `SELECT pid,
+                locktype,
+                database::text,
+                classid::text,
+                objid::text,
+                objsubid::text,
+                mode,
+                granted
+         FROM pg_locks
+         WHERE pid = ANY($1::int[])
+           AND locktype = 'advisory'
+         ORDER BY pid, granted DESC`,
+        [[blockingPid, blockedPid]],
+      );
+      return {
+        wait_event_type: row.wait_event_type,
+        wait_event: row.wait_event,
+        blocking_pids: row.blocking_pids.map(Number),
+        locks: locks.rows,
+      };
+    }
+    await delay(10);
+  }
+  throw new Error(`Backend ${blockedPid} did not become blocked by backend ${blockingPid}.`);
+}
+
 function createDeferred<T>(): {
   promise: Promise<T>;
   resolve: (value?: T | PromiseLike<T>) => void;
+  readonly resolved: boolean;
 } {
   let resolve!: (value?: T | PromiseLike<T>) => void;
+  let resolved = false;
   const promise = new Promise<T>((promiseResolve) => {
-    resolve = (value) => promiseResolve(value as T | PromiseLike<T>);
+    resolve = (value) => {
+      resolved = true;
+      promiseResolve(value as T | PromiseLike<T>);
+    };
   });
 
-  return { promise, resolve };
+  return {
+    promise,
+    resolve,
+    get resolved() {
+      return resolved;
+    },
+  };
 }
 
 function createEventStoreContext() {
