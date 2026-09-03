@@ -442,7 +442,7 @@ describe("scheduled enforcing audit boundary", () => {
     );
     expect(logger.logs).toContain("Label registry enforcement passed: every live label is partitioned.");
     expect(logger.logs).toContain(
-      "Context coverage observed (advisory, not applied policy): 19 contexts / 24 areas; contexts without area: authenticity, customer-feedback, platform-operations; areas without context: channels, design-system, infrastructure, marketplace-web, ops, platform-runtime, support, tax.",
+      "Context coverage observed (advisory, not applied policy): 20 contexts / 24 areas; contexts without area: authenticity, customer-feedback, platform-operations; areas without context: design-system, infrastructure, marketplace-web, ops, platform-runtime, support, tax.",
     );
     expect(logger.logs.some((line) => line.includes("Grandfathered (frozen) open-issue usage observed:"))).toBe(true);
     expect(summaries).toHaveLength(1);
@@ -553,11 +553,10 @@ describe("scheduled enforcing audit boundary", () => {
 
   it("derives the current advisory context gap without treating it as a policy mapping", () => {
     expect(inspectAreaContextCoverage(repoRoot)).toEqual({
-      contextCount: 19,
+      contextCount: 20,
       areaCount: 24,
       contextsWithoutArea: ["authenticity", "customer-feedback", "platform-operations"],
       areasWithoutContext: [
-        "channels",
         "design-system",
         "infrastructure",
         "marketplace-web",

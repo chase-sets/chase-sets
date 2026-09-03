@@ -13,6 +13,7 @@ import {
   resolveWorktreeSandbox,
 } from "./lib/sandbox.mjs";
 import { repoRoot } from "./lib/repo.mjs";
+import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
 
 const temporaryRoots = [];
 
@@ -189,6 +190,38 @@ describe("worktree sandbox", () => {
     expect(sandbox.contextDatabaseUrls).not.toHaveProperty("neutral-foundation");
     expect(listSandboxDatabases(sandbox).map(({ key }) => key)).toEqual(["control", "catalog", "marketplace"]);
     expect(env).not.toHaveProperty(getContextDatabaseEnvName("neutral-foundation"));
+  });
+
+  it("channels-behavior-free-sandbox-exclusion keeps the real foundation out of database, env, and cursor targets", async () => {
+    const manifest = JSON.parse(readFileSync(path.join(repoRoot, "bounded-contexts/channels/context.json"), "utf8"));
+    expect(manifest.contextName).toBe("channels");
+    const sandbox = resolveWorktreeSandbox({ rootDir: repoRoot, env: {} });
+    expect(sandbox.contextNames).not.toContain("channels");
+    expect(sandbox.contextDatabaseUrls).not.toHaveProperty("channels");
+    expect(listSandboxDatabases(sandbox).map(({ key }) => key)).not.toContain("channels");
+    expect(buildSandboxEnv(sandbox)).not.toHaveProperty("DATABASE_URL_CHANNELS");
+
+    const queried = [];
+    await primeBrowserE2eProjectionWakeRelayCursors({
+      sandbox,
+      createClient: (connectionString) => ({
+        connect: async () => undefined,
+        end: async () => undefined,
+        query: async (sql) => {
+          if (sql.includes("FROM event_store_events")) queried.push(connectionString);
+          return { rows: [{ max_position: "0" }] };
+        },
+      }),
+    });
+    expect(queried.sort()).toEqual(Object.values(sandbox.contextDatabaseUrls).sort());
+
+    const rootDir = createTempRepo();
+    writeContext(rootDir, "channels", manifest);
+    expect(resolveWorktreeSandbox({ rootDir, env: {} }).contextNames).not.toContain("channels");
+    writeContext(rootDir, "channels", { ...manifest, apiDeployables: ["platform-api"] });
+    const registered = resolveWorktreeSandbox({ rootDir, env: {} });
+    expect(registered.contextNames).toContain("channels");
+    expect(buildSandboxEnv(registered)).toHaveProperty("DATABASE_URL_CHANNELS");
   });
 
   it("sandbox-database-owner-consumer-parity keeps every owner consumer on one resolved set", () => {
