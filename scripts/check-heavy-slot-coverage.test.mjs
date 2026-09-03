@@ -55,6 +55,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "deployables/platform-api/vitest.config.ts",
     "playwright.config.ts",
     "scripts/browser-e2e-probe.mjs",
+    "scripts/check-structure/brand-foil-proof.mjs",
     "scripts/check-structure/browser-e2e-disclosure-guard.mjs",
     "scripts/check-structure/provider-scope-picker-shape-guard.mjs",
     "scripts/check-structure/regenerate-lockfile-bound-artifacts.mjs",
@@ -68,7 +69,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 75);
+  assert.equal(result.entrypoints.length, 76);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
@@ -108,6 +109,33 @@ test("fails through real tracked-file discovery when a derived entry point loses
   writeFileSync(path.join(root, "scripts", "managed-postgres-authority-guard.mjs"), guarded);
   writeFileSync(path.join(root, "scripts", "run-workspaces.mjs"), guarded);
   assert.deepEqual(checkHeavySlotCoverage(root).violations, []);
+});
+
+test("derives only the proof entrypoint delta and rejects omission of its actual admission", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "heavy-slot-proof-fixture-"));
+  temporaryRoots.push(root);
+  const proofPath = "scripts/check-structure/brand-foil-proof.mjs";
+  const source = readFileSync(proofPath, "utf8");
+  const manifest = JSON.parse(readFileSync("package.json", "utf8"));
+  initializeTrackedFixture(root, {
+    "package.json": JSON.stringify({ scripts: { "check:structure": manifest.scripts["check:structure"] } }),
+    "scripts/check-structure.mjs": "export {};\n",
+    [proofPath]: source,
+    "scripts/lib/heavy-slot.mjs": "export function acquireHeavySlot() {}\n",
+  });
+  assert.deepEqual(checkHeavySlotCoverage(root), { entrypoints: [proofPath], unresolved: [], violations: [] });
+  const admission = '  acquireHeavySlot("repository-gate");\n';
+  assert.equal(source.split(admission).length, 2);
+  writeFileSync(path.join(root, proofPath), source.replace(admission, ""));
+  assert.deepEqual(checkHeavySlotCoverage(root).violations, [
+    `${proofPath} does not activate scripts/lib/heavy-slot.mjs`,
+  ]);
+  writeFileSync(path.join(root, proofPath), source);
+  writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify({ scripts: { "check:structure": "node ./scripts/check-structure.mjs" } }),
+  );
+  assert.deepEqual(checkHeavySlotCoverage(root), { entrypoints: [], unresolved: [], violations: [] });
 });
 
 test("names the lockfile-bound regenerator when its script-battery admission is removed", () => {

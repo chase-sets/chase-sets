@@ -29,6 +29,7 @@ import { validateDoksIngressChartVersion } from "./doks-ingress-chart-version.mj
 import { validateRetentionSweepCoverage } from "./retention-sweep-coverage.mjs";
 import { validateBrowserE2eDisclosureGuard } from "./browser-e2e-disclosure-guard.mjs";
 import { validateResponsiveEvidenceGuard } from "./responsive-evidence-guard.mjs";
+import { validateBrandFoilSites } from "./brand-foil-sites.mjs";
 import { validatePublicPolicyPosture } from "./public-policy-posture.mjs";
 import { validatePolicyValueDiscriminantChokepoint } from "./policy-value-discriminant-chokepoint.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
@@ -3427,6 +3428,9 @@ export async function runStructureCheck(options = {}) {
 
   const responsiveEvidenceGuardResult = await validateResponsiveEvidenceGuard({ repoRoot });
   violations.push(...responsiveEvidenceGuardResult.violations);
+
+  const brandFoilSitesResult = validateBrandFoilSites({ repoRoot });
+  violations.push(...brandFoilSitesResult.violations);
 
   const publicPolicyPostureResult = await validatePublicPolicyPosture({ repoRoot });
   violations.push(...publicPolicyPostureResult.violations);
