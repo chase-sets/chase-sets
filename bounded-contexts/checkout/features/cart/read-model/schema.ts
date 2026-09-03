@@ -1,5 +1,14 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
+// ECMAScript WhiteSpace + LineTerminator (the command's /\s/): TAB, VT, FF,
+// ZWNBSP, Unicode Space_Separator, LF, CR, LS and PS. Enumerate each code point
+// with PostgreSQL U& escapes; POSIX space classes and ranges depend on locale.
+// https://tc39.es/ecma262/#sec-white-space
+const checkoutCartClaimWhitespaceSql =
+  String.raw`\0009\000A\000B\000C\000D\0020\00A0\1680` +
+  String.raw`\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A` +
+  String.raw`\2028\2029\202F\205F\3000\FEFF`;
+
 // Cart Claim ownership alias. This is the operational projection of the
 // `checkout.cart.claimed-by-account` event, not the authority for it: the
 // source stream's event history decides ownership, and this table only makes a
@@ -14,8 +23,8 @@ export const checkoutCartClaimsTableSchemaSql = `CREATE TABLE IF NOT EXISTS chec
   source_owner_key text NOT NULL,
   account_id text NOT NULL,
   PRIMARY KEY (source_owner_key),
-  CONSTRAINT checkout_cart_claims_source_owner_key_check CHECK (source_owner_key ~ '^anon_[^[:space:]]+$'),
-  CONSTRAINT checkout_cart_claims_account_id_check CHECK (account_id ~ '^acc_[^[:space:]]+$')
+  CONSTRAINT checkout_cart_claims_source_owner_key_check CHECK (source_owner_key ~ U&'^anon_[^${checkoutCartClaimWhitespaceSql}]+$'),
+  CONSTRAINT checkout_cart_claims_account_id_check CHECK (account_id ~ U&'^acc_[^${checkoutCartClaimWhitespaceSql}]+$')
 );`;
 
 const checkoutCartClaimsAccountIndexSql = `CREATE INDEX IF NOT EXISTS checkout_cart_claims_account_idx

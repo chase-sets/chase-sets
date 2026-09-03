@@ -11,6 +11,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -24,6 +25,7 @@ import {
   decideCheckoutCart,
   evolveCheckoutCart,
   initialCheckoutCartState,
+  requireCheckoutCartClaimIdentity,
   type CheckoutCartEvent,
 } from "../domain/domain";
 import {
@@ -34,6 +36,7 @@ import {
 } from "../domain/readiness";
 import { buildCheckoutCartProjectionHandlers } from "./projection";
 import { listCartLines, listOwnCartLines, type CheckoutCartLineRow } from "./queries";
+import { checkoutCartSchemaMigrations, checkoutCartSchemaSql } from "./schema";
 
 /**
  * DB-tier replacement for the former seller-options readiness interpreter test.
@@ -778,6 +781,57 @@ function requireDatabaseBaseUrl(): string {
   return databaseBaseUrl;
 }
 
+// Frozen pre-claim Cart SQL from ded0c96f223322eaceb7996ec187a140e18f1896.
+// Standalone migration tests must not execute current boot SQL first.
+const parentCartSchemaSql = `
+CREATE TABLE IF NOT EXISTS checkout_cart_line_pages (
+  buyer_account_id text NOT NULL,
+  line_id text NOT NULL,
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
+  item_language_code text NULL,
+  item_title text NOT NULL,
+  item_subtitle text NULL,
+  item_image_url text NULL,
+  item_image_srcset text NULL,
+  item_image_loading_url text NULL,
+  item_image_loading_alt text NULL,
+  item_image_loading_srcset text NULL,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  product_summary text NULL,
+  quantity integer NOT NULL CHECK (quantity > 0),
+  fulfillment_mode text NOT NULL DEFAULT 'optimize',
+  locked_listing_id text NULL,
+  selected_listing_id text NULL,
+  selected_listing_seller_account_id text NULL,
+  selected_listing_seller_display_name text NULL,
+  selected_listing_seller_slug text NULL,
+  selected_listing_price_amount numeric(12, 2) NULL,
+  selected_listing_snapshot_source text NULL,
+  selected_listing_snapshot_captured_at timestamptz NULL,
+  seller_preference_id text NULL,
+  availability_state text NOT NULL DEFAULT 'available',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (buyer_account_id, line_id)
+);
+
+ALTER TABLE checkout_cart_line_pages
+  ADD COLUMN IF NOT EXISTS selected_listing_id text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_seller_account_id text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_seller_display_name text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_seller_slug text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_price_amount numeric(12, 2) NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_snapshot_source text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_snapshot_captured_at timestamptz NULL;
+
+CREATE INDEX IF NOT EXISTS checkout_cart_line_pages_buyer_idx
+  ON checkout_cart_line_pages (buyer_account_id, updated_at DESC, line_id ASC);
+
+CREATE INDEX IF NOT EXISTS checkout_cart_line_pages_catalog_version_idx
+  ON checkout_cart_line_pages (product_id);
+`;
+
 const claimAccount = "acc_claimer";
 const otherAccount = "acc_rival";
 const claimedSourceA = "anon_cart_a";
@@ -1063,11 +1117,93 @@ describeDb("cart claim against the checkout read model", () => {
           sourceOwnerKey,
           accountId,
         ]),
-      ).rejects.toThrow(/violates check constraint/);
+      ).rejects.toMatchObject({ code: "23514" });
+      expect(await readClaims()).toEqual([]);
     }
 
     expect(await readClaims()).toEqual([]);
   });
+
+  it.each(["fresh boot", "standalone populated-parent migration"] as const)(
+    "matches the command's complete whitespace rule on %s",
+    async (schemaPath) => {
+      await resetMultiContextTestSchemas({ checkout: pool });
+      if (schemaPath === "fresh boot") {
+        await pool.query(checkoutCartSchemaSql);
+      } else {
+        await pool.query(parentCartSchemaSql);
+        expect(await tableExists("checkout_cart_claims")).toBe(false);
+        await pool.query(
+          `INSERT INTO checkout_cart_line_pages
+             (buyer_account_id, line_id, catalog_catalog_item_id, product_id, item_title, quantity)
+           VALUES ('acc_synthetic_parent', 'cli_synthetic_parent', 'cat_synthetic', 'prd_synthetic', 'Parent row', 3)`,
+        );
+        const before = await pool.query("SELECT * FROM checkout_cart_line_pages");
+        const migration = checkoutCartSchemaMigrations.find(
+          (candidate) => candidate.migrationId === "20260903_checkout_cart_claims",
+        );
+        if (!migration) throw new Error("Cart Claim migration is missing.");
+        for (let application = 0; application < 2; application += 1) {
+          for (const statement of migration.statements) await pool.query(statement);
+          expect((await pool.query("SELECT * FROM checkout_cart_line_pages")).rows).toEqual(before.rows);
+        }
+      }
+
+      // ECMAScript WhiteSpace + LineTerminator, including all Unicode Zs code points.
+      const whitespace = [
+        0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x0020, 0x00a0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005,
+        0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff,
+      ];
+      for (const field of ["sourceOwnerKey", "accountId"] as const) {
+        for (const codePoint of whitespace) {
+          const pair = {
+            sourceOwnerKey: `anon_synthetic_${field}_${codePoint}`,
+            accountId: `acc_synthetic_${field}_${codePoint}`,
+          };
+          const character = String.fromCodePoint(codePoint);
+          // The embedded values retain the independently observed SQL regressions.
+          for (const value of [character + pair[field], pair[field] + "x" + character + "x", pair[field] + character]) {
+            const invalid = { ...pair, [field]: value };
+            expect(() => requireCheckoutCartClaimIdentity(invalid)).toThrow(/Cart claim (source|account) must be/);
+            await expect(
+              pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+                invalid.sourceOwnerKey,
+                invalid.accountId,
+              ]),
+            ).rejects.toMatchObject({
+              code: "23514",
+              constraint:
+                field === "sourceOwnerKey"
+                  ? "checkout_cart_claims_source_owner_key_check"
+                  : "checkout_cart_claims_account_id_check",
+            });
+            expect(await readClaims()).toEqual([]);
+          }
+        }
+      }
+
+      const validPairs = [
+        { sourceOwnerKey: "anon_cart_a", accountId: "acc_buyer" },
+        { sourceOwnerKey: createId("anon"), accountId: createId("acc") },
+        // These are not ECMAScript whitespace; do not silently impose a stricter rule.
+        ...[0x0085, 0x180e, 0x200b, 0x2060].map((codePoint) => ({
+          sourceOwnerKey: `anon_x${String.fromCodePoint(codePoint)}x`,
+          accountId: `acc_x${String.fromCodePoint(codePoint)}x`,
+        })),
+      ];
+      for (const pair of validPairs) {
+        expect(requireCheckoutCartClaimIdentity(pair)).toEqual(pair);
+        await pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+          pair.sourceOwnerKey,
+          pair.accountId,
+        ]);
+        expect(
+          (await pool.query("SELECT * FROM checkout_cart_claims WHERE source_owner_key = $1", [pair.sourceOwnerKey]))
+            .rows,
+        ).toEqual([{ source_owner_key: pair.sourceOwnerKey, account_id: pair.accountId }]);
+      }
+    },
+  );
 
   it("refuses malformed identities before writing any event or alias", async () => {
     const { runtime } = createCartRuntime(pool);

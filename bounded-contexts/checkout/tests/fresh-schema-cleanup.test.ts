@@ -142,8 +142,12 @@ describe("fresh checkout read-model schemas", () => {
       "CREATE INDEX IF NOT EXISTS checkout_cart_claims_account_idx\n  ON checkout_cart_claims (account_id, source_owner_key);",
     );
     expect(checkoutCartClaimsTableSchemaSql).toContain("PRIMARY KEY (source_owner_key)");
-    expect(checkoutCartClaimsTableSchemaSql).toContain("CHECK (source_owner_key ~ '^anon_[^[:space:]]+$')");
-    expect(checkoutCartClaimsTableSchemaSql).toContain("CHECK (account_id ~ '^acc_[^[:space:]]+$')");
+    const whitespaceSql =
+      String.raw`\0009\000A\000B\000C\000D\0020\00A0\1680` +
+      String.raw`\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A` +
+      String.raw`\2028\2029\202F\205F\3000\FEFF`;
+    expect(checkoutCartClaimsTableSchemaSql).toContain(`CHECK (source_owner_key ~ U&'^anon_[^${whitespaceSql}]+$')`);
+    expect(checkoutCartClaimsTableSchemaSql).toContain(`CHECK (account_id ~ U&'^acc_[^${whitespaceSql}]+$')`);
     expect(checkoutCartSchemaMigrations).toEqual([
       expect.objectContaining({
         migrationId: "20260903_checkout_cart_claims",

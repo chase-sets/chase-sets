@@ -384,8 +384,8 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
       return { version: result.version };
     },
     // Caller-inert foundation: nothing in this repository invokes claimCart.
-    // Wiring a caller requires the claimed-stream mutation authority (#7121),
-    // the post-claim read/session authority (#7257), and #5737's atomic
+    // Wiring a caller requires the claimed-stream mutation authority,
+    // the post-claim read/session authority, and atomic
     // retirement of the public cart merge endpoint. Neither the alias below nor
     // possession of a claimed key grants any authority on its own.
     //
