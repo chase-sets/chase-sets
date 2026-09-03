@@ -4,6 +4,16 @@
 
 A **Cart** is mutable saved purchase intent for one or more products before an active checkout session starts.
 
+## Cart Claim
+
+A **Cart Claim** is an Account taking ownership of an existing anonymous Cart so its lines resolve for that Account without being copied.
+
+Notes:
+
+- The claimed Cart keeps its own source identity; claiming moves ownership, not lines.
+- One Account owns a claimed Cart; a second Account cannot take it over.
+- Clearing or checking out a claimed Cart empties its lines and leaves the claim in place.
+
 ## Sell List
 
 A **Sell List** is mutable saved seller intent for one or more Products before selected offers, Smart Match offers, or fallback listings become sale commitments.

@@ -1,6 +1,9 @@
 import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { assert } from "../../../support/runtime-support/common";
+import { requireCheckoutCartClaimIdentity } from "../domain/domain";
+import { reconcileCheckoutCartClaim } from "./queries";
 
 function buyerAccountIdFromCartStream(streamId: string): string {
   return extractIdFromStreamId(streamId, "checkout.cart-");
@@ -218,6 +221,27 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
          WHERE buyer_account_id = $1`,
         [data.buyerAccountId],
       );
+    },
+    // Replay rebuilds the same ownership alias the command path writes
+    // synchronously, so a claim whose event committed without its alias
+    // converges here as well as on a same-Account retry. The source is derived
+    // from the stream the event actually lives on and must equal the identity
+    // the event carries: a malformed or mismatched historical event fails the
+    // projection closed rather than inventing ownership.
+    "checkout.cart.claimed-by-account": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const data = event.data as { sourceOwnerKey?: unknown; accountId?: unknown };
+      const claim = requireCheckoutCartClaimIdentity({
+        sourceOwnerKey: data.sourceOwnerKey,
+        accountId: data.accountId,
+      });
+
+      assert(
+        claim.sourceOwnerKey === buyerAccountIdFromCartStream(event.streamId),
+        "Cart claim event source does not match its stream.",
+      );
+
+      await reconcileCheckoutCartClaim(projectionDb, claim);
     },
   };
 }

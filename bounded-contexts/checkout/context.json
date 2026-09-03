@@ -201,7 +201,7 @@
     {
       "projectionName": "checkout.cart-projection",
       "sourceContextNames": ["checkout"],
-      "ownedTables": ["checkout_cart_line_pages"],
+      "ownedTables": ["checkout_cart_line_pages", "checkout_cart_claims"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
