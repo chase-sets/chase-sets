@@ -58,10 +58,16 @@ function walk(node, visit) {
   ts.forEachChild(node, (child) => walk(child, visit));
 }
 function ownerName(node) {
+  if (ts.isClassLike(node)) return `class:${node.name?.text ?? "anonymous"}`;
+  // ClassLikeDeclaration.members is the boundary, including new/unknown member kinds.
+  if (node.parent && ts.isClassLike(node.parent) && node.parent.members.includes(node))
+    return `class-member:${node.kind}`;
   if (ts.isVariableDeclaration(node)) return `variable:${node.name.getText()}`;
   if (ts.isInterfaceDeclaration(node)) return `interface:${node.name.text}`;
   if (ts.isFunctionDeclaration(node)) return `function:${node.name?.text ?? "anonymous"}`;
   if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return "callback";
+  // Methods/accessors also own scopes outside classes (for example, object literals).
+  if (ts.isFunctionLike(node)) return `function-like:${node.kind}`;
   if (ts.isPropertyAssignment(node) || ts.isPropertySignature(node))
     return `property:${node.name.getText().replace(/^"|"$/g, "")}`;
   if (

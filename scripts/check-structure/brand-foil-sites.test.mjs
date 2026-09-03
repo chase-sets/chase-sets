@@ -651,6 +651,75 @@ describe("occurrence owners and complete accounting", () => {
       write(canonical, name, original);
     }
   });
+  it.each([
+    ["unchanged-source", "", "", true],
+    ["named-function", "function unrelatedOwner() {", "}", false],
+    ["function-expression", "(function () {", "});", false],
+    ["arrow-callback", "(() => {", "});", false],
+    ["class-method", "class UnrelatedOwner { paint() {", "} }", false],
+    ["class-static-block", "class UnrelatedOwner { static {", "} }", false],
+    ["class-constructor", "class UnrelatedOwner { constructor() {", "} }", false],
+    ["class-getter", "class UnrelatedOwner { get paint() {", "} }", false],
+    ["class-setter", "class UnrelatedOwner { set paint(value) {", "} }", false],
+    ["named-class-expression", "(class UnrelatedOwner { paint() {", "} });", false],
+    ["anonymous-class-expression", "(class { static {", "} });", false],
+    ["class-property", "class UnrelatedOwner { paint = () => {", "}; }", false],
+    ["class-auto-accessor", "class UnrelatedOwner { accessor paint = () => {", "}; }", false],
+    ["object-method", "({ paint() {", "} });", false],
+    ["object-getter", "({ get paint() {", "} });", false],
+    ["object-setter", "({ set paint(value) {", "} });", false],
+  ])("binds the same-count OG palette to its enclosing scope: %s", (kind, prefix, suffix, expectedOk) => {
+    const name = "bounded-contexts/public-presence/features/waitlist/ui/assets/generate-og-images.mjs";
+    const original = readFileSync(path.join(canonical, name));
+    const source = original.toString("utf8");
+    const declarations = [...source.matchAll(/^const palette = \{[\s\S]*?^\};/gm)];
+    expect(declarations).toHaveLength(1);
+    const declaration = declarations[0][0];
+    const replacement = expectedOk ? declaration : `${prefix}\n${declaration}\n${suffix}`;
+    const originalCarrier = clean.carriers.find((carrier) => carrier.path === name);
+    const signatures = (carrier) => carrier.occurrences.map(({ detector, value }) => ({ detector, value }));
+    try {
+      write(canonical, name, source.replace(declaration, replacement));
+      const discovered = discoverBrandFoilSites(canonical);
+      const carrier = discovered.carriers.find((row) => row.path === name);
+      expect(signatures(carrier)).toEqual(signatures(originalCarrier));
+      expect(carrier.occurrences).toHaveLength(3);
+      expect(discovered.carriers.filter((row) => row.path !== name)).toEqual(
+        clean.carriers.filter((row) => row.path !== name),
+      );
+      expect(discovered.scanned).toBe(discovered.tracked);
+      expect(discovered.tracked).toBe(clean.tracked);
+      const result = validateBrandFoilDiscovery(discovered);
+      expect(result.ok).toBe(expectedOk);
+      expect(result.summary.allowed).toBe(expectedOk ? 14 : 13);
+      if (!expectedOk) {
+        for (const stop of lexicalLaw.stops)
+          expect(result.violations).toContain(
+            `${name}: role=wordmark-raster-generator detectors=raw expression=palette.${stop} expected=1 actual=0`,
+          );
+        expect(
+          result.violations.filter((message) => message.includes("expression=unmatched detector=raw")),
+        ).toHaveLength(3);
+      }
+      proofRows.push({
+        kind: "same-count-owner",
+        owner: kind,
+        name,
+        expectedOk,
+        actualOk: result.ok,
+        originalSha256: hash(original),
+        mutatedSha256: hash(readFileSync(path.join(canonical, name))),
+        originalOccurrences: originalCarrier.occurrences,
+        mutatedOccurrences: carrier.occurrences,
+        nonGoverningCarriersUnchanged: true,
+        summary: result.summary,
+        errors: result.violations,
+      });
+    } finally {
+      write(canonical, name, original);
+    }
+    expect(readFileSync(path.join(canonical, name))).toEqual(original);
+  });
   it("reads NUL bytes, arbitrary validator-directory files, and excludes ignored/untracked outputs", () => {
     const directory = temporaryRepo();
     const signature = lexicalCases().find(([id]) => id === "var")[1];
