@@ -2290,93 +2290,90 @@ describe("union cleanup Account-only and fallback", () => {
   it.each([
     ["preserves Account-only lines and leaves anonymous lines intact", "account-lines"],
     ["preserves populated whole-cart fallback and leaves anonymous lines intact", "whole-cart"],
-    [
-      "refuses the empty Account whole-cart fallback before cleanup and preserves anonymous lines",
-      "whole-cart-empty",
-    ],
+    ["refuses the empty Account whole-cart fallback before cleanup and preserves anonymous lines", "whole-cart-empty"],
     ["preserves non-cart fallback and leaves anonymous lines intact", "non-cart"],
     ["preserves legacy fallback and leaves anonymous lines intact", "legacy"],
   ] as const)("%s", async (_description, kind) => {
-      const h = await unionCleanupHarness();
-      if (kind !== "whole-cart-empty") {
-        await h.copy(h.ids[0]!);
-        await h.copy(h.ids[1]!);
-      }
-      const sessionId = "chk_legacy_cleanup";
-      const original = await h.sessionEvents();
-      const seed = original.map((event) => ({
-        eventType: event.eventType,
-        payload: {
-          ...event.payload,
-          sessionId,
-          ...(event.eventType === "checkout.session.started"
-            ? {
-                presentedAnonymousCartId: null,
-                sourceType: kind === "non-cart" ? "buy-now" : "cart",
-                lines: (event.payload.lines as unknown as CheckoutSessionState["lines"]).map((line) => ({
-                  ...line,
-                  cartLineId: kind.startsWith("whole-cart") ? null : line.cartLineId,
-                })),
-                cartReadinessSnapshot: createCartReadinessSnapshot([]),
-              }
-            : {}),
-        },
-      }));
-      // Historical payloads/snapshots can predate today's start validation. Readiness remains real for initial recording.
-      const accountReadiness = createCartReadinessSnapshot(await h.realCart.listCartLines(h.buyer));
-      const started = seed[0]!;
-      started.payload.cartReadinessSnapshot = accountReadiness;
-      (started.payload as Record<string, unknown>).splitGroupHandoff = {
-        status: "ready",
-        groups: accountReadiness.fulfillmentGroups,
-        supportReference: "CS-LEGACY",
-      };
+    const h = await unionCleanupHarness();
+    if (kind !== "whole-cart-empty") {
+      await h.copy(h.ids[0]!);
+      await h.copy(h.ids[1]!);
+    }
+    const sessionId = "chk_legacy_cleanup";
+    const original = await h.sessionEvents();
+    const seed = original.map((event) => ({
+      eventType: event.eventType,
+      payload: {
+        ...event.payload,
+        sessionId,
+        ...(event.eventType === "checkout.session.started"
+          ? {
+              presentedAnonymousCartId: null,
+              sourceType: kind === "non-cart" ? "buy-now" : "cart",
+              lines: (event.payload.lines as unknown as CheckoutSessionState["lines"]).map((line) => ({
+                ...line,
+                cartLineId: kind.startsWith("whole-cart") ? null : line.cartLineId,
+              })),
+              cartReadinessSnapshot: createCartReadinessSnapshot([]),
+            }
+          : {}),
+      },
+    }));
+    // Historical payloads/snapshots can predate today's start validation. Readiness remains real for initial recording.
+    const accountReadiness = createCartReadinessSnapshot(await h.realCart.listCartLines(h.buyer));
+    const started = seed[0]!;
+    started.payload.cartReadinessSnapshot = accountReadiness;
+    (started.payload as Record<string, unknown>).splitGroupHandoff = {
+      status: "ready",
+      groups: accountReadiness.fulfillmentGroups,
+      supportReference: "CS-LEGACY",
+    };
+    await h.eventStore.appendToStream({
+      streamId: `checkout.session-${sessionId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: seed,
+    });
+    if (kind === "legacy")
       await h.eventStore.appendToStream({
         streamId: `checkout.session-${sessionId}`,
-        expectedVersion: "no_stream",
+        expectedVersion: 2,
         context,
-        events: seed,
-      });
-      if (kind === "legacy")
-        await h.eventStore.appendToStream({
-          streamId: `checkout.session-${sessionId}`,
-          expectedVersion: 2,
-          context,
-          events: [
-            {
-              eventType: "checkout.session.orders-created",
-              payload: {
-                sessionId,
-                orderIds: ["ord_old"],
-                orderWriteCommitPositions: [],
-                recordedAt: "2026-09-01T00:00:00Z",
-              },
+        events: [
+          {
+            eventType: "checkout.session.orders-created",
+            payload: {
+              sessionId,
+              orderIds: ["ord_old"],
+              orderWriteCommitPositions: [],
+              recordedAt: "2026-09-01T00:00:00Z",
             },
-          ],
-        });
-      const params = { ...h.record, sessionId };
-      if (kind === "whole-cart-empty") {
-        const beforeSession = await h.eventStore.readStream({ streamId: `checkout.session-${sessionId}` });
-        const beforeAnonymous = await h.eventStore.readStream({ streamId: `checkout.cart-${h.anonymous}` });
-        await expect(h.runtime().recordOrdersCreated(params, context)).rejects.toMatchObject({
-          code: "unresolved_fulfillment",
-          message: "Resolve item availability before checkout starts.",
-        } satisfies Partial<CheckoutDomainError>);
-        expect(await h.eventStore.readStream({ streamId: `checkout.session-${sessionId}` })).toEqual(beforeSession);
-        expect((await h.cartState(h.buyer)).lines).toEqual([]);
-        expect((await h.cartState(h.anonymous)).lines.map((line) => line.lineId)).toEqual(h.ids);
-        expect(await h.eventStore.readStream({ streamId: `checkout.cart-${h.anonymous}` })).toEqual(beforeAnonymous);
-        return;
-      }
-      await h.runtime().recordOrdersCreated(params, context);
-      expect((await h.cartState(h.anonymous)).lines).toHaveLength(2);
-      expect((await h.cartState(h.buyer)).lines).toHaveLength(kind === "legacy" || kind === "non-cart" ? 2 : 0);
-      const before = await h.eventStore.readStream({ streamId: `checkout.cart-${h.buyer}` });
-      await h.add(h.buyer);
-      await h.runtime().resumeOrderCartCleanup(params, context);
-      expect((await h.cartState(h.buyer)).lines).toHaveLength(kind === "legacy" || kind === "non-cart" ? 3 : 1);
-      expect((await h.eventStore.readStream({ streamId: `checkout.cart-${h.buyer}` })).length).toBe(before.length + 1);
-    });
+          },
+        ],
+      });
+    const params = { ...h.record, sessionId };
+    if (kind === "whole-cart-empty") {
+      const beforeSession = await h.eventStore.readStream({ streamId: `checkout.session-${sessionId}` });
+      const beforeAnonymous = await h.eventStore.readStream({ streamId: `checkout.cart-${h.anonymous}` });
+      await expect(h.runtime().recordOrdersCreated(params, context)).rejects.toMatchObject({
+        code: "unresolved_fulfillment",
+        message: "Resolve item availability before checkout starts.",
+      } satisfies Partial<CheckoutDomainError>);
+      expect(await h.eventStore.readStream({ streamId: `checkout.session-${sessionId}` })).toEqual(beforeSession);
+      expect((await h.cartState(h.buyer)).lines).toEqual([]);
+      expect((await h.cartState(h.anonymous)).lines.map((line) => line.lineId)).toEqual(h.ids);
+      expect(await h.eventStore.readStream({ streamId: `checkout.cart-${h.anonymous}` })).toEqual(beforeAnonymous);
+      return;
+    }
+    await h.runtime().recordOrdersCreated(params, context);
+    expect((await h.cartState(h.anonymous)).lines).toHaveLength(2);
+    expect((await h.cartState(h.buyer)).lines).toHaveLength(kind === "legacy" || kind === "non-cart" ? 2 : 0);
+    const before = await h.eventStore.readStream({ streamId: `checkout.cart-${h.buyer}` });
+    await h.add(h.buyer);
+    await h.runtime().resumeOrderCartCleanup(params, context);
+    expect((await h.cartState(h.buyer)).lines).toHaveLength(kind === "legacy" || kind === "non-cart" ? 3 : 1);
+    expect((await h.eventStore.readStream({ streamId: `checkout.cart-${h.buyer}` })).length).toBe(before.length + 1);
+  });
 });
 
 describe("union cleanup concurrent cart writes", () => {
