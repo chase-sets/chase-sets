@@ -610,9 +610,9 @@ const citationFencePaths = {
 } as const;
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
-  [citationFencePaths.authenticityTerms]: "5f32aff78f8bc4ce516460c3c016341c189712d40d5a36a06712df9596ac3f69",
+  [citationFencePaths.authenticityTerms]: "7e64ea6fba08d7f0796193db12fb203c21525732a33f0b5a22456ada80682b00",
   [citationFencePaths.privacyPolicy]: "4f9a1c91756db4caf4f0708d369bf042cb2524c61b59e3b3411faba725e4ccb0",
-  [citationFencePaths.authenticityTest]: "20fce502a9f063be9d26d5c576d97c173de2658e1fd54f7896a1315f4a858b22",
+  [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
   [citationFencePaths.staticSurfaces]: "008c7a9dfe4475ca97613eece7b4f337be854de440e11ceb24d5b2684677b901",
 };
 
