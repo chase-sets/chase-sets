@@ -1,10 +1,14 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { FulfillmentShipmentDeliveredPayload } from "@chase-sets/event-core/public-event-payloads";
+import type {
+  FulfillmentShipmentDeliveredPayload,
+  OrderingOrderCancelledPayload,
+} from "@chase-sets/event-core/public-event-payloads";
 import type { TransportEvent, TypedTransportEvent } from "@chase-sets/event-core/transport";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   mapOrderCreatedToNotification,
+  mapOrderCancelledToNotification,
   mapPayoutReadinessRegressionToNotification,
   mapRestockDecisionPendingToNotification,
   mapSaleRecordedToNotification,
@@ -33,16 +37,6 @@ type OrderCreatedEvent = TransportEvent &
       buyerAccountId: AccountId;
       totalAmount: string;
       shippingDestinationSnapshot: Readonly<{ email?: string | null }>;
-      reservationRequests?: readonly ReservationRequest[];
-    }>;
-  }>;
-
-type OrderCancelledEvent = TransportEvent &
-  Readonly<{
-    type: "ordering.order.cancelled";
-    data: Readonly<{
-      orderId: string;
-      reason?: string | null;
       reservationRequests?: readonly ReservationRequest[];
     }>;
   }>;
@@ -140,7 +134,7 @@ export async function projectSourceEventToNotification(
   }
 
   if (event.type === "ordering.order.cancelled") {
-    const data = event.data as OrderCancelledEvent["data"];
+    const data = event.data as OrderingOrderCancelledPayload;
     for (const stockReturn of stockCommitmentsBySeller(
       data.orderId,
       releasedStockRequests(data.reservationRequests ?? []),
@@ -154,6 +148,8 @@ export async function projectSourceEventToNotification(
         source,
       });
     }
+    const message = mapOrderCancelledToNotification(data, correlationIdFromEvent(event));
+    if (message) await outbox.enqueueNotification({ message, source });
     return;
   }
 

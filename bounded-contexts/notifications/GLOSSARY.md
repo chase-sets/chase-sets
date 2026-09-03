@@ -48,6 +48,18 @@ Notes:
 A **Mandatory Notification** is a security, order-critical, or legal notification that must reach
 its recipient through its requested channel even when that channel is disabled in preferences.
 
+## Buyer Cancellation Notification
+
+A **Buyer Cancellation Notification** is a Mandatory Notification in the `order-critical`
+category for the event's buyer Recipient Account. Its web delivery creates a Notification
+Feed Item linking to `/account/purchases/{orderId}`. Eligible cancellations also request
+email, except when the buyer cancelled the order.
+
+The `order_cancelled` version 1 template has exactly four data keys: `orderReference`,
+`headline`, `moneyLine`, and `purchaseHref`. Notifications resolves the approved headline
+and status wording; the message makes no claim about a refund outcome. The web channel
+always comes first, preserving delivery identity when email becomes available later.
+
 ## Suppressible Notification
 
 A **Suppressible Notification** is an operational or Product Alert notification whose channel

@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type { JsonObject } from "@chase-sets/primitives/json";
+import type { OrderingOrderCancelledPayload } from "@chase-sets/event-core/public-event-payloads";
 import type { EnqueueNotificationInput } from "@chase-sets/outbound-messaging";
 import {
   NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+  buildNotificationsOrderingProjectionHandlers,
   projectSourceEventToNotification,
 } from "./notification-projector";
 
@@ -24,6 +28,277 @@ const baseEvent = {
 } as const;
 
 describe("notifications source event projector", () => {
+  const cancellation: OrderingOrderCancelledPayload = {
+    orderId: "ord_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    cancelledAt: "2026-09-02T00:00:00.000Z",
+    reservationRequests: [],
+  };
+  const publicControls: readonly OrderingOrderCancelledPayload[] = [
+    cancellation,
+    { ...cancellation, buyerAccountId: null, statusBeforeCancellation: null },
+    { ...cancellation, buyerAccountId: "acc_buyer", statusBeforeCancellation: "pending-reservation" },
+    { ...cancellation, buyerAccountId: "acc_buyer", statusBeforeCancellation: "synthetic-future-status" },
+  ];
+  const accounts = [undefined, null, "", "  ", 42, {}, true, "acc_buyer", " acc_buyer "];
+  const statuses = [
+    undefined,
+    null,
+    42,
+    {},
+    true,
+    "pending-reservation",
+    "pending-payment",
+    "ready-for-fulfillment",
+    "synthetic-future-status",
+    "",
+    "  ",
+    " Pending-Payment ",
+  ];
+  const reasons = [
+    "buyer-cancelled",
+    "seller-cancelled",
+    "payment-deadline",
+    "support-cancel-order",
+    "seller-cannot-fulfill",
+    "inventory-unavailable",
+    "synthetic-future-reason",
+    undefined,
+    null,
+    " Buyer-Cancelled ",
+  ];
+  const approvedCopy = [
+    ["pending-reservation", "You have not been charged."],
+    ["pending-payment", "View your order for any payment or refund details."],
+    ["ready-for-fulfillment", "View your order for any payment or refund details."],
+    ["synthetic-future-status", "View your order for details about this cancellation."],
+    ["", "View your order for details about this cancellation."],
+    ["  ", "View your order for details about this cancellation."],
+    [" Pending-Payment ", "View your order for details about this cancellation."],
+  ] as const;
+
+  async function projectCancellation(data: JsonObject, eventOverrides: Partial<TransportEvent> = {}) {
+    const outbox = { enqueueNotification: vi.fn(async (_input: EnqueueNotificationInput) => undefined) };
+    const handler = buildNotificationsOrderingProjectionHandlers(outbox)["ordering.order.cancelled"];
+    expect(handler).toBeTypeOf("function");
+    await expect(
+      handler!({ ...baseEvent, ...eventOverrides, type: "ordering.order.cancelled", data }),
+    ).resolves.toBeUndefined();
+    return outbox.enqueueNotification.mock.calls.map(([input]) => input.message);
+  }
+
+  function expectedBuyer(account: string, moneyLine: string, email?: string, correlationId = "trace_1") {
+    const purchaseHref = `/account/purchases/${cancellation.orderId}`;
+    return {
+      messageType: "ordering.order.cancelled",
+      criticality: "commerce",
+      category: "order-critical",
+      recipientAccountId: account,
+      actor: { userId: null, accountId: account },
+      title: "Order ORD-Q69G5FAV cancelled",
+      body: moneyLine,
+      actionHref: purchaseHref,
+      templateId: "order_cancelled",
+      templateVersion: 1,
+      locale: "en",
+      templateData: {
+        orderReference: "ORD-Q69G5FAV",
+        headline: "Order ORD-Q69G5FAV cancelled",
+        moneyLine,
+        purchaseHref,
+      },
+      channels: [
+        { channel: "web", recipient: { accountId: account }, actionHref: purchaseHref },
+        ...(email ? [{ channel: "email", to: [{ email }] }] : []),
+      ],
+      idempotencyKey: `notifications:ordering:order_cancelled:${cancellation.orderId}`,
+      correlationId,
+    };
+  }
+
+  it("cancellation public payload eligibility matrix", async () => {
+    for (const control of publicControls) await projectCancellation(control);
+    for (const buyerAccountId of accounts)
+      for (const statusBeforeCancellation of statuses) {
+        const data = {
+          ...cancellation,
+          buyerEmail: "buyer@example.test",
+          ...(buyerAccountId === undefined ? {} : { buyerAccountId }),
+          ...(statusBeforeCancellation === undefined ? {} : { statusBeforeCancellation }),
+          futurePublicKey: "ignored",
+        };
+        const messages = await projectCancellation(data);
+        const eligible =
+          typeof buyerAccountId === "string" &&
+          buyerAccountId.trim().length > 0 &&
+          typeof statusBeforeCancellation === "string";
+        expect(messages, JSON.stringify(data)).toHaveLength(eligible ? 1 : 0);
+        if (eligible) {
+          const copy = approvedCopy.find(([status]) => status === statusBeforeCancellation)?.[1];
+          expect(copy).toBeDefined();
+          expect(messages).toEqual([expectedBuyer(buyerAccountId, copy!, "buyer@example.test")]);
+        }
+      }
+  });
+
+  it("cancellation reason recipient and channel matrix", async () => {
+    for (const reason of reasons)
+      for (const buyerEmail of [undefined, null, "", "   ", " buyer@example.test "]) {
+        for (const [statusBeforeCancellation, moneyLine] of approvedCopy.slice(0, 3)) {
+          for (const actingAccount of ["acc_seller", "acc_support", "acc_system"] as const) {
+            const data: OrderingOrderCancelledPayload = {
+              ...cancellation,
+              buyerAccountId: "acc_buyer",
+              statusBeforeCancellation,
+              ...(reason === undefined ? {} : { reason }),
+              ...(buyerEmail === undefined ? {} : { buyerEmail }),
+            };
+            const messages = await projectCancellation(data, {
+              audit: { performedByUserId: "usr_1", forAccountId: actingAccount },
+            });
+            expect(messages).toEqual([
+              expectedBuyer(
+                "acc_buyer",
+                moneyLine,
+                reason !== "buyer-cancelled" && buyerEmail?.trim() ? "buyer@example.test" : undefined,
+              ),
+            ]);
+          }
+        }
+      }
+  });
+
+  it("cancellation copy uses only approved status wording", async () => {
+    for (const [statusBeforeCancellation, moneyLine] of approvedCopy)
+      for (const reason of reasons) {
+        const data: OrderingOrderCancelledPayload = {
+          ...cancellation,
+          buyerAccountId: "acc_buyer",
+          statusBeforeCancellation,
+          reason,
+        };
+        expect(await projectCancellation(data)).toEqual([expectedBuyer("acc_buyer", moneyLine)]);
+      }
+  });
+
+  it("historical and invalid buyer routing preserve stock returned", async () => {
+    const reservationRequests = [
+      {
+        reservationRequestId: "rsv_1",
+        inventoryItemId: "inv_1",
+        sellerAccountId: "acc_seller",
+        quantity: 2,
+        holdId: "hold_1",
+      },
+      {
+        reservationRequestId: "rsv_2",
+        inventoryItemId: "inv_2",
+        sellerAccountId: "acc_seller",
+        quantity: 1,
+        status: "released",
+      },
+      {
+        reservationRequestId: "rsv_3",
+        inventoryItemId: "inv_3",
+        sellerAccountId: "acc_other",
+        quantity: 4,
+        status: "confirmed",
+      },
+      {
+        reservationRequestId: "rsv_4",
+        inventoryItemId: "inv_4",
+        sellerAccountId: "acc_pending",
+        quantity: 8,
+        status: "pending",
+      },
+    ];
+    // Frozen from the pre-cutover seller contract; no mapper or catalog builds this oracle.
+    const frozenSellerMessages = [
+      {
+        seller: "acc_seller",
+        item: "inv_1",
+        quantity: 3,
+        lines: 2,
+        body: "3 units across 2 lines returned to available stock after the order was cancelled.",
+      },
+      {
+        seller: "acc_other",
+        item: "inv_3",
+        quantity: 4,
+        lines: 1,
+        body: "4 units across 1 lines returned to available stock after the order was cancelled.",
+      },
+    ].map(({ seller, item, quantity, lines, body }) => ({
+      messageType: "inventory.stock-returned",
+      criticality: "commerce",
+      recipientAccountId: seller,
+      title: "Stock returned for order ord_cancelled",
+      body,
+      actionHref: "/account/sales/ord_cancelled",
+      templateId: "seller_stock_returned",
+      templateVersion: 1,
+      locale: "en",
+      templateData: {
+        orderId: "ord_cancelled",
+        lineCount: lines,
+        totalQuantity: quantity,
+        releaseReason: "order-cancelled",
+        itemId: item,
+        itemLedgerHref: `/account/inventory/items/${item}?ledgerKind=hold-released`,
+        orderHref: "/account/sales/ord_cancelled",
+      },
+      channels: [{ channel: "web", recipient: { accountId: seller }, actionHref: "/account/sales/ord_cancelled" }],
+      idempotencyKey: `notifications:inventory:stock_returned:ord_cancelled:${seller}`,
+      correlationId: "trace_1",
+      actor: { userId: null, accountId: seller },
+    }));
+    for (const buyerAccountId of accounts)
+      for (const statusBeforeCancellation of statuses) {
+        const messages = await projectCancellation({
+          orderId: "ord_cancelled",
+          reason: "buyer-requested",
+          reservationRequests,
+          buyerEmail: "buyer@example.test",
+          ...(buyerAccountId === undefined ? {} : { buyerAccountId }),
+          ...(statusBeforeCancellation === undefined ? {} : { statusBeforeCancellation }),
+        });
+        expect(messages.filter((message) => message.messageType === "inventory.stock-returned")).toEqual(
+          frozenSellerMessages,
+        );
+      }
+  });
+
+  it("cancellation identity ignores non-governing event fields", async () => {
+    for (const buyerEmail of [null, "buyer@example.test"])
+      for (const suffix of ["first", "replayed"]) {
+        const messages = await projectCancellation(
+          {
+            ...cancellation,
+            buyerAccountId: "acc_buyer",
+            statusBeforeCancellation: "pending-payment",
+            reason: "payment-deadline",
+            buyerEmail,
+          },
+          {
+            id: `evt_synthetic_${suffix}`,
+            globalPosition: suffix === "first" ? ("100" as never) : ("999" as never),
+            trace: { traceId: `synthetic_trace_${suffix}` },
+            audit: { performedByUserId: `usr_synthetic_${suffix}`, forAccountId: `acc_synthetic_${suffix}` },
+          },
+        );
+        expect(messages.map(({ idempotencyKey, channels }) => ({ idempotencyKey, channels }))).toEqual([
+          {
+            idempotencyKey: `notifications:ordering:order_cancelled:${cancellation.orderId}`,
+            channels: expectedBuyer("acc_buyer", "", buyerEmail ?? undefined).channels,
+          },
+        ]);
+      }
+    const [fallback] = await projectCancellation(
+      { ...cancellation, buyerAccountId: "acc_buyer", statusBeforeCancellation: "pending-payment" },
+      { trace: {} },
+    );
+    expect(fallback?.correlationId).toBe(baseEvent.id);
+  });
+
   it("turns ordering facts into notification-center deliveries", async () => {
     const outbox = { enqueueNotification: vi.fn(async (_input: EnqueueNotificationInput) => undefined) };
 

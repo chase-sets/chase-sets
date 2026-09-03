@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import type { TransactionalEmailMessage } from "@chase-sets/outbound-messaging";
+import { describe, expect, it, vi } from "vitest";
+import type { NotificationMessage, TransactionalEmailMessage } from "@chase-sets/outbound-messaging";
+import { createSesEmailNotificationAdapter, type SesSendEmailRequest } from "@chase-sets/ses-email";
+import { module as notificationsModule } from "@chase-sets/notifications";
+import { parseGlobalPosition } from "@chase-sets/event-core/storage";
+import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
+import type { OrderingOrderCancelledPayload } from "@chase-sets/event-core/public-event-payloads";
 import { platformEmailTemplateRenderer } from "../src/email-template-renderer";
 
 describe("platform email template renderer", () => {
@@ -133,20 +138,119 @@ describe("platform email template renderer", () => {
     expect(rendered.htmlBody).toContain("Order ORD-E6K7M8N9 confirmed");
   });
 
-  it("renders payment-deadline cancellation copy with the order reference and a raw-id reorder link", () => {
+  it("cancellation mapper output renders through the real renderer", async () => {
+    const unusedPool = {
+      query: async () => {
+        throw new Error("Renderer proof must capture the outbox boundary before SQL");
+      },
+      connect: async () => {
+        throw new Error("Renderer proof must not open a database connection");
+      },
+    } satisfies Parameters<typeof notificationsModule.createServices>[0];
+    const services = notificationsModule.createServices(unusedPool, {});
+    const messages: NotificationMessage[] = [];
+    vi.spyOn(services.notificationOutbox, "enqueueNotification").mockImplementation(async (input) => {
+      messages.push(input.message);
+    });
+    const subscriptions = notificationsModule.buildSubscriptions?.(services) ?? [];
+    const cancellationHandlers = subscriptions.flatMap((subscription) => {
+      const handler = subscription.handlers["ordering.order.cancelled"];
+      return handler ? [handler] : [];
+    });
+    expect(cancellationHandlers).toHaveLength(1);
+    const handler = cancellationHandlers[0];
+    if (!handler) throw new Error("Expected public Notifications cancellation subscription");
+    const copies = [
+      ["pending-reservation", "You have not been charged."],
+      ["pending-payment", "View your order for any payment or refund details."],
+      ["ready-for-fulfillment", "View your order for any payment or refund details."],
+      ["synthetic-future-status", "View your order for details about this cancellation."],
+    ] as const;
+    for (const [statusBeforeCancellation, moneyLine] of copies) {
+      for (const orderId of ["ord_01ARZ3NDEKTSV4RRFFQ69G5FAV", 'synthetic_<order>&"']) {
+        messages.length = 0;
+        const data: OrderingOrderCancelledPayload = {
+          orderId,
+          cancelledAt: "2026-09-02T00:00:00.000Z",
+          reservationRequests: [],
+          buyerAccountId: "acc_buyer",
+          buyerEmail: " buyer@example.test ",
+          reason: "seller-cancelled",
+          statusBeforeCancellation,
+        };
+        await handler({
+          id: "evt_synthetic_renderer",
+          tenantId: "tnt_synthetic",
+          streamId: "synthetic_stream",
+          streamVersion: 1,
+          globalPosition: parseGlobalPosition("1"),
+          trace: { traceId: "synthetic_trace" },
+          audit: { performedByUserId: "usr_seller", forAccountId: "acc_seller" },
+          timing: {
+            occurredAt: parseIsoUtcTimestamp("2026-09-02T00:00:00.000Z"),
+            recordedAt: parseIsoUtcTimestamp("2026-09-02T00:00:00.000Z"),
+          },
+          metadata: {},
+          type: "ordering.order.cancelled",
+          data,
+        });
+        expect(messages).toHaveLength(1);
+        const mapped = messages[0];
+        if (!mapped) throw new Error("Expected cancellation message");
+        const channel = mapped.channels.find((candidate) => candidate.channel === "email");
+        if (!channel) throw new Error("Expected cancellation email channel");
+        const requests: SesSendEmailRequest[] = [];
+        const adapter = createSesEmailNotificationAdapter({
+          fromEmail: "synthetic-sender@example.test",
+          templateRenderer: platformEmailTemplateRenderer,
+          sendRequest: async (request) => {
+            requests.push(request);
+            return { MessageId: "synthetic_message" };
+          },
+        });
+        await adapter.sendNotificationChannel({ deliveryId: "synthetic_delivery", message: mapped, channel });
+        expect(requests).toHaveLength(1);
+        const request = requests[0]!;
+        const reference = orderId.startsWith("ord_01") ? "ORD-Q69G5FAV" : orderId;
+        const headline = `Order ${reference} cancelled`;
+        const purchaseHref = `/account/purchases/${orderId}`;
+        expect(request.Destination.ToAddresses).toEqual(["buyer@example.test"]);
+        expect(request.Content.Simple.Subject.Data).toBe(headline);
+        expect(request.Content.Simple.Body.Text.Data).toBe(
+          [headline, "", headline, moneyLine, purchaseHref, "", "Chase Sets"].join("\n"),
+        );
+        const html = request.Content.Simple.Body.Html.Data;
+        expect(html).toContain("<!doctype html>");
+        expect(html).toContain(moneyLine);
+        expect(html).toContain(
+          purchaseHref
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;"),
+        );
+        expect(html).not.toContain("<order>");
+        for (const output of [html, request.Content.Simple.Body.Text.Data]) {
+          expect(output).not.toMatch(
+            /A Chase Sets account update is available|headline:|moneyLine:|purchaseHref:|reorder/i,
+          );
+        }
+      }
+    }
+  });
+
+  it("retired cancellation template has no special renderer", () => {
     const rendered = platformEmailTemplateRenderer.render(
       message({
-        subject: "Order ORD-E6K7M8N9 cancelled after payment deadline",
+        subject: "Synthetic retired template",
         templateId: "order_payment_deadline_cancelled",
-        templateData: {
-          orderReference: "ORD-E6K7M8N9",
-          reorderHref: "/marketplace?reorderFrom=ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
-        },
+        templateData: { orderReference: "ORD-SYNTHETIC", reorderHref: "/synthetic-retired" },
       }),
     );
-
-    expect(rendered.textBody).toContain("Order reference: ORD-E6K7M8N9");
-    expect(rendered.textBody).toContain("Reorder: /marketplace?reorderFrom=ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9");
+    expect(rendered.textBody).toBe(
+      "Synthetic retired template\n\nA Chase Sets account update is available.\norderReference: ORD-SYNTHETIC\nreorderHref: /synthetic-retired\n\nChase Sets",
+    );
+    expect(rendered.textBody).not.toContain("Your Chase Sets order was cancelled after the payment deadline passed.");
   });
 
   it("renders support-case email copy with the display reference", () => {
