@@ -7,6 +7,7 @@ import { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as settlementModule } from "@chase-sets/settlement";
+import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import { createUcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantRateLimiter } from "@chase-sets/platform-runtime/agent-guardrails";
 import { buildPlatformApiApp } from "../src/app";
@@ -419,10 +420,41 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
   });
 
   it("asserts native MCP agent grant rate-limit and checkout spend-cap guardrail rejections", async () => {
+    const buyNowSession = {
+      session_id: "chk_1",
+      source_type: "buy-now",
+      shipping_option: null,
+      optimization_goal: null,
+      shipping_address: null,
+      lines: [
+        {
+          catalogItemId: "cat_1",
+          productId: "product_1",
+          listingId: "listing_1",
+          title: "Charizard ex",
+          quantity: 1,
+          unitPriceAmount: "25.00",
+          offerPriceAmount: null,
+          sellerAccountId: "acc_1",
+          fulfillmentMode: "seller-managed",
+          availabilityState: "available",
+        },
+      ],
+      order_ids: ["order_1"],
+      order_write_commit_positions: [],
+      payment_id: null,
+      submitted_offer_id: null,
+      created_at: "2026-07-08T00:00:00.000Z",
+      updated_at: "2026-07-08T00:00:00.000Z",
+      totals: [{ type: "total", amount: 2500 }],
+    };
     const checkoutSessions = {
       createOfferIntent: vi.fn(),
       createBuyNowSession: vi.fn(),
       getSession: vi.fn(),
+      resumeOrderCartCleanup: vi.fn<
+        Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]
+      >(async () => ({ sessionId: "chk_1", session: buyNowSession })),
       projectionHandlerSets: [],
     };
     const rateLimiter: AgentGrantRateLimiter = {
@@ -592,33 +624,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       ]);
     });
 
-    checkoutSessions.getSession = vi.fn(async () => ({
-      session_id: "chk_1",
-      source_type: "buy-now",
-      shipping_option: null,
-      optimization_goal: null,
-      shipping_address: null,
-      lines: [
-        {
-          catalogItemId: "cat_1",
-          productId: "product_1",
-          listingId: "listing_1",
-          title: "Charizard ex",
-          quantity: 1,
-          unitPriceAmount: "25.00",
-          offerPriceAmount: null,
-          sellerAccountId: "acc_1",
-          fulfillmentMode: "seller-managed",
-          availabilityState: "available",
-        },
-      ],
-      order_ids: ["order_1"],
-      payment_id: null,
-      submitted_offer_id: null,
-      created_at: "2026-07-08T00:00:00.000Z",
-      updated_at: "2026-07-08T00:00:00.000Z",
-      totals: [{ type: "total", amount: 2500 }],
-    }));
+    checkoutSessions.getSession = vi.fn(async () => buyNowSession);
     const checkoutBody = JSON.stringify(
       createUcpEnvelope("ok", {
         marketplace_checkout_fee_quote_fingerprint: "quote_1",
