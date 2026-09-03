@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { parse as parseYaml } from "yaml";
@@ -298,15 +297,27 @@ function scalingBody(lineCount) {
   return ["## Context", ...Array.from({ length: lineCount - 1 }, () => "payload-alpha")].join("\n");
 }
 
-function bestElapsed(operation, input, samples, iterations = 1) {
-  for (let iteration = 0; iteration < iterations; iteration += 1) operation(input);
-  let best = Number.POSITIVE_INFINITY;
-  for (let sample = 0; sample < samples; sample += 1) {
-    const startedAt = performance.now();
-    for (let iteration = 0; iteration < iterations; iteration += 1) operation(input);
-    best = Math.min(best, performance.now() - startedAt);
+function cumulativeEncodingInput(operation, input) {
+  const actualByteLength = Buffer.byteLength;
+  let inputUnits = 0;
+  Buffer.byteLength = (value, ...arguments_) => {
+    inputUnits += typeof value === "string" ? value.length : value.byteLength;
+    return actualByteLength(value, ...arguments_);
+  };
+  try {
+    operation(input);
+    return inputUnits;
+  } finally {
+    Buffer.byteLength = actualByteLength;
   }
-  return best;
+}
+
+function hasLinearEncodingGrowth(operation, smallerInput, largerInput) {
+  const smallerWork = cumulativeEncodingInput(operation, smallerInput);
+  const largerWork = cumulativeEncodingInput(operation, largerInput);
+  const growth = largerWork / smallerWork;
+
+  return { smallerWork, largerWork, growth, isLinear: growth < 5 };
 }
 
 function replaceField(body, label, value) {
@@ -852,22 +863,26 @@ describe("predecessor-recorded structural scanner oracle", () => {
     });
   });
 
-  it("the scanner stays linear against a prefix-re-encoding mutant", () => {
+  it("the scanner's encoding work stays linear and rejects a prefix-re-encoding mutant", () => {
     const fourThousandLines = scalingBody(4_000);
     const sixteenThousandLines = scalingBody(16_000);
-    const candidateRatio =
-      bestElapsed(parseIssueFormBody, sixteenThousandLines, 3, 3) /
-      bestElapsed(parseIssueFormBody, fourThousandLines, 3, 3);
-    const mutantRatio =
-      bestElapsed(prefixReencodingParserMutant, sixteenThousandLines, 2) /
-      bestElapsed(prefixReencodingParserMutant, fourThousandLines, 2);
+    const candidate = hasLinearEncodingGrowth(parseIssueFormBody, fourThousandLines, sixteenThousandLines);
+    const prefixReencodingMutant = hasLinearEncodingGrowth(
+      prefixReencodingParserMutant,
+      fourThousandLines,
+      sixteenThousandLines,
+    );
 
     console.info(
-      `structural scanner scaling candidate=${candidateRatio.toFixed(3)} prefix-re-encoding-mutant=${mutantRatio.toFixed(3)}`,
+      `structural scanner encoding-work candidate=${candidate.growth.toFixed(3)} ` +
+        `prefix-re-encoding-mutant=${prefixReencodingMutant.growth.toFixed(3)}`,
     );
-    expect(candidateRatio).toBeLessThan(8);
-    expect(mutantRatio).toBeGreaterThan(8);
-  }, 60_000);
+    // Four times as many fixed-width lines produce four times the scanner's
+    // encoding input. A bound below five admits that linear work, while the
+    // mutant's cumulative growing-prefix input approaches sixteen times.
+    expect(candidate.isLinear).toBe(true);
+    expect(prefixReencodingMutant.isLinear).toBe(false);
+  });
 });
 
 describe("issue-readiness/v1 receipt and rule contract", () => {
