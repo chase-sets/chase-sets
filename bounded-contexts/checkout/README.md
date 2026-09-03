@@ -51,6 +51,7 @@ Checkout terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - `checkout.cart.line-fulfillment-set`
 - `checkout.cart.line-removed`
 - `checkout.cart.checked-out`
+- `checkout.cart.claimed-by-account`
 - `checkout.sell-list.line-added`
 - `checkout.sell-list.line-quantity-set`
 - `checkout.sell-list.line-removed`
@@ -65,6 +66,14 @@ Checkout terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 - `checkout.session.payment-started`
 - `checkout.session.offer-submitted`
 - `checkout.session.cancelled`
+
+## Cart Claim
+
+Checkout exposes a Cart Claim operation that records an Account taking ownership of an existing
+anonymous Cart on that Cart's own stream, and resolves the Account's claimed keys alongside its own
+in the shared cart-line query. No route, entry action, MCP or UCP surface calls it: the operation is
+present but unreachable until claimed-stream mutation authority, post-claim read/session authority
+and the atomic retirement of the public cart merge endpoint land.
 
 ## Invariants
 

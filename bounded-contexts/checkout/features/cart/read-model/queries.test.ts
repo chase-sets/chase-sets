@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
-import { CART_SELLER_OPTIONS_PER_LINE_LIMIT, listCartLines } from "./queries";
+import { CART_SELLER_OPTIONS_PER_LINE_LIMIT, listCartLines, listOwnCartLines } from "./queries";
 
 type CartLinePage = Readonly<{
   buyer_account_id: string;
@@ -37,6 +37,11 @@ type SellerOption = Readonly<{
   seller_review_count: number | null;
 }>;
 
+type CartClaim = Readonly<{
+  source_owner_key: string;
+  account_id: string;
+}>;
+
 type SellerAccount = Readonly<{
   account_id: string;
   display_name: string;
@@ -44,6 +49,11 @@ type SellerAccount = Readonly<{
   average_rating?: string | null;
   review_count?: number | null;
 }>;
+
+// COLLATE "C" is byte ordering; JS string comparison matches it for these keys.
+function compareOwnerKeyBytes(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
 
 function holdsAccurateAvailableQuantity(option: SellerOption): number {
   return Math.min(
@@ -67,12 +77,24 @@ function holdsAccurateAvailableQuantity(option: SellerOption): number {
  * cheapest-first — mirroring the LATERAL aggregate so the join semantics
  * (active-only, holds-accurate availability, sold-out exclusion, seller-identity
  * resolution, price-ascending, empty -> []) are actually exercised.
+ *
+ * It also interprets the requested-owner expansion: the primary owner key, the
+ * claimed source keys of an `acc_` owner when claim expansion is on, and the
+ * optional presented key, deduplicated to the strongest precedence before
+ * ranking. Winner selection and output order are modelled separately, because
+ * they are different orderings: the winner is the strongest precedence, then the
+ * newest row, then the byte-smallest source owner (`COLLATE "C"`), while output
+ * puts the Account union ahead of presented-only rows.
+ *
+ * This interpreter is a shape check, not the oracle. Selection and ordering are
+ * proved against real PostgreSQL in `seller-options-readiness.db.test.ts`.
  */
 class CartReadModelDb implements PgQueryable {
   constructor(
     private readonly lines: readonly CartLinePage[],
     private readonly options: readonly SellerOption[],
     private readonly accounts: readonly SellerAccount[] = [],
+    private readonly claims: readonly CartClaim[] = [],
   ) {}
 
   public lastSql = "";
@@ -86,20 +108,45 @@ class CartReadModelDb implements PgQueryable {
     this.lastSql = sql;
     this.lastValues = values;
     this.queryCount += 1;
-    const buyerAccountId = String(values[0]);
+    const ownerKey = String(values[0]);
     const presentedAnonymousCartId = values[1] === null || values[1] === undefined ? null : String(values[1]);
     const sellerOptionsLimit = Number(values[2]);
-    const ownerIds = [buyerAccountId, presentedAnonymousCartId].filter(
-      (ownerId, index, values): ownerId is string => Boolean(ownerId) && values.indexOf(ownerId) === index,
-    );
+    const includeClaimedOwners = Boolean(values[3]);
+    const candidateOwners: Array<{ ownerId: string; precedence: number }> = [{ ownerId: ownerKey, precedence: 0 }];
+
+    if (includeClaimedOwners && ownerKey.startsWith("acc_")) {
+      for (const claim of this.claims) {
+        if (claim.account_id === ownerKey) {
+          candidateOwners.push({ ownerId: claim.source_owner_key, precedence: 1 });
+        }
+      }
+    }
+    if (presentedAnonymousCartId) {
+      candidateOwners.push({ ownerId: presentedAnonymousCartId, precedence: 2 });
+    }
+
+    // MIN(owner_precedence) GROUP BY owner_id: one requested owner per key.
+    const requestedOwners = new Map<string, number>();
+    for (const candidate of candidateOwners) {
+      const existing = requestedOwners.get(candidate.ownerId);
+      requestedOwners.set(
+        candidate.ownerId,
+        existing === undefined ? candidate.precedence : Math.min(existing, candidate.precedence),
+      );
+    }
+    const precedenceOf = (line: CartLinePage) => requestedOwners.get(line.buyer_account_id) ?? Number.MAX_SAFE_INTEGER;
+    const outputGroupOf = (line: CartLinePage) => (precedenceOf(line) <= 1 ? 0 : 1);
     const seenLineIds = new Set<string>();
     const rows = this.lines
-      .filter((line) => ownerIds.includes(line.buyer_account_id))
+      .filter((line) => requestedOwners.has(line.buyer_account_id))
+      .slice()
+      // ROW_NUMBER() OVER (PARTITION BY line_id ORDER BY owner_precedence ASC,
+      // updated_at DESC, owner_id COLLATE "C" ASC)
       .sort(
         (left, right) =>
-          ownerIds.indexOf(left.buyer_account_id) - ownerIds.indexOf(right.buyer_account_id) ||
+          precedenceOf(left) - precedenceOf(right) ||
           right.updated_at.localeCompare(left.updated_at) ||
-          left.line_id.localeCompare(right.line_id),
+          compareOwnerKeyBytes(left.buyer_account_id, right.buyer_account_id),
       )
       .filter((line) => {
         if (seenLineIds.has(line.line_id)) {
@@ -108,6 +155,13 @@ class CartReadModelDb implements PgQueryable {
         seenLineIds.add(line.line_id);
         return true;
       })
+      // ORDER BY owner_output_group ASC, updated_at DESC, line_id ASC
+      .sort(
+        (left, right) =>
+          outputGroupOf(left) - outputGroupOf(right) ||
+          right.updated_at.localeCompare(left.updated_at) ||
+          left.line_id.localeCompare(right.line_id),
+      )
       .map((line) => ({
         ...line,
         seller_options: this.options
@@ -240,7 +294,7 @@ describe("listCartLines seller_options join", () => {
     const rows = await listCartLines(db, "acc_buyer", "anon_cart");
 
     expect(db.queryCount).toBe(1);
-    expect(db.lastValues).toEqual(["acc_buyer", "anon_cart", CART_SELLER_OPTIONS_PER_LINE_LIMIT]);
+    expect(db.lastValues).toEqual(["acc_buyer", "anon_cart", CART_SELLER_OPTIONS_PER_LINE_LIMIT, true]);
     expect(rows.map((row) => row.line_id)).toEqual(["cli_account", "cli_shared", "cli_anonymous"]);
     expect(rows.find((row) => row.line_id === "cli_shared")).toMatchObject({
       buyer_account_id: "acc_buyer",
@@ -543,12 +597,22 @@ describe("listCartLines seller_options join", () => {
     await listCartLines(db, "acc_buyer");
 
     expect(db.lastSql).toContain("LEFT JOIN LATERAL");
-    expect(db.lastValues).toEqual(["acc_buyer", null, CART_SELLER_OPTIONS_PER_LINE_LIMIT]);
+    expect(db.lastValues).toEqual(["acc_buyer", null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, true]);
     expect(db.lastSql).toContain("WITH requested_owners AS");
+    // Requested owners are deduplicated to one row per key before ranking, so a
+    // key that is both claimed and presented cannot multiply rows.
+    expect(db.lastSql).toContain("MIN(candidate_owner.owner_precedence) AS owner_precedence");
+    expect(db.lastSql).toContain("GROUP BY candidate_owner.owner_id");
+    expect(db.lastSql).toContain("FROM checkout_cart_claims AS claim");
+    expect(db.lastSql).toContain("starts_with($1::text, 'acc_')");
+    expect(db.lastSql).toContain("claim.account_id = $1::text");
     expect(db.lastSql).toContain("PARTITION BY cart_line.line_id");
-    expect(db.lastSql).toContain("ORDER BY requested_owner.owner_precedence ASC");
+    expect(db.lastSql).toContain("requested_owner.owner_precedence ASC");
+    expect(db.lastSql).toContain("cart_line.updated_at DESC");
+    expect(db.lastSql).toContain('requested_owner.owner_id COLLATE "C" ASC');
     expect(db.lastSql).toContain("WHERE ranked_line.owner_line_rank = 1");
-    expect(db.lastSql).toContain("ORDER BY line.owner_precedence ASC, line.updated_at DESC, line.line_id ASC");
+    expect(db.lastSql).toContain("CASE WHEN ranked_line.owner_precedence <= 1 THEN 0 ELSE 1 END AS owner_output_group");
+    expect(db.lastSql).toContain("ORDER BY line.owner_output_group ASC, line.updated_at DESC, line.line_id ASC");
     expect(db.lastSql).toContain("FROM checkout_marketplace_seller_options option");
     // Seller identity (display name / slug) is resolved through the identity-maintained
     // seller-accounts join table, with the denormalized columns as a fallback.
@@ -582,5 +646,287 @@ describe("listCartLines seller_options join", () => {
     // numeric columns must be cast to text to match the row type.
     expect(db.lastSql).toContain("o.price_amount::text");
     expect(db.lastSql).toContain("'[]'::json");
+  });
+});
+
+describe("listCartLines claimed-key expansion", () => {
+  const account = "acc_buyer";
+  const claimedA = "anon_cart_a";
+  const claimedB = "anon_cart_b";
+  const presented = "anon_presented";
+  const claims: readonly CartClaim[] = [
+    { source_owner_key: claimedA, account_id: account },
+    { source_owner_key: claimedB, account_id: account },
+  ];
+
+  it("resolves own, claimed and presented owners in one query and keeps the Account union first", async () => {
+    const own = line({ line_id: "cli_own", updated_at: "2026-06-10T00:00:00.000Z" });
+    const claimed = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_claimed",
+      updated_at: "2026-06-20T00:00:00.000Z",
+    });
+    const presentedOnly = line({
+      buyer_account_id: presented,
+      line_id: "cli_presented",
+      updated_at: "2026-06-30T00:00:00.000Z",
+    });
+    const db = new CartReadModelDb([presentedOnly, own, claimed], [], [], claims);
+
+    const rows = await listCartLines(db, account, presented);
+
+    expect(db.queryCount).toBe(1);
+    expect(db.lastValues).toEqual([account, presented, CART_SELLER_OPTIONS_PER_LINE_LIMIT, true]);
+    // Account union (own + claimed) ordered updated_at DESC, then presented-only.
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_claimed", "cli_own", "cli_presented"]);
+    expect(rows.map((row) => row.buyer_account_id)).toEqual([claimedA, account, presented]);
+  });
+
+  it("keeps the Account's own whole row when a line id is duplicated onto a claimed stream", async () => {
+    const accountWinner = line({
+      buyer_account_id: account,
+      line_id: "cli_shared",
+      product_id: "prd_account",
+      locked_listing_id: "lst_account",
+      updated_at: "2026-06-01T00:00:00.000Z",
+    });
+    const claimedLoser = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_shared",
+      product_id: "prd_claimed",
+      locked_listing_id: "lst_claimed",
+      updated_at: "2026-06-25T00:00:00.000Z",
+    });
+    const db = new CartReadModelDb([claimedLoser, accountWinner], [], [], claims);
+
+    const rows = await listCartLines(db, account);
+
+    // Newest does not beat the Account's own row: precedence is ranked first.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      buyer_account_id: account,
+      product_id: "prd_account",
+      locked_listing_id: "lst_account",
+    });
+  });
+
+  it("picks the newest claimed row for a divergent duplicate and never mixes columns", async () => {
+    const stale = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_shared",
+      product_id: "prd_stale",
+      locked_listing_id: "lst_stale",
+      quantity: 1,
+      updated_at: "2026-06-10T00:00:00.000Z",
+    } as Partial<CartLinePage>);
+    const newest = line({
+      buyer_account_id: claimedB,
+      line_id: "cli_shared",
+      product_id: "prd_newest",
+      locked_listing_id: "lst_newest",
+      updated_at: "2026-06-28T00:00:00.000Z",
+    });
+    const db = new CartReadModelDb([stale, newest], [], [], claims);
+
+    const rows = await listCartLines(db, account);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      buyer_account_id: claimedB,
+      product_id: "prd_newest",
+      locked_listing_id: "lst_newest",
+    });
+  });
+
+  it("breaks a claimed timestamp tie on the smallest source owner key", async () => {
+    const tieB = line({
+      buyer_account_id: claimedB,
+      line_id: "cli_shared",
+      product_id: "prd_b",
+      updated_at: "2026-06-20T00:00:00.000Z",
+    });
+    const tieA = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_shared",
+      product_id: "prd_a",
+      updated_at: "2026-06-20T00:00:00.000Z",
+    });
+    const db = new CartReadModelDb([tieB, tieA], [], [], claims);
+
+    const rows = await listCartLines(db, account);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ buyer_account_id: claimedA, product_id: "prd_a" });
+  });
+
+  it("includes a key that is both claimed and presented exactly once, inside the Account union", async () => {
+    const overlap = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_overlap",
+      updated_at: "2026-06-05T00:00:00.000Z",
+    });
+    const own = line({ line_id: "cli_own", updated_at: "2026-06-06T00:00:00.000Z" });
+    const db = new CartReadModelDb([overlap, own], [], [], claims);
+
+    const rows = await listCartLines(db, account, claimedA);
+
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_own", "cli_overlap"]);
+    expect(rows.filter((row) => row.line_id === "cli_overlap")).toHaveLength(1);
+  });
+
+  it("keeps multiple claimed devices and distinct product lines separate", async () => {
+    const deviceA = line({ buyer_account_id: claimedA, line_id: "cli_a", updated_at: "2026-06-10T00:00:00.000Z" });
+    const deviceB = line({ buyer_account_id: claimedB, line_id: "cli_b", updated_at: "2026-06-11T00:00:00.000Z" });
+    const ownSameProduct = line({ line_id: "cli_own", updated_at: "2026-06-12T00:00:00.000Z" });
+    const db = new CartReadModelDb([deviceA, deviceB, ownSameProduct], [], [], claims);
+
+    const rows = await listCartLines(db, account);
+
+    // Same product on three streams with distinct line ids stays three rows.
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_own", "cli_b", "cli_a"]);
+    expect(rows.every((row) => row.product_id === "prd_1")).toBe(true);
+  });
+
+  it("confines claimed keys to the Account that holds them", async () => {
+    const claimedLine = line({ buyer_account_id: claimedA, line_id: "cli_claimed" });
+    const db = new CartReadModelDb([claimedLine], [], [], claims);
+
+    expect(await listCartLines(db, "acc_unrelated")).toEqual([]);
+  });
+
+  it("never expands claimed keys for an anonymous primary owner", async () => {
+    const anonymousOwn = line({ buyer_account_id: claimedA, line_id: "cli_claimed" });
+    const otherAnonymous = line({ buyer_account_id: claimedB, line_id: "cli_other" });
+    const db = new CartReadModelDb(
+      [anonymousOwn, otherAnonymous],
+      [],
+      [],
+      [{ source_owner_key: claimedB, account_id: claimedA }],
+    );
+
+    const rows = await listCartLines(db, claimedA);
+
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_claimed"]);
+  });
+
+  it("returns the shipped rows and order for a zero-claim Account, with and without a presented key", async () => {
+    const accountWinner = line({
+      buyer_account_id: "acc_buyer",
+      line_id: "cli_shared",
+      product_id: "prd_account",
+      locked_listing_id: "lst_account",
+      updated_at: "2026-06-10T00:00:00.000Z",
+    });
+    const anonymousLoser = line({
+      buyer_account_id: "anon_cart",
+      line_id: "cli_shared",
+      product_id: "prd_anonymous",
+      locked_listing_id: "lst_anonymous",
+      updated_at: "2026-06-20T00:00:00.000Z",
+    });
+    const accountOnly = line({ line_id: "cli_account", updated_at: "2026-06-11T00:00:00.000Z" });
+    const anonymousOnly = line({
+      buyer_account_id: "anon_cart",
+      line_id: "cli_anonymous",
+      updated_at: "2026-06-30T00:00:00.000Z",
+    });
+    const rowsFor = (dbClaims: readonly CartClaim[]) =>
+      new CartReadModelDb([anonymousOnly, anonymousLoser, accountWinner, accountOnly], [], [], dbClaims);
+
+    expect((await listCartLines(rowsFor([]), "acc_buyer", "anon_cart")).map((row) => row.line_id)).toEqual([
+      "cli_account",
+      "cli_shared",
+      "cli_anonymous",
+    ]);
+    expect((await listCartLines(rowsFor([]), "acc_buyer")).map((row) => row.line_id)).toEqual([
+      "cli_account",
+      "cli_shared",
+    ]);
+    // Claims held by a different Account change nothing here.
+    expect(
+      (
+        await listCartLines(
+          rowsFor([{ source_owner_key: "anon_cart", account_id: "acc_other" }]),
+          "acc_buyer",
+          "anon_cart",
+        )
+      ).map((row) => row.line_id),
+    ).toEqual(["cli_account", "cli_shared", "cli_anonymous"]);
+  });
+
+  it("preserves the full seller-option enrichment for a claimed winning row", async () => {
+    const claimedLine = line({ buyer_account_id: claimedA, line_id: "cli_claimed", product_id: "prd_1" });
+    const db = new CartReadModelDb(
+      [claimedLine],
+      [
+        option({ listing_id: "lst_high", price_amount: "30.00", seller_account_id: "acc_seller" }),
+        option({ listing_id: "lst_cheap", price_amount: "20.00", seller_account_id: "acc_seller" }),
+        option({ listing_id: "lst_gone", price_amount: "1.00", status: "withdrawn" }),
+        option({ listing_id: "lst_full", price_amount: "2.00", supply_total_quantity: 0 }),
+      ],
+      [
+        {
+          account_id: "acc_seller",
+          display_name: "Card Vault",
+          slug: "card-vault",
+          average_rating: "4.90",
+          review_count: 12,
+        },
+      ],
+      claims,
+    );
+
+    const [row] = await listCartLines(db, account);
+
+    expect(row?.buyer_account_id).toBe(claimedA);
+    expect(row?.seller_options.map((sellerOption) => sellerOption.listing_id)).toEqual(["lst_cheap", "lst_high"]);
+    expect(row?.seller_options[0]).toMatchObject({
+      seller_display_name: "Card Vault",
+      seller_slug: "card-vault",
+      seller_average_rating: "4.90",
+      seller_review_count: 12,
+      available_quantity: 3,
+    });
+  });
+});
+
+describe("listOwnCartLines", () => {
+  const account = "acc_buyer";
+  const claimed = "anon_cart_a";
+  const claims: readonly CartClaim[] = [{ source_owner_key: claimed, account_id: account }];
+
+  it("resolves only the supplied owner's own lines, with claim expansion off and no presented key", async () => {
+    const own = line({ line_id: "cli_own" });
+    const claimedLine = line({ buyer_account_id: claimed, line_id: "cli_claimed" });
+    const db = new CartReadModelDb([own, claimedLine], [], [], claims);
+
+    const rows = await listOwnCartLines(db, account);
+
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_own"]);
+    expect(db.lastValues).toEqual([account, null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, false]);
+    expect(db.queryCount).toBe(1);
+  });
+
+  it("shares the seller-option enrichment with the union resolver", async () => {
+    const db = new CartReadModelDb(
+      [line()],
+      [
+        option({ listing_id: "lst_high", price_amount: "30.00" }),
+        option({ listing_id: "lst_locked", price_amount: "25.00" }),
+      ],
+      [],
+      claims,
+    );
+
+    const [row] = await listOwnCartLines(db, account);
+
+    expect(row?.seller_options.map((sellerOption) => sellerOption.listing_id)).toEqual(["lst_locked", "lst_high"]);
+  });
+
+  it("resolves an anonymous owner's own lines unchanged", async () => {
+    const anonymousLine = line({ buyer_account_id: claimed, line_id: "cli_claimed" });
+    const db = new CartReadModelDb([anonymousLine, line({ line_id: "cli_own" })], [], [], claims);
+
+    expect((await listOwnCartLines(db, claimed)).map((row) => row.line_id)).toEqual(["cli_claimed"]);
   });
 });

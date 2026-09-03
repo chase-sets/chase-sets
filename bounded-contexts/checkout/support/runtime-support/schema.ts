@@ -9,7 +9,7 @@ import {
   checkoutSellerAccountReviewsSchemaMigrations,
   checkoutSellerAccountReviewsSchemaSql,
 } from "../../features/cart/integrations/reputation/reputation-schema";
-import { checkoutCartSchemaSql } from "../../features/cart/read-model/schema";
+import { checkoutCartSchemaMigrations, checkoutCartSchemaSql } from "../../features/cart/read-model/schema";
 import {
   checkoutSellListSchemaMigrations,
   checkoutSellListSchemaSql,
@@ -35,6 +35,7 @@ export const checkoutSchemaSql = [
 ].join("\n");
 
 export const checkoutSchemaMigrations = [
+  ...checkoutCartSchemaMigrations,
   ...checkoutMarketplaceSellerOptionsSchemaMigrations,
   ...checkoutSessionSchemaMigrations,
   ...checkoutSellerAccountReviewsSchemaMigrations,

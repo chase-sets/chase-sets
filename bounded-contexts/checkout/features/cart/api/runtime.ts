@@ -18,6 +18,7 @@ import {
   decideCheckoutCart,
   evolveCheckoutCart,
   initialCheckoutCartState,
+  requireCheckoutCartClaimIdentity,
   type CheckoutCartCommand,
   type CheckoutCartEvent,
   type CheckoutSelectedListingSnapshotInput,
@@ -29,7 +30,7 @@ import {
   type CartReadinessSnapshot,
 } from "../domain/readiness";
 import { buildCheckoutCartProjectionHandlers } from "../read-model/projection";
-import { listCartLines } from "../read-model/queries";
+import { listCartLines, listOwnCartLines, reconcileCheckoutCartClaim } from "../read-model/queries";
 
 function isIdempotentMergeReplay(error: unknown) {
   return (
@@ -132,6 +133,13 @@ export type CheckoutCartServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ lineId: CartLineId; version: number }>;
   checkout: (accountId: AccountId, context: EventStoreContext) => Promise<{ version: number }>;
+  claimCart: (
+    params: Readonly<{
+      sourceOwnerKey: string;
+      accountId: AccountId;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ version: number }>;
   mergeCartIntoAccount: (
     params: Readonly<{
       sourceOwnerId: string;
@@ -208,7 +216,10 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     const lockedListingId = params.lockedListingId?.trim() || null;
     const sellerPreferenceId = params.sellerPreferenceId?.trim() || null;
 
-    const existingLine = (await listCartLines(deps.db, params.accountId)).find(
+    // Own-key only: a matching line held on a claimed source stream must not
+    // turn this add into a SetCartLineQuantity against the Account stream,
+    // where that line does not exist.
+    const existingLine = (await listOwnCartLines(deps.db, params.accountId)).find(
       (line) =>
         line.catalog_catalog_item_id === params.catalogItemId &&
         line.product_id === catalogVersion.productId &&
@@ -369,6 +380,38 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
         },
         context,
       });
+
+      return { version: result.version };
+    },
+    // Caller-inert foundation: nothing in this repository invokes claimCart.
+    // Wiring a caller requires the claimed-stream mutation authority (#7121),
+    // the post-claim read/session authority (#7257), and #5737's atomic
+    // retirement of the public cart merge endpoint. Neither the alias below nor
+    // possession of a claimed key grants any authority on its own.
+    //
+    // Ownership is serialized on the claimed SOURCE stream, never on the
+    // claimant's Account stream: only the shared source stream's loaded-version
+    // OCC can order two Accounts racing for the same cart. The alias table's
+    // primary key stops contradictory rows; it is not the serialization
+    // primitive.
+    claimCart: async (params, context) => {
+      const claim = requireCheckoutCartClaimIdentity(params);
+      const result = await commandHandler({
+        streamId: `checkout.cart-${claim.sourceOwnerKey}`,
+        command: {
+          type: "ClaimCart",
+          sourceOwnerKey: claim.sourceOwnerKey,
+          accountId: claim.accountId,
+        },
+        context,
+      });
+
+      // Event first, alias second, with no distributed transaction and no
+      // projection wait. This runs after a zero-event steady-state return as
+      // well, so a retry after a committed event whose alias never landed
+      // repairs the pair without appending a second event -- and an alias
+      // failure propagates instead of being reported as a successful claim.
+      await reconcileCheckoutCartClaim(deps.db, claim);
 
       return { version: result.version };
     },

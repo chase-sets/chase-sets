@@ -53,15 +53,54 @@ export type CheckoutSelectedListingSnapshotInput = Readonly<{
 
 export type CheckoutCartState = Readonly<{
   buyerAccountId: AccountId | null;
+  // The Account that claimed this anonymous source stream, if any. Claiming never
+  // rewrites `buyerAccountId`: the source stream keeps its own identity so its
+  // projected lines stay addressable by the key that wrote them.
+  claimedByAccountId: AccountId | null;
   lines: readonly CheckoutCartLine[];
   lastCheckedOutAt: string | null;
 }>;
 
 export const initialCheckoutCartState: CheckoutCartState = {
   buyerAccountId: null,
+  claimedByAccountId: null,
   lines: [],
   lastCheckedOutAt: null,
 };
+
+const ANONYMOUS_CART_OWNER_PREFIX = "anon_";
+const CLAIMING_ACCOUNT_PREFIX = "acc_";
+
+export type CheckoutCartClaimIdentity = Readonly<{
+  sourceOwnerKey: string;
+  accountId: AccountId;
+}>;
+
+// Cart Claim identity equality is exact: an unpadded, whitespace-free string with
+// the required prefix and a non-empty suffix. Trimming an identifier here would
+// silently address a different stream, so a padded value is refused rather than
+// normalized. This deliberately does not introduce strict-ULID validation --
+// synthetic `acc_buyer` / `anon_cart_a` and generated identifiers stay valid.
+function isExactPrefixedIdentity(value: unknown, prefix: string): value is string {
+  return typeof value === "string" && value.length > prefix.length && value.startsWith(prefix) && !/\s/.test(value);
+}
+
+export function requireCheckoutCartClaimIdentity(claim: Readonly<{ sourceOwnerKey: unknown; accountId: unknown }>) {
+  assert(
+    isExactPrefixedIdentity(claim.sourceOwnerKey, ANONYMOUS_CART_OWNER_PREFIX),
+    "Cart claim source must be an exact anonymous cart key.",
+  );
+  assert(
+    isExactPrefixedIdentity(claim.accountId, CLAIMING_ACCOUNT_PREFIX),
+    "Cart claim account must be an exact account id.",
+  );
+  assert(claim.sourceOwnerKey !== claim.accountId, "A cart cannot claim itself.");
+
+  return {
+    sourceOwnerKey: claim.sourceOwnerKey,
+    accountId: claim.accountId as AccountId,
+  } satisfies CheckoutCartClaimIdentity;
+}
 
 export type AddCartLineCommand = Readonly<{
   type: "AddCartLine";
@@ -113,12 +152,19 @@ export type ClearCartCommand = Readonly<{
   checkedOutAt: string;
 }>;
 
+export type ClaimCartCommand = Readonly<{
+  type: "ClaimCart";
+  sourceOwnerKey: string;
+  accountId: AccountId;
+}>;
+
 export type CheckoutCartCommand =
   | AddCartLineCommand
   | SetCartLineQuantityCommand
   | SetCartLineFulfillmentCommand
   | RemoveCartLineCommand
-  | ClearCartCommand;
+  | ClearCartCommand
+  | ClaimCartCommand;
 
 export type CartLineAddedEvent = DomainEvent<
   "checkout.cart.line-added",
@@ -181,12 +227,21 @@ export type CartCheckedOutEvent = DomainEvent<
   }>
 >;
 
+export type CartClaimedByAccountEvent = DomainEvent<
+  "checkout.cart.claimed-by-account",
+  Readonly<{
+    sourceOwnerKey: string;
+    accountId: AccountId;
+  }>
+>;
+
 export type CheckoutCartEvent =
   | CartLineAddedEvent
   | CartLineQuantitySetEvent
   | CartLineFulfillmentSetEvent
   | CartLineRemovedEvent
-  | CartCheckedOutEvent;
+  | CartCheckedOutEvent
+  | CartClaimedByAccountEvent;
 
 function requireCartLine(state: CheckoutCartState, lineId: CartLineId) {
   const line = state.lines.find((entry) => entry.lineId === lineId);
@@ -363,6 +418,33 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
           },
         },
       ];
+    case "ClaimCart": {
+      const claim = requireCheckoutCartClaimIdentity(command);
+      // The runtime builds the stream id from this same validated source, so an
+      // initialized state owned by a different key means the command was
+      // addressed at the wrong stream. Refuse before any event or alias write.
+      assert(
+        state.buyerAccountId === null || state.buyerAccountId === claim.sourceOwnerKey,
+        "Cart claim source does not match the cart stream owner.",
+      );
+      // A pre-feature snapshot has no claim field at all; an absent field is an
+      // unclaimed cart, never a refusal.
+      const claimedByAccountId = state.claimedByAccountId ?? null;
+      if (claimedByAccountId === claim.accountId) {
+        return [];
+      }
+
+      assert(claimedByAccountId === null, "Cart is already claimed by a different account.");
+      return [
+        {
+          type: "checkout.cart.claimed-by-account",
+          data: {
+            sourceOwnerKey: claim.sourceOwnerKey,
+            accountId: claim.accountId,
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -373,6 +455,7 @@ export const evolveCheckoutCart: AggregateEvolver<CheckoutCartState, CheckoutCar
     case "checkout.cart.line-added":
       return {
         buyerAccountId: event.data.buyerAccountId,
+        claimedByAccountId: state.claimedByAccountId ?? null,
         lines: [
           ...state.lines,
           {
@@ -436,8 +519,19 @@ export const evolveCheckoutCart: AggregateEvolver<CheckoutCartState, CheckoutCar
     case "checkout.cart.checked-out":
       return {
         buyerAccountId: event.data.buyerAccountId,
+        // Checking out clears lines, never ownership: a claimed cart stays
+        // claimed after it is emptied.
+        claimedByAccountId: state.claimedByAccountId ?? null,
         lines: [],
         lastCheckedOutAt: event.data.checkedOutAt,
+      };
+    case "checkout.cart.claimed-by-account":
+      return {
+        ...state,
+        // The claim establishes the source stream identity when the anonymous
+        // cart has no line history yet.
+        buyerAccountId: state.buyerAccountId ?? (event.data.sourceOwnerKey as AccountId),
+        claimedByAccountId: event.data.accountId,
       };
     default:
       return assertNever(event);

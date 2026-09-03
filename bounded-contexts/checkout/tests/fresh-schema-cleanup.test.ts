@@ -9,8 +9,13 @@ import {
   checkoutMarketplaceSellerOptionsSchemaMigrations,
   checkoutMarketplaceSellerOptionsSchemaSql,
 } from "../features/cart/integrations/marketplace/marketplace-schema";
-import { checkoutCartSchemaSql } from "../features/cart/read-model/schema";
+import {
+  checkoutCartClaimsTableSchemaSql,
+  checkoutCartSchemaMigrations,
+  checkoutCartSchemaSql,
+} from "../features/cart/read-model/schema";
 import { checkoutSellListSchemaMigrations, checkoutSellListSchemaSql } from "../features/sell-list/read-model/schema";
+import { checkoutSchemaMigrations, checkoutSchemaSql } from "../support/runtime-support/schema";
 import { checkoutSessionSchemaMigrations, checkoutSessionSchemaSql } from "../features/sessions/read-model/schema";
 
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -127,6 +132,54 @@ describe("fresh checkout read-model schemas", () => {
     ]);
     expect(checkoutSessionSchemaMigrations[0]?.statements).toHaveLength(1);
     expect(checkoutSessionSchemaMigrations[0]?.statements.join("\n")).not.toMatch(/SET NOT NULL/);
+  });
+
+  it("creates the Cart Claim alias from one shared definition on fresh boot and on existing databases", () => {
+    // The fresh-boot table and the ledger entry are the same definition, so a
+    // database created before Cart Claim cannot keep an older shape.
+    expect(checkoutCartSchemaSql).toContain(checkoutCartClaimsTableSchemaSql);
+    expect(checkoutCartSchemaSql).toContain(
+      "CREATE INDEX IF NOT EXISTS checkout_cart_claims_account_idx\n  ON checkout_cart_claims (account_id, source_owner_key);",
+    );
+    expect(checkoutCartClaimsTableSchemaSql).toContain("PRIMARY KEY (source_owner_key)");
+    expect(checkoutCartClaimsTableSchemaSql).toContain("CHECK (source_owner_key ~ '^anon_[^[:space:]]+$')");
+    expect(checkoutCartClaimsTableSchemaSql).toContain("CHECK (account_id ~ '^acc_[^[:space:]]+$')");
+    expect(checkoutCartSchemaMigrations).toEqual([
+      expect.objectContaining({
+        migrationId: "20260903_checkout_cart_claims",
+        statements: [
+          checkoutCartClaimsTableSchemaSql,
+          expect.stringContaining("CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_cart_claims_account_idx"),
+        ],
+      }),
+    ]);
+    expect(checkoutCartSchemaMigrations[0]?.statements).toHaveLength(2);
+    // The alias is written on the command path and read back in the same
+    // request, so it stays logged rather than joining the unlogged projections.
+    expect(checkoutCartClaimsTableSchemaSql).not.toMatch(/CREATE\s+UNLOGGED\s+TABLE/i);
+    expect(readText(join(checkoutRoot, "support/runtime-support/unlogged-projection-migrations.ts"))).not.toContain(
+      "checkout_cart_claims",
+    );
+  });
+
+  it("composes the Cart Claim boot SQL and migration into the Checkout module without other drift", () => {
+    const manifest = JSON.parse(readText(join(checkoutRoot, "context.json"))) as {
+      projectionGroups?: Array<{ projectionName?: string; ownedTables?: string[]; resetStrategy?: string }>;
+    };
+
+    expect(checkoutSchemaSql).toContain("CREATE TABLE IF NOT EXISTS checkout_cart_claims");
+    expect(checkoutSchemaMigrations).toEqual(expect.arrayContaining([...checkoutCartSchemaMigrations]));
+    expect(checkoutSchemaMigrations.filter((migration) => migration.migrationId.includes("cart_claims"))).toHaveLength(
+      1,
+    );
+    // Registered reset ownership: replay rebuilds the alias after a truncate.
+    expect(manifest.projectionGroups?.find((group) => group.projectionName === "checkout.cart-projection")).toEqual({
+      projectionName: "checkout.cart-projection",
+      sourceContextNames: ["checkout"],
+      ownedTables: ["checkout_cart_line_pages", "checkout_cart_claims"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    });
   });
 
   it("keeps checkout inventory schema evolution before indexes that use evolved columns", () => {

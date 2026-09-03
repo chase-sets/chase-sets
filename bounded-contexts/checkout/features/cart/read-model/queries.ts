@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
+import { CheckoutDomainError, type VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 
 export const CART_SELLER_OPTIONS_PER_LINE_LIMIT = 25;
 
@@ -46,6 +46,11 @@ export type CheckoutCartSellerOptionRow = Readonly<{
   available_quantity: number;
   product_summary: string | null;
   product_measure_snapshot: Readonly<Record<string, unknown>> | null;
+}>;
+
+export type CheckoutCartClaimRow = Readonly<{
+  source_owner_key: string;
+  account_id: string;
 }>;
 
 type CartLinePageRow = Readonly<{
@@ -156,18 +161,87 @@ function mapCartLineRow(row: CartLinePageRow): CheckoutCartLineRow {
   };
 }
 
-export async function listCartLines(
+export type CheckoutCartClaimPair = Readonly<{
+  sourceOwnerKey: string;
+  accountId: string;
+}>;
+
+/**
+ * Writes the operational Cart Claim alias and verifies what is actually stored.
+ *
+ * The insert is immutable -- conflicts do nothing -- so this never transfers
+ * ownership, and the read-back is what makes the call honest: a row naming a
+ * different Account is a conflict that must surface, not be overwritten and not
+ * be reported as a successful claim. Because the insert is idempotent, both the
+ * first claim and a later repair of a committed-event/missing-alias state run
+ * exactly the same statement pair.
+ *
+ * The caller supplies the database handle, so a projector passes its own
+ * transaction and this helper never opens or commits one of its own.
+ */
+export async function reconcileCheckoutCartClaim(db: PgQueryable, claim: CheckoutCartClaimPair): Promise<void> {
+  await db.query(
+    `INSERT INTO checkout_cart_claims (source_owner_key, account_id)
+     VALUES ($1, $2)
+     ON CONFLICT (source_owner_key) DO NOTHING`,
+    [claim.sourceOwnerKey, claim.accountId],
+  );
+
+  const stored = await db.query<CheckoutCartClaimRow>(
+    `SELECT claim.source_owner_key, claim.account_id
+     FROM checkout_cart_claims AS claim
+     WHERE claim.source_owner_key = $1`,
+    [claim.sourceOwnerKey],
+  );
+  const storedClaim = stored.rows[0];
+
+  if (!storedClaim) {
+    throw new CheckoutDomainError("Cart claim alias was not stored.", "cart_claim_not_reconciled");
+  }
+
+  if (storedClaim.account_id !== claim.accountId) {
+    throw new CheckoutDomainError("Cart claim alias is held by a different account.", "cart_claim_conflict");
+  }
+}
+
+/**
+ * Resolves the cart lines a requested owner may read, in one statement.
+ *
+ * Requested owners are the primary owner key, every source key that owner has
+ * claimed (Account reads only), and an optional presented anonymous key. They
+ * are deduplicated before ranking so a key that is both claimed and presented
+ * contributes one requested owner rather than multiplying rows.
+ *
+ * A `line_id` held by more than one requested owner resolves to exactly one
+ * whole row: the Account's own row wins, then the newest claimed row, then the
+ * lexicographically smallest source owner under the deterministic `C` collation,
+ * and a presented-only source last. Output puts the logical Account union
+ * (own plus claimed) first and the presented-only rows after it, each ordered
+ * `updated_at DESC, line_id ASC` -- which is exactly the shipped two-group order
+ * when the owner has no claims.
+ */
+async function resolveCartLines(
   db: PgQueryable,
-  buyerAccountId: string,
-  presentedAnonymousCartId?: string | null,
+  ownerKey: string,
+  presentedAnonymousCartId: string | null,
+  includeClaimedOwners: boolean,
 ): Promise<CheckoutCartLineRow[]> {
   const result = await db.query<CartLinePageRow>(
     `WITH requested_owners AS (
-       SELECT $1::text AS owner_id, 0::integer AS owner_precedence
-       UNION ALL
-       SELECT $2::text AS owner_id, 1::integer AS owner_precedence
-       WHERE $2::text IS NOT NULL
-         AND $2::text <> $1::text
+       SELECT candidate_owner.owner_id, MIN(candidate_owner.owner_precedence) AS owner_precedence
+       FROM (
+         SELECT $1::text AS owner_id, 0::integer AS owner_precedence
+         UNION ALL
+         SELECT claim.source_owner_key AS owner_id, 1::integer AS owner_precedence
+         FROM checkout_cart_claims AS claim
+         WHERE $4::boolean
+           AND starts_with($1::text, 'acc_')
+           AND claim.account_id = $1::text
+         UNION ALL
+         SELECT $2::text AS owner_id, 2::integer AS owner_precedence
+         WHERE $2::text IS NOT NULL
+       ) AS candidate_owner
+       GROUP BY candidate_owner.owner_id
      ),
      ranked_lines AS (
        SELECT
@@ -175,14 +249,19 @@ export async function listCartLines(
          requested_owner.owner_precedence,
          ROW_NUMBER() OVER (
            PARTITION BY cart_line.line_id
-           ORDER BY requested_owner.owner_precedence ASC
+           ORDER BY
+             requested_owner.owner_precedence ASC,
+             cart_line.updated_at DESC,
+             requested_owner.owner_id COLLATE "C" ASC
          ) AS owner_line_rank
        FROM requested_owners AS requested_owner
        INNER JOIN checkout_cart_line_pages AS cart_line
          ON cart_line.buyer_account_id = requested_owner.owner_id
      ),
      winning_lines AS (
-       SELECT ranked_line.*
+       SELECT
+         ranked_line.*,
+         CASE WHEN ranked_line.owner_precedence <= 1 THEN 0 ELSE 1 END AS owner_output_group
        FROM ranked_lines AS ranked_line
        WHERE ranked_line.owner_line_rank = 1
      )
@@ -278,9 +357,30 @@ export async function listCartLines(
        LEFT JOIN checkout_seller_accounts seller
          ON seller.account_id = o.seller_account_id
      ) opt ON true
-     ORDER BY line.owner_precedence ASC, line.updated_at DESC, line.line_id ASC`,
-    [buyerAccountId, presentedAnonymousCartId ?? null, CART_SELLER_OPTIONS_PER_LINE_LIMIT],
+     ORDER BY line.owner_output_group ASC, line.updated_at DESC, line.line_id ASC`,
+    [ownerKey, presentedAnonymousCartId, CART_SELLER_OPTIONS_PER_LINE_LIMIT, includeClaimedOwners],
   );
 
   return result.rows.map(mapCartLineRow);
+}
+
+export async function listCartLines(
+  db: PgQueryable,
+  buyerAccountId: string,
+  presentedAnonymousCartId?: string | null,
+): Promise<CheckoutCartLineRow[]> {
+  return resolveCartLines(db, buyerAccountId, presentedAnonymousCartId ?? null, true);
+}
+
+/**
+ * Resolves only the lines the supplied owner key holds itself -- no claimed keys
+ * and no presented key -- through the same SQL and seller-option enrichment.
+ *
+ * A caller that must address one aggregate needs this instead of filtering a
+ * resolved union afterwards: matching a line that lives on a claimed source
+ * stream and then commanding the Account stream targets an aggregate where that
+ * line does not exist.
+ */
+export async function listOwnCartLines(db: PgQueryable, ownerKey: string): Promise<CheckoutCartLineRow[]> {
+  return resolveCartLines(db, ownerKey, null, false);
 }

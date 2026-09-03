@@ -1,5 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPgPool,
+  createPostgresEventStore,
+  withPgTransaction,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -8,13 +19,21 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as checkoutModule } from "../../../index";
+import { createCheckoutCartRuntime } from "../api/runtime";
+import {
+  decideCheckoutCart,
+  evolveCheckoutCart,
+  initialCheckoutCartState,
+  type CheckoutCartEvent,
+} from "../domain/domain";
 import {
   applyCartReadinessToLines,
   cartReadinessDecisionsFromSnapshot,
   createCartReadinessSnapshot,
   validateCartReadinessSnapshot,
 } from "../domain/readiness";
-import { listCartLines, type CheckoutCartLineRow } from "./queries";
+import { buildCheckoutCartProjectionHandlers } from "./projection";
+import { listCartLines, listOwnCartLines, type CheckoutCartLineRow } from "./queries";
 
 /**
  * DB-tier replacement for the former seller-options readiness interpreter test.
@@ -65,6 +84,15 @@ const contextNames = ["checkout"] as const;
 const buyerAccountId = "acc_buyer";
 let pool: PgTransactionalPool;
 let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
+let checkoutDatabaseUrl: string;
+
+const context: EventStoreContext = {
+  tenantId: "tnt_test" as never,
+  audit: {
+    performedByUserId: "usr_buyer" as never,
+    forAccountId: "acc_buyer" as never,
+  },
+};
 
 describeDb("seller-options readiness against the checkout read model", () => {
   beforeAll(async () => {
@@ -76,6 +104,7 @@ describeDb("seller-options readiness against the checkout read model", () => {
     await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
     pool = pools.checkout;
+    checkoutDatabaseUrl = databaseUrls.checkout;
   });
 
   beforeEach(async () => {
@@ -748,3 +777,634 @@ function requireDatabaseBaseUrl(): string {
   }
   return databaseBaseUrl;
 }
+
+const claimAccount = "acc_claimer";
+const otherAccount = "acc_rival";
+const claimedSourceA = "anon_cart_a";
+const claimedSourceB = "anon_cart_b";
+const presentedSource = "anon_presented";
+const claimedStreamA = `checkout.cart-${claimedSourceA}`;
+
+function createCartRuntime(targetPool: PgTransactionalPool) {
+  const eventStore = createPostgresEventStore({ pool: targetPool });
+  return {
+    eventStore,
+    runtime: createCheckoutCartRuntime({ eventStore, checkpointStore: {} as never, db: targetPool }),
+  };
+}
+
+function createClaimAggregate(targetPool: PgTransactionalPool) {
+  return createAggregateCommandHandler({
+    eventStore: createPostgresEventStore({ pool: targetPool }),
+    codec: createPassthroughDomainEventCodec<CheckoutCartEvent>(),
+    initialState: () => initialCheckoutCartState,
+    evolve: evolveCheckoutCart,
+    decide: decideCheckoutCart,
+  });
+}
+
+async function readClaims(db: PgQueryable = pool) {
+  const result = await db.query<{ source_owner_key: string; account_id: string }>(
+    "SELECT source_owner_key, account_id FROM checkout_cart_claims ORDER BY source_owner_key",
+  );
+  return result.rows;
+}
+
+async function readStreamEventTypes(streamId: string) {
+  const result = await pool.query<{ event_type: string }>(
+    "SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version",
+    [streamId],
+  );
+  return result.rows.map((row) => row.event_type);
+}
+
+async function readAllStoredEvents() {
+  const result = await pool.query<{ stream_id: string; event_type: string; payload: unknown }>(
+    "SELECT stream_id, event_type, payload FROM event_store_events ORDER BY global_position",
+  );
+  return result.rows;
+}
+
+async function readClaimsTableFacts() {
+  const columns = await pool.query<{ column_name: string; is_nullable: string; data_type: string }>(
+    `SELECT column_name, is_nullable, data_type
+     FROM information_schema.columns
+     WHERE table_name = 'checkout_cart_claims'
+     ORDER BY ordinal_position`,
+  );
+  const indexes = await pool.query<{ indexname: string; indexdef: string }>(
+    "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'checkout_cart_claims' ORDER BY indexname",
+  );
+  const constraints = await pool.query<{ conname: string; definition: string }>(
+    `SELECT conname, pg_get_constraintdef(oid) AS definition
+     FROM pg_constraint
+     WHERE conrelid = 'checkout_cart_claims'::regclass AND contype = 'c'
+     ORDER BY conname`,
+  );
+  const persistence = await pool.query<{ relpersistence: string }>(
+    "SELECT relpersistence FROM pg_class WHERE relname = 'checkout_cart_claims'",
+  );
+  const ledger = await pool.query<{ migration_id: string }>(
+    "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1",
+    ["20260903_checkout_cart_claims"],
+  );
+
+  return {
+    columns: columns.rows,
+    indexNames: indexes.rows.map((row) => row.indexname),
+    accountIndexDefinition: indexes.rows.find((row) => row.indexname === "checkout_cart_claims_account_idx")?.indexdef,
+    constraintNames: constraints.rows.map((row) => row.conname),
+    persistence: persistence.rows[0]?.relpersistence,
+    ledgerRows: ledger.rows.length,
+  };
+}
+
+async function tableExists(tableName: string) {
+  const result = await pool.query<{ exists: boolean }>("SELECT to_regclass($1) IS NOT NULL AS exists", [tableName]);
+  return result.rows[0]?.exists === true;
+}
+
+function claimedLine(overrides: Partial<SeededCartLine> = {}): SeededCartLine {
+  return seededLine({ buyer_account_id: claimedSourceA, line_id: "cli_source", ...overrides });
+}
+
+describeDb("cart claim against the checkout read model", () => {
+  beforeAll(async () => {
+    const databaseUrls = createMultiContextTestDatabaseUrls(requireDatabaseBaseUrl(), contextNames, "cart_claim");
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
+    pools = createMultiContextTestPools(databaseUrls);
+    pool = pools.checkout;
+    checkoutDatabaseUrl = databaseUrls.checkout;
+  });
+
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas({ checkout: pool });
+    // Composes event-core schema, the Checkout boot SQL and every registered
+    // migration -- including the Cart Claim ledger entry -- exactly as boot does.
+    await bootstrapContextDatabase(checkoutModule, pool);
+  });
+
+  afterAll(async () => {
+    if (pools) {
+      await closeMultiContextTestPools(pools);
+    }
+    pools = undefined;
+  });
+
+  it("claims a source stream with one event, zero copied lines, and read-your-claim through production SQL", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own", updated_at: "2026-06-16T00:00:00.000Z" }),
+        claimedLine({ updated_at: "2026-06-18T00:00:00.000Z" }),
+      ],
+      [seededOption({ listing_id: "lst_cheap", price_amount: "24.00" }), seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+
+    const before = await listCartLines(pool, claimAccount);
+    const result = await runtime.claimCart(
+      { sourceOwnerKey: claimedSourceA, accountId: claimAccount as never },
+      context,
+    );
+    const after = await listCartLines(pool, claimAccount);
+
+    expect(before.map((line) => line.line_id)).toEqual(["cli_own"]);
+    expect(result).toEqual({ version: 1 });
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual(["checkout.cart.claimed-by-account"]);
+    expect(await readStreamEventTypes(`checkout.cart-${claimAccount}`)).toEqual([]);
+    // No line was copied: the two seeded rows are still the only two rows.
+    expect(
+      (await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM checkout_cart_line_pages")).rows[0],
+    ).toEqual({ count: "2" });
+    expect(after.map((line) => line.line_id)).toEqual(["cli_source", "cli_own"]);
+    expect(after.map((line) => line.buyer_account_id)).toEqual([claimedSourceA, claimAccount]);
+    // The claimed row keeps the full seller-option enrichment.
+    expect(after[0]?.seller_options.map((option) => option.listing_id)).toEqual(["lst_cheap", "lst_dear"]);
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+  });
+
+  it("claims a valid empty source and a cleared source without inventing lines", async () => {
+    const { runtime } = createCartRuntime(pool);
+
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    expect(await listCartLines(pool, claimAccount)).toEqual([]);
+
+    await seedReadModel([claimedLine({ buyer_account_id: claimedSourceB, line_id: "cli_b" })], [seededOption()]);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceB, accountId: claimAccount as never }, context);
+    await pool.query("DELETE FROM checkout_cart_line_pages WHERE buyer_account_id = $1", [claimedSourceB]);
+
+    // A cleared claimed cart resolves to no lines and stays claimed.
+    expect(await listCartLines(pool, claimAccount)).toEqual([]);
+    expect(await readClaims()).toEqual([
+      { source_owner_key: claimedSourceA, account_id: claimAccount },
+      { source_owner_key: claimedSourceB, account_id: claimAccount },
+    ]);
+  });
+
+  it("repairs a committed claim whose alias is missing, without appending a second event", async () => {
+    const { runtime } = createCartRuntime(pool);
+
+    const first = await runtime.claimCart(
+      { sourceOwnerKey: claimedSourceA, accountId: claimAccount as never },
+      context,
+    );
+    await pool.query("DELETE FROM checkout_cart_claims WHERE source_owner_key = $1", [claimedSourceA]);
+    expect(await readClaims()).toEqual([]);
+
+    const retry = await runtime.claimCart(
+      { sourceOwnerKey: claimedSourceA, accountId: claimAccount as never },
+      context,
+    );
+    const steady = await runtime.claimCart(
+      { sourceOwnerKey: claimedSourceA, accountId: claimAccount as never },
+      context,
+    );
+
+    expect(retry.version).toBe(first.version);
+    expect(steady.version).toBe(first.version);
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual(["checkout.cart.claimed-by-account"]);
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+  });
+
+  it("serializes two Accounts on the source stream's loaded version, not on alias uniqueness", async () => {
+    const contenderPool = createPgPool(checkoutDatabaseUrl);
+
+    try {
+      const incumbent = createClaimAggregate(pool);
+      const rival = createClaimAggregate(contenderPool);
+
+      // Both contenders load the SAME source stream at the same version, on two
+      // separate connections, before either decides.
+      const loadedByIncumbent = await incumbent.repository.load(claimedStreamA);
+      const loadedByRival = await rival.repository.load(claimedStreamA);
+      expect(loadedByIncumbent.version).toBe(0);
+      expect(loadedByRival.version).toBe(loadedByIncumbent.version);
+      expect(loadedByIncumbent.state.claimedByAccountId).toBeNull();
+      expect(loadedByRival.state.claimedByAccountId).toBeNull();
+
+      const incumbentEvents = decideCheckoutCart(loadedByIncumbent.state, {
+        type: "ClaimCart",
+        sourceOwnerKey: claimedSourceA,
+        accountId: claimAccount as never,
+      });
+      const rivalEvents = decideCheckoutCart(loadedByRival.state, {
+        type: "ClaimCart",
+        sourceOwnerKey: claimedSourceA,
+        accountId: otherAccount as never,
+      });
+      expect(incumbentEvents).toHaveLength(1);
+      expect(rivalEvents).toHaveLength(1);
+
+      const stored = await incumbent.repository.append({
+        streamId: claimedStreamA,
+        expectedVersion: loadedByIncumbent.version,
+        context,
+        events: incumbentEvents,
+      });
+      expect(stored.map((event) => event.streamVersion)).toEqual([1]);
+
+      // The loser appends at its own stale loaded version and is rejected by the
+      // event store, not by the alias table.
+      await expect(
+        rival.repository.append({
+          streamId: claimedStreamA,
+          expectedVersion: loadedByRival.version,
+          context,
+          events: rivalEvents,
+        }),
+      ).rejects.toThrow();
+
+      const { runtime: winnerRuntime } = createCartRuntime(pool);
+      const { runtime: loserRuntime } = createCartRuntime(contenderPool);
+      await winnerRuntime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+      // Retrying the loser reloads and observes the winning claimant.
+      await expect(
+        loserRuntime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: otherAccount as never }, context),
+      ).rejects.toThrow("Cart is already claimed by a different account.");
+
+      expect(await readStreamEventTypes(claimedStreamA)).toEqual(["checkout.cart.claimed-by-account"]);
+      expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+    } finally {
+      await (contenderPool as unknown as { end: () => Promise<void> }).end();
+    }
+  });
+
+  it("never accepts a contradictory alias as a successful claim", async () => {
+    await pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+      claimedSourceA,
+      otherAccount,
+    ]);
+    const { runtime } = createCartRuntime(pool);
+
+    await expect(
+      runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context),
+    ).rejects.toThrow("Cart claim alias is held by a different account.");
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: otherAccount }]);
+  });
+
+  it("excludes invalid alias rows at the table, independently of the command", async () => {
+    const invalidRows: Array<readonly [string, string]> = [
+      ["acc_buyer", claimAccount],
+      ["anon_", claimAccount],
+      [" anon_cart_a", claimAccount],
+      ["anon_cart_a ", claimAccount],
+      ["anon_cart a", claimAccount],
+      ["", claimAccount],
+      [claimedSourceA, "anon_cart_b"],
+      [claimedSourceA, "acc_"],
+      [claimedSourceA, " acc_buyer"],
+      [claimedSourceA, ""],
+    ];
+
+    for (const [sourceOwnerKey, accountId] of invalidRows) {
+      await expect(
+        pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+          sourceOwnerKey,
+          accountId,
+        ]),
+      ).rejects.toThrow(/violates check constraint/);
+    }
+
+    expect(await readClaims()).toEqual([]);
+  });
+
+  it("refuses malformed identities before writing any event or alias", async () => {
+    const { runtime } = createCartRuntime(pool);
+
+    for (const candidate of [
+      { sourceOwnerKey: "acc_buyer", accountId: claimAccount },
+      { sourceOwnerKey: "anon_", accountId: claimAccount },
+      { sourceOwnerKey: " anon_cart_a", accountId: claimAccount },
+      { sourceOwnerKey: claimedSourceA, accountId: "anon_cart_b" },
+      { sourceOwnerKey: claimedSourceA, accountId: "acc_ " },
+    ]) {
+      await expect(
+        runtime.claimCart(
+          { sourceOwnerKey: candidate.sourceOwnerKey, accountId: candidate.accountId as never },
+          context,
+        ),
+      ).rejects.toThrow(/Cart claim (source|account) must be an exact/);
+    }
+
+    expect(await readAllStoredEvents()).toEqual([]);
+    expect(await readClaims()).toEqual([]);
+  });
+
+  it("selects deterministic whole-row winners across own, claimed and presented owners", async () => {
+    await seedReadModel(
+      [
+        // Account/claim duplicate: the Account's own row must win despite being older.
+        seededLine({
+          buyer_account_id: claimAccount,
+          line_id: "cli_shared",
+          locked_listing_id: "lst_dear",
+          seller_preference_id: "lst_dear",
+          updated_at: "2026-06-01T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: claimedSourceA,
+          line_id: "cli_shared",
+          locked_listing_id: "lst_cheap",
+          seller_preference_id: "lst_cheap",
+          updated_at: "2026-06-25T00:00:00.000Z",
+        }),
+        // Divergent claimed duplicate: the newest claimed row wins.
+        seededLine({
+          buyer_account_id: claimedSourceA,
+          line_id: "cli_divergent",
+          quantity: 1,
+          updated_at: "2026-06-10T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: claimedSourceB,
+          line_id: "cli_divergent",
+          quantity: 7,
+          updated_at: "2026-06-20T00:00:00.000Z",
+        }),
+        // Timestamp tie: the byte-smallest source owner wins.
+        seededLine({
+          buyer_account_id: claimedSourceB,
+          line_id: "cli_tied",
+          quantity: 2,
+          updated_at: "2026-06-15T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: claimedSourceA,
+          line_id: "cli_tied",
+          quantity: 3,
+          updated_at: "2026-06-15T00:00:00.000Z",
+        }),
+        // Presented-only source, plus a duplicate the Account union already owns.
+        seededLine({
+          buyer_account_id: presentedSource,
+          line_id: "cli_presented",
+          updated_at: "2026-06-30T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: presentedSource,
+          line_id: "cli_shared",
+          locked_listing_id: "lst_cheap",
+          updated_at: "2026-06-29T00:00:00.000Z",
+        }),
+        // A cart belonging to nobody in this read.
+        seededLine({ buyer_account_id: "anon_unrelated", line_id: "cli_unrelated" }),
+      ],
+      [seededOption({ listing_id: "lst_cheap", price_amount: "24.00" }), seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceB, accountId: claimAccount as never }, context);
+
+    const rows = await listCartLines(pool, claimAccount, presentedSource);
+    const byLineId = new Map(rows.map((row) => [row.line_id, row]));
+
+    // Account union first, then presented-only, each updated_at DESC / line_id ASC.
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_divergent", "cli_tied", "cli_shared", "cli_presented"]);
+    expect(byLineId.get("cli_shared")).toMatchObject({
+      buyer_account_id: claimAccount,
+      locked_listing_id: "lst_dear",
+      seller_preference_id: "lst_dear",
+    });
+    expect(byLineId.get("cli_divergent")).toMatchObject({ buyer_account_id: claimedSourceB, quantity: 7 });
+    expect(byLineId.get("cli_tied")).toMatchObject({ buyer_account_id: claimedSourceA, quantity: 3 });
+    expect(byLineId.get("cli_presented")).toMatchObject({ buyer_account_id: presentedSource });
+    expect(rows.filter((row) => row.line_id === "cli_shared")).toHaveLength(1);
+    // Seller-option enrichment is unchanged for every winning row.
+    for (const row of rows) {
+      expect(row.seller_options.map((option) => option.listing_id)).toEqual(["lst_cheap", "lst_dear"]);
+      expect(row.seller_options[0]).toMatchObject({ price_amount: "24.00", available_quantity: 3 });
+    }
+    // An unrelated Account sees nothing from these claims.
+    expect(await listCartLines(pool, "acc_unrelated")).toEqual([]);
+  });
+
+  it("counts a claimed key that is also presented exactly once, inside the Account union", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own", updated_at: "2026-06-05T00:00:00.000Z" }),
+        claimedLine({ line_id: "cli_overlap", updated_at: "2026-06-06T00:00:00.000Z" }),
+      ],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    const rows = await listCartLines(pool, claimAccount, claimedSourceA);
+
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_overlap", "cli_own"]);
+    expect(rows).toHaveLength(2);
+  });
+
+  it("keeps zero-claim Account, Account-plus-presented and anonymous reads exactly as shipped", async () => {
+    await seedReadModel(
+      [
+        seededLine({
+          buyer_account_id: claimAccount,
+          line_id: "cli_shared",
+          locked_listing_id: "lst_dear",
+          updated_at: "2026-06-10T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: presentedSource,
+          line_id: "cli_shared",
+          locked_listing_id: "lst_cheap",
+          updated_at: "2026-06-20T00:00:00.000Z",
+        }),
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_account", updated_at: "2026-06-11T00:00:00.000Z" }),
+        seededLine({
+          buyer_account_id: presentedSource,
+          line_id: "cli_anonymous",
+          updated_at: "2026-06-30T00:00:00.000Z",
+        }),
+        // Claimed by a DIFFERENT account: it must not leak into this read.
+        seededLine({ buyer_account_id: claimedSourceA, line_id: "cli_rival", updated_at: "2026-07-01T00:00:00.000Z" }),
+      ],
+      [seededOption()],
+    );
+    await pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+      claimedSourceA,
+      otherAccount,
+    ]);
+
+    expect((await listCartLines(pool, claimAccount, presentedSource)).map((row) => row.line_id)).toEqual([
+      "cli_account",
+      "cli_shared",
+      "cli_anonymous",
+    ]);
+    expect((await listCartLines(pool, claimAccount)).map((row) => row.line_id)).toEqual(["cli_account", "cli_shared"]);
+    // An anonymous primary owner reads only its own key, and never expands aliases.
+    expect((await listCartLines(pool, presentedSource)).map((row) => row.line_id)).toEqual([
+      "cli_anonymous",
+      "cli_shared",
+    ]);
+    expect((await listCartLines(pool, claimedSourceA)).map((row) => row.line_id)).toEqual(["cli_rival"]);
+  });
+
+  it("resolves only own-key lines for the addLine probe while the union sees the claimed stream", async () => {
+    await seedReadModel(
+      [seededLine({ buyer_account_id: claimAccount, line_id: "cli_own" }), claimedLine({ line_id: "cli_claimed" })],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    expect((await listOwnCartLines(pool, claimAccount)).map((row) => row.line_id)).toEqual(["cli_own"]);
+    expect((await listCartLines(pool, claimAccount)).map((row) => row.line_id).sort()).toEqual([
+      "cli_claimed",
+      "cli_own",
+    ]);
+    expect((await listOwnCartLines(pool, claimedSourceA)).map((row) => row.line_id)).toEqual(["cli_claimed"]);
+  });
+
+  it("creates the logged claims table, index and constraints on a fresh boot", async () => {
+    const facts = await readClaimsTableFacts();
+
+    expect(facts.columns).toEqual([
+      expect.objectContaining({ column_name: "source_owner_key", is_nullable: "NO" }),
+      expect.objectContaining({ column_name: "account_id", is_nullable: "NO" }),
+    ]);
+    expect(facts.indexNames).toEqual(["checkout_cart_claims_account_idx", "checkout_cart_claims_pkey"]);
+    expect(facts.accountIndexDefinition).toContain("(account_id, source_owner_key)");
+    expect(facts.constraintNames).toEqual([
+      "checkout_cart_claims_account_id_check",
+      "checkout_cart_claims_source_owner_key_check",
+    ]);
+    // 'p' is permanent (logged); the replayable line pages are 'u' (unlogged).
+    expect(facts.persistence).toBe("p");
+    expect(facts.ledgerRows).toBe(1);
+  });
+
+  it("converges a populated database created before Cart Claim and tolerates repeated migration", async () => {
+    await resetMultiContextTestSchemas({ checkout: pool });
+    // The exact shipped boot SQL minus every claims statement: the shape a
+    // long-lived database created before this change actually has.
+    const preClaimSchemaSql = checkoutModule.schemaSql
+      .split(";")
+      .filter((statement) => !statement.includes("checkout_cart_claims"))
+      .join(";");
+    await pool.query(preClaimSchemaSql);
+    expect(await tableExists("checkout_cart_claims")).toBe(false);
+
+    await seedReadModel([seededLine({ buyer_account_id: claimAccount, line_id: "cli_existing" })], [seededOption()]);
+
+    await bootstrapContextDatabase(checkoutModule, pool);
+    const afterFirst = await readClaimsTableFacts();
+    await bootstrapContextDatabase(checkoutModule, pool);
+    const afterSecond = await readClaimsTableFacts();
+
+    expect(afterFirst.indexNames).toEqual(["checkout_cart_claims_account_idx", "checkout_cart_claims_pkey"]);
+    expect(afterFirst.constraintNames).toEqual([
+      "checkout_cart_claims_account_id_check",
+      "checkout_cart_claims_source_owner_key_check",
+    ]);
+    expect(afterFirst.persistence).toBe("p");
+    expect(afterFirst.ledgerRows).toBe(1);
+    expect(afterSecond).toEqual(afterFirst);
+    // Existing line pages survived both applications.
+    expect((await listCartLines(pool, claimAccount)).map((row) => row.line_id)).toEqual(["cli_existing"]);
+  });
+
+  it("does not commit the claim alias when its outer projection transaction fails", async () => {
+    const handlers = buildCheckoutCartProjectionHandlers(pool);
+    const claimTransportEvent = buildTransportEvent(
+      "checkout.cart.claimed-by-account",
+      { sourceOwnerKey: claimedSourceA, accountId: claimAccount },
+      {
+        id: "evt_claim",
+        streamId: claimedStreamA,
+        tenantId: "tnt_test" as never,
+        audit: { performedByUserId: "usr_buyer" as never, forAccountId: claimAccount as never },
+        timing: { occurredAt: "2026-09-03T00:00:00.000Z", recordedAt: "2026-09-03T00:00:00.000Z" },
+      },
+    );
+
+    await expect(
+      withPgTransaction(pool, async (client) => {
+        await handlers["checkout.cart.claimed-by-account"]!(claimTransportEvent, { db: client });
+        // The alias is visible inside the supplied transaction ...
+        expect(await readClaims(client)).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+        throw new Error("outer projection transaction failed");
+      }),
+    ).rejects.toThrow("outer projection transaction failed");
+
+    // ... and is gone once that transaction rolls back: the helper committed nothing of its own.
+    expect(await readClaims()).toEqual([]);
+  });
+
+  it("rebuilds the same Account union after a registered reset and ordered replay", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own", updated_at: "2026-06-16T00:00:00.000Z" }),
+        claimedLine({ updated_at: "2026-06-18T00:00:00.000Z" }),
+      ],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    const before = await listCartLines(pool, claimAccount);
+    const recordedEvents = await readAllStoredEvents();
+
+    // The registered reset strategy truncates the projector's owned tables.
+    const ownedTables = checkoutModule.projectionGroups?.find(
+      (group) => group.projectionName === "checkout.cart-projection",
+    )?.ownedTables;
+    expect(ownedTables).toEqual(["checkout_cart_line_pages", "checkout_cart_claims"]);
+    await pool.query(`TRUNCATE ${ownedTables!.join(", ")}`);
+    expect(await readClaims()).toEqual([]);
+
+    // Ordered replay of the recorded history through the real handlers, inside
+    // one supplied projection transaction.
+    const handlers = buildCheckoutCartProjectionHandlers(pool);
+    await withPgTransaction(pool, async (client) => {
+      for (const stored of recordedEvents) {
+        const handler = handlers[stored.event_type];
+        if (!handler) {
+          continue;
+        }
+        await handler(
+          buildTransportEvent(stored.event_type, stored.payload as Record<string, unknown>, {
+            id: "evt_replay",
+            streamId: stored.stream_id,
+            tenantId: "tnt_test" as never,
+            audit: { performedByUserId: "usr_buyer" as never, forAccountId: claimAccount as never },
+            timing: { occurredAt: "2026-09-03T00:00:00.000Z", recordedAt: "2026-09-03T00:00:00.000Z" },
+          }),
+          { db: client },
+        );
+      }
+    });
+
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+    // Replay is idempotent: running it a second time changes nothing.
+    await withPgTransaction(pool, async (client) => {
+      await handlers["checkout.cart.claimed-by-account"]!(
+        buildTransportEvent(
+          "checkout.cart.claimed-by-account",
+          { sourceOwnerKey: claimedSourceA, accountId: claimAccount },
+          {
+            id: "evt_replay_2",
+            streamId: claimedStreamA,
+            tenantId: "tnt_test" as never,
+            audit: { performedByUserId: "usr_buyer" as never, forAccountId: claimAccount as never },
+            timing: { occurredAt: "2026-09-03T00:00:00.000Z", recordedAt: "2026-09-03T00:00:00.000Z" },
+          },
+        ),
+        { db: client },
+      );
+    });
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+
+    // Re-seed the line pages the truncate removed and prove the same union.
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own", updated_at: "2026-06-16T00:00:00.000Z" }),
+        claimedLine({ updated_at: "2026-06-18T00:00:00.000Z" }),
+      ],
+      [],
+    );
+    expect((await listCartLines(pool, claimAccount)).map((row) => row.line_id)).toEqual(
+      before.map((row) => row.line_id),
+    );
+  });
+});
