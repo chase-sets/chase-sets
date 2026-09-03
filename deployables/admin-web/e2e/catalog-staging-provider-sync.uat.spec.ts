@@ -1,5 +1,14 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { catalogProviderSourceMappingFingerprint, sourceObservationLinkExternalKey } from "@chase-sets/catalog/server";
+import type {
+  BulkSourceObservationPromotionResult,
+  BulkSourceObservationReapplyResult,
+  CatalogBulkReviewJob,
+  CatalogItemDetail,
+  CatalogProviderSourceObservationMappingContract,
+  SourceObservationListItem,
+} from "@chase-sets/catalog/server";
 import {
   RepresentativeBudget,
   EvidenceUnknown,
@@ -21,18 +30,6 @@ import {
   type CatalogScope,
   type ItemInstant,
 } from "./support/representative-catalog-evidence";
-import type {
-  SourceObservationListItem,
-  BulkSourceObservationPromotionResult,
-  BulkSourceObservationReapplyResult,
-} from "../../../bounded-contexts/catalog/features/source-observations/ui/contracts";
-import type { CatalogBulkReviewJob } from "../../../bounded-contexts/catalog/support/shell-support/api/client";
-import type { CatalogItemDetail } from "../../../bounded-contexts/catalog/features/catalog-items/ui/contracts";
-import { sourceObservationLinkExternalKey } from "../../../bounded-contexts/catalog/features/source-observations/domain/domain";
-import {
-  catalogProviderSourceMappingFingerprint,
-  type CatalogProviderSourceObservationMappingContract,
-} from "../../../bounded-contexts/catalog/features/source-observations/api/promotion/provider-source-observation-normalizer";
 
 const catalogWorkbenchCommand = {
   sync: "scope.sync",
@@ -814,7 +811,7 @@ const stagingRepresentativeCatalogProviderSyncJourneys: readonly ProviderSyncJou
     ],
     requiresTerminalSync: true,
   },
-].map((journey) => ({
+].map((journey: ProviderSyncJourney) => ({
   ...journey,
   scope: journey.scope.map((selection) => ({
     ...selection,

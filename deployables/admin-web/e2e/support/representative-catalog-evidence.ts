@@ -2,22 +2,21 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, type Page } from "@playwright/test";
 import {
-  getActiveCatalogProviderIntegrationProfileVersion,
-  catalogProviderProfileVersionIngestionUnitKey,
   catalogProviderIntegrationProfileVersions,
-} from "../../../../bounded-contexts/catalog/features/source-observations/api/providers/registry";
-import type { CatalogProviderIntegrationProfileVersionRecord } from "../../../../bounded-contexts/catalog/features/source-observations/api/providers/profile-types";
-import {
+  catalogProviderProfileVersionIngestionUnitKey,
+  getActiveCatalogProviderIntegrationProfileVersion,
   normalizeCatalogProviderSourceObservation,
-  type CatalogProviderSourceObservationMappingContract,
-} from "../../../../bounded-contexts/catalog/features/source-observations/api/promotion/provider-source-observation-normalizer";
-import {
   planCatalogProviderPromotionCommands,
-  type CatalogProviderPromotionResolvedCatalogMapping,
-} from "../../../../bounded-contexts/catalog/features/source-observations/api/promotion/provider-promotion-command-planner";
-import type { CatalogIntegrationUnitKey } from "../../../../bounded-contexts/catalog/features/source-observations/api/integration-unit";
-import type { CatalogItemId, ReferenceRecordId } from "../../../../bounded-contexts/catalog/ids";
-import type { SourceObservationNormalized } from "../../../../bounded-contexts/catalog/features/source-observations/domain/domain";
+} from "@chase-sets/catalog/server";
+import type {
+  CatalogIntegrationUnitKey,
+  CatalogItemId,
+  CatalogProviderIntegrationProfileVersionRecord,
+  CatalogProviderPromotionResolvedCatalogMapping,
+  CatalogProviderSourceObservationMappingContract,
+  ReferenceRecordId,
+  SourceObservationNormalized,
+} from "@chase-sets/catalog/server";
 import type { JsonValue } from "@chase-sets/primitives/json";
 
 export type RepresentativeCoordinate = Readonly<{
@@ -400,9 +399,19 @@ export function memberPromotionPlan(
 ) {
   const version = activeMemberProfile(member);
   if (referenceIds.length > 1) throw new EvidenceUnknown("missing-or-ambiguous-reference");
-  const fieldIds = Object.fromEntries(
-    Object.keys(version.profile.catalogFieldMapping.fieldKeys).map((key) => [key, `synthetic_field_${key}`]),
-  ) as CatalogProviderPromotionResolvedCatalogMapping["fieldIds"];
+  const fieldKeys = version.profile.catalogFieldMapping.fieldKeys;
+  const syntheticFieldId = (fieldKey: string) => `fld_synthetic_${fieldKey}` as const;
+  const fieldIds = {
+    cardNumber: syntheticFieldId(fieldKeys.cardNumber),
+    cardName: syntheticFieldId(fieldKeys.cardName),
+    ...(fieldKeys.set ? { set: syntheticFieldId(fieldKeys.set) } : {}),
+    expansion: syntheticFieldId(fieldKeys.expansion),
+    rarity: syntheticFieldId(fieldKeys.rarity),
+    cardVariant: syntheticFieldId(fieldKeys.cardVariant),
+    cardIllustrator: syntheticFieldId(fieldKeys.cardIllustrator),
+    releaseYear: syntheticFieldId(fieldKeys.releaseYear),
+    ...(fieldKeys.packCount ? { packCount: syntheticFieldId(fieldKeys.packCount) } : {}),
+  } satisfies CatalogProviderPromotionResolvedCatalogMapping["fieldIds"];
   return planCatalogProviderPromotionCommands({
     profile: version.profile,
     profileKey: version.profileKey,
