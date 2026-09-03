@@ -177,7 +177,9 @@ function routeContextFromLocation(
     providerKey,
     unitKey: nullableParam(searchParams, "unitKey") as CatalogIntegrationUnitKey | null,
     scope,
-    importScope: importScope ?? importScopeFromScopeContext(scope),
+    importScope: scope.productId
+      ? importScopeFromScopeContext(scope)
+      : (importScope ?? importScopeFromScopeContext(scope)),
     profileVersion: nullableParam(searchParams, "profileVersion"),
     sourceObservationFilters,
     selectedObservationIds: parseCsvParam(searchParams, "selectedObservationIds"),
@@ -200,7 +202,14 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   }
   setNullable(searchParams, "providerKey", context.providerKey);
   setNullable(searchParams, "unitKey", context.unitKey);
-  setNullable(searchParams, "importScope", context.importScope ?? importScopeFromScopeContext(context.scope));
+  setNullable(
+    searchParams,
+    "importScope",
+    context.scope?.productId
+      ? importScopeFromScopeContext(context.scope)
+      : (context.importScope ?? importScopeFromScopeContext(context.scope)),
+  );
+  setNullable(searchParams, "productId", context.scope?.productId ?? null);
   setNullable(searchParams, "languageCode", context.scope?.languageCode ?? null);
   setNullable(searchParams, "productLineId", context.scope?.productLineId ?? null);
   setNullable(searchParams, "productLineName", context.scope?.productLineName ?? null);

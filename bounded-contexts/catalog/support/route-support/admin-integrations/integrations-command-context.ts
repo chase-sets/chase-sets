@@ -21,6 +21,10 @@ import {
 } from "../../../features/source-observations/ui/primary-workbench-scope-context";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import { stringValue } from "./integrations-form-values";
+import {
+  getActiveCatalogProviderIntegrationProfileVersion,
+  catalogProviderProfileVersionIngestionUnitKey,
+} from "../../../features/source-observations/api/providers/registry";
 
 export type CatalogPrimaryWorkbenchFormIntent = CatalogControlPlaneActionId;
 
@@ -67,6 +71,7 @@ function clearExplicitEmptyScopeFields(
 ): ReturnType<typeof scopeContextFromFormData> {
   return {
     ...scope,
+    productId: explicitEmptyScopeField(formData, ["productId"]) ? null : scope.productId,
     languageCode: explicitEmptyScopeField(formData, ["languageCode", "language"]) ? null : scope.languageCode,
     productLineId: explicitEmptyScopeField(formData, ["productLineId"]) ? null : scope.productLineId,
     productLineName: explicitEmptyScopeField(formData, ["productLineName"]) ? null : scope.productLineName,
@@ -98,6 +103,29 @@ export function observationIdsFromFormData(formData: FormData, fallback: readonl
 
 export function integrationScopeFromContext(context: RouteContext): SourceObservationIntegrationJobScope {
   const scope = context.scope ?? scopeContextFromRouteContext(context);
+  if (scope.productId) {
+    const profile =
+      context.providerKey && context.unitKey
+        ? getActiveCatalogProviderIntegrationProfileVersion(context.providerKey, { ingestionUnitKey: context.unitKey })
+        : null;
+    if (
+      !profile?.active ||
+      catalogProviderProfileVersionIngestionUnitKey(profile) !== context.unitKey ||
+      !profile.profile.supportedScopes.includes("product") ||
+      !profile.profile.optionQueries.some((query) => query.scope === "product") ||
+      (context.profileVersion && context.profileVersion !== profile.profileVersion) ||
+      scope.expansionId ||
+      scope.expansionName ||
+      scope.seriesId ||
+      scope.productLineId ||
+      context.sourceObservationFilters.setId ||
+      context.sourceObservationFilters.expansionId
+    ) {
+      throw new Error(
+        "Product import requires the selected active product-scope unit and an unmixed product coordinate.",
+      );
+    }
+  }
   return scopeContextToIntegrationJobScope({
     ...scope,
     ingestionUnitKey: context.unitKey ?? undefined,

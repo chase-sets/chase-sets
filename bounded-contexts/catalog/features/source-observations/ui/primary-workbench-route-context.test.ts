@@ -10,6 +10,28 @@ import {
 import { buildCatalogPrimaryWorkbenchSourceObservationReviewQuery } from "./primary-workbench-source-observation-review";
 
 describe("Catalog primary workbench route context", () => {
+  it("preserves exact products in URLs, return links and alternate surfaces while legacy compact scopes remain sets", () => {
+    const unit = "ygojson:yugioh:sealed-product:reference-data";
+    const hrefs = ["synthetic-product-a", "synthetic-product-b"].map((productId) => {
+      const context = parseCatalogPrimaryWorkbenchRouteContext(
+        `https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=${unit}&languageCode=en&productId=${productId}`,
+      );
+      const href = catalogPrimaryWorkbenchHref(context);
+      expect(parseCatalogPrimaryWorkbenchRouteContext(`https://admin.example${href}`).scope).toMatchObject({
+        productId,
+        expansionId: null,
+      });
+      expect(catalogPrimaryWorkbenchSupportingHref(context, "audit-evidence")).toContain(`productId=${productId}`);
+      expect(catalogPrimaryWorkbenchContextKeysFromUrl(`https://admin.example${href}`)).toContain("productId");
+      return href;
+    });
+    expect(hrefs[0]).not.toBe(hrefs[1]);
+    expect(
+      parseCatalogPrimaryWorkbenchRouteContext(
+        "https://admin.example/catalog/integrations?providerKey=ygojson&importScope=en:X",
+      ).scope,
+    ).toMatchObject({ expansionId: "X", productId: null });
+  });
   it("parses canonical context keys without preserving legacy aliases", () => {
     const context = parseCatalogPrimaryWorkbenchRouteContext(
       "https://admin.example/catalog/integrations?section=triage&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:base&profileVersion=2026.06.04&filter.status=changed&selectedObservationIds=obs_1,obs_2&jobId=job_1&promotionPreviewId=preview_1&returnPath=%2Fcatalog%2Fintegrations&source=legacy",

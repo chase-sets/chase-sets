@@ -15,6 +15,8 @@ import {
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
 import type { CatalogProviderSourceOptionKind, SourceObservationIntegrationOptionResponse } from "./contracts";
 import { profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
+import { CommandHiddenInputs } from "./admin-control-plane/import-to-promotion/command-controls";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
 
 // The import-jobs module polls live progress via useRevalidator and the import
 // context form submits context changes via useSubmit; these pages render bare (no
@@ -597,6 +599,36 @@ describe("CatalogWorkbenchShell single per-surface return affordance", () => {
 });
 
 describe("CatalogWorkbenchShell provider/unit selection", () => {
+  it("carries and clears the explicit product in the shared command hidden inputs", () => {
+    const readModel = surfaceReadModel("daily");
+    const withProduct = {
+      ...readModel,
+      routeContext: parseCatalogPrimaryWorkbenchRouteContext(
+        "https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson:yugioh:sealed-product:reference-data&languageCode=en&productId=synthetic-product",
+      ),
+    };
+    const { container, rerender } = render(
+      <form>
+        <CommandHiddenInputs readModel={withProduct} intent="scope.import" />
+      </form>,
+    );
+    expect(new FormData(container.querySelector("form")!).get("productId")).toBe("synthetic-product");
+    rerender(
+      <form>
+        <CommandHiddenInputs
+          readModel={{
+            ...withProduct,
+            routeContext: {
+              ...withProduct.routeContext,
+              scope: { ...withProduct.routeContext.scope!, productId: null },
+            },
+          }}
+          intent="scope.import"
+        />
+      </form>,
+    );
+    expect(new FormData(container.querySelector("form")!).get("productId")).toBe("");
+  });
   afterEach(() => {
     cleanup();
   });

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  importScopeFromScopeContext,
+  scopeContextFromFields,
+  scopeContextFromFormData,
+  scopeContextToIntegrationJobScope,
   scopeContextFromImportScope,
   scopeContextFromProviderScope,
   scopeContextFromSearchParams,
@@ -10,6 +14,32 @@ import {
 import { sourceObservationScope } from "./primary-workbench-test-fixtures";
 
 describe("Catalog primary workbench scope context", () => {
+  it("round trips distinct provider products without reinterpreting compact sets and clears FormData deselection", () => {
+    const identities = ["synthetic-product:A", "synthetic-product:B"].map((productId) => {
+      const scope = scopeContextFromFields({ providerKey: "ygojson", languageCode: "en", productId });
+      const identity = importScopeFromScopeContext(scope);
+      expect(scopeContextFromImportScope(identity, "ygojson").productId).toBeNull();
+      expect(
+        scopeContextFromSearchParams({
+          searchParams: scopeContextToQueryParams(scope),
+          providerKey: "ygojson",
+          importScope: identity,
+          sourceObservationFilters: {},
+        }),
+      ).toEqual(scope);
+      const form = new FormData();
+      form.set("productId", productId);
+      expect(scopeContextToIntegrationJobScope(scopeContextFromFormData(form, scope)).productId).toBe(productId);
+      form.set("productId", "");
+      expect(scopeContextFromFormData(form, scope).productId).toBeNull();
+      return identity;
+    });
+    expect(new Set(identities).size).toBe(2);
+    expect(scopeContextFromImportScope("en:synthetic-set", "ygojson")).toMatchObject({
+      expansionId: "synthetic-set",
+      productId: null,
+    });
+  });
   it("interprets legacy TCGdex native language-series-expansion scopes as structured fields", () => {
     const scope = scopeContextFromImportScope("ja:SV:SV8", "tcgdex");
 

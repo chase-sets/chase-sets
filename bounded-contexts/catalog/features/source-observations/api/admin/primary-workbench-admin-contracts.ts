@@ -344,6 +344,7 @@ export type CatalogPrimaryWorkbenchRouteContext = Readonly<{
 
 export type CatalogPrimaryWorkbenchScopeContext = Readonly<{
   providerKey: string | null;
+  productId: string | null;
   languageCode: string | null;
   productLineId: string | null;
   productLineName: string | null;
@@ -606,6 +607,7 @@ export type CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel = Readonly<{
   currentWorkbenchHref: string;
   commandContext: Readonly<{
     providerKey: string;
+    productId: string | null;
     unitKey: CatalogIntegrationUnitKey | null;
     importScope: string | null;
     profileVersion: string | null;
@@ -2963,6 +2965,7 @@ function validatePrimaryWorkbenchScopeContext(scope: CatalogPrimaryWorkbenchScop
     if (
       ![
         "providerKey",
+        "productId",
         "languageCode",
         "productLineId",
         "productLineName",

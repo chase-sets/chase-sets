@@ -3,6 +3,10 @@ name: Catalog Staging Provider UAT
 on:
   workflow_dispatch:
     inputs:
+      expected_sha:
+        description: Exact reviewed 40-character commit SHA for this run.
+        required: true
+        type: string
       confirm:
         description: Type "run catalog staging provider uat" to queue provider syncs from the staging UI.
         required: true
@@ -39,6 +43,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  admit-reviewed-sha:
+    name: Admit Reviewed Immutable SHA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify confirmation and immutable SHA
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RUN_SHA: ${{ github.sha }}
+          CONFIRMATION: ${{ inputs.confirm }}
+        with:
+          script: |
+            const expected = process.env.EXPECTED_SHA ?? '';
+            if (process.env.CONFIRMATION !== 'run catalog staging provider uat' ||
+                !/^[a-fA-F0-9]{40}$/.test(expected) ||
+                expected.toLowerCase() !== process.env.RUN_SHA) {
+              core.setFailed('Confirmation and exact immutable expected_sha are required.');
+            }
+
   refuse-unconfirmed:
     name: Refuse Unconfirmed Provider UAT
     runs-on: ubuntu-latest
@@ -52,8 +75,8 @@ jobs:
   resolve-provider-uat-plan:
     name: Resolve Provider UAT Plan
     runs-on: ubuntu-latest
-    needs: refuse-unconfirmed
-    if: always() && needs.refuse-unconfirmed.result == 'skipped'
+    needs: admit-reviewed-sha
+    if: needs.admit-reviewed-sha.result == 'success'
     outputs:
       journey_matrix: ${{ steps.plan.outputs.journey_matrix }}
     steps:
@@ -80,11 +103,11 @@ jobs:
 
   staging-provider-uat:
     name: Staging Provider Sync UAT (${{ matrix.journey_scope }})
-    needs: resolve-provider-uat-plan
+    needs: [admit-reviewed-sha, resolve-provider-uat-plan]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
-    if: always() && needs.resolve-provider-uat-plan.result == 'success'
+    if: needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success'
     strategy:
       fail-fast: false
       max-parallel: 1
