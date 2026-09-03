@@ -58,16 +58,10 @@ function walk(node, visit) {
   ts.forEachChild(node, (child) => walk(child, visit));
 }
 function ownerName(node) {
-  if (ts.isClassLike(node)) return `class:${node.name?.text ?? "anonymous"}`;
-  // ClassLikeDeclaration.members is the boundary, including new/unknown member kinds.
-  if (node.parent && ts.isClassLike(node.parent) && node.parent.members.includes(node))
-    return `class-member:${node.kind}`;
   if (ts.isVariableDeclaration(node)) return `variable:${node.name.getText()}`;
   if (ts.isInterfaceDeclaration(node)) return `interface:${node.name.text}`;
   if (ts.isFunctionDeclaration(node)) return `function:${node.name?.text ?? "anonymous"}`;
-  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return "callback";
-  // Methods/accessors also own scopes outside classes (for example, object literals).
-  if (ts.isFunctionLike(node)) return `function-like:${node.kind}`;
+  if (ts.isArrowFunction(node)) return "callback";
   if (ts.isPropertyAssignment(node) || ts.isPropertySignature(node))
     return `property:${node.name.getText().replace(/^"|"$/g, "")}`;
   if (
@@ -84,13 +78,66 @@ function ownerName(node) {
   }
   return null;
 }
-function owners(node) {
-  const result = [];
-  for (let current = node; current; current = current.parent) {
-    const name = ownerName(current);
-    if (name) result.unshift(name);
+// Fixed TypeScript 6.0.3 contracts: every ancestor and direct child edge is required.
+// Unlisted kinds (including class/member scopes), edges and extra ancestors fail closed.
+const syntax = (kind, edge, owner) => ({ kind: ts.SyntaxKind[kind], edge, owner });
+const sourcePath = [syntax("SourceFile", null)];
+const variablePath = (name, prefix = sourcePath) => [
+  ...prefix,
+  syntax("VariableStatement", "statements[]"),
+  syntax("VariableDeclarationList", "declarationList"),
+  syntax("VariableDeclaration", "declarations[]", `variable:${name}`),
+];
+const functionPath = (name) => [...sourcePath, syntax("FunctionDeclaration", "statements[]", `function:${name}`)];
+const bodyPath = (name) => [...functionPath(name), syntax("Block", "body")];
+const objectInitializer = syntax("ObjectLiteralExpression", "initializer");
+const assignment = (name) => syntax("PropertyAssignment", "properties[]", `property:${name}`);
+const element = (name, edge = "children[]") => syntax("JsxElement", edge, `element:${name}`);
+const svgPath = [...sourcePath, syntax("ExpressionStatement", "statements[]"), element("svg", "expression")];
+const gradientPath = (id) => [
+  element("defs"),
+  element(`linearGradient:${id}`),
+  syntax("JsxSelfClosingElement", "children[]", "element:stop"),
+];
+const callbackPath = (callee, title) => [
+  syntax("ExpressionStatement", "statements[]"),
+  syntax("CallExpression", "expression", `${callee}:${title}`),
+  syntax("ArrowFunction", "arguments[1]", "callback"),
+  syntax("Block", "body"),
+];
+const expectationPath = (suite, title) => [
+  ...sourcePath,
+  ...callbackPath("describe", suite),
+  ...callbackPath("it", title),
+  syntax("ExpressionStatement", "statements[]"),
+  syntax("CallExpression", "expression"),
+];
+export const brandFoilContainerPaths = {
+  svgTemplate: [...variablePath("chaseSetsLogoSvg"), syntax("NoSubstitutionTemplateLiteral", "initializer")],
+  svgStyle: [...svgPath, element("style")],
+};
+export function matchesBrandFoilAncestry(node, contract) {
+  if (!Array.isArray(contract) || !contract.length) return false;
+  let current = node;
+  for (let index = contract.length - 1; index >= 0; index--) {
+    const step = contract[index];
+    if (!current || current.kind !== step.kind || (step.owner !== undefined && ownerName(current) !== step.owner))
+      return false;
+    if (index === 0) return step.edge === null && !current.parent;
+    const parent = current.parent;
+    if (!parent || typeof step.edge !== "string") return false;
+    const list = /^(\w+)\[(\d*)\]$/.exec(step.edge);
+    if (list) {
+      const children = parent[list[1]];
+      if (
+        !Array.isArray(children) ||
+        (list[2] === "" ? !children.includes(current) : children[Number(list[2])] !== current)
+      )
+        return false;
+    } else if (parent[step.edge] !== current) return false;
+    current = parent;
   }
-  return result.join("/");
+  return false;
 }
 
 // Each rule admits one exact expression under one exact structural owner.
@@ -105,7 +152,9 @@ function nodeExpressions(source, rules, offset = 0, kind = ts.ScriptKind.TSX) {
   return rules.map((rule) => ({
     ...rule,
     spans: nodes
-      .filter((node) => owners(node) === rule.owner && compact(node.getText(tree)) === compact(rule.text))
+      .filter(
+        (node) => matchesBrandFoilAncestry(node, rule.owner) && compact(node.getText(tree)) === compact(rule.text),
+      )
       // Parenthesized wrappers with the same text must not double-admit a leaf.
       .map((node) => [offset + node.getStart(tree), offset + node.end]),
   }));
@@ -177,15 +226,35 @@ function tokenExpressions(source) {
     lexicalLaw.stops.flatMap((stop) => [
       nodeRule(
         `field.${stop}`,
-        `interface:ThemeTokens/property:colors/property:${identifier(stop)}`,
+        [
+          ...sourcePath,
+          syntax("InterfaceDeclaration", "statements[]", "interface:ThemeTokens"),
+          syntax("PropertySignature", "members[]", "property:colors"),
+          syntax("TypeLiteral", "type"),
+          syntax("PropertySignature", "members[]", `property:${identifier(stop)}`),
+        ],
         `${identifier(stop)}: string;`,
       ),
       nodeRule(
         `value.${stop}`,
-        `variable:chaseTheme/property:colors/property:${identifier(stop)}`,
+        [
+          ...variablePath("chaseTheme"),
+          objectInitializer,
+          assignment("colors"),
+          objectInitializer,
+          assignment(identifier(stop)),
+        ],
         `${identifier(stop)}: "var(${property(stop)})"`,
       ),
-      nodeRule(`map.${stop}`, "variable:tokenMap", `["${property(stop)}", (t) => t.colors?.${identifier(stop)}]`),
+      nodeRule(
+        `map.${stop}`,
+        [
+          ...variablePath("tokenMap"),
+          syntax("ArrayLiteralExpression", "initializer"),
+          syntax("ArrayLiteralExpression", "elements[]"),
+        ],
+        `["${property(stop)}", (t) => t.colors?.${identifier(stop)}]`,
+      ),
     ]),
   );
 }
@@ -194,10 +263,31 @@ function fixtureExpressions(source) {
     source,
     ["light", "dark"].flatMap((mode) =>
       lexicalLaw.stops.flatMap((stop, index) => [
-        nodeRule(`${mode}.${stop}.key`, `property:${mode}/property:${property(stop)}`, JSON.stringify(property(stop))),
+        nodeRule(
+          `${mode}.${stop}.key`,
+          [
+            ...sourcePath,
+            syntax("ExpressionStatement", "statements[]"),
+            syntax("ObjectLiteralExpression", "expression"),
+            assignment(mode),
+            objectInitializer,
+            assignment(property(stop)),
+            syntax("StringLiteral", "name"),
+          ],
+          JSON.stringify(property(stop)),
+        ),
         nodeRule(
           `${mode}.${stop}.candidate`,
-          `property:${mode}/property:${property(stop)}/property:candidate`,
+          [
+            ...sourcePath,
+            syntax("ExpressionStatement", "statements[]"),
+            syntax("ObjectLiteralExpression", "expression"),
+            assignment(mode),
+            objectInitializer,
+            assignment(property(stop)),
+            objectInitializer,
+            assignment("candidate"),
+          ],
           `"candidate": "${lexicalLaw[mode][index]}"`,
         ),
       ]),
@@ -215,7 +305,7 @@ function svgExpressions(source, offset = 0) {
   const tree = ast(xml);
   const styleStarts = [];
   walk(tree, (node) => {
-    if (ts.isJsxElement(node) && owners(node) === "element:svg/element:style") styleStarts.push(node.getStart(tree));
+    if (matchesBrandFoilAncestry(node, brandFoilContainerPaths.svgStyle)) styleStarts.push(node.getStart(tree));
   });
   const styles = [...source.matchAll(/<style>([\s\S]*?)<\/style>/g)].filter((match) =>
     styleStarts.includes(match.index),
@@ -249,7 +339,7 @@ function svgExpressions(source, offset = 0) {
       lexicalLaw.stops.map((stop, index) =>
         nodeRule(
           `gradient.${stop}`,
-          'element:svg/element:defs/element:linearGradient:"logoGradient"/element:stop',
+          [...svgPath, ...gradientPath('"logoGradient"')],
           `<stop offset="${["0", "0.52", "1"][index]}" stop-color="var(${property(stop)})"/>`,
         ),
       ),
@@ -264,17 +354,10 @@ function logoExpressions(source) {
   const expressions = [];
   walk(tree, (node) => {
     if (
-      ts.isVariableDeclaration(node) &&
-      owners(node) === "variable:chaseSetsLogoSvg" &&
-      node.parent.parent.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) &&
-      ts.isNoSubstitutionTemplateLiteral(node.initializer)
+      matchesBrandFoilAncestry(node, brandFoilContainerPaths.svgTemplate) &&
+      node.parent.parent.parent.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
     ) {
-      expressions.push(
-        ...svgExpressions(
-          source.slice(node.initializer.getStart(tree) + 1, node.initializer.end - 1),
-          node.initializer.getStart(tree) + 1,
-        ),
-      );
+      expressions.push(...svgExpressions(source.slice(node.getStart(tree) + 1, node.end - 1), node.getStart(tree) + 1));
     }
   });
   if (!expressions.length) expressions.push({ id: "chaseSetsLogoSvg", count: 1, spans: [] });
@@ -285,13 +368,19 @@ function logoExpressions(source) {
         ...["light", "dark"].map((mode) =>
           nodeRule(
             `palette.${mode}.${stop}`,
-            `function:ChaseSetsLogo/variable:${mode}Palette/property:${stop}`,
+            [...variablePath(`${mode}Palette`, bodyPath("ChaseSetsLogo")), objectInitializer, assignment(stop)],
             `${stop}: "${lexicalLaw[mode][index]}"`,
           ),
         ),
         nodeRule(
           `component.${stop}`,
-          "function:ChaseSetsLogo/element:svg/element:defs/element:linearGradient:{gradientId}/element:stop",
+          [
+            ...bodyPath("ChaseSetsLogo"),
+            syntax("ReturnStatement", "statements[]"),
+            syntax("ParenthesizedExpression", "expression"),
+            element("svg", "expression"),
+            ...gradientPath("{gradientId}"),
+          ],
           `<stop offset="${["0", "0.52", "1"][index]}" stopColor={colorMode === "auto" ? "var(${property(stop)}, ${lexicalLaw.light[index]})" : forcedPalette.${stop}} />`,
         ),
       ]),
@@ -303,7 +392,7 @@ function iconExpressions(source) {
   return nodeExpressions(source, [
     nodeRule(
       "foil.map",
-      "variable:foil",
+      variablePath("foil"),
       `foil = Object.fromEntries(["start", "mid", "end"].map((stop) => {
         const entry = fixture.light[\`${lexicalLaw.constructor}\`];
         if (!entry || typeof entry.candidate !== "string") {
@@ -320,15 +409,14 @@ function ogExpressions(source) {
     lexicalLaw.stops.map((stop, index) =>
       nodeRule(
         `palette.${stop}`,
-        `variable:palette/property:gradient${stop[0].toUpperCase()}${stop.slice(1)}`,
+        [...variablePath("palette"), objectInitializer, assignment(`gradient${stop[0].toUpperCase()}${stop.slice(1)}`)],
         `gradient${stop[0].toUpperCase()}${stop.slice(1)}: "${lexicalLaw.dark[index]}"`,
       ),
     ),
   );
 }
 function componentTestExpressions(source) {
-  const owner =
-    "describe:design system components/callback/it:renders the Chase Sets logo and uses it in seller badges/callback";
+  const owner = expectationPath("design system components", "renders the Chase Sets logo and uses it in seller badges");
   return nodeExpressions(source, [
     nodeRule("svg.expectation", owner, `expect(chaseSetsLogoSvg).toContain("${lexicalLaw.light[1]}")`),
     nodeRule(
@@ -343,19 +431,21 @@ function evidenceExpressions(source) {
   return nodeExpressions(source, [
     nodeRule(
       "foilCandidates.return",
-      "function:foilCandidates",
+      [...bodyPath("foilCandidates"), syntax("ReturnStatement", "statements[]")],
       `return ${nameArray()}.map((name) => hexToRgbString(fixture[mode][name]!.candidate),);`,
     ),
   ]);
 }
 function representationExpressions(source) {
-  const owner =
-    "describe:raster generator literal parity/callback/it:holds the OG generator to the fixture's dark foil candidates and its four palette literals to their shipped bytes/callback";
+  const owner = expectationPath(
+    "raster generator literal parity",
+    "holds the OG generator to the fixture's dark foil candidates and its four palette literals to their shipped bytes",
+  );
   return nodeExpressions(source, [
     ...["light", "dark"].map((mode) =>
       nodeRule(
         `${mode}CandidateStops`,
-        `variable:${mode}CandidateStops`,
+        [...variablePath(`${mode}CandidateStops`), syntax("CallExpression", "initializer")],
         `${nameArray()}.map((name) => fixture.${mode}[name].candidate,)`,
       ),
     ),
@@ -405,6 +495,11 @@ const definitionContracts = {
     ["function:misplacedUses", "a9bda6f89aa2ccf5e3e1d767d8d47d2303a2b01a641a8b2a9b0b5e18e1373a7e"],
   ],
 };
+const definitionPaths = {
+  "variable:lexicalLaw": variablePath("lexicalLaw"),
+  "function:lexicalCases": functionPath("lexicalCases"),
+  "function:misplacedUses": functionPath("misplacedUses"),
+};
 function definitionExpressions(source, contracts) {
   const tree = ast(source);
   const nodes = [];
@@ -414,7 +509,8 @@ function definitionExpressions(source, contracts) {
     count: 1,
     spans: nodes
       .filter(
-        (node) => ownerName(node) === owner && owners(node) === owner && digest(node.getText(tree)) === expectedDigest,
+        (node) =>
+          matchesBrandFoilAncestry(node, definitionPaths[owner]) && digest(node.getText(tree)) === expectedDigest,
       )
       .map((node) => [node.getStart(tree), node.end]),
   }));
