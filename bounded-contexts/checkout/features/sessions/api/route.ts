@@ -11,7 +11,7 @@ import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-set
 import type { CheckoutApiEnv } from "../../../api";
 import { normalizePresentedAnonymousCartId } from "../../cart/api/contracts";
 import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
-import type { CheckoutSessionCreateResult, CheckoutSessionServices } from "./runtime";
+import { OrderCartCleanupError, type CheckoutSessionCreateResult, type CheckoutSessionServices } from "./runtime";
 import type { CheckoutSessionRow } from "../read-model/queries";
 import {
   createCheckoutOrdersThroughOrdering,
@@ -1231,6 +1231,15 @@ export function createAccountCheckoutSessionRoutes(
         );
       }
 
+      if (session.order_ids.length > 0) {
+        const cleanupResult = await services.resumeOrderCartCleanup(
+          { sessionId, accountId: access.actor.accountId as AccountId },
+          context,
+        );
+        writeSources.push(cleanupResult);
+        session = cleanupResult.session;
+      }
+
       if (session.payment_id) {
         recordConfirmationPendingHandoff(
           checkoutObservabilityTelemetry,
@@ -1242,6 +1251,7 @@ export function createAccountCheckoutSessionRoutes(
           payment_id: session.payment_id,
           order_ids: session.order_ids,
           status: "confirmed",
+          ...checkoutCommitMetadataFromSources(writeSources),
         });
       }
 
@@ -1334,52 +1344,65 @@ export function createAccountCheckoutSessionRoutes(
           sessionId,
           accountId: access.actor.accountId as AccountId,
         });
-        const reservationAttempt = await createCheckoutInventoryReservations(c.req.raw, readySession);
-        const checkoutReservations = [...reservationAttempt.reservations];
-        if (checkoutReservations.length > 0) {
-          const reservationResult = await services.recordCheckoutReservations(
+        session = readySession;
+        orderIds = [...readySession.order_ids];
+        if (orderIds.length > 0) {
+          const cleanupResult = await services.resumeOrderCartCleanup(
+            { sessionId, accountId: access.actor.accountId as AccountId },
+            context,
+          );
+          writeSources.push(cleanupResult);
+          session = cleanupResult.session;
+          orderIds = [...session.order_ids];
+        } else {
+          const reservationAttempt = await createCheckoutInventoryReservations(c.req.raw, readySession);
+          const checkoutReservations = [...reservationAttempt.reservations];
+          if (checkoutReservations.length > 0) {
+            const reservationResult = await services.recordCheckoutReservations(
+              {
+                sessionId,
+                accountId: access.actor.accountId as AccountId,
+                reservations: checkoutReservations,
+              },
+              context,
+            );
+            writeSources.push(reservationResult);
+          }
+          if (reservationAttempt.unavailableLines.length > 0) {
+            return c.json(
+              {
+                error: {
+                  code: "checkout_reservation_unavailable",
+                  message: t("checkout.features.sessions.api.route.checkout.reservation.unavailable"),
+                },
+                unavailableLines: reservationAttempt.unavailableLines,
+                ...checkoutCommitMetadataFromSources(writeSources),
+              },
+              409,
+            );
+          }
+          const checkoutOrders = await createCheckoutOrdersThroughOrdering(c.req.raw, readySession, {
+            fulfillmentPreviewRevision,
+            acknowledgedMaterialChanges,
+            checkoutReservations,
+          });
+          orderIds = checkoutOrders.orderIds;
+          orderCreationWriteResult = checkoutOrders.writeResult;
+          writeSources.push(orderCreationWriteResult);
+          const ordersResult = await services.recordOrdersCreated(
             {
               sessionId,
               accountId: access.actor.accountId as AccountId,
-              reservations: checkoutReservations,
+              orderIds,
+              fulfilledLineKeys: checkoutOrders.readyLineKeys,
+              orderWriteCommitPositions: orderingCommitPositionsFromSource(orderCreationWriteResult),
             },
             context,
           );
-          writeSources.push(reservationResult);
+          writeSources.push(ordersResult);
+          session = ordersResult.session;
+          orderIds = [...session.order_ids];
         }
-        if (reservationAttempt.unavailableLines.length > 0) {
-          return c.json(
-            {
-              error: {
-                code: "checkout_reservation_unavailable",
-                message: t("checkout.features.sessions.api.route.checkout.reservation.unavailable"),
-              },
-              unavailableLines: reservationAttempt.unavailableLines,
-              ...checkoutCommitMetadataFromSources(writeSources),
-            },
-            409,
-          );
-        }
-        const checkoutOrders = await createCheckoutOrdersThroughOrdering(c.req.raw, readySession, {
-          fulfillmentPreviewRevision,
-          acknowledgedMaterialChanges,
-          checkoutReservations,
-        });
-        orderIds = checkoutOrders.orderIds;
-        orderCreationWriteResult = checkoutOrders.writeResult;
-        writeSources.push(orderCreationWriteResult);
-        const ordersResult = await services.recordOrdersCreated(
-          {
-            sessionId,
-            accountId: access.actor.accountId as AccountId,
-            orderIds,
-            fulfilledLineKeys: checkoutOrders.readyLineKeys,
-            orderWriteCommitPositions: orderingCommitPositionsFromSource(orderCreationWriteResult),
-          },
-          context,
-        );
-        writeSources.push(ordersResult);
-        session = ordersResult.session;
       }
 
       const orderInputFreshnessSource = paymentOrderInputFreshnessSource(session, orderCreationWriteResult);
@@ -1417,9 +1440,18 @@ export function createAccountCheckoutSessionRoutes(
         order_ids: orderIds,
         status: "confirmed",
         session,
-        ...checkoutCommitMetadataFromSources([payment, paymentResult]),
+        ...checkoutCommitMetadataFromSources([...writeSources, payment, paymentResult]),
       });
     } catch (error) {
+      if (error instanceof OrderCartCleanupError) {
+        return c.json(
+          {
+            error: { code: error.code, message: error.message },
+            ...checkoutCommitMetadataFromSources([...writeSources, error.commitMetadata]),
+          },
+          400,
+        );
+      }
       const stalePaymentQuote = paymentQuoteRequiredFromStaleFeeQuote(error, writeSources);
       if (stalePaymentQuote) {
         return c.json(stalePaymentQuote, 409);

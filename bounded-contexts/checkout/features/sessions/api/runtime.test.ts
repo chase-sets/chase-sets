@@ -1,3 +1,10 @@
+import { evolveCheckoutCart, initialCheckoutCartState, type CheckoutCartEvent } from "../../cart/domain/domain";
+import {
+  evolveCheckoutSession,
+  initialCheckoutSessionState,
+  type CheckoutSessionEvent,
+  type CheckoutSessionState,
+} from "../domain/domain";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -13,9 +20,9 @@ import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { cartReadinessDecisionsFromSnapshot, createCartReadinessSnapshot } from "../../cart/domain/readiness";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
-import type { CheckoutDomainError } from "../../../support/runtime-support/common";
+import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
-import { createCheckoutSessionRuntime } from "./runtime";
+import { createCheckoutSessionRuntime, OrderCartCleanupError } from "./runtime";
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -142,7 +149,7 @@ const secondSellerCartLine: CheckoutCartLineRow = {
 function createCartServices(lines: readonly CheckoutCartLineRow[] = [readyCartLine]) {
   return {
     listCartLines: vi.fn(async () => lines),
-    removeLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 1 })),
+    removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async () => ({ lineId: "cli_1" as never, version: 1 })),
     checkout: vi.fn(async () => ({ version: 1 })),
     createReadinessSnapshot: vi.fn(async () => createCartReadinessSnapshot(lines)),
   };
@@ -1929,5 +1936,482 @@ describe("checkout session runtime", () => {
 
     expect(cart.removeLine).not.toHaveBeenCalled();
     expect(cart.checkout).not.toHaveBeenCalled();
+  });
+});
+
+// The oracle is the real event-sourced Cart, including its typed missing-line refusal.
+async function unionCleanupHarness() {
+  const { eventStore } = createInMemoryEventStore();
+  let projected: CheckoutSessionRow | null = null;
+  const db = {
+    query: vi.fn(async (sql: string) => ({
+      rows: sql.includes("checkout_catalog_items")
+        ? [{ catalog_item_id: "cat_1", status: "active", product_schema: null, language_code: "en" }]
+        : sql.includes("checkout_session_pages") && projected
+          ? [projected]
+          : [],
+    })),
+  };
+  const checkpointStore = createCheckpointStore();
+  const anonymous = "anon_raw_cleanup_marker";
+  const buyer = context.audit.forAccountId;
+  const events = (streamId: string) => eventStore.readStream({ streamId });
+  const cartState = async (owner: string) =>
+    (await events(`checkout.cart-${owner}`)).reduce(
+      (state, event) => evolveCheckoutCart(state, { type: event.eventType, data: event.payload } as CheckoutCartEvent),
+      initialCheckoutCartState,
+    );
+  const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
+  let listingSequence = 0;
+  const add = async (owner: string) =>
+    cart.addLine(
+      {
+        accountId: owner as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: `lst_${++listingSequence}`,
+      },
+      context,
+    );
+  const first = await add(anonymous);
+  const second = await add(anonymous);
+  const copy = async (lineId: string, owner = String(buyer), quantity = 1) => {
+    const line = (await cartState(anonymous)).lines.find((entry) => entry.lineId === lineId)!;
+    await cart.commandHandler({
+      streamId: `checkout.cart-${owner}`,
+      context,
+      command: { ...line, type: "AddCartLine", buyerAccountId: owner as never, quantity },
+    });
+  };
+  const listCartLines: CheckoutCartServices["listCartLines"] = async (accountId, presented) => {
+    const lines = [...(await cartState(accountId)).lines, ...(presented ? (await cartState(presented)).lines : [])];
+    return [
+      ...new Map(
+        lines.reverse().map((line) => [
+          line.lineId,
+          {
+            ...readyCartLine,
+            buyer_account_id: String(accountId),
+            line_id: line.lineId,
+            quantity: line.quantity,
+            locked_listing_id: line.lockedListingId,
+            seller_options: [
+              { ...readyCartLine.seller_options[0]!, listing_id: line.lockedListingId!, available_quantity: 20 },
+            ],
+          },
+        ]),
+      ).values(),
+    ];
+  };
+  const realCart = { ...cart, listCartLines };
+  const runtime = () => createCheckoutSessionRuntime({ eventStore, checkpointStore, db, cart: realCart });
+  const sessions = runtime();
+  const readiness = createCartReadinessSnapshot(await listCartLines(buyer, anonymous), undefined, {
+    accountId: buyer,
+    presentedAnonymousCartId: anonymous,
+  });
+  const created = await sessions.createFromCart(
+    {
+      accountId: buyer,
+      presentedAnonymousCartId: anonymous,
+      readinessSnapshotId: readiness.snapshotId,
+      readinessSourceRevision: readiness.sourceRevision,
+    },
+    context,
+  );
+  const params = { sessionId: created.sessionId, accountId: buyer };
+  await sessions.commandHandler({
+    streamId: `checkout.session-${params.sessionId}`,
+    context,
+    command: {
+      type: "SetShippingAddress",
+      shippingAddress: {
+        name: "Buyer",
+        line1: "100 Market Street",
+        line2: null,
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
+      selectedAt: new Date().toISOString(),
+    },
+  });
+  const sessionEvents = () => events(`checkout.session-${params.sessionId}`);
+  const state = async () =>
+    (await sessionEvents()).reduce(
+      (current, event) =>
+        evolveCheckoutSession(current, { type: event.eventType, data: event.payload } as CheckoutSessionEvent),
+      initialCheckoutSessionState,
+    );
+  return {
+    eventStore,
+    cart,
+    realCart,
+    runtime,
+    params,
+    setProjected: (row: CheckoutSessionRow | null) => {
+      projected = row;
+    },
+    anonymous,
+    buyer,
+    add,
+    copy,
+    cartState,
+    sessionEvents,
+    state,
+    ids: [first.lineId, second.lineId],
+    record: {
+      ...params,
+      orderIds: ["ord_union"],
+      orderWriteCommitPositions: [
+        { sourceContextName: "ordering", maxGlobalPosition: "800", eventIds: ["evt_ordering"] },
+      ],
+    },
+  };
+}
+
+describe("durable union cleanup", () => {
+  it("union cleanup zero-copy removes real anonymous lines and retains atomic intent and metadata", async () => {
+    const h = await unionCleanupHarness();
+    expect((await h.cartState(h.buyer)).lines).toEqual([]);
+    await expect(h.cart.removeLine({ accountId: h.buyer, lineId: h.ids[0]! }, context)).rejects.toThrow(
+      "Cart line not found.",
+    );
+    const result = await h.runtime().recordOrdersCreated(h.record, context);
+    expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+    const events = await h.sessionEvents();
+    expect(events.filter((event) => event.eventType === "checkout.session.orders-created")).toHaveLength(1);
+    expect(
+      events.find((event) => event.eventType === "checkout.session.orders-created")?.payload.orderCartCleanupPlan,
+    ).toEqual({
+      buyerAccountId: h.buyer,
+      sourceOwnerKeys: [h.buyer, h.anonymous],
+      lineIds: [...h.ids].reverse(),
+    });
+    expect(result.commitEventIds).toContain(
+      events.find((event) => event.eventType === "checkout.session.orders-created")!.eventId,
+    );
+    expect(result.commitPositions).toContainEqual(h.record.orderWriteCommitPositions[0]);
+    expect(JSON.stringify(result)).not.toContain(h.anonymous);
+    expect(JSON.stringify(result)).not.toContain("orderCartCleanup");
+    expect(h.runtime().projectors[0]?.eventTypes).toEqual(
+      [
+        "authenticity-check-opt-in-selected",
+        "cancelled",
+        "fulfillment-preview-recorded",
+        "offer-submitted",
+        "optimization-goal-selected",
+        "orders-created",
+        "payment-started",
+        "reservations-recorded",
+        "shipping-address-set",
+        "shipping-option-selected",
+        "started",
+      ].map((type) => `checkout.session.${type}`),
+    );
+  });
+
+  it.each([{ fulfilledLineKeys: undefined }, { fulfilledLineKeys: [] }, { fulfilledLineKeys: ["no-match"] }])(
+    "union cleanup partial-copy keeps fulfilled selection $fulfilledLineKeys",
+    async ({ fulfilledLineKeys }) => {
+      const h = await unionCleanupHarness();
+      await h.copy(h.ids[0]!);
+      await h.runtime().recordOrdersCreated({ ...h.record, fulfilledLineKeys }, context);
+      const expected = fulfilledLineKeys?.length ? h.ids : [];
+      expect((await h.cartState(h.anonymous)).lines.map((line) => line.lineId)).toEqual(expected);
+      expect((await h.cartState(h.buyer)).lines).toHaveLength(fulfilledLineKeys?.length ? 1 : 0);
+      const before = await h.sessionEvents();
+      await h
+        .runtime()
+        .recordOrdersCreated({ ...h.record, fulfilledLineKeys: ["changed"], orderIds: ["ord_other"] }, context);
+      expect(await h.sessionEvents()).toEqual(before);
+    },
+  );
+
+  it("union cleanup duplicate and unrelated lines confines source and ID authority across restart", async () => {
+    const h = await unionCleanupHarness();
+    await h.copy(h.ids[0]!);
+    await h.copy(h.ids[0]!, "acc_foreign", 7);
+    await h.cart.setLineQuantity({ accountId: h.anonymous as never, lineId: h.ids[0]!, quantity: 3 }, context);
+    expect((await h.cartState(h.anonymous)).lines[0]?.quantity).toBe(3);
+    expect((await h.cartState(h.buyer)).lines[0]?.quantity).toBe(1);
+    const later = await h.add(h.anonymous);
+    // Commit first: later Cart contents cannot change the retained session selection.
+    await h.runtime().commandHandler({
+      streamId: `checkout.session-${h.params.sessionId}`,
+      context,
+      command: {
+        type: "RecordOrdersCreated",
+        orderIds: ["ord_union" as never],
+        fulfilledLineKeys: [h.ids[0]!],
+        recordedAt: new Date().toISOString(),
+      },
+    });
+    await h.runtime().recordOrdersCreated({ ...h.record, fulfilledLineKeys: h.ids }, context);
+    expect((await h.cartState(h.buyer)).lines).toEqual([]);
+    expect((await h.cartState(h.anonymous)).lines.map((line) => line.lineId)).toEqual([h.ids[1], later.lineId]);
+    expect((await h.cartState("acc_foreign")).lines.map((line) => line.lineId)).toEqual([h.ids[0]]);
+    expect((await h.state()).orderCartCleanup?.plan.lineIds).toEqual([h.ids[0]]);
+  });
+
+  it.each([
+    ["orders", false],
+    ["orders", true],
+    ["remove-1", false],
+    ["remove-1", true],
+    ["remove-2", false],
+    ["remove-2", true],
+    ["remove-3", false],
+    ["remove-3", true],
+    ["remove-4", false],
+    ["remove-4", true],
+    ["complete", false],
+    ["complete", true],
+  ] as const)("union cleanup crash resume %s append-before-throw=%s", async (boundary, committed) => {
+    const h = await unionCleanupHarness();
+    await h.copy(h.ids[0]!);
+    await h.copy(h.ids[1]!);
+    const original = h.eventStore.appendToStream.bind(h.eventStore);
+    let removal = 0;
+    const spy = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
+      const type = input.events[0]?.eventType;
+      const at =
+        type === "checkout.session.orders-created"
+          ? "orders"
+          : type === "checkout.session.cart-cleanup-completed"
+            ? "complete"
+            : type === "checkout.cart.line-removed"
+              ? `remove-${++removal}`
+              : "other";
+      if (at === boundary) {
+        if (committed) await original(input);
+        throw new Error(`store ${h.anonymous}`);
+      }
+      return original(input);
+    });
+    await expect(h.runtime().recordOrdersCreated(h.record, context)).rejects.toBeInstanceOf(OrderCartCleanupError);
+    spy.mockRestore();
+    const pending = await h.state();
+    expect(pending.orderCartCleanup?.status).toBe(
+      boundary === "orders" && !committed ? undefined : boundary === "complete" && committed ? "complete" : "pending",
+    );
+    const result = await h.runtime().recordOrdersCreated(h.record, context);
+    expect(result.session.order_ids).toEqual(["ord_union"]);
+    expect((await h.cartState(h.buyer)).lines).toEqual([]);
+    expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+    const all = await h.sessionEvents();
+    expect(all.filter((event) => event.eventType === "checkout.session.orders-created")).toHaveLength(1);
+    expect(all.filter((event) => event.eventType === "checkout.session.cart-cleanup-completed")).toHaveLength(1);
+    for (const owner of [h.buyer, h.anonymous])
+      expect(
+        (await h.eventStore.readStream({ streamId: `checkout.cart-${owner}` })).filter(
+          (event) => event.eventType === "checkout.cart.line-removed",
+        ),
+      ).toHaveLength(2);
+    await h.runtime().resumeOrderCartCleanup(h.params, context);
+    expect(await h.sessionEvents()).toEqual(all);
+  });
+
+  it.each([
+    new Error("Cart line not found."),
+    new CheckoutDomainError("Cart must contain at least one line."),
+    new CheckoutDomainError("authorization refused"),
+    Object.assign(new Error("conflict"), { code: "concurrency_conflict" }),
+    new Error("store unavailable"),
+  ])("union cleanup failure classification and concurrency propagates %s", async (failure) => {
+    const h = await unionCleanupHarness();
+    const spy = vi.spyOn(h.realCart, "removeLine").mockRejectedValueOnce(failure);
+    await expect(h.runtime().recordOrdersCreated(h.record, context)).rejects.toBeInstanceOf(OrderCartCleanupError);
+    expect((await h.state()).orderCartCleanup?.status).toBe("pending");
+    spy.mockRestore();
+    await h.runtime().resumeOrderCartCleanup(h.params, context);
+    expect((await h.state()).orderCartCleanup?.status).toBe("complete");
+  });
+
+  it("union cleanup failure classification and concurrency converges with a deterministic completion conflict", async () => {
+    const h = await unionCleanupHarness();
+    await h.runtime().commandHandler({
+      streamId: `checkout.session-${h.params.sessionId}`,
+      context,
+      command: {
+        type: "RecordOrdersCreated",
+        orderIds: ["ord_union" as never],
+        recordedAt: new Date().toISOString(),
+      },
+    });
+    const original = h.eventStore.appendToStream.bind(h.eventStore);
+    let arrivals = 0;
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const spy = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
+      if (input.events[0]?.eventType === "checkout.session.cart-cleanup-completed") {
+        if (++arrivals === 2) release();
+        await barrier;
+      }
+      return original(input);
+    });
+    // Start one sweep after the removals so the barrier targets session completion, not cart conflict.
+    for (const lineId of h.ids) await h.cart.removeLine({ accountId: h.anonymous as never, lineId }, context);
+    const outcomes = await Promise.allSettled([
+      h.runtime().resumeOrderCartCleanup(h.params, context),
+      h.runtime().resumeOrderCartCleanup(h.params, context),
+    ]);
+    spy.mockRestore();
+    expect(outcomes.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+    await h.runtime().resumeOrderCartCleanup(h.params, context);
+    expect(
+      (await h.sessionEvents()).filter((event) => event.eventType === "checkout.session.cart-cleanup-completed"),
+    ).toHaveLength(1);
+  });
+
+  it("union cleanup authority and redaction rejects wrong buyer and missing context without writes", async () => {
+    const h = await unionCleanupHarness();
+    const before = await h.sessionEvents();
+    await expect(
+      h.runtime().resumeOrderCartCleanup({ ...h.params, accountId: "acc_foreign" as never }, context),
+    ).rejects.toThrow();
+    await expect(h.runtime().resumeOrderCartCleanup(h.params, undefined as never)).rejects.toThrow();
+    expect(await h.sessionEvents()).toEqual(before);
+    expect((await h.cartState(h.anonymous)).lines).toHaveLength(2);
+  });
+});
+
+describe("union cleanup Account-only and fallback", () => {
+  it.each([
+    ["preserves Account-only lines and leaves anonymous lines intact", "account-lines"],
+    ["preserves populated whole-cart fallback and leaves anonymous lines intact", "whole-cart"],
+    ["refuses the empty Account whole-cart fallback before cleanup and preserves anonymous lines", "whole-cart-empty"],
+    ["preserves non-cart fallback and leaves anonymous lines intact", "non-cart"],
+    ["preserves legacy fallback and leaves anonymous lines intact", "legacy"],
+  ] as const)("%s", async (_description, kind) => {
+    const h = await unionCleanupHarness();
+    if (kind !== "whole-cart-empty") {
+      await h.copy(h.ids[0]!);
+      await h.copy(h.ids[1]!);
+    }
+    const sessionId = "chk_legacy_cleanup";
+    const original = await h.sessionEvents();
+    const seed = original.map((event) => ({
+      eventType: event.eventType,
+      payload: {
+        ...event.payload,
+        sessionId,
+        ...(event.eventType === "checkout.session.started"
+          ? {
+              presentedAnonymousCartId: null,
+              sourceType: kind === "non-cart" ? "buy-now" : "cart",
+              lines: (event.payload.lines as unknown as CheckoutSessionState["lines"]).map((line) => ({
+                ...line,
+                cartLineId: kind.startsWith("whole-cart") ? null : line.cartLineId,
+              })),
+              cartReadinessSnapshot: createCartReadinessSnapshot([]),
+            }
+          : {}),
+      },
+    }));
+    // Historical payloads/snapshots can predate today's start validation. Readiness remains real for initial recording.
+    const accountReadiness = createCartReadinessSnapshot(await h.realCart.listCartLines(h.buyer));
+    const started = seed[0]!;
+    started.payload.cartReadinessSnapshot = accountReadiness;
+    (started.payload as Record<string, unknown>).splitGroupHandoff = {
+      status: "ready",
+      groups: accountReadiness.fulfillmentGroups,
+      supportReference: "CS-LEGACY",
+    };
+    await h.eventStore.appendToStream({
+      streamId: `checkout.session-${sessionId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: seed,
+    });
+    if (kind === "legacy")
+      await h.eventStore.appendToStream({
+        streamId: `checkout.session-${sessionId}`,
+        expectedVersion: 2,
+        context,
+        events: [
+          {
+            eventType: "checkout.session.orders-created",
+            payload: {
+              sessionId,
+              orderIds: ["ord_old"],
+              orderWriteCommitPositions: [],
+              recordedAt: "2026-09-01T00:00:00Z",
+            },
+          },
+        ],
+      });
+    const params = { ...h.record, sessionId };
+    if (kind === "whole-cart-empty") {
+      const beforeSession = await h.eventStore.readStream({ streamId: `checkout.session-${sessionId}` });
+      const beforeAnonymous = await h.eventStore.readStream({ streamId: `checkout.cart-${h.anonymous}` });
+      await expect(h.runtime().recordOrdersCreated(params, context)).rejects.toMatchObject({
+        code: "unresolved_fulfillment",
+        message: "Resolve item availability before checkout starts.",
+      } satisfies Partial<CheckoutDomainError>);
+      expect(await h.eventStore.readStream({ streamId: `checkout.session-${sessionId}` })).toEqual(beforeSession);
+      expect((await h.cartState(h.buyer)).lines).toEqual([]);
+      expect((await h.cartState(h.anonymous)).lines.map((line) => line.lineId)).toEqual(h.ids);
+      expect(await h.eventStore.readStream({ streamId: `checkout.cart-${h.anonymous}` })).toEqual(beforeAnonymous);
+      return;
+    }
+    await h.runtime().recordOrdersCreated(params, context);
+    expect((await h.cartState(h.anonymous)).lines).toHaveLength(2);
+    expect((await h.cartState(h.buyer)).lines).toHaveLength(kind === "legacy" || kind === "non-cart" ? 2 : 0);
+    const before = await h.eventStore.readStream({ streamId: `checkout.cart-${h.buyer}` });
+    await h.add(h.buyer);
+    await h.runtime().resumeOrderCartCleanup(params, context);
+    expect((await h.cartState(h.buyer)).lines).toHaveLength(kind === "legacy" || kind === "non-cart" ? 3 : 1);
+    expect((await h.eventStore.readStream({ streamId: `checkout.cart-${h.buyer}` })).length).toBe(before.length + 1);
+  });
+});
+
+describe("union cleanup concurrent cart writes", () => {
+  it("union cleanup failure classification and concurrency preserves optimistic cart refusal and converges", async () => {
+    const h = await unionCleanupHarness();
+    await h.runtime().commandHandler({
+      streamId: `checkout.session-${h.params.sessionId}`,
+      context,
+      command: { type: "RecordOrdersCreated", orderIds: ["ord_union" as never], recordedAt: "2026-09-01T00:00:00Z" },
+    });
+    let arrivals = 0;
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = h.eventStore.appendToStream.bind(h.eventStore);
+    const fault = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
+      if (input.events[0]?.eventType === "checkout.cart.line-removed" && ++arrivals <= 2) {
+        if (arrivals === 2) release();
+        await barrier;
+      }
+      return original(input);
+    });
+    const results = await Promise.allSettled([
+      h.runtime().resumeOrderCartCleanup(h.params, context),
+      h.runtime().resumeOrderCartCleanup(h.params, context),
+    ]);
+    fault.mockRestore();
+    expect(results.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+    await h.runtime().resumeOrderCartCleanup(h.params, context);
+    expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+    expect(
+      (await h.sessionEvents()).filter((event) => event.eventType === "checkout.session.cart-cleanup-completed"),
+    ).toHaveLength(1);
+    expect(
+      (await h.eventStore.readStream({ streamId: `checkout.cart-${h.anonymous}` })).filter(
+        (event) => event.eventType === "checkout.cart.line-removed",
+      ),
+    ).toHaveLength(2);
   });
 });

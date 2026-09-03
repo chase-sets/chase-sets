@@ -1,3 +1,4 @@
+import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
@@ -1239,6 +1240,8 @@ describe("platform api app wiring", () => {
             recordFulfillmentPreview: vi.fn(),
             setShippingAddress: vi.fn(),
             recordOrdersCreated: vi.fn(),
+            resumeOrderCartCleanup:
+              vi.fn<Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]>(),
             recordPaymentStarted: vi.fn(),
             recordOfferSubmitted: vi.fn(),
             getSession,
@@ -1328,6 +1331,8 @@ describe("platform api app wiring", () => {
       recordFulfillmentPreview: vi.fn(),
       setShippingAddress: vi.fn(),
       recordOrdersCreated: vi.fn(),
+      resumeOrderCartCleanup:
+        vi.fn<Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]>(),
       recordPaymentStarted: vi.fn(),
       recordOfferSubmitted: vi.fn(),
       getSession: vi.fn(),
