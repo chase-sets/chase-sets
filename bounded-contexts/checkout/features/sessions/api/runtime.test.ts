@@ -2291,8 +2291,10 @@ describe("union cleanup Account-only and fallback", () => {
     "preserves %s and leaves anonymous lines intact",
     async (kind) => {
       const h = await unionCleanupHarness();
-      await h.copy(h.ids[0]!);
-      await h.copy(h.ids[1]!);
+      if (kind !== "whole-cart-empty") {
+        await h.copy(h.ids[0]!);
+        await h.copy(h.ids[1]!);
+      }
       const sessionId = "chk_legacy_cleanup";
       const original = await h.sessionEvents();
       const seed = original.map((event) => ({
@@ -2346,6 +2348,14 @@ describe("union cleanup Account-only and fallback", () => {
           ],
         });
       const params = { ...h.record, sessionId };
+      if (kind === "whole-cart-empty") {
+        await expect(h.runtime().recordOrdersCreated(params, context)).rejects.toThrow(
+          "Cart must contain at least one line.",
+        );
+        expect((await h.cartState(h.buyer)).lines).toEqual([]);
+        expect((await h.cartState(h.anonymous)).lines).toHaveLength(2);
+        return;
+      }
       await h.runtime().recordOrdersCreated(params, context);
       expect((await h.cartState(h.anonymous)).lines).toHaveLength(2);
       expect((await h.cartState(h.buyer)).lines).toHaveLength(kind === "legacy" || kind === "non-cart" ? 2 : 0);

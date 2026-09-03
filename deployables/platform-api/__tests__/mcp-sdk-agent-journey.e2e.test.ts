@@ -420,33 +420,49 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
   });
 
   it("asserts native MCP agent grant rate-limit and checkout spend-cap guardrail rejections", async () => {
-    const buyNowSession = {
+    type CheckoutSession = Awaited<
+      ReturnType<Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]>
+    >["session"];
+
+    const buyNowSession: CheckoutSession = {
       session_id: "chk_1",
+      buyer_account_id: "acc_1",
       source_type: "buy-now",
-      shipping_option: null,
-      optimization_goal: null,
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: null,
+      fulfillment_preview_snapshot: null,
+      cart_readiness_snapshot: null,
+      split_group_handoff: null,
+      shipping_option: "standard",
+      shipping_address_id: null,
       shipping_address: null,
+      authenticity_check_opt_in: null,
       lines: [
         {
+          listingId: "listing_1",
+          cartLineId: null,
           catalogItemId: "cat_1",
           productId: "product_1",
-          listingId: "listing_1",
-          title: "Charizard ex",
+          itemTitle: "Charizard ex",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
           quantity: 1,
-          unitPriceAmount: "25.00",
           offerPriceAmount: null,
-          sellerAccountId: "acc_1",
-          fulfillmentMode: "seller-managed",
+          fulfillmentMode: "locked-listing",
+          lockedListingId: "listing_1",
+          sellerPreferenceId: null,
           availabilityState: "available",
         },
       ],
       order_ids: ["order_1"],
       order_write_commit_positions: [],
+      checkout_reservations: [],
       payment_id: null,
       submitted_offer_id: null,
+      cancelled_at: null,
       created_at: "2026-07-08T00:00:00.000Z",
       updated_at: "2026-07-08T00:00:00.000Z",
-      totals: [{ type: "total", amount: 2500 }],
     };
     const checkoutSessions = {
       createOfferIntent: vi.fn(),

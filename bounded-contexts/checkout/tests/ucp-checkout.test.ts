@@ -1159,9 +1159,8 @@ describe("UCP union cleanup caller closure", () => {
       const guarded = () =>
         createCheckoutUcpHandlers(
           { sessions: h.runtime() },
-          terminal
-            ? {}
-            : {
+          mode === "guarded"
+            ? {
                 paymentHandoff: {
                   payment: {},
                   evaluateCompleteRequest: () => ({
@@ -1169,7 +1168,8 @@ describe("UCP union cleanup caller closure", () => {
                     response: createUcpEnvelope("requires_action", {}),
                   }),
                 },
-              },
+              }
+            : {},
         );
       const fault = vi
         .spyOn(h.realCart, "removeLine")
