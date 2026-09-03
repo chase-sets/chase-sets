@@ -910,6 +910,7 @@ async function unionCleanupHarness() {
         productId: "cat_1::",
         itemTitle: "Charizard",
         itemSubtitle: null,
+        itemImageUrl: null,
         selectedOptions: [],
         productSummary: null,
         quantity: 1,
