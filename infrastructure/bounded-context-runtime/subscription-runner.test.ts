@@ -32,12 +32,19 @@ const readStreamCallsByPool = vi.hoisted(() => new Map<object, ReadStreamCall[]>
 const ignoreReadStreamLimitByPool = vi.hoisted(() => new Set<object>());
 
 vi.mock("@chase-sets/event-core", () => createEventCoreMock());
-vi.mock("@chase-sets/event-core-postgres", () => {
+vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@chase-sets/event-core-postgres")>();
   const eventCorePostgres = createEventCorePostgresMock();
   const createPostgresEventStore = eventCorePostgres.createPostgresEventStore;
+  const {
+    EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY: _eventStoreGlobalAppendAdvisoryLockKey,
+    buildStreamPrefixFilterSql: _buildStreamPrefixFilterSql,
+    ...mockedEventCorePostgres
+  } = eventCorePostgres;
 
   return {
-    ...eventCorePostgres,
+    ...actual,
+    ...mockedEventCorePostgres,
     createPostgresEventStore: (options: { pool: object }) => {
       const store = createPostgresEventStore(options);
       return {
