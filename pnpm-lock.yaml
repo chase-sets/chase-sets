@@ -810,6 +810,9 @@ importers:
         specifier: ^19.2.5
         version: 19.2.6
     devDependencies:
+      '@chase-sets/bounded-context-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/bounded-context-runtime
       '@chase-sets/typescript-compiler-api':
         specifier: workspace:*
         version: link:../../packages/typescript-compiler-api

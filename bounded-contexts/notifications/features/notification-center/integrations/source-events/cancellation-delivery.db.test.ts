@@ -1,4 +1,10 @@
 import { expect, it } from "vitest";
+import {
+  closeMultiContextTestPools,
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+} from "@chase-sets/bounded-context-runtime/test-support";
 import { createIsolatedPostgresTestSchema } from "@chase-sets/event-core-postgres/postgres-db-test-support";
 import { createPostgresNotificationOutbox, notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { parseGlobalPosition } from "@chase-sets/event-core/storage";
@@ -10,10 +16,21 @@ import { buildNotificationsOrderingProjectionHandlers } from "./notification-pro
 it("cancellation replay stores one web row and one later email row", async () => {
   const databaseUrl = process.env.TEST_DATABASE_URL;
   if (!databaseUrl) throw new Error("TEST_DATABASE_URL is required for cancellation delivery persistence proof");
-  const schema = await createIsolatedPostgresTestSchema(databaseUrl, "notifications_cancellation");
+  const databaseUrls = createMultiContextTestDatabaseUrls(databaseUrl, ["notifications"], "cancellation_delivery");
+  const ownedDatabase = new URL(databaseUrls.notifications);
+  const databaseName = ownedDatabase.pathname.slice(1);
+  const roleName = ownedDatabase.username;
+  if (!/^[a-z0-9_]+$/.test(databaseName) || !/^[a-z0-9_]+$/.test(roleName)) {
+    throw new Error("Expected generated test database identifiers");
+  }
+  const adminPools = createMultiContextTestPools({ admin: databaseUrl });
+  let schema: Awaited<ReturnType<typeof createIsolatedPostgresTestSchema>> | undefined;
   try {
-    await schema.pool.query(notificationOutboxSchemaSql);
-    const outbox = createPostgresNotificationOutbox({ db: schema.pool });
+    await ensureMultiContextTestDatabases(databaseUrl, databaseUrls);
+    schema = await createIsolatedPostgresTestSchema(databaseUrls.notifications, "notifications_cancellation");
+    const { pool } = schema;
+    await pool.query(notificationOutboxSchemaSql);
+    const outbox = createPostgresNotificationOutbox({ db: pool });
     const handler = buildNotificationsOrderingProjectionHandlers(outbox)["ordering.order.cancelled"];
     if (!handler) throw new Error("Missing ordering cancellation handler");
     const orderId = "ord_synthetic_cancellation";
@@ -52,7 +69,7 @@ it("cancellation replay stores one web row and one later email row", async () =>
     }
     const readRows = async () =>
       (
-        await schema.pool.query<{
+        await pool.query<{
           delivery_id: string;
           idempotency_key: string;
           channel: string;
@@ -97,6 +114,15 @@ it("cancellation replay stores one web row and one later email row", async () =>
     expect(stored[1]?.channel_json).toBe(initial[0]?.channel_json);
     expect(JSON.parse(stored[0]!.channel_json)).toEqual({ channel: "email", to: [{ email: "buyer@example.test" }] });
   } finally {
-    await schema.close();
+    try {
+      await schema?.close();
+    } finally {
+      try {
+        await adminPools.admin.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
+        await adminPools.admin.query(`DROP ROLE IF EXISTS "${roleName}"`);
+      } finally {
+        await closeMultiContextTestPools(adminPools);
+      }
+    }
   }
 });
