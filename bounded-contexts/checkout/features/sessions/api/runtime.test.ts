@@ -2287,9 +2287,16 @@ describe("durable union cleanup", () => {
 });
 
 describe("union cleanup Account-only and fallback", () => {
-  it.each(["account-lines", "whole-cart", "whole-cart-empty", "non-cart", "legacy"] as const)(
-    "preserves %s and leaves anonymous lines intact",
-    async (kind) => {
+  it.each([
+    ["preserves Account-only lines and leaves anonymous lines intact", "account-lines"],
+    ["preserves populated whole-cart fallback and leaves anonymous lines intact", "whole-cart"],
+    [
+      "refuses the empty Account whole-cart fallback before cleanup and preserves anonymous lines",
+      "whole-cart-empty",
+    ],
+    ["preserves non-cart fallback and leaves anonymous lines intact", "non-cart"],
+    ["preserves legacy fallback and leaves anonymous lines intact", "legacy"],
+  ] as const)("%s", async (_description, kind) => {
       const h = await unionCleanupHarness();
       if (kind !== "whole-cart-empty") {
         await h.copy(h.ids[0]!);
@@ -2349,11 +2356,16 @@ describe("union cleanup Account-only and fallback", () => {
         });
       const params = { ...h.record, sessionId };
       if (kind === "whole-cart-empty") {
-        await expect(h.runtime().recordOrdersCreated(params, context)).rejects.toThrow(
-          "Cart must contain at least one line.",
-        );
+        const beforeSession = await h.eventStore.readStream({ streamId: `checkout.session-${sessionId}` });
+        const beforeAnonymous = await h.eventStore.readStream({ streamId: `checkout.cart-${h.anonymous}` });
+        await expect(h.runtime().recordOrdersCreated(params, context)).rejects.toMatchObject({
+          code: "unresolved_fulfillment",
+          message: "Resolve item availability before checkout starts.",
+        } satisfies Partial<CheckoutDomainError>);
+        expect(await h.eventStore.readStream({ streamId: `checkout.session-${sessionId}` })).toEqual(beforeSession);
         expect((await h.cartState(h.buyer)).lines).toEqual([]);
-        expect((await h.cartState(h.anonymous)).lines).toHaveLength(2);
+        expect((await h.cartState(h.anonymous)).lines.map((line) => line.lineId)).toEqual(h.ids);
+        expect(await h.eventStore.readStream({ streamId: `checkout.cart-${h.anonymous}` })).toEqual(beforeAnonymous);
         return;
       }
       await h.runtime().recordOrdersCreated(params, context);
@@ -2364,8 +2376,7 @@ describe("union cleanup Account-only and fallback", () => {
       await h.runtime().resumeOrderCartCleanup(params, context);
       expect((await h.cartState(h.buyer)).lines).toHaveLength(kind === "legacy" || kind === "non-cart" ? 3 : 1);
       expect((await h.eventStore.readStream({ streamId: `checkout.cart-${h.buyer}` })).length).toBe(before.length + 1);
-    },
-  );
+    });
 });
 
 describe("union cleanup concurrent cart writes", () => {
