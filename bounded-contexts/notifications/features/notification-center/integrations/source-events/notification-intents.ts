@@ -1,6 +1,7 @@
 import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { t } from "@chase-sets/localization";
+import type { OrderingOrderCancelledPayload } from "@chase-sets/event-core/public-event-payloads";
 import type {
   EmailNotificationChannel,
   NotificationMessage,
@@ -181,6 +182,54 @@ export function mapOrderCreatedToNotification(input: OrderCreatedNotificationInp
     idempotencyKey: `notifications:ordering:order_created:${input.orderId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: input.buyerAccountId },
+  };
+}
+
+export function mapOrderCancelledToNotification(
+  input: OrderingOrderCancelledPayload,
+  correlationId: string,
+): NotificationMessage | null {
+  if (typeof input.buyerAccountId !== "string" || input.buyerAccountId.trim().length === 0) return null;
+  if (typeof input.statusBeforeCancellation !== "string") return null;
+
+  const buyerAccountId = input.buyerAccountId as AccountId;
+  const orderReference = orderReferenceOrRaw(input.orderId);
+  const headline = t("notifications.intents.orderCancelled.title", { orderReference });
+  const status = input.statusBeforeCancellation;
+  const moneyLine =
+    status === "pending-reservation"
+      ? t("notifications.intents.orderCancelled.body.pendingReservation")
+      : status === "pending-payment" || status === "ready-for-fulfillment"
+        ? t("notifications.intents.orderCancelled.body.paymentDetails")
+        : t("notifications.intents.orderCancelled.body.unknown");
+  const purchaseHref = `/account/purchases/${input.orderId}`;
+  const buyerEmail = typeof input.buyerEmail === "string" ? input.buyerEmail.trim() : "";
+  const webChannel: WebNotificationChannel = {
+    channel: "web",
+    recipient: { accountId: buyerAccountId },
+    actionHref: purchaseHref,
+  };
+  const channels: NotificationMessage["channels"] =
+    input.reason !== "buyer-cancelled" && buyerEmail
+      ? [webChannel, { channel: "email", to: [{ email: buyerEmail }] }]
+      : [webChannel];
+
+  return {
+    messageType: "ordering.order.cancelled",
+    criticality: "commerce",
+    category: "order-critical",
+    recipientAccountId: buyerAccountId,
+    title: headline,
+    body: moneyLine,
+    actionHref: purchaseHref,
+    templateId: "order_cancelled",
+    templateVersion: 1,
+    locale: "en",
+    templateData: { orderReference, headline, moneyLine, purchaseHref },
+    channels,
+    idempotencyKey: `notifications:ordering:order_cancelled:${input.orderId}`,
+    correlationId,
+    actor: { userId: null, accountId: buyerAccountId },
   };
 }
 

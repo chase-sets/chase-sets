@@ -118,11 +118,11 @@ function renderPlatformEmailBodyLines(message: TransactionalEmailMessage): reado
     ];
   }
 
-  if (message.templateId === "order_payment_deadline_cancelled") {
+  if (message.templateId === "order_cancelled") {
     return [
-      "Your Chase Sets order was cancelled after the payment deadline passed.",
-      `Order reference: ${String(message.templateData.orderReference ?? "")}`,
-      `Reorder: ${String(message.templateData.reorderHref ?? "")}`,
+      String(message.templateData.headline ?? ""),
+      String(message.templateData.moneyLine ?? ""),
+      String(message.templateData.purchaseHref ?? ""),
       "",
       "Chase Sets",
     ];

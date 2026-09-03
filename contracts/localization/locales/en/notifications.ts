@@ -1,4 +1,8 @@
 export const notificationsEnglishTranslations = {
+  "notifications.intents.orderCancelled.title": "Order {orderReference} cancelled",
+  "notifications.intents.orderCancelled.body.pendingReservation": "You have not been charged.",
+  "notifications.intents.orderCancelled.body.paymentDetails": "View your order for any payment or refund details.",
+  "notifications.intents.orderCancelled.body.unknown": "View your order for details about this cancellation.",
   "notifications.api.authentication.required": "Authentication required.",
   "notifications.api.email.webhook.failed": "Email webhook failed.",
   "notifications.api.forbidden": "Forbidden.",

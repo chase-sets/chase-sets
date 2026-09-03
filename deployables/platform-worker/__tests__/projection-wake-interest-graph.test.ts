@@ -111,7 +111,7 @@ describe("platform worker projection wake interest graph", () => {
 
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
       count: 227,
-      sha256: "f69b156f1845dfd327776d55120154f4963051a80b4587073820e398b9be0351",
+      sha256: "fb796097cb9400b631ab8dfab41e8948dde6d7999fbc453d3e72ea74c69af0c9",
     });
     expect(
       fingerprint(
