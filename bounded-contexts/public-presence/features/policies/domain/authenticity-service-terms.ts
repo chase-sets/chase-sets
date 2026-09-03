@@ -77,7 +77,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:41-52",
           "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:124-131",
-          "bounded-contexts/checkout/features/sessions/domain/domain.ts:696-716",
+          "bounded-contexts/checkout/features/sessions/domain/domain.ts:777-799",
           "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:92-118",
         ],
         openQuestions: [
@@ -92,7 +92,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "The buyer opt-in offer is unavailable for purchase-intent checkout, cannot change once orders are created or purchase intent is submitted, and requires a current fee quote fingerprint when selected.",
-            evidenceRef: "bounded-contexts/checkout/features/sessions/domain/domain.ts:696-716",
+            evidenceRef: "bounded-contexts/checkout/features/sessions/domain/domain.ts:777-799",
           },
           {
             assertion:
