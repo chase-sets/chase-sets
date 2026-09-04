@@ -1442,7 +1442,7 @@ describe("DigitalOcean platform configuration", () => {
     );
 
     const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
-    expect(dbProfileJob).toContain("timeout-minutes: 20");
+    expect(dbProfileJob).toContain("timeout-minutes: 30");
     expect(dbProfileJob).toContain("image: pgvector/pgvector:pg16");
     expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
     expect(dbProfileJob).toContain("target_max_locks_per_transaction=512");
