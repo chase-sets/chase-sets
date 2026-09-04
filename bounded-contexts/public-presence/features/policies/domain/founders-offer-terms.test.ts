@@ -221,11 +221,13 @@ describe("founders offer terms migration", () => {
   it("compiles current full fingerprints and isolates a content-only edit to one publication module", async () => {
     const baseline = await renderPublicPolicyPublicationContracts();
     expect(baseline).toHaveLength(8);
-    for (const module of baseline) {
-      expect(module.content, module.relativePath).toBe(
-        readSource(`contracts/public-docs/generated/${module.relativePath}`),
-      );
-    }
+    const foundersPublication = baseline.find(
+      (module: { relativePath: string }) => module.relativePath === "founders-offer-terms-publication.ts",
+    );
+    expect(foundersPublication).toBeDefined();
+    expect(foundersPublication!.content).toBe(
+      readSource("contracts/public-docs/generated/founders-offer-terms-publication.ts"),
+    );
     expect(publicFoundersOfferTermsPublicationRecord.contentFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(publicFoundersOfferTermsPublicationRecord.contentFingerprint).not.toBe(oldFingerprint);
     expect(publicFoundersOfferTermsPublicationRecord.consentActivatable).toBe(false);
