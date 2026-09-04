@@ -210,7 +210,7 @@ jobs:
   db-tests:
     name: DB Profile Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     needs: change-scope
     if: needs['change-scope'].outputs.db_tests == 'true'
     services:
