@@ -60,6 +60,20 @@ The `order_cancelled` version 1 template has exactly four data keys: `orderRefer
 and status wording; the message makes no claim about a refund outcome. The web channel
 always comes first, preserving delivery identity when email becomes available later.
 
+## Shipment Dispatch Notification
+
+A **Shipment Dispatch Notification** is a Mandatory Notification in the `order-critical`
+category for the event's buyer Recipient Account, raised when Fulfillment records carrier
+handoff. Its web delivery creates a Notification Feed Item linking to
+`/account/shipments/{shipmentId}`. Web is its only channel; the dispatch fact carries no
+contact information, and label attachment is not the trigger.
+
+The `shipment_dispatched` version 1 template has exactly four data keys: `shipmentId`,
+`orderId`, `trackingIdentifier`, and `shipmentHref`. Tracking Identifier is display text
+only — never a carrier link — and a blank or absent identifier renders the tracking-less
+wording rather than an empty reference. Dispatch facts that predate buyer routing carry
+none of it and produce no notification.
+
 ## Suppressible Notification
 
 A **Suppressible Notification** is an operational or Product Alert notification whose channel

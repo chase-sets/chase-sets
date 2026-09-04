@@ -1,12 +1,14 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type {
   FulfillmentShipmentDeliveredPayload,
+  FulfillmentShipmentDispatchedPayload,
   OrderingOrderCancelledPayload,
 } from "@chase-sets/event-core/public-event-payloads";
 import type { TransportEvent, TypedTransportEvent } from "@chase-sets/event-core/transport";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
+  classifyShipmentDispatchedPayload,
   mapOrderCreatedToNotification,
   mapOrderCancelledToNotification,
   mapPayoutReadinessRegressionToNotification,
@@ -14,6 +16,7 @@ import {
   mapSaleRecordedToNotification,
   mapSellerAvailabilityRestoredToNotification,
   mapShipmentDeliveredToNotification,
+  mapShipmentDispatchedToNotification,
   mapStockCommittedToNotification,
   mapStockReturnedToNotification,
 } from "./notification-intents";
@@ -44,6 +47,11 @@ type OrderCreatedEvent = TransportEvent &
 type ShipmentDeliveredEvent = TypedTransportEvent<
   FulfillmentShipmentDeliveredPayload,
   "fulfillment.shipment.delivered"
+>;
+
+type ShipmentDispatchedEvent = TypedTransportEvent<
+  FulfillmentShipmentDispatchedPayload,
+  "fulfillment.shipment.dispatched"
 >;
 
 type InventoryHoldConsumedEvent = TransportEvent &
@@ -170,6 +178,29 @@ export async function projectSourceEventToNotification(
     return;
   }
 
+  if (event.type === "fulfillment.shipment.dispatched") {
+    // Carrier handoff routes on the event alone: no shipment, order, contact, or
+    // Delivered-state lookup decides whether the buyer is notified.
+    const dispatch = classifyShipmentDispatchedPayload(event.data);
+    if (dispatch.kind !== "enriched") {
+      return;
+    }
+
+    const data = (event as ShipmentDispatchedEvent).data;
+    await outbox.enqueueNotification({
+      message: mapShipmentDispatchedToNotification({
+        eventId: event.id,
+        shipmentId: data.shipmentId,
+        orderId: dispatch.orderId,
+        buyerAccountId: dispatch.buyerAccountId,
+        trackingIdentifier: dispatch.trackingIdentifier,
+        correlationId: correlationIdFromEvent(event),
+      }),
+      source,
+    });
+    return;
+  }
+
   if (event.type === "inventory.hold.consumed") {
     const data = event.data as InventoryHoldConsumedEvent["data"];
     const sellerAccountId = data.sellerAccountId ?? data.accountId ?? null;
@@ -276,6 +307,7 @@ export function buildNotificationsFulfillmentProjectionHandlers(
   projectionName = NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
 ): ProjectorHandlerMap {
   return {
+    "fulfillment.shipment.dispatched": (event) => projectSourceEventToNotification(outbox, event, projectionName),
     "fulfillment.shipment.delivered": (event) => projectSourceEventToNotification(outbox, event, projectionName),
   };
 }

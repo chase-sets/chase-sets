@@ -28,9 +28,9 @@
     {
       "sourceContextName": "fulfillment",
       "projectionName": "notifications-source-facts-outbox-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "subscriptionName": "notifications.fulfillment-facts-projection",
-      "eventTypes": ["fulfillment.shipment.delivered"],
+      "eventTypes": ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
       "order": 30,
       "projectionHandlerSetNames": ["notifications-fulfillment-facts-projection"]
     },
