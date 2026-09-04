@@ -537,7 +537,23 @@ describe("platform api app wiring", () => {
   });
 
   it("lets the Auth session route wait for fresh session and membership projections before resolving the actor", async () => {
+    type AuthenticatedSessionRead = NonNullable<
+      Awaited<ReturnType<Parameters<typeof authModule.buildApis>[0]["sessions"]["readAuthenticatedSession"]>>
+    >;
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const syntheticAuthenticatedAt = new Date(Date.now() - 1_000).toISOString();
+    const syntheticAuthenticatedSession: AuthenticatedSessionRead = {
+      state: {
+        id: "ses_1",
+        userId: "usr_1",
+        accountId: "acc_1",
+        availableAccountIds: ["acc_1"],
+        authenticationMethod: "password",
+        status: "active",
+        expiresAt,
+      },
+      authenticatedAt: syntheticAuthenticatedAt,
+    };
     let membershipFresh = false;
     const authServices = {
       db: {
@@ -587,7 +603,9 @@ describe("platform api app wiring", () => {
           updated_at: new Date().toISOString(),
         })),
         getSessionState: vi.fn(async () => null),
-        readAuthenticatedSession: vi.fn(async () => null),
+        readAuthenticatedSession: vi.fn(async (sessionId: string) =>
+          sessionId === "ses_1" ? syntheticAuthenticatedSession : null,
+        ),
       },
     };
     const refreshAuthSession = vi.fn(async () => ({
