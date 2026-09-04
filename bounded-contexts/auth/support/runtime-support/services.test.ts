@@ -133,7 +133,7 @@ describe("resolveActorFromSessionId on a session-projection miss", () => {
     expect(actor?.permissions).toContain("payouts.setup");
   });
 
-  it("keeps reading the projection when it hits, without consulting the aggregate", async () => {
+  it("keeps aggregate authority when the projection hits", async () => {
     const { services, readAuthenticatedSession } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
     const projectedStartedAt = "2026-08-10T11:59:30.000Z";
     (services.sessions.getSession as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -154,8 +154,9 @@ describe("resolveActorFromSessionId on a session-projection miss", () => {
 
     const actor = await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID);
 
-    expect(actor?.authenticatedAt).toBe(projectedStartedAt);
-    expect(readAuthenticatedSession).not.toHaveBeenCalled();
+    expect(actor?.authenticatedAt).toBe(SYNTHETIC_FRESH_RECORDED_AT);
+    expect(actor?.authenticatedAt).not.toBe(projectedStartedAt);
+    expect(readAuthenticatedSession).toHaveBeenCalledWith(SYNTHETIC_SESSION_ID);
   });
 });
 

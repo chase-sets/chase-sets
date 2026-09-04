@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { AuthenticatedSessionRead } from "../../features/sessions/api/runtime";
 import type { AuthServices } from "./services";
 import {
   AUTH_GUEST_CHECKOUT_PERMISSIONS,
@@ -11,6 +12,7 @@ function createServices(options: {
   dbQuery?: AuthServices["db"]["query"];
   membership?: Awaited<ReturnType<AuthServices["identity"]["getActiveMembershipForUserAccount"]>>;
   session?: Awaited<ReturnType<AuthServices["sessions"]["getSession"]>>;
+  authenticatedSession?: AuthenticatedSessionRead | null;
   user?: Awaited<ReturnType<AuthServices["identity"]["getUser"]>>;
 }) {
   return {
@@ -28,9 +30,34 @@ function createServices(options: {
     sessions: {
       getSession: vi.fn(async () => options.session ?? null),
       getSessionState: vi.fn(async () => null),
-      readAuthenticatedSession: vi.fn(async () => null),
+      readAuthenticatedSession: vi.fn(async () =>
+        options.authenticatedSession === undefined
+          ? toAuthenticatedSessionRead(options.session ?? null)
+          : options.authenticatedSession,
+      ),
     },
   } as unknown as AuthServices;
+}
+
+function toAuthenticatedSessionRead(
+  session: Awaited<ReturnType<AuthServices["sessions"]["getSession"]>> | null,
+): AuthenticatedSessionRead | null {
+  if (!session) {
+    return null;
+  }
+
+  return {
+    state: {
+      id: session.session_id,
+      userId: session.user_id,
+      accountId: session.account_id,
+      availableAccountIds: session.available_account_ids,
+      authenticationMethod: session.authentication_method,
+      status: session.status,
+      expiresAt: session.expires_at,
+    } as AuthenticatedSessionRead["state"],
+    authenticatedAt: session.started_at ?? null,
+  };
 }
 
 describe("Auth request actor resolution", () => {
@@ -230,6 +257,42 @@ describe("Auth request actor resolution", () => {
     expect(services.auth.hashSecret).toHaveBeenCalledWith("guest_token");
   });
 
+  it("falls back to the guest actor when authoritative Session resolution denies", async () => {
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const dbQuery = vi.fn(async (sql: unknown) => ({
+      rows: String(sql).includes("identity_session_tokens")
+        ? [{ session_id: "ses_revoked", token_hash: "hashed:session_token", expires_at: expiresAt }]
+        : [
+            {
+              token_id: "tok_guest_fallback",
+              account_id: "acc_guest_fallback",
+              token_hash: "hashed:guest_token",
+              expires_at: expiresAt,
+              revoked_at: null,
+            },
+          ],
+    }));
+    const services = createServices({
+      dbQuery: dbQuery as AuthServices["db"]["query"],
+      authenticatedSession: null,
+    });
+
+    const actor = await resolveActorFromRequest(
+      services,
+      new Request("https://platform.test/api/checkout", {
+        headers: {
+          cookie: "chase_sets_session=session_token; chase_sets_guest_checkout=guest_token",
+        },
+      }),
+    );
+
+    expect(actor).toMatchObject({
+      sessionId: "guest:tok_guest_fallback",
+      accountId: "acc_guest_fallback",
+      roleKey: AUTH_GUEST_CHECKOUT_ROLE_KEY,
+    });
+  });
+
   it("resolves UCP access-token actors with Auth-owned scope permission policy", async () => {
     const services = createServices({
       membership: {
@@ -274,6 +337,45 @@ describe("Auth request actor resolution", () => {
       },
     });
     expect(linkedPlatformAuthorizations.resolveAccessToken).toHaveBeenCalledWith("hashed:ucp_at_secret");
+  });
+
+  it("keeps UCP bearer precedence over Session and guest cookies", async () => {
+    const dbQuery = vi.fn(async () => ({ rows: [] }));
+    const services = createServices({
+      dbQuery,
+      membership: {
+        membership_id: "mem_ucp_precedence",
+        user_id: "usr_ucp_precedence",
+        account_id: "acc_ucp_precedence",
+        role_key: "owner",
+        role_permissions: ["catalog.view"],
+        status: "active",
+        updated_at: new Date().toISOString(),
+      },
+    });
+    const linkedPlatformAuthorizations = {
+      resolveAccessToken: vi.fn(async () => ({
+        authorization_id: "lpa_precedence",
+        user_id: "usr_ucp_precedence",
+        account_id: "acc_ucp_precedence",
+        scopes: ["catalog:read"],
+      })),
+    };
+
+    const actor = await resolveActorFromRequest(
+      services,
+      new Request("https://platform.test/ucp/v1/catalog", {
+        headers: {
+          authorization: "Bearer ucp_at_precedence",
+          cookie: "chase_sets_session=session_token; chase_sets_guest_checkout=guest_token",
+        },
+      }),
+      { linkedPlatformAuthorizations },
+    );
+
+    expect(actor?.sessionId).toBe("ucp:lpa_precedence");
+    expect(dbQuery).not.toHaveBeenCalled();
+    expect(services.sessions.readAuthenticatedSession).not.toHaveBeenCalled();
   });
 
   it("intersects linked OAuth scopes with the member role permissions", async () => {
