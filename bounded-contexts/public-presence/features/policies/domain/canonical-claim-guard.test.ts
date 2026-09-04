@@ -1083,7 +1083,10 @@ describe("finite authorized-agent semantic adjudication matrix", () => {
     expect(foundersRows.map((row) => row.row)).toEqual(Object.keys(foundersOfferTermsReasons));
     expect(foundersRows).toHaveLength(6);
     for (const [rowKey, reason] of Object.entries(foundersOfferTermsReasons)) {
-      expect(foundersRows.find((row) => row.row === rowKey), rowKey).toMatchObject({
+      expect(
+        foundersRows.find((row) => row.row === rowKey),
+        rowKey,
+      ).toMatchObject({
         principalResponsibility: "green",
         agentAccessOrAccountSanction: "green",
         reason,
