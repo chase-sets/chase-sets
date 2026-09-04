@@ -253,7 +253,14 @@ const registeredCorpusSectionIds = {
     "liability-limits",
     "service-termination",
   ],
-  "founders-offer-terms": ["founders-offer-terms-scope"],
+  "founders-offer-terms": [
+    "eligibility-and-cap",
+    "offer-window-and-fee-lock",
+    "what-the-badge-means",
+    "changes-and-termination",
+    "no-cash-value",
+    "relationship-to-tos",
+  ],
 } as const;
 
 const mustStayGreenReasons: Readonly<Record<string, string>> = {
@@ -287,6 +294,21 @@ const mustStayGreenReasons: Readonly<Record<string, string>> = {
     "The draft distinguishes consent revocation and runtime refusals from any unresolved contractual agent-access or agent-caused Account sanction authority.",
 };
 
+const foundersOfferTermsReasons: Readonly<Record<string, string>> = {
+  "founders-offer-terms#eligibility-and-cap":
+    "Number allocation, qualifying acts and access eligibility assign neither delegated-conduct liability nor agent/Account sanctions.",
+  "founders-offer-terms#offer-window-and-fee-lock":
+    "Listing, window and tranche rules allocate no agent responsibility; terminal listing withdrawal is not an agent-caused Account sanction.",
+  "founders-offer-terms#what-the-badge-means":
+    "Number and display benefits, and the independent beta window, assert neither agent liability nor sanction authority.",
+  "founders-offer-terms#changes-and-termination":
+    "The expressly unratified offer-termination scope establishes neither governed agent proposition.",
+  "founders-offer-terms#no-cash-value":
+    "The unresolved offer characterization and separate Wallet reference assert neither agent responsibility nor access or Account sanctions.",
+  "founders-offer-terms#relationship-to-tos":
+    "Existing-owner cross-references and separate charges do not reinstate universal Account-activity responsibility or agent-triggered sanctions.",
+};
+
 /**
  * Reviewer-authored finite matrix data. This is not a semantic scorer: every
  * registered row is named explicitly, and the independent exact-head reviewer
@@ -301,6 +323,7 @@ const registeredCorpusAdjudicationMatrix = Object.entries(registeredCorpusSectio
         principalResponsibility: "green" as SemanticVerdict,
         agentAccessOrAccountSanction: "green" as SemanticVerdict,
         reason:
+          foundersOfferTermsReasons[row] ??
           mustStayGreenReasons[row] ??
           "The complete draftText was read as a finite row and states neither governed authorized-software-agent proposition.",
       };
@@ -1016,7 +1039,7 @@ describe("finite authorized-agent semantic adjudication matrix", () => {
     const matrixKeys = registeredCorpusAdjudicationMatrix.map((row) => row.row);
 
     expect(matrixKeys).toEqual(projectedKeys);
-    expect(matrixKeys).toHaveLength(74);
+    expect(matrixKeys).toHaveLength(79);
     expect(new Set(matrixKeys).size).toBe(matrixKeys.length);
     for (const row of registeredCorpusAdjudicationMatrix) {
       expect(row.principalResponsibility, row.row).toBe("green");
@@ -1050,6 +1073,42 @@ describe("finite authorized-agent semantic adjudication matrix", () => {
         reason,
       });
     }
+  });
+
+  it("binds every Founders subject to the independently adjudicated P-A/P-B reason oracle", () => {
+    const foundersRows = registeredCorpusAdjudicationMatrix.filter((row) =>
+      row.row.startsWith("founders-offer-terms#"),
+    );
+
+    expect(foundersRows.map((row) => row.row)).toEqual(Object.keys(foundersOfferTermsReasons));
+    expect(foundersRows).toHaveLength(6);
+    for (const [rowKey, reason] of Object.entries(foundersOfferTermsReasons)) {
+      expect(
+        foundersRows.find((row) => row.row === rowKey),
+        rowKey,
+      ).toMatchObject({
+        principalResponsibility: "green",
+        agentAccessOrAccountSanction: "green",
+        reason,
+      });
+    }
+  });
+
+  it("negative control: reversing Founders rows preserves the count but fails ordered census equality", () => {
+    const projectedKeys = projectCanonicalClaimReviewCorpus(publicPolicyRegistry).map(
+      (row) => `${row.policyKey}#${row.sectionId}`,
+    );
+    const matrixKeys = registeredCorpusAdjudicationMatrix.map((row) => row.row);
+    const foundersIndexes = matrixKeys
+      .map((row, index) => (row.startsWith("founders-offer-terms#") ? index : -1))
+      .filter((index) => index >= 0);
+    const reversedFoundersKeys = [...matrixKeys];
+    foundersIndexes.forEach((index, reversedIndex) => {
+      reversedFoundersKeys[index] = matrixKeys[foundersIndexes[foundersIndexes.length - 1 - reversedIndex]];
+    });
+
+    expect(reversedFoundersKeys).toHaveLength(projectedKeys.length);
+    expect(reversedFoundersKeys).not.toEqual(projectedKeys);
   });
 
   it("negative control: omitting one new Agent census row names the exact missing projection key", () => {

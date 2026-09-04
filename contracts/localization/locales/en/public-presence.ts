@@ -514,31 +514,7 @@ export const publicPresenceEnglishTranslations = {
     "Email support@chasesets.com for Chase Sets support and business review questions.",
   "publicPresence.info.contact.support.title": "Customer service",
   "publicPresence.info.contact.title": "Contact Chase Sets",
-  "publicPresence.info.founders.description":
-    "The founders offer in plain language: what you get, how the fee lock works, what buyers pay, and what changes once your window closes.",
   "publicPresence.info.founders.eyebrow": "Founders offer",
-  "publicPresence.info.founders.title": "Founders offer terms",
-  "publicPresence.info.founders.offer.body":
-    "The first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed. Beta access also opens a 60-day 0% seller-fee window: every listing you create in that window locks 0% fees until it sells. The 60-day window starts at beta access and runs whether or not you have claimed your badge yet.",
-  "publicPresence.info.founders.offer.title": "The offer",
-  "publicPresence.info.founders.feeLock.body":
-    "Each listing locks its fee the moment you create it. Editing price, photos, purchase limits, pausing, or resuming keeps the lock. Added quantity uses the current published rate only for those added units. Withdrawing and relisting, recreating, or substituting the item or condition creates a new listing at the current rate.",
-  "publicPresence.info.founders.feeLock.title": "How the fee lock works",
-  "publicPresence.info.founders.buyerEconomics.body":
-    "Buyers pay the item price, shipping, and tax, plus card processing at checkout unless they pay with Chase Sets balance, which makes processing $0. Every order includes Order Protection, funded the same way it is for every seller on the platform: through the shipping allowance, with any buyer overflow shown in one combined Shipping line. Your payout statement itemizes both.",
-  "publicPresence.info.founders.buyerEconomics.title": "What buyers pay and what comes out of payouts",
-  "publicPresence.info.founders.afterWindow.body":
-    "New listings created after your 60-day window lock the fee schedule published on /sales-fees at that time, not 0%. Listings you created and locked at 0% during your window keep that rate until they sell, however long that takes.",
-  "publicPresence.info.founders.afterWindow.title": "What happens after your window",
-  "publicPresence.info.founders.faqForever.body":
-    "Your numbered founder badge is publicly displayed. Listings you locked at 0% keep that rate until they sell. Creating new listings at 0% only works inside your 60-day window.",
-  "publicPresence.info.founders.faqForever.title": "Is this forever?",
-  "publicPresence.info.founders.faqSignup.body":
-    "No. An invite reserves your eligibility. Beta access starts your 60-day window, and your first listing or offer claims your founder number in activation order.",
-  "publicPresence.info.founders.faqSignup.title": "Do I get the badge just for signing up?",
-  "publicPresence.info.founders.faqKeep.body":
-    "Of the sale price, yes — 0% seller fees during your window. Shipping allowance and Order Protection come out the same way they do for every seller, and your payout statement itemizes both.",
-  "publicPresence.info.founders.faqKeep.title": "Do I really keep 100%?",
   "publicPresence.info.paymentsTerms.eyebrow": "Payments terms",
   "publicPresence.info.policies.counselPending.description":
     "The policy structure and version metadata are published for review, but the operative language, effective date, launch jurisdictions, and approval reference remain intentionally unset until qualified counsel signs off.",

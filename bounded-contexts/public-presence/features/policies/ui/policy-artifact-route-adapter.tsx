@@ -1,6 +1,7 @@
 import type { MetaDescriptor, MetaFunction } from "react-router";
 import { agentConnectorTermsPolicyArtifact } from "../domain/agent-connector-terms";
 import { authenticityServiceTermsPolicyArtifact } from "../domain/authenticity-service-terms";
+import { foundersOfferTermsPolicyArtifact } from "../domain/founders-offer-terms";
 import { paymentsTermsPolicyArtifact } from "../domain/payments-terms";
 import type { PublicPolicyArtifact } from "../domain/policy-artifact";
 import { privacyPolicyArtifact } from "../domain/privacy-policy";
@@ -101,6 +102,25 @@ export function PrivacyPolicyRouteAdapter({
   artifact = privacyPolicyArtifact,
 }: Readonly<{ artifact?: PublicPolicyArtifact }> = {}) {
   return <PolicyArtifactRouteAdapter artifact={artifact} eyebrow={t("publicPresence.info.privacy.eyebrow")} />;
+}
+
+export function buildFoundersOfferTermsMeta(
+  artifact: PublicPolicyArtifact = foundersOfferTermsPolicyArtifact,
+): MetaDescriptor[] {
+  return buildPolicyArtifactMeta(
+    artifact,
+    {
+      title: t("publicPresence.routes.founders.meta.title"),
+      description: t("publicPresence.routes.founders.meta.description"),
+    },
+    { noindexWhilePending: false },
+  );
+}
+
+export function FoundersOfferTermsRouteAdapter({
+  artifact = foundersOfferTermsPolicyArtifact,
+}: Readonly<{ artifact?: PublicPolicyArtifact }> = {}) {
+  return <PolicyArtifactRouteAdapter artifact={artifact} eyebrow={t("publicPresence.info.founders.eyebrow")} />;
 }
 
 export const agentTermsMeta: MetaFunction = () =>
