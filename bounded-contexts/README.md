@@ -19,6 +19,7 @@ Each context `README.md` follows a common shape — see [Fulfillment](./fulfillm
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
 | [Checkout](./checkout/README.md) | Own account cart intent and active checkout session orchestration. |
 | [Inventory](./inventory/README.md) | Own account-held stock and operational availability. |
+| [Channels](./channels/README.md) | Own marketplace Sales Channel connection and channel-sync language. |
 | [Commercial Terms](./commercial-terms/README.md) | Own seller-side marketplace sales fee policy and account-specific commercial agreements. |
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists, plus post-transaction reviews and review summaries. |
 | [Ordering](./ordering/README.md) | Own per-seller orders, commercial commitment, provider-agnostic tax quotes, and tax nexus readiness. |

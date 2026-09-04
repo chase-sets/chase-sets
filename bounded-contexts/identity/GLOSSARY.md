@@ -543,7 +543,9 @@ The shipped catalog contains `authenticity.seller-included`, `inventory.location
 
 ## Planned Account Capabilities And Channel Connections
 
-These planned terms pre-register upcoming Account Capability lifecycle, store team, and external channel connection language. They are not shipped behavior until the owning contexts add the corresponding facts and workflows.
+These planned terms pre-register upcoming Account Capability lifecycle and store team language. They are not shipped behavior until Identity adds the corresponding facts and workflows.
+
+Channels owns Sales Channel and Channel Connection language, including BYO Channel, Channel Account, Channel Authorization, Channel Credential, Channel Webhook, Channel Health, and Channel Mapping; see the [Channels glossary](../channels/GLOSSARY.md).
 
 ### Capability Grant
 
@@ -572,42 +574,6 @@ A **Capability Level** is the planned graduated operating range for an Account C
 ### Capability Review
 
 **Capability Review** is the planned workflow that evaluates whether an Account should receive, keep, or lose a Capability Grant.
-
-### Sales Channel
-
-A **Sales Channel** is the planned external or native commerce surface connected to an Account.
-
-### Channel Connection
-
-A **Channel Connection** is the planned linked relationship between a Chase Sets Account and a Sales Channel.
-
-### BYO Channel
-
-A **BYO Channel** is the planned account-supplied Sales Channel connection that Chase Sets supports without owning the external storefront.
-
-### Channel Account
-
-A **Channel Account** is the planned external account identity linked to a Chase Sets Account for a Sales Channel.
-
-### Channel Authorization
-
-A **Channel Authorization** is the planned consent that allows Chase Sets to act with scoped access on a Sales Channel.
-
-### Channel Credential
-
-A **Channel Credential** is the planned secret or token reference used to access a Sales Channel.
-
-### Channel Webhook
-
-A **Channel Webhook** is the planned inbound event subscription configured for a Sales Channel.
-
-### Channel Health
-
-**Channel Health** is the planned account-visible operational state of a Sales Channel connection.
-
-### Channel Mapping
-
-A **Channel Mapping** is the planned account-owned configuration that maps channel fields, SKUs, locations, or policies to Chase Sets terms.
 
 ### Store Team
 

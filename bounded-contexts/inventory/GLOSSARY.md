@@ -265,6 +265,8 @@ A **Recovered Item Disposition** is Inventory's append-only decision to return a
 
 These planned terms pre-register upcoming store, multi-location, and channel inventory language. They are not shipped behavior until Inventory adds the corresponding aggregates, events, imports, exports, and read models.
 
+Channels owns Channel Listing Link, Channel Sync, Channel Sync Run, Channel Sync Error, and Channel Inventory Snapshot; see the [Channels glossary](../channels/GLOSSARY.md). Inventory retains stock truth and the allocation, reservation, and fulfillment-rule terms below.
+
 ### Store
 
 A **Store** is the planned account-operated selling presence that may group inventory, listings, channels, and fulfillment preferences.
@@ -348,26 +350,6 @@ A **Channel Allocation** is the planned Inventory quantity assignment for a nati
 ### Channel Reservation
 
 A **Channel Reservation** is the planned temporary channel-sourced hold against available inventory.
-
-### Channel Listing Link
-
-A **Channel Listing Link** is the planned association between a Chase Sets Listing or Inventory Item and an external channel listing.
-
-### Channel Sync
-
-**Channel Sync** is the planned Inventory workflow that reconciles stock facts with an external sales channel.
-
-### Channel Sync Run
-
-A **Channel Sync Run** is the planned execution record for one Channel Sync attempt.
-
-### Channel Sync Error
-
-A **Channel Sync Error** is the planned actionable failure captured during Channel Sync.
-
-### Channel Inventory Snapshot
-
-A **Channel Inventory Snapshot** is the planned channel-reported quantity state captured for reconciliation.
 
 ### Channel Fulfillment Rule
 

@@ -81,6 +81,12 @@
       "@chase-sets/catalog/web": [
         "./bounded-contexts/catalog/web.ts"
       ],
+      "@chase-sets/channels": [
+        "./bounded-contexts/channels/index.ts"
+      ],
+      "@chase-sets/channels/context": [
+        "./bounded-contexts/channels/context.json"
+      ],
       "@chase-sets/checkout": [
         "./bounded-contexts/checkout/index.ts"
       ],
