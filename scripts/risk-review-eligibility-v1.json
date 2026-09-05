@@ -1,6 +1,6 @@
 {
   "schemaVersion": "risk-review-eligibility/v1",
   "mode": "advisory",
-  "eligiblePrincipals": [],
+  "eligiblePrincipals": [{ "login": "todd-skelton", "allowBot": false }],
   "eligibleTeams": []
 }
