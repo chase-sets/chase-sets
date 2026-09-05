@@ -140,7 +140,11 @@ export function checkoutSessionRequestFromForm(
   formData: FormData,
   authoritativeSource: CheckoutStartSource | null = null,
 ): CreateCheckoutSessionRequest {
-  if (authoritativeSource) {
+  if (authoritativeSource?.type === "buy-now") {
+    return withEntryAttemptKey({ source: authoritativeSource }, formData);
+  }
+
+  if (authoritativeSource?.type === "offer-intent") {
     return withEntryAttemptKey({ source: authoritativeSource }, formData);
   }
 

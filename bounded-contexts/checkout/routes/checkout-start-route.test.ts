@@ -760,7 +760,7 @@ describe("checkout web routes: checkout start", () => {
     expect(mockStartGuestCheckout).not.toHaveBeenCalled();
   });
 
-  it("starts signed-in purchase-intent checkout from the preserved checkout start payload", async () => {
+  it("uses the authoritative offer-intent URL over conflicting form data", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
     mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_offer" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -769,28 +769,31 @@ describe("checkout web routes: checkout start", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("source", "offer-intent");
-    form.set("catalogItemId", "cat_1");
-    form.set("productId", "prod_1");
-    form.set("itemTitle", "Charizard");
-    form.set("itemSubtitle", "Base Set");
-    form.set("selectedOptions", JSON.stringify([{ dimensionId: "condition", optionId: "raw" }]));
-    form.set("productSummary", "Raw");
-    form.set("offerPriceAmount", "350.00");
-    form.set("quantity", "2");
+    form.set("entryAttemptKey", "entry_attempt_offer_1");
+    form.set("source", "buy-now");
+    form.set("listingId", "lst_tampered");
+    form.set("catalogItemId", "cat_tampered");
+    form.set("productId", "prod_tampered");
+    form.set("itemTitle", "Tampered");
+    form.set("selectedOptions", "[]");
+    form.set("quantity", "99");
 
     const response = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/buy/readiness", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
+      request: new Request(
+        "http://localhost/checkout/buy/readiness?source=offer-intent&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&itemSubtitle=Base+Set&selectedOptions=%5B%7B%22dimensionId%22%3A%22condition%22%2C%22optionId%22%3A%22raw%22%7D%5D&productSummary=Raw&offerPriceAmount=350.00&quantity=2",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        },
+      ),
       params: {},
       context: undefined,
     } as never)) as Response;
 
     expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      entryAttemptKey: "entry_attempt_offer_1",
       source: {
         type: "offer-intent",
         catalogItemId: "cat_1",
