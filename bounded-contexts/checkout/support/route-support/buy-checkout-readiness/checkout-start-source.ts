@@ -136,7 +136,14 @@ function sourceFromForm(formData: FormData): CheckoutStartSource {
   };
 }
 
-export function checkoutSessionRequestFromForm(formData: FormData): CreateCheckoutSessionRequest {
+export function checkoutSessionRequestFromForm(
+  formData: FormData,
+  authoritativeSource: CheckoutStartSource | null = null,
+): CreateCheckoutSessionRequest {
+  if (authoritativeSource) {
+    return withEntryAttemptKey({ source: authoritativeSource }, formData);
+  }
+
   const sourceType = String(formData.get("source") ?? "cart");
   if (sourceType === "offer-intent") {
     const source = sourceFromForm(formData);

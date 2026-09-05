@@ -11,7 +11,6 @@ import {
   Stack,
   Surface,
   Text,
-  TextInput,
 } from "@chase-sets/design-system";
 import { checkoutStartHeaderCopy } from "./checkout-start-copy";
 import {
@@ -38,8 +37,8 @@ function cartCheckoutCanContinue(summary: CheckoutStartCartReadinessSummary | nu
   return summary === null || summary.status === "ready";
 }
 
-/** The checkout entry page: sign in, continue with the account, or start a
- * guest checkout for the arriving cart / buy-now / offer-intent source. */
+/** The read-only checkout entry page: active Account/guest actors can
+ * continue, while signed-out direct visits retain only the Account gate. */
 export function CheckoutStartPage({
   data,
   actionData,
@@ -59,9 +58,6 @@ export function CheckoutStartPage({
   const signInReturnTo =
     new URLSearchParams(data.signInPath.split("?")[1] ?? "").get("returnTo") ?? "/checkout/buy/readiness";
   const registerPath = `/register?returnTo=${encodeURIComponent(signInReturnTo)}`;
-  const emailExistsError = actionData && "emailExistsError" in actionData ? actionData.emailExistsError : null;
-  const emailExistsSignInPath =
-    actionData && "emailExistsError" in actionData ? actionData.signInPath : data.signInPath;
   const sourceFields = <CheckoutStartSourceFields source={source} entryAttemptKey={data.entryAttemptKey} />;
   const summaryProps = {
     source,
@@ -172,51 +168,16 @@ export function CheckoutStartPage({
           </PageSection>
         </>
       ) : (
-        <>
-          <PageSection title={t("checkout.routes.checkoutStart.guest.checkout")}>
-            <Surface elevation="tinted">
-              <RouterForm method="post" spacing="none">
-                <Stack gap={3}>
-                  <Text tone="secondary">{t("checkout.routes.checkoutStart.continue.as.guest.fast.path")}</Text>
-                  {emailExistsError ? (
-                    <Banner
-                      title={t("checkout.routes.checkoutStart.sign.in.required")}
-                      description={emailExistsError}
-                      tone="warning"
-                      actions={
-                        <LinkButton href={emailExistsSignInPath} tone="secondary">
-                          {t("checkout.routes.checkoutStart.sign.in")}
-                        </LinkButton>
-                      }
-                    />
-                  ) : null}
-                  <TextInput label={t("checkout.routes.checkoutStart.contact.name")} name="contactName" required />
-                  <TextInput
-                    label={t("checkout.routes.checkoutStart.email")}
-                    name="email"
-                    type="email"
-                    required
-                    error={emailExistsError ?? undefined}
-                  />
-                  {sourceFields}
-                  <Button type="submit" size="lg" leadingIcon="lock">
-                    {t("checkout.routes.checkoutStart.continue.as.guest")}
-                  </Button>
-                </Stack>
-              </RouterForm>
-            </Surface>
-          </PageSection>
-          <PageSection title={t("checkout.routes.checkoutStart.account")}>
-            <Surface elevation="tinted">
-              <Stack gap={3}>
-                <Text tone="secondary">{t("checkout.routes.checkoutStart.sign.in.to.keep.purchases.payments")}</Text>
-                <LinkButton href={data.signInPath} tone="secondary" size="lg" leadingIcon="lock">
-                  {t("checkout.routes.checkoutStart.sign.in")}
-                </LinkButton>
-              </Stack>
-            </Surface>
-          </PageSection>
-        </>
+        <PageSection title={t("checkout.routes.checkoutStart.account")}>
+          <Surface elevation="tinted">
+            <Stack gap={3}>
+              <Text tone="secondary">{t("checkout.routes.checkoutStart.sign.in.to.keep.purchases.payments")}</Text>
+              <LinkButton href={data.signInPath} tone="secondary" size="lg" leadingIcon="lock">
+                {t("checkout.routes.checkoutStart.sign.in")}
+              </LinkButton>
+            </Stack>
+          </Surface>
+        </PageSection>
       )}
     </Stack>
   );

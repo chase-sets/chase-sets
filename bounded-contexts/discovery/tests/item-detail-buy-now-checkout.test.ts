@@ -1134,7 +1134,7 @@ describe("item detail buy now checkout actions", () => {
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
-  it("starts signed-out seller-locked checkout at guest checkout contact instead of sign-in", async () => {
+  it("hands signed-out seller-locked checkout to Checkout with a method-preserving redirect", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockCreateDiscoveryRequestApiClient.mockReturnValue({
       getItemDetail: vi.fn().mockResolvedValue({
@@ -1172,7 +1172,7 @@ describe("item detail buy now checkout actions", () => {
     const location = response.headers.get("Location") ?? "";
     const redirectUrl = new URL(location, "http://localhost");
 
-    expect(response.status).toBe(302);
+    expect(response.status).toBe(307);
     expect(redirectUrl.pathname).toBe("/checkout/buy/readiness");
     expect(redirectUrl.searchParams.get("source")).toBe("buy-now");
     expect(redirectUrl.searchParams.get("listingId")).toBe("lst_charizard");
@@ -1240,7 +1240,7 @@ describe("item detail buy now checkout actions", () => {
     } as never)) as Response;
 
     const redirectUrl = new URL(response.headers.get("Location") ?? "", "http://localhost");
-    expect(response.status).toBe(302);
+    expect(response.status).toBe(307);
     expect(redirectUrl.pathname).toBe("/checkout/buy/readiness");
     expect(redirectUrl.searchParams.get("fulfillmentMode")).toBe("locked-listing");
     expect(redirectUrl.searchParams.get("lockedListingId")).toBe("lst_charizard");

@@ -922,11 +922,17 @@
         "route-action:bounded-contexts/discovery/support/route-support/item-detail/action.ts"
       ],
       "visibleDestination": {
-        "routeIds": ["item-detail", "buy-checkout-session", "account-sell-list", "account-sales"],
-        "description": "Item-detail writes that navigate to Checkout, Sell List, Sales, or back to Item Detail preserve the command owner's receipt in afterWrite when the destination is projection-backed. Add to List stays on item detail and renders the Collections command snapshot; guest checkout readiness and Saved List registration carry durable command or intent state instead of relying on a fresh Discovery projection."
+        "routeIds": [
+          "item-detail",
+          "buy-checkout-readiness",
+          "buy-checkout-session",
+          "account-sell-list",
+          "account-sales"
+        ],
+        "description": "Item-detail writes that navigate to Checkout, Sell List, Sales, or back to Item Detail preserve the command owner's receipt in afterWrite when the destination is projection-backed. Signed-in Buy Now creates the Checkout Session directly; signed-out Buy Now returns a method-preserving 307 that reposts the validated locked-listing snapshot to Checkout's POST action. Add to List stays on item detail and renders the Collections command snapshot; Saved List registration carries durable command or intent state instead of relying on a fresh Discovery projection."
       },
       "proof": {
-        "authoritativeResponse": "The Discovery action consumes Checkout, Marketplace, Inventory, Discovery, or Collections command snapshots in the same request. Add to List returns the Saved List aggregate snapshot in place; navigations carry their owner receipt and destination owners govern any actual fresh-read waits.",
+        "authoritativeResponse": "The Discovery action consumes Checkout, Marketplace, Inventory, Discovery, or Collections command snapshots in the same request. Signed-out Buy Now validates and snapshots the locked listing before a 307 POST handoff whose source URL is authoritative in Checkout; signed-in Buy Now remains direct. Add to List returns the Saved List aggregate snapshot in place; navigations carry their owner receipt and destination owners govern any actual fresh-read waits.",
         "tests": [
           "bounded-contexts/discovery/tests/item-detail-buy-now-checkout.test.ts",
           "bounded-contexts/discovery/tests/item-detail-buy-now-validation.test.ts",
@@ -966,12 +972,35 @@
       }
     },
     {
+      "id": "discovery.public-listing-buy-now-checkout-start",
+      "owner": "discovery",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": ["post-form:bounded-contexts/discovery/routes/public-listing.tsx:H2df726441e2a#1"],
+      "visibleDestination": {
+        "routeId": "buy-checkout-session",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/checkout-sessions/:sessionId",
+        "readModelTables": ["checkout_session_pages"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The server-rendered Public Listing Buy form posts the complete validated listing source to Checkout's action. Checkout creates the guest or account session once and redirects with its commit receipt; the session loader owns bounded checkout_session_pages recovery."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/discovery/tests/public-listing-checkout-start.test.tsx",
+          "bounded-contexts/checkout/routes/checkout-start-route.test.ts"
+        ]
+      }
+    },
+    {
       "id": "discovery.public-listing-report-snapshot",
       "owner": "discovery",
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "post-form:bounded-contexts/discovery/routes/public-listing.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/discovery/routes/public-listing.tsx:H2df726441e2a#2",
         "route-action:bounded-contexts/discovery/routes/public-listing.tsx"
       ],
       "visibleDestination": {

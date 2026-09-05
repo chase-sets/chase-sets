@@ -943,6 +943,88 @@ describe("checkout cart routes", () => {
     );
   });
 
+  it("emits one fixed redacted event when a best-effort cart merge fails", async () => {
+    const services = createServices();
+    vi.mocked(services.mergeCartIntoAccount).mockRejectedValue(
+      new Error("anon_raw_merge_marker secret_cookie=abc account=acc_private\nstack provider payload"),
+    );
+    const recordCheckoutEvent = vi.fn<CheckoutObservabilityTelemetry["recordCheckoutEvent"]>();
+    const app = buildApp({
+      actor: guestCheckoutActor(),
+      services,
+      checkoutObservabilityTelemetry: { recordCheckoutEvent },
+    });
+    const request = new Request("http://checkout.test/guest/cart/merge-to-account?secret=url-secret", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: "chase_sets_guest_checkout=secret-token",
+        "x-checkout-anonymous-cart-id": "anon_cart_secret",
+      },
+      body: JSON.stringify({ providerPayload: "secret-body" }),
+    });
+
+    const response = await app.fetch(request);
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "cart_merge_failed",
+        message: "Request failed.",
+      },
+    });
+    expect(recordCheckoutEvent).toHaveBeenCalledOnce();
+    expect(recordCheckoutEvent).toHaveBeenCalledWith({
+      eventName: "checkout.entry.cart_merge_best_effort_failed",
+      telemetryClass: "checkout-entry",
+      alertClass: "event-only",
+      operatorSignalRequired: false,
+      entrySource: "cart",
+      actorMode: "guest",
+      scenarioState: "reconciliation",
+      visibleState: "entry-continues",
+      sideEffectStatus: "merge-failed",
+      readinessContract: null,
+      readinessSnapshotState: null,
+      sourceRevisionState: null,
+      freshWriteReceiptPresence: null,
+      supportReferencePresent: false,
+      performanceBudgetId: null,
+      providerCategory: null,
+      riskCategory: null,
+      downstreamStatus: null,
+      capabilityDecision: null,
+      freshStateScanResult: null,
+    });
+    expect(JSON.stringify(recordCheckoutEvent.mock.calls)).not.toMatch(
+      /anon_raw_merge_marker|secret|cookie|anon_cart|acc_private|url-secret|providerPayload|stack/i,
+    );
+  });
+
+  it("does not emit merge-failure telemetry when the copy succeeds", async () => {
+    const services = createServices();
+    const recordCheckoutEvent = vi.fn<CheckoutObservabilityTelemetry["recordCheckoutEvent"]>();
+    const app = buildApp({
+      actor: accountCartActor(),
+      services,
+      checkoutObservabilityTelemetry: { recordCheckoutEvent },
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/cart/merge-to-account", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-cart-id": "anon_cart_1",
+        },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(recordCheckoutEvent).not.toHaveBeenCalled();
+  });
+
   it("locks an account cart line to a selected seller listing", async () => {
     const services = createServices();
     const app = buildApp({

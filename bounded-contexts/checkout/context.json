@@ -433,7 +433,7 @@
         "routeId": "buy-checkout-readiness",
         "actions": ["Start account checkout session", "Start guest Buy Now checkout session"],
         "command": "StartCheckoutSession",
-        "helperUses": ["appendFreshWriteToken", "navigateAfterWriteFromSourcesWithPlatformPostWriteToken"]
+        "helperUses": ["navigateAfterWriteFromSourcesWithPlatformPostWriteToken"]
       },
       "destination": {
         "routeId": "buy-checkout-session",
@@ -962,7 +962,6 @@
       "surfaces": [
         "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/checkout/features/sessions/ui/checkout-start-page.tsx:Hb08a81ecfd73#1",
-        "post-form:bounded-contexts/checkout/features/sessions/ui/checkout-start-page.tsx:Hb08a81ecfd73#2",
         "route-action:bounded-contexts/checkout/support/route-support/buy-checkout-readiness/checkout-start-action.ts"
       ],
       "visibleDestination": {
@@ -972,7 +971,7 @@
         "readModelTables": ["checkout_session_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Signed-in and guest checkout-start forms redirect to the buy checkout session with a Checkout commit receipt; the session loader waits on checkout_session_pages and renders bounded preparing-checkout recovery for fresh projection lag."
+          "behavior": "Buy Cart and signed-in checkout-start forms redirect to the buy checkout session with a Checkout commit receipt; the session loader waits on checkout_session_pages and renders bounded preparing-checkout recovery for fresh projection lag."
         }
       },
       "proof": {

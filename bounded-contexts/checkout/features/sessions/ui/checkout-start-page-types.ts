@@ -53,5 +53,4 @@ export type CheckoutStartPageData = Readonly<{
 
 export type CheckoutStartActionData =
   | Readonly<{ error: string; signInPath: string }>
-  | Readonly<{ emailExistsError: string; signInPath: string }>
   | Readonly<{ recovery: CheckoutRecovery }>;

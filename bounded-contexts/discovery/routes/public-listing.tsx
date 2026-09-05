@@ -432,9 +432,11 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
               reassurance={t("discovery.routes.publicListing.secure.checkout.reassurance")}
               primaryAction={
                 canPurchase ? (
-                  <LinkButton href={checkoutHref} size="lg" leadingIcon="lock">
-                    {t("discovery.routes.publicListing.buy.this.listing")}
-                  </LinkButton>
+                  <Form spacing="none" method="post" action={checkoutHref}>
+                    <Button type="submit" size="lg" leadingIcon="lock">
+                      {t("discovery.routes.publicListing.buy.this.listing")}
+                    </Button>
+                  </Form>
                 ) : null
               }
               secondaryAction={

@@ -130,8 +130,6 @@ describe("checkout web routes: guest checkout handoff", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("contactName", "Jane Smith");
-    form.set("email", "jane@example.com");
     form.set("source", "cart");
 
     const checkoutStartResponse = (await checkoutStartAction({
@@ -152,6 +150,16 @@ describe("checkout web routes: guest checkout handoff", () => {
 
     expect(checkoutStartResponse.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(guestCheckoutCookie).toContain("chase_sets_guest_checkout=guest_token");
+    expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
+    expect(mockStartGuestCheckout).toHaveBeenCalledWith({});
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      source: {
+        type: "cart",
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: null,
+      },
+    });
 
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
     mockGetCheckoutSession.mockResolvedValue({
@@ -332,6 +340,59 @@ describe("checkout web routes: guest checkout handoff", () => {
     expect(JSON.stringify(mockConfirmCheckoutSession.mock.calls)).not.toContain("4242");
   });
 
+  it("reuses a valid returning guest cookie without starting another guest identity", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValueOnce(null).mockResolvedValueOnce(guestCheckoutActor());
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({ startGuestCheckout: mockStartGuestCheckout });
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
+    mockCreateCheckoutSession
+      .mockResolvedValueOnce({ session_id: "chk_guest_cart" })
+      .mockResolvedValueOnce({ session_id: "chk_guest_buy_now" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const first = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/buy/readiness", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: new URLSearchParams({ source: "cart" }),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    const second = (await checkoutStartAction({
+      request: new Request(
+        "http://localhost/checkout/buy/readiness?source=buy-now&listingId=lst_1&fulfillmentMode=locked-listing&lockedListingId=lst_1&catalogItemId=cat_1&productId=prod_1&itemTitle=Test+card&quantity=1",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            cookie: "chase_sets_guest_checkout=guest_token",
+          },
+          body: new URLSearchParams(),
+        },
+      ),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(first.headers.get("Location")).toBe("/checkout/buy/session/chk_guest_cart");
+    expect(second.headers.get("Location")).toBe("/checkout/buy/session/chk_guest_buy_now");
+    expect(mockStartGuestCheckout).toHaveBeenCalledOnce();
+  });
+
   it("fails closed to cart recovery when guest cart readiness is stale before checkout", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockStartGuestCheckout.mockResolvedValue({
@@ -360,8 +421,6 @@ describe("checkout web routes: guest checkout handoff", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("contactName", "Jane Smith");
-    form.set("email", "jane@example.com");
     form.set("source", "cart");
 
     const result = await checkoutStartAction({
@@ -497,8 +556,6 @@ describe("checkout web routes: guest checkout handoff", () => {
     });
 
     const form = new URLSearchParams();
-    form.set("contactName", "Jane Smith");
-    form.set("email", "jane@example.com");
     form.set("source", "buy-now");
     form.set("listingId", "lst_1");
     form.set("fulfillmentMode", "locked-listing");
