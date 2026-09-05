@@ -5,6 +5,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { CheckoutApiEnv } from "../../../api";
 import type {
   CheckoutObservabilityTelemetry,
@@ -12,7 +13,7 @@ import type {
 } from "../../sessions/api/checkout-observability-telemetry";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import { createAccountCartRoutes, createGuestCartRoutes } from "./route";
-import type { CheckoutCartServices } from "./runtime";
+import { createCheckoutCartRuntime, type CheckoutCartServices } from "./runtime";
 
 function buildApp(
   options: Readonly<{
@@ -32,6 +33,7 @@ function buildApp(
 
 function createServices(): CheckoutCartServices {
   return {
+    commandHandler: vi.fn() as never,
     addLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 1 })),
     addLines: vi.fn(async () => ({
       requestedLineCount: 2,
@@ -46,7 +48,10 @@ function createServices(): CheckoutCartServices {
     setLineQuantity: vi.fn(async () => ({ lineId: "cli_1" as never, version: 2 })),
     setLineFulfillment: vi.fn(async () => ({ lineId: "cli_1" as never, version: 4 })),
     removeLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 3 })),
+    checkout: vi.fn(async () => ({ version: 5 })),
+    claimCart: vi.fn(async () => ({ version: 1 })),
     listCartLines: vi.fn(async () => []),
+    listClaimedOwnerKeys: vi.fn(async () => []),
     mergeCartIntoAccount: vi.fn(async () => ({ movedLineCount: 0 })),
     createReadinessSnapshot: vi.fn(async () => ({
       schemaVersion: "checkout.cart-readiness.v1",
@@ -70,7 +75,7 @@ function createServices(): CheckoutCartServices {
       customerSafeFacts: ["Ready for checkout."],
     })),
     projectors: [],
-  } as unknown as CheckoutCartServices;
+  } satisfies CheckoutCartServices;
 }
 
 function accountCartActor(overrides: TestActorOverrides = {}): NonNullable<CheckoutApiEnv["Variables"]["actor"]> {
@@ -980,7 +985,6 @@ describe("guest cart routes on a claimed anonymous key", () => {
     ["fulfillment", "/guest/cart/cli_claimed/fulfillment", { fulfillmentMode: "optimize" }],
     ["removal", "/guest/cart/cli_claimed/remove", {}],
     ["add", "/guest/cart", { catalogItemId: "cat_1", productId: "cat_1::", quantity: 1 }],
-    ["bulk add", "/guest/cart/bulk", { lines: [{ catalogItemId: "cat_1", productId: "cat_1::", quantity: 1 }] }],
   ] as const;
 
   it.each(mutations)("returns the existing 400 refusal body for %s", async (_surface, path, body) => {
@@ -998,6 +1002,86 @@ describe("guest cart routes on a claimed anonymous key", () => {
     expect(response.status).toBe(400);
     // The existing validation shape: no new error code is introduced.
     expect(await response.json()).toEqual({ error: { code: "validation_failed", message: REFUSAL } });
+  });
+
+  it("returns the ownership refusal from the real runtime for a claimed guest bulk add", async () => {
+    const source = CLAIMED_SOURCE;
+    const claimant = "acc_synthetic_claimant";
+    const memory = createInMemoryEventStore();
+    const runtime = createCheckoutCartRuntime({
+      eventStore: memory.eventStore,
+      checkpointStore: {} as never,
+      db: {
+        query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+          if (sql.includes("FROM checkout_catalog_items")) {
+            return {
+              rows: [{ catalog_item_id: values[0], language_code: "en", status: "active", product_schema: null }],
+              rowCount: 1,
+            };
+          }
+          if (sql.includes("WITH requested_owners") || sql.includes("WHERE claim.account_id = $1")) {
+            return { rows: [], rowCount: 0 };
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        }),
+      },
+    });
+    const context = {
+      tenantId: "tnt_synthetic",
+      audit: { performedByUserId: "usr_synthetic", forAccountId: claimant },
+    } as never;
+    const streamId = `checkout.cart-${source}`;
+
+    await runtime.commandHandler({
+      streamId,
+      context,
+      command: {
+        type: "AddCartLine",
+        buyerAccountId: source,
+        lineId: "cli_existing",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Existing",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+      },
+    });
+    await runtime.commandHandler({
+      streamId,
+      context,
+      command: { type: "ClaimCart", sourceOwnerKey: source, accountId: claimant },
+    });
+    const app = new Hono();
+    app.route("/guest", createGuestCartRoutes(runtime));
+
+    const response = await app.request("/guest/cart/bulk", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-checkout-anonymous-cart-id": source },
+      body: JSON.stringify({
+        lines: [
+          {
+            catalogItemId: "cat_2",
+            productId: "cat_2::",
+            itemTitle: "New",
+            itemSubtitle: null,
+            itemImageUrl: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: { code: "validation_failed", message: REFUSAL } });
+    expect((memory.streams.get(streamId) ?? []).map((event) => event.eventType)).toEqual([
+      "checkout.cart.line-added",
+      "checkout.cart.claimed-by-account",
+    ]);
   });
 
   it("refuses identically however the caller obtained the key", async () => {

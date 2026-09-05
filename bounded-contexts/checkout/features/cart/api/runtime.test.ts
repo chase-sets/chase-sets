@@ -820,10 +820,12 @@ describe("claimed cart write refusal surfaces", () => {
     const refusal = "Cart is owned by a different account.";
 
     await expect(h.runtime.addLine(addParams(CLAIMED_SOURCE), context)).rejects.toThrow(refusal);
-    const bulk = await h.runtime.addLines(
-      { accountId: CLAIMED_SOURCE as never, lines: [{ ...addParams(CLAIMED_SOURCE) }] as never },
-      context,
-    );
+    await expect(
+      h.runtime.addLines(
+        { accountId: CLAIMED_SOURCE as never, lines: [{ ...addParams(CLAIMED_SOURCE) }] as never },
+        context,
+      ),
+    ).rejects.toThrow(refusal);
     await expect(
       h.runtime.setLineQuantity(
         { accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never, quantity: 2 },
@@ -840,9 +842,6 @@ describe("claimed cart write refusal surfaces", () => {
       h.runtime.removeLine({ accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never }, context),
     ).rejects.toThrow(refusal);
 
-    // Bulk add reports per line rather than throwing, but appends nothing.
-    expect(bulk).toMatchObject({ requestedLineCount: 1, addedLineCount: 0, mergedLineCount: 0, failedLineCount: 1 });
-    expect(bulk.lines[0]?.message).toContain(refusal);
     expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before);
     expect(h.db.claims.get(CLAIMED_SOURCE)).toEqual({
       source_owner_key: CLAIMED_SOURCE,

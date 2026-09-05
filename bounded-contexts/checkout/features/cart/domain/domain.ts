@@ -355,7 +355,14 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
 ) => {
   switch (command.type) {
     case "AddCartLine":
-      assertActingOwnerMayWrite(state, command.buyerAccountId);
+      // An add event retains the source-stream identity in buyerAccountId; it
+      // is not an acting-owner field. Claimed source streams are immutable for
+      // additions, while the claimant adds new lines on their Account stream.
+      assert(state.claimedByAccountId === null, "Cart is owned by a different account.");
+      assert(
+        state.buyerAccountId === null || state.buyerAccountId === command.buyerAccountId,
+        "Cart is owned by a different account.",
+      );
       assert(!state.lines.some((line) => line.lineId === command.lineId), "Cart line has already been added.");
       const selectedListingSnapshot = normalizeSelectedListingSnapshot(
         command.selectedListingSnapshot,

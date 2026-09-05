@@ -520,23 +520,26 @@ describe("claimed cart write authorization", () => {
       );
     }
 
-    // Adding is refused for the retained key too, so a claimed cart cannot be
-    // repopulated by whoever still holds the cookie.
-    expect(() =>
-      decideCheckoutCart(claimed, {
-        type: "AddCartLine",
-        buyerAccountId: CLAIMED_SOURCE as never,
-        lineId: "cli_smuggled" as never,
-        catalogItemId: "cat_1",
-        productId: "cat_1::" as never,
-        itemTitle: "Charizard",
-        itemSubtitle: null,
-        itemImageUrl: null,
-        selectedOptions: [],
-        productSummary: null,
-        quantity: 1,
-      }),
-    ).toThrow("Cart is owned by a different account.");
+    // Add events retain their source identity, so neither the retained key nor
+    // the effective claimant may add to the claimed source stream.
+    for (const buyerAccountId of [CLAIMED_SOURCE, CLAIMANT_ACCOUNT]) {
+      expect(() =>
+        decideCheckoutCart(claimed, {
+          type: "AddCartLine",
+          buyerAccountId: buyerAccountId as never,
+          lineId: `cli_smuggled_${buyerAccountId}` as never,
+          catalogItemId: "cat_1",
+          productId: "cat_1::" as never,
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          itemImageUrl: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        }),
+      ).toThrow("Cart is owned by a different account.");
+    }
+    expect(claimed).toEqual(claimedCartWithOneLine());
   });
 
   it("refuses an unauthorized writer before it can learn whether the line exists", () => {

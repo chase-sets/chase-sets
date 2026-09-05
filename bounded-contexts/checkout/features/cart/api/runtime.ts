@@ -349,6 +349,9 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
             message: null,
           });
         } catch (error) {
+          if (error instanceof CheckoutDomainError && error.message === "Cart is owned by a different account.") {
+            throw error;
+          }
           lines.push({
             index,
             lineId: null,
