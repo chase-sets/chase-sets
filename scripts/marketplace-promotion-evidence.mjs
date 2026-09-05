@@ -28,6 +28,7 @@ import {
 import {
   MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION,
   REQUIRED_PUBLIC_PRESENCE_PAGES,
+  projectPublicPresenceCopyAuditPageEvidence,
   validatePublicPresenceCopyAuditRecord,
 } from "./marketplace-public-presence-copy-audit.mjs";
 import { COUNSEL_REVIEW_PACKET_VERSION } from "./legal-review-corpus.mjs";
@@ -120,6 +121,11 @@ export const PROMOTION_AUDIT_DERIVED_FIELDS = [
   ["publicPresenceCopyAuditComplianceArticlesReviewed", (audit) => audit.complianceArticlesReviewed],
   ["publicPresenceCopyAuditDmcaRegistrationMarkerAbsent", (audit) => audit.dmcaRegistrationMarkerAbsent],
   ["publicPresenceCopyAuditUncertifiedClaimsAbsent", (audit) => audit.uncertifiedClaimsAbsent],
+  // The audited rows themselves, reduced to identities the terminal gate can
+  // revalidate against canonical membership. Without it the launch gate reads
+  // only flattened counts and booleans, and a projection asserting them cannot
+  // be told apart from one backed by 17 real fetches.
+  ["publicPresenceCopyAuditPageEvidence", (audit) => projectPublicPresenceCopyAuditPageEvidence(audit)],
 ];
 
 /**
@@ -349,6 +355,25 @@ function validateAuditAuthority(audit) {
   if (audit.legalCorpusDigest === null || audit.counselPacket?.corpusSha256 !== audit.legalCorpusDigest) {
     errors.push(
       "Marketplace promotion requires the retained counsel packet corpus digest to equal the audited current corpus digest.",
+    );
+  }
+  // Defense in depth against a future loosening of the record validator: the
+  // rows themselves must account for every unique fetched path, name every
+  // launch-required policy member, and each have answered on the audited
+  // origin and its exact canonical route.
+  const pageEvidence = audit.mode === "launch" ? projectPublicPresenceCopyAuditPageEvidence(audit) : null;
+  if (
+    audit.mode === "launch" &&
+    (pageEvidence === null ||
+      pageEvidence.fetchedPathCount !== audit.uniqueFetchedPathCount ||
+      pageEvidence.verifiedOnAuditedOriginCount !== audit.uniqueFetchedPathCount ||
+      pageEvidence.requiredPagePaths.length !== REQUIRED_PUBLIC_PRESENCE_PAGES.length ||
+      pageEvidence.launchPolicyPolicyKeys.length !== audit.launchRequiredPolicyCount ||
+      pageEvidence.launchPolicyPolicyKeys.some((key) => key === null) ||
+      pageEvidence.complianceArticleSlugs.length !== audit.complianceArticleCount)
+  ) {
+    errors.push(
+      "Marketplace promotion requires a copy audit whose rows name every planned route and answered on the audited origin.",
     );
   }
   if (audit.requiredPageCount !== REQUIRED_PUBLIC_PRESENCE_PAGES.length) {
