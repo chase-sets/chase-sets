@@ -8,7 +8,8 @@ import { isCanonicalMoneyAmount, moneyToCents } from "@chase-sets/primitives/mon
  * Ordering owns the seller, the order money decomposition, and the classification inputs;
  * Payments owns capture, payout, and refund. Neither is re-derived here and no other
  * context's table is read. This projection evaluates no threshold, publishes no event, and
- * reaches no legal or policy conclusion -- #7146 consumes these facts separately.
+ * reaches no legal or policy conclusion; the later cohort evaluator consumes these facts
+ * separately.
  *
  * Two relations exist because an Ordering event carries no payment identity: order facts
  * are retained by `order_id` until a Payments event supplies `payment_id`, at which point
@@ -444,9 +445,9 @@ export function deriveCaptureAnomalies(
 }
 
 /**
- * One classification input per line, versioned. It records what the closed #7145 matrix
- * reads and nothing more: no product form, no title-derived condition, no certification
- * number, and no later classification conclusion.
+ * One classification input per line, versioned. It records the approved policy input fields
+ * from their source and nothing more: no product form, no title-derived condition, no
+ * certification number, and no later classification conclusion.
  */
 export function extractClassificationInputs(lines: unknown): ClassificationInput[] {
   if (!Array.isArray(lines)) return [];

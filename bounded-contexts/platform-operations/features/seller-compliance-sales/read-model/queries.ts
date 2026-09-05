@@ -6,16 +6,16 @@ import type { CaptureAnomaly, ReconciliationMismatch, RefundAnomaly, SaleState }
  *
  * Every read is a page with a hard limit, a full keyset cursor, an explicit termination
  * signal, and a fixed pass snapshot. These are stateless query cursors, not checkpoint
- * authority: the later cohort evaluator (#7146) must own its own durable per-trigger sweep
- * checkpoint, because a cursor that lives only in a caller's loop cannot survive a restart
- * or a scheduled-runner tick boundary.
+ * authority: the later cohort evaluator must own its own durable per-trigger sweep checkpoint,
+ * because a cursor that lives only in a caller's loop cannot survive a restart or a
+ * scheduled-runner tick boundary.
  */
 
 export const MIN_PAGE_LIMIT = 1;
 export const MAX_PAGE_LIMIT = 100;
 
 /**
- * One half-open UTC contract for every read and for the #7146 expiry handoff:
+ * One half-open UTC contract for every read and for the downstream expiry handoff:
  * `value >= fromInclusive AND value < toExclusive`. At millisecond precision
  * `fromInclusive - 1 ms` is out, `fromInclusive` is in, `toExclusive - 1 ms` is in, and
  * `toExclusive` is out.
