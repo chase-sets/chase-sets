@@ -741,6 +741,17 @@ describe("real repository execution membership", () => {
         (entry) => entry.relativeFile === "bounded-contexts/ordering/tests/inventory-reservation-subscription.test.ts",
       ),
     ).toMatchObject({ disposition: "vitest-excluded" });
+    expect(
+      result.inventory.declarations.find(
+        (entry) =>
+          entry.relativeFile ===
+          "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/projection.test.ts",
+      ),
+    ).toMatchObject({
+      disposition: "vitest-excluded",
+      resolved: "bounded-contexts/platform-operations/context.json",
+      attributeText: 'with { type: "json" }',
+    });
   });
 
   it("fails closed when tracked discovery collapses despite implemented contexts", async () => {
