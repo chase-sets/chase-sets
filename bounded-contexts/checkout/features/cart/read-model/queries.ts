@@ -205,6 +205,48 @@ export async function reconcileCheckoutCartClaim(db: PgQueryable, claim: Checkou
 }
 
 /**
+ * Whether an owner key can resolve across more than its own stream.
+ *
+ * Only an Account can claim, which is the `starts_with($1, 'acc_')` predicate
+ * the union resolver applies below. An anonymous key therefore always resolves
+ * to exactly itself, and callers can skip work that could only ever confirm
+ * that. Keeping the rule here keeps it next to the SQL it mirrors.
+ */
+export function ownerKeyCanHoldClaims(ownerKey: string): boolean {
+  return ownerKey.startsWith("acc_");
+}
+
+/**
+ * Lists the anonymous source keys an Account has claimed, smallest first under
+ * the deterministic `C` collation.
+ *
+ * This is routing breadth, never authorization: it answers "which streams may
+ * hold a line this Account owns", and each resulting write is still authorized
+ * by the claimed stream's own evolved state. A lagging or hand-deleted alias can
+ * therefore only narrow a sweep -- which a retry finishes -- and can never widen
+ * one into a stream the Account does not own, because that stream refuses.
+ *
+ * Only an Account can hold claims, so a non-Account key is answered without a
+ * round trip, keeping the anonymous request path free of a query that can only
+ * ever return no rows.
+ */
+export async function listClaimedCartOwnerKeys(db: PgQueryable, accountId: string): Promise<string[]> {
+  if (!ownerKeyCanHoldClaims(accountId)) {
+    return [];
+  }
+
+  const result = await db.query<Pick<CheckoutCartClaimRow, "source_owner_key">>(
+    `SELECT claim.source_owner_key
+     FROM checkout_cart_claims AS claim
+     WHERE claim.account_id = $1
+     ORDER BY claim.source_owner_key COLLATE "C" ASC`,
+    [accountId],
+  );
+
+  return result.rows.map((row) => row.source_owner_key);
+}
+
+/**
  * Resolves the cart lines a requested owner may read, in one statement.
  *
  * Requested owners are the primary owner key, every source key that owner has

@@ -30,7 +30,13 @@ import {
   type CartReadinessSnapshot,
 } from "../domain/readiness";
 import { buildCheckoutCartProjectionHandlers } from "../read-model/projection";
-import { listCartLines, listOwnCartLines, reconcileCheckoutCartClaim } from "../read-model/queries";
+import {
+  listCartLines,
+  listClaimedCartOwnerKeys,
+  listOwnCartLines,
+  ownerKeyCanHoldClaims,
+  reconcileCheckoutCartClaim,
+} from "../read-model/queries";
 
 function isIdempotentMergeReplay(error: unknown) {
   return (
@@ -155,6 +161,7 @@ export type CheckoutCartServices = Readonly<{
     }>,
   ) => Promise<CartReadinessSnapshot>;
   listCartLines: (accountId: string, presentedAnonymousCartId?: string | null) => ReturnType<typeof listCartLines>;
+  listClaimedOwnerKeys: (accountId: string) => ReturnType<typeof listClaimedCartOwnerKeys>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -186,6 +193,33 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     );
 
     return result.rows[0] ?? null;
+  }
+
+  /**
+   * Resolves the stream that actually holds the line the acting owner can see.
+   *
+   * The union already decides which single row wins a `line_id` held by more
+   * than one owner -- the Account's own row first, then the newest claimed row --
+   * so reading `buyer_account_id` off that winning row targets exactly the
+   * aggregate the reader was looking at. An id the acting owner cannot see falls
+   * back to their own stream, where the aggregate refuses with the unchanged
+   * missing-line message rather than reaching for someone else's cart.
+   *
+   * An owner that cannot hold claims resolves to itself by construction, so the
+   * anonymous path keeps its existing single round trip instead of paying for a
+   * union read whose answer is already known.
+   */
+  async function resolveLineSourceOwnerKey(actingOwnerKey: string, lineId: CartLineId) {
+    if (!ownerKeyCanHoldClaims(actingOwnerKey)) {
+      return actingOwnerKey;
+    }
+
+    const visible = await listCartLines(deps.db, actingOwnerKey);
+    return visible.find((line) => line.line_id === lineId)?.buyer_account_id ?? actingOwnerKey;
+  }
+
+  function isMissingCartLine(error: unknown) {
+    return error instanceof CheckoutDomainError && error.message === "Cart line not found.";
   }
 
   const addLine: CheckoutCartServices["addLine"] = async (params, context) => {
@@ -233,6 +267,9 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
         streamId: `checkout.cart-${params.accountId}`,
         command: {
           type: "SetCartLineQuantity",
+          // The own-key probe above matched a line on this same stream, so the
+          // merge acts as its own owner and never routes across a claim.
+          actingOwnerKey: params.accountId,
           lineId: existingLine.line_id as CartLineId,
           quantity: existingLine.quantity + params.quantity,
         },
@@ -312,6 +349,9 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
             message: null,
           });
         } catch (error) {
+          if (error instanceof CheckoutDomainError && error.message === "Cart is owned by a different account.") {
+            throw error;
+          }
           lines.push({
             index,
             lineId: null,
@@ -331,9 +371,10 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     },
     setLineQuantity: async (params, context) => {
       const result = await commandHandler({
-        streamId: `checkout.cart-${params.accountId}`,
+        streamId: `checkout.cart-${await resolveLineSourceOwnerKey(params.accountId, params.lineId)}`,
         command: {
           type: "SetCartLineQuantity",
+          actingOwnerKey: params.accountId,
           lineId: params.lineId,
           quantity: params.quantity,
         },
@@ -344,9 +385,10 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     },
     setLineFulfillment: async (params, context) => {
       const result = await commandHandler({
-        streamId: `checkout.cart-${params.accountId}`,
+        streamId: `checkout.cart-${await resolveLineSourceOwnerKey(params.accountId, params.lineId)}`,
         command: {
           type: "SetCartLineFulfillment",
+          actingOwnerKey: params.accountId,
           lineId: params.lineId,
           fulfillmentMode: params.fulfillmentMode,
           lockedListingId: params.lockedListingId,
@@ -359,17 +401,43 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
 
       return { lineId: params.lineId, version: result.version };
     },
+    // Removal is line-id-total across everything the acting owner owns: its own
+    // stream plus every stream it has claimed, so a line the reader can see is
+    // gone from every source it was ever readable from -- including a duplicate
+    // the union deliberately hides.
+    //
+    // Only the missing-line refusal is absorbed, and only per owner. An
+    // ownership refusal from a stream this owner does not own propagates
+    // unchanged, so a stale alias row can never be laundered into silent
+    // success. Because every owner that lacks the line is a no-op, an
+    // interrupted sweep and an outward retry converge on the same end state
+    // without a second removal event.
     removeLine: async (params, context) => {
-      const result = await commandHandler({
-        streamId: `checkout.cart-${params.accountId}`,
-        command: {
-          type: "RemoveCartLine",
-          lineId: params.lineId,
-        },
-        context,
-      });
+      const ownerKeys = [params.accountId, ...(await listClaimedCartOwnerKeys(deps.db, params.accountId))];
+      let version: number | null = null;
 
-      return { lineId: params.lineId, version: result.version };
+      for (const ownerKey of ownerKeys) {
+        try {
+          const result = await commandHandler({
+            streamId: `checkout.cart-${ownerKey}`,
+            command: {
+              type: "RemoveCartLine",
+              actingOwnerKey: params.accountId,
+              lineId: params.lineId,
+            },
+            context,
+          });
+          version ??= result.version;
+        } catch (error) {
+          if (!isMissingCartLine(error)) {
+            throw error;
+          }
+        }
+      }
+
+      // No owner held the line: nothing was appended, so there is no stream
+      // version to report.
+      return { lineId: params.lineId, version: version ?? 0 };
     },
     checkout: async (accountId, context) => {
       const result = await commandHandler({
@@ -502,6 +570,7 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
       );
     },
     listCartLines: (accountId, presentedAnonymousCartId) => listCartLines(deps.db, accountId, presentedAnonymousCartId),
+    listClaimedOwnerKeys: (accountId) => listClaimedCartOwnerKeys(deps.db, accountId),
     projectors: [cartProjector],
   };
 }

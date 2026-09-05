@@ -1544,3 +1544,279 @@ describeDb("cart claim against the checkout read model", () => {
     );
   });
 });
+
+/**
+ * Claimed-stream mutations against real PostgreSQL: the union resolver picks the
+ * source stream, the event store enforces per-stream optimistic concurrency, and
+ * a second pool supplies a genuinely separate connection.
+ */
+describeDb("claimed cart mutations against real PostgreSQL", () => {
+  beforeAll(async () => {
+    const databaseUrls = createMultiContextTestDatabaseUrls(requireDatabaseBaseUrl(), contextNames, "claimed_mutation");
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
+    pools = createMultiContextTestPools(databaseUrls);
+    pool = pools.checkout;
+    checkoutDatabaseUrl = databaseUrls.checkout;
+  });
+
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas({ checkout: pool });
+    await bootstrapContextDatabase(checkoutModule, pool);
+  });
+
+  afterAll(async () => {
+    if (pools) {
+      await closeMultiContextTestPools(pools);
+    }
+    pools = undefined;
+  });
+
+  async function addAggregateLine(
+    handler: ReturnType<typeof createCartRuntime>["runtime"]["commandHandler"],
+    ownerKey: string,
+    lineId: string,
+  ) {
+    await handler({
+      streamId: `checkout.cart-${ownerKey}`,
+      command: {
+        type: "AddCartLine",
+        buyerAccountId: ownerKey as never,
+        lineId: lineId as never,
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::form:raw",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        productSummary: null,
+        quantity: 1,
+      },
+      context,
+    });
+  }
+
+  async function readLinePages(ownerKey: string) {
+    const result = await pool.query<Record<string, unknown>>(
+      "SELECT * FROM checkout_cart_line_pages WHERE buyer_account_id = $1 ORDER BY line_id",
+      [ownerKey],
+    );
+    return result.rows;
+  }
+
+  it("routes quantity and fulfillment to the claimed source stream and keeps the seller-options join", async () => {
+    await seedReadModel([claimedLine({ line_id: "cli_claimed" })], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+    await addAggregateLine(runtime.commandHandler, claimedSourceA, "cli_claimed");
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    const before = await listCartLines(pool, claimAccount);
+
+    await runtime.setLineQuantity(
+      { accountId: claimAccount as never, lineId: "cli_claimed" as never, quantity: 4 },
+      context,
+    );
+    await runtime.setLineFulfillment(
+      {
+        accountId: claimAccount as never,
+        lineId: "cli_claimed" as never,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_dear",
+        selectedListingSnapshot: { listingId: "lst_dear", sellerAccountId: otherAccount, source: "cart-fulfillment" },
+      },
+      context,
+    );
+
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual([
+      "checkout.cart.line-added",
+      "checkout.cart.claimed-by-account",
+      "checkout.cart.line-quantity-set",
+      "checkout.cart.line-fulfillment-set",
+    ]);
+    // Nothing reached the Account stream.
+    expect(await readStreamEventTypes(`checkout.cart-${claimAccount}`)).toEqual([]);
+    const after = await listCartLines(pool, claimAccount);
+    expect(after.map((row) => row.buyer_account_id)).toEqual([claimedSourceA]);
+    expect(after[0]?.seller_options).toEqual(before[0]?.seller_options);
+  });
+
+  it("refuses the claimant's own listing on a claimed stream and appends nothing", async () => {
+    await seedReadModel([claimedLine({ line_id: "cli_claimed" })], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+    await addAggregateLine(runtime.commandHandler, claimedSourceA, "cli_claimed");
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    const before = await readStreamEventTypes(claimedStreamA);
+
+    // The retained anonymous key is not the buyer; the claiming Account is.
+    await expect(
+      runtime.setLineFulfillment(
+        {
+          accountId: claimAccount as never,
+          lineId: "cli_claimed" as never,
+          fulfillmentMode: "locked-listing",
+          lockedListingId: "lst_dear",
+          selectedListingSnapshot: { listingId: "lst_dear", sellerAccountId: claimAccount, source: "cart-fulfillment" },
+        },
+        context,
+      ),
+    ).rejects.toThrow("Accounts cannot add their own listings to cart.");
+
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual(before);
+  });
+
+  it("mutates only the account-first winner and leaves the hidden duplicate row and stream identical", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_dup", updated_at: "2026-06-16T00:00:00.000Z" }),
+        claimedLine({ line_id: "cli_dup", updated_at: "2026-06-18T00:00:00.000Z" }),
+      ],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await addAggregateLine(runtime.commandHandler, claimedSourceA, "cli_dup");
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    await addAggregateLine(runtime.commandHandler, claimAccount, "cli_dup");
+    const claimedRowsBefore = await readLinePages(claimedSourceA);
+    const claimedStreamBefore = await readStreamEventTypes(claimedStreamA);
+
+    await runtime.setLineQuantity(
+      { accountId: claimAccount as never, lineId: "cli_dup" as never, quantity: 9 },
+      context,
+    );
+
+    expect(await readStreamEventTypes(`checkout.cart-${claimAccount}`)).toEqual([
+      "checkout.cart.line-added",
+      "checkout.cart.line-quantity-set",
+    ]);
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual(claimedStreamBefore);
+    expect(await readLinePages(claimedSourceA)).toEqual(claimedRowsBefore);
+    // The duplicate stays hidden behind the Account's own winning row.
+    const resolved = await listCartLines(pool, claimAccount);
+    expect(resolved.map((row) => [row.line_id, row.buyer_account_id])).toEqual([["cli_dup", claimAccount]]);
+  });
+
+  it("clears an explicitly removed line id from the Account and every claimed key", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_dup" }),
+        claimedLine({ line_id: "cli_dup" }),
+        claimedLine({ buyer_account_id: claimedSourceB, line_id: "cli_dup" }),
+        claimedLine({ buyer_account_id: claimedSourceB, line_id: "cli_keep" }),
+      ],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    for (const [owner, lineId] of [
+      [claimedSourceA, "cli_dup"],
+      [claimedSourceB, "cli_dup"],
+      [claimedSourceB, "cli_keep"],
+      [claimAccount, "cli_dup"],
+    ] as const) {
+      await addAggregateLine(runtime.commandHandler, owner, lineId);
+    }
+    for (const source of [claimedSourceA, claimedSourceB]) {
+      await runtime.claimCart({ sourceOwnerKey: source, accountId: claimAccount as never }, context);
+    }
+
+    await runtime.removeLine({ accountId: claimAccount as never, lineId: "cli_dup" as never }, context);
+
+    for (const owner of [claimAccount, claimedSourceA, claimedSourceB]) {
+      expect(
+        (await readStreamEventTypes(`checkout.cart-${owner}`)).filter((type) => type === "checkout.cart.line-removed"),
+      ).toHaveLength(1);
+    }
+    // The line the sweep never planned survives on its claimed key.
+    await pool.query("DELETE FROM checkout_cart_line_pages WHERE line_id = $1", ["cli_dup"]);
+    expect((await listCartLines(pool, claimAccount)).map((row) => row.line_id)).toEqual(["cli_keep"]);
+
+    // A second identical call appends nothing anywhere.
+    const streamsBefore = await Promise.all(
+      [claimAccount, claimedSourceA, claimedSourceB].map((owner) => readStreamEventTypes(`checkout.cart-${owner}`)),
+    );
+    expect(await runtime.removeLine({ accountId: claimAccount as never, lineId: "cli_dup" as never }, context)).toEqual(
+      {
+        lineId: "cli_dup",
+        version: 0,
+      },
+    );
+    expect(
+      await Promise.all(
+        [claimAccount, claimedSourceA, claimedSourceB].map((owner) => readStreamEventTypes(`checkout.cart-${owner}`)),
+      ),
+    ).toEqual(streamsBefore);
+  });
+
+  it("serializes two connections on one claimed stream with a real loser, and refuses the retained key", async () => {
+    await seedReadModel(
+      [claimedLine({ line_id: "cli_race_a" }), claimedLine({ line_id: "cli_race_b" })],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await addAggregateLine(runtime.commandHandler, claimedSourceA, "cli_race_a");
+    await addAggregateLine(runtime.commandHandler, claimedSourceA, "cli_race_b");
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    const contenderPool = createPgPool(checkoutDatabaseUrl);
+
+    try {
+      const rival = createClaimAggregate(contenderPool);
+      const rivalRuntime = createCartRuntime(contenderPool).runtime;
+
+      // Both connections load the same claimed stream at the same version,
+      // before either decides. They target different lines of that one stream.
+      const loadedByRival = await rival.repository.load(claimedStreamA);
+      const rivalEvents = decideCheckoutCart(loadedByRival.state, {
+        type: "SetCartLineQuantity",
+        actingOwnerKey: claimAccount,
+        lineId: "cli_race_b" as never,
+        quantity: 7,
+      });
+      const winner = await runtime.setLineQuantity(
+        { accountId: claimAccount as never, lineId: "cli_race_a" as never, quantity: 4 },
+        context,
+      );
+
+      const loser = await rival.repository
+        .append({
+          streamId: claimedStreamA,
+          expectedVersion: loadedByRival.version,
+          context,
+          events: rivalEvents,
+        })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+
+      expect(winner.version).toBe(loadedByRival.version + 1);
+      // A real rejection from PostgreSQL, recorded rather than swallowed.
+      expect(loser).toMatchObject({
+        code: "concurrency_conflict",
+        message: "Expected stream version does not match current version.",
+      });
+
+      // One retry reloads and converges; both lines end up set.
+      const retried = await rivalRuntime.setLineQuantity(
+        { accountId: claimAccount as never, lineId: "cli_race_b" as never, quantity: 7 },
+        context,
+      );
+      expect(retried.version).toBe(loadedByRival.version + 2);
+      expect(await readStreamEventTypes(claimedStreamA)).toEqual([
+        "checkout.cart.line-added",
+        "checkout.cart.line-added",
+        "checkout.cart.claimed-by-account",
+        "checkout.cart.line-quantity-set",
+        "checkout.cart.line-quantity-set",
+      ]);
+
+      // The retained anonymous key is refused on the same stream, before append.
+      const settled = await readStreamEventTypes(claimedStreamA);
+      await expect(
+        rivalRuntime.setLineQuantity(
+          { accountId: claimedSourceA as never, lineId: "cli_race_a" as never, quantity: 99 },
+          context,
+        ),
+      ).rejects.toThrow("Cart is owned by a different account.");
+      expect(await readStreamEventTypes(claimedStreamA)).toEqual(settled);
+    } finally {
+      await (contenderPool as unknown as { end: () => Promise<void> }).end();
+    }
+  });
+});

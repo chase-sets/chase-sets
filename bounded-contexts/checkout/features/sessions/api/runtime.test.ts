@@ -149,6 +149,7 @@ const secondSellerCartLine: CheckoutCartLineRow = {
 function createCartServices(lines: readonly CheckoutCartLineRow[] = [readyCartLine]) {
   return {
     listCartLines: vi.fn(async () => lines),
+    listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => []),
     removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async () => ({ lineId: "cli_1" as never, version: 1 })),
     checkout: vi.fn(async () => ({ version: 1 })),
     createReadinessSnapshot: vi.fn(async () => createCartReadinessSnapshot(lines)),
@@ -182,6 +183,7 @@ function createUnionCartServices(
     listCartLines: vi.fn<CheckoutCartServices["listCartLines"]>(async (_accountId, presentedAnonymousCartId) =>
       resolveLines(presentedAnonymousCartId),
     ),
+    listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => []),
     removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async ({ lineId }) => ({ lineId, version: 1 })),
     checkout: vi.fn(async () => ({ version: 1 })),
     createReadinessSnapshot: vi.fn<CheckoutCartServices["createReadinessSnapshot"]>(async (params) => {
@@ -1940,21 +1942,38 @@ describe("checkout session runtime", () => {
 });
 
 // The oracle is the real event-sourced Cart, including its typed missing-line refusal.
-async function unionCleanupHarness() {
+async function unionCleanupHarness(
+  options: Readonly<{ claimAnonymousSource?: boolean; claimSeparateSource?: boolean }> = {},
+) {
   const { eventStore } = createInMemoryEventStore();
   let projected: CheckoutSessionRow | null = null;
+  const anonymous = "anon_raw_cleanup_marker";
+  const separateClaimedSource = "anon_synthetic_claimed_cleanup";
+  const buyer = context.audit.forAccountId;
+  const claimedSources = [
+    ...(options.claimAnonymousSource ? [anonymous] : []),
+    ...(options.claimSeparateSource ? [separateClaimedSource] : []),
+  ];
   const db = {
-    query: vi.fn(async (sql: string) => ({
+    query: vi.fn(async (sql: string, values: readonly unknown[] = []) => ({
       rows: sql.includes("checkout_catalog_items")
         ? [{ catalog_item_id: "cat_1", status: "active", product_schema: null, language_code: "en" }]
-        : sql.includes("checkout_session_pages") && projected
-          ? [projected]
-          : [],
+        : // The claims alias is routing breadth for the sweep; the aggregates
+          // below remain the authorization oracle.
+          sql.includes("WHERE claim.account_id = $1")
+          ? String(values[0]) === String(buyer)
+            ? claimedSources.map((source_owner_key) => ({ source_owner_key }))
+            : []
+          : sql.includes("WHERE claim.source_owner_key = $1")
+            ? claimedSources
+                .filter((source) => source === String(values[0]))
+                .map((source_owner_key) => ({ source_owner_key, account_id: String(buyer) }))
+            : sql.includes("checkout_session_pages") && projected
+              ? [projected]
+              : [],
     })),
   };
   const checkpointStore = createCheckpointStore();
-  const anonymous = "anon_raw_cleanup_marker";
-  const buyer = context.audit.forAccountId;
   const events = (streamId: string) => eventStore.readStream({ streamId });
   const cartState = async (owner: string) =>
     (await events(`checkout.cart-${owner}`)).reduce(
@@ -1990,6 +2009,33 @@ async function unionCleanupHarness() {
       command: { ...line, type: "AddCartLine", buyerAccountId: owner as never, quantity },
     });
   };
+  // A separate claimed device: one duplicate of a planned line and one line the
+  // session never saw. Both are seeded while the key is still anonymous, which
+  // is the only way a claimed stream ever gains lines.
+  const unplannedClaimedLineId = "cli_synthetic_unplanned";
+  if (options.claimSeparateSource) {
+    await copy(first.lineId, separateClaimedSource);
+    await cart.commandHandler({
+      streamId: `checkout.cart-${separateClaimedSource}`,
+      context,
+      command: {
+        type: "AddCartLine",
+        buyerAccountId: separateClaimedSource as never,
+        lineId: unplannedClaimedLineId as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Blastoise",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+      },
+    });
+  }
+  for (const source of claimedSources) {
+    await cart.claimCart({ sourceOwnerKey: source, accountId: buyer }, context);
+  }
   const listCartLines: CheckoutCartServices["listCartLines"] = async (accountId, presented) => {
     const lines = [...(await cartState(accountId)).lines, ...(presented ? (await cartState(presented)).lines : [])];
     return [
@@ -2061,6 +2107,8 @@ async function unionCleanupHarness() {
       projected = row;
     },
     anonymous,
+    separateClaimedSource,
+    unplannedClaimedLineId,
     buyer,
     add,
     copy,
@@ -2082,9 +2130,13 @@ describe("durable union cleanup", () => {
   it("union cleanup zero-copy removes real anonymous lines and retains atomic intent and metadata", async () => {
     const h = await unionCleanupHarness();
     expect((await h.cartState(h.buyer)).lines).toEqual([]);
-    await expect(h.cart.removeLine({ accountId: h.buyer, lineId: h.ids[0]! }, context)).rejects.toThrow(
-      "Cart line not found.",
-    );
+    // The Account never held these anonymous lines, so removing one there is an
+    // absorbed no-op that reports no stream write and appends nothing.
+    expect(await h.cart.removeLine({ accountId: h.buyer, lineId: h.ids[0]! }, context)).toEqual({
+      lineId: h.ids[0],
+      version: 0,
+    });
+    expect((await h.eventStore.readStream({ streamId: `checkout.cart-${h.buyer}` })).length).toBe(0);
     const result = await h.runtime().recordOrdersCreated(h.record, context);
     expect((await h.cartState(h.anonymous)).lines).toEqual([]);
     const events = await h.sessionEvents();
@@ -2413,5 +2465,138 @@ describe("union cleanup concurrent cart writes", () => {
         (event) => event.eventType === "checkout.cart.line-removed",
       ),
     ).toHaveLength(2);
+  });
+});
+
+describe("durable union cleanup across claimed streams", () => {
+  const removalsOn = async (h: Awaited<ReturnType<typeof unionCleanupHarness>>, owner: string) =>
+    (await h.eventStore.readStream({ streamId: `checkout.cart-${owner}` })).filter(
+      (event) => event.eventType === "checkout.cart.line-removed",
+    ).length;
+
+  it("reaches a separately claimed device without widening the retained plan", async () => {
+    const h = await unionCleanupHarness({ claimSeparateSource: true });
+    for (const lineId of h.ids) await h.copy(lineId);
+
+    await h.runtime().recordOrdersCreated(h.record, context);
+
+    const events = await h.sessionEvents();
+    // One lifecycle, one plan, and the plan still names only the retained
+    // Account and anonymous sources.
+    expect(
+      events.find((event) => event.eventType === "checkout.session.orders-created")?.payload.orderCartCleanupPlan,
+    ).toEqual({ buyerAccountId: h.buyer, sourceOwnerKeys: [h.buyer, h.anonymous], lineIds: [...h.ids].reverse() });
+    expect(events.filter((event) => event.eventType === "checkout.session.cart-cleanup-completed")).toHaveLength(1);
+
+    // The planned duplicate is gone from the claimed device too...
+    expect((await h.cartState(h.buyer)).lines).toEqual([]);
+    expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+    expect(await removalsOn(h, h.separateClaimedSource)).toBe(1);
+    // ...and the line the session never planned survives there.
+    expect((await h.cartState(h.separateClaimedSource)).lines.map((line) => line.lineId)).toEqual([
+      h.unplannedClaimedLineId,
+    ]);
+  });
+
+  it("cleans a retained anonymous source the buyer has since claimed", async () => {
+    // Without the claim-aware sweep this is the regression: acting as the
+    // claimed anonymous key is refused, and an ownership refusal is never
+    // absorbed, so the cleanup would never complete.
+    const h = await unionCleanupHarness({ claimAnonymousSource: true });
+    for (const lineId of h.ids) await h.copy(lineId);
+
+    await h.runtime().recordOrdersCreated(h.record, context);
+
+    expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+    expect((await h.cartState(h.buyer)).lines).toEqual([]);
+    expect(await removalsOn(h, h.anonymous)).toBe(2);
+    expect((await h.state()).orderCartCleanup?.status).toBe("complete");
+  });
+
+  it("resumes a crashed claimed-stream sweep exactly once on an outward retry", async () => {
+    const h = await unionCleanupHarness({ claimSeparateSource: true });
+    for (const lineId of h.ids) await h.copy(lineId);
+    // Fail after the order event and partway through the multi-stream sweep.
+    const fault = vi
+      .spyOn(h.realCart, "removeLine")
+      .mockImplementationOnce(h.cart.removeLine)
+      .mockRejectedValueOnce(new Error("store unavailable"));
+
+    await expect(h.runtime().recordOrdersCreated(h.record, context)).rejects.toBeInstanceOf(OrderCartCleanupError);
+    expect((await h.state()).orderCartCleanup?.status).toBe("pending");
+    fault.mockRestore();
+
+    const resumed = await h.runtime().recordOrdersCreated(h.record, context);
+    const settled = await h.sessionEvents();
+
+    // Ordering is never replayed and exactly one lifecycle completes.
+    expect(resumed.session.order_ids).toEqual(["ord_union"]);
+    expect(settled.filter((event) => event.eventType === "checkout.session.orders-created")).toHaveLength(1);
+    expect(settled.filter((event) => event.eventType === "checkout.session.cart-cleanup-completed")).toHaveLength(1);
+    // Every source removed each planned line exactly once, despite the retry.
+    expect(await removalsOn(h, h.buyer)).toBe(2);
+    expect(await removalsOn(h, h.anonymous)).toBe(2);
+    expect(await removalsOn(h, h.separateClaimedSource)).toBe(1);
+    expect((await h.cartState(h.separateClaimedSource)).lines.map((line) => line.lineId)).toEqual([
+      h.unplannedClaimedLineId,
+    ]);
+
+    // A further identical request is a pure no-op.
+    await h.runtime().resumeOrderCartCleanup(h.params, context);
+    expect(await h.sessionEvents()).toEqual(settled);
+  });
+
+  it("keeps the no-cart-line-id fallback on the Account stream alone", async () => {
+    const h = await unionCleanupHarness({ claimSeparateSource: true });
+    await h.copy(h.ids[0]!);
+    await h.copy(h.ids[1]!);
+    // A cart session whose lines carry no cart line id keeps #7273's whole-cart
+    // fallback, which is deliberately Account-scoped: the projection deletes by
+    // owner key, so fanning it across claimed keys would clear unrelated pages.
+    const sessionId = "chk_synthetic_claimed_fallback";
+    const accountReadiness = createCartReadinessSnapshot(await h.realCart.listCartLines(h.buyer));
+    const seed = (await h.sessionEvents()).map((event) => ({
+      eventType: event.eventType,
+      payload: {
+        ...event.payload,
+        sessionId,
+        ...(event.eventType === "checkout.session.started"
+          ? {
+              presentedAnonymousCartId: null,
+              sourceType: "cart",
+              lines: (event.payload.lines as unknown as CheckoutSessionState["lines"]).map((line) => ({
+                ...line,
+                cartLineId: null,
+              })),
+              cartReadinessSnapshot: accountReadiness,
+            }
+          : {}),
+      },
+    }));
+    (seed[0]!.payload as Record<string, unknown>).splitGroupHandoff = {
+      status: "ready",
+      groups: accountReadiness.fulfillmentGroups,
+      supportReference: "CS-CLAIMED-FALLBACK",
+    };
+    await h.eventStore.appendToStream({
+      streamId: `checkout.session-${sessionId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: seed,
+    });
+    const checkout = vi.spyOn(h.realCart, "checkout");
+    const removeLine = vi.spyOn(h.realCart, "removeLine");
+
+    await h.runtime().recordOrdersCreated({ ...h.record, sessionId }, context);
+
+    expect(checkout.mock.calls).toEqual([[h.buyer, context]]);
+    expect(removeLine).not.toHaveBeenCalled();
+    // The claimed device keeps every page, including the planned duplicate.
+    expect((await h.cartState(h.separateClaimedSource)).lines.map((line) => line.lineId).sort()).toEqual(
+      [h.ids[0]!, h.unplannedClaimedLineId].sort(),
+    );
+    expect((await h.cartState(h.anonymous)).lines.map((line) => line.lineId)).toEqual(h.ids);
+    checkout.mockRestore();
+    removeLine.mockRestore();
   });
 });

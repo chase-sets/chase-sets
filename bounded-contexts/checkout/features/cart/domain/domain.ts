@@ -128,12 +128,14 @@ export type AddCartLineCommand = Readonly<{
 
 export type SetCartLineQuantityCommand = Readonly<{
   type: "SetCartLineQuantity";
+  actingOwnerKey: string;
   lineId: CartLineId;
   quantity: number;
 }>;
 
 export type SetCartLineFulfillmentCommand = Readonly<{
   type: "SetCartLineFulfillment";
+  actingOwnerKey: string;
   lineId: CartLineId;
   fulfillmentMode: "optimize" | "locked-listing";
   lockedListingId?: string | null;
@@ -144,6 +146,7 @@ export type SetCartLineFulfillmentCommand = Readonly<{
 
 export type RemoveCartLineCommand = Readonly<{
   type: "RemoveCartLine";
+  actingOwnerKey: string;
   lineId: CartLineId;
 }>;
 
@@ -249,6 +252,34 @@ function requireCartLine(state: CheckoutCartState, lineId: CartLineId) {
   return line;
 }
 
+/**
+ * The single identity that may act on this cart, and the buyer its lines belong
+ * to. Claiming moves both to the claimant Account while `buyerAccountId` keeps
+ * the retained anonymous source identity, so possession of a claimed `anon_` key
+ * stops being a write capability the moment the claim event lands.
+ *
+ * This reads evolved aggregate state only. The `checkout_cart_claims` alias and
+ * the line-page projection are routing indexes: either can lag or be deleted
+ * outright, so neither may decide authorization.
+ */
+function effectiveCartOwner(state: CheckoutCartState): AccountId | null {
+  return state.claimedByAccountId ?? state.buyerAccountId;
+}
+
+/**
+ * Refuses before any decision an unauthorized writer could observe.
+ *
+ * A null owner is an uninitialized stream, which holds no lines -- the caller's
+ * own `requireCartLine` then refuses with the missing-line message. Ordering the
+ * ownership check first is what keeps "this owner lacks the line", which a
+ * line-id-total sweep absorbs, distinguishable from "this writer may not touch
+ * this cart", which it must never absorb.
+ */
+function assertActingOwnerMayWrite(state: CheckoutCartState, actingOwnerKey: string) {
+  const owner = effectiveCartOwner(state);
+  assert(owner === null || owner === actingOwnerKey, "Cart is owned by a different account.");
+}
+
 function normalizeFulfillmentMode(
   value: "optimize" | "locked-listing" | undefined,
   lockedListingId: string | null | undefined,
@@ -324,6 +355,10 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
 ) => {
   switch (command.type) {
     case "AddCartLine":
+      // An add event retains the source-stream identity in buyerAccountId; it
+      // is not an acting-owner field. Claimed source streams are immutable for
+      // additions, while the claimant adds new lines on their Account stream.
+      assert(state.claimedByAccountId === null, "Cart is owned by a different account.");
       assert(
         state.buyerAccountId === null || state.buyerAccountId === command.buyerAccountId,
         "Cart is owned by a different account.",
@@ -362,6 +397,7 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
         },
       ];
     case "SetCartLineQuantity":
+      assertActingOwnerMayWrite(state, command.actingOwnerKey);
       requireCartLine(state, command.lineId);
       return [
         {
@@ -373,6 +409,7 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
         },
       ];
     case "SetCartLineFulfillment": {
+      assertActingOwnerMayWrite(state, command.actingOwnerKey);
       requireCartLine(state, command.lineId);
       const lockedListingId = normalizeOptionalText(command.lockedListingId);
       const fulfillmentMode = normalizeFulfillmentMode(command.fulfillmentMode, lockedListingId);
@@ -381,7 +418,10 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
         fulfillmentMode === "locked-listing"
           ? normalizeSelectedListingSnapshot(command.selectedListingSnapshot, lockedListingId)
           : null;
-      assertCartLineIsNotOwnListing(state.buyerAccountId, selectedListingSnapshot);
+      // The effective buyer, not the retained anonymous source key: on a claimed
+      // cart the Account doing the locking is the one that must not buy its own
+      // listing.
+      assertCartLineIsNotOwnListing(effectiveCartOwner(state), selectedListingSnapshot);
       return [
         {
           type: "checkout.cart.line-fulfillment-set",
@@ -397,6 +437,7 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
       ];
     }
     case "RemoveCartLine":
+      assertActingOwnerMayWrite(state, command.actingOwnerKey);
       requireCartLine(state, command.lineId);
       return [
         {
