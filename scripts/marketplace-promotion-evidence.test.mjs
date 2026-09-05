@@ -24,6 +24,10 @@ import {
   runPromotionEvidence,
   validatePromotionEvidenceOptions,
 } from "./marketplace-promotion-evidence.mjs";
+import {
+  resolveCanonicalLegalCorpusMembership,
+  validatePromotionLegalCorpusProjection,
+} from "./launch-go-no-go-gate.mjs";
 
 // Every case below holds ONE real successful launch-mode audit record fixed
 // and mutates only the review or the audit input, so a passing result can only
@@ -33,10 +37,14 @@ import {
 const SYNTHETIC_COUNSEL_APPROVAL_REFERENCE = "SYNTHETIC-COUNSEL-DISPOSITION-CONTROL-0001";
 const SYNTHETIC_DMCA_DIRECTORY_RECORD = "synthetic-directory-record-control";
 const LAUNCH_BODY = "Live marketplace policies are available. Support is available.";
+const PRELAUNCH_BODY =
+  "Public marketplace checkout opens only after production promotion approval. Request early access.";
 const CHECKED_AT = "2026-09-05T02:00:00.000Z";
 const AUDIT_CHECKED_AT = "2026-09-05T01:30:00.000Z";
 
 let successfulAudit;
+let successfulPrelaunchAudit;
+let canonicalMembership;
 let temporaryDirectory;
 
 beforeAll(async () => {
@@ -117,7 +125,38 @@ beforeAll(async () => {
   if (!successfulAudit.passesPublicPresenceCopyAudit) {
     throw new Error(`expected a passing launch audit, got: ${(successfulAudit.errors ?? []).join(" | ")}`);
   }
+
+  // A real prelaunch record, not a launch record with its mode relabelled: the
+  // two modes have different exact row shapes, so only a genuine prelaunch run
+  // proves that promotion refuses a non-launch audit for the right reason.
+  successfulPrelaunchAudit = await auditPublicPresenceCopy(
+    { baseUrl: "https://chasesets.com", mode: "prelaunch", checkedAt: AUDIT_CHECKED_AT },
+    {
+      fetch: async (url) => ({
+        status: 200,
+        url,
+        text: async () =>
+          `<html><head><title>${new URL(url).pathname}</title></head><body>${PRELAUNCH_BODY}</body></html>`,
+      }),
+      membership: resolveLegalReviewMembership(authorities),
+    },
+  );
+  if (!successfulPrelaunchAudit.passesPublicPresenceCopyAudit) {
+    throw new Error(`expected a passing prelaunch audit, got: ${(successfulPrelaunchAudit.errors ?? []).join(" | ")}`);
+  }
+
+  canonicalMembership = await resolveCanonicalLegalCorpusMembership();
+  if (!canonicalMembership.ok) {
+    throw new Error(`expected canonical membership, got: ${canonicalMembership.errors.join(" | ")}`);
+  }
 }, 120_000);
+
+/** The terminal launch consumer's own revalidation of a promotion projection. */
+function terminalProjectionErrors(evidence) {
+  const rowErrors = [];
+  validatePromotionLegalCorpusProjection(evidence, canonicalMembership, rowErrors);
+  return rowErrors;
+}
 
 afterAll(() => {
   if (temporaryDirectory) {
@@ -243,6 +282,26 @@ describe("marketplace promotion evidence: authoritative launch consumption", () 
         publicPresenceCopyAuditComplianceArticlesReviewed: true,
         publicPresenceCopyAuditDmcaRegistrationMarkerAbsent: true,
         publicPresenceCopyAuditUncertifiedClaimsAbsent: true,
+        publicPresenceCopyAuditPageEvidence: {
+          fetchedPathCount: 17,
+          requiredPagePaths: [...REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS],
+          launchPolicyPolicyKeys: [
+            "terms-of-service",
+            "privacy-policy",
+            "seller-agreement",
+            "payments-terms",
+            "agent-connector-terms",
+            "founders-offer-terms",
+          ],
+          complianceArticleSlugs: [
+            "community-guidelines-and-enforcement",
+            "intellectual-property-and-dmca",
+            "prohibited-and-restricted-items",
+            "sales-tax",
+            "tax-reporting-1099k",
+          ],
+          verifiedOnAuditedOriginCount: 17,
+        },
         finalLaunchReviewApproved: true,
         checkoutLaunchEvidenceApproved: true,
         checkoutLaunchBuyNowBuyCartSellListReviewed: true,
@@ -390,19 +449,7 @@ describe("marketplace promotion evidence: audit input authority", () => {
       `schemaVersion must be ${MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION}`,
     );
 
-    const prelaunchAudit = buildPromotionEvidence(
-      input({
-        audit: {
-          ...successfulAudit,
-          mode: "prelaunch",
-          legalCorpusDigest: null,
-          counselPacket: null,
-          policyPagesReviewed: null,
-          complianceArticlesReviewed: null,
-          dmcaRegistrationMarkerAbsent: null,
-        },
-      }),
-    );
+    const prelaunchAudit = buildPromotionEvidence(input({ audit: successfulPrelaunchAudit }));
     expect(prelaunchAudit.passesPromotionGate).toBe(false);
     expect(prelaunchAudit.errors).toContain(
       "Marketplace promotion review must use a launch-mode Public Presence copy audit.",
@@ -418,8 +465,17 @@ describe("marketplace promotion evidence: audit input authority", () => {
   });
 
   it("refuses an unverified packet, a stale digest, a count-only membership, and reordered members", () => {
+    // The producer never reports a pass on an unverified packet, so the mutant
+    // is the exact record it would emit for that one failure.
     const unverified = buildPromotionEvidence(
-      input({ audit: { ...successfulAudit, counselPacket: { ...successfulAudit.counselPacket, verified: false } } }),
+      input({
+        audit: {
+          ...successfulAudit,
+          counselPacket: { ...successfulAudit.counselPacket, verified: false },
+          passesPublicPresenceCopyAudit: false,
+          errors: ["Retained counsel review packet bytes do not hash to the digest its receipt records."],
+        },
+      }),
     );
     expect(unverified.passesPromotionGate).toBe(false);
     expect(unverified.errors).toContain(
@@ -455,6 +511,48 @@ describe("marketplace promotion evidence: audit input authority", () => {
     expect(reordered.errors.join(" ")).toContain(
       "requiredPagePaths must be the canonical required-page paths in order",
     );
+  });
+
+  it("refuses an audit whose rows are not the fetch plan its own membership implies", () => {
+    // One decisive mutation: counts, membership pairs, digests, packet
+    // verification, and every success boolean are retained from the real
+    // record; only the 17 row identities are replaced.
+    const crafted = {
+      ...successfulAudit,
+      pages: successfulAudit.pages.map((row, index) => ({
+        ...row,
+        name: `synthetic-${index}`,
+        path: `/synthetic-${index}`,
+        url: `https://chasesets.com/synthetic-${index}`,
+      })),
+    };
+    expect(crafted.uniqueFetchedPathCount).toBe(17);
+    expect(crafted.passesPublicPresenceCopyAudit).toBe(true);
+
+    const evidence = buildPromotionEvidence(input({ audit: crafted }));
+    expect(evidence.passesPromotionGate).toBe(false);
+    expect(evidence.errors.join(" ")).toContain("must open with the canonical required public pages in order");
+    // No page evidence survives into the projection the terminal gate reads.
+    expect(evidence.marketplacePromotion.publicPresenceCopyAuditPageEvidence).toBeNull();
+    expect(evidence.marketplacePromotion.publicPresenceCopyAuditPassed).toBeNull();
+    // All three layers refuse it: record validation, promotion, and the
+    // terminal launch-gate projection.
+    expect(terminalProjectionErrors(evidence).join(" ")).toContain(
+      "publicPresenceCopyAuditPageEvidence must carry the audited page rows",
+    );
+    // The unmutated control still clears every layer end to end.
+    expect(terminalProjectionErrors(buildPromotionEvidence(input()))).toEqual([]);
+
+    // A record that keeps canonical row identities but never proved them on
+    // the audited origin cannot claim the success booleans either.
+    const offOrigin = {
+      ...successfulAudit,
+      pages: successfulAudit.pages.map((row) => ({ ...row, url: `https://synthetic.invalid${row.path}` })),
+    };
+    const offOriginEvidence = buildPromotionEvidence(input({ audit: offOrigin }));
+    expect(offOriginEvidence.passesPromotionGate).toBe(false);
+    expect(offOriginEvidence.errors.join(" ")).toContain("uncertifiedClaimsAbsent must agree with its own page rows");
+    expect(offOriginEvidence.marketplacePromotion.publicPresenceCopyAuditPageEvidence).toBeNull();
   });
 
   it("uses the audit record's own checkedAt as the copy-audit completion instant and enforces its freshness", () => {

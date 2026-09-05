@@ -38,6 +38,20 @@ beforeAll(async () => {
   expect(canonicalMembership.ok, JSON.stringify(canonicalMembership.errors ?? [])).toBe(true);
 }, 120_000);
 
+// The audited page rows a real promotion record derives from its audit input,
+// reduced to the identities this gate can revalidate against canonical
+// membership rather than accepting a bare count or boolean.
+function auditPageEvidence(overrides = {}) {
+  return {
+    fetchedPathCount: canonicalMembership.uniqueFetchedPathCount,
+    requiredPagePaths: [...REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS],
+    launchPolicyPolicyKeys: [...canonicalMembership.launchRequiredPolicyKeys],
+    complianceArticleSlugs: [...canonicalMembership.complianceArticleSlugs],
+    verifiedOnAuditedOriginCount: canonicalMembership.uniqueFetchedPathCount,
+    ...overrides,
+  };
+}
+
 function promotionEvidenceRecord(overrides = {}) {
   return {
     schemaVersion: MARKETPLACE_PROMOTION_EVIDENCE_VERSION,
@@ -65,6 +79,7 @@ function promotionEvidenceRecord(overrides = {}) {
       publicPresenceCopyAuditComplianceArticlesReviewed: true,
       publicPresenceCopyAuditDmcaRegistrationMarkerAbsent: true,
       publicPresenceCopyAuditUncertifiedClaimsAbsent: true,
+      publicPresenceCopyAuditPageEvidence: auditPageEvidence(),
       publicPresenceLaunchCopyReviewed: true,
       futureOnlyLaunchCopyRemoved: true,
       policyPagesReviewed: true,
@@ -486,6 +501,55 @@ describe("launch go/no-go gate: promotion-evidence legal-corpus revalidation", (
     ]) {
       expect(promotionRow({ [field]: false }).note, field).toContain(`${field} must be true.`);
     }
+  });
+
+  it("refuses a projection that asserts the audit booleans without the audited page evidence", () => {
+    // The exact bypass this row exists to stop: every flattened count, array,
+    // digest, and boolean is canonical, but no audited row backs any of it.
+    expect(promotionRow({ publicPresenceCopyAuditPageEvidence: undefined }).note).toContain(
+      "publicPresenceCopyAuditPageEvidence must carry the audited page rows",
+    );
+    expect(promotionRow({ publicPresenceCopyAuditPageEvidence: null }).status).toBe("pending");
+
+    expect(
+      promotionRow({
+        publicPresenceCopyAuditPageEvidence: auditPageEvidence({
+          requiredPagePaths: REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS.map((_, index) => `/synthetic-${index}`),
+        }),
+      }).note,
+    ).toContain("requiredPagePaths must be the canonical required-page paths in order");
+
+    expect(
+      promotionRow({
+        publicPresenceCopyAuditPageEvidence: auditPageEvidence({
+          launchPolicyPolicyKeys: canonicalMembership.launchRequiredPolicyKeys.slice(1),
+        }),
+      }).note,
+    ).toContain("launchPolicyPolicyKeys must be exactly the canonical launch-required policy keys");
+
+    expect(
+      promotionRow({
+        publicPresenceCopyAuditPageEvidence: auditPageEvidence({
+          complianceArticleSlugs: [...canonicalMembership.complianceArticleSlugs].reverse(),
+        }),
+      }).note,
+    ).toContain("complianceArticleSlugs must be the canonical compliance article slugs in manifest order");
+
+    expect(
+      promotionRow({ publicPresenceCopyAuditPageEvidence: auditPageEvidence({ fetchedPathCount: 8 }) }).note,
+    ).toContain(`fetchedPathCount must be ${canonicalMembership.uniqueFetchedPathCount}`);
+
+    expect(
+      promotionRow({
+        publicPresenceCopyAuditPageEvidence: auditPageEvidence({
+          verifiedOnAuditedOriginCount: canonicalMembership.uniqueFetchedPathCount - 1,
+        }),
+      }).note,
+    ).toContain(`verifiedOnAuditedOriginCount must be ${canonicalMembership.uniqueFetchedPathCount}`);
+
+    // The canonical projection still passes: the new rule rejects absent or
+    // incoherent page evidence, not evidence in general.
+    expect(promotionRow({}).status).toBe("pass");
   });
 
   it("keeps a v1 promotion record rejected even when v2-looking fields and booleans are added to it", () => {

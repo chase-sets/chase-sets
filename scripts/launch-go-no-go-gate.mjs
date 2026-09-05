@@ -379,6 +379,7 @@ export function validatePromotionLegalCorpusProjection(record, membership, rowEr
       "counselPacketCorpusSha256 must equal the audited current publicPresenceCopyAuditLegalCorpusDigest.",
     );
   }
+  validateAuditPageEvidenceProjection(promotion.publicPresenceCopyAuditPageEvidence, membership, rowErrors);
   for (const field of [
     "counselPacketVerified",
     "publicPresenceCopyAuditPassed",
@@ -397,10 +398,62 @@ export function validatePromotionLegalCorpusProjection(record, membership, rowEr
   }
 }
 
+/**
+ * The audited rows behind the flattened projection. Counts and booleans alone
+ * are assertions any hand-written record can carry; this requires the promotion
+ * record to name the identities its audit actually fetched, and to have proved
+ * every one of them on the audited origin and its exact canonical route.
+ */
+function validateAuditPageEvidenceProjection(evidence, membership, rowErrors) {
+  if (!isRecord(evidence)) {
+    rowErrors.push(
+      "publicPresenceCopyAuditPageEvidence must carry the audited page rows the promotion record derives from its copy-audit input.",
+    );
+    return;
+  }
+  if (evidence.fetchedPathCount !== membership.uniqueFetchedPathCount) {
+    rowErrors.push(
+      `publicPresenceCopyAuditPageEvidence.fetchedPathCount must be ${membership.uniqueFetchedPathCount}.`,
+    );
+  }
+  if (evidence.verifiedOnAuditedOriginCount !== membership.uniqueFetchedPathCount) {
+    rowErrors.push(
+      `publicPresenceCopyAuditPageEvidence.verifiedOnAuditedOriginCount must be ${membership.uniqueFetchedPathCount}.`,
+    );
+  }
+  if (!isExactArray(evidence.requiredPagePaths, REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS)) {
+    rowErrors.push(
+      "publicPresenceCopyAuditPageEvidence.requiredPagePaths must be the canonical required-page paths in order.",
+    );
+  }
+  // Compared as an identity set: a policy route that shares a path with a
+  // required public page keeps that page's row position, so audited row order
+  // is not registry order. Registry order is enforced on the flattened
+  // membership array above.
+  if (!isSameIdentitySet(evidence.launchPolicyPolicyKeys, membership.launchRequiredPolicyKeys)) {
+    rowErrors.push(
+      "publicPresenceCopyAuditPageEvidence.launchPolicyPolicyKeys must be exactly the canonical launch-required policy keys.",
+    );
+  }
+  if (!isExactArray(evidence.complianceArticleSlugs, membership.complianceArticleSlugs)) {
+    rowErrors.push(
+      "publicPresenceCopyAuditPageEvidence.complianceArticleSlugs must be the canonical compliance article slugs in manifest order.",
+    );
+  }
+}
+
 function isExactArray(value, expected) {
   return (
     Array.isArray(value) && value.length === expected.length && value.every((entry, index) => entry === expected[index])
   );
+}
+
+function isSameIdentitySet(value, expected) {
+  if (!Array.isArray(value) || value.length !== expected.length) {
+    return false;
+  }
+  const declared = new Set(value);
+  return declared.size === expected.length && expected.every((entry) => declared.has(entry));
 }
 
 function buildGoogleShoppingLaunchReadinessRow(evidence) {

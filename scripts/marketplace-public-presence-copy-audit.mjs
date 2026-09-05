@@ -112,6 +112,10 @@ export function validatePublicPresenceCopyAuditOptions(options) {
   const errors = [];
   if (!options.baseUrl) {
     errors.push("PUBLIC_PRESENCE_COPY_AUDIT_BASE_URL or --base-url is required.");
+  } else if (toAuditedOrigin(options.baseUrl) === null) {
+    // A malformed or unsupported base URL is an option-shape error, not an
+    // audit outcome: it must be refused before any fetch, with no JSON record.
+    errors.push("PUBLIC_PRESENCE_COPY_AUDIT_BASE_URL or --base-url must be an absolute http(s) URL.");
   }
   if (!["prelaunch", "launch"].includes(options.mode)) {
     errors.push("PUBLIC_PRESENCE_COPY_AUDIT_MODE or --mode must be prelaunch or launch.");
@@ -207,12 +211,14 @@ export async function auditPublicPresenceCopy(input, dependencies = {}) {
   }
   const pages = fetched.map((entry) => entry.row);
 
-  const copyErrors = evaluateCopyPredicates(options.mode, pages);
+  const copyErrors = evaluateCopyPredicates(options.mode, pages, options.baseUrl);
   errors.push(...copyErrors);
   const copyReviewed = copyErrors.length === 0;
-  const allRowsReadable = pages.every((page) => page.status === 200);
+  // A row proves nothing about the audited site unless the response it
+  // actually ended on is still that site's origin and the exact planned path.
+  const allRowsProvable = pages.every((page) => isAuditedTargetResponse(options.baseUrl, page));
   const uncertifiedClaimsAbsent =
-    allRowsReadable && pages.every((page) => page.uncertifiedAgentCommerceClaimMatches.length === 0);
+    allRowsProvable && pages.every((page) => page.uncertifiedAgentCommerceClaimMatches.length === 0);
 
   if (options.mode === "prelaunch") {
     return finalizeAudit({
@@ -235,10 +241,10 @@ export async function auditPublicPresenceCopy(input, dependencies = {}) {
 
   const corpus = verification.corpus;
   const futureOnlyLaunchCopyRemoved =
-    allRowsReadable && pages.every((page) => page.futureOnlyLaunchCopyMatches.length === 0);
-  const policyReview = evaluateLaunchPolicyRoutes(pages, corpus);
-  const complianceReview = evaluateComplianceRoutes(pages, compliancePair.complianceArticleCount);
-  const dmcaReview = evaluateDmcaRegistrationMarker(fetched, corpus);
+    allRowsProvable && pages.every((page) => page.futureOnlyLaunchCopyMatches.length === 0);
+  const policyReview = evaluateLaunchPolicyRoutes(pages, corpus, options.baseUrl);
+  const complianceReview = evaluateComplianceRoutes(pages, compliancePair.complianceArticleCount, options.baseUrl);
+  const dmcaReview = evaluateDmcaRegistrationMarker(fetched, corpus, options.baseUrl);
   errors.push(...policyReview.errors, ...complianceReview.errors, ...dmcaReview.errors);
   errors.push(...evaluateLaunchPublicationReadiness(corpus));
 
@@ -501,9 +507,15 @@ function buildFetchPlan(mode, membership) {
 }
 
 async function auditPage({ baseUrl, target, fetchImpl }) {
-  const url = new URL(target.path, ensureTrailingSlash(baseUrl)).toString();
+  // Defense in depth for programmatic callers: `main` already refuses an
+  // unusable base URL at option validation, so a resolution failure here is a
+  // caught row rather than an exception that escapes the audit boundary.
+  const url = resolveTargetUrl(baseUrl, target.path);
   const isLaunchPolicyRow = target.categories.includes("launch-policy");
   try {
+    if (url === null) {
+      throw new Error("The audited base URL could not resolve this target path.");
+    }
     const response = await fetchImpl(url, { redirect: "follow" });
     const html = await response.text();
     const text = stripHtml(html);
@@ -531,7 +543,7 @@ async function auditPage({ baseUrl, target, fetchImpl }) {
       row: {
         name: target.name,
         path: target.path,
-        url,
+        url: url ?? target.path,
         status: null,
         title: null,
         categories: [...target.categories],
@@ -547,7 +559,7 @@ async function auditPage({ baseUrl, target, fetchImpl }) {
 // Predicates
 // ---------------------------------------------------------------------------
 
-function evaluateCopyPredicates(mode, pages) {
+function evaluateCopyPredicates(mode, pages, baseUrl) {
   const errors = [];
   for (const page of pages) {
     if (page.status === null) {
@@ -556,6 +568,11 @@ function evaluateCopyPredicates(mode, pages) {
     }
     if (page.status !== 200) {
       errors.push(`Public Presence page ${page.path} returned status ${page.status}.`);
+    }
+    if (!resolvesToAuditedTarget(baseUrl, page)) {
+      // Bounded by design: the off-origin location is a response value and is
+      // never echoed into a diagnostic.
+      errors.push(`Public Presence page ${page.path} did not resolve to the audited origin and canonical route.`);
     }
     for (const match of page.uncertifiedAgentCommerceClaimMatches) {
       errors.push(`Public Presence page ${page.path} includes uncertified agent-commerce claim: ${match}.`);
@@ -572,7 +589,7 @@ function evaluateCopyPredicates(mode, pages) {
   return errors;
 }
 
-function evaluateLaunchPolicyRoutes(pages, corpus) {
+function evaluateLaunchPolicyRoutes(pages, corpus, baseUrl) {
   const errors = [];
   const versionsByKey = new Map(corpus.policies.map((policy) => [policy.policyKey, policy.version]));
   const policyRows = pages.filter((page) => page.categories.includes("launch-policy"));
@@ -587,6 +604,11 @@ function evaluateLaunchPolicyRoutes(pages, corpus) {
     const expectedVersion = versionsByKey.get(expectedKey);
     if (page.status !== 200) {
       errors.push(`Public Presence ${page.path} must return 200 before launch.`);
+      reviewed = false;
+      continue;
+    }
+    if (!resolvesToAuditedTarget(baseUrl, page)) {
+      errors.push(`Public Presence ${page.path} must resolve to the audited origin and canonical route before launch.`);
       reviewed = false;
       continue;
     }
@@ -614,7 +636,7 @@ function findPolicyKeyForPath(corpus, path) {
   return corpus.policies.find((policy) => policy.href === path)?.policyKey ?? null;
 }
 
-function evaluateComplianceRoutes(pages, expectedComplianceCount) {
+function evaluateComplianceRoutes(pages, expectedComplianceCount, baseUrl) {
   const errors = [];
   const complianceRows = pages.filter((page) => page.categories.includes("compliance-article"));
   let reviewed = complianceRows.length === expectedComplianceCount && expectedComplianceCount > 0;
@@ -628,7 +650,7 @@ function evaluateComplianceRoutes(pages, expectedComplianceCount) {
       reviewed = false;
       continue;
     }
-    if (!resolvesToCanonicalRoute(page)) {
+    if (!resolvesToAuditedTarget(baseUrl, page)) {
       errors.push(`Public Presence compliance article ${page.path} did not resolve to its canonical route.`);
       reviewed = false;
     }
@@ -636,15 +658,54 @@ function evaluateComplianceRoutes(pages, expectedComplianceCount) {
   return { reviewed, errors };
 }
 
-function resolvesToCanonicalRoute(page) {
+/**
+ * The audited base origin, or `null` when the value is not a supported
+ * absolute HTTP(S) URL. Origin comparison is the whole point: a same-path
+ * redirect onto another host returns bytes that prove nothing about this site.
+ */
+function toAuditedOrigin(baseUrl) {
+  if (typeof baseUrl !== "string" || baseUrl.trim().length === 0) {
+    return null;
+  }
   try {
-    return new URL(page.url).pathname === page.path;
+    const url = new URL(baseUrl.trim());
+    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveTargetUrl(baseUrl, targetPath) {
+  if (toAuditedOrigin(baseUrl) === null) {
+    return null;
+  }
+  try {
+    return new URL(targetPath, ensureTrailingSlash(baseUrl.trim())).toString();
+  } catch {
+    return null;
+  }
+}
+
+/** True when a row's FINAL response URL is the audited origin plus its exact planned path. */
+function resolvesToAuditedTarget(baseUrl, page) {
+  const origin = toAuditedOrigin(baseUrl);
+  if (origin === null || typeof page.url !== "string") {
+    return false;
+  }
+  try {
+    const resolved = new URL(page.url);
+    return resolved.origin === origin && resolved.pathname === page.path;
   } catch {
     return false;
   }
 }
 
-function evaluateDmcaRegistrationMarker(fetched, corpus) {
+/** A row that both answered 200 and stayed on the audited target. */
+function isAuditedTargetResponse(baseUrl, page) {
+  return page.status === 200 && resolvesToAuditedTarget(baseUrl, page);
+}
+
+function evaluateDmcaRegistrationMarker(fetched, corpus, baseUrl) {
   const errors = [];
   const marker = corpus.dmcaUnverifiedRegistrationMarker;
   const slug = corpus.dmcaComplianceArticleSlug;
@@ -666,6 +727,11 @@ function evaluateDmcaRegistrationMarker(fetched, corpus) {
   const entry = fetched.find((candidate) => candidate.target.complianceSlug === slug);
   if (!entry || entry.row.status !== 200 || entry.html === null) {
     errors.push(`The live DMCA compliance page could not be read, so the registration marker cannot be proven absent.`);
+    absent = false;
+  } else if (!resolvesToAuditedTarget(baseUrl, entry.row)) {
+    errors.push(
+      "The live DMCA compliance page did not resolve to the audited origin and canonical route, so the registration marker cannot be proven absent.",
+    );
     absent = false;
   } else if (entry.html.includes(marker)) {
     errors.push("The live DMCA compliance page still carries the unverified DMCA registration marker.");
@@ -770,6 +836,8 @@ export function validatePublicPresenceCopyAuditRecord(value) {
 
   validateAuditCounselPacket(errors, value);
   validateAuditPages(errors, value);
+  validateAuditFetchPlanComposition(errors, value);
+  validateAuditEvidenceCoherence(errors, value);
 
   for (const field of [
     "publicPresenceLaunchCopyReviewed",
@@ -912,6 +980,300 @@ function validateAuditPageMetadata(errors, page, rowPath) {
       );
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Relational record validation
+//
+// Field shapes alone are not authority. A stored record whose rows are not the
+// fetch plan its own mode and membership pairs imply describes fetches that
+// never happened, so promotion and the terminal gate would be authorizing
+// launch on 17 rows of nothing. These two passes bind the rows to the plan and
+// the success booleans to the rows.
+// ---------------------------------------------------------------------------
+
+/** The only category sets `buildFetchPlan` can produce, in canonical order. */
+const ALLOWED_AUDIT_PAGE_CATEGORY_SETS = [
+  ["required-page"],
+  ["required-page", "launch-policy"],
+  ["launch-policy"],
+  ["compliance-article"],
+];
+
+const AUDIT_RECORD_LABEL = "Public Presence copy audit record";
+
+function validateAuditFetchPlanComposition(errors, value) {
+  const pages = Array.isArray(value.pages) ? value.pages : [];
+  // The zero-fetch union branch has no rows to bind, and a row that failed its
+  // own shape check is already named by `validateAuditPages`.
+  if (pages.length === 0 || !pages.every((page) => isRecord(page) && Array.isArray(page.categories))) {
+    return;
+  }
+
+  for (const [index, page] of pages.entries()) {
+    if (!ALLOWED_AUDIT_PAGE_CATEGORY_SETS.some((allowed) => isExactStringArray(page.categories, allowed))) {
+      errors.push(`${AUDIT_RECORD_LABEL} pages[${index}].categories must be one of the planned audit category sets.`);
+    }
+  }
+
+  const requiredRows = pages.filter((page) => page.categories.includes("required-page"));
+  const policyRows = pages.filter((page) => page.categories.includes("launch-policy"));
+  const complianceRows = pages.filter((page) => page.categories.includes("compliance-article"));
+  const requiredBlock = pages.slice(0, REQUIRED_PUBLIC_PRESENCE_PAGES.length);
+  const openingIsCanonical =
+    requiredRows.length === REQUIRED_PUBLIC_PRESENCE_PAGES.length &&
+    requiredBlock.length === REQUIRED_PUBLIC_PRESENCE_PAGES.length &&
+    REQUIRED_PUBLIC_PRESENCE_PAGES.every(
+      (required, index) =>
+        requiredBlock[index].name === required.name &&
+        requiredBlock[index].path === required.path &&
+        requiredBlock[index].categories[0] === "required-page",
+    );
+  if (!openingIsCanonical) {
+    errors.push(`${AUDIT_RECORD_LABEL} pages must open with the canonical required public pages in order.`);
+  }
+
+  if (value.mode !== "launch") {
+    if (pages.length !== REQUIRED_PUBLIC_PRESENCE_PAGES.length) {
+      errors.push(`${AUDIT_RECORD_LABEL} prelaunch pages must be exactly the eight required public pages.`);
+    }
+    if (policyRows.length > 0 || complianceRows.length > 0) {
+      errors.push(`${AUDIT_RECORD_LABEL} prelaunch pages must not carry launch-only categories.`);
+    }
+    return;
+  }
+
+  const policyKeys = value.launchRequiredPolicyKeys;
+  const complianceSlugs = value.complianceArticleSlugs;
+  if (!Array.isArray(policyKeys) || !Array.isArray(complianceSlugs)) {
+    errors.push(
+      `${AUDIT_RECORD_LABEL} launch pages require both membership pairs to carry their exact ordered identities.`,
+    );
+    return;
+  }
+  if (policyRows.length !== policyKeys.length) {
+    errors.push(
+      `${AUDIT_RECORD_LABEL} launch pages must carry exactly one launch-policy row per launch-required policy key.`,
+    );
+  }
+  if (complianceRows.length !== complianceSlugs.length) {
+    errors.push(
+      `${AUDIT_RECORD_LABEL} launch pages must carry exactly one compliance-article row per compliance member.`,
+    );
+  }
+
+  // `/terms` and `/privacy` declare two categories but are fetched once, so the
+  // row count is the deduplicated 8 + policies + articles.
+  const sharedRows = pages.filter(
+    (page) => page.categories.includes("required-page") && page.categories.includes("launch-policy"),
+  );
+  const expectedRowCount =
+    REQUIRED_PUBLIC_PRESENCE_PAGES.length + policyKeys.length + complianceSlugs.length - sharedRows.length;
+  if (pages.length !== expectedRowCount) {
+    errors.push(`${AUDIT_RECORD_LABEL} launch pages must be the ${expectedRowCount} deduplicated planned routes.`);
+  }
+  if (!sharedRows.every((page) => requiredBlock.includes(page))) {
+    errors.push(`${AUDIT_RECORD_LABEL} only a required public page row may also declare the launch-policy category.`);
+  }
+
+  const policyOnlyRows = pages.slice(
+    REQUIRED_PUBLIC_PRESENCE_PAGES.length,
+    REQUIRED_PUBLIC_PRESENCE_PAGES.length + policyKeys.length - sharedRows.length,
+  );
+  if (
+    policyOnlyRows.length !== policyKeys.length - sharedRows.length ||
+    !policyOnlyRows.every((page) => isExactStringArray(page.categories, ["launch-policy"])) ||
+    !isOrderedSubsequence(
+      policyOnlyRows.map((page) => page.name),
+      policyKeys,
+    )
+  ) {
+    errors.push(
+      `${AUDIT_RECORD_LABEL} launch pages must continue with the launch-required policy routes in registry order.`,
+    );
+  }
+
+  const complianceBlock = pages.slice(pages.length - complianceSlugs.length);
+  if (
+    complianceRows.length !== complianceSlugs.length ||
+    !complianceBlock.every((page) => isExactStringArray(page.categories, ["compliance-article"])) ||
+    !isExactStringArray(
+      complianceBlock.map((page) => page.name),
+      complianceSlugs,
+    )
+  ) {
+    errors.push(
+      `${AUDIT_RECORD_LABEL} launch pages must end with one row per compliance article slug in manifest order.`,
+    );
+  }
+
+  const declaredKeys = resolvePolicyRowKeys(policyRows);
+  if (declaredKeys.some((key) => key !== null && !policyKeys.includes(key)) || hasRepeatedIdentity(declaredKeys)) {
+    errors.push(`${AUDIT_RECORD_LABEL} every launch-policy row must name a distinct launch-required policy member.`);
+  }
+}
+
+function validateAuditEvidenceCoherence(errors, value) {
+  const pages = Array.isArray(value.pages) ? value.pages : [];
+  if (!pages.every(isCoherenceReadyRow) || (value.mode !== "launch" && value.mode !== "prelaunch")) {
+    return;
+  }
+  const baseUrl = value.baseUrl;
+
+  // Recomputed through the producer's own predicate, so the stored booleans
+  // cannot drift from the rows they claim to summarize.
+  const expectedCopyReviewed = pages.length > 0 && evaluateCopyPredicates(value.mode, pages, baseUrl).length === 0;
+  if (value.publicPresenceLaunchCopyReviewed !== expectedCopyReviewed) {
+    errors.push(`${AUDIT_RECORD_LABEL} publicPresenceLaunchCopyReviewed must agree with its own page rows.`);
+  }
+  const allRowsProvable = pages.length > 0 && pages.every((page) => isAuditedTargetResponse(baseUrl, page));
+  const expectedUncertifiedAbsent =
+    allRowsProvable && pages.every((page) => page.uncertifiedAgentCommerceClaimMatches.length === 0);
+  if (value.uncertifiedClaimsAbsent !== expectedUncertifiedAbsent) {
+    errors.push(`${AUDIT_RECORD_LABEL} uncertifiedClaimsAbsent must agree with its own page rows.`);
+  }
+  const expectedFutureOnlyRemoved =
+    value.mode === "launch" && allRowsProvable && pages.every((page) => page.futureOnlyLaunchCopyMatches.length === 0);
+  if (value.futureOnlyLaunchCopyRemoved !== expectedFutureOnlyRemoved) {
+    errors.push(`${AUDIT_RECORD_LABEL} futureOnlyLaunchCopyRemoved must agree with its own page rows.`);
+  }
+
+  if (value.mode === "launch") {
+    validateLaunchReviewCoherence(errors, value, pages, baseUrl);
+  }
+  if (value.passesPublicPresenceCopyAudit !== true) {
+    return;
+  }
+  if (Object.hasOwn(value, "errors")) {
+    errors.push(`${AUDIT_RECORD_LABEL} cannot report a pass while it carries diagnostics.`);
+  }
+  const proved =
+    value.mode === "launch"
+      ? [
+          value.publicPresenceLaunchCopyReviewed,
+          value.futureOnlyLaunchCopyRemoved,
+          value.policyPagesReviewed,
+          value.complianceArticlesReviewed,
+          value.dmcaRegistrationMarkerAbsent,
+          value.uncertifiedClaimsAbsent,
+          isRecord(value.counselPacket) ? value.counselPacket.verified : false,
+        ]
+      : [value.publicPresenceLaunchCopyReviewed, value.uncertifiedClaimsAbsent];
+  if (!proved.every((predicate) => predicate === true)) {
+    errors.push(`${AUDIT_RECORD_LABEL} cannot report a pass without every mode predicate proved.`);
+  }
+}
+
+function validateLaunchReviewCoherence(errors, value, pages, baseUrl) {
+  const policyKeys = Array.isArray(value.launchRequiredPolicyKeys) ? value.launchRequiredPolicyKeys : [];
+  const complianceSlugs = Array.isArray(value.complianceArticleSlugs) ? value.complianceArticleSlugs : [];
+  const policyRows = pages.filter((page) => page.categories.includes("launch-policy"));
+  const complianceRows = pages.filter((page) => page.categories.includes("compliance-article"));
+
+  if (value.policyPagesReviewed === true) {
+    const declaredKeys = resolvePolicyRowKeys(policyRows).filter((key) => key !== null);
+    const everyRowProved = policyRows.every((page) => {
+      const metadata = page.policyPublicationMetadata;
+      return (
+        isAuditedTargetResponse(baseUrl, page) &&
+        isRecord(metadata) &&
+        isNonEmptyString(metadata.policyKey) &&
+        policyKeys.includes(metadata.policyKey) &&
+        POLICY_VERSION_PATTERN.test(metadata.version ?? "") &&
+        metadata.publicationStatus === "published" &&
+        isIsoTimestamp(metadata.effectiveAt)
+      );
+    });
+    if (
+      policyKeys.length === 0 ||
+      policyRows.length !== policyKeys.length ||
+      declaredKeys.length !== policyKeys.length ||
+      !everyRowProved
+    ) {
+      errors.push(
+        `${AUDIT_RECORD_LABEL} policyPagesReviewed=true requires every launch-required policy row to answer 200 on its canonical route with its exact published policy metadata.`,
+      );
+    }
+  }
+
+  if (value.complianceArticlesReviewed === true) {
+    if (
+      complianceSlugs.length === 0 ||
+      complianceRows.length !== complianceSlugs.length ||
+      !complianceRows.every((page) => isAuditedTargetResponse(baseUrl, page))
+    ) {
+      errors.push(
+        `${AUDIT_RECORD_LABEL} complianceArticlesReviewed=true requires every compliance article row to answer 200 on its canonical route.`,
+      );
+    }
+  }
+
+  if (
+    value.dmcaRegistrationMarkerAbsent === true &&
+    !complianceRows.some((page) => isAuditedTargetResponse(baseUrl, page))
+  ) {
+    errors.push(
+      `${AUDIT_RECORD_LABEL} dmcaRegistrationMarkerAbsent=true requires an audited compliance article response to read the marker from.`,
+    );
+  }
+}
+
+/**
+ * The policy identity each launch-policy row carries: its own name when the
+ * route belongs to no required public page, otherwise the key its published
+ * metadata declares. `null` means the row proves no identity, which only a
+ * failure branch may contain.
+ */
+function resolvePolicyRowKeys(policyRows) {
+  return policyRows.map((page) => {
+    if (!page.categories.includes("required-page")) {
+      return typeof page.name === "string" ? page.name : null;
+    }
+    const metadata = page.policyPublicationMetadata;
+    return isRecord(metadata) && isNonEmptyString(metadata.policyKey) ? metadata.policyKey : null;
+  });
+}
+
+function isCoherenceReadyRow(page) {
+  return (
+    isRecord(page) &&
+    typeof page.name === "string" &&
+    typeof page.path === "string" &&
+    typeof page.url === "string" &&
+    (page.status === null || Number.isInteger(page.status)) &&
+    Array.isArray(page.categories) &&
+    Array.isArray(page.futureOnlyLaunchCopyMatches) &&
+    Array.isArray(page.uncertifiedAgentCommerceClaimMatches)
+  );
+}
+
+function hasRepeatedIdentity(values) {
+  const declared = values.filter((value) => value !== null);
+  return new Set(declared).size !== declared.length;
+}
+
+function isOrderedSubsequence(values, canonical) {
+  const indexes = values.map((value) => canonical.indexOf(value));
+  return indexes.every((index, position) => index >= 0 && (position === 0 || indexes[position - 1] < index));
+}
+
+/**
+ * The page evidence a downstream consumer can revalidate against canonical
+ * membership without holding the audit record itself. Derived only from rows
+ * the audit actually emitted; it carries no new custody claim.
+ */
+export function projectPublicPresenceCopyAuditPageEvidence(audit) {
+  if (!isRecord(audit) || !Array.isArray(audit.pages) || !audit.pages.every(isCoherenceReadyRow)) {
+    return null;
+  }
+  const rows = audit.pages;
+  return {
+    fetchedPathCount: rows.length,
+    requiredPagePaths: rows.filter((row) => row.categories.includes("required-page")).map((row) => row.path),
+    launchPolicyPolicyKeys: resolvePolicyRowKeys(rows.filter((row) => row.categories.includes("launch-policy"))),
+    complianceArticleSlugs: rows.filter((row) => row.categories.includes("compliance-article")).map((row) => row.name),
+    verifiedOnAuditedOriginCount: rows.filter((row) => isAuditedTargetResponse(audit.baseUrl, row)).length,
+  };
 }
 
 function validateMembershipPair(errors, count, values, label) {

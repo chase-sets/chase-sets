@@ -421,6 +421,63 @@ describe("marketplace public presence copy audit: launch mode", () => {
     );
   });
 
+  it("refuses same-path off-origin resolutions for required, policy, and compliance targets", async () => {
+    // A redirect that keeps the requested pathname but lands on another origin
+    // is not Chase Sets copy: the bytes it returns can prove nothing about the
+    // audited site. `synthetic.invalid` is a reserved, unroutable control host.
+    const categoryTargets = {
+      "/faq": "https://synthetic.invalid/faq",
+      "/seller-agreement": "https://synthetic.invalid/seller-agreement",
+      "/help/selling/sales-tax": "https://synthetic.invalid/help/selling/sales-tax",
+    };
+    const oneRowPerCategory = await auditPublicPresenceCopy(
+      launchInput(),
+      launchDependencies({
+        fetch: fetchWithPages(launchPageBodies(launchCorpus), { resolvedUrls: categoryTargets }),
+      }),
+    );
+
+    // Every planned path is still attempted after retained-byte verification.
+    expect(oneRowPerCategory.pages).toHaveLength(17);
+    expect(oneRowPerCategory.uniqueFetchedPathCount).toBe(17);
+    expect(oneRowPerCategory.counselPacket.verified).toBe(true);
+    expect(oneRowPerCategory.publicPresenceLaunchCopyReviewed).toBe(false);
+    expect(oneRowPerCategory.futureOnlyLaunchCopyRemoved).toBe(false);
+    expect(oneRowPerCategory.uncertifiedClaimsAbsent).toBe(false);
+    expect(oneRowPerCategory.policyPagesReviewed).toBe(false);
+    expect(oneRowPerCategory.complianceArticlesReviewed).toBe(false);
+    expect(oneRowPerCategory.passesPublicPresenceCopyAudit).toBe(false);
+    expect(oneRowPerCategory.errors.join(" ")).toContain(
+      "Public Presence page /faq did not resolve to the audited origin and canonical route.",
+    );
+    expect(oneRowPerCategory.errors.join(" ")).toContain(
+      "Public Presence /seller-agreement must resolve to the audited origin and canonical route before launch.",
+    );
+    expect(oneRowPerCategory.errors).toContain(
+      "Public Presence compliance article /help/selling/sales-tax did not resolve to its canonical route.",
+    );
+    // Diagnostics stay bounded: the off-origin location is never echoed.
+    expect(oneRowPerCategory.errors.join(" ")).not.toContain("synthetic.invalid");
+
+    const everyRowOffOrigin = await auditPublicPresenceCopy(
+      launchInput(),
+      launchDependencies({
+        fetch: fetchWithPages(launchPageBodies(launchCorpus), {
+          resolvedUrls: Object.fromEntries(
+            Object.keys(launchPageBodies(launchCorpus)).map((route) => [route, `https://synthetic.invalid${route}`]),
+          ),
+        }),
+      }),
+    );
+    expect(everyRowOffOrigin.pages).toHaveLength(17);
+    expect(everyRowOffOrigin.pages.every((row) => row.status === 200)).toBe(true);
+    expect(everyRowOffOrigin.dmcaRegistrationMarkerAbsent).toBe(false);
+    expect(everyRowOffOrigin.passesPublicPresenceCopyAudit).toBe(false);
+    expect(everyRowOffOrigin.errors.join(" ")).toContain(
+      "The live DMCA compliance page did not resolve to the audited origin and canonical route",
+    );
+  });
+
   it("attempts every planned path on a post-verification transport failure without leaking the exception", async () => {
     const audit = await auditPublicPresenceCopy(
       launchInput(),
@@ -815,6 +872,38 @@ describe("marketplace public presence copy audit: CLI and record contract", () =
     expect(prelaunchWithPacket.stdout).toBe("");
   });
 
+  it("refuses a malformed base URL at option validation with one diagnostic, no JSON, and no fetch", async () => {
+    let fetchCalls = 0;
+    const malformed = await runCli(["--base-url", "not-a-url", "--mode", "prelaunch", "--checked-at", CHECKED_AT], {
+      fetch: async () => {
+        fetchCalls += 1;
+        throw new Error("a malformed base URL must never reach a fetch");
+      },
+    });
+
+    expect(malformed.exitCode).toBe(2);
+    expect(malformed.stdout).toBe("");
+    expect(malformed.stderr).toEqual([
+      "PUBLIC_PRESENCE_COPY_AUDIT_BASE_URL or --base-url must be an absolute http(s) URL.",
+    ]);
+    expect(fetchCalls).toBe(0);
+
+    const unsupportedScheme = await runCli(["--base-url", "file:///etc/hosts", "--mode", "prelaunch"], {
+      fetch: async () => {
+        fetchCalls += 1;
+        throw new Error("an unsupported scheme must never reach a fetch");
+      },
+    });
+    expect(unsupportedScheme.exitCode).toBe(2);
+    expect(unsupportedScheme.stdout).toBe("");
+    expect(fetchCalls).toBe(0);
+
+    // The accepted absolute HTTP(S) forms are unchanged in both modes.
+    for (const baseUrl of ["https://chasesets.com", "https://chasesets.com/", "http://localhost:3000"]) {
+      expect(validatePublicPresenceCopyAuditOptions({ baseUrl, mode: "prelaunch" })).toEqual([]);
+    }
+  });
+
   it("parses operator arguments from flags and environment", () => {
     expect(
       parsePublicPresenceCopyAuditArgs(
@@ -886,5 +975,130 @@ describe("marketplace public presence copy audit: CLI and record contract", () =
     });
     expect(v1Record.ok).toBe(false);
     expect(v1Record.errors.join(" ")).toContain("schemaVersion must be marketplace-public-presence-copy-audit/v2");
+  });
+});
+
+describe("marketplace public presence copy audit: stored record relational authority", () => {
+  // Every case starts from ONE wholly synthetic record the producer actually
+  // emitted and mutates a single decisive fact, so a rejection can only come
+  // from the relational rule under test rather than from a shape error.
+  let valid;
+
+  beforeAll(async () => {
+    valid = await auditPublicPresenceCopy(launchInput(), launchDependencies());
+    expect(validatePublicPresenceCopyAuditRecord(valid)).toEqual({ ok: true, record: valid, errors: [] });
+  }, 120_000);
+
+  function reject(record) {
+    const validation = validatePublicPresenceCopyAuditRecord(record);
+    expect(validation.ok, JSON.stringify(validation.errors)).toBe(false);
+    return validation.errors.join(" ");
+  }
+
+  it("rejects 17 coherent-looking rows that are not the fetch plan its own membership implies", () => {
+    // Counts, membership pairs, digests, packet verification, and every
+    // success boolean are retained; only the row identities are replaced.
+    const crafted = {
+      ...valid,
+      pages: valid.pages.map((row, index) => ({
+        ...row,
+        name: `synthetic-${index}`,
+        path: `/synthetic-${index}`,
+        url: `https://chasesets.com/synthetic-${index}`,
+      })),
+    };
+    expect(crafted.pages).toHaveLength(17);
+    expect(crafted.uniqueFetchedPathCount).toBe(17);
+    expect(crafted.launchRequiredPolicyCount).toBe(6);
+    expect(crafted.complianceArticleCount).toBe(5);
+    expect(crafted.counselPacket.verified).toBe(true);
+    expect(crafted.passesPublicPresenceCopyAudit).toBe(true);
+    expect(crafted).not.toHaveProperty("errors");
+
+    expect(reject(crafted)).toContain("must open with the canonical required public pages in order");
+  });
+
+  it("rejects a reordered required block, a renamed compliance row, and a non-member policy route", () => {
+    const reorderedRequired = {
+      ...valid,
+      pages: [valid.pages[1], valid.pages[0], ...valid.pages.slice(2)],
+    };
+    expect(reject(reorderedRequired)).toContain("must open with the canonical required public pages in order");
+
+    const renamedCompliance = {
+      ...valid,
+      pages: valid.pages.map((row) =>
+        row.path === "/help/selling/sales-tax" ? { ...row, name: "synthetic-compliance-member" } : row,
+      ),
+    };
+    expect(reject(renamedCompliance)).toContain("one row per compliance article slug in manifest order");
+
+    const nonMemberPolicy = {
+      ...valid,
+      pages: valid.pages.map((row) =>
+        row.path === "/seller-agreement"
+          ? { ...row, name: "authenticity-service-terms", policyPublicationMetadata: null }
+          : row,
+      ),
+    };
+    expect(reject(nonMemberPolicy)).toContain("launch-required policy routes in registry order");
+  });
+
+  it("rejects success booleans that its own rows do not prove", () => {
+    const claimsUncertifiedAbsent = {
+      ...valid,
+      pages: valid.pages.map((row) =>
+        row.path === "/faq" ? { ...row, uncertifiedAgentCommerceClaimMatches: ["\\bAP2\\b"] } : row,
+      ),
+    };
+    expect(reject(claimsUncertifiedAbsent)).toContain("uncertifiedClaimsAbsent must agree with its own page rows");
+
+    const claimsPolicyPagesReviewed = {
+      ...valid,
+      pages: valid.pages.map((row) => (row.path === "/payments-terms" ? { ...row, status: 404 } : row)),
+    };
+    expect(reject(claimsPolicyPagesReviewed)).toContain("policyPagesReviewed=true requires every launch-required");
+
+    const claimsOffOriginSuccess = {
+      ...valid,
+      pages: valid.pages.map((row) =>
+        row.path === "/help/selling/sales-tax"
+          ? { ...row, url: "https://synthetic.invalid/help/selling/sales-tax" }
+          : row,
+      ),
+    };
+    expect(reject(claimsOffOriginSuccess)).toContain("complianceArticlesReviewed=true requires every compliance");
+
+    const passesWithDiagnostics = { ...valid, errors: ["synthetic retained diagnostic"] };
+    expect(reject(passesWithDiagnostics)).toContain("cannot report a pass while it carries diagnostics");
+
+    const passesWithoutPacketVerification = {
+      ...valid,
+      counselPacket: { ...valid.counselPacket, verified: false },
+    };
+    expect(reject(passesWithoutPacketVerification)).toContain("cannot report a pass without every mode predicate");
+  });
+
+  it("rejects a prelaunch record carrying launch-only rows and keeps both zero-fetch branches valid", async () => {
+    const prelaunchProjection = {
+      ...valid,
+      mode: "prelaunch",
+      legalCorpusDigest: null,
+      counselPacket: null,
+      policyPagesReviewed: null,
+      complianceArticlesReviewed: null,
+      dmcaRegistrationMarkerAbsent: null,
+    };
+    expect(reject(prelaunchProjection)).toContain("prelaunch pages must be exactly the eight required public pages");
+
+    const zeroFetch = await auditPublicPresenceCopy(launchInput(), {
+      fetch: async () => {
+        throw new Error("pre-verification failure must perform zero fetches");
+      },
+      membership: launchMembership,
+      corpus: { ok: false, errors: ["synthetic current-source failure"] },
+    });
+    expect(zeroFetch.pages).toEqual([]);
+    expect(validatePublicPresenceCopyAuditRecord(zeroFetch).ok).toBe(true);
   });
 });
