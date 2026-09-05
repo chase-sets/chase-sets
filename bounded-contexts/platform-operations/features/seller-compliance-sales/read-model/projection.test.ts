@@ -196,7 +196,11 @@ describe("seller compliance money admission", () => {
   });
 
   it("fails closed on every cross-source disagreement without inferring zero", () => {
-    const split = admitSaleMoney(validOrderMoney, validPayout("ord_synthetic_1", { sellerItemNetAmount: "80.00" }), "usd");
+    const split = admitSaleMoney(
+      validOrderMoney,
+      validPayout("ord_synthetic_1", { sellerItemNetAmount: "80.00" }),
+      "usd",
+    );
     expect(split.mismatches).toEqual(["item-gross-vs-payout-split"]);
     expect(split.money).toBeNull();
 
@@ -451,7 +455,12 @@ describe("seller compliance half-open time contract", () => {
     expect(isCursorAdvanced("seller-1", "seller-2")).toBe(true);
     expect(isCursorAdvanced("seller-1", null)).toBe(true);
     expect(isCursorAdvanced("seller-1", "seller-1")).toBe(false);
-    expect(isCursorAdvanced({ occurredAt: "a", paymentId: "b", orderId: "c" }, { occurredAt: "a", paymentId: "b", orderId: "c" })).toBe(false);
+    expect(
+      isCursorAdvanced(
+        { occurredAt: "a", paymentId: "b", orderId: "c" },
+        { occurredAt: "a", paymentId: "b", orderId: "c" },
+      ),
+    ).toBe(false);
     expect(MAX_PAGE_LIMIT).toBe(100);
   });
 });
@@ -464,7 +473,10 @@ describe("seller compliance production registration", () => {
     );
 
     expect(subscriptions).toHaveLength(2);
-    expect(subscriptions.map((subscription) => subscription.sourceContextName).sort()).toEqual(["ordering", "payments"]);
+    expect(subscriptions.map((subscription) => subscription.sourceContextName).sort()).toEqual([
+      "ordering",
+      "payments",
+    ]);
     expect(subscriptions.every((subscription) => subscription.handlerKind === "projection")).toBe(true);
 
     const handlerEventTypes = subscriptions.flatMap((subscription) => Object.keys(subscription.handlers));
@@ -509,10 +521,7 @@ describe("seller compliance production registration", () => {
     );
     expect(group).toMatchObject({
       sourceContextNames: ["ordering", "payments"],
-      ownedTables: [
-        "platform_operations_seller_compliance_order_facts",
-        "platform_operations_seller_compliance_sales",
-      ],
+      ownedTables: ["platform_operations_seller_compliance_order_facts", "platform_operations_seller_compliance_sales"],
       requiredDuringBootstrap: true,
       resetStrategy: "replay-only",
     });

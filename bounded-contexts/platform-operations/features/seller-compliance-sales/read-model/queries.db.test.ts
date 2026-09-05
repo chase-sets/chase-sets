@@ -416,7 +416,12 @@ describeDb("platform-operations seller compliance sale facts", () => {
     ] as const) {
       await resetMultiContextTestSchemas(pools);
       await pool.query(platformOperationsModule.schemaSql);
-      await deliver(orderCreated(ORDER_ONE, 1), orderCreated(ORDER_TWO, 1), twoOrderCapture, paymentRefunded(2, overrides));
+      await deliver(
+        orderCreated(ORDER_ONE, 1),
+        orderCreated(ORDER_TWO, 1),
+        twoOrderCapture,
+        paymentRefunded(2, overrides),
+      );
       const [row] = await readSales();
       expect(row!.refunded_order_total_cents, label).toBeNull();
       expect(row!.order_refund_cap_cents, label).toBeNull();
@@ -771,7 +776,9 @@ describeDb("platform-operations seller compliance sale facts", () => {
          )
        ORDER BY table_name, column_name`,
     );
-    expect(migratedColumns.rows).toEqual(columns.rows.map(({ table_name, column_name }) => ({ table_name, column_name })));
+    expect(migratedColumns.rows).toEqual(
+      columns.rows.map(({ table_name, column_name }) => ({ table_name, column_name })),
+    );
   });
 
   it("uses one half-open millisecond boundary for reads and expiry handoff", async () => {
@@ -821,7 +828,10 @@ describeDb("platform-operations seller compliance sale facts", () => {
   });
 
   it("enumerates a fixed seller snapshot in terminating keyset pages", async () => {
-    const sellers = Array.from({ length: 250 }, (_unused, index) => `acct_synthetic_seller_${String(index).padStart(4, "0")}`);
+    const sellers = Array.from(
+      { length: 250 },
+      (_unused, index) => `acct_synthetic_seller_${String(index).padStart(4, "0")}`,
+    );
     await seedCompletedSales(
       pool,
       sellers.map((sellerAccountId, index) => ({
@@ -1003,9 +1013,9 @@ describeDb("platform-operations seller compliance sale facts", () => {
     expect(snapshotTokensMatch(openingToken, closingToken)).toBe(false);
     expect(closingToken.rowCount).toBe(openingToken.rowCount);
 
-    await expect(
-      listSellerCompletedSalesPage(pool, { ...window, sellerAccountId: SELLER, limit: 0 }),
-    ).rejects.toThrow(/between 1 and 100/);
+    await expect(listSellerCompletedSalesPage(pool, { ...window, sellerAccountId: SELLER, limit: 0 })).rejects.toThrow(
+      /between 1 and 100/,
+    );
     await expect(
       listSellerCompletedSalesPage(pool, { ...window, sellerAccountId: SELLER, limit: 101 }),
     ).rejects.toThrow(/between 1 and 100/);

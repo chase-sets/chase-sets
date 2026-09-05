@@ -61,7 +61,9 @@ export function isLookbackAnchorEligible(anchorAt: string, lookbackMonths: numbe
 
 function assertPageLimit(limit: number): number {
   if (!Number.isInteger(limit) || limit < MIN_PAGE_LIMIT || limit > MAX_PAGE_LIMIT) {
-    throw new Error(`Seller compliance sale page limit must be an integer between ${MIN_PAGE_LIMIT} and ${MAX_PAGE_LIMIT}.`);
+    throw new Error(
+      `Seller compliance sale page limit must be an integer between ${MIN_PAGE_LIMIT} and ${MAX_PAGE_LIMIT}.`,
+    );
   }
   return limit;
 }
@@ -77,7 +79,9 @@ export function isCursorAdvanced(previous: unknown, next: unknown): boolean {
 
 function assertCursorAdvanced(previous: unknown, next: unknown): void {
   if (!isCursorAdvanced(previous, next)) {
-    throw new Error("Seller compliance sale page returned a non-advancing cursor; the enumeration would not terminate.");
+    throw new Error(
+      "Seller compliance sale page returned a non-advancing cursor; the enumeration would not terminate.",
+    );
   }
 }
 
