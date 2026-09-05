@@ -33,6 +33,24 @@ export class ApiError extends Error {
   }
 }
 
+export type CatalogItemPublicationApiErrorCode =
+  | "display-identity-degraded"
+  | "display-identity-unavailable"
+  | "display-identity-outdated";
+
+export class CatalogItemPublicationApiError extends ApiError {
+  public constructor(
+    status: number,
+    body: unknown,
+    public readonly code: CatalogItemPublicationApiErrorCode,
+    public readonly readiness: "degraded" | "unavailable" | "outdated",
+    public readonly missingTokens: readonly string[],
+  ) {
+    super(status, body);
+    this.name = "CatalogItemPublicationApiError";
+  }
+}
+
 export interface CatalogApiClientOptions {
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
@@ -145,10 +163,38 @@ function queryFromString(query: string) {
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
+    const publicationError = catalogItemPublicationApiError(response.status, errorBody);
+    if (publicationError) {
+      throw publicationError;
+    }
     throw new ApiError(response.status, errorBody);
   }
 
   return attachResponseMetadata(await response.json(), response) as T;
+}
+
+function catalogItemPublicationApiError(status: number, body: unknown): CatalogItemPublicationApiError | null {
+  if (!body || typeof body !== "object" || !("error" in body)) {
+    return null;
+  }
+  const error = (body as Record<string, unknown>).error;
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+  const record = error as Record<string, unknown>;
+  const code = record.code;
+  const readiness = record.readiness;
+  if (
+    (code !== "display-identity-degraded" &&
+      code !== "display-identity-unavailable" &&
+      code !== "display-identity-outdated") ||
+    (readiness !== "degraded" && readiness !== "unavailable" && readiness !== "outdated") ||
+    !Array.isArray(record.missingTokens) ||
+    record.missingTokens.some((token) => typeof token !== "string")
+  ) {
+    return null;
+  }
+  return new CatalogItemPublicationApiError(status, body, code, readiness, record.missingTokens);
 }
 
 function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {

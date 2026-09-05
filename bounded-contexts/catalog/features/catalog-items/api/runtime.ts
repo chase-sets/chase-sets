@@ -1,12 +1,18 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
+import type { AggregateRepository } from "@chase-sets/event-core/aggregate-repository";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
-import { CatalogDomainError } from "../../../support/runtime-support/common";
+import {
+  CatalogDomainError,
+  normalizeLocaleCode,
+  normalizeLocalizedTextMap,
+  resolveLocalizedTextMap,
+} from "../../../support/runtime-support/common";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
-import type { BlueprintId, CatalogItemId, CategoryId, FieldId } from "../../../ids";
+import type { BlueprintId, CategoryId, FieldId } from "../../../ids";
 import {
   createBulkLifecycleOperations,
   type BulkLifecycleOperations,
@@ -23,6 +29,8 @@ import {
   type CatalogItemState,
   type CatalogItemCommand,
   type CatalogItemEvent,
+  type CatalogItemPublicationDisplayIdentityEvidence,
+  type CatalogItemPublicationReadiness,
   initialCatalogItemState,
   decideCatalogItem,
   evolveCatalogItem,
@@ -30,6 +38,7 @@ import {
 import {
   getCatalogItemByGtin,
   getCatalogItemDetail,
+  loadCatalogItemPublicationIdentityRows,
   listCatalogItemsForBulkEdit,
   listCatalogItemBulkRows,
   listCatalogItemIds,
@@ -40,6 +49,8 @@ import {
   type CatalogItemListParams,
   type BulkEditCatalogItemRow,
   type BulkPublishCatalogItemRow,
+  type CatalogItemDetailRow,
+  type CatalogItemPublicationIdentityRow,
 } from "../read-model/queries";
 import {
   buildCatalogAdminCatalogItemProjectionHandlers,
@@ -54,6 +65,11 @@ import {
   type DisplayIdentityRecomputeHealth,
   type DisplayIdentityRecomputeRetentionOptions,
 } from "../read-model/display-identity-recompute";
+import {
+  resolveAndPersistCatalogItemDisplayIdentity,
+  resolveCatalogItemDisplayIdentities,
+  type ResolvedDisplayIdentity,
+} from "../read-model/display-identity";
 
 export type BulkPublishSelection =
   | Readonly<{ mode: "ids"; ids: readonly string[] }>
@@ -71,8 +87,51 @@ export type BulkPublishCandidate = Readonly<{
   source_providers: readonly string[];
   outcome: BulkPublishCandidateStatus;
   reason: string | null;
+  reason_code: CatalogItemPublicationReasonCode | null;
+  retryable: boolean;
+  display_identity_readiness: CatalogItemPublicationReadiness;
+  missing_tokens: readonly string[];
   required_field_ids: readonly string[];
 }>;
+
+export type CatalogItemPublicationReasonCode =
+  | "display-identity-degraded"
+  | "display-identity-unavailable"
+  | "display-identity-outdated"
+  | "publication-precondition";
+
+export type CatalogItemPublicationReadinessDto = Readonly<{
+  status: CatalogItemPublicationReadiness;
+  reason_code: Exclude<CatalogItemPublicationReasonCode, "publication-precondition"> | null;
+  missing_tokens: readonly string[];
+  retryable: boolean;
+}>;
+
+export type CatalogItemDetailWithPublicationReadiness = CatalogItemDetailRow &
+  Readonly<{ display_identity_publication: CatalogItemPublicationReadinessDto }>;
+
+export class CatalogItemPublicationError extends CatalogDomainError {
+  public readonly code: Exclude<CatalogItemPublicationReasonCode, "publication-precondition">;
+  public readonly readiness: Exclude<CatalogItemPublicationReadiness, "current-resolved">;
+  public readonly missingTokens: readonly string[];
+
+  public constructor(
+    readiness: Exclude<CatalogItemPublicationReadiness, "current-resolved">,
+    missingTokens: readonly string[] = [],
+  ) {
+    const code =
+      readiness === "degraded"
+        ? "display-identity-degraded"
+        : readiness === "outdated"
+          ? "display-identity-outdated"
+          : "display-identity-unavailable";
+    super(publicationReadinessMessage(readiness, missingTokens));
+    this.name = "CatalogItemPublicationError";
+    this.code = code;
+    this.readiness = readiness;
+    this.missingTokens = missingTokens;
+  }
+}
 
 export type BulkPublishPreview = Readonly<{
   mode: BulkPublishSelection["mode"];
@@ -144,7 +203,7 @@ export type BulkEditCatalogItemResult = Readonly<{
 export type CatalogItemServices = Readonly<{
   commandHandler: CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent>;
   listCatalogItems: (params?: Parameters<typeof listCatalogItems>[1]) => ReturnType<typeof listCatalogItems>;
-  getCatalogItemDetail: (itemId: string) => ReturnType<typeof getCatalogItemDetail>;
+  getCatalogItemDetail: (itemId: string) => Promise<CatalogItemDetailWithPublicationReadiness | null>;
   getCatalogItemByGtin: (gtin: string) => Promise<CatalogItemGtinLookupRow | null>;
   previewBulkPublish: (selection: BulkPublishSelection) => Promise<BulkPublishPreview>;
   publishBulk: (
@@ -173,13 +232,18 @@ export type CatalogItemServices = Readonly<{
 }>;
 
 export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const aggregateRuntime = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<CatalogItemEvent>(),
     initialState: () => initialCatalogItemState,
     evolve: evolveCatalogItem,
     decide: decideCatalogItem,
   });
+  const commandHandler = createCatalogItemCommandHandler(
+    deps,
+    aggregateRuntime.repository,
+    aggregateRuntime.commandHandler,
+  );
 
   const projectors = [
     createProjectionHandlerSet({
@@ -218,7 +282,7 @@ export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemS
   return {
     commandHandler,
     listCatalogItems: (params) => listCatalogItems(deps.db, params),
-    getCatalogItemDetail: (itemId) => getCatalogItemDetail(deps.db, itemId),
+    getCatalogItemDetail: (itemId) => getCatalogItemDetailWithReadiness(deps, itemId),
     getCatalogItemByGtin: (gtin) => getCatalogItemByGtin(deps.db, gtin),
     previewBulkPublish: async (selection) => previewBulkPublish(deps, selection),
     publishBulk: async (itemIds, context, options) => publishBulk(deps, commandHandler, itemIds, context, options),
@@ -235,6 +299,265 @@ export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemS
       purgeCompletedCatalogItemDisplayIdentityRecomputeWork(deps.db, options),
     bulkLifecycle,
     projectors,
+  };
+}
+
+function createCatalogItemCommandHandler(
+  deps: CatalogRuntimeDeps,
+  repository: AggregateRepository<CatalogItemState, CatalogItemEvent>,
+  aggregateCommandHandler: CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent>,
+): CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent> {
+  return async (input) => {
+    if (input.command.type !== "PublishCatalogItem") {
+      return aggregateCommandHandler(input);
+    }
+
+    const loaded = await repository.load(input.streamId);
+    if (loaded.state.status !== "draft") {
+      return aggregateCommandHandler(input);
+    }
+
+    const itemId = loaded.state.id;
+    if (!itemId) {
+      return aggregateCommandHandler(input);
+    }
+
+    const firstRows = await loadCatalogItemPublicationIdentityRows(deps.db, [itemId]).catch(() => new Map());
+    const first = firstRows.get(itemId);
+    if (!first) {
+      throw new CatalogItemPublicationError("unavailable");
+    }
+    if (!publicationRowMatchesAggregate(first, loaded.state)) {
+      throw new CatalogItemPublicationError("outdated");
+    }
+    let currentFact = first.fact;
+
+    let readiness = await publicationReadinessForRows(deps, firstRows).then((result) => result.get(itemId));
+    if (!readiness) {
+      throw new CatalogItemPublicationError("unavailable");
+    }
+
+    if (readiness.status === "outdated") {
+      if (!first.fact) {
+        throw new CatalogItemPublicationError("unavailable");
+      }
+      let refreshed: Awaited<ReturnType<typeof resolveAndPersistCatalogItemDisplayIdentity>>;
+      try {
+        refreshed = await resolveAndPersistCatalogItemDisplayIdentity(deps.db, first.item, new Date().toISOString(), {
+          guardedBy: { item: first.item, fact: first.fact },
+        });
+      } catch {
+        throw new CatalogItemPublicationError("unavailable");
+      }
+      if (!refreshed.persisted) {
+        throw new CatalogItemPublicationError("outdated");
+      }
+
+      const finalRows = await loadCatalogItemPublicationIdentityRows(deps.db, [itemId]).catch(() => new Map());
+      const finalRow = finalRows.get(itemId);
+      if (!finalRow || !publicationRowMatchesAggregate(finalRow, loaded.state)) {
+        throw new CatalogItemPublicationError(finalRow ? "outdated" : "unavailable");
+      }
+      currentFact = finalRow.fact;
+      readiness = await publicationReadinessForRows(deps, finalRows).then((result) => result.get(itemId));
+    }
+
+    if (!readiness || readiness.status !== "current-resolved" || !readiness.identity || !currentFact) {
+      const rejectedStatus = !readiness || readiness.status === "current-resolved" ? "unavailable" : readiness.status;
+      throw new CatalogItemPublicationError(rejectedStatus, readiness?.missingTokens);
+    }
+
+    const displayIdentity: CatalogItemPublicationDisplayIdentityEvidence = {
+      readiness: "current-resolved",
+      catalogItemId: itemId,
+      languageCode: loaded.state.languageCode,
+      title: loaded.state.title!,
+      subtitle: loaded.state.subtitle,
+      blueprintId: loaded.state.blueprintId!,
+      fieldValues: loaded.state.fieldValues,
+      categoryIds: loaded.state.categoryIds,
+      resolvedTitle: currentFact.title,
+      resolvedSubtitle: currentFact.subtitle,
+      displayTemplateKey: currentFact.display_template_key,
+      displayTemplateTargetKind: currentFact.display_template_target_kind,
+      displayTemplateTargetId: currentFact.display_template_target_id,
+      displayIdentityHash: readiness.identity.hash,
+      resolvedAt: currentFact.resolved_at,
+      resolverVersion: 3,
+      resolutionStatus: "resolved",
+      missingTokens: [],
+    };
+
+    return aggregateCommandHandler({
+      ...input,
+      command: { ...input.command, displayIdentity },
+      expectedVersion:
+        input.expectedVersion === undefined || input.expectedVersion === "any" ? loaded.version : input.expectedVersion,
+    });
+  };
+}
+
+type EvaluatedPublicationReadiness = CatalogItemPublicationReadinessDto &
+  Readonly<{ identity: ResolvedDisplayIdentity | null }>;
+
+async function getCatalogItemDetailWithReadiness(
+  deps: CatalogRuntimeDeps,
+  itemId: string,
+): Promise<CatalogItemDetailWithPublicationReadiness | null> {
+  const detail = await getCatalogItemDetail(deps.db, itemId);
+  if (!detail) {
+    return null;
+  }
+
+  const rows = await loadCatalogItemPublicationIdentityRows(deps.db, [itemId]).catch(() => new Map());
+  const readiness = await publicationReadinessForRows(deps, rows)
+    .then((result) => result.get(itemId))
+    .catch(() => undefined);
+
+  return {
+    ...detail,
+    display_identity_publication: readinessDto(readiness ?? unavailableReadiness()),
+  };
+}
+
+async function publicationReadinessForRows(
+  deps: CatalogRuntimeDeps,
+  rows: ReadonlyMap<string, CatalogItemPublicationIdentityRow>,
+): Promise<Map<string, EvaluatedPublicationReadiness>> {
+  const validRows = [...rows.values()].filter((row) => factIsWellFormed(row));
+  let identities = new Map<string, ResolvedDisplayIdentity>();
+  try {
+    identities = await resolveCatalogItemDisplayIdentities(
+      deps.db,
+      validRows.map((row) => row.item),
+    );
+  } catch {
+    return new Map([...rows.keys()].map((itemId) => [itemId, unavailableReadiness()]));
+  }
+
+  return new Map(
+    [...rows.entries()].map(([itemId, row]) => {
+      if (!factIsWellFormed(row)) {
+        return [itemId, unavailableReadiness()] as const;
+      }
+      const identity = identities.get(itemId);
+      if (!identity || !displayIdentityFactMatches(row.fact, identity)) {
+        return [itemId, outdatedReadiness(identity)] as const;
+      }
+      if (identity.resolutionStatus === "degraded") {
+        return [itemId, degradedReadiness(identity)] as const;
+      }
+      return [itemId, currentReadiness(identity)] as const;
+    }),
+  );
+}
+
+function publicationRowMatchesAggregate(row: CatalogItemPublicationIdentityRow, state: CatalogItemState): boolean {
+  if (!state.id || !state.title || !state.blueprintId) {
+    return false;
+  }
+  const item = row.item;
+  return (
+    item.catalog_item_id === state.id &&
+    sameLocale(item.language_code, state.languageCode) &&
+    item.title === resolveLocalizedTextMap(state.title) &&
+    item.projected_title === item.title &&
+    item.subtitle === (state.subtitle ? resolveLocalizedTextMap(state.subtitle) : null) &&
+    item.projected_subtitle === item.subtitle &&
+    sameJson(item.title_i18n, normalizeLocalizedTextMap(state.title, { requiredEnglish: true })) &&
+    sameJson(item.subtitle_i18n, state.subtitle ? normalizeLocalizedTextMap(state.subtitle) : null) &&
+    item.blueprint_id === state.blueprintId &&
+    Array.isArray(item.field_values) &&
+    sameFieldValues(item.field_values, state.fieldValues) &&
+    Array.isArray(item.category_ids) &&
+    sameStrings(item.category_ids, state.categoryIds)
+  );
+}
+
+function factIsWellFormed(
+  row: CatalogItemPublicationIdentityRow,
+): row is CatalogItemPublicationIdentityRow & { fact: NonNullable<CatalogItemPublicationIdentityRow["fact"]> } {
+  const fact = row.fact;
+  return Boolean(
+    fact &&
+    fact.catalog_item_id === row.item.catalog_item_id &&
+    sameLocale(fact.language_code, row.item.language_code) &&
+    fact.resolver_version === 3 &&
+    (fact.resolution_status === "resolved" || fact.resolution_status === "degraded") &&
+    normalizedMissingTokens(fact.missing_tokens) !== null,
+  );
+}
+
+function displayIdentityFactMatches(
+  fact: NonNullable<CatalogItemPublicationIdentityRow["fact"]>,
+  identity: ResolvedDisplayIdentity,
+): boolean {
+  const missingTokens = normalizedMissingTokens(fact.missing_tokens);
+  return (
+    missingTokens !== null &&
+    fact.catalog_item_id === identity.catalogItemId &&
+    sameLocale(fact.language_code, identity.languageCode) &&
+    fact.title === identity.title &&
+    fact.subtitle === identity.subtitle &&
+    fact.display_template_key === identity.templateKey &&
+    fact.display_template_target_kind === identity.templateTargetKind &&
+    fact.display_template_target_id === identity.templateTargetId &&
+    fact.display_identity_hash === identity.hash &&
+    fact.resolver_version === identity.resolverVersion &&
+    fact.resolution_status === identity.resolutionStatus &&
+    sameStrings(missingTokens, identity.missingTokens)
+  );
+}
+
+function normalizedMissingTokens(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.some((token) => typeof token !== "string" || !token.trim())) {
+    return null;
+  }
+  const tokens = value.map((token) => token.trim());
+  const normalized = [...new Set(tokens)].sort((left, right) => left.localeCompare(right));
+  return arraysEqual(tokens, normalized) ? normalized : null;
+}
+
+function currentReadiness(identity: ResolvedDisplayIdentity): EvaluatedPublicationReadiness {
+  return { status: "current-resolved", reason_code: null, missing_tokens: [], retryable: false, identity };
+}
+
+function degradedReadiness(identity: ResolvedDisplayIdentity): EvaluatedPublicationReadiness {
+  return {
+    status: "degraded",
+    reason_code: "display-identity-degraded",
+    missing_tokens: identity.missingTokens,
+    retryable: true,
+    identity,
+  };
+}
+
+function unavailableReadiness(): EvaluatedPublicationReadiness {
+  return {
+    status: "unavailable",
+    reason_code: "display-identity-unavailable",
+    missing_tokens: [],
+    retryable: true,
+    identity: null,
+  };
+}
+
+function outdatedReadiness(identity: ResolvedDisplayIdentity | null = null): EvaluatedPublicationReadiness {
+  return {
+    status: "outdated",
+    reason_code: "display-identity-outdated",
+    missing_tokens: [],
+    retryable: true,
+    identity,
+  };
+}
+
+function readinessDto(readiness: EvaluatedPublicationReadiness): CatalogItemPublicationReadinessDto {
+  return {
+    status: readiness.status,
+    reason_code: readiness.reason_code,
+    missing_tokens: readiness.missing_tokens,
+    retryable: readiness.retryable,
   };
 }
 
@@ -270,7 +593,7 @@ async function publishBulk(
 
   for (const candidate of preview) {
     options.throwIfCancelled?.();
-    if (candidate.outcome !== "ready") {
+    if (candidate.outcome !== "ready" && candidate.reason_code === "publication-precondition") {
       results.push({ ...candidate, outcome: "skipped" });
       completed += 1;
       await options.onProgress?.({
@@ -298,6 +621,10 @@ async function publishBulk(
         status: result.state.status,
         outcome: "published",
         reason: null,
+        reason_code: null,
+        retryable: false,
+        display_identity_readiness: "current-resolved",
+        missing_tokens: [],
       });
       completed += 1;
       await options.onProgress?.({
@@ -307,10 +634,17 @@ async function publishBulk(
         status: "succeeded",
       });
     } catch (error) {
+      const publicationError = error instanceof CatalogItemPublicationError ? error : null;
       results.push({
         ...candidate,
         outcome: "failed",
-        reason: error instanceof Error ? error.message : String(error),
+        reason:
+          publicationError?.message ??
+          (error instanceof CatalogDomainError ? error.message : "Catalog Item publication failed."),
+        reason_code: publicationError?.code ?? candidate.reason_code,
+        retryable: publicationError ? true : candidate.retryable,
+        display_identity_readiness: publicationError?.readiness ?? candidate.display_identity_readiness,
+        missing_tokens: publicationError?.missingTokens ?? candidate.missing_tokens,
       });
       completed += 1;
       await options.onProgress?.({
@@ -355,6 +689,8 @@ async function classifyBulkPublishCandidates(
   itemIds: readonly string[],
 ): Promise<BulkPublishCandidate[]> {
   const rows = await listCatalogItemsForBulkPublish(deps.db, itemIds);
+  const publicationRows = await loadCatalogItemPublicationIdentityRows(deps.db, itemIds).catch(() => new Map());
+  const readinessById = await publicationReadinessForRows(deps, publicationRows);
   const byId = new Map(rows.map((row) => [row.catalog_item_id, row]));
 
   return itemIds.map((itemId) => {
@@ -371,15 +707,22 @@ async function classifyBulkPublishCandidates(
         source_providers: [],
         outcome: "blocked",
         reason: "Catalog Item was not found.",
+        reason_code: "publication-precondition",
+        retryable: false,
+        display_identity_readiness: "unavailable",
+        missing_tokens: [],
         required_field_ids: [],
       };
     }
 
-    return classifyBulkPublishCandidate(row);
+    return classifyBulkPublishCandidate(row, readinessById.get(itemId) ?? unavailableReadiness());
   });
 }
 
-function classifyBulkPublishCandidate(row: BulkPublishCatalogItemRow): BulkPublishCandidate {
+function classifyBulkPublishCandidate(
+  row: BulkPublishCatalogItemRow,
+  readiness: EvaluatedPublicationReadiness,
+): BulkPublishCandidate {
   const requiredFieldIds = requiredFieldIdsFromBlueprint(row.blueprint_field_rules);
   const populatedFieldIds = new Set(
     asArray<FieldValue>(row.field_values)
@@ -388,15 +731,23 @@ function classifyBulkPublishCandidate(row: BulkPublishCatalogItemRow): BulkPubli
   );
   const missingRequiredFieldIds = requiredFieldIds.filter((fieldId) => !populatedFieldIds.has(fieldId));
   let reason: string | null = null;
+  let reasonCode: CatalogItemPublicationReasonCode | null = null;
 
   if (row.status !== "draft") {
     reason = "Only draft Catalog Items can be bulk published.";
+    reasonCode = "publication-precondition";
   } else if (!row.blueprint_id) {
     reason = "Catalog Item requires a blueprint before publish.";
+    reasonCode = "publication-precondition";
   } else if (row.blueprint_status !== "active") {
     reason = "Catalog Item blueprint must be active before publish.";
+    reasonCode = "publication-precondition";
   } else if (missingRequiredFieldIds.length > 0) {
     reason = `Missing required field values: ${missingRequiredFieldIds.join(", ")}.`;
+    reasonCode = "publication-precondition";
+  } else if (readiness.status !== "current-resolved") {
+    reason = publicationReadinessMessage(readiness.status, readiness.missing_tokens);
+    reasonCode = readiness.reason_code;
   }
 
   return {
@@ -409,6 +760,10 @@ function classifyBulkPublishCandidate(row: BulkPublishCatalogItemRow): BulkPubli
     source_providers: asStringArray(row.source_providers),
     outcome: reason ? "blocked" : "ready",
     reason,
+    reason_code: reasonCode,
+    retryable: Boolean(reason && row.status === "draft"),
+    display_identity_readiness: readiness.status,
+    missing_tokens: readiness.missing_tokens,
     required_field_ids: requiredFieldIds,
   };
 }
@@ -711,4 +1066,66 @@ function normalizeRequestedBulkEditItemIds(itemIds: readonly string[]): string[]
 
 function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((entry, index) => entry === right[index]);
+}
+
+function publicationReadinessMessage(
+  readiness: Exclude<CatalogItemPublicationReadiness, "current-resolved">,
+  missingTokens: readonly string[] = [],
+): string {
+  if (readiness === "degraded") {
+    return missingTokens.length > 0
+      ? `Display identity is degraded. Missing: ${missingTokens.join(", ")}.`
+      : "Display identity is degraded.";
+  }
+  if (readiness === "outdated") {
+    return "Display identity is outdated. Recheck and retry publication.";
+  }
+  return "Display identity is unavailable. Retry after Catalog projections recover.";
+}
+
+function sameStrings(left: readonly unknown[], right: readonly unknown[]): boolean {
+  const leftStrings = left.filter((value): value is string => typeof value === "string");
+  const rightStrings = right.filter((value): value is string => typeof value === "string");
+  if (leftStrings.length !== left.length || rightStrings.length !== right.length) {
+    return false;
+  }
+  const normalizedLeft = [...leftStrings].sort((a, b) => a.localeCompare(b));
+  const normalizedRight = [...rightStrings].sort((a, b) => a.localeCompare(b));
+  return arraysEqual(normalizedLeft, normalizedRight);
+}
+
+function sameFieldValues(left: readonly unknown[], right: CatalogItemState["fieldValues"]): boolean {
+  const normalize = (values: readonly unknown[]) =>
+    values
+      .filter((value): value is FieldValue => Boolean(value && typeof value === "object" && "fieldId" in value))
+      .map((value) => ({ fieldId: value.fieldId, value: value.value }))
+      .sort((a, b) => a.fieldId.localeCompare(b.fieldId));
+  const normalizedLeft = normalize(left);
+  return normalizedLeft.length === left.length && sameJson(normalizedLeft, normalize(right));
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+}
+
+function sameLocale(left: string, right: string): boolean {
+  try {
+    return normalizeLocaleCode(left) === normalizeLocaleCode(right);
+  } catch {
+    return false;
+  }
+}
+
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalJson);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalJson(entry)]),
+    );
+  }
+  return value;
 }
