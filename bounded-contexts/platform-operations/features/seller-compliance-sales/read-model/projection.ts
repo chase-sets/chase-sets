@@ -295,7 +295,8 @@ export function selectAffectedRefundFact(
   if (capEntries.length > 1) anomalies.add("duplicate-refund-cap-entry");
   if (capEntries.length === 0) anomalies.add("missing-refund-cap-entry");
 
-  const amountCents = amountEntries.length === 1 ? canonicalCents((amountEntries[0] as CapturePayoutFact).amount) : null;
+  const amountCents =
+    amountEntries.length === 1 ? canonicalCents((amountEntries[0] as CapturePayoutFact).amount) : null;
   const capCents = capEntries.length === 1 ? canonicalCents((capEntries[0] as CapturePayoutFact).amount) : null;
   if (amountEntries.length === 1 && amountCents === null) anomalies.add("canonical-money-invalid");
   if (capEntries.length === 1 && capCents === null) anomalies.add("canonical-money-invalid");
@@ -1163,7 +1164,8 @@ export function buildOrderingSellerComplianceSalesProjectionHandlers(db: PgQuery
           lifecycleState:
             existing !== null && existing.cancelled_at !== null ? "cancelled-awaiting-capture" : "awaiting-capture",
           orderCreatedSourceVersion: event.streamVersion,
-          orderCancelledSourceVersion: existing === null ? null : toNumberOrNull(existing.order_cancelled_source_version),
+          orderCancelledSourceVersion:
+            existing === null ? null : toNumberOrNull(existing.order_cancelled_source_version),
         },
         event.timing.recordedAt,
       );
