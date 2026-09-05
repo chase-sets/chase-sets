@@ -34,8 +34,12 @@ function buildApp(
 function createServices(): CheckoutCartServices {
   return {
     commandHandler: vi.fn() as never,
-    addLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 1 })),
-    addLines: vi.fn(async () => ({
+    addLine: vi.fn<CheckoutCartServices["addLine"]>(async () => ({
+      lineId: "cli_1" as never,
+      version: 1,
+      status: "added",
+    })),
+    addLines: vi.fn<CheckoutCartServices["addLines"]>(async () => ({
       requestedLineCount: 2,
       addedLineCount: 1,
       mergedLineCount: 1,
@@ -52,8 +56,8 @@ function createServices(): CheckoutCartServices {
     claimCart: vi.fn(async () => ({ version: 1 })),
     listCartLines: vi.fn(async () => []),
     listClaimedOwnerKeys: vi.fn(async () => []),
-    mergeCartIntoAccount: vi.fn(async () => ({ movedLineCount: 0 })),
-    createReadinessSnapshot: vi.fn(async () => ({
+    mergeCartIntoAccount: vi.fn<CheckoutCartServices["mergeCartIntoAccount"]>(async () => ({ mergedLineCount: 0 })),
+    createReadinessSnapshot: vi.fn<CheckoutCartServices["createReadinessSnapshot"]>(async () => ({
       schemaVersion: "checkout.cart-readiness.v1",
       source: "cart",
       sourceRevision: "cr_source",
@@ -72,6 +76,7 @@ function createServices(): CheckoutCartServices {
         savingsAmount: null,
         currency: "USD",
       },
+      fulfillmentGroups: [],
       customerSafeFacts: ["Ready for checkout."],
     })),
     projectors: [],
@@ -1032,22 +1037,27 @@ describe("guest cart routes on a claimed anonymous key", () => {
     } as never;
     const streamId = `checkout.cart-${source}`;
 
+    const seedCommand: Extract<
+      Parameters<CheckoutCartServices["commandHandler"]>[0]["command"],
+      { type: "AddCartLine" }
+    > = {
+      type: "AddCartLine",
+      buyerAccountId: source,
+      lineId: "cli_existing",
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      itemTitle: "Existing",
+      itemSubtitle: null,
+      itemImageUrl: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+    };
+
     await runtime.commandHandler({
       streamId,
       context,
-      command: {
-        type: "AddCartLine",
-        buyerAccountId: source,
-        lineId: "cli_existing",
-        catalogItemId: "cat_1",
-        productId: "cat_1::",
-        itemTitle: "Existing",
-        itemSubtitle: null,
-        itemImageUrl: null,
-        selectedOptions: [],
-        productSummary: null,
-        quantity: 1,
-      },
+      command: seedCommand,
     });
     await runtime.commandHandler({
       streamId,
