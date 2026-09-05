@@ -180,4 +180,15 @@ describe("identity role permissions", () => {
     expect(ROLE_PERMISSIONS.viewer).not.toContain("payouts.request");
     expect(ROLE_PERMISSIONS.viewer).not.toContain("payouts.setup");
   });
+
+  it("grants account-scoped Channel Connection authority without granting platform-admin", () => {
+    expect(ROLE_PERMISSIONS.owner).toEqual(expect.arrayContaining(["channels.view", "channels.manage"]));
+    expect(ROLE_PERMISSIONS.manager).toEqual(expect.arrayContaining(["channels.view", "channels.manage"]));
+    expect(ROLE_PERMISSIONS.fulfillment).toContain("channels.view");
+    expect(ROLE_PERMISSIONS.viewer).toContain("channels.view");
+    expect(ROLE_PERMISSIONS.fulfillment).not.toContain("channels.manage");
+    expect(ROLE_PERMISSIONS.viewer).not.toContain("channels.manage");
+    expect(ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.view");
+    expect(ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.manage");
+  });
 });

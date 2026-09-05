@@ -3,6 +3,7 @@
 import { contextManifest as authManifest, module as authModule } from "@chase-sets/auth";
 import { contextManifest as authenticityManifest, module as authenticityModule } from "@chase-sets/authenticity";
 import { contextManifest as catalogManifest, module as catalogModule } from "@chase-sets/catalog";
+import { contextManifest as channelsManifest, module as channelsModule } from "@chase-sets/channels";
 import { contextManifest as checkoutManifest, module as checkoutModule } from "@chase-sets/checkout";
 import { contextManifest as collectionsManifest, module as collectionsModule } from "@chase-sets/collections";
 import { contextManifest as commercialTermsManifest, module as commercialTermsModule } from "@chase-sets/commercial-terms";
@@ -38,6 +39,12 @@ export const workerContextRegistry = [
     packageName: "@chase-sets/catalog",
     manifest: catalogManifest,
     module: catalogModule,
+  },
+  {
+    contextName: "channels",
+    packageName: "@chase-sets/channels",
+    manifest: channelsManifest,
+    module: channelsModule,
   },
   {
     contextName: "checkout",

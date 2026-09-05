@@ -2,9 +2,8 @@
 
 ## Purpose
 
-Channels owns the marketplace language for connecting an Account to native or
-external Sales Channels and reconciling channel-facing state. This foundation
-establishes that ownership without implementing connection behavior.
+Channels owns the seller-facing lifecycle for connecting an Account to a Sales
+Channel. The connection slice keeps setup authority injected and provider-free.
 
 ## Owns
 
@@ -13,7 +12,9 @@ establishes that ownership without implementing connection behavior.
   and mapping vocabulary
 - Channel Listing Link, Channel Sync, Channel Sync Run, Channel Sync Error,
   and Channel Inventory Snapshot vocabulary
-- The `channels.` stream namespace and `/api/channels` path reservation
+- The `channels.` stream namespace and authenticated `/api/channels/connections`
+  API
+- Channel Connection setup, lifecycle, projection, and account-scoped history
 
 ## Does Not Own
 
@@ -21,9 +22,8 @@ establishes that ownership without implementing connection behavior.
 - Inventory quantity, allocation, reservation, or fulfillment rules (Inventory)
 - Listings and offers (Marketplace)
 - Notification delivery channels or preferences (Notifications)
-- Provider integrations, credentials, health observations, policies, routes,
-  schemas, projections, events, commands, UI, or deployable composition in this
-  foundation
+- Provider integrations, credential custody, OAuth, provider execution, health
+  observations, attention policy, sync, publication, or seller UI
 
 ## Ubiquitous Language
 
@@ -31,22 +31,26 @@ Channels terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Core Aggregates and Process Managers
 
-None. The connection replacement introduces behavior only when it has a
-complete behavior-backed lifecycle to add.
+`ChannelConnection` is event sourced and moves through `pending-setup`,
+`active`, `paused`, and terminal `disconnected` states.
 
 ## Incoming Dependencies
 
-None in this foundation.
+Injected setup, credential, policy, and storage-location authority resolvers.
 
 ## Outgoing Integration Events
 
-None in this foundation.
+- `channels.connection.connected`
+- `channels.connection.activated`
+- `channels.connection.paused`
+- `channels.connection.resumed`
+- `channels.connection.disconnected`
 
 ## Invariants
 
 1. Every Channels term has one defining context glossary heading.
-2. The manifest contributes no API, runtime, worker, web, shell, schema,
-   projection, or provider surface until behavior exists to consume it.
+2. Setup is resolved from the persisted provider and two-value Channel
+   environment; requests cannot select an environment or replace setup on resume.
 3. Inventory remains the source of stock truth; Channels owns only the
    channel-facing connection and synchronization language moved here.
 4. Identity remains the source of Account capability and standing truth.
@@ -54,4 +58,5 @@ None in this foundation.
 ## Tests
 
 Run `pnpm --filter @chase-sets/channels run test:watch` for the watch-mode inner
-loop.
+loop. Use `test:unit` for the finite non-database partition and `test:db` for the
+two explicitly enrolled disposable-Postgres suites.
