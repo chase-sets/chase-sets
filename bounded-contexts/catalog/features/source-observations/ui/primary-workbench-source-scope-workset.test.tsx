@@ -7,34 +7,57 @@ import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationS
 import { controlPlaneOverview, profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
 import {
+  ygojsonYugiohSetReferenceProviderProfile,
+  ygojsonYugiohSetReferenceSourceObservationMappingContract,
   ygojsonYugiohSealedProductReferenceProviderProfile,
   ygojsonYugiohSealedProductReferenceSourceObservationMappingContract,
 } from "../api/providers/ygojson/executable-mapping-contract";
+import { scrydexOnePieceSealedProductProviderProfile } from "../api/providers/scrydex/profiles";
+import { scrydexOnePieceSealedProductSourceObservationMappingContract } from "../api/providers/scrydex/one-piece-executable-mapping-contract";
+import type { CatalogProviderIntegrationProfile } from "../api/providers/profile-types";
+import type { CatalogProviderExecutableMappingContract } from "../api/providers/provider-integration-mapping-contract";
 import { guidedSourceScopeFields } from "./primary-workbench-source-scope-fields";
 import { scopeContextFromFormData, scopeContextToIntegrationJobScope } from "./primary-workbench-scope-context";
 
 function sealedProductProfile(): CatalogProviderProfileVersionReview {
-  const profile = ygojsonYugiohSealedProductReferenceProviderProfile;
+  return activeProfileReview(
+    ygojsonYugiohSealedProductReferenceProviderProfile,
+    ygojsonYugiohSealedProductReferenceSourceObservationMappingContract,
+  );
+}
+
+function activeProfileReview(
+  profile: CatalogProviderIntegrationProfile,
+  executableMappingContract: CatalogProviderExecutableMappingContract,
+): CatalogProviderProfileVersionReview {
+  const ingestionUnitKey = executableMappingContract.ingestionUnitIdentity?.unitKey;
+  if (!ingestionUnitKey) {
+    throw new Error(`Test profile ${executableMappingContract.profileKey} must declare its exact ingestion unit.`);
+  }
+
   return profileReview({
-    providerKey: "ygojson",
-    ingestionUnitKey: "ygojson:yugioh:sealed-product:reference-data",
-    profileKey: ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.profileKey,
-    profileVersion: ygojsonYugiohSealedProductReferenceSourceObservationMappingContract.profileVersion,
+    providerKey: profile.providerKey,
+    ingestionUnitKey,
+    profileKey: executableMappingContract.profileKey,
+    profileVersion: executableMappingContract.profileVersion,
     displayName: profile.displayName,
     active: true,
     lifecycle: "active",
     profile,
-    languageOptions: ["en"],
+    executableMappingContract,
+    hasExecutableMappingContract: true,
+    mappingOutputKind: executableMappingContract.normalizedObservation.outputKind,
+    languageOptions: [...profile.languageOptions],
     supportedScopes: [...profile.supportedScopes],
     sourceOptionKinds: profile.optionQueries.map((query) => ({
       queryKind: query.queryKind,
-      queryKeySynonyms: [...query.queryKeySynonyms],
+      queryKeySynonyms: [...(query.queryKeySynonyms ?? [])],
       displayName: query.displayName,
       scope: query.scope,
       parentScope: query.parentScope,
-      parentRequired: false,
-      parentValueKind: null,
-      parentDiagnosticText: null,
+      parentRequired: query.parentValue?.required ?? false,
+      parentValueKind: query.parentValue?.valueKind ?? null,
+      parentDiagnosticText: query.parentValue?.diagnosticText ?? null,
     })),
   });
 }
@@ -95,6 +118,38 @@ describe("Catalog source-scope workset", () => {
       expect(readModel.routeContext.scope?.productId).toBeNull();
       expect(readModel.sourceScopeWorkset.units.every((unit) => !unit.commandContext.productId)).toBe(true);
     }
+  });
+
+  it.each([
+    [
+      "set-reference executable mapping",
+      activeProfileReview(
+        ygojsonYugiohSetReferenceProviderProfile,
+        ygojsonYugiohSetReferenceSourceObservationMappingContract,
+      ),
+    ],
+    [
+      "parented product option",
+      activeProfileReview(
+        scrydexOnePieceSealedProductProviderProfile,
+        scrydexOnePieceSealedProductSourceObservationMappingContract,
+      ),
+    ],
+  ])("exposes no guided product field or product workset command for a %s profile", (_case, profile) => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl: `https://admin.example/catalog/integrations?providerKey=${profile.providerKey}&unitKey=${profile.ingestionUnitKey}&productId=synthetic-refused-product&languageCode=en`,
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.routeContext.scope?.productId).toBeNull();
+    expect(readModel.sourceOptions.pages.some((page) => page.scope === "product")).toBe(false);
+    expect(guidedSourceScopeFields(readModel).some((field) => field.fieldName === "productId")).toBe(false);
+    const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.unitKey === profile.ingestionUnitKey);
+    expect(unit).toBeDefined();
+    expect(unit?.commandContext.productId).toBeNull();
   });
 
   it("ties one selected MTG source scope to configured provider-unit sync actions without a Magic-only area", () => {

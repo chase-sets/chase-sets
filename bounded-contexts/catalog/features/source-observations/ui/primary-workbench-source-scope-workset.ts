@@ -14,6 +14,7 @@ import type {
 import type { CatalogIntegrationUnitKey } from "../api/integration-unit";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
 import {
+  canSelectStandaloneProductCoordinate,
   emptyCatalogPrimaryWorkbenchScopeContext,
   importScopeFromScopeContext,
   scopeContextFromProviderScope,
@@ -695,7 +696,7 @@ function profileCanSelectScope(
   profile: CatalogProviderProfileVersionReview | null,
   scope: CatalogPrimaryWorkbenchScopeContext,
 ): boolean {
-  if (scope.productId && (!profile?.active || !profile.supportedScopes.includes("product"))) return false;
+  if (scope.productId && !canSelectStandaloneProductCoordinate(profile)) return false;
   const sourceOptionKinds = sourceOptionKindsForProfile(profile);
   if (!profile || sourceOptionKinds.length === 0) {
     return true;

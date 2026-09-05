@@ -13,6 +13,7 @@ import type { SourceObservationIntegrationJobScope } from "../../../features/sou
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import {
+  canSelectStandaloneProductCoordinate,
   importScopeFromScopeContext,
   scopeContextFromFormData,
   scopeContextFromRouteContext,
@@ -103,6 +104,8 @@ export function observationIdsFromFormData(formData: FormData, fallback: readonl
 
 export function integrationScopeFromContext(context: RouteContext): SourceObservationIntegrationJobScope {
   const scope = context.scope ?? scopeContextFromRouteContext(context);
+  const filterLanguage = context.sourceObservationFilters.language;
+  const languageCode = filterLanguage ?? scope.languageCode;
   if (scope.productId) {
     const profile =
       context.providerKey && context.unitKey
@@ -111,13 +114,17 @@ export function integrationScopeFromContext(context: RouteContext): SourceObserv
     if (
       !profile?.active ||
       catalogProviderProfileVersionIngestionUnitKey(profile) !== context.unitKey ||
-      !profile.profile.supportedScopes.includes("product") ||
-      !profile.profile.optionQueries.some((query) => query.scope === "product") ||
+      !canSelectStandaloneProductCoordinate(profile) ||
       (context.profileVersion && context.profileVersion !== profile.profileVersion) ||
+      Boolean(filterLanguage && scope.languageCode && filterLanguage !== scope.languageCode) ||
+      (profile.profile.languageOptions.length > 0 &&
+        (!languageCode || !profile.profile.languageOptions.includes(languageCode))) ||
       scope.expansionId ||
       scope.expansionName ||
       scope.seriesId ||
+      scope.seriesName ||
       scope.productLineId ||
+      scope.productLineName ||
       context.sourceObservationFilters.setId ||
       context.sourceObservationFilters.expansionId
     ) {
@@ -129,7 +136,7 @@ export function integrationScopeFromContext(context: RouteContext): SourceObserv
   return scopeContextToIntegrationJobScope({
     ...scope,
     ingestionUnitKey: context.unitKey ?? undefined,
-    languageCode: context.sourceObservationFilters.language ?? scope.languageCode,
+    languageCode,
     expansionId:
       context.sourceObservationFilters.setId ?? context.sourceObservationFilters.expansionId ?? scope.expansionId,
   });

@@ -37,6 +37,7 @@ import {
   sum,
 } from "./primary-workbench-read-model-support";
 import {
+  canSelectStandaloneProductCoordinate,
   compactExpansionRouteScopeMatchesProviderScope,
   importScopeFromScopeContext,
 } from "./primary-workbench-scope-context";
@@ -148,9 +149,8 @@ function buildCatalogPrimaryWorkbenchCore(
     parsedContext.scope?.productId &&
     (!parsedContext.providerKey ||
       !normalizedRouteUnitKey ||
-      !sourceOptionNormalizationProfile?.active ||
-      sourceOptionNormalizationProfile.ingestionUnitKey !== normalizedRouteUnitKey ||
-      !sourceOptionNormalizationProfile.supportedScopes.includes("product") ||
+      sourceOptionNormalizationProfile?.ingestionUnitKey !== normalizedRouteUnitKey ||
+      !canSelectStandaloneProductCoordinate(sourceOptionNormalizationProfile) ||
       sourceOptionProfileCannotSelectScope(sourceOptionNormalizationProfile, parsedContext.scope)),
   );
   const discardParsedImportScope = unitContextMismatch || legacyImportScopeMismatch || productScopeMismatch;
@@ -920,7 +920,7 @@ function structuredScopeWithProfileLanguage(
   const includesProductLineParent = Boolean(scope?.productLineId || scope?.productLineName);
   const sourceOptionScopes = new Set(sourceOptionKindsForProfile(activeProfile).map((kind) => kind.scope));
   const canSelectStructuredSet = scope?.productId
-    ? Boolean(activeProfile?.active && sourceOptionScopes.has("product"))
+    ? canSelectStandaloneProductCoordinate(activeProfile)
     : sourceOptionScopes.size === 0 || sourceOptionScopes.has("expansion") || sourceOptionScopes.has("set-name");
   if (
     !explicitStructuredScope ||
@@ -1137,7 +1137,7 @@ function sourceOptionProfileCannotSelectScope(
   profile: CatalogProviderProfileVersionReview | null,
   scope: CatalogPrimaryWorkbenchRouteContext["scope"],
 ): boolean {
-  if (scope?.productId && (!profile?.active || !profile.supportedScopes.includes("product"))) return true;
+  if (scope?.productId && !canSelectStandaloneProductCoordinate(profile)) return true;
   if (!profile || !scope) {
     return false;
   }
@@ -1173,10 +1173,7 @@ function sanitizeScopeForSourceOptionProfile(
 
   return {
     providerKey,
-    productId:
-      profile.active && profile.supportedScopes.includes("product") && selectableScopes.has("product")
-        ? scope.productId
-        : null,
+    productId: canSelectStandaloneProductCoordinate(profile) ? scope.productId : null,
     languageCode: explicitLanguageScope ? (scope.languageCode ?? null) : null,
     productLineId:
       selectableScopes.has("product-line/category") || supportsSetName ? (scope.productLineId ?? null) : null,

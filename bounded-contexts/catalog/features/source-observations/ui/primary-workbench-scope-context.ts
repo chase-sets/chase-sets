@@ -6,7 +6,51 @@ import {
   providerImportScopeSecondSegmentIsExpansion,
   providerImportScopeSecondSegmentIsProductLine,
 } from "../api/provider-import-scope-shape";
-import type { SourceObservationIntegrationJobScope, SourceObservationIntegrationScope } from "./contracts";
+import type { CatalogProviderIntegrationProfileVersionRecord } from "../api/providers/profile-types";
+import type {
+  CatalogProviderProfileVersionReview,
+  SourceObservationIntegrationJobScope,
+  SourceObservationIntegrationScope,
+} from "./contracts";
+
+const productCoordinateMappingOutputKinds = new Set([
+  "provider-product",
+  "pokemon-sealed-product",
+  "magic-sealed-product",
+  "yugioh-sealed-product",
+  "one-piece-sealed-product",
+  "lorcana-sealed-product",
+]);
+
+export function canSelectStandaloneProductCoordinate(
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord | CatalogProviderProfileVersionReview | null,
+): boolean {
+  if (!profileVersion?.active) {
+    return false;
+  }
+
+  const isReview = "sourceOptionKinds" in profileVersion;
+  const supportedScopes = isReview ? profileVersion.supportedScopes : profileVersion.profile.supportedScopes;
+  const mappingOutputKind = isReview
+    ? profileVersion.mappingOutputKind
+    : profileVersion.executableMappingContract?.normalizedObservation.outputKind;
+  const hasExecutableMappingContract = isReview
+    ? profileVersion.hasExecutableMappingContract
+    : Boolean(profileVersion.executableMappingContract);
+  const optionQueries = isReview ? profileVersion.sourceOptionKinds : profileVersion.profile.optionQueries;
+
+  return (
+    supportedScopes.includes("product") &&
+    hasExecutableMappingContract &&
+    Boolean(mappingOutputKind && productCoordinateMappingOutputKinds.has(mappingOutputKind)) &&
+    optionQueries.some(
+      (query) =>
+        query.scope === "product" &&
+        query.parentScope === null &&
+        ("parentRequired" in query ? !query.parentRequired : !query.parentValue?.required),
+    )
+  );
+}
 
 export type CatalogPrimaryWorkbenchScopeQueryKey =
   | "productId"

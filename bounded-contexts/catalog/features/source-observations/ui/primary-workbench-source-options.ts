@@ -18,6 +18,7 @@ import {
   sourceOptionKindsForProfile,
 } from "./primary-workbench-read-model-support";
 import {
+  canSelectStandaloneProductCoordinate,
   scopeContextFromProviderScope,
   scopeContextFromRouteContext,
   scopeContextMatchesProviderScope,
@@ -172,9 +173,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
       (kind) =>
         sourceScopeOptionScopes.has(kind.scope) &&
         (kind.scope !== "product" ||
-          (profile.active &&
-            context.requestedUnitKey === profile.ingestionUnitKey &&
-            profile.supportedScopes.includes("product"))),
+          (context.requestedUnitKey === profile.ingestionUnitKey && canSelectStandaloneProductCoordinate(profile))),
     )
     .map((kind) => {
       const parent = kind.parentScope ? (selections.get(kind.parentScope) ?? null) : null;
