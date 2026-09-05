@@ -757,7 +757,7 @@
     "ui-support": {
       "classification": "support",
       "purpose": "Provide reusable ui-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["invitation-acceptance", "registration", "sign-in"]
+      "expectedConsumers": ["agent-grants", "invitation-acceptance", "registration", "sessions", "sign-in"]
     },
     "routes": {
       "classification": "routes",
