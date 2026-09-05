@@ -12,7 +12,7 @@ import {
   type SourceObservationEvent,
   type SourceObservationState,
 } from "../../domain/domain";
-import tcgdexBase260ScenarioFixture from "../__fixtures__/tcgdex/base2-60-scenario.json";
+import tcgdexBase260ScenarioFixture from "../__fixtures__/tcgdex/base2-60-scenario.json" with { type: "json" };
 import { tcgdexPokemonTcgProviderProfile } from "../provider-integration-profiles";
 import {
   planCatalogProviderPromotionCommands,

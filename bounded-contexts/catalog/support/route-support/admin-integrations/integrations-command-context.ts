@@ -13,6 +13,7 @@ import type { SourceObservationIntegrationJobScope } from "../../../features/sou
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import {
+  canSelectStandaloneProductCoordinate,
   importScopeFromScopeContext,
   scopeContextFromFormData,
   scopeContextFromRouteContext,
@@ -21,6 +22,10 @@ import {
 } from "../../../features/source-observations/ui/primary-workbench-scope-context";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import { stringValue } from "./integrations-form-values";
+import {
+  getActiveCatalogProviderIntegrationProfileVersion,
+  catalogProviderProfileVersionIngestionUnitKey,
+} from "../../../features/source-observations/api/providers/registry";
 
 export type CatalogPrimaryWorkbenchFormIntent = CatalogControlPlaneActionId;
 
@@ -67,6 +72,7 @@ function clearExplicitEmptyScopeFields(
 ): ReturnType<typeof scopeContextFromFormData> {
   return {
     ...scope,
+    productId: explicitEmptyScopeField(formData, ["productId"]) ? null : scope.productId,
     languageCode: explicitEmptyScopeField(formData, ["languageCode", "language"]) ? null : scope.languageCode,
     productLineId: explicitEmptyScopeField(formData, ["productLineId"]) ? null : scope.productLineId,
     productLineName: explicitEmptyScopeField(formData, ["productLineName"]) ? null : scope.productLineName,
@@ -98,10 +104,39 @@ export function observationIdsFromFormData(formData: FormData, fallback: readonl
 
 export function integrationScopeFromContext(context: RouteContext): SourceObservationIntegrationJobScope {
   const scope = context.scope ?? scopeContextFromRouteContext(context);
+  const filterLanguage = context.sourceObservationFilters.language;
+  const languageCode = filterLanguage ?? scope.languageCode;
+  if (scope.productId) {
+    const profile =
+      context.providerKey && context.unitKey
+        ? getActiveCatalogProviderIntegrationProfileVersion(context.providerKey, { ingestionUnitKey: context.unitKey })
+        : null;
+    if (
+      !profile?.active ||
+      catalogProviderProfileVersionIngestionUnitKey(profile) !== context.unitKey ||
+      !canSelectStandaloneProductCoordinate(profile) ||
+      (context.profileVersion && context.profileVersion !== profile.profileVersion) ||
+      Boolean(filterLanguage && scope.languageCode && filterLanguage !== scope.languageCode) ||
+      (profile.profile.languageOptions.length > 0 &&
+        (!languageCode || !profile.profile.languageOptions.includes(languageCode))) ||
+      scope.expansionId ||
+      scope.expansionName ||
+      scope.seriesId ||
+      scope.seriesName ||
+      scope.productLineId ||
+      scope.productLineName ||
+      context.sourceObservationFilters.setId ||
+      context.sourceObservationFilters.expansionId
+    ) {
+      throw new Error(
+        "Product import requires the selected active product-scope unit and an unmixed product coordinate.",
+      );
+    }
+  }
   return scopeContextToIntegrationJobScope({
     ...scope,
     ingestionUnitKey: context.unitKey ?? undefined,
-    languageCode: context.sourceObservationFilters.language ?? scope.languageCode,
+    languageCode,
     expansionId:
       context.sourceObservationFilters.setId ?? context.sourceObservationFilters.expansionId ?? scope.expansionId,
   });

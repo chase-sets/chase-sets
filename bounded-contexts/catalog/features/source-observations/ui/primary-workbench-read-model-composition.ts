@@ -37,6 +37,7 @@ import {
   sum,
 } from "./primary-workbench-read-model-support";
 import {
+  canSelectStandaloneProductCoordinate,
   compactExpansionRouteScopeMatchesProviderScope,
   importScopeFromScopeContext,
 } from "./primary-workbench-scope-context";
@@ -144,9 +145,18 @@ function buildCatalogPrimaryWorkbenchCore(
     explicitStructuredScope,
     unitContextMismatch,
   });
-  const discardParsedImportScope = unitContextMismatch || legacyImportScopeMismatch;
-  const routeScope =
-    discardParsedImportScope && legacyImportScopeMismatch && explicitStructuredScope
+  const productScopeMismatch = Boolean(
+    parsedContext.scope?.productId &&
+    (!parsedContext.providerKey ||
+      !normalizedRouteUnitKey ||
+      sourceOptionNormalizationProfile?.ingestionUnitKey !== normalizedRouteUnitKey ||
+      !canSelectStandaloneProductCoordinate(sourceOptionNormalizationProfile) ||
+      sourceOptionProfileCannotSelectScope(sourceOptionNormalizationProfile, parsedContext.scope)),
+  );
+  const discardParsedImportScope = unitContextMismatch || legacyImportScopeMismatch || productScopeMismatch;
+  const routeScope = productScopeMismatch
+    ? providerOnlyScopeContext(providerKey)
+    : discardParsedImportScope && legacyImportScopeMismatch && explicitStructuredScope
       ? sanitizeScopeForSourceOptionProfile(
           parsedContext.scope,
           sourceOptionNormalizationProfile,
@@ -830,6 +840,7 @@ function normalizeSelectedUnitKey(
 function providerOnlyScopeContext(providerKey: string | null): CatalogPrimaryWorkbenchRouteContext["scope"] {
   return {
     providerKey,
+    productId: null,
     languageCode: null,
     productLineId: null,
     productLineName: null,
@@ -844,6 +855,7 @@ function providerOnlyScopeContext(providerKey: string | null): CatalogPrimaryWor
 function requestHasStructuredImportScopeSelection(requestUrl: string | URL): boolean {
   const searchParams = new URL(requestUrl, "https://admin.example").searchParams;
   const structuredScopeKeys = [
+    "productId",
     "language",
     "languageCode",
     "productLineId",
@@ -902,11 +914,14 @@ function structuredScopeWithProfileLanguage(
   providerScopeRows: readonly SourceObservationIntegrationScope[],
   explicitStructuredScope: boolean,
 ): CatalogPrimaryWorkbenchRouteContext["scope"] {
-  const structuredSetScope = Boolean(!scope?.seriesId && (scope?.expansionId || scope?.expansionName));
+  const structuredSetScope = Boolean(
+    !scope?.seriesId && (scope?.expansionId || scope?.expansionName || scope?.productId),
+  );
   const includesProductLineParent = Boolean(scope?.productLineId || scope?.productLineName);
   const sourceOptionScopes = new Set(sourceOptionKindsForProfile(activeProfile).map((kind) => kind.scope));
-  const canSelectStructuredSet =
-    sourceOptionScopes.size === 0 || sourceOptionScopes.has("expansion") || sourceOptionScopes.has("set-name");
+  const canSelectStructuredSet = scope?.productId
+    ? canSelectStandaloneProductCoordinate(activeProfile)
+    : sourceOptionScopes.size === 0 || sourceOptionScopes.has("expansion") || sourceOptionScopes.has("set-name");
   if (
     !explicitStructuredScope ||
     !scope ||
@@ -1122,6 +1137,7 @@ function sourceOptionProfileCannotSelectScope(
   profile: CatalogProviderProfileVersionReview | null,
   scope: CatalogPrimaryWorkbenchRouteContext["scope"],
 ): boolean {
+  if (scope?.productId && !canSelectStandaloneProductCoordinate(profile)) return true;
   if (!profile || !scope) {
     return false;
   }
@@ -1132,6 +1148,7 @@ function sourceOptionProfileCannotSelectScope(
   }
 
   return (
+    (Boolean(scope.productId) && !selectableScopes.has("product")) ||
     (Boolean(scope.productLineId || scope.productLineName) && !selectableScopes.has("product-line/category")) ||
     (Boolean(scope.seriesId || scope.seriesName) && !selectableScopes.has("series")) ||
     (Boolean(scope.expansionId || scope.expansionName) &&
@@ -1156,6 +1173,7 @@ function sanitizeScopeForSourceOptionProfile(
 
   return {
     providerKey,
+    productId: canSelectStandaloneProductCoordinate(profile) ? scope.productId : null,
     languageCode: explicitLanguageScope ? (scope.languageCode ?? null) : null,
     productLineId:
       selectableScopes.has("product-line/category") || supportsSetName ? (scope.productLineId ?? null) : null,
@@ -1174,6 +1192,7 @@ function importScopeMatchesStructuredSelection(
   importScope: string,
   scope: CatalogPrimaryWorkbenchRouteContext["scope"],
 ): boolean {
+  if (scope?.productId) return importScope === importScopeFromScopeContext(scope);
   const segments = new Set(importScope.split(":").map(normalizedScopeSegment).filter(Boolean));
   const optionalSegmentMatches = (value: string | null | undefined) =>
     !value || segments.has(normalizedScopeSegment(value));

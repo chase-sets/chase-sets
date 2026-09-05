@@ -459,7 +459,7 @@ function catalogSyncScopeFromReadModel(
   };
 }
 
-function importPreviewMatchesSelectedScope(
+export function importPreviewMatchesSelectedScope(
   preview: SourceObservationIntegrationImportPreview,
   expectedScope: SourceObservationIntegrationJobScope,
 ): boolean {
@@ -471,7 +471,7 @@ function importPreviewMatchesSelectedScope(
     scopeFieldMatches(preview.scope.productLineId, expectedScope.productLineId) &&
     scopeFieldMatches(preview.scope.seriesId, expectedScope.seriesId) &&
     scopeAnyFieldMatches([preview.scope.setId, preview.scope.setName], [expectedScope.setId, expectedScope.setName]) &&
-    scopeFieldMatches(preview.scope.productId, expectedScope.productId)
+    (preview.scope.productId ?? null) === (expectedScope.productId ?? null)
   );
 }
 

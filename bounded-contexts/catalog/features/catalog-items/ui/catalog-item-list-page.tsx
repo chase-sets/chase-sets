@@ -690,6 +690,11 @@ export function CatalogItemListPage({
         entityName={t("catalog.features.catalogItems.ui.catalogItemListPage.catalog.item")}
         items={data.items}
         total={data.total}
+        headerActions={
+          <Text data-catalog-items-total={data.total} tone="secondary">
+            {t("catalog.features.catalogItems.ui.catalogItemListPage.matching.items", { count: data.total })}
+          </Text>
+        }
         loading={listControls.loading}
         error={null}
         columns={columns}

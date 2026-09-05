@@ -38,3 +38,27 @@ export {
   replayRepresentativeCatalogPacks,
   representativeCatalogExternalReferenceDigest,
 } from "./features/source-observations/api/representative-catalog-replay";
+export {
+  catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
+  getActiveCatalogProviderIntegrationProfileVersion,
+} from "./features/source-observations/api/providers/registry";
+export type { CatalogProviderIntegrationProfileVersionRecord } from "./features/source-observations/api/providers/profile-types";
+export {
+  catalogProviderSourceMappingFingerprint,
+  normalizeCatalogProviderSourceObservation,
+} from "./features/source-observations/api/promotion/provider-source-observation-normalizer";
+export type { CatalogProviderSourceObservationMappingContract } from "./features/source-observations/api/promotion/provider-source-observation-normalizer";
+export { planCatalogProviderPromotionCommands } from "./features/source-observations/api/promotion/provider-promotion-command-planner";
+export type { CatalogProviderPromotionResolvedCatalogMapping } from "./features/source-observations/api/promotion/provider-promotion-command-planner";
+export type { CatalogIntegrationUnitKey } from "./features/source-observations/api/governance/integration-unit";
+export { sourceObservationLinkExternalKey } from "./features/source-observations/domain/domain";
+export type { SourceObservationNormalized } from "./features/source-observations/domain/domain";
+export type { CatalogItemId, ReferenceRecordId } from "./ids";
+export type {
+  BulkSourceObservationPromotionResult,
+  BulkSourceObservationReapplyResult,
+  SourceObservationListItem,
+} from "./features/source-observations/ui/contracts";
+export type { CatalogBulkReviewJob } from "./support/shell-support/api/client";
+export type { CatalogItemDetail } from "./features/catalog-items/ui/contracts";

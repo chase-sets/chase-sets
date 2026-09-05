@@ -6,9 +6,54 @@ import {
   providerImportScopeSecondSegmentIsExpansion,
   providerImportScopeSecondSegmentIsProductLine,
 } from "../api/provider-import-scope-shape";
-import type { SourceObservationIntegrationJobScope, SourceObservationIntegrationScope } from "./contracts";
+import type { CatalogProviderIntegrationProfileVersionRecord } from "../api/providers/profile-types";
+import type {
+  CatalogProviderProfileVersionReview,
+  SourceObservationIntegrationJobScope,
+  SourceObservationIntegrationScope,
+} from "./contracts";
+
+const productCoordinateMappingOutputKinds = new Set([
+  "provider-product",
+  "pokemon-sealed-product",
+  "magic-sealed-product",
+  "yugioh-sealed-product",
+  "one-piece-sealed-product",
+  "lorcana-sealed-product",
+]);
+
+export function canSelectStandaloneProductCoordinate(
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord | CatalogProviderProfileVersionReview | null,
+): boolean {
+  if (!profileVersion?.active) {
+    return false;
+  }
+
+  const isReview = "sourceOptionKinds" in profileVersion;
+  const supportedScopes = isReview ? profileVersion.supportedScopes : profileVersion.profile.supportedScopes;
+  const mappingOutputKind = isReview
+    ? profileVersion.mappingOutputKind
+    : profileVersion.executableMappingContract?.normalizedObservation.outputKind;
+  const hasExecutableMappingContract = isReview
+    ? profileVersion.hasExecutableMappingContract
+    : Boolean(profileVersion.executableMappingContract);
+  const optionQueries = isReview ? profileVersion.sourceOptionKinds : profileVersion.profile.optionQueries;
+
+  return (
+    supportedScopes.includes("product") &&
+    hasExecutableMappingContract &&
+    Boolean(mappingOutputKind && productCoordinateMappingOutputKinds.has(mappingOutputKind)) &&
+    optionQueries.some(
+      (query) =>
+        query.scope === "product" &&
+        query.parentScope === null &&
+        ("parentRequired" in query ? !query.parentRequired : !query.parentValue?.required),
+    )
+  );
+}
 
 export type CatalogPrimaryWorkbenchScopeQueryKey =
+  | "productId"
   | "languageCode"
   | "productLineId"
   | "productLineName"
@@ -19,6 +64,7 @@ export type CatalogPrimaryWorkbenchScopeQueryKey =
   | "status";
 
 export const catalogPrimaryWorkbenchScopeQueryKeys: readonly CatalogPrimaryWorkbenchScopeQueryKey[] = [
+  "productId",
   "languageCode",
   "productLineId",
   "productLineName",
@@ -33,6 +79,7 @@ type ScopeFieldInput = Partial<Record<CatalogPrimaryWorkbenchScopeQueryKey | "pr
 
 const emptyScope: CatalogPrimaryWorkbenchScopeContext = {
   providerKey: null,
+  productId: null,
   languageCode: null,
   productLineId: null,
   productLineName: null,
@@ -81,6 +128,7 @@ export function scopeContextFromSearchParams(input: {
   const explicitExpansionName = input.searchParams.get("expansionName") ?? input.searchParams.get("setName");
   const explicitScope = scopeContextFromFields({
     providerKey: input.providerKey,
+    productId: input.searchParams.get("productId"),
     languageCode: explicitLanguageCode,
     productLineId: explicitProductLineId,
     productLineName: explicitProductLineName,
@@ -99,10 +147,11 @@ export function scopeContextFromFormData(
   formData: FormData,
   fallback: CatalogPrimaryWorkbenchScopeContext,
 ): CatalogPrimaryWorkbenchScopeContext {
-  return mergeScopeContexts(
+  const merged = mergeScopeContexts(
     fallback,
     scopeContextFromFields({
       providerKey: formString(formData, "providerKey"),
+      productId: formString(formData, "productId"),
       languageCode: formString(formData, "languageCode") ?? formString(formData, "language"),
       productLineId: formString(formData, "productLineId"),
       productLineName: formString(formData, "productLineName"),
@@ -113,11 +162,13 @@ export function scopeContextFromFormData(
       status: formString(formData, "status"),
     }),
   );
+  return formData.has("productId") ? { ...merged, productId: formString(formData, "productId") } : merged;
 }
 
 export function scopeContextFromFields(fields: ScopeFieldInput): CatalogPrimaryWorkbenchScopeContext {
   return {
     providerKey: clean(fields.providerKey),
+    productId: clean(fields.productId),
     languageCode: clean(fields.languageCode),
     productLineId: clean(fields.productLineId),
     productLineName: clean(fields.productLineName),
@@ -193,6 +244,12 @@ export function importScopeFromScopeContext(scope: CatalogPrimaryWorkbenchScopeC
     return null;
   }
 
+  if (scope.productId) {
+    // Keep the existing job identity; only the explicit productId route field
+    // identifies a product. Parsing a compact en:X alone still means a set.
+    return [scope.languageCode, scope.productId].join(":");
+  }
+
   const expansion = scope.expansionId ?? scope.expansionName;
   const segments = [scope.languageCode, scope.productLineId, scope.seriesId, expansion].filter(
     (segment): segment is string => Boolean(segment),
@@ -209,7 +266,6 @@ export function scopeContextToIntegrationJobScope(
   scope: CatalogPrimaryWorkbenchScopeContext & {
     ingestionUnitKey?: string | null;
     profileKey?: string | null;
-    productId?: string | null;
   },
 ): SourceObservationIntegrationJobScope {
   return compactScope({
@@ -269,6 +325,7 @@ export function scopeContextMatchesProviderScope(
 ): boolean {
   const providerKey = context.providerKey ?? scope.provider_key;
   return (
+    !context.productId &&
     optionalFieldMatches(context.providerKey, scope.provider_key, providerKey) &&
     optionalFieldMatches(context.languageCode, scope.language_code, providerKey) &&
     optionalFieldMatches(context.productLineId, scope.product_line_id, providerKey) &&
@@ -285,7 +342,7 @@ export function compactExpansionRouteScopeMatchesProviderScope(
   scope: SourceObservationIntegrationScope,
 ): boolean {
   const providerKey = context.providerKey ?? scope.provider_key;
-  if (!providerImportScopeSecondSegmentIsExpansion(providerKey)) {
+  if (context.productId || !providerImportScopeSecondSegmentIsExpansion(providerKey)) {
     return false;
   }
 
@@ -323,6 +380,7 @@ export function scopeDisplayLabel(scope: CatalogPrimaryWorkbenchScopeContext): s
     scope.productLineName ?? scope.productLineId,
     scope.seriesName ?? scope.seriesId,
     scope.expansionName ?? scope.expansionId,
+    scope.productId,
     scope.status,
   ].filter((segment): segment is string => Boolean(segment));
 
@@ -332,6 +390,7 @@ export function scopeDisplayLabel(scope: CatalogPrimaryWorkbenchScopeContext): s
 export function scopeContextToQueryParams(scope: CatalogPrimaryWorkbenchScopeContext): URLSearchParams {
   const params = new URLSearchParams();
   setParam(params, "providerKey", scope.providerKey);
+  setParam(params, "productId", scope.productId);
   setParam(params, "languageCode", scope.languageCode);
   setParam(params, "productLineId", scope.productLineId);
   setParam(params, "productLineName", scope.productLineName);
@@ -371,6 +430,7 @@ function mergeScopeContexts(
   return overrides.reduce<CatalogPrimaryWorkbenchScopeContext>(
     (merged, override) => ({
       providerKey: override?.providerKey ?? merged.providerKey,
+      productId: override?.productId ?? merged.productId,
       languageCode: override?.languageCode ?? merged.languageCode,
       productLineId: override?.productLineId ?? merged.productLineId,
       productLineName: override?.productLineName ?? merged.productLineName,
@@ -398,6 +458,7 @@ function importScopeForStructuredMerge(
   if (!importScope || !explicitScope) {
     return importScope;
   }
+  if (explicitScope.productId) return null;
   const segments = importScopeSegments(importScope);
   const expansionSegment = segments.at(-1) ?? null;
   const explicitExpansion = explicitScope.expansionId ?? explicitScope.expansionName;

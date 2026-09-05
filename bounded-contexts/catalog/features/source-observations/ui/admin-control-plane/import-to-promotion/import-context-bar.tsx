@@ -136,6 +136,7 @@ function importContextScopeLabel(
     scope?.productLineId,
     scope?.seriesId,
     scope?.expansionId ?? scope?.expansionName,
+    scope?.productId,
   ].filter((level): level is string => Boolean(level));
   if (levels.length > 0) {
     return levels.join("/");

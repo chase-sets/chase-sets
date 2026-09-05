@@ -82,6 +82,80 @@ vi.mock("@chase-sets/platform-runtime/auth", () => ({
 }));
 
 describe("Catalog integrations route", () => {
+  it("enqueues exact selected product coordinates from the real action without changing compact set meaning", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "synthetic_product_job" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    for (const productId of ["synthetic-product-a", "synthetic-product-b"]) {
+      const result = await runDailyAction({
+        _intent: "scope.import",
+        providerKey: "ygojson",
+        unitKey: "ygojson:yugioh:sealed-product:reference-data",
+        languageCode: "en",
+        productId,
+        importScope: "",
+        expansionId: "",
+        expansionName: "",
+        seriesId: "",
+        productLineId: "",
+      });
+      expect(enqueueSourceObservationIntegrationJob).toHaveBeenLastCalledWith("import", {
+        provider: "ygojson",
+        ingestionUnitKey: "ygojson:yugioh:sealed-product:reference-data",
+        language: "en",
+        productId,
+      });
+      expect(result.context.scope?.productId).toBe(productId);
+      expect(result.context.importScope).toBe(`en:${productId}`);
+    }
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledTimes(2);
+    expect(enqueueSourceObservationIntegrationJob.mock.calls.map(([, scope]) => scope.productId)).toEqual([
+      "synthetic-product-a",
+      "synthetic-product-b",
+    ]);
+  });
+
+  it("refuses ineligible units, mixed coordinates and unsupported product languages before enqueue", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const invalidProductScopes: readonly Record<string, string>[] = [
+      { unitKey: "tcgdex:pokemon:card:import" },
+      { unitKey: "" },
+      { unitKey: "ygojson:yugioh:sealed-product:reference-data", expansionId: "synthetic-set" },
+      { unitKey: "ygojson:yugioh:sealed-product:reference-data", productLineName: "synthetic-mixed-name" },
+      { unitKey: "ygojson:yugioh:sealed-product:reference-data", seriesName: "synthetic-mixed-name" },
+      { unitKey: "ygojson:yugioh:sealed-product:reference-data", languageCode: "ja" },
+      { unitKey: "ygojson:yugioh:sealed-product:reference-data", profileVersion: "synthetic-inactive-version" },
+      { unitKey: "ygojson:yugioh:set:reference-data" },
+      {
+        providerKey: "tcgplayer",
+        unitKey: "tcgplayer:pokemon:sealed-product:source-observation-import",
+      },
+    ];
+    for (const fields of invalidProductScopes) {
+      const result = await runDailyAction({
+        _intent: "scope.import",
+        providerKey: "ygojson",
+        languageCode: "en",
+        productId: "synthetic-product",
+        ...fields,
+      });
+      expect(result.feedback.status).toBe("error");
+      expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
+    }
+
+    const conflictingFilterResult = await runDailyAction(
+      {
+        _intent: "scope.import",
+        providerKey: "ygojson",
+        unitKey: "ygojson:yugioh:sealed-product:reference-data",
+        languageCode: "en",
+        productId: "synthetic-product",
+      },
+      "https://admin.example/catalog/integrations?filter.language=ja",
+    );
+    expect(conflictingFilterResult.feedback.status).toBe("error");
+    expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
+  });
   afterEach(() => {
     cleanup();
     mockUseLoaderData.mockReset();

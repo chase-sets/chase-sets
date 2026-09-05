@@ -106,6 +106,7 @@ export function CommandHiddenInputs({
       <HiddenInput name="seriesName" value={scope?.seriesName ?? ""} />
       <HiddenInput name="expansionId" value={scope?.expansionId ?? ""} />
       <HiddenInput name="expansionName" value={scope?.expansionName ?? ""} />
+      <HiddenInput name="productId" value={scope?.productId ?? ""} />
       <HiddenInput name="selectedObservationIds" value={observationIds.join(",")} />
       <HiddenInput name="candidateId" value={candidateId ?? ""} />
       <HiddenInput name="mergeCandidateCommandBody" value={mergeCandidateCommandBody ?? ""} />

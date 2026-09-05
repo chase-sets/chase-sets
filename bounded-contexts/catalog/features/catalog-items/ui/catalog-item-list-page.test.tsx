@@ -107,6 +107,40 @@ describe("CatalogItemListPage", () => {
     vi.clearAllMocks();
   });
 
+  it.each([0, 1, 50, 51])("renders the independent server total %i for populated and empty pages", (total) => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    const items = Array.from({ length: Math.min(total, 50) }, (_, index) => ({
+      ...catalogItem,
+      catalog_item_id: `synthetic-${index}`,
+    }));
+    const { container, rerender } = render(
+      <CatalogItemListPage data={{ items, count: items.length, total }} query={defaultQuery} />,
+    );
+    const assertTotal = () => {
+      const anchors = container.querySelectorAll("[data-catalog-items-total]");
+      expect(anchors.length).toBe(1);
+      expect(anchors[0]?.getAttribute("data-catalog-items-total")).toBe(String(total));
+      expect(anchors[0]?.textContent).toContain(String(total));
+      expect(anchors[0]?.closest('[hidden], [aria-hidden="true"]')).toBeNull();
+    };
+    assertTotal();
+    if (items.length) {
+      fireEvent.click(screen.getAllByRole("checkbox")[0]!);
+      assertTotal();
+    }
+    rerender(
+      <CatalogItemListPage
+        data={{ items: [], count: 0, total }}
+        query={defaultQuery}
+        realtimeReloadActionBar={<div>Updates available</div>}
+      />,
+    );
+    expect(screen.queryByText("Updates available")).toBeNull();
+    assertTotal();
+  });
+
   it("previews bulk publish for matching Catalog Items from the shared action panel", async () => {
     const user = userEvent.setup();
     mockUseNavigation.mockReturnValue({ state: "idle" });
@@ -266,7 +300,11 @@ describe("CatalogItemListPage", () => {
 
     expect(screen.getAllByText("tcgplayer").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Actions" })).toBeTruthy();
-    expect(screen.getAllByText("1 matching Catalog Items")).toHaveLength(1);
+    expect(
+      screen
+        .queryAllByText("1 matching Catalog Items")
+        .filter((element) => !element.hasAttribute("data-catalog-items-total")),
+    ).toHaveLength(1);
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     expect(selectRow).toBeTruthy();
@@ -490,13 +528,22 @@ describe("CatalogItemListPage", () => {
       />,
     );
 
-    expect(screen.getAllByText("1 matching Catalog Items")).toHaveLength(1);
+    expect(
+      screen
+        .queryAllByText("1 matching Catalog Items")
+        .filter((element) => !element.hasAttribute("data-catalog-items-total")),
+    ).toHaveLength(1);
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     fireEvent.click(selectRow!);
 
     expect(screen.getAllByText("1 Catalog Items selected").length).toBeGreaterThan(0);
-    expect(screen.queryByText("1 matching Catalog Items")).toBeNull();
+    expect(
+      screen
+        .queryAllByText("1 matching Catalog Items")
+        .filter((element) => !element.hasAttribute("data-catalog-items-total")),
+    ).toHaveLength(0);
+    expect(document.querySelector("[data-catalog-items-total]")?.textContent).toBe("1 matching Catalog Items");
   });
 
   it("prioritizes the realtime reload action bar over matching bulk actions", () => {
@@ -530,7 +577,12 @@ describe("CatalogItemListPage", () => {
 
     expect(screen.getByText("3 Catalog Items changed")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
-    expect(screen.queryByText("1 matching Catalog Items")).toBeNull();
+    expect(
+      screen
+        .queryAllByText("1 matching Catalog Items")
+        .filter((element) => !element.hasAttribute("data-catalog-items-total")),
+    ).toHaveLength(0);
+    expect(document.querySelector("[data-catalog-items-total]")?.textContent).toBe("1 matching Catalog Items");
 
     fireEvent.click(screen.getByRole("button", { name: "Reload" }));
 
@@ -568,7 +620,12 @@ describe("CatalogItemListPage", () => {
 
     expect(screen.getByText("Catalog Items changed")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
-    expect(screen.queryByText("1 matching Catalog Items")).toBeNull();
+    expect(
+      screen
+        .queryAllByText("1 matching Catalog Items")
+        .filter((element) => !element.hasAttribute("data-catalog-items-total")),
+    ).toHaveLength(0);
+    expect(document.querySelector("[data-catalog-items-total]")?.textContent).toBe("1 matching Catalog Items");
 
     fireEvent.click(screen.getByRole("button", { name: "Reload" }));
 
@@ -640,7 +697,11 @@ describe("CatalogItemListPage", () => {
       />,
     );
 
-    expect(screen.getAllByText("1 matching Catalog Items")).toHaveLength(1);
+    expect(
+      screen
+        .queryAllByText("1 matching Catalog Items")
+        .filter((element) => !element.hasAttribute("data-catalog-items-total")),
+    ).toHaveLength(1);
     expect(screen.queryByLabelText("Action")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Actions" }));

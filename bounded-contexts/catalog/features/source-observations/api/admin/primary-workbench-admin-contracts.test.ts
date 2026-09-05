@@ -655,6 +655,7 @@ describe("Catalog primary workbench admin contracts", () => {
           hasConcreteScope: true,
           scope: {
             providerKey: "tcgdex",
+            productId: null,
             languageCode: null,
             productLineId: null,
             productLineName: null,
@@ -698,6 +699,7 @@ describe("Catalog primary workbench admin contracts", () => {
               "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Asingle-card%3Asource-observation-import&importScope=changed&profileVersion=2026.06.04",
             commandContext: {
               providerKey: "tcgdex",
+              productId: null,
               unitKey: "tcgdex:pokemon:single-card:source-observation-import",
               importScope: "changed",
               profileVersion: "2026.06.04",
@@ -1082,6 +1084,7 @@ describe("Catalog primary workbench admin contracts", () => {
           unitKey: "tcgdex:pokemon:single-card:source-observation-import",
           scope: {
             providerKey: "tcgdex",
+            productId: null,
             languageCode: null,
             productLineId: null,
             productLineName: null,

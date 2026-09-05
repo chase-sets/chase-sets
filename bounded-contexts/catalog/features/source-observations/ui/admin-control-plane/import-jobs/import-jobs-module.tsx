@@ -666,7 +666,7 @@ function importPreviewScopeKey(scope: SourceObservationIntegrationImportPreview[
     .join(":");
 }
 
-function importPreviewMatchesRouteContext(
+export function importPreviewMatchesRouteContext(
   preview: SourceObservationIntegrationImportPreview,
   routeContext: CatalogPrimaryWorkbenchReadModel["routeContext"],
 ): boolean {
@@ -674,6 +674,7 @@ function importPreviewMatchesRouteContext(
     scopeFieldMatches(preview.providerKey, routeContext.providerKey) &&
     scopeFieldMatches(preview.scope.provider, routeContext.providerKey) &&
     scopeFieldMatches(preview.scope.ingestionUnitKey, routeContext.unitKey) &&
+    (preview.scope.productId ?? null) === (routeContext.scope?.productId ?? null) &&
     scopeFieldMatches(preview.scope.language, routeContext.scope?.languageCode) &&
     scopeFieldMatches(preview.scope.productLineId, routeContext.scope?.productLineId) &&
     scopeFieldMatches(preview.scope.seriesId, routeContext.scope?.seriesId) &&

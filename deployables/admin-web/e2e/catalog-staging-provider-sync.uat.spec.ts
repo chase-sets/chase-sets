@@ -1,5 +1,35 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { catalogProviderSourceMappingFingerprint, sourceObservationLinkExternalKey } from "@chase-sets/catalog/server";
+import type {
+  BulkSourceObservationPromotionResult,
+  BulkSourceObservationReapplyResult,
+  CatalogBulkReviewJob,
+  CatalogItemDetail,
+  CatalogProviderSourceObservationMappingContract,
+  SourceObservationListItem,
+} from "@chase-sets/catalog/server";
+import {
+  RepresentativeBudget,
+  EvidenceUnknown,
+  activeMemberProfile,
+  assertExactMembers,
+  collectCatalogCensus,
+  evaluateCausalReadback,
+  executableMemberPartition,
+  inventoryDigest,
+  memberPromotionPlan,
+  mapMemberPayload,
+  readCatalogBaseline,
+  runRepresentativeMembers,
+  validateRepresentativeReceipt,
+  previewIdentityDigest,
+  compareRepresentativeReceipts,
+  type RepresentativeCoordinate,
+  type CatalogPage,
+  type CatalogScope,
+  type ItemInstant,
+} from "./support/representative-catalog-evidence";
 
 const catalogWorkbenchCommand = {
   sync: "scope.sync",
@@ -65,6 +95,7 @@ type SelectedGuidedScopeChoice = SelectedScopeChoice &
   Readonly<{
     fieldName: string;
     selectedValue: string;
+    selectedOptionLabel?: string;
   }>;
 
 type SelectedOptionIdentity = Readonly<{
@@ -85,6 +116,7 @@ type ProviderSyncJourney = Readonly<{
   preflight?: ImportPreflightExpectation;
   requiresTerminalSync?: boolean;
   allowPartialWithReview?: boolean;
+  requiredSetName?: string;
 }>;
 
 type ImportPreflightExpectation = Readonly<{
@@ -98,6 +130,7 @@ type SelectedProviderScope = Readonly<{
   importScope: string | null;
   displayLabel: string;
   fields: readonly SelectedProviderScopeField[];
+  choices?: readonly SelectedGuidedScopeChoice[];
 }>;
 
 type SelectedProviderScopeField = Readonly<{
@@ -106,6 +139,7 @@ type SelectedProviderScopeField = Readonly<{
 }>;
 
 const selectedProviderScopeFieldNames = [
+  "productId",
   "languageCode",
   "productLineId",
   "productLineName",
@@ -714,12 +748,111 @@ const lorcanaFloodbornProviderSyncJourneys: readonly ProviderSyncJourney[] = lor
 const stagingRepresentativeCatalogProviderSyncJourneys: readonly ProviderSyncJourney[] = [
   ...lorcanaLaunchProviderSyncJourneys,
   ...lorcanaFloodbornProviderSyncJourneys,
-  ...onePieceLaunchProviderSyncJourneys,
-  ...yugiohProviderSyncJourneys,
+  ...onePieceLaunchProviderSyncJourneys.map((journey) =>
+    journey.providerKey === "mtgjson"
+      ? withRequiredSet(journey, mtgjsonFifthDawnSetChoice)
+      : journey.unitKey === "scrydex:one-piece:sealed-product:source-observation-import"
+        ? withRequiredSet(journey, { labels: ["Emperors In The New World"], values: ["OP09", "op-09", "OP-09"] })
+        : journey,
+  ),
+  ...yugiohProviderSyncJourneys.map((journey) =>
+    withRequiredSet(journey, { labels: ["Legend of Blue Eyes White Dragon"] }),
+  ),
   ...tcgdexRepresentativePokemonJourneys,
   ...scryfallRepresentativeMtgJourneys,
   ...tcgplayerRepresentativeMtgJourneys,
-];
+  {
+    name: "Pokemon English Base Set through TCGdex",
+    providerKey: "tcgdex",
+    unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    scope: [
+      { label: "Language", choice: { labels: ["English"], values: ["en"] } },
+      { label: "Series", choice: { labels: ["Base"], values: ["base"] } },
+      { label: "Expansion", choice: { labels: ["Base Set"], values: ["base1"] } },
+    ],
+    requiresTerminalSync: true,
+  },
+  tcgplayerPokemonProviderSyncJourney,
+  {
+    ...withRequiredSet(tcgplayerPokemonProviderSyncJourney, tcgplayerPokemonSurgingSparksSetChoice),
+    name: "Pokemon English Surging Sparks through TCGplayer",
+  },
+  ...["Base Set", "Surging Sparks"].map((setName) => ({
+    ...withRequiredSet(tcgplayerPokemonProviderSyncJourney, { labels: [setName] }),
+    name: `Pokemon English ${setName} sealed products through TCGplayer`,
+    unitKey: "tcgplayer:pokemon:sealed-product:source-observation-import",
+  })),
+  {
+    ...withRequiredSet(
+      onePieceLaunchProviderSyncJourneys.find((journey) => journey.providerKey === "mtgjson")!,
+      mtgjsonTimeSpiralSetChoice,
+    ),
+    name: "MTG Time Spiral set through MTGJSON",
+  },
+  ...yugiohProviderSyncJourneys.map((journey) => ({
+    ...withRequiredSet(journey, { labels: ["25th Anniversary Rarity Collection"] }),
+    name: `${journey.name} — 25th Anniversary Rarity Collection`,
+  })),
+  ...["Legend of Blue Eyes White Dragon", "25th Anniversary Rarity Collection"].map((setName) => ({
+    name: `Yu-Gi-Oh ${setName} boxed sealed product through YGOJSON`,
+    providerKey: "ygojson",
+    unitKey: "ygojson:yugioh:sealed-product:reference-data",
+    requiredSetName: setName,
+    scope: [{ label: "Sealed Product", choice: { labels: [`${setName} Booster Box`] } }],
+    requiresTerminalSync: true,
+  })),
+  {
+    name: "One Piece OP09 sealed products through TCGplayer",
+    providerKey: "tcgplayer",
+    unitKey: "tcgplayer:one-piece:sealed-product:source-observation-import",
+    scope: [
+      { label: "Product Line", choice: { labels: ["One Piece Card Game"], values: ["68"] } },
+      { label: "Set Name", choice: { labels: ["Emperors In The New World"] } },
+    ],
+    requiresTerminalSync: true,
+  },
+].map((journey: ProviderSyncJourney) => ({
+  ...journey,
+  scope: journey.scope.map((selection) => ({
+    ...selection,
+    choice: { labels: selection.choice.labels, values: selection.choice.values },
+  })),
+}));
+
+function withRequiredSet(journey: ProviderSyncJourney, choice: SelectChoice): ProviderSyncJourney {
+  return {
+    ...journey,
+    scope: journey.scope.map((selection) =>
+      /^(Set|Set Name|Expansion)$/.test(String(selection.label)) ? { ...selection, choice } : selection,
+    ),
+  };
+}
+
+const representativeMembers = stagingRepresentativeCatalogProviderSyncJourneys.map((journey) => {
+  const language = journey.scope.find((selection) => selection.label === "Language")?.choice.values?.[0] ?? "en";
+  const domain = journey.unitKey.split(":")[1]!;
+  const group =
+    domain === "pokemon"
+      ? language === "en"
+        ? "Pokemon EN"
+        : language === "ja"
+          ? "Pokemon JA"
+          : "Pokemon ZH-TW + KO"
+      : ({ mtg: "MTG", yugioh: "Yu-Gi-Oh", "one-piece": "One Piece", lorcana: "Lorcana" } as Record<string, string>)[
+          domain
+        ];
+  const target = journey.requiredSetName ?? journey.scope.at(-1)?.choice.labels?.[0];
+  if (!group || !target) throw new Error("Representative member has no reporting group or named target.");
+  return {
+    id: [journey.unitKey, language, target].join("|"),
+    group,
+    providerKey: journey.providerKey,
+    unitKey: journey.unitKey,
+    language,
+    target,
+    journey,
+  };
+});
 
 // --- Full provider x product-line x form matrix journeys -----------------------
 // Each per-game array runs the scope-first journey end-to-end for every provider
@@ -1157,28 +1290,30 @@ function distinctExpansionKeysForJourneys(journeys: readonly ProviderSyncJourney
   return keys;
 }
 
-const providerSyncJourneys =
-  providerUatJourneyScope === "all-provider-regression"
+function providerJourneysForScope(scope: string): readonly ProviderSyncJourney[] {
+  return scope === "all-provider-regression"
     ? [...lorcanaLaunchProviderSyncJourneys, ...onePieceLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
-    : providerUatJourneyScope === "tcgplayer-pokemon-targeted"
+    : scope === "tcgplayer-pokemon-targeted"
       ? []
-      : providerUatJourneyScope === "lorcana-launch"
+      : scope === "lorcana-launch"
         ? lorcanaLaunchProviderSyncJourneys
-        : providerUatJourneyScope === "staging-representative-catalog"
+        : scope === "staging-representative-catalog"
           ? stagingRepresentativeCatalogProviderSyncJourneys
-          : providerUatJourneyScope === "pokemon-matrix"
+          : scope === "pokemon-matrix"
             ? pokemonMatrixProviderSyncJourneys
-            : providerUatJourneyScope === "mtg-matrix"
+            : scope === "mtg-matrix"
               ? mtgMatrixProviderSyncJourneys
-              : providerUatJourneyScope === "yugioh-matrix"
+              : scope === "yugioh-matrix"
                 ? yugiohMatrixProviderSyncJourneys
-                : providerUatJourneyScope === "one-piece-matrix"
+                : scope === "one-piece-matrix"
                   ? onePieceMatrixProviderSyncJourneys
-                  : providerUatJourneyScope === "lorcana-matrix"
+                  : scope === "lorcana-matrix"
                     ? lorcanaMatrixProviderSyncJourneys
-                    : providerUatJourneyScope === "full-matrix-uat"
+                    : scope === "full-matrix-uat"
                       ? providerProductLineFormMatrixJourneys
                       : onePieceLaunchProviderSyncJourneys;
+}
+const providerSyncJourneys = providerJourneysForScope(providerUatJourneyScope);
 
 const lorcanaDownstreamCatalogItemsJourney: ProviderSyncJourney = {
   name: "Lorcana downstream Catalog Items projection through LorcanaJSON",
@@ -1258,6 +1393,392 @@ function groupProviderSyncJourneysByCanonicalScope(
 }
 
 test.describe("catalog staging provider sync UAT helpers", () => {
+  test("derives all 46 representative members from the real selector and independently refuses every omitted member", () => {
+    const selected = providerJourneysForScope("staging-representative-catalog");
+    expect(selected).toHaveLength(46);
+    expect(representativeMembers.map((member) => member.journey)).toEqual(selected);
+    const ids = representativeMembers.map((member) => member.id);
+    assertExactMembers(representativeMembers, ids, ids);
+    expect(new Set(representativeMembers.map((member) => member.group)).size).toBe(7);
+    for (const omitted of representativeMembers) {
+      const remaining = ids.filter((id) => id !== omitted.id);
+      expect(() => assertExactMembers(representativeMembers, remaining, ids)).toThrow("incomplete-member-set");
+      expect(() => assertExactMembers(representativeMembers, ids, remaining)).toThrow("incomplete-member-set");
+    }
+    for (const target of ["Base Set", "Surging Sparks"]) {
+      const omitted = representativeMembers.find(
+        (member) =>
+          member.unitKey === "tcgplayer:pokemon:sealed-product:source-observation-import" && member.target === target,
+      )!;
+      const rest = representativeMembers.filter((member) => member.id !== omitted.id);
+      expect(new Set(rest.map((member) => member.group)).size).toBe(7);
+      expect(rest.filter((member) => member.unitKey.includes(":single-card:")).length).toBe(
+        representativeMembers.filter((member) => member.unitKey.includes(":single-card:")).length,
+      );
+      expect(() =>
+        assertExactMembers(
+          representativeMembers,
+          rest.map((member) => member.id),
+          rest.map((member) => member.id),
+        ),
+      ).toThrow();
+    }
+    expect(() =>
+      assertExactMembers(
+        representativeMembers,
+        providerProductLineFormMatrixJourneys.map((journey) => journey.name),
+        ids,
+      ),
+    ).toThrow();
+    expect(
+      selected.every((journey) => journey.scope.every((selection) => !selection.choice.fallbackToFirstAvailableOption)),
+    ).toBe(true);
+    for (const sealed of representativeMembers.filter((member) => member.journey.requiredSetName)) {
+      expect(
+        representativeMembers.findIndex(
+          (member) => member.unitKey === "ygojson:yugioh:set:reference-data" && member.target === sealed.target,
+        ),
+      ).toBeLessThan(representativeMembers.indexOf(sealed));
+    }
+  });
+
+  test("partitions every representative unit using the active registry, executable fixture mapper and real planner", () => {
+    const partitions = representativeMembers.map((member) => {
+      expect(() => executableMemberPartition(member), member.id).not.toThrow();
+      return { member, result: executableMemberPartition(member) };
+    });
+    expect(partitions).toHaveLength(46);
+    console.log(
+      `[representative-catalog-inventory] ${JSON.stringify(partitions.map(({ member, result }) => ({ id: member.id, group: member.group, providerKey: member.providerKey, unitKey: result.unitKey, language: member.language, target: member.target, profileKey: result.version.profileKey, profileVersion: result.version.profileVersion, kind: result.normalized.kind, partition: result.partition })))}`,
+    );
+    for (const { member, result } of partitions) {
+      expect(result.unitKey).toBe(member.unitKey);
+      expect(() => activeMemberProfile(member, [{ ...result.version, active: false }])).toThrow();
+      expect(() =>
+        activeMemberProfile(member, [
+          { ...result.version, profile: { ...result.version.profile, providerKey: "synthetic-other-provider" } },
+        ]),
+      ).toThrow();
+      if (member.unitKey === "tcgplayer:pokemon:sealed-product:source-observation-import") {
+        expect(result.normalized.kind).toBe("pokemon-sealed-product");
+        expect(result.partition).toBe("catalog-item");
+        expect(member.language).toBe("en");
+      }
+      if (member.journey.requiredSetName) {
+        expect(result.partition).toBe("catalog-item");
+        expect(memberPromotionPlan(member, result.normalized, ["synthetic_set"]).status).toBe("planned");
+        expect(memberPromotionPlan(member, result.normalized, []).status).toBe("blocked");
+        expect(() => memberPromotionPlan(member, result.normalized, ["synthetic_a", "synthetic_b"])).toThrow();
+      }
+    }
+    expect(() =>
+      activeMemberProfile({ ...representativeMembers[0]!, unitKey: "synthetic:missing:unit:import" }),
+    ).toThrow();
+  });
+
+  test("reconciles every 50-item page and rejects capped, duplicate, unstable, hidden-total and wrong-scope reads", async () => {
+    const scope: CatalogScope = { source: "synthetic", tag: "magic", language: "en", status: "draft" };
+    const snapshot = (total: number, page: number): CatalogPage => ({
+      pathname: "/catalog/catalog-items",
+      heading: true,
+      settled: true,
+      error: false,
+      page,
+      scope,
+      urlScope: scope,
+      total,
+      totalVisible: true,
+      ids: Array.from(
+        { length: Math.min(50, Math.max(0, total - page * 50)) },
+        (_, index) => `synthetic_${page * 50 + index}`,
+      ),
+      nextPage: (page + 1) * 50 < total ? page + 1 : null,
+    });
+    for (const total of [0, 1, 50, 51, 100])
+      expect(
+        await collectCatalogCensus(scope, async (page) => snapshot(total, page), new RepresentativeBudget(30_000)),
+      ).toHaveLength(total);
+    for (const mutate of [
+      (page: CatalogPage) => ({ ...page, ids: page.ids.slice(0, -1) }),
+      (page: CatalogPage) => ({ ...page, totalVisible: false }),
+      (page: CatalogPage) => ({ ...page, total: null }),
+      (page: CatalogPage) => ({ ...page, pathname: "/sign-in" }),
+      (page: CatalogPage) => ({ ...page, heading: false }),
+      (page: CatalogPage) => ({ ...page, error: true }),
+      (page: CatalogPage) => ({ ...page, settled: false }),
+      (page: CatalogPage) => ({ ...page, scope: { ...scope, language: "ja" } }),
+      (page: CatalogPage) => ({ ...page, urlScope: { ...scope, source: "sibling" } }),
+      (page: CatalogPage) => ({ ...page, ids: ["", ...page.ids.slice(1)] }),
+      (page: CatalogPage) => ({ ...page, nextPage: 0 }),
+    ])
+      await expect(
+        collectCatalogCensus(scope, async (page) => mutate(snapshot(51, page)), new RepresentativeBudget(30_000)),
+      ).rejects.toThrow();
+    await expect(
+      collectCatalogCensus(scope, async (page) => snapshot(101, page), new RepresentativeBudget(30_000), 2),
+    ).rejects.toThrow("census-cap-reached");
+    await expect(
+      collectCatalogCensus(scope, async (page) => snapshot(100, page), new RepresentativeBudget(30_000), 2),
+    ).rejects.toThrow("census-cap-reached");
+    await expect(
+      collectCatalogCensus(
+        scope,
+        async (page) => ({ ...snapshot(51, page), ids: page ? ["synthetic_0"] : snapshot(51, page).ids }),
+        new RepresentativeBudget(30_000),
+      ),
+    ).rejects.toThrow("duplicate-paging-identity");
+    await expect(
+      collectCatalogCensus(scope, async (page) => snapshot(page ? 52 : 51, page), new RepresentativeBudget(30_000)),
+    ).rejects.toThrow("unstable-server-total");
+    await expect(
+      collectCatalogCensus(
+        scope,
+        async () => {
+          throw new Error("synthetic locator failure");
+        },
+        new RepresentativeBudget(30_000),
+      ),
+    ).rejects.toThrow("locator failure");
+  });
+
+  test("maps both exact Pokemon sealed targets and refuses an unresolved, ambiguous or set-shaped YGOJSON product", () => {
+    for (const member of representativeMembers.filter(
+      (candidate) => candidate.unitKey === "tcgplayer:pokemon:sealed-product:source-observation-import",
+    )) {
+      const payload = {
+        observationId: "synthetic_pokemon_sealed_observation",
+        externalKey: "synthetic-product",
+        sourceUrl: "https://synthetic.example/product/synthetic-product",
+        sourceUpdatedAt: "2026-01-01T00:00:00.000Z",
+        productId: "synthetic-product",
+        productName: `${member.target} Booster Box`,
+        setCode: "SYNTHETIC",
+        setId: "synthetic-set",
+        setName: member.target,
+        productLineId: 3,
+        productLineName: "Pokemon",
+        productTypeName: "Sealed Products",
+        customAttributes: { number: "SYNTHETIC", releaseDate: "2026-01-01" },
+        releaseYear: 2026,
+        productForm: "sealed",
+        sealedProductForm: "booster-box",
+        packCount: 36,
+        barcode: "synthetic-barcode",
+        imageUrls: [],
+        skuReferences: [],
+        externalCatalogItemReferences: [],
+        externalProductReferences: [],
+        catalogHashMaterial: { synthetic: true },
+        sourcePayload: { synthetic: true },
+      };
+      const mapped = mapMemberPayload(member, payload);
+      expect(mapped.normalized).toMatchObject({
+        kind: "pokemon-sealed-product",
+        languageCode: "en",
+        setName: member.target,
+      });
+      expect(
+        memberPromotionPlan(member, mapped.normalized, ["synthetic-expansion"]).plan?.commands.length,
+      ).toBeGreaterThan(0);
+    }
+    for (const member of representativeMembers.filter((candidate) => candidate.journey.requiredSetName)) {
+      const payload = {
+        kind: "sealed-product-reference",
+        sealedProduct: {
+          id: "synthetic-product",
+          name: { en: `${member.target} Booster Box` },
+          boxOf: ["synthetic-set"],
+          locales: { en: { language: "en", date: "2026-01-01" } },
+          contents: [],
+        },
+        sourceUrl: "https://synthetic.example/sealed/synthetic-product",
+        sourceUpdatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      const mapped = mapMemberPayload(member, payload);
+      const version = activeMemberProfile(member);
+      const observation: SourceObservationListItem = {
+        observation_id: mapped.observationId,
+        provider_key: member.providerKey,
+        external_key: mapped.externalKey,
+        source_url: mapped.sourceUrl,
+        language_code: mapped.languageCode,
+        source_record_hash: mapped.sourceRecordHash,
+        source_updated_at: mapped.sourceUpdatedAt,
+        observed_at: mapped.observedAt,
+        source_profile_key: version.profileKey,
+        source_profile_version: version.profileVersion,
+        source_mapping_fingerprint: mapped.sourceMappingFingerprint,
+        normalized: mapped.normalized,
+        status: "observed",
+        status_reason: null,
+        promoted_catalog_item_id: null,
+        promoted_reference_record_id: null,
+        promoted_at: null,
+        promotion_profile_key: null,
+        promotion_profile_version: null,
+        promotion_plan_fingerprint: null,
+        updated_at: mapped.observedAt,
+      };
+      const selected: SelectedProviderScope = {
+        providerKey: member.providerKey,
+        importScope: "en:synthetic-product",
+        displayLabel: member.target,
+        fields: [{ name: "productId", value: "synthetic-product" }],
+      };
+      const refs = new Map([[member.target, { setId: "synthetic-set", referenceRecordId: "synthetic-reference" }]]);
+      expect(() => assertMemberObservation(member, observation, selected, refs)).not.toThrow();
+      expect(() => assertMemberObservation(member, observation, selected, new Map())).toThrow(
+        "unresolved-boxed-set-relation",
+      );
+      expect(() =>
+        assertMemberObservation(
+          member,
+          { ...observation, external_key: "synthetic-set" },
+          { ...selected, fields: [{ name: "productId", value: "synthetic-set" }] },
+          refs,
+        ),
+      ).toThrow("unresolved-boxed-set-relation");
+      const ambiguous = mapMemberPayload(member, {
+        ...payload,
+        sealedProduct: { ...payload.sealedProduct, boxOf: ["synthetic-set", "synthetic-other-set"] },
+      });
+      expect(() =>
+        assertMemberObservation(member, { ...observation, normalized: ambiguous.normalized }, selected, refs),
+      ).toThrow("unresolved-boxed-set-relation");
+      expect(memberPromotionPlan(member, mapped.normalized, []).status).toBe("blocked");
+      expect(memberPromotionPlan(member, mapped.normalized, ["synthetic-reference"]).status).toBe("planned");
+      const providerProduct = executableMemberPartition(
+        representativeMembers.find(
+          (candidate) => candidate.unitKey === "tcgplayer:yugioh:single-card:source-observation-import",
+        )!,
+      ).normalized;
+      expect(memberPromotionPlan(member, providerProduct, ["synthetic-reference"]).status).toBe("blocked");
+    }
+  });
+
+  test("joins create, refresh, retry and reapply to the exact command and refuses stale, queued, wrong-item and skew violations", () => {
+    const now = Date.parse("2026-01-01T00:00:10.000Z");
+    const iso = (delta: number) => new Date(now + delta).toISOString();
+    const before: ItemInstant[] = [{ id: "synthetic_item", updatedAt: iso(-10_000) }];
+    const valid = {
+      before,
+      after: [{ id: "synthetic_item", updatedAt: iso(0) }],
+      watermark: iso(0),
+      completedAt: iso(1_000),
+      observationId: "synthetic_observation",
+      outcomeObservationId: "synthetic_observation",
+      catalogItemId: "synthetic_item",
+      promotedAt: iso(0),
+      commandState: "completed",
+      successful: true,
+      exactTarget: true,
+      competingMutation: false,
+    };
+    expect(evaluateCausalReadback(valid)).toBe("refreshed");
+    expect(evaluateCausalReadback({ ...valid, before: [] })).toBe("created");
+    for (const change of [
+      { commandState: "queued" },
+      { successful: false },
+      { exactTarget: false },
+      { competingMutation: true },
+      { outcomeObservationId: "synthetic_other" },
+      { catalogItemId: "synthetic_other" },
+      { after: [] },
+      { after: before },
+      { promotedAt: "bad" },
+      { after: [{ id: "synthetic_item", updatedAt: iso(-2_001) }] },
+      { after: [{ id: "synthetic_item", updatedAt: iso(3_001) }] },
+    ])
+      expect(() => evaluateCausalReadback({ ...valid, ...change })).toThrow();
+    expect(
+      evaluateCausalReadback({
+        ...valid,
+        after: [{ id: "synthetic_item", updatedAt: iso(-2_000) }],
+        promotedAt: iso(-2_000),
+      }),
+    ).toBe("refreshed");
+    expect(
+      evaluateCausalReadback({
+        ...valid,
+        after: [{ id: "synthetic_item", updatedAt: iso(3_000) }],
+        promotedAt: iso(3_000),
+      }),
+    ).toBe("refreshed");
+    expect(
+      evaluateCausalReadback({
+        ...valid,
+        before: valid.after,
+        after: [{ id: "synthetic_item", updatedAt: iso(2_000) }],
+        watermark: iso(2_000),
+        completedAt: iso(2_000),
+        promotedAt: iso(2_000),
+      }),
+    ).toBe("refreshed");
+  });
+
+  test("contains first and last member failures, exhausts nested reads and rejects a truncated receipt", async () => {
+    const identity = { runId: "synthetic-helper", attempt: "1", sha: "a".repeat(40) };
+    for (const failAt of [0, representativeMembers.length - 1]) {
+      const receipt = await runRepresentativeMembers(
+        representativeMembers,
+        new RepresentativeBudget(30_000),
+        async (member, progress) => {
+          if (member === representativeMembers[failAt]) throw new Error("synthetic failure");
+          return { ...progress.current, selected: true, executed: true, state: "reference-imported" };
+        },
+        identity,
+      );
+      expect(receipt.members).toHaveLength(46);
+      expect(receipt.groups).toHaveLength(7);
+      expect(receipt.members[failAt]?.state).toBe("failed");
+      expect(() =>
+        validateRepresentativeReceipt({ ...receipt, members: receipt.members.slice(0, -1) }, representativeMembers),
+      ).toThrow();
+    }
+    let now = 0;
+    const budget = new RepresentativeBudget(6_000, () => now);
+    const receipt = await runRepresentativeMembers(
+      representativeMembers,
+      budget,
+      async (_member, progress) => {
+        for (let detail = 0; detail < 1_000; detail++)
+          await budget.run(async (remaining) => {
+            expect(remaining).toBeLessThanOrEqual(1_000);
+            now += 100;
+          });
+        return progress.current;
+      },
+      identity,
+    );
+    expect(receipt.members.every((member) => member.state === "unreached")).toBe(true);
+    expect(() => budget.remaining()).toThrow("deadline-exhausted");
+    const boundary = new RepresentativeBudget(30_000, () => now);
+    now = boundary.deadline - 1;
+    await expect(boundary.run(() => new Promise<never>(() => undefined))).rejects.toThrow("deadline-exhausted");
+    expect(boundary.deadline + boundary.emissionMarginMs - now).toBeGreaterThan(0);
+    const complete = await runRepresentativeMembers(
+      representativeMembers,
+      new RepresentativeBudget(30_000),
+      async (_member, progress) => ({
+        ...progress.current,
+        selected: true,
+        executed: true,
+        state: "reference-imported",
+      }),
+      identity,
+    );
+    expect(complete.digest).toBe(inventoryDigest(representativeMembers));
+    expect(() => compareRepresentativeReceipts(representativeMembers, complete, complete)).not.toThrow();
+    expect(() =>
+      compareRepresentativeReceipts(representativeMembers, complete, {
+        ...complete,
+        members: complete.members.map((member, index) =>
+          index ? member : { ...member, selectedProductId: "synthetic-other-product" },
+        ),
+      }),
+    ).toThrow("repeat-member-drift");
+  });
+
   test("uses the canonical commands rendered by the Catalog workbench", async ({ page }) => {
     const unitKey = "scrydex:lorcana:single-card:source-observation-import";
     await page.setContent(
@@ -1857,7 +2378,10 @@ test.describe("catalog staging provider sync UAT helpers", () => {
 });
 
 test.describe("catalog staging provider sync UAT", () => {
-  test("operator syncs provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({ page }) => {
+  test("operator syncs provider scopes from the shared importer UI @catalog-staging-provider-uat", async ({
+    page,
+  }, testInfo) => {
+    const startedAt = Date.now();
     test.setTimeout(uatTestTimeoutMs);
     test.skip(!runStagingProviderUat, "Set CATALOG_STAGING_PROVIDER_UAT=true to run the staging provider sync UAT.");
     test.skip(
@@ -1870,6 +2394,11 @@ test.describe("catalog staging provider sync UAT", () => {
       !catalogAdminEmail || !catalogAdminPassword,
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for staging provider sync UAT.",
     );
+
+    if (providerUatJourneyScope === "staging-representative-catalog") {
+      await runRepresentativeCatalog(page, testInfo.timeout - (Date.now() - startedAt));
+      return;
+    }
 
     await signInThroughVisibleForm(page);
     await openCatalogImporter(page);
@@ -1917,6 +2446,405 @@ test.describe("catalog staging provider sync UAT", () => {
     }
   });
 });
+
+type RepresentativeMember = (typeof representativeMembers)[number];
+
+function selectedRepresentativeIdentity(member: RepresentativeMember, selected: SelectedProviderScope): string {
+  const language = selected.fields.find((field) => field.name === "languageCode")?.value;
+  const chosen = selected.choices?.at(-1);
+  const required = member.journey.scope.at(-1)?.choice;
+  const permitted = [...(required?.labels ?? []), ...(required?.values ?? [])];
+  if (
+    selected.providerKey !== member.providerKey ||
+    language !== member.language ||
+    !chosen ||
+    ![...chosen.values, chosen.selectedOptionLabel ?? ""].some((value) =>
+      permitted.some(
+        (candidate) => normalizeWhitespace(candidate).toLowerCase() === normalizeWhitespace(value).toLowerCase(),
+      ),
+    )
+  )
+    throw new EvidenceUnknown("selected-member-identity-mismatch");
+  const field = selected.fields.find((candidate) => candidate.name === chosen.fieldName);
+  if (field?.value !== chosen.selectedValue) throw new EvidenceUnknown("selected-coordinate-not-committed");
+  return [member.unitKey, language, member.target].join("|");
+}
+
+async function readCatalogJson<T>(page: Page, path: string, budget: RepresentativeBudget): Promise<T> {
+  if (!path.startsWith("/api/catalog/") || path.includes("..")) throw new EvidenceUnknown("unsafe-catalog-read");
+  const response = await budget.run((timeout) => page.request.get(path, { timeout, maxRedirects: 0 }));
+  if (!response.ok()) throw new EvidenceUnknown("catalog-read-failed");
+  return budget.run(() => response.json()) as Promise<T>;
+}
+
+async function selectedMemberObservations(
+  page: Page,
+  member: RepresentativeMember,
+  selected: SelectedProviderScope,
+  budget: RepresentativeBudget,
+): Promise<readonly SourceObservationListItem[]> {
+  const version = activeMemberProfile(member);
+  const fields = new Map(selected.fields.map((field) => [field.name, field.value]));
+  const query = new URLSearchParams({ provider: member.providerKey, language: member.language, limit: "50" });
+  if (!fields.get("productId")) {
+    const set = fields.get("expansionId") || fields.get("expansionName");
+    if (set) query.set("setId", set);
+  }
+  const observations = new Map<string, SourceObservationListItem>();
+  let total: number | null = null;
+  for (let offset = 0; offset < 10_000; offset += 50) {
+    query.set("offset", String(offset));
+    const result = await readCatalogJson<{ items: SourceObservationListItem[]; total: number; count: number }>(
+      page,
+      `/api/catalog/source-observations?${query}`,
+      budget,
+    );
+    if (
+      !Number.isSafeInteger(result.total) ||
+      result.total < 0 ||
+      (total !== null && total !== result.total) ||
+      result.count !== result.items.length ||
+      result.items.length !== Math.min(50, Math.max(0, result.total - offset))
+    )
+      throw new EvidenceUnknown("incomplete-observation-census");
+    total = result.total;
+    for (const observation of result.items) {
+      if (observations.has(observation.observation_id)) throw new EvidenceUnknown("duplicate-observation-page");
+      observations.set(observation.observation_id, observation);
+    }
+    if (observations.size === total) {
+      return [...observations.values()].filter(
+        (observation) =>
+          observation.provider_key === member.providerKey &&
+          observation.language_code === member.language &&
+          observation.source_profile_key === version.profileKey &&
+          observation.source_profile_version === version.profileVersion &&
+          (!fields.get("productId") || observation.normalized.ygojsonId === fields.get("productId")),
+      );
+    }
+  }
+  throw new EvidenceUnknown("observation-census-cap");
+}
+
+function assertMemberObservation(
+  member: RepresentativeMember,
+  observation: SourceObservationListItem,
+  selected: SelectedProviderScope,
+  references: ReadonlyMap<string, { setId: string; referenceRecordId: string }>,
+): void {
+  const version = activeMemberProfile(member);
+  if (
+    !version.executableMappingContract?.sourceObservation ||
+    observation.source_mapping_fingerprint !==
+      catalogProviderSourceMappingFingerprint(
+        version.executableMappingContract as CatalogProviderSourceObservationMappingContract,
+      )
+  )
+    throw new EvidenceUnknown("observation-mapper-drift");
+  if (
+    observation.provider_key !== member.providerKey ||
+    observation.language_code !== member.language ||
+    observation.source_profile_key !== version.profileKey ||
+    observation.source_profile_version !== version.profileVersion ||
+    observation.normalized.kind !== version.executableMappingContract?.normalizedObservation.outputKind
+  )
+    throw new EvidenceUnknown("wrong-observation-identity");
+  const productId = selected.fields.find((field) => field.name === "productId")?.value;
+  if (member.journey.requiredSetName) {
+    const reference = references.get(member.target);
+    const normalized = observation.normalized;
+    if (
+      !productId ||
+      !reference ||
+      productId === reference.setId ||
+      normalized.ygojsonId !== productId ||
+      normalized.kind !== "yugioh-sealed-product" ||
+      normalized.boxOfSetEvidence?.length !== 1 ||
+      normalized.boxOfSetEvidence[0] !== reference.setId
+    )
+      throw new EvidenceUnknown("unresolved-boxed-set-relation");
+  } else {
+    const names = [observation.normalized.expansionName, observation.normalized.setName].filter(Boolean);
+    const selectedValues = member.journey.scope.at(-1)?.choice;
+    if (
+      !names.some((name) => name === member.target) &&
+      !selectedValues?.values?.some((value) =>
+        [observation.normalized.expansionId, observation.normalized.setId, observation.normalized.setCode].some(
+          (identity) => typeof identity === "string" && identity.toLowerCase() === value.toLowerCase(),
+        ),
+      )
+    )
+      throw new EvidenceUnknown("wrong-observation-target");
+  }
+}
+
+async function assertNoCompetingCatalogJobs(
+  page: Page,
+  budget: RepresentativeBudget,
+  ownJobId: string | null = null,
+): Promise<void> {
+  for (const route of ["bulk-jobs/active", "integration-jobs/active"]) {
+    const jobs = await readCatalogJson<{ items: { jobId: string }[]; total: number; count: number }>(
+      page,
+      `/api/catalog/source-observations/${route}`,
+      budget,
+    );
+    if (
+      jobs.count !== jobs.items.length ||
+      jobs.total !== jobs.items.length ||
+      jobs.items.some((job) => job.jobId !== ownJobId)
+    )
+      throw new EvidenceUnknown("competing-catalog-mutation");
+  }
+}
+
+async function representativeCommandForm(
+  page: Page,
+  observationId: string,
+  mode: "promote" | "reapply",
+  budget: RepresentativeBudget,
+  phase?: "preview" | "execute",
+): Promise<Locator> {
+  const forms = page.locator(
+    `form[data-catalog-primary-workbench-command="observation.${mode}"]:not([data-catalog-source-scope-unit])`,
+  );
+  for (let i = 0, count = await budget.run(() => forms.count()); i < count; i++) {
+    const form = forms.nth(i);
+    const ids = await budget.run(() => selectedObservationIdsFromForm(form));
+    if (ids.length !== 1 || ids[0] !== observationId) continue;
+    if (phase && (await budget.run(() => hiddenInputValue(form, "promotionPhase"))) !== phase) continue;
+    const button = form.getByRole("button").first();
+    if ((await budget.run(() => button.isVisible())) && (await budget.run(() => button.isEnabled()))) return form;
+  }
+  throw new EvidenceUnknown("missing-exact-observation-command");
+}
+
+async function waitRepresentativeCommand(
+  page: Page,
+  jobId: string,
+  observationId: string,
+  budget: RepresentativeBudget,
+) {
+  for (;;) {
+    const job = await readCatalogJson<
+      CatalogBulkReviewJob<BulkSourceObservationPromotionResult | BulkSourceObservationReapplyResult>
+    >(page, `/api/catalog/source-observations/bulk-jobs/${encodeURIComponent(jobId)}`, budget);
+    if (job.jobId !== jobId || job.observationIds.length !== 1 || job.observationIds[0] !== observationId)
+      throw new EvidenceUnknown("wrong-command-observation");
+    if (job.status === "failed") throw new EvidenceUnknown("command-failed");
+    if (job.status === "completed") {
+      if (
+        !job.completedAt ||
+        !job.result ||
+        job.result.requested !== 1 ||
+        job.result.failed !== 0 ||
+        job.result.outcomes.length !== 1
+      )
+        throw new EvidenceUnknown("incomplete-command-result");
+      const outcome = job.result.outcomes[0]!;
+      if (outcome.observationId !== observationId || !["promoted", "reapplied"].includes(outcome.status))
+        throw new EvidenceUnknown("zero-command-outcome");
+      return { job, outcome };
+    }
+    await budget.run((remaining) => page.waitForTimeout(Math.min(1_000, remaining)));
+  }
+}
+
+async function runRepresentativeCatalog(page: Page, remainingMs: number): Promise<void> {
+  const budget = new RepresentativeBudget(remainingMs);
+  const references = new Map<string, { setId: string; referenceRecordId: string }>();
+  let initialized = false;
+  try {
+    await budget.run(() => signInThroughVisibleForm(page));
+    await budget.run(() => openCatalogImporter(page));
+    await budget.run(() => assertSharedImporterSurface(page));
+    initialized = true;
+  } catch {
+    /* The receipt records initialization failure for every unreached member. */
+  }
+  const selectedIds: string[] = [];
+  const executedIds: string[] = [];
+  const receipt = await runRepresentativeMembers(
+    representativeMembers,
+    budget,
+    async (member, progress) => {
+      if (!initialized) throw new EvidenceUnknown("initialization-unavailable");
+      const partition = executableMemberPartition(member);
+      await budget.run(() => openCatalogImporter(page));
+      const selected = await budget.run(() => selectProviderScope(page, member.journey));
+      const selectedId = selectedRepresentativeIdentity(member, selected);
+      selectedIds.push(selectedId);
+      progress.current = {
+        ...progress.current,
+        selected: true,
+        selectedProductId: selected.fields.find((field) => field.name === "productId")?.value ?? null,
+      };
+      if (member.journey.preflight)
+        await budget.run(() => expectImportPreflight(page, member.unitKey, selected, member.journey.preflight!));
+      const sync = await budget.run(() => syncSelectedProviderUnit(page, member.unitKey, selected));
+      executedIds.push(selectedId);
+      progress.current = { ...progress.current, executed: true, importJobId: currentSearchParam(page, "jobId") };
+      await budget.run(() =>
+        expectImportJobSettledForSelectedUnit(page, member.unitKey, selected, sync.previousJobRows, undefined, {
+          allowPartialWithReview: member.journey.allowPartialWithReview,
+        }),
+      );
+      const observations = await selectedMemberObservations(page, member, selected, budget);
+      const observation = observations.find((candidate) =>
+        ["observed", "changed", "promoted"].includes(candidate.status),
+      );
+      if (!observation) throw new EvidenceUnknown("required-target-unavailable");
+      assertMemberObservation(member, observation, selected, references);
+      progress.current = { ...progress.current, observationId: observation.observation_id };
+      const needsSetReference = member.unitKey === "ygojson:yugioh:set:reference-data";
+      if (partition.partition === "reference-only" && !needsSetReference)
+        return {
+          ...progress.current,
+          state: "reference-imported",
+          referenceRecordId: observation.promoted_reference_record_id,
+        };
+      if (needsSetReference && observation.promoted_reference_record_id) {
+        if (typeof observation.normalized.ygojsonId !== "string") throw new EvidenceUnknown("missing-set-identity");
+        references.set(member.target, {
+          setId: observation.normalized.ygojsonId,
+          referenceRecordId: observation.promoted_reference_record_id,
+        });
+        return {
+          ...progress.current,
+          state: "reference-imported",
+          referenceRecordId: observation.promoted_reference_record_id,
+        };
+      }
+      if (partition.partition === "catalog-item") {
+        const reference = member.journey.requiredSetName
+          ? references.get(member.target)?.referenceRecordId
+          : "synthetic-partition-reference";
+        const plan = memberPromotionPlan(member, observation.normalized, reference ? [reference] : []);
+        if (plan.status !== "planned" || !plan.plan.commands.length)
+          throw new EvidenceUnknown("promotion-plan-refused");
+      }
+      const mode = observation.status === "promoted" ? "reapply" : "promote";
+      const reviewUrl = new URL(page.url());
+      reviewUrl.searchParams.set("selectedObservationIds", observation.observation_id);
+      reviewUrl.searchParams.delete("jobId");
+      reviewUrl.searchParams.delete("promotionPreviewId");
+      await budget.run((timeout) => page.goto(reviewUrl.toString(), { waitUntil: "domcontentloaded", timeout }));
+      await budget.run(() => expandWorkflowStage(page, "review-changes"));
+      if (mode === "promote") {
+        const preview = await representativeCommandForm(page, observation.observation_id, mode, budget, "preview");
+        await budget.run((timeout) => preview.getByRole("button").first().click({ timeout }));
+        progress.current = {
+          ...progress.current,
+          previewId: previewIdentityDigest(await budget.run(() => expectPromotionPreviewReady(page))),
+        };
+      }
+      const executeHref = page.url();
+      const before = needsSetReference ? [] : await readCatalogBaseline(page, member, budget);
+      await budget.run((timeout) => page.goto(executeHref, { waitUntil: "domcontentloaded", timeout }));
+      await assertNoCompetingCatalogJobs(page, budget);
+      await budget.run(() => expandWorkflowStage(page, mode === "promote" ? "create-items" : "review-changes"));
+      if (mode === "promote") {
+        const confirmation = page.getByRole("checkbox", { name: /^I confirm this will promote/i });
+        await budget.run((timeout) => confirmation.check({ timeout }));
+      }
+      const command = await representativeCommandForm(
+        page,
+        observation.observation_id,
+        mode,
+        budget,
+        mode === "promote" ? "execute" : undefined,
+      );
+      const watermark = new Date().toISOString();
+      progress.current = { ...progress.current, watermark };
+      await budget.run((timeout) => command.getByRole("button").first().click({ timeout }));
+      const jobId = await budget.run((remaining) =>
+        waitForSearchParam(page, "jobId", Math.min(syncTimeoutMs, remaining)),
+      );
+      progress.current = { ...progress.current, commandJobId: jobId };
+      const result = await waitRepresentativeCommand(page, jobId, observation.observation_id, budget);
+      const updatedObservation = await readCatalogJson<SourceObservationListItem>(
+        page,
+        `/api/catalog/source-observations/${encodeURIComponent(observation.observation_id)}`,
+        budget,
+      );
+      assertMemberObservation(member, updatedObservation, selected, references);
+      if (needsSetReference) {
+        const referenceRecordId = result.outcome.referenceRecordId;
+        if (!referenceRecordId || referenceRecordId !== updatedObservation.promoted_reference_record_id)
+          throw new EvidenceUnknown("missing-set-reference-outcome");
+        if (typeof observation.normalized.ygojsonId !== "string") throw new EvidenceUnknown("missing-set-identity");
+        references.set(member.target, { setId: observation.normalized.ygojsonId, referenceRecordId });
+        return { ...progress.current, state: "reference-imported", referenceRecordId };
+      }
+      await assertNoCompetingCatalogJobs(page, budget, jobId);
+      const after = await readCatalogBaseline(page, member, budget);
+      if (updatedObservation.promoted_catalog_item_id !== result.outcome.catalogItemId)
+        throw new EvidenceUnknown("wrong-promoted-item");
+      const item = await readCatalogJson<CatalogItemDetail>(
+        page,
+        `/api/catalog/items/${encodeURIComponent(result.outcome.catalogItemId ?? "")}`,
+        budget,
+      );
+      const sourceKey = sourceObservationLinkExternalKey(member.language, updatedObservation.external_key);
+      if (
+        item.catalog_item_id !== result.outcome.catalogItemId ||
+        item.language_code !== member.language ||
+        item.updated_at !== after.find((row) => row.id === item.catalog_item_id)?.updatedAt ||
+        ![...item.external_catalog_item_references, ...item.external_product_references].some(
+          (reference) => reference.providerKey === member.providerKey && reference.externalKey === sourceKey,
+        )
+      )
+        throw new EvidenceUnknown("unmatched-item-command-provenance");
+      if (
+        member.journey.requiredSetName &&
+        !item.field_values.some(
+          (field) => field.reference?.referenceId === references.get(member.target)?.referenceRecordId,
+        )
+      )
+        throw new EvidenceUnknown("wrong-boxed-set-reference");
+      const state = evaluateCausalReadback({
+        before,
+        after,
+        watermark,
+        completedAt: result.job.completedAt!,
+        observationId: observation.observation_id,
+        outcomeObservationId: result.outcome.observationId,
+        catalogItemId: result.outcome.catalogItemId,
+        promotedAt: updatedObservation.promoted_at,
+        commandState: result.job.status,
+        successful: true,
+        exactTarget: true,
+        competingMutation: false,
+      });
+      return {
+        ...progress.current,
+        state,
+        catalogItemId: result.outcome.catalogItemId,
+        updatedAt: after.find((item) => item.id === result.outcome.catalogItemId)!.updatedAt,
+        absoluteCount: after.length,
+        causalCount: 1,
+      };
+    },
+    {
+      runId: process.env.GITHUB_RUN_ID ?? "",
+      attempt: process.env.GITHUB_RUN_ATTEMPT ?? "",
+      sha: process.env.GITHUB_SHA ?? "",
+    },
+  );
+  let closeFailed = false;
+  if (Date.now() >= budget.deadline) {
+    try {
+      await budget.finish(() => page.close({ runBeforeUnload: false }));
+    } catch {
+      closeFailed = true;
+    }
+  }
+  validateRepresentativeReceipt(receipt, representativeMembers);
+  console.log(`[representative-catalog-receipt] ${JSON.stringify(receipt)}`);
+  if (closeFailed) throw new EvidenceUnknown("browser-close-deadline");
+  assertExactMembers(representativeMembers, selectedIds, executedIds);
+  expect(receipt.members.every((member) => !["failed", "unreached"].includes(member.state))).toBe(true);
+}
 
 async function signInThroughVisibleForm(page: Page): Promise<void> {
   await page.goto("/access/sign-in?returnTo=%2Fcatalog%2Fintegrations", {
@@ -2097,6 +3025,7 @@ async function selectGuidedScope({
       label: selection.label,
       fieldName,
       selectedValue: selectedOption.value,
+      selectedOptionLabel: selectedOption.label,
       values: selectedScopeChoiceValues(selectedOption),
     });
   }
@@ -2111,7 +3040,7 @@ async function selectGuidedScope({
   // locator here: a route revalidation can replace it between observation and
   // assertion.
   expect(settled.importScope).toBe(expectedImportScope);
-  return settled;
+  return { ...settled, choices: selectedChoices };
 }
 
 function expectedNativeGuidedImportScope(selectedChoices: readonly SelectedGuidedScopeChoice[]): string | null {

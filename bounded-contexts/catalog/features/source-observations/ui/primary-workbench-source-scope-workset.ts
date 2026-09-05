@@ -14,6 +14,7 @@ import type {
 import type { CatalogIntegrationUnitKey } from "../api/integration-unit";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
 import {
+  canSelectStandaloneProductCoordinate,
   emptyCatalogPrimaryWorkbenchScopeContext,
   importScopeFromScopeContext,
   scopeContextFromProviderScope,
@@ -179,6 +180,7 @@ function explicitScopeFromRouteContext(
 ): CatalogPrimaryWorkbenchScopeContext {
   return {
     providerKey: routeContext.providerKey ?? routeContext.scope?.providerKey ?? null,
+    productId: routeContext.scope?.productId ?? null,
     languageCode: routeContext.scope?.languageCode ?? null,
     productLineId: routeContext.scope?.productLineId ?? null,
     productLineName: routeContext.scope?.productLineName ?? null,
@@ -290,6 +292,13 @@ function candidateIsRelevantToSelection(
   scopes: readonly SourceObservationIntegrationScope[],
   routeContext: CatalogPrimaryWorkbenchRouteContext,
 ): boolean {
+  if (selectedScope.scope.productId) {
+    return (
+      candidate.providerKey === routeContext.providerKey &&
+      candidate.unitKey === routeContext.unitKey &&
+      profileCanSelectScope(candidate.profile, selectedScope.scope)
+    );
+  }
   if (!selectedScope.hasConcreteScope) {
     return routeContext.providerKey ? candidate.providerKey === routeContext.providerKey : true;
   }
@@ -351,6 +360,7 @@ function sourceScopeUnitRow(
   const blockers = unitReadinessBlockers(candidate, input);
   const commandContext = {
     providerKey: candidate.providerKey,
+    productId: routeScope.productId,
     unitKey: candidate.unitKey,
     importScope,
     profileVersion: candidate.profile?.profileVersion ?? null,
@@ -462,6 +472,10 @@ function providerCommandScope(
 
   return {
     providerKey: candidate.providerKey,
+    productId:
+      selectedScopeMatchesCandidate && profileCanSelectScope(candidate.profile, selectedScope)
+        ? selectedScope.productId
+        : null,
     languageCode: canProjectSelectedScope
       ? (selectedScope.languageCode ?? providerScope.languageCode ?? candidate.profile?.languageOptions[0] ?? null)
       : providerScope.languageCode,
@@ -682,12 +696,14 @@ function profileCanSelectScope(
   profile: CatalogProviderProfileVersionReview | null,
   scope: CatalogPrimaryWorkbenchScopeContext,
 ): boolean {
+  if (scope.productId && !canSelectStandaloneProductCoordinate(profile)) return false;
   const sourceOptionKinds = sourceOptionKindsForProfile(profile);
   if (!profile || sourceOptionKinds.length === 0) {
     return true;
   }
 
   const selectableScopes = new Set(sourceOptionKinds.map((kind) => kind.scope));
+  if (scope.productId && !selectableScopes.has("product")) return false;
   const selectsSetName = selectableScopes.has("set-name");
   if (
     Boolean(scope.productLineId || scope.productLineName) &&
@@ -1003,6 +1019,7 @@ function addComparableTokens(tokens: Set<string>, value: string | null): void {
 
 function scopeHasConcreteSelection(scope: CatalogPrimaryWorkbenchScopeContext): boolean {
   return Boolean(
+    scope.productId ||
     scope.languageCode ||
     scope.productLineId ||
     scope.productLineName ||

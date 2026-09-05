@@ -47,8 +47,7 @@ export type CatalogPrimaryWorkbenchGuidedScopeField = Readonly<{
 
 // Maps a provider option-kind scope to the structured route-context query field it
 // drives. Provider-agnostic: any provider whose option kinds declare these scopes
-// gets guided controls. Finer grains (product/card, product, sku) intentionally map
-// to no field — they are below the import-scope grain the daily surface selects.
+// gets guided controls. Product coordinates remain distinct from set coordinates.
 const scopeQueryFieldsByProviderScope: Readonly<
   Record<
     string,
@@ -58,6 +57,7 @@ const scopeQueryFieldsByProviderScope: Readonly<
     }>
   >
 > = {
+  product: { fieldName: "productId", labelFieldName: null },
   language: { fieldName: "languageCode", labelFieldName: null },
   "product-line/category": { fieldName: "productLineId", labelFieldName: "productLineName" },
   series: { fieldName: "seriesId", labelFieldName: "seriesName" },

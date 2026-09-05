@@ -18,6 +18,7 @@ import {
   sourceOptionKindsForProfile,
 } from "./primary-workbench-read-model-support";
 import {
+  canSelectStandaloneProductCoordinate,
   scopeContextFromProviderScope,
   scopeContextFromRouteContext,
   scopeContextMatchesProviderScope,
@@ -60,7 +61,14 @@ export type CatalogPrimaryWorkbenchSourceOptionPageSnapshot = Readonly<{
 
 const SOURCE_OPTION_PAGE_LIMIT = 25;
 const SOURCE_OPTION_ROUTE = "/api/catalog/source-observations/integration-options";
-const sourceScopeOptionScopes = new Set(["language", "product-line/category", "series", "expansion", "set-name"]);
+const sourceScopeOptionScopes = new Set([
+  "language",
+  "product-line/category",
+  "series",
+  "expansion",
+  "set-name",
+  "product",
+]);
 
 export function buildCatalogPrimaryWorkbenchSourceOptions(input: {
   generatedAt: string;
@@ -161,7 +169,12 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
   });
   const limit = input.limit ?? SOURCE_OPTION_PAGE_LIMIT;
   return sourceOptionKinds
-    .filter((kind) => sourceScopeOptionScopes.has(kind.scope))
+    .filter(
+      (kind) =>
+        sourceScopeOptionScopes.has(kind.scope) &&
+        (kind.scope !== "product" ||
+          (context.requestedUnitKey === profile.ingestionUnitKey && canSelectStandaloneProductCoordinate(profile))),
+    )
     .map((kind) => {
       const parent = kind.parentScope ? (selections.get(kind.parentScope) ?? null) : null;
       const languageSelection = selections.get("language") ?? null;
@@ -463,6 +476,7 @@ function sourceOptionSelections(input: {
     scope?.productLineName ?? scope?.productLineId,
   );
   addSelection(selections, "series", scope?.seriesId, scope?.seriesName ?? scope?.seriesId);
+  addSelection(selections, "product", scope?.productId, scope?.productId);
   addSelection(selections, "expansion", scope?.expansionId, scope?.expansionName ?? scope?.expansionId);
   addSelection(
     selections,
@@ -548,6 +562,7 @@ function addScopeAndAncestors(
 
 function scopeHasExplicitSelection(scope: CatalogPrimaryWorkbenchRouteContext["scope"]): boolean {
   return Boolean(
+    scope?.productId ||
     scope?.languageCode ||
     scope?.productLineId ||
     scope?.productLineName ||
@@ -567,6 +582,8 @@ function explicitScopeIncludesSelection(
   }
 
   switch (selectionScope) {
+    case "product":
+      return Boolean(scope.productId);
     case "language":
       return Boolean(scope.languageCode);
     case "product-line/category":
