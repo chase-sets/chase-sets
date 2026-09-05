@@ -6,6 +6,7 @@ import {
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
 import type {
   CheckoutObservabilityTelemetry,
@@ -1010,7 +1011,7 @@ describe("guest cart routes on a claimed anonymous key", () => {
   });
 
   it("returns the ownership refusal from the real runtime for a claimed guest bulk add", async () => {
-    const source = CLAIMED_SOURCE;
+    const source = CLAIMED_SOURCE as AccountId;
     const claimant = "acc_synthetic_claimant";
     const memory = createInMemoryEventStore();
     const runtime = createCheckoutCartRuntime({
