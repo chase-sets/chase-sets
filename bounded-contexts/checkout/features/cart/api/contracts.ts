@@ -18,8 +18,9 @@ export function normalizePresentedAnonymousCartId(value: string | null | undefin
  * decided refusal, and the union is shaped so that is a type-level guarantee:
  * `indeterminate` cannot express the field at all, so a transient store failure
  * can never be mistaken for evidence that a retained cookie is worthless. It is
- * never a public response field and never an error code -- #5737 is its only
- * planned consumer, and until then nothing reads it.
+ * never a public response field and never an error code: its only planned
+ * consumer is the retained-anonymous-cart cookie-clearing slice, and until
+ * that lands nothing reads it.
  */
 export type CheckoutCartSourceAuthority =
   | Readonly<{ status: "accepted"; acceptedVia: "possession" | "account" }>
