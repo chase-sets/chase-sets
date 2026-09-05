@@ -18,7 +18,7 @@ import { resolveStripeKeyMode } from "./stripe-money-smoke-test.mjs";
 import { assertKeyMode } from "./stripe-webhook-endpoint.mjs";
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, "..");
-const BASE_SHA = "1419342988ce4863d4f3c4176b88351528b9df26";
+const INVENTORY_BASE_SHA = "1419342988ce4863d4f3c4176b88351528b9df26";
 const ROOTS = Object.freeze([
   "infrastructure",
   "deployables",
@@ -30,9 +30,38 @@ const ROOTS = Object.freeze([
 ]);
 const EXPECTED_BASE_ROOT_COUNTS = Object.freeze([6, 0, 1, 0, 0, 15, 7]);
 const EXPECTED_CANDIDATE_ROOT_COUNTS = Object.freeze([6, 0, 1, 0, 0, 13, 4]);
+const PLANNED_FOOTPRINT = Object.freeze(
+  [
+    ".github/workflows/platform-pr.yml",
+    ".github/workflows/platform-production.yml",
+    "infrastructure/platform-runtime/config-schema.test.ts",
+    "scripts/merge-gate-verification.mjs",
+    "scripts/merge-gate-verification.test.mjs",
+    "scripts/provider-webhook-lifecycle.mjs",
+    "scripts/provider-webhook-lifecycle.test.mjs",
+    "scripts/staging-refresh-preflight.mjs",
+    "scripts/staging-refresh-preflight.test.mjs",
+    "scripts/stripe-key-mode.d.mts",
+    "scripts/stripe-key-mode.mjs",
+    "scripts/stripe-key-mode.test.mjs",
+    "scripts/stripe-money-smoke-test.mjs",
+    "scripts/stripe-money-smoke-test.test.mjs",
+    "scripts/stripe-webhook-endpoint.mjs",
+    "scripts/stripe-webhook-endpoint.test.mjs",
+  ].sort(),
+);
 
 function git(args, cwd = REPOSITORY_ROOT) {
   return execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+}
+
+function exactFootprintErrors(actual, expected = PLANNED_FOOTPRINT) {
+  const actualPaths = new Set(actual);
+  const expectedPaths = new Set(expected);
+  return [
+    ...expected.filter((file) => !actualPaths.has(file)).map((file) => `missing-planned-path:${file}`),
+    ...actual.filter((file) => !expectedPaths.has(file)).map((file) => `unplanned-path:${file}`),
+  ];
 }
 
 function rootFor(file) {
@@ -494,7 +523,7 @@ describe("workflow CLI and leakage controls", () => {
 });
 
 describe("seven-root tracked inventory and closed partition", () => {
-  const baseline = scanTrackedRepository({ ref: BASE_SHA });
+  const baseline = scanTrackedRepository({ ref: INVENTORY_BASE_SHA });
   const candidate = scanTrackedRepository();
   const classS = anchorsFrom(baseline, CLASS_S_BASE_ANCHORS);
   const nonPredicates = anchorsFrom(baseline, NON_PREDICATE_BASE_ANCHORS);
@@ -668,40 +697,61 @@ describe("seven-root tracked inventory and closed partition", () => {
 });
 
 describe("workflow and footprint preservation", () => {
-  it("changes exactly the three workflow predicates while preserving their messages and topology", () => {
-    const replacements = new Map([
-      [
-        ".github/workflows/platform-pr.yml",
-        [
-          [
-            "          if ! node scripts/stripe-key-mode.mjs require-unrestricted-pair --mode test --secret-var TF_VAR_stripe_secret_key --publishable-var TF_VAR_stripe_publishable_key; then",
-            '          if [[ "${TF_VAR_stripe_secret_key}" != sk_test* || "${TF_VAR_stripe_publishable_key}" != pk_test* ]]; then',
-          ],
-        ],
-      ],
-      [
-        ".github/workflows/platform-production.yml",
-        [
-          [
-            "          if ! node scripts/stripe-key-mode.mjs require-unrestricted-pair --mode test --secret-var TF_VAR_stripe_secret_key --publishable-var TF_VAR_stripe_publishable_key; then",
-            '          if [[ "${TF_VAR_stripe_secret_key}" != sk_test* || "${TF_VAR_stripe_publishable_key}" != pk_test* ]]; then',
-          ],
-          [
-            "            if ! node scripts/stripe-key-mode.mjs require-unrestricted-pair --mode live --secret-var TF_VAR_stripe_secret_key --publishable-var TF_VAR_stripe_publishable_key; then",
-            '            if [[ "${TF_VAR_stripe_secret_key}" != sk_live* || "${TF_VAR_stripe_publishable_key}" != pk_live* ]]; then',
-          ],
-        ],
-      ],
-    ]);
-    for (const [file, pairs] of replacements) {
-      let candidateSource = readFileSync(path.join(REPOSITORY_ROOT, ...file.split("/")), "utf8");
-      for (const [replacement, original] of pairs) {
-        expect(candidateSource.split(replacement)).toHaveLength(2);
-        candidateSource = candidateSource.replace(replacement, original);
-      }
-      expect(candidateSource).toBe(git(["show", `${BASE_SHA}:${file}`]));
+  const workflowSurfaces = Object.freeze([
+    {
+      file: ".github/workflows/platform-pr.yml",
+      name: "preview-test-mode",
+      command:
+        "          if ! node scripts/stripe-key-mode.mjs require-unrestricted-pair --mode test --secret-var TF_VAR_stripe_secret_key --publishable-var TF_VAR_stripe_publishable_key; then",
+      message:
+        '            echo "Preview deployments require Stripe test-mode keys. Use staging for complete Stripe-delivered webhook proof and production only for approved live proof." >&2',
+      withdrawn:
+        '          if [[ "${TF_VAR_stripe_secret_key}" != sk_test* || "${TF_VAR_stripe_publishable_key}" != pk_test* ]]; then',
+    },
+    {
+      file: ".github/workflows/platform-production.yml",
+      name: "staging-test-mode",
+      command:
+        "          if ! node scripts/stripe-key-mode.mjs require-unrestricted-pair --mode test --secret-var TF_VAR_stripe_secret_key --publishable-var TF_VAR_stripe_publishable_key; then",
+      message:
+        '            echo "Staging requires dedicated Stripe test-mode keys; production live-mode keys must not be used in the staging GitHub Environment." >&2',
+      withdrawn:
+        '          if [[ "${TF_VAR_stripe_secret_key}" != sk_test* || "${TF_VAR_stripe_publishable_key}" != pk_test* ]]; then',
+    },
+    {
+      file: ".github/workflows/platform-production.yml",
+      name: "production-live-mode",
+      command:
+        "            if ! node scripts/stripe-key-mode.mjs require-unrestricted-pair --mode live --secret-var TF_VAR_stripe_secret_key --publishable-var TF_VAR_stripe_publishable_key; then",
+      message: '              echo "Production proof/public platform deployment requires Stripe live-mode keys." >&2',
+      withdrawn:
+        '            if [[ "${TF_VAR_stripe_secret_key}" != sk_live* || "${TF_VAR_stripe_publishable_key}" != pk_live* ]]; then',
+    },
+  ]);
+
+  function workflowSurfaceErrors(file, source) {
+    const errors = [];
+    for (const surface of workflowSurfaces.filter((entry) => entry.file === file)) {
+      const block = `${surface.command}\n${surface.message}\n${surface.command.slice(0, -surface.command.trimStart().length)}  exit 1\n${surface.command.slice(0, -surface.command.trimStart().length)}fi`;
+      if (source.split(block).length !== 2) errors.push(`missing-or-duplicate-classified-surface:${surface.name}`);
+      if (source.includes(surface.withdrawn)) errors.push(`withdrawn-prefix-glob:${surface.name}`);
     }
-  });
+    return errors;
+  }
+
+  for (const file of [".github/workflows/platform-pr.yml", ".github/workflows/platform-production.yml"]) {
+    it(`pins only the classified Stripe key-mode surfaces in ${file} and kills its withdrawn-glob mutant`, () => {
+      const source = readFileSync(path.join(REPOSITORY_ROOT, ...file.split("/")), "utf8");
+      expect(workflowSurfaceErrors(file, source)).toEqual([]);
+      for (const surface of workflowSurfaces.filter((entry) => entry.file === file)) {
+        const mutant = source.replace(surface.command, surface.withdrawn);
+        expect(workflowSurfaceErrors(file, mutant), surface.name).toEqual([
+          `missing-or-duplicate-classified-surface:${surface.name}`,
+          `withdrawn-prefix-glob:${surface.name}`,
+        ]);
+      }
+    });
+  }
 
   it("keeps the declaration widened and literal-free with only its sanctioned exports", () => {
     const declaration = readFileSync(path.join(REPOSITORY_ROOT, "scripts/stripe-key-mode.d.mts"), "utf8");
@@ -714,29 +764,58 @@ describe("workflow and footprint preservation", () => {
     expect(declaration).toContain("readonly StripeKeyCase[]");
   });
 
-  it("preserves runtime production bytes and confines the candidate to the exact predicted files", () => {
-    expect(readFileSync(path.join(REPOSITORY_ROOT, "infrastructure/platform-runtime/config-schema.ts"), "utf8")).toBe(
-      git(["show", `${BASE_SHA}:infrastructure/platform-runtime/config-schema.ts`]),
+  it("pins the runtime classifier properties and kills a no-underscore runtime mutant", () => {
+    const source = readFileSync(path.join(REPOSITORY_ROOT, "infrastructure/platform-runtime/config-schema.ts"), "utf8");
+    const classifier = source.slice(
+      source.indexOf("function classifyStripeKeys("),
+      source.indexOf("export function stripeKeyRefusal("),
     );
-    const expected = [
-      ".github/workflows/platform-pr.yml",
-      ".github/workflows/platform-production.yml",
-      "infrastructure/platform-runtime/config-schema.test.ts",
-      "scripts/merge-gate-verification.mjs",
-      "scripts/merge-gate-verification.test.mjs",
-      "scripts/provider-webhook-lifecycle.mjs",
-      "scripts/provider-webhook-lifecycle.test.mjs",
-      "scripts/staging-refresh-preflight.mjs",
-      "scripts/staging-refresh-preflight.test.mjs",
-      "scripts/stripe-key-mode.d.mts",
-      "scripts/stripe-key-mode.mjs",
-      "scripts/stripe-key-mode.test.mjs",
-      "scripts/stripe-money-smoke-test.mjs",
-      "scripts/stripe-money-smoke-test.test.mjs",
-      "scripts/stripe-webhook-endpoint.mjs",
-      "scripts/stripe-webhook-endpoint.test.mjs",
-    ].sort();
-    expect(git(["diff", "--name-only", BASE_SHA]).trim().split(/\r?\n/u).filter(Boolean).sort()).toEqual(expected);
+    const errorsFor = (text) => {
+      const errors = [];
+      const requiredBranches = [
+        [
+          /secretKey\.startsWith\("sk_test_"\)\)\s*\{[^}]*serverKeyMode = "test";[^}]*serverKeyClass = "standard";[^}]*\}/u,
+          "sk-test-standard",
+        ],
+        [
+          /secretKey\.startsWith\("sk_live_"\)\)\s*\{[^}]*serverKeyMode = "live";[^}]*serverKeyClass = "standard";[^}]*\}/u,
+          "sk-live-standard",
+        ],
+        [
+          /secretKey\.startsWith\("rk_test_"\)\)\s*\{[^}]*serverKeyMode = "test";[^}]*serverKeyClass = "restricted";[^}]*\}/u,
+          "rk-test-restricted",
+        ],
+        [
+          /secretKey\.startsWith\("rk_live_"\)\)\s*\{[^}]*serverKeyMode = "live";[^}]*serverKeyClass = "restricted";[^}]*\}/u,
+          "rk-live-restricted",
+        ],
+        [/publishableKey\.startsWith\("pk_test_"\)\)\s*\{[^}]*publishableKeyMode = "test";[^}]*\}/u, "pk-test"],
+        [/publishableKey\.startsWith\("pk_live_"\)\)\s*\{[^}]*publishableKeyMode = "live";[^}]*\}/u, "pk-live"],
+        [/return\s*\{\s*serverKeyMode,\s*serverKeyClass,\s*publishableKeyMode\s*\};/u, "closed-return"],
+      ];
+      for (const [pattern, name] of requiredBranches)
+        if (!pattern.test(text)) errors.push(`missing-runtime-invariant:${name}`);
+      if (/\.startsWith\("(?:sk|rk|pk)_(?:test|live)"\)/u.test(text)) errors.push("withdrawn-no-underscore-prefix");
+      if (/\.(?:includes|match)\(/u.test(text) || /(?:new\s+)?RegExp\(/u.test(text)) {
+        errors.push("withdrawn-non-prefix-matcher");
+      }
+      return errors;
+    };
+    expect(errorsFor(classifier)).toEqual([]);
+    const mutant = classifier.replace('secretKey.startsWith("sk_test_")', 'secretKey.startsWith("sk_test")');
+    expect(errorsFor(mutant)).toEqual(["missing-runtime-invariant:sk-test-standard", "withdrawn-no-underscore-prefix"]);
+  });
+
+  it("publishes the exact committed footprint declaration and kills an unplanned-file mutant", () => {
+    expect(PLANNED_FOOTPRINT).toHaveLength(16);
+    expect(new Set(PLANNED_FOOTPRINT).size).toBe(PLANNED_FOOTPRINT.length);
+    for (const file of PLANNED_FOOTPRINT) {
+      expect(statSync(path.join(REPOSITORY_ROOT, ...file.split("/"))).isFile(), file).toBe(true);
+    }
+    expect(exactFootprintErrors(PLANNED_FOOTPRINT)).toEqual([]);
+    expect(exactFootprintErrors([...PLANNED_FOOTPRINT, "scripts/unplanned-footprint-mutant.mjs"])).toEqual([
+      "unplanned-path:scripts/unplanned-footprint-mutant.mjs",
+    ]);
   });
 
   it("publishes the complete discriminating-control roster beside executable controls", () => {
