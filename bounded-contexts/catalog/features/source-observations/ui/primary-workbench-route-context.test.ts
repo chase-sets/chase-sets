@@ -243,6 +243,7 @@ describe("Catalog primary workbench route context", () => {
           unitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
           scope: {
             providerKey: "tcgplayer",
+            productId: null,
             languageCode: "en",
             productLineId: "1",
             productLineName: "Magic: The Gathering",

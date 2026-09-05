@@ -87,6 +87,7 @@ describe("Catalog primary workbench read model - source observation review", () 
         importScope: "en:3:Base Set",
         scope: {
           providerKey: "tcgplayer",
+          productId: null,
           languageCode: "en",
           productLineId: "3",
           productLineName: "Pokemon",

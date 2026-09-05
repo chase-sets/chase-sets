@@ -20,6 +20,7 @@ const baseContext: CatalogPrimaryWorkbenchRouteContext = {
   returnPath: null,
   scope: {
     providerKey: "tcgplayer",
+    productId: null,
     languageCode: "en",
     productLineId: "3",
     productLineName: "Pokemon",

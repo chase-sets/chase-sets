@@ -112,12 +112,13 @@ describe("Catalog integrations route", () => {
   it("refuses a mismatched or missing product unit and mixed set/product commands before enqueue", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
-    for (const fields of [
+    const invalidProductScopes: readonly Record<string, string>[] = [
       { unitKey: "tcgdex:pokemon:card:import" },
       { unitKey: "" },
       { unitKey: "ygojson:yugioh:sealed-product:reference-data", expansionId: "synthetic-set" },
       { unitKey: "ygojson:yugioh:sealed-product:reference-data", profileVersion: "synthetic-inactive-version" },
-    ]) {
+    ];
+    for (const fields of invalidProductScopes) {
       const result = await runDailyAction({
         _intent: "scope.import",
         providerKey: "ygojson",
