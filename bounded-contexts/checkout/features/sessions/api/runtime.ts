@@ -491,9 +491,14 @@ async function assertCurrentCartReadinessForUncommittedSession(
     throw readinessStaleError();
   }
 
-  const cartLines = presentedAnonymousCartId
-    ? await cart.listCartLines(accountId as AccountId, presentedAnonymousCartId)
-    : await cart.listCartLines(accountId as AccountId);
+  // The authorized read, not the raw union: it re-decides every alias-derived
+  // candidate against its own Cart aggregate on this pass too, so a source the
+  // session never presented cannot be revalidated by the claim alias alone.
+  const cartLines = await cart.listAuthorizedCartLines(
+    presentedAnonymousCartId
+      ? { accountId: String(accountId), presentedAnonymousCartId }
+      : { accountId: String(accountId) },
+  );
   const readiness = validateCartReadinessSnapshot(
     cartLines,
     {
@@ -867,9 +872,14 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         params.accountId,
         params.presentedAnonymousCartId,
       );
-      const cartLines = presentedAnonymousCartId
-        ? await deps.cart.listCartLines(params.accountId, presentedAnonymousCartId)
-        : await deps.cart.listCartLines(params.accountId);
+      // Line resolution runs through the authorized read, so the accepted
+      // presented key above and every alias-derived candidate are both decided
+      // from aggregate state before a single line reaches the session.
+      const cartLines = await deps.cart.listAuthorizedCartLines(
+        presentedAnonymousCartId
+          ? { accountId: params.accountId, presentedAnonymousCartId }
+          : { accountId: params.accountId },
+      );
       if (cartLines.length === 0) {
         throw new CheckoutDomainError("Cart must contain at least one line.", "cart_empty");
       }

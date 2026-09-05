@@ -949,7 +949,15 @@ async function unionCleanupHarness() {
       ).values(),
     ];
   };
-  const realCart = { ...cart, listCartLines };
+  // Checkout Session start and every active-session revalidation resolve lines
+  // through `listAuthorizedCartLines`. Overriding only `listCartLines` would stop
+  // intercepting the moment the runtime moved members, so the harness would run
+  // the real member against the stub `db` above and silently resolve nothing.
+  // The double substitutes line resolution only; source authority still comes
+  // from the real Cart aggregate through the production guards.
+  const listAuthorizedCartLines: CheckoutCartServices["listAuthorizedCartLines"] = async (params) =>
+    listCartLines(params.accountId, params.presentedAnonymousCartId);
+  const realCart = { ...cart, listCartLines, listAuthorizedCartLines };
   const runtime = () => createCheckoutSessionRuntime({ eventStore, checkpointStore, db, cart: realCart });
   const sessions = runtime();
   const readiness = createCartReadinessSnapshot(await listCartLines(buyer, anonymous), undefined, {

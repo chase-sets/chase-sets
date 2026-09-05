@@ -19,8 +19,11 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
+import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { module as checkoutModule } from "../../../index";
 import { createCheckoutCartRuntime } from "../api/runtime";
+import { createCheckoutCartMcpHandlers } from "../api/mcp";
+import { createCheckoutSessionRuntime } from "../../sessions/api/runtime";
 import {
   decideCheckoutCart,
   evolveCheckoutCart,
@@ -1971,6 +1974,169 @@ describeDb("post-claim read authority against the claim alias in Postgres", () =
       status: "refused",
       clearRetainedAnonymousCartCookie: true,
     });
+  });
+
+  /**
+   * The alias row is candidate discovery, so a rewritten row is the one input
+   * that can put a foreign source in front of an Account that presents no key
+   * at all. Every read below is taken with no `presentedAnonymousCartId`.
+   */
+  const mcpActorFor = (accountId: string) =>
+    ({
+      sessionId: "sess_synthetic",
+      tenantId: "tnt_synthetic",
+      userId: "usr_synthetic",
+      accountId,
+      membershipId: "mem_synthetic",
+      roleKey: "manager",
+      permissions: ["orders.view"],
+    }) satisfies ResolvedActor;
+
+  const readCartOverMcp = async (
+    runtime: ReturnType<typeof createCartRuntime>["runtime"],
+    sessions: ReturnType<typeof createCheckoutSessionRuntime>,
+    accountId: string,
+  ) => {
+    const handlers = createCheckoutCartMcpHandlers({
+      cart: runtime,
+      sessions,
+      listSavedShippingAddresses: async () => [],
+    });
+    return handlers.toolHandlers["checkout.get-cart"]?.({
+      actor: mcpActorFor(accountId),
+      tool: null as never,
+      arguments: { accountId },
+      request: new Request("https://api.test/mcp"),
+      protocol: {
+        protocolVersion: "2025-06-18",
+        stateless: false,
+        clientInfo: null,
+        clientCapabilities: null,
+      },
+    });
+  };
+
+  it("keeps a stale alias-derived source out of every read taken with no presented key", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: otherAccount, line_id: "cli_rival" }),
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own" }),
+        claimedLine(),
+      ],
+      [seededOption()],
+    );
+    const { eventStore, runtime } = createCartRuntime(pool);
+    const sessions = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db: pool,
+      cart: runtime,
+    });
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    // The events say the claimant owns this source. The routing row is then
+    // rewritten to name a different Account -- exactly the state that let the
+    // old in-SQL alias expansion widen that Account's read set with no
+    // aggregate decision behind it.
+    await pool.query("UPDATE checkout_cart_claims SET account_id = $2 WHERE source_owner_key = $1", [
+      claimedSourceA,
+      otherAccount,
+    ]);
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: otherAccount }]);
+    const streamsBefore = await Promise.all(
+      [claimAccount, otherAccount, claimedSourceA].map((owner) => readStreamEventTypes(`checkout.cart-${owner}`)),
+    );
+
+    const foreignLines = await runtime.listAuthorizedCartLines({ accountId: otherAccount });
+    const foreignReadiness = await runtime.createReadinessSnapshot({ accountId: otherAccount });
+    const foreignMcp = await readCartOverMcp(runtime, sessions, otherAccount);
+
+    // No foreign row anywhere the alias could have carried it.
+    expect(foreignLines.map((line) => line.line_id)).toEqual(["cli_rival"]);
+    expect(foreignLines.map((line) => line.buyer_account_id)).toEqual([otherAccount]);
+    expect(foreignReadiness.includedLineIds).toEqual(["cli_rival"]);
+    expect(JSON.stringify({ foreignLines, foreignReadiness, foreignMcp })).not.toContain(claimedSourceA);
+
+    // A ready snapshot is required for the session arm below to exercise
+    // line resolution rather than stop at a readiness refusal.
+    expect(foreignReadiness.status).toBe("ready");
+
+    // Nor can a Checkout Session be sourced from it: start succeeds against
+    // the Account's own cart and appends nothing to the claimed stream.
+    const started = await sessions.createFromCart(
+      {
+        accountId: otherAccount as never,
+        readinessSnapshotId: foreignReadiness.snapshotId,
+        readinessSourceRevision: foreignReadiness.sourceRevision,
+      },
+      { ...context, audit: { ...context.audit, forAccountId: otherAccount } } as never,
+    );
+    const startedEvent = (await readAllStoredEvents()).find((event) => event.event_type === "checkout.session.started");
+
+    expect(
+      (startedEvent?.payload as { lines: readonly { cartLineId: string }[] }).lines.map((l) => l.cartLineId),
+    ).toEqual(["cli_rival"]);
+    expect(JSON.stringify(startedEvent?.payload)).not.toContain(claimedSourceA);
+    expect(started.sessionId).toEqual(expect.any(String));
+    expect(
+      await Promise.all(
+        [claimAccount, otherAccount, claimedSourceA].map((owner) => readStreamEventTypes(`checkout.cart-${owner}`)),
+      ),
+    ).toEqual(streamsBefore);
+
+    // Controls, with every other fact frozen. A rewritten alias can only
+    // narrow the true claimant's discovery, never widen anyone's; presenting
+    // the key still admits the claimant by Account authority; and an
+    // unclaimed source is still admitted by possession.
+    expect((await runtime.listAuthorizedCartLines({ accountId: claimAccount })).map((line) => line.line_id)).toEqual([
+      "cli_own",
+    ]);
+    expect(
+      (
+        await runtime.listAuthorizedCartLines({
+          accountId: claimAccount,
+          presentedAnonymousCartId: claimedSourceA,
+        })
+      )
+        .map((line) => line.line_id)
+        .sort(),
+    ).toEqual(["cli_own", "cli_source"]);
+    await expect(
+      runtime.resolveCartSourceAuthority({
+        actingOwnerKey: otherAccount,
+        presentedAnonymousCartId: "anon_cart_never_claimed",
+      }),
+    ).resolves.toEqual({ status: "accepted", acceptedVia: "possession" });
+  });
+
+  it("decides each of several claimed sources separately when one alias row is stale-foreign", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own" }),
+        claimedLine(),
+        seededLine({ buyer_account_id: claimedSourceB, line_id: "cli_source_b" }),
+        seededLine({ buyer_account_id: presentedSource, line_id: "cli_source_foreign" }),
+      ],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceB, accountId: claimAccount as never }, context);
+    // A third source genuinely claimed by the rival, with a routing row that
+    // wrongly names the claimant.
+    await runtime.claimCart({ sourceOwnerKey: presentedSource, accountId: otherAccount as never }, context);
+    await pool.query("UPDATE checkout_cart_claims SET account_id = $2 WHERE source_owner_key = $1", [
+      presentedSource,
+      claimAccount,
+    ]);
+
+    const candidates = await runtime.listClaimedOwnerKeys(claimAccount);
+    const lines = await runtime.listAuthorizedCartLines({ accountId: claimAccount });
+
+    // Routing breadth carries all three; the aggregate accepts two.
+    expect(candidates).toEqual([claimedSourceA, claimedSourceB, presentedSource]);
+    expect(lines.map((line) => line.line_id).sort()).toEqual(["cli_own", "cli_source", "cli_source_b"]);
+    expect(lines.map((line) => line.buyer_account_id)).not.toContain(presentedSource);
   });
 
   it("refuses the retained key through the real readiness path while the claimant still reads the source", async () => {

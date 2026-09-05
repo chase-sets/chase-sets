@@ -4,6 +4,10 @@ import { ZERO_GLOBAL_POSITION, type GlobalPosition } from "@chase-sets/event-cor
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { evolveCheckoutCart, initialCheckoutCartState, type CheckoutCartEvent } from "../../cart/domain/domain";
+import {
+  CHECKOUT_ANONYMOUS_CART_COOKIE_NAME,
+  readAnonymousCartId,
+} from "../../../support/request-support/guest-checkout";
 import { createCartReadinessSnapshot } from "../../cart/domain/readiness";
 import { evolveCheckoutSession, initialCheckoutSessionState, type CheckoutSessionEvent } from "../domain/domain";
 import { createCheckoutSessionRuntime } from "../api/runtime";
@@ -3401,7 +3405,15 @@ async function unionCleanupHarness() {
       ).values(),
     ];
   };
-  const realCart = { ...cart, listCartLines };
+  // Checkout Session start and every active-session revalidation resolve lines
+  // through `listAuthorizedCartLines`. Overriding only `listCartLines` would stop
+  // intercepting the moment the runtime moved members, so the harness would run
+  // the real member against the stub `db` above and silently resolve nothing.
+  // The double substitutes line resolution only; source authority still comes
+  // from the real Cart aggregate through the production guards.
+  const listAuthorizedCartLines: CheckoutCartServices["listAuthorizedCartLines"] = async (params) =>
+    listCartLines(params.accountId, params.presentedAnonymousCartId);
+  const realCart = { ...cart, listCartLines, listAuthorizedCartLines };
   const runtime = () => createCheckoutSessionRuntime({ eventStore, checkpointStore, db, cart: realCart });
   const sessions = runtime();
   const readiness = createCartReadinessSnapshot(await listCartLines(buyer, anonymous), undefined, {
@@ -3670,6 +3682,9 @@ describe("direct-header post-claim source authority through the real HTTP path",
     ];
     const cart = {
       ...cartRuntime,
+      listAuthorizedCartLines: vi.fn<CheckoutCartServices["listAuthorizedCartLines"]>(async (params) =>
+        resolveLines(params.accountId, params.presentedAnonymousCartId),
+      ),
       listCartLines: vi.fn<CheckoutCartServices["listCartLines"]>(async (accountId, presented) =>
         resolveLines(String(accountId), presented),
       ),
@@ -3730,8 +3745,11 @@ describe("direct-header post-claim source authority through the real HTTP path",
     expect(responseText).not.toContain("cli_source");
     // The route forwarded the key exactly as before; Cart authority is what
     // removed it, so the session was sourced from the acting Account alone.
-    expect(test.cart.listCartLines).toHaveBeenCalledWith(OTHER);
-    expect(test.cart.listCartLines).not.toHaveBeenCalledWith(OTHER, SOURCE);
+    expect(test.cart.listAuthorizedCartLines).toHaveBeenCalledWith({ accountId: OTHER });
+    expect(test.cart.listAuthorizedCartLines).not.toHaveBeenCalledWith({
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
     expect((started?.payload as { lines: readonly { cartLineId: string }[] }).lines.map((l) => l.cartLineId)).toEqual([
       "cli_other_account",
     ]);
@@ -3742,17 +3760,28 @@ describe("direct-header post-claim source authority through the real HTTP path",
     ]);
   });
 
-  it("refuses identically whether the key came from a retained cookie or a hand-supplied header", async () => {
+  it("refuses identically whether the key arrived through the real retained-cookie adapter or a typed header", async () => {
     const test = harness();
     await test.claimSourceFor(OWNER);
     const accountOnlyReadiness = createCartReadinessSnapshot(test.resolveLines(OTHER));
 
-    // The route has exactly one ingress for the key, so a value copied from a
-    // retained cookie and one typed by hand are the same input.
+    // Two ingresses, not two labels. The retained-cookie arm starts from the
+    // browser cookie the guest entry flow actually writes, runs it through the
+    // production adapter that converts it into the presented key, and sends
+    // that key to the real API and runtime path. The typed arm sets the header
+    // by hand. Neither may behave differently from the other.
+    const retainedCookieRequest = new Request("http://checkout.test/checkout/start", {
+      method: "POST",
+      headers: { cookie: `${CHECKOUT_ANONYMOUS_CART_COOKIE_NAME}=${SOURCE}` },
+    });
+    const retainedAnonymousCartId = readAnonymousCartId(retainedCookieRequest);
+
+    expect(retainedAnonymousCartId).toBe(SOURCE);
+
     const bodies: string[] = [];
-    for (const _origin of ["retained-cookie", "hand-supplied"]) {
+    for (const presentedKey of [retainedAnonymousCartId, SOURCE]) {
       const response = await test.app.fetch(
-        startRequest(accountOnlyReadiness, { "x-checkout-anonymous-cart-id": SOURCE }),
+        startRequest(accountOnlyReadiness, presentedKey ? { "x-checkout-anonymous-cart-id": presentedKey } : {}),
       );
       expect(response.status).toBe(201);
       bodies.push((await response.text()).replace(/chk_[0-9a-z]+/gi, "chk_normalized"));
@@ -3760,8 +3789,40 @@ describe("direct-header post-claim source authority through the real HTTP path",
 
     expect(bodies[0]).toBe(bodies[1]);
     expect(bodies.join("")).not.toContain(SOURCE);
+    expect(bodies.join("")).not.toContain("cli_source");
+    // Both arms were refused by Cart authority, not by the transport: the
+    // route forwarded the key and the union came back Account-only.
+    expect(test.cart.listAuthorizedCartLines).not.toHaveBeenCalledWith({
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+    expect((test.cartMemory.streams.get(`checkout.cart-${SOURCE}`) ?? []).map((event) => event.eventType)).toEqual([
+      "checkout.cart.claimed-by-account",
+    ]);
   });
 
+  it("presents no key at all when the retained cookie does not hold an anonymous cart id", async () => {
+    const test = harness();
+    await test.claimSourceFor(OWNER);
+    const accountOnlyReadiness = createCartReadinessSnapshot(test.resolveLines(OTHER));
+
+    // The adapter is a real gate, so the two arms above are not the same
+    // request wearing two labels: a cookie the adapter rejects yields no
+    // presented key, and the route is called with none.
+    const rejectedCookieRequest = new Request("http://checkout.test/checkout/start", {
+      method: "POST",
+      headers: { cookie: `${CHECKOUT_ANONYMOUS_CART_COOKIE_NAME}=cart_synthetic_not_anonymous` },
+    });
+    const retainedAnonymousCartId = readAnonymousCartId(rejectedCookieRequest);
+
+    expect(retainedAnonymousCartId).toBeNull();
+
+    const response = await test.app.fetch(startRequest(accountOnlyReadiness, {}));
+
+    expect(response.status).toBe(201);
+    expect(test.cart.listAuthorizedCartLines).toHaveBeenCalledWith({ accountId: OTHER });
+    expect(await response.text()).not.toContain(SOURCE);
+  });
   it("still sources the presented key for the claimant Account through the same route", async () => {
     const test = harness();
     await test.claimSourceFor(OTHER);
@@ -3774,7 +3835,10 @@ describe("direct-header post-claim source authority through the real HTTP path",
     const started = test.sessionMemory.allEvents.find((event) => event.eventType === "checkout.session.started");
 
     expect(response.status).toBe(201);
-    expect(test.cart.listCartLines).toHaveBeenCalledWith(OTHER, SOURCE);
+    expect(test.cart.listAuthorizedCartLines).toHaveBeenCalledWith({
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
     expect(
       (started?.payload as { lines: readonly { cartLineId: string }[] }).lines.map((l) => l.cartLineId).sort(),
     ).toEqual(["cli_other_account", "cli_source"]);
@@ -3792,6 +3856,9 @@ describe("direct-header post-claim source authority through the real HTTP path",
     const response = await test.app.fetch(startRequest(unionReadiness, { "x-checkout-anonymous-cart-id": SOURCE }));
 
     expect(response.status).toBe(201);
-    expect(test.cart.listCartLines).toHaveBeenCalledWith(OTHER, SOURCE);
+    expect(test.cart.listAuthorizedCartLines).toHaveBeenCalledWith({
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
   });
 });

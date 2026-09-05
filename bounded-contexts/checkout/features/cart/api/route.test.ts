@@ -1317,16 +1317,35 @@ describe("post-claim cart reads through the real Cart runtime", () => {
    */
   function claimedCartHarness() {
     const memory = createInMemoryEventStore();
+    // Timing-relevant work, recorded in order: an aggregate read and a
+    // projection read are the only I/O a guest cart read performs, so an
+    // inequality here is exactly the extra-query oracle AC3 forbids.
+    const work: string[] = [];
+    const unreadableStreams = new Set<string>();
     const runtime = createCheckoutCartRuntime({
-      eventStore: memory.eventStore,
+      eventStore: {
+        ...memory.eventStore,
+        readStream: async (input: Parameters<typeof memory.eventStore.readStream>[0]) => {
+          work.push("aggregate-read");
+          if (unreadableStreams.has(input.streamId)) {
+            unreadableStreams.delete(input.streamId);
+            throw new Error("event store unavailable");
+          }
+          return memory.eventStore.readStream(input);
+        },
+      },
       checkpointStore: {} as never,
       db: {
         query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
           if (sql.includes("WHERE claim.account_id = $1")) {
+            work.push("claim-lookup");
             return { rows: [], rowCount: 0 };
           }
           if (sql.includes("WITH requested_owners")) {
-            const requested = [values[0], values[1]].filter((value): value is string => typeof value === "string");
+            work.push("projection-query");
+            const requested = [values[0], values[1], ...(Array.isArray(values[3]) ? values[3] : [])].filter(
+              (value): value is string => typeof value === "string",
+            );
             const rows = [
               ...(requested.includes(CLAIMED_SOURCE) ? [projectedLine(CLAIMED_SOURCE, "cli_claimed")] : []),
               ...(requested.includes(UNCLAIMED_SOURCE) ? [projectedLine(UNCLAIMED_SOURCE, "cli_unclaimed")] : []),
@@ -1346,6 +1365,11 @@ describe("post-claim cart reads through the real Cart runtime", () => {
     return {
       memory,
       runtime,
+      work,
+      resetWork: () => {
+        work.length = 0;
+      },
+      makeStreamUnreadableOnce: (ownerKey: string) => unreadableStreams.add(`checkout.cart-${ownerKey}`),
       seedClaim: async () =>
         runtime.commandHandler({
           streamId: `checkout.cart-${CLAIMED_SOURCE}`,
@@ -1513,6 +1537,124 @@ describe("post-claim cart reads through the real Cart runtime", () => {
       items: [{ line_id: "cli_unclaimed", item_title: "Title cli_unclaimed" }],
     });
     expect(JSON.parse(accountBody)).toMatchObject({ items: [{ line_id: "cli_other_account" }] });
+  });
+
+  /**
+   * Byte-equal responses are not enough on their own: a refusal that skipped
+   * the projection read would still be distinguishable by the work performed.
+   * These controls freeze every non-governing fact and vary only the presented
+   * key's authority, then compare status, headers, body bytes and the ordered
+   * I/O trace together.
+   */
+  const headerPairs = (response: Response) =>
+    [...response.headers.entries()].map(([name, value]) => `${name}: ${value}`).sort();
+
+  it("performs identical read work for a refused claimed guest cart and a valid unclaimed-empty one", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+    const read = async (ownerKey: string) => {
+      harness.resetWork();
+      const response = await app.request("/guest/cart", {
+        headers: { "x-checkout-anonymous-cart-id": ownerKey },
+      });
+      return { response, body: await response.text(), work: [...harness.work] };
+    };
+
+    const refused = await read(CLAIMED_SOURCE);
+    const unclaimedEmpty = await read("anon_synthetic_absent");
+
+    expect(refused.work).toEqual(unclaimedEmpty.work);
+    expect(refused.work).toEqual(["aggregate-read", "projection-query"]);
+    expect(refused.response.status).toBe(unclaimedEmpty.response.status);
+    expect(headerPairs(refused.response)).toEqual(headerPairs(unclaimedEmpty.response));
+    expect(refused.body).toBe(unclaimedEmpty.body);
+    expect(JSON.parse(refused.body)).toEqual({ items: [], count: 0 });
+  });
+
+  it("performs identical read work for refused and valid unclaimed-empty guest readiness", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+    const read = async (ownerKey: string) => {
+      harness.resetWork();
+      const response = await app.request("/guest/cart/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": ownerKey },
+        body: JSON.stringify({}),
+      });
+      return { response, body: await response.text(), work: [...harness.work] };
+    };
+
+    const refused = await read(CLAIMED_SOURCE);
+    const unclaimedEmpty = await read("anon_synthetic_absent");
+
+    expect(refused.work).toEqual(unclaimedEmpty.work);
+    expect(refused.work).toEqual(["aggregate-read", "projection-query"]);
+    expect(refused.response.status).toBe(unclaimedEmpty.response.status);
+    expect(headerPairs(refused.response)).toEqual(headerPairs(unclaimedEmpty.response));
+    expect(refused.body).toBe(unclaimedEmpty.body);
+  });
+
+  it("keeps the unclaimed-nonempty positive control on the same read work, so equality is not vacuous", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+
+    harness.resetWork();
+    const response = await app.request("/guest/cart", {
+      headers: { "x-checkout-anonymous-cart-id": UNCLAIMED_SOURCE },
+    });
+    const body = await response.text();
+
+    // Same two reads as the refused control, and a real line comes back --
+    // so the equal-work claim is about the work, not about doing none.
+    expect(harness.work).toEqual(["aggregate-read", "projection-query"]);
+    expect(response.status).toBe(200);
+    expect(JSON.parse(body)).toMatchObject({ count: 1, items: [{ line_id: "cli_unclaimed" }] });
+  });
+
+  it("keeps an indeterminate guest read on the same work and response, and re-decides on retry", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+    const read = async (ownerKey: string) => {
+      harness.resetWork();
+      const response = await app.request("/guest/cart", {
+        headers: { "x-checkout-anonymous-cart-id": ownerKey },
+      });
+      return { response, body: await response.text(), work: [...harness.work] };
+    };
+
+    const unclaimedEmpty = await read("anon_synthetic_absent");
+    harness.makeStreamUnreadableOnce(UNCLAIMED_SOURCE);
+    const indeterminate = await read(UNCLAIMED_SOURCE);
+    const retry = await read(UNCLAIMED_SOURCE);
+
+    // A store failure is not a refusal and not an oracle: same status, headers,
+    // body bytes and work as a valid unclaimed-empty read, nothing cached, and
+    // the next attempt resolves the cart normally.
+    expect(indeterminate.work).toEqual(unclaimedEmpty.work);
+    expect(indeterminate.response.status).toBe(unclaimedEmpty.response.status);
+    expect(headerPairs(indeterminate.response)).toEqual(headerPairs(unclaimedEmpty.response));
+    expect(indeterminate.body).toBe(unclaimedEmpty.body);
+    expect(indeterminate.body).not.toContain("clearRetainedAnonymousCartCookie");
+    expect(JSON.parse(retry.body)).toMatchObject({ count: 1, items: [{ line_id: "cli_unclaimed" }] });
+  });
+
+  it("goes red against a bypass that skips the projection read once authority is refused", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+
+    harness.resetWork();
+    await app.request("/guest/cart", { headers: { "x-checkout-anonymous-cart-id": CLAIMED_SOURCE } });
+    const refusedWork = [...harness.work];
+    // The mutant: short-circuit to [] the moment authority is not accepted.
+    const shortCircuited = refusedWork.filter((entry) => entry !== "projection-query");
+
+    expect(refusedWork).toContain("projection-query");
+    expect(shortCircuited).not.toEqual(refusedWork);
   });
 
   it("would surface the claimed lines if the read authority guard were bypassed", async () => {

@@ -33,6 +33,7 @@ import {
 } from "../domain/readiness";
 import { buildCheckoutCartProjectionHandlers } from "../read-model/projection";
 import {
+  listAuthorizedOwnerCartLines,
   listCartLines,
   listClaimedCartOwnerKeys,
   listOwnCartLines,
@@ -177,10 +178,17 @@ export type CheckoutCartServices = Readonly<{
     params: Readonly<{ actingOwnerKey: string; presentedAnonymousCartId: string }>,
   ) => Promise<CheckoutCartSourceAuthority>;
   /**
-   * Cart lines the acting owner may actually read, with any unauthorized
-   * presented source already excluded. Unlike `listCartLines`, which is the raw
-   * union used for write routing and internal provenance, this never returns a
-   * line sourced from a stream the reader has lost authority over.
+   * Cart lines the acting owner may actually read, with every unauthorized
+   * source -- presented or alias-derived -- already excluded. Unlike
+   * `listCartLines`, which is the raw union used for write routing and internal
+   * provenance, this never returns a line sourced from a stream the reader has
+   * lost authority over, and never derives a source from the claim alias.
+   *
+   * The projection read is issued for every syntactically valid key and its rows
+   * are discarded afterwards when authority is refused or indeterminate, so a
+   * guest refusal costs the same aggregate reads and projection queries a valid
+   * unclaimed key does. Nothing about the decision is cached, exposed, or
+   * allowed to change a status, body, or header.
    */
   listAuthorizedCartLines: (
     params: Readonly<{ accountId: string; presentedAnonymousCartId?: string | null }>,
@@ -279,29 +287,77 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
    * refused or indeterminate answer leaves no readable source at all and the
    * read resolves to zero lines -- the same answer an unclaimed empty cart
    * gives, which is what keeps guest responses non-enumerating. An Account
-   * reads under its own key and may additionally present an anonymous one; an
-   * unauthorized presented key is dropped and the Account's own Cart continues
-   * to resolve normally.
+   * reads under its own key, carries every source key its claim alias names,
+   * and may additionally present an anonymous one.
+   *
+   * The alias rows are candidate discovery and nothing more. An absent
+   * presented key is not an absence of sources to authorize: every candidate is
+   * decided against its own Cart aggregate here, and only a candidate accepted
+   * *via Account* becomes a requested owner. A refused candidate is a stale or
+   * foreign alias row that must not widen the read set, and an indeterminate one
+   * is excluded for this request only -- retryable, never recorded, and never
+   * cookie-clear eligible -- so a store failure can transiently narrow a
+   * claimant's union but can never widen one.
+   *
+   * The presented key is admitted more broadly than a candidate, by possession
+   * of an unclaimed cart or by being the claimant, because presenting a key is
+   * the one place possession still means something.
+   *
+   * The acting Account's own key is never a candidate and never gated:
+   * `checkout.cart-acc_x` is that Account's own stream by construction.
+   *
+   * Candidate decisions are issued as one bounded concurrent batch rather than
+   * one serial read per alias row, are taken once per call, and are never
+   * memoized across calls or requests.
    */
-  async function resolveAuthorizedCartSource(accountId: string, presentedAnonymousCartId?: string | null) {
+  async function resolveAuthorizedCartSource(
+    accountId: string,
+    presentedAnonymousCartId?: string | null,
+  ): Promise<{
+    readable: boolean;
+    presentedAnonymousCartId: string | null;
+    authorizedClaimedOwnerKeys: readonly string[];
+  }> {
     if (!ownerKeyCanHoldClaims(accountId)) {
       const authority = await resolveCartSourceAuthority({
         actingOwnerKey: accountId,
         presentedAnonymousCartId: accountId,
       });
-      return { readable: authority.status === "accepted", presentedAnonymousCartId: null };
+      return {
+        readable: authority.status === "accepted",
+        presentedAnonymousCartId: null,
+        authorizedClaimedOwnerKeys: [],
+      };
     }
 
     const presented = presentedAnonymousCartId ?? null;
-    if (!presented) {
-      return { readable: true, presentedAnonymousCartId: null };
-    }
+    const candidateOwnerKeys = await listClaimedCartOwnerKeys(deps.db, accountId);
+    // A presented key that is also claimed is decided once, not twice: it is the
+    // same aggregate either way, and the union collapses it to one requested
+    // owner at the stronger claimed precedence.
+    const decidedOwnerKeys =
+      presented && !candidateOwnerKeys.includes(presented) ? [...candidateOwnerKeys, presented] : candidateOwnerKeys;
+    const decisions = new Map(
+      await Promise.all(
+        decidedOwnerKeys.map(
+          async (ownerKey) =>
+            [
+              ownerKey,
+              await resolveCartSourceAuthority({ actingOwnerKey: accountId, presentedAnonymousCartId: ownerKey }),
+            ] as const,
+        ),
+      ),
+    );
 
-    const authority = await resolveCartSourceAuthority({
-      actingOwnerKey: accountId,
-      presentedAnonymousCartId: presented,
-    });
-    return { readable: true, presentedAnonymousCartId: authority.status === "accepted" ? presented : null };
+    const presentedDecision = presented ? decisions.get(presented) : undefined;
+    return {
+      readable: true,
+      presentedAnonymousCartId: presentedDecision?.status === "accepted" ? presented : null,
+      authorizedClaimedOwnerKeys: candidateOwnerKeys.filter((ownerKey) => {
+        const decision = decisions.get(ownerKey);
+        return decision?.status === "accepted" && decision.acceptedVia === "account";
+      }),
+    };
   }
 
   const addLine: CheckoutCartServices["addLine"] = async (params, context) => {
@@ -642,12 +698,18 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     // caller's key, so a guest whose cart was claimed and an Account presenting
     // a foreign key both get a snapshot built from sources they may actually
     // read. A refused guest key yields the zero-line snapshot an unclaimed
-    // empty cart produces, which is what makes the refusal non-enumerating.
+    // empty cart produces, and reaches it after the same projection read, so
+    // the refusal is non-enumerating in the work performed as well as in the
+    // bytes returned.
     createReadinessSnapshot: async (params) => {
       const source = await resolveAuthorizedCartSource(params.accountId, params.presentedAnonymousCartId);
-      const lines = source.readable
-        ? await listCartLines(deps.db, params.accountId, source.presentedAnonymousCartId)
-        : [];
+      const projected = await listAuthorizedOwnerCartLines(
+        deps.db,
+        params.accountId,
+        source.authorizedClaimedOwnerKeys,
+        source.presentedAnonymousCartId,
+      );
+      const lines = source.readable ? projected : [];
       return createCartReadinessSnapshot(
         lines,
         params.decisions,
@@ -663,7 +725,13 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     resolveCartSourceAuthority,
     listAuthorizedCartLines: async (params) => {
       const source = await resolveAuthorizedCartSource(params.accountId, params.presentedAnonymousCartId);
-      return source.readable ? listCartLines(deps.db, params.accountId, source.presentedAnonymousCartId) : [];
+      const projected = await listAuthorizedOwnerCartLines(
+        deps.db,
+        params.accountId,
+        source.authorizedClaimedOwnerKeys,
+        source.presentedAnonymousCartId,
+      );
+      return source.readable ? projected : [];
     },
     listClaimedOwnerKeys: (accountId) => listClaimedCartOwnerKeys(deps.db, accountId),
     projectors: [cartProjector],

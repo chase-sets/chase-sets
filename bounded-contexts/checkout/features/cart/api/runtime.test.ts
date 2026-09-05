@@ -81,7 +81,7 @@ describe("checkout cart runtime", () => {
     ]);
   });
 
-  it("creates union readiness from one resolved Account-first query and binds the presented source", async () => {
+  it("creates union readiness from an alias-free resolver query and binds the presented source", async () => {
     const resolvedLines = [
       readyLine({ line_id: "cli_account", product_id: "cat_same::" }),
       readyLine({
@@ -90,7 +90,10 @@ describe("checkout cart runtime", () => {
         product_id: "cat_same::",
       }),
     ];
-    const query = vi.fn(async () => ({ rows: resolvedLines, rowCount: resolvedLines.length }));
+    const query = vi.fn(async (sql: string) => {
+      const rows = sql.includes("FROM checkout_cart_claims AS claim") ? [] : resolvedLines;
+      return { rows, rowCount: rows.length };
+    });
     const { eventStore } = createInMemoryEventStore();
     const runtime = createCheckoutCartRuntime({
       eventStore,
@@ -107,13 +110,22 @@ describe("checkout cart runtime", () => {
       presentedAnonymousCartId: "anon_cart_b",
     });
 
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(query).toHaveBeenNthCalledWith(1, expect.stringContaining("WHERE ranked_line.owner_line_rank = 1"), [
+    // Two statements per pass: the routing-breadth alias lookup that discovers
+    // candidates, then the resolver over the allowlist the Cart aggregate
+    // accepted. The resolver never reads the alias table itself.
+    expect(query).toHaveBeenCalledTimes(4);
+    expect(query).toHaveBeenNthCalledWith(1, expect.stringContaining("FROM checkout_cart_claims AS claim"), [
+      "acc_buyer",
+    ]);
+    expect(query).toHaveBeenNthCalledWith(2, expect.stringContaining("WHERE ranked_line.owner_line_rank = 1"), [
       "acc_buyer",
       "anon_cart_a",
       CART_SELLER_OPTIONS_PER_LINE_LIMIT,
-      true,
+      [],
     ]);
+    expect(
+      query.mock.calls.some(([sql]) => sql.includes("WITH requested_owners") && sql.includes("checkout_cart_claims")),
+    ).toBe(false);
     expect(withSourceA.includedLineIds).toEqual(["cli_account", "cli_anonymous"]);
     expect(withSourceA.lineCount).toBe(2);
     expect(withSourceB.sourceRevision).not.toBe(withSourceA.sourceRevision);
@@ -177,14 +189,12 @@ class CartRuntimeDb implements PgQueryable {
 
     if (sql.includes("WITH requested_owners AS")) {
       const ownerKey = String(values[0]);
-      const includeClaimedOwners = Boolean(values[3]);
       const owners = new Set<string>([ownerKey]);
-      if (includeClaimedOwners && ownerKey.startsWith("acc_")) {
-        for (const claim of this.claims.values()) {
-          if (claim.account_id === ownerKey) {
-            owners.add(claim.source_owner_key);
-          }
-        }
+      // unnest($4::text[]): claimed owners arrive already decided, so this
+      // interpreter has no claim-table branch of its own -- exactly like the
+      // statement it models.
+      for (const claimedOwnerKey of Array.isArray(values[3]) ? values[3] : []) {
+        owners.add(String(claimedOwnerKey));
       }
       if (values[1] !== null && values[1] !== undefined) {
         owners.add(String(values[1]));
@@ -433,7 +443,7 @@ describe("checkout cart addLine own-key probe", () => {
 
     // The probe asked for the Account key only, with claim expansion off.
     expect(db.cartLineQueries.map((call) => call.values)).toEqual([
-      [account, null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, false],
+      [account, null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, []],
     ]);
     expect(result.status).toBe("added");
     expect(result.lineId).not.toBe("cli_claimed");
@@ -522,7 +532,7 @@ describe("checkout cart addLine own-key probe", () => {
 
     expect(result).toMatchObject({ lineId: "cli_anon", status: "merged" });
     expect(db.cartLineQueries.map((call) => call.values)).toEqual([
-      [claimedSource, null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, false],
+      [claimedSource, null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, []],
     ]);
   });
 });
@@ -704,8 +714,10 @@ describe("claimed cart mutation routing", () => {
       "checkout.cart.line-added",
       "checkout.cart.line-quantity-set",
     ]);
-    // An anonymous owner never enumerates claimed keys.
-    expect(h.db.claimedOwnerLookups.map((call) => call.values)).toEqual([]);
+    // Claim breadth is now a lookup of its own rather than an in-SQL join, and
+    // only an owner that can hold claims ever issues it: the anonymous key
+    // resolves to itself without asking.
+    expect(h.db.claimedOwnerLookups.map((call) => call.values)).toEqual([[String(BYSTANDER)]]);
   });
 });
 
@@ -970,14 +982,31 @@ describe("checkout cart post-claim read authority runtime", () => {
   const OWNER = "acc_synthetic_owner";
   const OTHER = "acc_synthetic_other";
 
-  function authorityDb(rowsFor: (requestedOwners: readonly string[]) => CheckoutCartLineRow[] = () => []) {
+  /**
+   * The alias table answers the routing-breadth lookup only. The resolver
+   * statement is served purely from its $1/$2/$4 parameters, which is what makes
+   * a stale seed here visible as a bypass rather than absorbed by the fake.
+   */
+  function authorityDb(
+    rowsFor: (requestedOwners: readonly string[]) => CheckoutCartLineRow[] = () => [],
+    aliasRows: readonly ClaimRow[] = [],
+  ) {
     return {
       query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
         if (sql.includes("WHERE claim.account_id = $1")) {
-          return { rows: [], rowCount: 0 };
+          const rows = aliasRows
+            .filter((claim) => claim.account_id === String(values[0]))
+            .map((claim) => ({ source_owner_key: claim.source_owner_key }));
+          return { rows, rowCount: rows.length };
         }
         if (sql.includes("WITH requested_owners")) {
-          const requested = [values[0], values[1]].filter((value): value is string => typeof value === "string");
+          // Structural, not incidental: the resolver decides nothing on its own,
+          // so it must not be able to reach the alias table even when one is
+          // seeded above.
+          expect(sql).not.toContain("checkout_cart_claims");
+          const requested = [values[0], values[1], ...(Array.isArray(values[3]) ? values[3] : [])].filter(
+            (value): value is string => typeof value === "string",
+          );
           const rows = rowsFor(requested);
           return { rows, rowCount: rows.length };
         }
@@ -1164,6 +1193,150 @@ describe("checkout cart post-claim read authority runtime", () => {
     expect(refused.status).toBe("blocked");
     expect(refused.includedLineIds).toEqual([]);
     expect(await runtime.listAuthorizedCartLines({ accountId: SOURCE })).toEqual([]);
+  });
+
+  it("admits an alias-derived candidate only after its own Cart aggregate accepts it", async () => {
+    const db = authorityDb(
+      (requested) =>
+        requested.includes(SOURCE) ? [readyLine({ buyer_account_id: SOURCE, line_id: "cli_claimed" })] : [],
+      [{ source_owner_key: SOURCE, account_id: OWNER }],
+    );
+    const { runtime } = await claimedRuntime(db);
+
+    // No presented key at all: the source can only enter through candidate
+    // discovery, and it does so only because the aggregate accepts the
+    // claimant via Account.
+    const lines = await runtime.listAuthorizedCartLines({ accountId: OWNER });
+    const unionCall = db.query.mock.calls.find(([sql]) => sql.includes("WITH requested_owners"));
+
+    expect(unionCall?.[1]?.[3]).toEqual([SOURCE]);
+    expect(lines.map((line) => line.line_id)).toEqual(["cli_claimed"]);
+  });
+
+  it("excludes a stale alias-derived candidate whose aggregate names another Account, with no key presented", async () => {
+    // The executed F1 counterexample: the claim event names OWNER, the alias
+    // row was rewritten to OTHER, and OTHER presents nothing. Before the
+    // allowlist, the union expanded that row and disclosed the foreign line
+    // with zero aggregate reads.
+    const db = authorityDb(
+      (requested) =>
+        requested.includes(SOURCE) ? [readyLine({ buyer_account_id: SOURCE, line_id: "cli_foreign" })] : [],
+      [{ source_owner_key: SOURCE, account_id: OTHER }],
+    );
+    const { runtime } = await claimedRuntime(db);
+
+    const lines = await runtime.listAuthorizedCartLines({ accountId: OTHER });
+    const readiness = await runtime.createReadinessSnapshot({ accountId: OTHER });
+    const unionCall = db.query.mock.calls.find(([sql]) => sql.includes("WITH requested_owners"));
+
+    expect(unionCall?.[1]?.[3]).toEqual([]);
+    expect(lines).toEqual([]);
+    expect(readiness.includedLineIds).toEqual([]);
+    expect(JSON.stringify({ lines, readiness })).not.toContain(SOURCE);
+  });
+
+  it("goes red against a bypass that expands the claim alias without deciding it", async () => {
+    const db = authorityDb(
+      (requested) =>
+        requested.includes(SOURCE) ? [readyLine({ buyer_account_id: SOURCE, line_id: "cli_foreign" })] : [],
+      [{ source_owner_key: SOURCE, account_id: OTHER }],
+    );
+    const { runtime } = await claimedRuntime(db);
+
+    const candidates = await runtime.listClaimedOwnerKeys(OTHER);
+    const authorized = await runtime.listAuthorizedCartLines({ accountId: OTHER });
+    // The bypass is exactly "trust the alias": it is the routing breadth,
+    // unfiltered. It must not equal what the authorized read returns.
+    const bypassed = await runtime.listCartLines(OTHER);
+
+    expect(candidates).toEqual([SOURCE]);
+    expect(bypassed.map((line) => line.line_id)).toEqual(["cli_foreign"]);
+    expect(authorized).not.toEqual(bypassed);
+    expect(authorized).toEqual([]);
+  });
+
+  it("excludes an indeterminate alias-derived candidate for this request only and never records it", async () => {
+    const memory = createInMemoryEventStore();
+    const failing = new Set<string>();
+    const db = authorityDb(
+      (requested) =>
+        requested.includes(SOURCE) ? [readyLine({ buyer_account_id: SOURCE, line_id: "cli_claimed" })] : [],
+      [{ source_owner_key: SOURCE, account_id: OWNER }],
+    );
+    const runtime = createCheckoutCartRuntime({
+      eventStore: {
+        ...memory.eventStore,
+        readStream: async (input: Parameters<typeof memory.eventStore.readStream>[0]) => {
+          if (failing.delete(input.streamId)) {
+            throw new Error("event store unavailable");
+          }
+          return memory.eventStore.readStream(input);
+        },
+      },
+      checkpointStore: {} as never,
+      db,
+    });
+    await runtime.commandHandler({
+      streamId: `checkout.cart-${SOURCE}`,
+      context,
+      command: { type: "ClaimCart", sourceOwnerKey: SOURCE, accountId: OWNER as never },
+    });
+
+    failing.add(`checkout.cart-${SOURCE}`);
+    const during = await runtime.listAuthorizedCartLines({ accountId: OWNER });
+    const afterRetry = await runtime.listAuthorizedCartLines({ accountId: OWNER });
+
+    // A store failure narrows the claimant's own union for one request and
+    // nothing more: no refusal is recorded, no cookie-clear is implied, and
+    // the very next read re-decides and admits the source again.
+    expect(during).toEqual([]);
+    expect(afterRetry.map((line) => line.line_id)).toEqual(["cli_claimed"]);
+  });
+
+  it("decides every candidate in one bounded concurrent batch rather than one serial read per alias row", async () => {
+    const memory = createInMemoryEventStore();
+    const sources = ["anon_synthetic_a", "anon_synthetic_b", "anon_synthetic_c"];
+    const started: string[] = [];
+    const settled: string[] = [];
+    const log: string[] = [];
+    const db = authorityDb(
+      () => [],
+      sources.map((source_owner_key) => ({ source_owner_key, account_id: OWNER })),
+    );
+    const runtime = createCheckoutCartRuntime({
+      eventStore: {
+        ...memory.eventStore,
+        readStream: async (input: Parameters<typeof memory.eventStore.readStream>[0]) => {
+          started.push(input.streamId);
+          log.push("start:" + input.streamId);
+          const result = await memory.eventStore.readStream(input);
+          settled.push(input.streamId);
+          log.push("end:" + input.streamId);
+          return result;
+        },
+      },
+      checkpointStore: {} as never,
+      db,
+    });
+    for (const source of sources) {
+      await runtime.commandHandler({
+        streamId: `checkout.cart-${source}`,
+        context,
+        command: { type: "ClaimCart", sourceOwnerKey: source, accountId: OWNER as never },
+      });
+    }
+    started.length = 0;
+    settled.length = 0;
+    log.length = 0;
+
+    await runtime.listAuthorizedCartLines({ accountId: OWNER });
+
+    // Linear in claimed sources, and issued as one batch: every candidate read
+    // had started before the first one settled, which one serial read per alias
+    // row could not produce.
+    expect(started).toEqual(sources.map((source) => `checkout.cart-${source}`));
+    expect(settled).toHaveLength(sources.length);
+    expect(log.slice(0, sources.length).every((entry) => entry.startsWith("start:"))).toBe(true);
   });
 
   it("keeps the raw union read available to internal write routing", async () => {

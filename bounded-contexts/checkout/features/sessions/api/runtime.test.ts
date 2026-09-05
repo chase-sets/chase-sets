@@ -149,6 +149,7 @@ const secondSellerCartLine: CheckoutCartLineRow = {
 function createCartServices(lines: readonly CheckoutCartLineRow[] = [readyCartLine]) {
   return {
     listCartLines: vi.fn(async () => lines),
+    listAuthorizedCartLines: vi.fn<CheckoutCartServices["listAuthorizedCartLines"]>(async () => [...lines]),
     listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => []),
     removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async () => ({ lineId: "cli_1" as never, version: 1 })),
     checkout: vi.fn(async () => ({ version: 1 })),
@@ -182,6 +183,9 @@ function createUnionCartServices(
     }),
     listCartLines: vi.fn<CheckoutCartServices["listCartLines"]>(async (_accountId, presentedAnonymousCartId) =>
       resolveLines(presentedAnonymousCartId),
+    ),
+    listAuthorizedCartLines: vi.fn<CheckoutCartServices["listAuthorizedCartLines"]>(async (params) =>
+      resolveLines(params.presentedAnonymousCartId),
     ),
     listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => []),
     removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async ({ lineId }) => ({ lineId, version: 1 })),
@@ -752,7 +756,7 @@ describe("checkout session runtime", () => {
         context,
       );
     }
-    cart.listCartLines.mockClear();
+    cart.listAuthorizedCartLines.mockClear();
 
     await services.assertReadyForOrderCreation({
       sessionId: sessionIds.assert,
@@ -773,8 +777,10 @@ describe("checkout session runtime", () => {
     );
     await services.getSession(sessionIds.get, "acc_buyer");
 
-    expect(cart.listCartLines).toHaveBeenCalledTimes(4);
-    expect(cart.listCartLines.mock.calls).toEqual(Array.from({ length: 4 }, () => ["acc_buyer", anonymousCartId]));
+    expect(cart.listAuthorizedCartLines).toHaveBeenCalledTimes(4);
+    expect(cart.listAuthorizedCartLines.mock.calls).toEqual(
+      Array.from({ length: 4 }, () => [{ accountId: "acc_buyer", presentedAnonymousCartId: anonymousCartId }]),
+    );
   });
 
   it("keeps union revalidation valid across copy relocation and stales on a winning-line change", async () => {
@@ -808,13 +814,13 @@ describe("checkout session runtime", () => {
       created_at: "2026-07-01T00:00:00.000Z",
       updated_at: "2026-07-01T00:00:00.000Z",
     };
-    cart.listCartLines.mockResolvedValue([relocatedLine]);
+    cart.listAuthorizedCartLines.mockResolvedValue([relocatedLine]);
 
     await expect(services.getSession("chk_union_relocation", "acc_buyer")).resolves.toMatchObject({
       session_id: "chk_union_relocation",
     });
 
-    cart.listCartLines.mockResolvedValue([
+    cart.listAuthorizedCartLines.mockResolvedValue([
       {
         ...relocatedLine,
         quantity: 2,
@@ -868,8 +874,8 @@ describe("checkout session runtime", () => {
       presentedAnonymousCartId: anonymousCartId,
     });
 
-    cart.listCartLines.mockResolvedValue([{ ...readyCartLine, item_title: "Changed winning title" }]);
-    cart.listCartLines.mockClear();
+    cart.listAuthorizedCartLines.mockResolvedValue([{ ...readyCartLine, item_title: "Changed winning title" }]);
+    cart.listAuthorizedCartLines.mockClear();
     const eventCount = allEvents.length;
     for (const invoke of [
       () => services.getSession(created.sessionId, "acc_buyer"),
@@ -882,7 +888,9 @@ describe("checkout session runtime", () => {
         message: "Cart readiness changed. Review your cart before checkout.",
       });
     }
-    expect(cart.listCartLines.mock.calls).toEqual(Array.from({ length: 4 }, () => ["acc_buyer", anonymousCartId]));
+    expect(cart.listAuthorizedCartLines.mock.calls).toEqual(
+      Array.from({ length: 4 }, () => [{ accountId: "acc_buyer", presentedAnonymousCartId: anonymousCartId }]),
+    );
     expect(allEvents).toHaveLength(eventCount);
     expect(cart.removeLine).not.toHaveBeenCalled();
     expect(cart.checkout).not.toHaveBeenCalled();
@@ -915,7 +923,7 @@ describe("checkout session runtime", () => {
     const params = { sessionId: created.sessionId, accountId: "acc_buyer" as never };
     const cancelled = await services.cancelSession(params, context);
     rows = [cancelled.session];
-    cart.listCartLines.mockClear();
+    cart.listAuthorizedCartLines.mockClear();
     await expect(services.assertReadyForOrderCreation(params)).rejects.toMatchObject({ code: "checkout_cancelled" });
     await expect(
       services.recordOrdersCreated({ ...params, orderIds: ["ord_cancelled"] }, context),
@@ -925,11 +933,14 @@ describe("checkout session runtime", () => {
     await expect(services.recordCheckoutReservations({ ...params, reservations: [] }, context)).rejects.toThrow(
       "Cancelled checkout sessions cannot reserve inventory.",
     );
-    expect(cart.listCartLines).not.toHaveBeenCalled();
+    expect(cart.listAuthorizedCartLines).not.toHaveBeenCalled();
     await expect(services.getSession(created.sessionId, "acc_buyer")).resolves.toMatchObject({
       cancelled_at: expect.any(String),
     });
-    expect(cart.listCartLines).toHaveBeenCalledWith("acc_buyer", anonymousCartId);
+    expect(cart.listAuthorizedCartLines).toHaveBeenCalledWith({
+      accountId: "acc_buyer",
+      presentedAnonymousCartId: anonymousCartId,
+    });
   });
 
   it("preserves projected Account-only cancellation readiness", async () => {
@@ -949,8 +960,8 @@ describe("checkout session runtime", () => {
     await expect(services.getSession("chk_1", "acc_buyer")).resolves.toMatchObject({
       cancelled_at: expect.any(String),
     });
-    expect(cart.listCartLines).toHaveBeenCalledWith("acc_buyer");
-    cart.listCartLines.mockResolvedValue([]);
+    expect(cart.listAuthorizedCartLines).toHaveBeenCalledWith({ accountId: "acc_buyer" });
+    cart.listAuthorizedCartLines.mockResolvedValue([]);
     await expect(services.getSession("chk_1", "acc_buyer")).rejects.toMatchObject({ code: "readiness_snapshot_stale" });
   });
 
@@ -966,7 +977,7 @@ describe("checkout session runtime", () => {
         db: { query: vi.fn(async () => ({ rows: [createSessionPageRow(null, overrides)] })) },
       });
       await expect(services.getSession("chk_1", "acc_buyer")).resolves.toMatchObject(overrides);
-      expect(cart.listCartLines).not.toHaveBeenCalled();
+      expect(cart.listAuthorizedCartLines).not.toHaveBeenCalled();
     },
   );
 
@@ -1400,7 +1411,7 @@ describe("checkout session runtime", () => {
         context,
       );
 
-      expect(cart.listCartLines).toHaveBeenCalledWith("acc_buyer");
+      expect(cart.listAuthorizedCartLines).toHaveBeenCalledWith({ accountId: "acc_buyer" });
       expect(result.session.cart_readiness_snapshot).toMatchObject({
         optimization: {
           decision,
@@ -1494,7 +1505,7 @@ describe("checkout session runtime", () => {
         sourceRevision: readiness.sourceRevision,
       }),
     });
-    expect(cart.listCartLines).toHaveBeenCalledWith("acc_buyer");
+    expect(cart.listAuthorizedCartLines).toHaveBeenCalledWith({ accountId: "acc_buyer" });
   });
 
   it("does not revalidate consumed cart source facts after orders or payment have started", async () => {
@@ -1516,7 +1527,7 @@ describe("checkout session runtime", () => {
       order_ids: ["ord_1"],
       payment_id: "pay_1",
     });
-    expect(cart.listCartLines).not.toHaveBeenCalled();
+    expect(cart.listAuthorizedCartLines).not.toHaveBeenCalled();
   });
 
   it("rejects an active cart session when the stored readiness snapshot is missing", async () => {
@@ -1640,7 +1651,7 @@ describe("checkout session runtime", () => {
       context,
     );
 
-    cart.listCartLines.mockResolvedValue([
+    cart.listAuthorizedCartLines.mockResolvedValue([
       {
         ...readyCartLine,
         locked_listing_id: "lst_changed",
@@ -2056,7 +2067,15 @@ async function unionCleanupHarness(
       ).values(),
     ];
   };
-  const realCart = { ...cart, listCartLines };
+  // Checkout Session start and every active-session revalidation resolve lines
+  // through `listAuthorizedCartLines`. Overriding only `listCartLines` would stop
+  // intercepting the moment the runtime moved members, so the harness would run
+  // the real member against the stub `db` above and silently resolve nothing.
+  // The double substitutes line resolution only; source authority still comes
+  // from the real Cart aggregate through the production guards.
+  const listAuthorizedCartLines: CheckoutCartServices["listAuthorizedCartLines"] = async (params) =>
+    listCartLines(params.accountId, params.presentedAnonymousCartId);
+  const realCart = { ...cart, listCartLines, listAuthorizedCartLines };
   const runtime = () => createCheckoutSessionRuntime({ eventStore, checkpointStore, db, cart: realCart });
   const sessions = runtime();
   const readiness = createCartReadinessSnapshot(await listCartLines(buyer, anonymous), undefined, {
@@ -2627,7 +2646,10 @@ describe("checkout session post-claim source authority", () => {
    * The line double keeps returning the source lines regardless, so a missed
    * guard would visibly source them.
    */
-  function harness(accountLines: readonly CheckoutCartLineRow[] = [otherAccountLine]) {
+  function harness(
+    accountLines: readonly CheckoutCartLineRow[] = [otherAccountLine],
+    aliasOwnerKeys: readonly string[] = [],
+  ) {
     const cartMemory = createInMemoryEventStore();
     const cartRuntime = createCheckoutCartRuntime({
       eventStore: cartMemory.eventStore,
@@ -2638,14 +2660,42 @@ describe("checkout session post-claim source authority", () => {
       const own = accountLines.filter((line) => line.buyer_account_id === accountId);
       return presentedAnonymousCartId === SOURCE ? [...own, ownerLine] : own;
     };
+    /**
+     * The authorized read, with only the projection doubled.
+     *
+     * `aliasOwnerKeys` is the routing breadth the claim alias would report, and
+     * every one of those candidates is decided here by the real
+     * `resolveCartSourceAuthority` against the real Cart aggregate -- the same
+     * admission rule production applies. That is what makes a stale alias row
+     * visible in this file: the row is present, and the source still does not
+     * enter the read set. The production allowlist itself is proved against real
+     * PostgreSQL in `features/cart/read-model/seller-options-readiness.db.test.ts`.
+     */
+    const resolveAuthorizedLines = async (accountId: string, presentedAnonymousCartId?: string | null) => {
+      const admitted: CheckoutCartLineRow[] = [];
+      for (const candidate of aliasOwnerKeys) {
+        const authority = await cartRuntime.resolveCartSourceAuthority({
+          actingOwnerKey: accountId,
+          presentedAnonymousCartId: candidate,
+        });
+        if (authority.status === "accepted" && authority.acceptedVia === "account" && candidate === SOURCE) {
+          admitted.push(ownerLine);
+        }
+      }
+      const resolved = [...resolveLines(accountId, presentedAnonymousCartId), ...admitted];
+      return [...new Map(resolved.map((line) => [line.line_id, line])).values()];
+    };
     const cart = {
       ...cartRuntime,
       listCartLines: vi.fn<CheckoutCartServices["listCartLines"]>(async (accountId, presentedAnonymousCartId) =>
         resolveLines(accountId, presentedAnonymousCartId),
       ),
+      listAuthorizedCartLines: vi.fn<CheckoutCartServices["listAuthorizedCartLines"]>(async (params) =>
+        resolveAuthorizedLines(params.accountId, params.presentedAnonymousCartId),
+      ),
       checkout: vi.fn<CheckoutCartServices["checkout"]>(async () => ({ version: 1 })),
       removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async ({ lineId }) => ({ lineId, version: 1 })),
-      listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => []),
+      listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => [...aliasOwnerKeys]),
     } satisfies CheckoutCartServices;
     const sessionMemory = createInMemoryEventStore();
     const sessions = createCheckoutSessionRuntime({
@@ -2668,6 +2718,7 @@ describe("checkout session post-claim source authority", () => {
           context,
           command: { type: "ClaimCart", sourceOwnerKey: SOURCE, accountId: accountId as never },
         }),
+      resolveAuthorizedLines,
       readinessFor: (accountId: string, presentedAnonymousCartId?: string | null) =>
         createCartReadinessSnapshot(
           resolveLines(accountId, presentedAnonymousCartId),
@@ -2680,6 +2731,104 @@ describe("checkout session post-claim source authority", () => {
         (cartMemory.streams.get(streamId) ?? []).map((event) => event.eventType),
     };
   }
+
+  it("excludes a stale alias-derived source at all four callers when the session carries no presented key", async () => {
+    // The alias says OWNER may hold a line on SOURCE. The aggregate says OTHER
+    // claimed it. The session never presented the key, so nothing but the
+    // alias could introduce that source -- which is precisely the state that
+    // used to widen an Account read set with no aggregate decision behind it.
+    const test = harness([{ ...otherAccountLine, buyer_account_id: OWNER }], [SOURCE]);
+    await test.claimSourceFor(OTHER);
+
+    const authorized = await test.resolveAuthorizedLines(OWNER);
+    const readiness = createCartReadinessSnapshot(authorized);
+    const sessionIds = {
+      getSession: "chk_stale_alias_get",
+      recordCheckoutReservations: "chk_stale_alias_reservations",
+      assertReadyForOrderCreation: "chk_stale_alias_assert",
+      recordOrdersCreated: "chk_stale_alias_orders",
+    } as const;
+    for (const sessionId of Object.values(sessionIds)) {
+      await test.sessions.createFromCart(
+        {
+          accountId: OWNER as never,
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+          sessionIdOverride: sessionId as never,
+        },
+        contextFor(OWNER),
+      );
+    }
+    for (const sessionId of [sessionIds.assertReadyForOrderCreation, sessionIds.recordOrdersCreated]) {
+      await test.sessions.setShippingAddress(
+        { sessionId: sessionId as never, accountId: OWNER as never, shippingAddress: serviceableShippingAddress },
+        contextFor(OWNER),
+      );
+    }
+    const beforeCart = test.cartStreamEventTypes(`checkout.cart-${SOURCE}`);
+    test.cart.listAuthorizedCartLines.mockClear();
+    test.cart.listCartLines.mockClear();
+
+    const callers = {
+      getSession: () => test.sessions.getSession(sessionIds.getSession, OWNER),
+      recordCheckoutReservations: () =>
+        test.sessions.recordCheckoutReservations(
+          { sessionId: sessionIds.recordCheckoutReservations as never, accountId: OWNER as never, reservations: [] },
+          contextFor(OWNER),
+        ),
+      assertReadyForOrderCreation: () =>
+        test.sessions.assertReadyForOrderCreation({
+          sessionId: sessionIds.assertReadyForOrderCreation as never,
+          accountId: OWNER as never,
+        }),
+      recordOrdersCreated: () =>
+        test.sessions.recordOrdersCreated(
+          {
+            sessionId: sessionIds.recordOrdersCreated as never,
+            accountId: OWNER as never,
+            orderIds: ["ord_stale_alias"],
+            fulfilledLineKeys: ["cli_other_account"],
+          },
+          contextFor(OWNER),
+        ),
+    };
+
+    for (const [name, call] of Object.entries(callers)) {
+      const rejection = await call().then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+      // The foreign source contributes nothing, so revalidation simply agrees
+      // with the stored snapshot: a widened read would have gone stale here.
+      expect(rejection, name).toBeNull();
+    }
+
+    // Every caller re-derived the read through the authorized member, and
+    // every one of them did so with no presented key at all.
+    expect(test.cart.listAuthorizedCartLines.mock.calls).toEqual(
+      Array.from({ length: 4 }, () => [{ accountId: OWNER }]),
+    );
+    expect(test.cart.listCartLines).not.toHaveBeenCalled();
+    expect(authorized.map((line) => line.line_id)).toEqual(["cli_other_account"]);
+    expect(authorized.map((line) => line.buyer_account_id)).not.toContain(SOURCE);
+    for (const sessionId of Object.values(sessionIds)) {
+      expect(JSON.stringify(test.sessionMemory.streams.get(`checkout.session-${sessionId}`))).not.toContain(SOURCE);
+    }
+    // No side effect reached the foreign cart stream.
+    expect(test.cartStreamEventTypes(`checkout.cart-${SOURCE}`)).toEqual(beforeCart);
+  });
+  it("admits the claimant's own alias-derived source through the same four callers", async () => {
+    // The positive control for the case above: same alias row, same absence of
+    // a presented key, and the aggregate now names the acting Account -- so the
+    // source is admitted rather than excluded.
+    const test = harness([{ ...otherAccountLine, buyer_account_id: OWNER }], [SOURCE]);
+    await test.claimSourceFor(OWNER);
+
+    const authorized = await test.resolveAuthorizedLines(OWNER);
+
+    expect(authorized.map((line) => line.line_id).sort()).toEqual(["cli_other_account", "cli_source"]);
+  });
 
   it("excludes a foreign claimed source before createFromCart resolves any line", async () => {
     const test = harness();
@@ -2733,8 +2882,11 @@ describe("checkout session post-claim source authority", () => {
 
     // One resolved union read, one contribution of the shared source, and the
     // readiness revision the claimant's own readiness call produced.
-    expect(test.cart.listCartLines).toHaveBeenCalledTimes(1);
-    expect(test.cart.listCartLines).toHaveBeenCalledWith(OWNER, SOURCE);
+    expect(test.cart.listAuthorizedCartLines).toHaveBeenCalledTimes(1);
+    expect(test.cart.listAuthorizedCartLines).toHaveBeenCalledWith({
+      accountId: OWNER,
+      presentedAnonymousCartId: SOURCE,
+    });
     expect(payload.lines.map((line) => line.cartLineId)).toEqual(["cli_source"]);
     expect(started?.payload).toMatchObject({ presentedAnonymousCartId: SOURCE });
   });
@@ -2762,7 +2914,7 @@ describe("checkout session post-claim source authority", () => {
     await test.claimSourceFor(OTHER);
     // Only post-claim reads are under test; the accepted setup read above is
     // not evidence of a missed guard.
-    test.cart.listCartLines.mockClear();
+    test.cart.listAuthorizedCartLines.mockClear();
 
     const callers = {
       getSession: () => test.sessions.getSession(sessionId, OWNER),
@@ -2793,7 +2945,7 @@ describe("checkout session post-claim source authority", () => {
       expect(String((rejection as Error).message), name).not.toContain(OTHER);
       // Nothing was read from the refused source and nothing was appended.
       expect(test.streamEventTypes(streamId), name).toEqual(beforeSession);
-      expect(test.cart.listCartLines, name).not.toHaveBeenCalled();
+      expect(test.cart.listAuthorizedCartLines, name).not.toHaveBeenCalled();
       expect(test.cart.checkout, name).not.toHaveBeenCalled();
       expect(test.cart.removeLine, name).not.toHaveBeenCalled();
     }
@@ -2877,7 +3029,10 @@ describe("checkout session post-claim source authority", () => {
         contextFor(OWNER),
       ),
     ).resolves.toMatchObject({ sessionId });
-    expect(test.cart.listCartLines).toHaveBeenCalledWith(OWNER, SOURCE);
+    expect(test.cart.listAuthorizedCartLines).toHaveBeenCalledWith({
+      accountId: OWNER,
+      presentedAnonymousCartId: SOURCE,
+    });
   });
 
   it("leaves sessions without stored anonymous provenance completely untouched", async () => {
