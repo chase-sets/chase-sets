@@ -26,6 +26,7 @@ describe("checkout cart domain", () => {
     const addedState = added.reduce(evolveCheckoutCart, initialCheckoutCartState);
     const updated = decideCheckoutCart(addedState, {
       type: "SetCartLineQuantity",
+      actingOwnerKey: "acc_buyer",
       lineId: "cli_1" as never,
       quantity: 2,
     });
@@ -38,6 +39,7 @@ describe("checkout cart domain", () => {
 
     const removed = decideCheckoutCart(updatedState, {
       type: "RemoveCartLine",
+      actingOwnerKey: "acc_buyer",
       lineId: "cli_1" as never,
     });
     const removedState = removed.reduce(evolveCheckoutCart, updatedState);
@@ -156,6 +158,7 @@ describe("checkout cart domain", () => {
     expect(() =>
       decideCheckoutCart(addedState, {
         type: "SetCartLineFulfillment",
+        actingOwnerKey: "acc_same",
         lineId: "cli_1" as never,
         fulfillmentMode: "locked-listing",
         lockedListingId: "lst_selected",
@@ -377,10 +380,11 @@ describe("checkout cart claim", () => {
   });
 
   it("retains claim state through added, quantity, fulfillment, removal and checkout evolutions", () => {
-    const unclaimed = anonymousCartWithOneLine();
-    const claimed = decideCheckoutCart(unclaimed, claim()).reduce(evolveCheckoutCart, unclaimed);
-
-    const afterAdd = decideCheckoutCart(claimed, {
+    // The line is added while the cart is still anonymous, which is the only way
+    // a claimed source stream ever gains one: after the claim the anonymous key
+    // may no longer write, and the claimant's own adds address its Account
+    // stream instead of this one.
+    const unclaimed = decideCheckoutCart(anonymousCartWithOneLine(), {
       type: "AddCartLine",
       buyerAccountId: SOURCE as never,
       lineId: "cli_2" as never,
@@ -392,19 +396,24 @@ describe("checkout cart claim", () => {
       selectedOptions: [],
       productSummary: null,
       quantity: 1,
-    }).reduce(evolveCheckoutCart, claimed);
-    const afterQuantity = decideCheckoutCart(afterAdd, {
+    }).reduce(evolveCheckoutCart, anonymousCartWithOneLine());
+    const claimed = decideCheckoutCart(unclaimed, claim()).reduce(evolveCheckoutCart, unclaimed);
+
+    const afterQuantity = decideCheckoutCart(claimed, {
       type: "SetCartLineQuantity",
+      actingOwnerKey: CLAIMANT,
       lineId: "cli_2" as never,
       quantity: 3,
-    }).reduce(evolveCheckoutCart, afterAdd);
+    }).reduce(evolveCheckoutCart, claimed);
     const afterFulfillment = decideCheckoutCart(afterQuantity, {
       type: "SetCartLineFulfillment",
+      actingOwnerKey: CLAIMANT,
       lineId: "cli_2" as never,
       fulfillmentMode: "optimize",
     }).reduce(evolveCheckoutCart, afterQuantity);
     const afterRemoval = decideCheckoutCart(afterFulfillment, {
       type: "RemoveCartLine",
+      actingOwnerKey: CLAIMANT,
       lineId: "cli_2" as never,
     }).reduce(evolveCheckoutCart, afterFulfillment);
     const afterCheckout = decideCheckoutCart(afterRemoval, {
@@ -412,10 +421,12 @@ describe("checkout cart claim", () => {
       checkedOutAt: "2026-09-03T00:00:00.000Z",
     }).reduce(evolveCheckoutCart, afterRemoval);
 
-    for (const state of [afterAdd, afterQuantity, afterFulfillment, afterRemoval, afterCheckout]) {
+    for (const state of [claimed, afterQuantity, afterFulfillment, afterRemoval, afterCheckout]) {
       expect(state.claimedByAccountId).toBe(CLAIMANT);
       expect(state.buyerAccountId).toBe(SOURCE);
     }
+    expect(afterQuantity.lines.find((line) => line.lineId === "cli_2")?.quantity).toBe(3);
+    expect(afterRemoval.lines.map((line) => line.lineId)).toEqual(["cli_1"]);
     // Clearing empties the lines and leaves ownership in place; the cleared cart
     // is still claimable-idempotent and still refuses a second account.
     expect(afterCheckout.lines).toEqual([]);
@@ -444,5 +455,212 @@ describe("checkout cart claim", () => {
     expect(cleared.lines).toEqual([]);
     expect(claimed.claimedByAccountId).toBe(CLAIMANT);
     expect(claimed.lines).toEqual([]);
+  });
+});
+
+/**
+ * Unmistakably synthetic claimed-cart identities. `anon_synthetic_claimed` is
+ * the retained anonymous source key, `acc_synthetic_claimant` the Account that
+ * claimed it, and `acc_synthetic_other_seller` an unrelated seller.
+ */
+const CLAIMED_SOURCE = "anon_synthetic_claimed";
+const CLAIMANT_ACCOUNT = "acc_synthetic_claimant";
+const OTHER_SELLER_ACCOUNT = "acc_synthetic_other_seller";
+const OTHER_ACCOUNT = "acc_synthetic_bystander";
+
+function claimedCartWithOneLine(): CheckoutCartState {
+  const unclaimed = anonymousCartWithOneLine(CLAIMED_SOURCE);
+  return decideCheckoutCart(unclaimed, {
+    type: "ClaimCart",
+    sourceOwnerKey: CLAIMED_SOURCE,
+    accountId: CLAIMANT_ACCOUNT as never,
+  }).reduce(evolveCheckoutCart, unclaimed);
+}
+
+function lockToSeller(actingOwnerKey: string, sellerAccountId: string): CheckoutCartCommand {
+  return {
+    type: "SetCartLineFulfillment",
+    actingOwnerKey,
+    lineId: "cli_1" as never,
+    fulfillmentMode: "locked-listing",
+    lockedListingId: "lst_selected",
+    selectedListingSnapshot: {
+      listingId: "lst_selected",
+      sellerAccountId,
+      priceAmount: "25.00",
+      source: "account-cart-fulfillment",
+    },
+  } as CheckoutCartCommand;
+}
+
+describe("claimed cart write authorization", () => {
+  it("authorizes the claimant and refuses the retained anonymous key on every mutation", () => {
+    const claimed = claimedCartWithOneLine();
+    const mutations: ReadonlyArray<(actingOwnerKey: string) => CheckoutCartCommand> = [
+      (actingOwnerKey) =>
+        ({ type: "SetCartLineQuantity", actingOwnerKey, lineId: "cli_1", quantity: 4 }) as CheckoutCartCommand,
+      (actingOwnerKey) =>
+        ({
+          type: "SetCartLineFulfillment",
+          actingOwnerKey,
+          lineId: "cli_1",
+          fulfillmentMode: "optimize",
+        }) as CheckoutCartCommand,
+      (actingOwnerKey) => ({ type: "RemoveCartLine", actingOwnerKey, lineId: "cli_1" }) as CheckoutCartCommand,
+    ];
+
+    for (const mutation of mutations) {
+      expect(decideCheckoutCart(claimed, mutation(CLAIMANT_ACCOUNT))).toHaveLength(1);
+      // The key that wrote every one of these lines no longer commands them.
+      expect(() => decideCheckoutCart(claimed, mutation(CLAIMED_SOURCE))).toThrow(
+        "Cart is owned by a different account.",
+      );
+      expect(() => decideCheckoutCart(claimed, mutation(OTHER_ACCOUNT))).toThrow(
+        "Cart is owned by a different account.",
+      );
+    }
+
+    // Adding is refused for the retained key too, so a claimed cart cannot be
+    // repopulated by whoever still holds the cookie.
+    expect(() =>
+      decideCheckoutCart(claimed, {
+        type: "AddCartLine",
+        buyerAccountId: CLAIMED_SOURCE as never,
+        lineId: "cli_smuggled" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::" as never,
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+      }),
+    ).toThrow("Cart is owned by a different account.");
+  });
+
+  it("refuses an unauthorized writer before it can learn whether the line exists", () => {
+    const claimed = claimedCartWithOneLine();
+
+    // A missing line and an unauthorized writer must stay distinguishable: a
+    // line-id-total sweep absorbs the first and must never absorb the second.
+    expect(() =>
+      decideCheckoutCart(claimed, {
+        type: "RemoveCartLine",
+        actingOwnerKey: CLAIMED_SOURCE,
+        lineId: "cli_absent" as never,
+      }),
+    ).toThrow("Cart is owned by a different account.");
+    expect(() =>
+      decideCheckoutCart(claimed, {
+        type: "RemoveCartLine",
+        actingOwnerKey: CLAIMANT_ACCOUNT,
+        lineId: "cli_absent" as never,
+      }),
+    ).toThrow("Cart line not found.");
+  });
+
+  it("decides authorization from claim-evolved state alone, with no alias or projection input", () => {
+    // The decider is a pure function of the event-sourced state: this is the
+    // same refusal an alias-row deletion cannot undo.
+    const replayed = evolveCheckoutCart(anonymousCartWithOneLine(CLAIMED_SOURCE), {
+      type: "checkout.cart.claimed-by-account",
+      data: { sourceOwnerKey: CLAIMED_SOURCE, accountId: CLAIMANT_ACCOUNT as never },
+    } as never);
+
+    expect(replayed.claimedByAccountId).toBe(CLAIMANT_ACCOUNT);
+    expect(() =>
+      decideCheckoutCart(replayed, {
+        type: "SetCartLineQuantity",
+        actingOwnerKey: CLAIMED_SOURCE,
+        lineId: "cli_1" as never,
+        quantity: 2,
+      }),
+    ).toThrow("Cart is owned by a different account.");
+  });
+
+  it("compares the own-listing invariant against the effective claimant, not the retained key", () => {
+    const claimed = claimedCartWithOneLine();
+
+    // Same seller as the claiming Account: refused with the existing message.
+    expect(() => decideCheckoutCart(claimed, lockToSeller(CLAIMANT_ACCOUNT, CLAIMANT_ACCOUNT))).toThrow(
+      "Accounts cannot add their own listings to cart.",
+    );
+    // Otherwise identical, different seller: exactly one event.
+    const accepted = decideCheckoutCart(claimed, lockToSeller(CLAIMANT_ACCOUNT, OTHER_SELLER_ACCOUNT));
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]).toMatchObject({
+      type: "checkout.cart.line-fulfillment-set",
+      data: { lockedListingId: "lst_selected", selectedListingSnapshot: { sellerAccountId: OTHER_SELLER_ACCOUNT } },
+    });
+  });
+
+  it("keeps unclaimed carts on their own identity for the own-listing invariant", () => {
+    const unclaimedAnonymous = anonymousCartWithOneLine(CLAIMED_SOURCE);
+
+    // Before the claim the same listing is lockable: the invariant follows the
+    // effective owner, and this cart has no Account owner yet.
+    expect(decideCheckoutCart(unclaimedAnonymous, lockToSeller(CLAIMED_SOURCE, CLAIMANT_ACCOUNT))).toHaveLength(1);
+
+    // The pre-existing unclaimed Account refusal is untouched.
+    const accountCart = decideCheckoutCart(initialCheckoutCartState, {
+      type: "AddCartLine",
+      buyerAccountId: CLAIMANT_ACCOUNT as never,
+      lineId: "cli_1" as never,
+      catalogItemId: "cat_1",
+      productId: "cat_1::" as never,
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      itemImageUrl: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+    }).reduce(evolveCheckoutCart, initialCheckoutCartState);
+    expect(() => decideCheckoutCart(accountCart, lockToSeller(CLAIMANT_ACCOUNT, CLAIMANT_ACCOUNT))).toThrow(
+      "Accounts cannot add their own listings to cart.",
+    );
+    expect(decideCheckoutCart(accountCart, lockToSeller(CLAIMANT_ACCOUNT, OTHER_SELLER_ACCOUNT))).toHaveLength(1);
+  });
+
+  it("leaves every no-claim mutation decision unchanged", () => {
+    const anonymous = anonymousCartWithOneLine(CLAIMED_SOURCE);
+    const account = decideCheckoutCart(initialCheckoutCartState, {
+      type: "AddCartLine",
+      buyerAccountId: CLAIMANT_ACCOUNT as never,
+      lineId: "cli_1" as never,
+      catalogItemId: "cat_1",
+      productId: "cat_1::" as never,
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      itemImageUrl: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+    }).reduce(evolveCheckoutCart, initialCheckoutCartState);
+
+    for (const [owner, state] of [
+      [CLAIMED_SOURCE, anonymous],
+      [CLAIMANT_ACCOUNT, account],
+    ] as const) {
+      expect(
+        decideCheckoutCart(state, {
+          type: "SetCartLineQuantity",
+          actingOwnerKey: owner,
+          lineId: "cli_1" as never,
+          quantity: 5,
+        }),
+      ).toEqual([{ type: "checkout.cart.line-quantity-set", data: { lineId: "cli_1", quantity: 5 } }]);
+      expect(
+        decideCheckoutCart(state, { type: "RemoveCartLine", actingOwnerKey: owner, lineId: "cli_1" as never }),
+      ).toEqual([{ type: "checkout.cart.line-removed", data: { lineId: "cli_1" } }]);
+      // An uninitialized stream still refuses with the missing-line message.
+      expect(() =>
+        decideCheckoutCart(initialCheckoutCartState, {
+          type: "RemoveCartLine",
+          actingOwnerKey: owner,
+          lineId: "cli_1" as never,
+        }),
+      ).toThrow("Cart line not found.");
+    }
   });
 });

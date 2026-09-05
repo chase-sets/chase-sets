@@ -10,6 +10,7 @@ import type {
   CheckoutObservabilityTelemetry,
   CheckoutObservabilityTelemetryEvent,
 } from "../../sessions/api/checkout-observability-telemetry";
+import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import { createAccountCartRoutes, createGuestCartRoutes } from "./route";
 import type { CheckoutCartServices } from "./runtime";
 
@@ -959,5 +960,101 @@ describe("checkout cart routes", () => {
       }),
       expect.anything(),
     );
+  });
+});
+
+describe("guest cart routes on a claimed anonymous key", () => {
+  const CLAIMED_SOURCE = "anon_synthetic_claimed";
+  const REFUSAL = "Cart is owned by a different account.";
+
+  function refusingServices() {
+    const services = createServices();
+    for (const method of ["addLine", "addLines", "setLineQuantity", "setLineFulfillment", "removeLine"] as const) {
+      vi.mocked(services[method]).mockRejectedValue(new CheckoutDomainError(REFUSAL));
+    }
+    return services;
+  }
+
+  const mutations = [
+    ["quantity", "/guest/cart/cli_claimed/quantity", { quantity: 2 }],
+    ["fulfillment", "/guest/cart/cli_claimed/fulfillment", { fulfillmentMode: "optimize" }],
+    ["removal", "/guest/cart/cli_claimed/remove", {}],
+    ["add", "/guest/cart", { catalogItemId: "cat_1", productId: "cat_1::", quantity: 1 }],
+    ["bulk add", "/guest/cart/bulk", { lines: [{ catalogItemId: "cat_1", productId: "cat_1::", quantity: 1 }] }],
+  ] as const;
+
+  it.each(mutations)("returns the existing 400 refusal body for %s", async (_surface, path, body) => {
+    const services = refusingServices();
+    const app = buildApp({ actor: null, services });
+
+    const response = await app.request(
+      new Request(`http://checkout.test${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": CLAIMED_SOURCE },
+        body: JSON.stringify(body),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    // The existing validation shape: no new error code is introduced.
+    expect(await response.json()).toEqual({ error: { code: "validation_failed", message: REFUSAL } });
+  });
+
+  it("refuses identically however the caller obtained the key", async () => {
+    const services = refusingServices();
+    const app = buildApp({ actor: null, services });
+    // The guest routes have exactly one ingress for the anonymous key: the
+    // `x-checkout-anonymous-cart-id` header the marketplace fills from the
+    // retained cookie. A key copied straight into that header is the same
+    // input, so the refusal cannot depend on how it was obtained.
+    const responses = await Promise.all(
+      ["retained-cookie-value", "hand-supplied-value"].map(async () =>
+        app.request(
+          new Request("http://checkout.test/guest/cart/cli_claimed/quantity", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": CLAIMED_SOURCE },
+            body: JSON.stringify({ quantity: 2 }),
+          }),
+        ),
+      ),
+    );
+
+    expect(responses.map((response) => response.status)).toEqual([400, 400]);
+    expect(await Promise.all(responses.map((response) => response.json()))).toEqual([
+      { error: { code: "validation_failed", message: REFUSAL } },
+      { error: { code: "validation_failed", message: REFUSAL } },
+    ]);
+    // The acting owner key the service authorizes against is the presented key.
+    expect(vi.mocked(services.setLineQuantity).mock.calls.map(([params]) => params.accountId)).toEqual([
+      CLAIMED_SOURCE,
+      CLAIMED_SOURCE,
+    ]);
+  });
+
+  it("keeps unclaimed guest mutations on their existing success responses", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: null, services });
+
+    const quantity = await app.request(
+      new Request("http://checkout.test/guest/cart/cli_1/quantity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": "anon_unclaimed" },
+        body: JSON.stringify({ quantity: 3 }),
+      }),
+    );
+    const removal = await app.request(
+      new Request("http://checkout.test/guest/cart/cli_1/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": "anon_unclaimed" },
+      }),
+    );
+
+    expect(await quantity.json()).toEqual({ id: "cli_1", version: 2, status: "quantity-updated" });
+    expect(await removal.json()).toEqual({ id: "cli_1", version: 3, status: "removed" });
+    expect(vi.mocked(services.setLineQuantity).mock.calls[0]?.[0]).toMatchObject({
+      accountId: "anon_unclaimed",
+      lineId: "cli_1",
+      quantity: 3,
+    });
   });
 });

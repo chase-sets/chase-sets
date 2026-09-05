@@ -665,7 +665,17 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       if (!cleanup || cleanup.status === "complete") {
         return { sessionId: params.sessionId, session: stateToCheckoutSessionRow(state), ...metadata };
       }
+      // The retained plan is unchanged: the same durable Account and anonymous
+      // sources, the same line ids, one lifecycle. What the sweep adds is reach.
+      // Removing as the buyer Account is already line-id-total across every key
+      // that Account has claimed, so a retained source it now owns is covered by
+      // that pass -- and must be dropped from this loop, because acting as a
+      // claimed anonymous key is exactly what the claimed stream refuses.
+      // A source claimed by some other Account stays in the loop and its
+      // refusal propagates, rather than being skipped as if it were clean.
+      const claimedOwnerKeys = new Set(await deps.cart.listClaimedOwnerKeys(cleanup.plan.buyerAccountId));
       for (const ownerKey of cleanup.plan.sourceOwnerKeys) {
+        if (claimedOwnerKeys.has(ownerKey)) continue;
         for (const lineId of cleanup.plan.lineIds) {
           try {
             await deps.cart.removeLine({ accountId: ownerKey as AccountId, lineId: lineId as CartLineId }, context);

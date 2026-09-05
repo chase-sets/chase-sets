@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
+import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import { createCheckoutCartMcpHandlers, type CheckoutCartMcpServices } from "./mcp";
 import type { CheckoutCartServices } from "./runtime";
 
@@ -364,5 +365,77 @@ describe("checkout cart MCP handlers", () => {
       accountId: "acc_1",
       total: 1,
     });
+  });
+});
+
+describe("checkout cart agent surface on claimed streams", () => {
+  const REFUSAL = "Cart is owned by a different account.";
+
+  function refusingServices() {
+    const fakeServices = services();
+    for (const method of ["addLine", "setLineQuantity", "setLineFulfillment", "removeLine"] as const) {
+      vi.mocked(fakeServices.cart[method]).mockRejectedValue(new CheckoutDomainError(REFUSAL));
+    }
+    return fakeServices;
+  }
+
+  const invocations = [
+    [
+      "checkout.add-cart-line",
+      {
+        catalogItemId: "cat_1",
+        productId: "cat_1::condition:near-mint",
+        itemTitle: "Charizard",
+        selectedOptions: [{ dimensionId: "condition", optionId: "near-mint" }],
+        quantity: 1,
+      },
+    ],
+    ["checkout.update-cart-line", { cartLineId: "cli_claimed", quantity: 3 }],
+    ["checkout.remove-cart-line", { cartLineId: "cli_claimed" }],
+  ] as const;
+
+  it.each(invocations)("propagates the claimed-stream refusal from %s", async (tool, args) => {
+    // The agent surface calls the same authorized service the HTTP routes do,
+    // so a route-only guard would have left this path open.
+    const fakeServices = refusingServices();
+    const handlers = createCheckoutCartMcpHandlers(fakeServices);
+
+    await expect(
+      handlers.toolHandlers[tool]?.({
+        actor,
+        tool: null as never,
+        arguments: {
+          accountId: "acc_1",
+          idempotencyKey: `idem_${tool}`,
+          confirmationText: "Confirm.",
+          ...args,
+        },
+        request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
+      }),
+    ).rejects.toThrow(REFUSAL);
+  });
+
+  it("acts only as the agent's own Account, never an arbitrary owner key", async () => {
+    const fakeServices = services();
+    const handlers = createCheckoutCartMcpHandlers(fakeServices);
+
+    // Routing resolves the source stream from the acting owner key, so an agent
+    // naming a different owner must be refused before that key is used.
+    await expect(
+      handlers.toolHandlers["checkout.remove-cart-line"]?.({
+        actor,
+        tool: null as never,
+        arguments: {
+          accountId: "anon_synthetic_claimed",
+          cartLineId: "cli_claimed",
+          idempotencyKey: "idem_foreign",
+          confirmationText: "Remove Cart Line.",
+        },
+        request: new Request("https://api.test/mcp"),
+        protocol: legacyMcpProtocol,
+      }),
+    ).rejects.toThrow();
+    expect(fakeServices.cart.removeLine).not.toHaveBeenCalled();
   });
 });

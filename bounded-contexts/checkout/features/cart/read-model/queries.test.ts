@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
-import { CART_SELLER_OPTIONS_PER_LINE_LIMIT, listCartLines, listOwnCartLines } from "./queries";
+import {
+  CART_SELLER_OPTIONS_PER_LINE_LIMIT,
+  listCartLines,
+  listClaimedCartOwnerKeys,
+  listOwnCartLines,
+} from "./queries";
 
 type CartLinePage = Readonly<{
   buyer_account_id: string;
@@ -108,6 +113,17 @@ class CartReadModelDb implements PgQueryable {
     this.lastSql = sql;
     this.lastValues = values;
     this.queryCount += 1;
+
+    // The claimed-owner enumeration selects source keys for one Account, in
+    // byte order; everything else here is the cart-line resolver.
+    if (sql.includes("WHERE claim.account_id = $1")) {
+      const rows = this.claims
+        .filter((claim) => claim.account_id === String(values[0]))
+        .map((claim) => ({ source_owner_key: claim.source_owner_key }))
+        .sort((left, right) => compareOwnerKeyBytes(left.source_owner_key, right.source_owner_key));
+      return { rows: rows as Row[], rowCount: rows.length };
+    }
+
     const ownerKey = String(values[0]);
     const presentedAnonymousCartId = values[1] === null || values[1] === undefined ? null : String(values[1]);
     const sellerOptionsLimit = Number(values[2]);
@@ -928,5 +944,42 @@ describe("listOwnCartLines", () => {
     const db = new CartReadModelDb([anonymousLine, line({ line_id: "cli_own" })], [], [], claims);
 
     expect((await listOwnCartLines(db, claimed)).map((row) => row.line_id)).toEqual(["cli_claimed"]);
+  });
+});
+
+describe("listClaimedCartOwnerKeys", () => {
+  const claimant = "acc_synthetic_claimant";
+  const other = "acc_synthetic_bystander";
+  const claims = [
+    { source_owner_key: "anon_synthetic_claimed_second", account_id: claimant },
+    { source_owner_key: "anon_synthetic_claimed", account_id: claimant },
+    { source_owner_key: "anon_synthetic_elsewhere", account_id: other },
+  ];
+
+  it("lists an Account's claimed source keys in deterministic byte order", async () => {
+    const db = new CartReadModelDb([], [], [], claims);
+
+    expect(await listClaimedCartOwnerKeys(db, claimant)).toEqual([
+      "anon_synthetic_claimed",
+      "anon_synthetic_claimed_second",
+    ]);
+    expect(db.lastSql).toContain('ORDER BY claim.source_owner_key COLLATE "C" ASC');
+    expect(db.lastValues).toEqual([claimant]);
+  });
+
+  it("confines claimed keys to the Account that holds them", async () => {
+    const db = new CartReadModelDb([], [], [], claims);
+
+    expect(await listClaimedCartOwnerKeys(db, other)).toEqual(["anon_synthetic_elsewhere"]);
+    expect(await listClaimedCartOwnerKeys(db, "acc_synthetic_unclaimed")).toEqual([]);
+  });
+
+  it("answers an anonymous owner without a round trip", async () => {
+    const db = new CartReadModelDb([], [], [], claims);
+
+    // Only an Account can hold claims, so the guest request path stays free of
+    // a query that could only ever return no rows.
+    expect(await listClaimedCartOwnerKeys(db, "anon_synthetic_claimed")).toEqual([]);
+    expect(db.queryCount).toBe(0);
   });
 });

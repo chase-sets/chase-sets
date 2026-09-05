@@ -3,6 +3,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createCheckoutCartRuntime } from "./runtime";
+import { evolveCheckoutCart, initialCheckoutCartState } from "../domain/domain";
 import { CART_SELLER_OPTIONS_PER_LINE_LIMIT, type CheckoutCartLineRow } from "../read-model/queries";
 
 const context: EventStoreContext = {
@@ -150,6 +151,10 @@ class CartRuntimeDb implements PgQueryable {
     return this.calls.filter((call) => call.sql.includes("INSERT INTO checkout_cart_claims"));
   }
 
+  get claimedOwnerLookups() {
+    return this.calls.filter((call) => call.sql.includes("WHERE claim.account_id = $1"));
+  }
+
   async query<Row = Record<string, unknown>>(
     sql: string,
     values: readonly unknown[] = [],
@@ -198,6 +203,18 @@ class CartRuntimeDb implements PgQueryable {
         this.claims.set(sourceOwnerKey, { source_owner_key: sourceOwnerKey, account_id: String(values[1]) });
       }
       return { rows: [], rowCount: 1 };
+    }
+
+    // The claimed-owner enumeration and the single-key alias read-back both
+    // select from the claims table; the account-keyed predicate is what tells
+    // them apart.
+    if (sql.includes("WHERE claim.account_id = $1")) {
+      const accountId = String(values[0]);
+      const rows = [...this.claims.values()]
+        .filter((claim) => claim.account_id === accountId)
+        .map((claim) => ({ source_owner_key: claim.source_owner_key }))
+        .sort((left, right) => (left.source_owner_key < right.source_owner_key ? -1 : 1));
+      return { rows: rows as Row[], rowCount: rows.length };
     }
 
     if (sql.includes("FROM checkout_cart_claims AS claim")) {
@@ -507,5 +524,444 @@ describe("checkout cart addLine own-key probe", () => {
     expect(db.cartLineQueries.map((call) => call.values)).toEqual([
       [claimedSource, null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, false],
     ]);
+  });
+});
+
+/**
+ * Claimed-stream mutation harness over unmistakably synthetic identities:
+ * `anon_synthetic_claimed` is the retained anonymous source key and
+ * `acc_synthetic_claimant` the Account that claimed it.
+ */
+const CLAIMED_SOURCE = "anon_synthetic_claimed";
+const SECOND_SOURCE = "anon_synthetic_claimed_second";
+const CLAIMANT = "acc_synthetic_claimant" as never;
+const BYSTANDER = "acc_synthetic_bystander" as never;
+const OTHER_SELLER = "acc_synthetic_other_seller";
+
+function claimedLine(ownerKey: string, lineId: string, overrides: Partial<CheckoutCartLineRow> = {}) {
+  return readyLine({
+    buyer_account_id: ownerKey,
+    line_id: lineId,
+    fulfillment_mode: "optimize",
+    locked_listing_id: null,
+    seller_preference_id: null,
+    ...overrides,
+  });
+}
+
+/**
+ * Seeds the anonymous source aggregates with real line history, then claims
+ * them, so every authorization decision below reads claim-evolved state rather
+ * than a fixture flag.
+ */
+async function claimedCartRuntime(
+  lines: readonly Partial<CheckoutCartLineRow>[],
+  seeds: readonly { ownerKey: string; lineIds: readonly string[]; claimedBy?: string }[],
+) {
+  const db = new CartRuntimeDb(lines);
+  const harness = createClaimRuntime(db);
+  for (const seed of seeds) {
+    for (const lineId of seed.lineIds) {
+      await harness.runtime.commandHandler({
+        streamId: `checkout.cart-${seed.ownerKey}`,
+        command: {
+          type: "AddCartLine",
+          buyerAccountId: seed.ownerKey as never,
+          lineId: lineId as never,
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          itemImageUrl: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+        context,
+      });
+    }
+    if (seed.claimedBy) {
+      await harness.runtime.claimCart({ sourceOwnerKey: seed.ownerKey, accountId: seed.claimedBy as never }, context);
+    }
+  }
+
+  const cartState = async (ownerKey: string) =>
+    (await harness.store.eventStore.readStream({ streamId: `checkout.cart-${ownerKey}` })).reduce(
+      (state, event) => evolveCheckoutCart(state, { type: event.eventType, data: event.payload } as never),
+      initialCheckoutCartState,
+    );
+  const versionOf = async (ownerKey: string) =>
+    (await harness.store.eventStore.readStream({ streamId: `checkout.cart-${ownerKey}` })).length;
+
+  return { db, ...harness, cartState, versionOf };
+}
+
+describe("claimed cart mutation routing", () => {
+  it("routes quantity to the claimed source stream and appends nothing to the Account stream", async () => {
+    const h = await claimedCartRuntime(
+      [claimedLine(CLAIMED_SOURCE, "cli_claimed")],
+      [{ ownerKey: CLAIMED_SOURCE, lineIds: ["cli_claimed"], claimedBy: CLAIMANT }],
+    );
+    const before = { claimed: await h.versionOf(CLAIMED_SOURCE), account: await h.versionOf(CLAIMANT) };
+
+    const result = await h.runtime.setLineQuantity(
+      { accountId: CLAIMANT, lineId: "cli_claimed" as never, quantity: 4 },
+      context,
+    );
+
+    expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before.claimed + 1);
+    expect(await h.versionOf(CLAIMANT)).toBe(before.account);
+    expect(h.eventsOn(`checkout.cart-${CLAIMED_SOURCE}`)).toEqual([
+      "checkout.cart.line-added",
+      "checkout.cart.claimed-by-account",
+      "checkout.cart.line-quantity-set",
+    ]);
+    expect(h.eventsOn(`checkout.cart-${CLAIMANT}`)).toEqual([]);
+    expect((await h.cartState(CLAIMED_SOURCE)).lines[0]?.quantity).toBe(4);
+    expect(result.version).toBe(before.claimed + 1);
+  });
+
+  it("routes fulfillment to the claimed source stream and refuses the claimant's own listing", async () => {
+    const h = await claimedCartRuntime(
+      [claimedLine(CLAIMED_SOURCE, "cli_claimed")],
+      [{ ownerKey: CLAIMED_SOURCE, lineIds: ["cli_claimed"], claimedBy: CLAIMANT }],
+    );
+    const lock = (sellerAccountId: string) => ({
+      accountId: CLAIMANT,
+      lineId: "cli_claimed" as never,
+      fulfillmentMode: "locked-listing" as const,
+      lockedListingId: "lst_selected",
+      selectedListingSnapshot: {
+        listingId: "lst_selected",
+        sellerAccountId,
+        priceAmount: "25.00",
+        source: "account-cart-fulfillment",
+      },
+    });
+    const before = await h.versionOf(CLAIMED_SOURCE);
+
+    // The retained anonymous key is not the buyer here; the claimant is.
+    await expect(h.runtime.setLineFulfillment(lock(String(CLAIMANT)), context)).rejects.toThrow(
+      "Accounts cannot add their own listings to cart.",
+    );
+    expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before);
+
+    await h.runtime.setLineFulfillment(lock(OTHER_SELLER), context);
+
+    expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before + 1);
+    expect(await h.versionOf(CLAIMANT)).toBe(0);
+    expect((await h.cartState(CLAIMED_SOURCE)).lines[0]).toMatchObject({
+      fulfillmentMode: "locked-listing",
+      lockedListingId: "lst_selected",
+      selectedListingSnapshot: { sellerAccountId: OTHER_SELLER },
+    });
+  });
+
+  it("targets only the account-first winner when one line id sits on both streams", async () => {
+    // Both owners hold the same line id. The Account's own row is offered
+    // first, as the union's account-first precedence resolves it against real
+    // PostgreSQL in `seller-options-readiness.db.test.ts`.
+    const h = await claimedCartRuntime(
+      [claimedLine(String(CLAIMANT), "cli_shared"), claimedLine(CLAIMED_SOURCE, "cli_shared")],
+      [
+        { ownerKey: CLAIMED_SOURCE, lineIds: ["cli_shared"], claimedBy: CLAIMANT },
+        { ownerKey: String(CLAIMANT), lineIds: ["cli_shared"] },
+      ],
+    );
+    const before = { claimed: await h.versionOf(CLAIMED_SOURCE), account: await h.versionOf(String(CLAIMANT)) };
+
+    await h.runtime.setLineQuantity({ accountId: CLAIMANT, lineId: "cli_shared" as never, quantity: 9 }, context);
+
+    expect(await h.versionOf(String(CLAIMANT))).toBe(before.account + 1);
+    expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before.claimed);
+    expect((await h.cartState(String(CLAIMANT))).lines[0]?.quantity).toBe(9);
+    expect((await h.cartState(CLAIMED_SOURCE)).lines[0]?.quantity).toBe(1);
+  });
+
+  it("keeps a no-claim Account and a no-claim anonymous key on their own streams", async () => {
+    const h = await claimedCartRuntime(
+      [claimedLine(String(BYSTANDER), "cli_account_only"), claimedLine(SECOND_SOURCE, "cli_anonymous_only")],
+      [
+        { ownerKey: String(BYSTANDER), lineIds: ["cli_account_only"] },
+        { ownerKey: SECOND_SOURCE, lineIds: ["cli_anonymous_only"] },
+      ],
+    );
+
+    await h.runtime.setLineQuantity(
+      { accountId: BYSTANDER, lineId: "cli_account_only" as never, quantity: 3 },
+      context,
+    );
+    await h.runtime.setLineQuantity(
+      { accountId: SECOND_SOURCE as never, lineId: "cli_anonymous_only" as never, quantity: 6 },
+      context,
+    );
+
+    expect(h.eventsOn(`checkout.cart-${BYSTANDER}`)).toEqual([
+      "checkout.cart.line-added",
+      "checkout.cart.line-quantity-set",
+    ]);
+    expect(h.eventsOn(`checkout.cart-${SECOND_SOURCE}`)).toEqual([
+      "checkout.cart.line-added",
+      "checkout.cart.line-quantity-set",
+    ]);
+    // An anonymous owner never enumerates claimed keys.
+    expect(h.db.claimedOwnerLookups.map((call) => call.values)).toEqual([]);
+  });
+});
+
+describe("claimed cart line-id-total removal", () => {
+  it("clears a duplicated line id from the Account and every claimed key, then no-ops on retry", async () => {
+    const h = await claimedCartRuntime(
+      [claimedLine(String(CLAIMANT), "cli_everywhere")],
+      [
+        { ownerKey: CLAIMED_SOURCE, lineIds: ["cli_everywhere"], claimedBy: CLAIMANT },
+        { ownerKey: SECOND_SOURCE, lineIds: ["cli_everywhere"], claimedBy: CLAIMANT },
+        { ownerKey: String(CLAIMANT), lineIds: ["cli_everywhere"] },
+      ],
+    );
+
+    const first = await h.runtime.removeLine({ accountId: CLAIMANT, lineId: "cli_everywhere" as never }, context);
+
+    for (const owner of [String(CLAIMANT), CLAIMED_SOURCE, SECOND_SOURCE]) {
+      expect((await h.cartState(owner)).lines).toEqual([]);
+      expect(h.eventsOn(`checkout.cart-${owner}`).filter((type) => type === "checkout.cart.line-removed")).toHaveLength(
+        1,
+      );
+    }
+    const afterFirst = await Promise.all(
+      [String(CLAIMANT), CLAIMED_SOURCE, SECOND_SOURCE].map((owner) => h.versionOf(owner)),
+    );
+
+    const second = await h.runtime.removeLine({ accountId: CLAIMANT, lineId: "cli_everywhere" as never }, context);
+
+    expect(
+      await Promise.all([String(CLAIMANT), CLAIMED_SOURCE, SECOND_SOURCE].map((owner) => h.versionOf(owner))),
+    ).toEqual(afterFirst);
+    // The idempotent repeat reports no stream write rather than inventing one.
+    expect(first.version).toBeGreaterThan(0);
+    expect(second).toEqual({ lineId: "cli_everywhere", version: 0 });
+    // Both claimed keys are addressed, smallest first, on each call.
+    expect(h.db.claimedOwnerLookups.map((call) => call.values)).toEqual([[CLAIMANT], [CLAIMANT]]);
+  });
+
+  it("removes a claimed-only line while leaving unrelated claimed lines untouched", async () => {
+    const h = await claimedCartRuntime(
+      [claimedLine(CLAIMED_SOURCE, "cli_target")],
+      [
+        { ownerKey: CLAIMED_SOURCE, lineIds: ["cli_target"], claimedBy: CLAIMANT },
+        { ownerKey: SECOND_SOURCE, lineIds: ["cli_survivor"], claimedBy: CLAIMANT },
+      ],
+    );
+
+    await h.runtime.removeLine({ accountId: CLAIMANT, lineId: "cli_target" as never }, context);
+
+    expect((await h.cartState(CLAIMED_SOURCE)).lines).toEqual([]);
+    expect((await h.cartState(SECOND_SOURCE)).lines.map((line) => line.lineId)).toEqual(["cli_survivor"]);
+  });
+
+  it("propagates an ownership refusal from a source the acting owner does not own", async () => {
+    const h = await claimedCartRuntime(
+      [claimedLine(CLAIMED_SOURCE, "cli_target")],
+      [{ ownerKey: CLAIMED_SOURCE, lineIds: ["cli_target"], claimedBy: BYSTANDER }],
+    );
+    // A stale alias row naming the wrong Account must not be laundered into a
+    // silent success by the missing-line absorption.
+    h.db.claims.set(CLAIMED_SOURCE, { source_owner_key: CLAIMED_SOURCE, account_id: String(CLAIMANT) });
+
+    await expect(h.runtime.removeLine({ accountId: CLAIMANT, lineId: "cli_target" as never }, context)).rejects.toThrow(
+      "Cart is owned by a different account.",
+    );
+    expect((await h.cartState(CLAIMED_SOURCE)).lines.map((line) => line.lineId)).toEqual(["cli_target"]);
+  });
+
+  it("keeps unclaimed removal on the acting stream alone", async () => {
+    const h = await claimedCartRuntime(
+      [claimedLine(SECOND_SOURCE, "cli_anonymous_only")],
+      [{ ownerKey: SECOND_SOURCE, lineIds: ["cli_anonymous_only"] }],
+    );
+
+    const result = await h.runtime.removeLine(
+      { accountId: SECOND_SOURCE as never, lineId: "cli_anonymous_only" as never },
+      context,
+    );
+
+    expect(result).toEqual({ lineId: "cli_anonymous_only", version: 2 });
+    expect(h.eventsOn(`checkout.cart-${SECOND_SOURCE}`)).toEqual([
+      "checkout.cart.line-added",
+      "checkout.cart.line-removed",
+    ]);
+    expect(h.db.claimedOwnerLookups).toEqual([]);
+  });
+});
+
+describe("claimed cart write refusal surfaces", () => {
+  async function claimedHarness() {
+    return claimedCartRuntime(
+      [claimedLine(CLAIMED_SOURCE, "cli_claimed")],
+      [{ ownerKey: CLAIMED_SOURCE, lineIds: ["cli_claimed"], claimedBy: CLAIMANT }],
+    );
+  }
+
+  const addParams = (accountId: string) => ({
+    accountId: accountId as never,
+    catalogItemId: "cat_2",
+    productId: "cat_2::",
+    itemTitle: "Blastoise",
+    itemSubtitle: null,
+    itemImageUrl: null,
+    selectedOptions: [],
+    productSummary: null,
+    quantity: 1,
+  });
+
+  it("refuses all five anonymous write surfaces once the key is claimed", async () => {
+    const h = await claimedHarness();
+    const before = await h.versionOf(CLAIMED_SOURCE);
+    const refusal = "Cart is owned by a different account.";
+
+    await expect(h.runtime.addLine(addParams(CLAIMED_SOURCE), context)).rejects.toThrow(refusal);
+    const bulk = await h.runtime.addLines(
+      { accountId: CLAIMED_SOURCE as never, lines: [{ ...addParams(CLAIMED_SOURCE) }] as never },
+      context,
+    );
+    await expect(
+      h.runtime.setLineQuantity(
+        { accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never, quantity: 2 },
+        context,
+      ),
+    ).rejects.toThrow(refusal);
+    await expect(
+      h.runtime.setLineFulfillment(
+        { accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never, fulfillmentMode: "optimize" },
+        context,
+      ),
+    ).rejects.toThrow(refusal);
+    await expect(
+      h.runtime.removeLine({ accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never }, context),
+    ).rejects.toThrow(refusal);
+
+    // Bulk add reports per line rather than throwing, but appends nothing.
+    expect(bulk).toMatchObject({ requestedLineCount: 1, addedLineCount: 0, mergedLineCount: 0, failedLineCount: 1 });
+    expect(bulk.lines[0]?.message).toContain(refusal);
+    expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before);
+    expect(h.db.claims.get(CLAIMED_SOURCE)).toEqual({
+      source_owner_key: CLAIMED_SOURCE,
+      account_id: String(CLAIMANT),
+    });
+  });
+
+  it("still refuses the anonymous key after the alias row is deleted", async () => {
+    const h = await claimedHarness();
+    const before = await h.versionOf(CLAIMED_SOURCE);
+    // Authorization is the claimed stream's own event history; the alias is a
+    // routing index that can vanish without granting anything back.
+    h.db.claims.delete(CLAIMED_SOURCE);
+
+    await expect(
+      h.runtime.setLineQuantity(
+        { accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never, quantity: 2 },
+        context,
+      ),
+    ).rejects.toThrow("Cart is owned by a different account.");
+    await expect(
+      h.runtime.removeLine({ accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never }, context),
+    ).rejects.toThrow("Cart is owned by a different account.");
+    expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before);
+    expect(h.db.claims.size).toBe(0);
+  });
+
+  it("refuses an Account that has not claimed the key, leaving claim rows and both versions intact", async () => {
+    const h = await claimedHarness();
+    const before = { claimed: await h.versionOf(CLAIMED_SOURCE), bystander: await h.versionOf(String(BYSTANDER)) };
+
+    // The bystander sees no claimed row, so routing falls back to its own
+    // stream and the aggregate refuses there.
+    await expect(
+      h.runtime.setLineQuantity({ accountId: BYSTANDER, lineId: "cli_claimed" as never, quantity: 2 }, context),
+    ).rejects.toThrow("Cart line not found.");
+    await expect(
+      h.runtime.setLineFulfillment(
+        { accountId: BYSTANDER, lineId: "cli_claimed" as never, fulfillmentMode: "optimize" },
+        context,
+      ),
+    ).rejects.toThrow("Cart line not found.");
+    expect(await h.runtime.removeLine({ accountId: BYSTANDER, lineId: "cli_claimed" as never }, context)).toEqual({
+      lineId: "cli_claimed",
+      version: 0,
+    });
+
+    expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before.claimed);
+    expect(await h.versionOf(String(BYSTANDER))).toBe(before.bystander);
+    expect(h.db.claims.get(CLAIMED_SOURCE)).toEqual({
+      source_owner_key: CLAIMED_SOURCE,
+      account_id: String(CLAIMANT),
+    });
+    expect((await h.cartState(CLAIMED_SOURCE)).lines.map((line) => line.lineId)).toEqual(["cli_claimed"]);
+  });
+});
+
+describe("claimed cart per-stream concurrency", () => {
+  it("commits exactly one event when the claimant and the retained key race the same stream", async () => {
+    const h = await claimedCartRuntime(
+      [claimedLine(CLAIMED_SOURCE, "cli_claimed")],
+      [{ ownerKey: CLAIMED_SOURCE, lineIds: ["cli_claimed"], claimedBy: CLAIMANT }],
+    );
+    const before = await h.versionOf(CLAIMED_SOURCE);
+
+    const [claimant, anonymous] = await Promise.allSettled([
+      h.runtime.setLineQuantity({ accountId: CLAIMANT, lineId: "cli_claimed" as never, quantity: 7 }, context),
+      h.runtime.setLineQuantity(
+        { accountId: CLAIMED_SOURCE as never, lineId: "cli_claimed" as never, quantity: 8 },
+        context,
+      ),
+    ]);
+
+    expect(claimant.status).toBe("fulfilled");
+    expect(anonymous.status).toBe("rejected");
+    expect((anonymous as PromiseRejectedResult).reason.message).toBe("Cart is owned by a different account.");
+    expect(await h.versionOf(CLAIMED_SOURCE)).toBe(before + 1);
+    expect((await h.cartState(CLAIMED_SOURCE)).lines[0]?.quantity).toBe(7);
+  });
+
+  it("serializes two claimant writes through expected-version conflict and converges on one retry", async () => {
+    const h = await claimedCartRuntime(
+      [claimedLine(CLAIMED_SOURCE, "cli_a"), claimedLine(CLAIMED_SOURCE, "cli_b")],
+      [{ ownerKey: CLAIMED_SOURCE, lineIds: ["cli_a", "cli_b"], claimedBy: CLAIMANT }],
+    );
+    // Both writers loaded the claimed stream at this version, targeting
+    // different lines of it.
+    const loadedVersion = await h.versionOf(CLAIMED_SOURCE);
+
+    const winner = await h.runtime.setLineQuantity(
+      { accountId: CLAIMANT, lineId: "cli_b" as never, quantity: 3 },
+      context,
+    );
+    // The loser appends at its own now-stale loaded version.
+    const conflict = await h.runtime
+      .commandHandler({
+        streamId: `checkout.cart-${CLAIMED_SOURCE}`,
+        expectedVersion: loadedVersion,
+        command: { type: "SetCartLineQuantity", actingOwnerKey: CLAIMANT, lineId: "cli_a" as never, quantity: 2 },
+        context,
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+    expect(winner.version).toBe(loadedVersion + 1);
+    // A real rejection carrying the store's own conflict code, not a lost write.
+    expect(conflict).toMatchObject({ code: "concurrency_conflict" });
+    expect(await h.versionOf(CLAIMED_SOURCE)).toBe(loadedVersion + 1);
+
+    const retried = await h.runtime.setLineQuantity(
+      { accountId: CLAIMANT, lineId: "cli_a" as never, quantity: 2 },
+      context,
+    );
+
+    expect(retried.version).toBe(loadedVersion + 2);
+    const lines = (await h.cartState(CLAIMED_SOURCE)).lines;
+    expect(lines.find((line) => line.lineId === "cli_a")?.quantity).toBe(2);
+    expect(lines.find((line) => line.lineId === "cli_b")?.quantity).toBe(3);
   });
 });
