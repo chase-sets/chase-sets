@@ -25,10 +25,10 @@ Until `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, production copy must keep th
 
 Keep UCP, AP2, autonomous payment, headless checkout, AI-agent checkout, Payment Handler, and Shared Payment Token claims out of launch marketing unless a separate UCP/AP2 certification record exists. Public Presence may describe trusted checkout, visible totals, and provider-backed payment review, but it must not imply agents can complete orders or payments without buyer UI review until Payments, Checkout, Auth, Identity, and Operations have approved production verifier, merchant signing key, provider-backed Stripe Shared Payment Token, OAuth, signed-write, incident-response, and support evidence.
 
-Before marketplace production promotion, build the Marketplace Promotion and UCP/AP2 Marketing launch gates from the final launch review record:
+Before marketplace production promotion, build the Marketplace Promotion and UCP/AP2 Marketing launch gates from the final launch review record **and** the exact successful launch-mode copy audit record:
 
 ```powershell
-pnpm run ops marketplace:promotion-evidence --review .\secure\marketplace-promotion-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
+pnpm run ops marketplace:promotion-evidence -- --review .\secure\marketplace-promotion-2026-05-30.json --public-presence-copy-audit .\secure\public-presence-copy-audit-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
 ```
 
 The Public Presence evidence in that review must confirm launch-mode copy for home, terms, privacy, refunds and returns, order protection, sales fee, FAQ, and contact pages, removal of future-only live-transaction language, and absence of uncertified UCP/AP2/headless-checkout claims.
@@ -36,12 +36,20 @@ The Public Presence evidence in that review must confirm launch-mode copy for ho
 Run the live copy audit before the final review. Use prelaunch mode while production is intentionally gated:
 
 ```powershell
-pnpm run ops marketplace:public-presence-copy-audit --base-url https://chasesets.com --mode prelaunch
+pnpm run ops marketplace:public-presence-copy-audit -- --base-url https://chasesets.com --mode prelaunch
 ```
 
-For launch review, run the same command with `--mode launch`. Launch mode fails while future-only copy such as early access, waitlist, or production-promotion-gated checkout language remains on any required public page.
+Prelaunch mode keeps its existing eight-page contract and takes no packet: it reports the current legal-corpus membership, leaves every launch-only authority field `null`, and fails while future-only posture is missing from any required page.
 
-The final promotion review record must carry the launch-mode copy audit reference, `publicPresenceCopyAuditVersion: "marketplace-public-presence-copy-audit/v1"`, `publicPresenceCopyAuditBaseUrl: "https://chasesets.com"`, `publicPresenceCopyAuditCompletedAt`, `publicPresenceCopyAuditRequiredPageCount: 8`, and true values for `publicPresenceCopyAuditPassed`, `publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved`, `publicPresenceCopyAuditPolicyPagesReviewed`, and `publicPresenceCopyAuditUncertifiedClaimsAbsent`. Rerun the launch-mode audit when it is older than 30 days at promotion review.
+Launch mode is a different job and needs the retained counsel review packet and its receipt:
+
+```powershell
+pnpm run ops marketplace:public-presence-copy-audit -- --base-url https://chasesets.com --mode launch --counsel-packet <packet.md> --counsel-packet-receipt <packet.receipt.json>
+```
+
+Launch mode verifies the exact retained packet bytes against the receipt and the receipt's lifecycle-stable reviewed-content corpus identity against current source, then audits the eight required pages, the six launch-required policy routes, and the five compliance article routes — 17 unique fetches. It fails while future-only copy such as early access, waitlist, or production-promotion-gated checkout language remains, while any policy route is unpublished or exposes a stale version, or while the `registration-status-unverified` DMCA marker is present in source or on the live page.
+
+The promotion command no longer accepts copied audit booleans. `publicPresenceCopyAuditVersion` is now `marketplace-public-presence-copy-audit/v2`, and every `publicPresenceCopyAudit*` value, every `counselPacket*` value, and the legacy `publicPresenceLaunchCopyReviewed`, `futureOnlyLaunchCopyRemoved`, and `policyPagesReviewed` proofs are derived from the audit record; a review that still carries them is rejected as an unknown field. The review keeps only `publicPresenceCopyAuditReference` as a human custody pointer. Rerun the launch-mode audit when its `checkedAt` is older than 30 days at promotion review.
 
 ## Launch Copy Replacement Inventory
 
