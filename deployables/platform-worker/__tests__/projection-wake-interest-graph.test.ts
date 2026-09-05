@@ -159,6 +159,8 @@ describe("platform worker projection wake interest graph", () => {
     });
     expect(sharedNames.values["checkout.checkout.sell-list-projection"]).toBe(3);
     expect(sharedNames.values["support.affected-line-amount-projection"]).toBe(2);
+    // One projection, two source declarations: Ordering and Payments share the name.
+    expect(sharedNames.values["platform-operations.seller-compliance-sales-projection"]).toBe(2);
   });
 
   it("boots the landing worker with source-only contexts required by active subscriptions", () => {

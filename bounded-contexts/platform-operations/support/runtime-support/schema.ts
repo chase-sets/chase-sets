@@ -7,6 +7,7 @@ import { commercialTermsEffectiveDateAttentionSchemaSql } from "../../features/c
 import { platformOperationsOpsDashboardSchemaSql } from "../../features/insights-dashboards/read-model/ops-schema";
 import { reportedContentSchemaSql } from "../../features/reported-content/read-model/schema";
 import { riskAlertsSchemaSql } from "../../features/risk-alerts/read-model/schema";
+import { sellerComplianceSalesSchemaSql } from "../../features/seller-compliance-sales/read-model/schema";
 import { supportSourceProjectionSchemaSql } from "../../features/support-requests/integrations/source/source-schema";
 import { supportRequestSchemaSql } from "../../features/support-requests/read-model/schema";
 
@@ -19,6 +20,7 @@ export const platformOperationsSchemaSql = [
   platformOperationsOpsDashboardSchemaSql,
   reportedContentSchemaSql,
   riskAlertsSchemaSql,
+  sellerComplianceSalesSchemaSql,
   supportSourceProjectionSchemaSql,
   supportRequestSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)

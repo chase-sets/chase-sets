@@ -20,7 +20,8 @@
     "risk-alert",
     "support-request",
     "platform-remedy-policy",
-    "remedy-approval"
+    "remedy-approval",
+    "seller-compliance-sale"
   ],
   "streamPrefix": "platform-operations.",
   "accountCapabilities": [
@@ -47,7 +48,8 @@
     "risk-alerts",
     "support-reference-lookup",
     "support-requests",
-    "csat-dashboard"
+    "csat-dashboard",
+    "seller-compliance-sales"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
@@ -209,6 +211,25 @@
       ],
       "order": 81,
       "projectionHandlerSetNames": ["support-return-label-source-projection"]
+    },
+    {
+      "sourceContextName": "ordering",
+      "projectionName": "seller-compliance-sales-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "platform-operations.seller-compliance-sales-projection",
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
+      "order": 82,
+      "projectionHandlerSetNames": ["seller-compliance-sales-projection"]
+    },
+    {
+      "sourceContextName": "payments",
+      "projectionName": "seller-compliance-sales-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "platform-operations.seller-compliance-sales-projection",
+      "sourceContextMount": "when-mounted",
+      "eventTypes": ["payments.payment-captured", "payments.payment-refunded"],
+      "order": 83,
+      "projectionHandlerSetNames": ["seller-compliance-sales-projection"]
     }
   ],
   "eventReactions": [
@@ -321,6 +342,17 @@
       "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "seller-compliance-sales-projection",
+      "sourceContextNames": ["ordering", "payments"],
+      "optionalSourceContextNames": ["payments"],
+      "ownedTables": [
+        "platform_operations_seller_compliance_order_facts",
+        "platform_operations_seller_compliance_sales"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     }
   ],
   "readAfterWriteRouteInventory": [
@@ -1302,6 +1334,11 @@
       "classification": "support",
       "purpose": "Deployable-facing UI surface exporting the platform-feedback prompt for other contexts' marketplace routes.",
       "expectedConsumers": ["web.ts", "inventory routes", "marketplace routes", "payments routes"]
+    },
+    "seller-compliance-sales": {
+      "classification": "slice",
+      "purpose": "Own the neutral, replayable seller-compliance-sale facts: the platform-processed sale a Payments capture creates against an Ordering order, its authoritative seller, occurrence instant, gross money decomposition, recorded classification inputs, cancellation, and cumulative reversal state, plus the bounded seller and per-seller reads a later policy evaluator consumes. Records observations only -- it evaluates no threshold, publishes no event, and makes no legal-applicability claim.",
+      "expectedConsumers": ["Internal platform-operations module composition"]
     }
   },
   "runtimeDeployables": ["platform-worker"],
