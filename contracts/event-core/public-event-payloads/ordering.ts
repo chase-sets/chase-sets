@@ -13,9 +13,39 @@ export type OrderingReservationRequestPayload = Readonly<{
   status?: string;
 }>;
 
+/**
+ * The neutral, non-PII subset of an order line that a downstream projection may record as a
+ * classification input. It deliberately omits the item title, subtitle, product summary,
+ * listing evidence, and the grading certification number: those are either buyer-facing
+ * presentation or identifying detail no fact recorder needs.
+ */
+export type OrderingOrderLineSnapshotPayload = Readonly<{
+  lineId: string;
+  catalogItemId: string;
+  productId: string;
+  selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
+  quantity: number;
+  lineTotalAmount: string;
+  gradedCard?: Readonly<{ gradingCompany: string; grade: string }> | null;
+}>;
+
+/**
+ * Every field below the reservation requests is optional on decode because events written
+ * before it was published are immutable and must still decode; each one is populated on
+ * produce by the single Ordering emitter. `authenticityPlanSnapshot` is narrowed to the fee
+ * amount alone -- the policy version, category, and threshold stay inside Ordering.
+ */
 export type OrderingOrderCreatedPayload = Readonly<{
   orderId: string;
   reservationRequests: readonly OrderingReservationRequestPayload[];
+  sellerAccountId?: string;
+  itemSubtotalAmount?: string;
+  shippingChargeAmount?: string;
+  shippingAllowanceAmount?: string;
+  salesTaxAmount?: string;
+  totalAmount?: string;
+  authenticityPlanSnapshot?: Readonly<{ feeAmount: string }> | null;
+  lines?: readonly OrderingOrderLineSnapshotPayload[];
   protectionAmount?: string;
   protectionAllowanceAmount?: string;
   protectionOverageAmount?: string;

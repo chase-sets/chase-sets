@@ -118,8 +118,8 @@ describe("platform worker projection wake interest graph", () => {
       .sort();
 
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 227,
-      sha256: "02fa40bd9f294bcb5e5127c844e12fc345e789e8eb4beea089d9300f8cec68aa",
+      count: 229,
+      sha256: "9cdee3d56af4d7a4bddb490c3dda2e798f52953d78b75200043091d790a34d2f",
     });
     expect(
       fingerprint(
@@ -129,27 +129,29 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 141,
-      sha256: "d2700db3846ff5585f9156efab2d369bc971a3f4c24bb95de5c392da747d290f",
+      count: 143,
+      sha256: "434e1b9e59fef8b8151cb3d2f7e369d7a497364731491d726b2a3d90b6e5de2c",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 141,
-      sha256: "3898c2e486f23b9c03ae10c1a6feb76c54a15a4d6a7ca37150d23be25ced1b7d",
+      count: 143,
+      sha256: "c356df4bbef9fdc95a8821e64afc2c1f231e67a9d5180fe25eb09304792c20e8",
     });
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 227,
-      sha256: "33b5ab536a5e7b7c85f0eb3626953d947e9ec4edb4bf224f303192e0c64ad051",
+      count: 229,
+      sha256: "6b90fdc9770080c3848147b601250b6581c9718618a5dd1553f3f0250a6cb4cb",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 110,
-      distinctSharedNames: 18,
-      runnersUsingSharedNames: 49,
+      distinctNames: 111,
+      distinctSharedNames: 19,
+      runnersUsingSharedNames: 51,
     });
     expect(sharedNames.values["checkout.checkout.sell-list-projection"]).toBe(3);
     expect(sharedNames.values["support.affected-line-amount-projection"]).toBe(2);
+    // One projection, two source declarations: Ordering and Payments share the name.
+    expect(sharedNames.values["platform-operations.seller-compliance-sales-projection"]).toBe(2);
   });
 
   it("boots the landing worker with source-only contexts required by active subscriptions", () => {
