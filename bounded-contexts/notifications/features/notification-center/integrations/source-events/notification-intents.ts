@@ -1,7 +1,10 @@
 import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { t } from "@chase-sets/localization";
-import type { OrderingOrderCancelledPayload } from "@chase-sets/event-core/public-event-payloads";
+import type {
+  FulfillmentShipmentDispatchedPayload,
+  OrderingOrderCancelledPayload,
+} from "@chase-sets/event-core/public-event-payloads";
 import type {
   EmailNotificationChannel,
   NotificationMessage,
@@ -32,6 +35,113 @@ export type ShipmentDeliveredNotificationInput = Readonly<{
   trackingNumber: string;
   correlationId: string;
 }>;
+
+/**
+ * The enriched arm of the shipped public dispatch union. Binding the classifier and
+ * mapper to it keeps a producer contract change a typecheck error here rather than a
+ * silently divergent local copy of the payload shape.
+ */
+type EnrichedShipmentDispatchedPayload = Extract<FulfillmentShipmentDispatchedPayload, { orderId: OrderId }>;
+
+export type ShipmentDispatchedClassification =
+  | Readonly<{ kind: "historical" }>
+  | Readonly<{ kind: "rejected" }>
+  | (Readonly<{ kind: "enriched" }> &
+      Pick<EnrichedShipmentDispatchedPayload, "orderId" | "buyerAccountId" | "sellerAccountId" | "trackingIdentifier">);
+
+const SHIPMENT_DISPATCHED_ROUTING_KEYS = [
+  "orderId",
+  "buyerAccountId",
+  "sellerAccountId",
+  "trackingIdentifier",
+] as const;
+
+/**
+ * Routing was added to the durable dispatch fact atomically, so the four keys are all
+ * absent (historical, nothing to notify) or all present. Any other combination, and any
+ * present-but-invalid value, is transport data this consumer refuses to route on. A
+ * public type assertion is not runtime validation, so presence is checked independently
+ * of value validity before anything is enqueued.
+ */
+export function classifyShipmentDispatchedPayload(data: unknown): ShipmentDispatchedClassification {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { kind: "rejected" };
+  }
+
+  const payload = data as Readonly<Record<string, unknown>>;
+  const presence = SHIPMENT_DISPATCHED_ROUTING_KEYS.map((key) => Object.hasOwn(payload, key));
+  if (presence.every((isPresent) => !isPresent)) {
+    return { kind: "historical" };
+  }
+  if (!presence.every(Boolean)) {
+    return { kind: "rejected" };
+  }
+
+  if (
+    !isRoutingId(payload.orderId) ||
+    !isRoutingId(payload.buyerAccountId) ||
+    !isRoutingId(payload.sellerAccountId) ||
+    (typeof payload.trackingIdentifier !== "string" && payload.trackingIdentifier !== null)
+  ) {
+    return { kind: "rejected" };
+  }
+
+  return {
+    kind: "enriched",
+    orderId: payload.orderId as OrderId,
+    buyerAccountId: payload.buyerAccountId as AccountId,
+    sellerAccountId: payload.sellerAccountId as AccountId,
+    trackingIdentifier: payload.trackingIdentifier,
+  };
+}
+
+function isRoutingId(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export type ShipmentDispatchedNotificationInput = Pick<
+  EnrichedShipmentDispatchedPayload,
+  "shipmentId" | "orderId" | "buyerAccountId" | "trackingIdentifier"
+> &
+  Readonly<{
+    eventId: string;
+    correlationId: string;
+  }>;
+
+export function mapShipmentDispatchedToNotification(input: ShipmentDispatchedNotificationInput): NotificationMessage {
+  const trackingIdentifier = input.trackingIdentifier?.trim() || null;
+  const shipmentHref = `/account/shipments/${input.shipmentId}`;
+  const webChannel: WebNotificationChannel = {
+    channel: "web",
+    recipient: { accountId: input.buyerAccountId },
+    actionHref: shipmentHref,
+  };
+
+  return {
+    messageType: "fulfillment.shipment.dispatched",
+    criticality: "commerce",
+    category: "order-critical",
+    recipientAccountId: input.buyerAccountId,
+    title: t("notifications.intents.shipmentDispatched.title"),
+    body: trackingIdentifier
+      ? t("notifications.intents.shipmentDispatched.body.tracked", { trackingIdentifier })
+      : t("notifications.intents.shipmentDispatched.body.trackingless"),
+    actionHref: shipmentHref,
+    templateId: "shipment_dispatched",
+    templateVersion: 1,
+    locale: "en",
+    templateData: {
+      shipmentId: input.shipmentId,
+      orderId: input.orderId,
+      trackingIdentifier,
+      shipmentHref,
+    },
+    channels: [webChannel],
+    idempotencyKey: `notifications:fulfillment:shipment_dispatched:${input.eventId}`,
+    correlationId: input.correlationId,
+    actor: { userId: null, accountId: input.buyerAccountId },
+  };
+}
 
 export type SellerStockNotificationInput = Readonly<{
   sellerAccountId: AccountId;

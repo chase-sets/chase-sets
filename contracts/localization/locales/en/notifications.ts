@@ -41,6 +41,9 @@ export const notificationsEnglishTranslations = {
   "notifications.intents.sellerAvailabilityRestored.title": "Your listings are live again",
   "notifications.intents.sellerAvailabilityRestored.body":
     "Your away period ended, so your listings automatically resumed and are visible to buyers again.",
+  "notifications.intents.shipmentDispatched.title": "Your shipment is on the way",
+  "notifications.intents.shipmentDispatched.body.tracked": "Tracking identifier: {trackingIdentifier}.",
+  "notifications.intents.shipmentDispatched.body.trackingless": "Open the shipment for the latest details.",
   "notifications.intents.customerFeedbackAttention.title": "Customer feedback needs attention",
   "notifications.intents.customerFeedbackAttention.body":
     "A {priority}-priority CSAT response rated {rating} needs review.",

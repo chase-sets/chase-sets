@@ -844,6 +844,132 @@ describe("bounded context subscription runner", () => {
     expect(getCheckpointStore(targetPool).get("ordering-catalog-item-projection:catalog:v2")).toBe("2");
   });
 
+  it("versioned subscription replays facts behind the previous checkpoint", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    // A mixed history: a thin fact from before payload enrichment, an enriched fact the
+    // v1 reader filtered past, and facts v1 already applied.
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "fulfillment.shipment.dispatched", { shipmentId: "shp_1", dispatchedAt: "2026-08-01" }),
+      createStoredEvent("2", "fulfillment.shipment.delivered", { shipmentId: "shp_1", orderId: "ord_1" }),
+      createStoredEvent("3", "fulfillment.shipment.dispatched", {
+        shipmentId: "shp_2",
+        dispatchedAt: "2026-08-03",
+        orderId: "ord_2",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        trackingIdentifier: "1Z9",
+      }),
+      createStoredEvent("4", "fulfillment.shipment.delivered", { shipmentId: "shp_2", orderId: "ord_2" }),
+    ]);
+
+    const projectionName = "versioned-facts-projection";
+    const enrichedKeys = ["orderId", "buyerAccountId", "sellerAccountId", "trackingIdentifier"];
+    // Stand-in for a consumer that routes only on fully enriched facts: eligibility is
+    // shape-based, not deployment-time-based, and identity derives from the event alone.
+    function recordFact(
+      sink: string[],
+      event: Readonly<{ id: string; type: string; data: Readonly<Record<string, unknown>> }>,
+    ) {
+      if (event.type.endsWith(".dispatched") && !enrichedKeys.every((key) => Object.hasOwn(event.data, key))) {
+        return;
+      }
+      const key = `${event.type}:${event.id}`;
+      sink.push(`${key}|delivery:v1:${encodeURIComponent(key)}:web:1`);
+    }
+
+    const v1Notified: string[] = [];
+    const runnerV1 = createSubscriptionRunner("notifications", targetPool as never, sourcePool as never, {
+      subscriptionName: "notifications.versioned-facts-projection",
+      sourceContextName: "fulfillment",
+      projectionName,
+      subscriptionVersion: 1,
+      handlers: {
+        "fulfillment.shipment.delivered": async (event) => {
+          recordFact(v1Notified, event);
+        },
+      },
+      eventTypes: ["fulfillment.shipment.delivered"],
+      order: 30,
+    });
+
+    await runnerV1.runOnce();
+    const v1Retained = [...v1Notified];
+    expect(v1Retained).toEqual([
+      "fulfillment.shipment.delivered:evt_2|delivery:v1:fulfillment.shipment.delivered%3Aevt_2:web:1",
+      "fulfillment.shipment.delivered:evt_4|delivery:v1:fulfillment.shipment.delivered%3Aevt_4:web:1",
+    ]);
+    expect(getCheckpointStore(targetPool).get(`${projectionName}:fulfillment:v1`)).toBe("4");
+
+    const createV2Runner = (sink: string[]) =>
+      createSubscriptionRunner("notifications", targetPool as never, sourcePool as never, {
+        subscriptionName: "notifications.versioned-facts-projection",
+        sourceContextName: "fulfillment",
+        projectionName,
+        subscriptionVersion: 2,
+        handlers: {
+          "fulfillment.shipment.dispatched": async (event) => {
+            recordFact(sink, event);
+          },
+          "fulfillment.shipment.delivered": async (event) => {
+            recordFact(sink, event);
+          },
+        },
+        eventTypes: ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
+        order: 30,
+      });
+
+    const readAllCallsBeforeV2 = getReadAllCalls(sourcePool).length;
+    const v2Notified: string[] = [];
+    await createV2Runner(v2Notified).runOnce();
+    const v2Retained = [...v2Notified];
+
+    // v2 reads from its own absent checkpoint, so it replays the whole window.
+    expect(getReadAllCalls(sourcePool)[readAllCallsBeforeV2]).toMatchObject({
+      afterGlobalPosition: "0",
+      eventTypes: ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
+    });
+    // The thin fact at position 1 skips; only the enriched gap fact behind v1 notifies.
+    expect(v2Retained).toEqual([
+      "fulfillment.shipment.delivered:evt_2|delivery:v1:fulfillment.shipment.delivered%3Aevt_2:web:1",
+      "fulfillment.shipment.dispatched:evt_3|delivery:v1:fulfillment.shipment.dispatched%3Aevt_3:web:1",
+      "fulfillment.shipment.delivered:evt_4|delivery:v1:fulfillment.shipment.delivered%3Aevt_4:web:1",
+    ]);
+    // The already applied Delivered facts replay to exactly their retained identities.
+    expect(v2Retained.filter((identity) => identity.startsWith("fulfillment.shipment.delivered:"))).toEqual(v1Retained);
+    expect(getCheckpointStore(targetPool).get(`${projectionName}:fulfillment:v2`)).toBe("4");
+    // v1 keeps its own retained cursor and applied set.
+    expect(getCheckpointStore(targetPool).get(`${projectionName}:fulfillment:v1`)).toBe("4");
+    expect(v1Notified).toEqual(v1Retained);
+
+    // Day-after steady state: a caught-up rerun and a restarted runner are both inert.
+    await createV2Runner(v2Notified).runOnce();
+    const restarted: string[] = [];
+    const restartedRunner = createV2Runner(restarted);
+    await restartedRunner.runOnce();
+    expect(v2Notified).toEqual(v2Retained);
+    expect(restarted).toEqual([]);
+    expect(restartedRunner.getStatus()).toMatchObject({
+      lastGlobalPosition: "4",
+      outstandingEventCount: "0",
+      state: "caught-up",
+    });
+
+    // Test-only reset of the v2 cursor and its applied rows re-derives the same
+    // identities; replay invents nothing and never touches v1.
+    getCheckpointStore(targetPool).delete(`${projectionName}:fulfillment:v2`);
+    for (const ledgerKey of [...getApplicationStatusStore(targetPool).keys()]) {
+      if (ledgerKey.startsWith(`${projectionName}:fulfillment:v2:`)) {
+        getApplicationStatusStore(targetPool).delete(ledgerKey);
+      }
+    }
+    const afterReset: string[] = [];
+    await createV2Runner(afterReset).runOnce();
+    expect(afterReset).toEqual(v2Retained);
+    expect(getCheckpointStore(targetPool).get(`${projectionName}:fulfillment:v1`)).toBe("4");
+    expect(v1Notified).toEqual(v1Retained);
+  });
+
   it("resumes from the last saved checkpoint after a partial failure", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();

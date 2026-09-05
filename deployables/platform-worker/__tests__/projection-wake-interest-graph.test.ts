@@ -52,6 +52,14 @@ const AGENT_WEBHOOK_TARGETS = [
   },
 ] as const;
 
+const NOTIFICATIONS_FULFILLMENT_TARGET = {
+  sourceContextName: "fulfillment",
+  targetContextName: "notifications",
+  projectionName: "notifications-source-facts-outbox-projection",
+  checkpointKey: "notifications-source-facts-outbox-projection:fulfillment:v2",
+  eventTypes: ["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"],
+} as const;
+
 describe("platform worker projection wake interest graph", () => {
   it("boots every public-profile context and creates the Checkout Session runner from its local projector", () => {
     const runtime = createPlatformWorkerHost("public");
@@ -111,7 +119,7 @@ describe("platform worker projection wake interest graph", () => {
 
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
       count: 227,
-      sha256: "5e17efb38cb54dc4167d1e90e221f6f25e50fbe27f2669b558ae6f5062dbdfcf",
+      sha256: "02fa40bd9f294bcb5e5127c844e12fc345e789e8eb4beea089d9300f8cec68aa",
     });
     expect(
       fingerprint(
@@ -122,18 +130,18 @@ describe("platform worker projection wake interest graph", () => {
       ),
     ).toEqual({
       count: 141,
-      sha256: "7e3e478d9d8eea0302b90c4ca7c8f5c257bc3692caceea858088c4b60d398b22",
+      sha256: "d2700db3846ff5585f9156efab2d369bc971a3f4c24bb95de5c392da747d290f",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
       count: 141,
-      sha256: "02f546dd333c96b44f53935fd66e9b01b159b133a561ed00b722f69c85c2127c",
+      sha256: "3898c2e486f23b9c03ae10c1a6feb76c54a15a4d6a7ca37150d23be25ced1b7d",
     });
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
       count: 227,
-      sha256: "d5fca85318714b4641a71b9625fe341dffbdfe42c0fdffe943bef26aa68ca7f8",
+      sha256: "33b5ab536a5e7b7c85f0eb3626953d947e9ec4edb4bf224f303192e0c64ad051",
     });
     expect(sharedNames).toMatchObject({
       distinctNames: 110,
@@ -206,6 +214,43 @@ describe("platform worker projection wake interest graph", () => {
         ]),
       );
     }
+  });
+
+  it("wires shipment dispatched to the Notifications v2 checkpoint", () => {
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+
+    for (const eventType of NOTIFICATIONS_FULFILLMENT_TARGET.eventTypes) {
+      const entries = lookupProjectionInterests(index, {
+        sourceContextName: NOTIFICATIONS_FULFILLMENT_TARGET.sourceContextName,
+        eventType,
+      });
+
+      expect(entries, eventType).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            targetContextName: NOTIFICATIONS_FULFILLMENT_TARGET.targetContextName,
+            projectionName: NOTIFICATIONS_FULFILLMENT_TARGET.projectionName,
+            checkpointKey: NOTIFICATIONS_FULFILLMENT_TARGET.checkpointKey,
+            sourceContextName: NOTIFICATIONS_FULFILLMENT_TARGET.sourceContextName,
+            enabled: true,
+            eventTypes: expect.arrayContaining([...NOTIFICATIONS_FULFILLMENT_TARGET.eventTypes]),
+          }),
+        ]),
+      );
+      // The retired v1 cursor is no longer woken for this projection.
+      expect(
+        entries.map((entry) => entry.checkpointKey),
+        eventType,
+      ).not.toContain("notifications-source-facts-outbox-projection:fulfillment:v1");
+    }
+
+    // Prior interests in the dispatched fact are retained alongside the new one.
+    expect(
+      lookupProjectionInterests(index, {
+        sourceContextName: "fulfillment",
+        eventType: "fulfillment.shipment.dispatched",
+      }).map((entry) => entry.checkpointKey),
+    ).toEqual(expect.arrayContaining(["auth-agent-order-webhook-projection:fulfillment:v1"]));
   });
 
   it("fans an Ordering created notification to Inventory instead of skipping as no-interests", async () => {
