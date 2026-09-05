@@ -504,6 +504,11 @@
           "secretKey": "DATABASE_URL_CATALOG"
         },
         {
+          "name": "DATABASE_URL_CHANNELS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_CHANNELS"
+        },
+        {
           "name": "DATABASE_URL_CATALOG_WAITER",
           "secret": true,
           "secretKey": "DATABASE_URL_CATALOG_WAITER"
@@ -1006,6 +1011,11 @@
           "name": "DATABASE_URL_CATALOG",
           "secret": true,
           "secretKey": "DATABASE_URL_CATALOG"
+        },
+        {
+          "name": "DATABASE_URL_CHANNELS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_CHANNELS"
         },
         {
           "name": "DATABASE_URL_CHECKOUT",
@@ -1551,6 +1561,11 @@
           "name": "DATABASE_URL_CATALOG",
           "secret": true,
           "secretKey": "BOOTSTRAP_DATABASE_URL_CATALOG"
+        },
+        {
+          "name": "DATABASE_URL_CHANNELS",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_CHANNELS"
         },
         {
           "name": "DATABASE_URL_CHECKOUT",

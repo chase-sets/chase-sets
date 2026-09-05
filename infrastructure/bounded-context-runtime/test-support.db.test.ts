@@ -110,8 +110,8 @@ describeDb("multi-context schema reset cold acquisition concurrency", () => {
     }
   });
 
-  it("resets all 19 genuinely cold pools within the acquisition bound and includes a 20th remainder", async () => {
-    expect(platformApiContextNames).toHaveLength(19);
+  it("resets all 20 genuinely cold pools within the acquisition bound and includes a 21st remainder", async () => {
+    expect(platformApiContextNames).toHaveLength(20);
     expect(
       Object.values(pools).map((pool) => ({
         total: pool.totalCount,

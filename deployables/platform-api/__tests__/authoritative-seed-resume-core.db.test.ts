@@ -124,7 +124,7 @@ describe("authoritative seed resume", () => {
     // executable stand-in for the `undefined` universe in the boot cases below.
     expect(derived.undefined).toEqual(derived.proof);
     expect(derived.undefined).toEqual(derived.public);
-    expect(derived.undefined!.active).toHaveLength(19);
+    expect(derived.undefined!.active).toHaveLength(20);
     expect(derived.undefined!.sourceOnly).toEqual([]);
 
     // Omitted-context negative control: a context omitted under `landing` is
