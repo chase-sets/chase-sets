@@ -399,9 +399,8 @@ export async function loadCatalogItemPublicationIdentityRows(
         field_values: row.field_values,
         category_ids: row.category_ids,
       };
-      const hasFact = row.identity_catalog_item_id !== null;
       const fact =
-        hasFact &&
+        row.identity_catalog_item_id !== null &&
         row.identity_language_code !== null &&
         row.identity_title !== null &&
         row.display_identity_hash !== null &&

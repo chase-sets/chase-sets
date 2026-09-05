@@ -364,7 +364,7 @@ function createCatalogItemCommandHandler(
 
     if (!readiness || readiness.status !== "current-resolved" || !readiness.identity || !currentFact) {
       const rejectedStatus = !readiness || readiness.status === "current-resolved" ? "unavailable" : readiness.status;
-      throw new CatalogItemPublicationError(rejectedStatus, readiness?.missingTokens);
+      throw new CatalogItemPublicationError(rejectedStatus, readiness?.missing_tokens);
     }
 
     const displayIdentity: CatalogItemPublicationDisplayIdentityEvidence = {
@@ -457,6 +457,9 @@ function publicationRowMatchesAggregate(row: CatalogItemPublicationIdentityRow, 
     return false;
   }
   const item = row.item;
+  if (!item.language_code) {
+    return false;
+  }
   return (
     item.catalog_item_id === state.id &&
     sameLocale(item.language_code, state.languageCode) &&
@@ -478,6 +481,9 @@ function factIsWellFormed(
   row: CatalogItemPublicationIdentityRow,
 ): row is CatalogItemPublicationIdentityRow & { fact: NonNullable<CatalogItemPublicationIdentityRow["fact"]> } {
   const fact = row.fact;
+  if (!row.item.language_code) {
+    return false;
+  }
   return Boolean(
     fact &&
     fact.catalog_item_id === row.item.catalog_item_id &&
