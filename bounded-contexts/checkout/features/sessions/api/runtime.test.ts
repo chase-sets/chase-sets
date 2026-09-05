@@ -2600,3 +2600,307 @@ describe("durable union cleanup across claimed streams", () => {
     removeLine.mockRestore();
   });
 });
+
+describe("checkout session post-claim source authority", () => {
+  const SOURCE = "anon_synthetic_claimed";
+  const OWNER = "acc_synthetic_owner";
+  const OTHER = "acc_synthetic_other";
+
+  const ownerLine: CheckoutCartLineRow = { ...readyCartLine, buyer_account_id: SOURCE, line_id: "cli_source" };
+  // `recordOrdersCreated` requires a context bound to the acting buyer before it
+  // reaches any authority work, so each caller runs under its own account.
+  const contextFor = (accountId: string) =>
+    ({ ...context, audit: { ...context.audit, forAccountId: accountId as never } }) as typeof context;
+  const otherAccountLine: CheckoutCartLineRow = {
+    ...secondSellerCartLine,
+    buyer_account_id: OTHER,
+    line_id: "cli_other_account",
+  };
+
+  /**
+   * A real Cart runtime over a real in-memory Cart event store, plus a real
+   * Checkout Session runtime that consumes it.
+   *
+   * Only line resolution is doubled: authority still comes from the real
+   * `resolveCartSourceAuthority` reading the real Cart aggregate, so claiming
+   * the source below genuinely changes what Checkout Session is allowed to do.
+   * The line double keeps returning the source lines regardless, so a missed
+   * guard would visibly source them.
+   */
+  function harness(accountLines: readonly CheckoutCartLineRow[] = [otherAccountLine]) {
+    const cartMemory = createInMemoryEventStore();
+    const cartRuntime = createCheckoutCartRuntime({
+      eventStore: cartMemory.eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+    });
+    const resolveLines = (accountId: string, presentedAnonymousCartId?: string | null) => {
+      const own = accountLines.filter((line) => line.buyer_account_id === accountId);
+      return presentedAnonymousCartId === SOURCE ? [...own, ownerLine] : own;
+    };
+    const cart = {
+      ...cartRuntime,
+      listCartLines: vi.fn<CheckoutCartServices["listCartLines"]>(async (accountId, presentedAnonymousCartId) =>
+        resolveLines(accountId, presentedAnonymousCartId),
+      ),
+      checkout: vi.fn<CheckoutCartServices["checkout"]>(async () => ({ version: 1 })),
+      removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async ({ lineId }) => ({ lineId, version: 1 })),
+      listClaimedOwnerKeys: vi.fn<CheckoutCartServices["listClaimedOwnerKeys"]>(async () => []),
+    } satisfies CheckoutCartServices;
+    const sessionMemory = createInMemoryEventStore();
+    const sessions = createCheckoutSessionRuntime({
+      eventStore: sessionMemory.eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart,
+    });
+
+    return {
+      cart,
+      cartMemory,
+      cartRuntime,
+      sessions,
+      sessionMemory,
+      resolveLines,
+      claimSourceFor: async (accountId: string) =>
+        cartRuntime.commandHandler({
+          streamId: `checkout.cart-${SOURCE}`,
+          context,
+          command: { type: "ClaimCart", sourceOwnerKey: SOURCE, accountId: accountId as never },
+        }),
+      readinessFor: (accountId: string, presentedAnonymousCartId?: string | null) =>
+        createCartReadinessSnapshot(
+          resolveLines(accountId, presentedAnonymousCartId),
+          undefined,
+          presentedAnonymousCartId ? { accountId, presentedAnonymousCartId } : undefined,
+        ),
+      streamEventTypes: (streamId: string) =>
+        (sessionMemory.streams.get(streamId) ?? []).map((event) => event.eventType),
+      cartStreamEventTypes: (streamId: string) =>
+        (cartMemory.streams.get(streamId) ?? []).map((event) => event.eventType),
+    };
+  }
+
+  it("excludes a foreign claimed source before createFromCart resolves any line", async () => {
+    const test = harness();
+    await test.claimSourceFor(OWNER);
+    // Account B's own readiness, computed with no presented source -- exactly
+    // what B's readiness route now returns when it presents the foreign key.
+    const readiness = test.readinessFor(OTHER);
+
+    const created = await test.sessions.createFromCart(
+      {
+        accountId: OTHER as never,
+        presentedAnonymousCartId: SOURCE,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_foreign_excluded" as never,
+      },
+      context,
+    );
+    const started = test.sessionMemory.allEvents.find((event) => event.eventType === "checkout.session.started");
+    const payload = started?.payload as { lines: readonly { cartLineId: string }[] };
+
+    // B's own cart is the only source. No line, snapshot binding, or stored
+    // provenance came from the owner's claimed stream.
+    expect(payload.lines.map((line) => line.cartLineId)).toEqual(["cli_other_account"]);
+    expect(started?.payload).toMatchObject({ presentedAnonymousCartId: null });
+    expect(JSON.stringify(started?.payload)).not.toContain(SOURCE);
+    expect(JSON.stringify(started?.payload)).not.toContain("cli_source");
+    // The owner's cart stream carries only its own claim: no session start
+    // wrote anything back to it.
+    expect(test.cartStreamEventTypes(`checkout.cart-${SOURCE}`)).toEqual(["checkout.cart.claimed-by-account"]);
+    expect(created.sessionId).toBe("chk_foreign_excluded");
+  });
+
+  it("sources the claimant Account's union exactly once when it presents its own claimed key", async () => {
+    const test = harness([]);
+    await test.claimSourceFor(OWNER);
+    const readiness = test.readinessFor(OWNER, SOURCE);
+
+    await test.sessions.createFromCart(
+      {
+        accountId: OWNER as never,
+        presentedAnonymousCartId: SOURCE,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_claimant_union" as never,
+      },
+      context,
+    );
+    const started = test.sessionMemory.allEvents.find((event) => event.eventType === "checkout.session.started");
+    const payload = started?.payload as { lines: readonly { cartLineId: string }[] };
+
+    // One resolved union read, one contribution of the shared source, and the
+    // readiness revision the claimant's own readiness call produced.
+    expect(test.cart.listCartLines).toHaveBeenCalledTimes(1);
+    expect(test.cart.listCartLines).toHaveBeenCalledWith(OWNER, SOURCE);
+    expect(payload.lines.map((line) => line.cartLineId)).toEqual(["cli_source"]);
+    expect(started?.payload).toMatchObject({ presentedAnonymousCartId: SOURCE });
+  });
+
+  it("re-evaluates a stored anonymous source at all four active-session callers after a foreign claim", async () => {
+    const test = harness([]);
+    const readiness = test.readinessFor(OWNER, SOURCE);
+    const sessionId = "chk_revalidated";
+    await test.sessions.createFromCart(
+      {
+        accountId: OWNER as never,
+        presentedAnonymousCartId: SOURCE,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: sessionId as never,
+      },
+      context,
+    );
+    const streamId = `checkout.session-${sessionId}`;
+    const beforeSession = test.streamEventTypes(streamId);
+    const beforeCart = test.cartStreamEventTypes(`checkout.cart-${SOURCE}`);
+
+    // The source is accepted at start, then claimed out from under the session
+    // by a different Account.
+    await test.claimSourceFor(OTHER);
+    // Only post-claim reads are under test; the accepted setup read above is
+    // not evidence of a missed guard.
+    test.cart.listCartLines.mockClear();
+
+    const callers = {
+      getSession: () => test.sessions.getSession(sessionId, OWNER),
+      recordCheckoutReservations: () =>
+        test.sessions.recordCheckoutReservations(
+          { sessionId, accountId: OWNER as never, reservations: [] },
+          contextFor(OWNER),
+        ),
+      assertReadyForOrderCreation: () =>
+        test.sessions.assertReadyForOrderCreation({ sessionId, accountId: OWNER as never }),
+      recordOrdersCreated: () =>
+        test.sessions.recordOrdersCreated(
+          { sessionId, accountId: OWNER as never, orderIds: ["ord_1"] },
+          contextFor(OWNER),
+        ),
+    };
+
+    for (const [name, call] of Object.entries(callers)) {
+      const rejection = await call().then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+      expect(rejection, name).toBeInstanceOf(CheckoutDomainError);
+      // The existing stale contract, with no owner marker and no new code.
+      expect((rejection as CheckoutDomainError).code, name).toBe("readiness_snapshot_stale");
+      expect(String((rejection as Error).message), name).not.toContain(SOURCE);
+      expect(String((rejection as Error).message), name).not.toContain(OTHER);
+      // Nothing was read from the refused source and nothing was appended.
+      expect(test.streamEventTypes(streamId), name).toEqual(beforeSession);
+      expect(test.cart.listCartLines, name).not.toHaveBeenCalled();
+      expect(test.cart.checkout, name).not.toHaveBeenCalled();
+      expect(test.cart.removeLine, name).not.toHaveBeenCalled();
+    }
+
+    expect(test.cartStreamEventTypes(`checkout.cart-${SOURCE}`)).toEqual([
+      ...beforeCart,
+      "checkout.cart.claimed-by-account",
+    ]);
+  });
+
+  it("refuses the same four callers on an indeterminate source without recording a refusal", async () => {
+    const test = harness([]);
+    const readiness = test.readinessFor(OWNER, SOURCE);
+    const sessionId = "chk_indeterminate";
+    await test.sessions.createFromCart(
+      {
+        accountId: OWNER as never,
+        presentedAnonymousCartId: SOURCE,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: sessionId as never,
+      },
+      context,
+    );
+    const streamId = `checkout.session-${sessionId}`;
+    const beforeSession = test.streamEventTypes(streamId);
+    const resolveCartSourceAuthority = vi.spyOn(test.cart, "resolveCartSourceAuthority");
+    resolveCartSourceAuthority.mockResolvedValue({ status: "indeterminate" });
+
+    for (const call of [
+      () => test.sessions.getSession(sessionId, OWNER),
+      () =>
+        test.sessions.recordCheckoutReservations(
+          { sessionId, accountId: OWNER as never, reservations: [] },
+          contextFor(OWNER),
+        ),
+      () => test.sessions.assertReadyForOrderCreation({ sessionId, accountId: OWNER as never }),
+      () =>
+        test.sessions.recordOrdersCreated(
+          { sessionId, accountId: OWNER as never, orderIds: ["ord_1"] },
+          contextFor(OWNER),
+        ),
+    ]) {
+      await expect(call()).rejects.toMatchObject({ code: "readiness_snapshot_stale" });
+      expect(test.streamEventTypes(streamId)).toEqual(beforeSession);
+    }
+
+    // Nothing cached the indeterminate answer: every caller asked again, and a
+    // later authoritative read still decides for itself.
+    expect(resolveCartSourceAuthority).toHaveBeenCalledTimes(4);
+    resolveCartSourceAuthority.mockRestore();
+    await expect(test.sessions.getSession(sessionId, OWNER)).resolves.toMatchObject({
+      session_id: sessionId,
+      buyer_account_id: OWNER,
+    });
+  });
+
+  it("keeps the claimant control green across the same four callers", async () => {
+    const test = harness([]);
+    const readiness = test.readinessFor(OWNER, SOURCE);
+    const sessionId = "chk_claimant_control";
+    await test.sessions.createFromCart(
+      {
+        accountId: OWNER as never,
+        presentedAnonymousCartId: SOURCE,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: sessionId as never,
+      },
+      context,
+    );
+
+    // The source is claimed by the acting Account itself: the identical code
+    // path now accepts, so the refusals above turn on the authority fact alone.
+    await test.claimSourceFor(OWNER);
+
+    await expect(test.sessions.getSession(sessionId, OWNER)).resolves.toMatchObject({ session_id: sessionId });
+    await expect(
+      test.sessions.recordCheckoutReservations(
+        { sessionId, accountId: OWNER as never, reservations: [] },
+        contextFor(OWNER),
+      ),
+    ).resolves.toMatchObject({ sessionId });
+    expect(test.cart.listCartLines).toHaveBeenCalledWith(OWNER, SOURCE);
+  });
+
+  it("leaves sessions without stored anonymous provenance completely untouched", async () => {
+    const test = harness([otherAccountLine]);
+    await test.claimSourceFor(OWNER);
+    const readiness = test.readinessFor(OTHER);
+    const sessionId = "chk_account_only";
+    await test.sessions.createFromCart(
+      {
+        accountId: OTHER as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: sessionId as never,
+      },
+      context,
+    );
+    const resolveCartSourceAuthority = vi.spyOn(test.cart, "resolveCartSourceAuthority");
+
+    await expect(test.sessions.getSession(sessionId, OTHER)).resolves.toMatchObject({ session_id: sessionId });
+
+    // An Account-only session has no presented key to re-evaluate, so the
+    // authority read is never reached and the existing path is unchanged.
+    expect(resolveCartSourceAuthority).not.toHaveBeenCalled();
+    resolveCartSourceAuthority.mockRestore();
+  });
+});

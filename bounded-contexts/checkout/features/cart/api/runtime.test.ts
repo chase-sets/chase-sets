@@ -964,3 +964,219 @@ describe("claimed cart per-stream concurrency", () => {
     expect(lines.find((line) => line.lineId === "cli_b")?.quantity).toBe(3);
   });
 });
+
+describe("checkout cart post-claim read authority runtime", () => {
+  const SOURCE = "anon_synthetic_claimed";
+  const OWNER = "acc_synthetic_owner";
+  const OTHER = "acc_synthetic_other";
+
+  function authorityDb(rowsFor: (requestedOwners: readonly string[]) => CheckoutCartLineRow[] = () => []) {
+    return {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("WHERE claim.account_id = $1")) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.includes("WITH requested_owners")) {
+          const requested = [values[0], values[1]].filter((value): value is string => typeof value === "string");
+          const rows = rowsFor(requested);
+          return { rows, rowCount: rows.length };
+        }
+        throw new Error(`unexpected SQL: ${sql}`);
+      }),
+    };
+  }
+
+  async function claimedRuntime(db: ReturnType<typeof authorityDb> = authorityDb()) {
+    const memory = createInMemoryEventStore();
+    const runtime = createCheckoutCartRuntime({ eventStore: memory.eventStore, checkpointStore: {} as never, db });
+    await runtime.commandHandler({
+      streamId: `checkout.cart-${SOURCE}`,
+      context,
+      command: { type: "ClaimCart", sourceOwnerKey: SOURCE, accountId: OWNER as never },
+    });
+    return { memory, runtime };
+  }
+
+  it("returns each authority outcome from complete aggregate state", async () => {
+    const { runtime } = await claimedRuntime();
+
+    await expect(
+      runtime.resolveCartSourceAuthority({ actingOwnerKey: OWNER, presentedAnonymousCartId: SOURCE }),
+    ).resolves.toEqual({ status: "accepted", acceptedVia: "account" });
+    await expect(
+      runtime.resolveCartSourceAuthority({ actingOwnerKey: OTHER, presentedAnonymousCartId: SOURCE }),
+    ).resolves.toEqual({ status: "refused", clearRetainedAnonymousCartCookie: true });
+    await expect(
+      runtime.resolveCartSourceAuthority({ actingOwnerKey: OTHER, presentedAnonymousCartId: "anon_synthetic_free" }),
+    ).resolves.toEqual({ status: "accepted", acceptedVia: "possession" });
+  });
+
+  it("never consults the claim alias while deciding authority", async () => {
+    // A claim event is committed and the alias table is empty -- the
+    // event-first, alias-absent window #5731 deliberately leaves open. The
+    // claimant must still be admitted and the stranger must still be refused.
+    const db = authorityDb();
+    const { runtime } = await claimedRuntime(db);
+    const aliasCallsBefore = db.query.mock.calls.length;
+
+    await expect(
+      runtime.resolveCartSourceAuthority({ actingOwnerKey: OWNER, presentedAnonymousCartId: SOURCE }),
+    ).resolves.toEqual({ status: "accepted", acceptedVia: "account" });
+    await expect(
+      runtime.resolveCartSourceAuthority({ actingOwnerKey: OTHER, presentedAnonymousCartId: SOURCE }),
+    ).resolves.toEqual({ status: "refused", clearRetainedAnonymousCartCookie: true });
+
+    // Not one database round trip was needed to decide either answer.
+    expect(db.query.mock.calls.length).toBe(aliasCallsBefore);
+  });
+
+  it("reports a store failure as retryable indeterminate and re-reads authority on the next attempt", async () => {
+    const memory = createInMemoryEventStore();
+    let failNextRead = false;
+    const failingEventStore = {
+      ...memory.eventStore,
+      readStream: async (input: Parameters<typeof memory.eventStore.readStream>[0]) => {
+        if (failNextRead) {
+          failNextRead = false;
+          throw new Error("event store unavailable");
+        }
+        return memory.eventStore.readStream(input);
+      },
+    };
+    const runtime = createCheckoutCartRuntime({
+      eventStore: failingEventStore,
+      checkpointStore: {} as never,
+      db: authorityDb(),
+    });
+    await runtime.commandHandler({
+      streamId: `checkout.cart-${SOURCE}`,
+      context,
+      command: { type: "ClaimCart", sourceOwnerKey: SOURCE, accountId: OWNER as never },
+    });
+
+    failNextRead = true;
+    const first = await runtime.resolveCartSourceAuthority({
+      actingOwnerKey: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+    const retry = await runtime.resolveCartSourceAuthority({
+      actingOwnerKey: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+    const claimantRetry = await runtime.resolveCartSourceAuthority({
+      actingOwnerKey: OWNER,
+      presentedAnonymousCartId: SOURCE,
+    });
+
+    expect(first).toEqual({ status: "indeterminate" });
+    // Indeterminate carries no cookie-clear classification, is not a refusal,
+    // and is not remembered: the retry re-reads authority and decides.
+    expect(first).not.toEqual({ status: "refused", clearRetainedAnonymousCartCookie: true });
+    expect(Object.hasOwn(first, "clearRetainedAnonymousCartCookie")).toBe(false);
+    expect(retry).toEqual({ status: "refused", clearRetainedAnonymousCartCookie: true });
+    expect(claimantRetry).toEqual({ status: "accepted", acceptedVia: "account" });
+  });
+
+  it("goes red against a bypass that treats a failed authority read as an unclaimed cart", async () => {
+    const memory = createInMemoryEventStore();
+    const runtime = createCheckoutCartRuntime({
+      eventStore: {
+        ...memory.eventStore,
+        readStream: async () => {
+          throw new Error("event store unavailable");
+        },
+      },
+      checkpointStore: {} as never,
+      db: authorityDb(() => [readyLine({ buyer_account_id: SOURCE, line_id: "cli_claimed" })]),
+    });
+
+    const authority = await runtime.resolveCartSourceAuthority({
+      actingOwnerKey: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+    const lines = await runtime.listAuthorizedCartLines({ accountId: SOURCE });
+    const bypassed =
+      authority.status === "indeterminate" ? { status: "accepted", acceptedVia: "possession" } : authority;
+
+    expect(authority).toEqual({ status: "indeterminate" });
+    expect(bypassed).not.toEqual(authority);
+    // Fail-closed all the way through the read: an unreadable authority yields
+    // no line, even though the projection is holding one.
+    expect(lines).toEqual([]);
+  });
+
+  it("contributes the claimant's own claimed source exactly once when it is also presented", async () => {
+    const db = authorityDb((requested) =>
+      requested.includes(SOURCE) ? [readyLine({ buyer_account_id: SOURCE, line_id: "cli_shared" })] : [],
+    );
+    const { runtime } = await claimedRuntime(db);
+
+    const presented = await runtime.createReadinessSnapshot({
+      accountId: OWNER,
+      presentedAnonymousCartId: SOURCE,
+    });
+    const unionCall = db.query.mock.calls.at(-1);
+
+    // One resolved union query, with the presented key passed through as the
+    // single presented owner. The read model dedups a key that is both claimed
+    // and presented, so the snapshot reflects one contribution of that source.
+    expect(unionCall?.[1]?.[0]).toBe(OWNER);
+    expect(unionCall?.[1]?.[1]).toBe(SOURCE);
+    expect(presented.includedLineIds).toEqual(["cli_shared"]);
+    expect(presented.lineCount).toBe(1);
+  });
+
+  it("drops a foreign presented source from readiness and keeps the acting Account revision", async () => {
+    const db = authorityDb((requested) => {
+      const rows: CheckoutCartLineRow[] = [];
+      if (requested.includes(OTHER)) {
+        rows.push(readyLine({ buyer_account_id: OTHER, line_id: "cli_own" }));
+      }
+      if (requested.includes(SOURCE)) {
+        rows.push(readyLine({ buyer_account_id: SOURCE, line_id: "cli_claimed" }));
+      }
+      return rows;
+    });
+    const { runtime } = await claimedRuntime(db);
+
+    const withForeignKey = await runtime.createReadinessSnapshot({
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+    const accountOnly = await runtime.createReadinessSnapshot({ accountId: OTHER });
+
+    // Same snapshot id and source revision as the Account-only read: the
+    // refused key contributed nothing, so it cannot even shift the revision.
+    expect(withForeignKey).toEqual(accountOnly);
+    expect(withForeignKey.includedLineIds).toEqual(["cli_own"]);
+  });
+
+  it("returns the unclaimed-empty readiness snapshot for a guest whose cart was claimed", async () => {
+    const db = authorityDb((requested) =>
+      requested.includes(SOURCE) ? [readyLine({ buyer_account_id: SOURCE, line_id: "cli_claimed" })] : [],
+    );
+    const { runtime } = await claimedRuntime(db);
+
+    const refused = await runtime.createReadinessSnapshot({ accountId: SOURCE });
+    const unclaimedEmpty = await runtime.createReadinessSnapshot({ accountId: "anon_synthetic_absent" });
+
+    expect(refused).toEqual(unclaimedEmpty);
+    expect(refused.status).toBe("blocked");
+    expect(refused.includedLineIds).toEqual([]);
+    expect(await runtime.listAuthorizedCartLines({ accountId: SOURCE })).toEqual([]);
+  });
+
+  it("keeps the raw union read available to internal write routing", async () => {
+    const db = authorityDb((requested) =>
+      requested.includes(SOURCE) ? [readyLine({ buyer_account_id: SOURCE, line_id: "cli_claimed" })] : [],
+    );
+    const { runtime } = await claimedRuntime(db);
+
+    // #7121 mutation routing still needs to see which stream holds a line, so
+    // the internal read keeps its provenance. Only the authorized read narrows.
+    const internal = await runtime.listCartLines(SOURCE);
+
+    expect(internal.map((line) => line.buyer_account_id)).toEqual([SOURCE]);
+    expect(await runtime.listAuthorizedCartLines({ accountId: SOURCE })).toEqual([]);
+  });
+});

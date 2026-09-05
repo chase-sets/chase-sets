@@ -41,6 +41,52 @@ function signedUcpHeaders(body: string) {
   };
 }
 
+/**
+ * The Cart read the composed Checkout MCP handler actually calls, derived from
+ * the module's own service contract rather than hand-declared here.
+ *
+ * A signature change in Checkout breaks this deployable double at compile time,
+ * which is the only way a composed-handler test can honestly claim closure.
+ */
+type CheckoutMcpCartService = Parameters<NonNullable<typeof checkoutModule.buildMcpHandlers>>[0]["cart"];
+type CheckoutCartRead = CheckoutMcpCartService["listAuthorizedCartLines"];
+type CheckoutCartLineRow = Awaited<ReturnType<CheckoutCartRead>>[number];
+
+function checkoutCartLineRow(overrides: Partial<CheckoutCartLineRow> = {}): CheckoutCartLineRow {
+  return {
+    buyer_account_id: "acc_1",
+    line_id: "cli_1",
+    catalog_catalog_item_id: "cat_1",
+    product_id: "cat_1::condition:near-mint",
+    item_language_code: "en",
+    item_title: "Charizard",
+    item_subtitle: null,
+    item_image_url: null,
+    item_image_srcset: null,
+    item_image_loading_url: null,
+    item_image_loading_alt: null,
+    item_image_loading_srcset: null,
+    selected_options: [],
+    product_summary: null,
+    quantity: 1,
+    fulfillment_mode: "locked-listing",
+    locked_listing_id: "lst_1",
+    selected_listing_id: null,
+    selected_listing_seller_account_id: null,
+    selected_listing_seller_display_name: null,
+    selected_listing_seller_slug: null,
+    selected_listing_price_amount: null,
+    selected_listing_snapshot_source: null,
+    selected_listing_snapshot_captured_at: null,
+    seller_preference_id: null,
+    availability_state: "available",
+    seller_options: [],
+    created_at: "2026-07-07T00:00:00.000Z",
+    updated_at: "2026-07-07T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
 function platformActor(permissions: readonly string[]) {
   return {
     sessionId: "sess_1",
@@ -1077,17 +1123,7 @@ describe("platform api app wiring", () => {
   it("registers Checkout cart MCP handlers from the context module contract", async () => {
     const checkoutServices = {
       cart: {
-        listCartLines: vi.fn(async (accountId: string) => [
-          {
-            line_id: "cli_1",
-            buyer_account_id: accountId,
-            catalog_item_id: "cat_1",
-            product_id: "cat_1::condition:near-mint",
-            item_title: "Charizard",
-            quantity: 1,
-            updated_at: "2026-07-07T00:00:00.000Z",
-          },
-        ]),
+        listAuthorizedCartLines: vi.fn<CheckoutCartRead>(async () => [checkoutCartLineRow()]),
       },
     };
     const app = buildPlatformApiApp(
@@ -1122,7 +1158,69 @@ describe("platform api app wiring", () => {
         },
       },
     });
-    expect(checkoutServices.cart.listCartLines).toHaveBeenCalledWith("acc_1");
+    expect(checkoutServices.cart.listAuthorizedCartLines).toHaveBeenCalledWith({ accountId: "acc_1" });
+  });
+
+  it("publishes no cart owner marker through the composed Checkout cart MCP handler", async () => {
+    // The row this double returns carries the owner marker, because the real
+    // internal row does. Only the boundary mapper can keep it out of the
+    // composed response.
+    const checkoutServices = {
+      cart: {
+        listAuthorizedCartLines: vi.fn<CheckoutCartRead>(async () => [
+          checkoutCartLineRow({ buyer_account_id: "anon_raw_marker" }),
+        ]),
+      },
+    };
+    const app = buildPlatformApiApp(
+      createEmptyRuntime({ checkout: checkoutServices }, [{ module: checkoutModule, services: checkoutServices }]),
+      { resolveActor: vi.fn(async () => platformActor(["orders.view"])) },
+    );
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "checkout_cart_owner_free",
+        method: "tools/call",
+        params: { name: "checkout.get-cart", arguments: { accountId: "acc_1" } },
+      }),
+    });
+    const responseText = await response.text();
+    const structured = (JSON.parse(responseText) as { result: { structuredContent: { items: unknown[] } } }).result
+      .structuredContent;
+
+    expect(response.status).toBe(200);
+    expect(responseText).not.toContain("buyer_account_id");
+    expect(responseText).not.toContain("anon_raw_marker");
+    expect(Object.keys(structured.items[0] as Record<string, unknown>)).not.toContain("buyer_account_id");
+    // Still a real cart line, so the omission above is not an empty payload.
+    expect(structured).toMatchObject({ items: [{ line_id: "cli_1", item_title: "Charizard" }] });
+  });
+
+  it("publishes a checkout.get-cart output schema that does not promise a cart owner", async () => {
+    const app = buildPlatformApiApp(
+      createEmptyRuntime({ checkout: { cart: {} } }, [{ module: checkoutModule, services: { cart: {} } }]),
+      { resolveActor: vi.fn(async () => platformActor(["orders.view"])) },
+    );
+
+    const response = await app.request("/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "tools_schema", method: "tools/list" }),
+    });
+    const body = (await response.json()) as {
+      result: { tools: readonly { name: string; outputSchema?: Record<string, unknown> }[] };
+    };
+    const getCart = body.result.tools.find((tool) => tool.name === "checkout.get-cart");
+    const itemSchema = (
+      (getCart?.outputSchema?.properties as Record<string, { items?: Record<string, unknown> }>) ?? {}
+    ).items?.items as { required?: readonly string[]; properties?: Record<string, unknown> } | undefined;
+
+    // A stale `required` entry would make an SDK client reject the owner-free
+    // payload the handler now returns.
+    expect(itemSchema?.required).toEqual(["line_id", "quantity"]);
+    expect(Object.keys(itemSchema?.properties ?? {})).not.toContain("buyer_account_id");
+    expect(Object.keys(itemSchema?.properties ?? {})).toContain("line_id");
   });
 
   it("lists only public Discovery capabilities for anonymous native MCP discovery through the composed platform API", async () => {

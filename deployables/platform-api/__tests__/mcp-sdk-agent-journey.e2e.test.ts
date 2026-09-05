@@ -12,6 +12,51 @@ import { createUcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantRateLimiter } from "@chase-sets/platform-runtime/agent-guardrails";
 import { buildPlatformApiApp } from "../src/app";
 
+/**
+ * Derived from the Checkout module's own MCP service contract, so the SDK
+ * journey drives the same Cart interface the composed handler calls. The row
+ * keeps `buyer_account_id` because the real internal row does -- whether it
+ * survives the composed boundary is what this journey observes.
+ */
+type CheckoutMcpCartService = Parameters<NonNullable<typeof checkoutModule.buildMcpHandlers>>[0]["cart"];
+type CheckoutCartRead = CheckoutMcpCartService["listAuthorizedCartLines"];
+type CheckoutCartLineRow = Awaited<ReturnType<CheckoutCartRead>>[number];
+
+function checkoutCartLineRow(overrides: Partial<CheckoutCartLineRow> = {}): CheckoutCartLineRow {
+  return {
+    buyer_account_id: "anon_raw_marker",
+    line_id: "cart_line_1",
+    catalog_catalog_item_id: "cat_1",
+    product_id: "product_1",
+    item_language_code: "en",
+    item_title: "Charizard ex",
+    item_subtitle: null,
+    item_image_url: null,
+    item_image_srcset: null,
+    item_image_loading_url: null,
+    item_image_loading_alt: null,
+    item_image_loading_srcset: null,
+    selected_options: [],
+    product_summary: null,
+    quantity: 1,
+    fulfillment_mode: "locked-listing",
+    locked_listing_id: "listing_1",
+    selected_listing_id: null,
+    selected_listing_seller_account_id: null,
+    selected_listing_seller_display_name: null,
+    selected_listing_seller_slug: null,
+    selected_listing_price_amount: null,
+    selected_listing_snapshot_source: null,
+    selected_listing_snapshot_captured_at: null,
+    seller_preference_id: null,
+    availability_state: "available",
+    seller_options: [],
+    created_at: "2026-07-08T00:00:00.000Z",
+    updated_at: "2026-07-08T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
 function agentActor(permissions: readonly string[]) {
   return {
     sessionId: "ucp:grant_full_journey",
@@ -214,16 +259,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
     };
     const checkoutServices = {
       cart: {
-        listCartLines: vi.fn(async () => [
-          {
-            line_id: "cart_line_1",
-            buyer_account_id: "acc_1",
-            listing_id: "listing_1",
-            product_id: "product_1",
-            quantity: 1,
-            unit_price_amount: "25.00",
-          },
-        ]),
+        listAuthorizedCartLines: vi.fn<CheckoutCartRead>(async () => [checkoutCartLineRow()]),
       },
     };
     const fulfillmentServices = {
@@ -368,9 +404,27 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         ],
       });
 
-      expect(
-        expectStructured(await client.callTool({ name: "checkout.get-cart", arguments: { accountId: "acc_1" } })),
-      ).toMatchObject({ accountId: "acc_1", total: 1 });
+      const cart = expectStructured(
+        await client.callTool({ name: "checkout.get-cart", arguments: { accountId: "acc_1" } }),
+      );
+      expect(cart).toMatchObject({ accountId: "acc_1", total: 1 });
+      // The official SDK validated this payload against the published
+      // `checkout.get-cart` output schema it cached from `listTools()`. The
+      // owner marker the service returned is absent from the wire, and the
+      // schema no longer demands it.
+      expect(JSON.stringify(cart)).not.toContain("anon_raw_marker");
+      expect(JSON.stringify(cart)).not.toContain("buyer_account_id");
+      expect((cart as { items: readonly Record<string, unknown>[] }).items[0]).toMatchObject({
+        line_id: "cart_line_1",
+        item_title: "Charizard ex",
+      });
+      const publishedCartLineSchema = (
+        tools.tools.find((tool) => tool.name === "checkout.get-cart")?.outputSchema?.properties as
+          | Record<string, { items?: { required?: readonly string[]; properties?: Record<string, unknown> } }>
+          | undefined
+      )?.items?.items;
+      expect(publishedCartLineSchema?.required).toEqual(["line_id", "quantity"]);
+      expect(Object.keys(publishedCartLineSchema?.properties ?? {})).not.toContain("buyer_account_id");
       expect(
         expectStructured(
           await client.callTool({

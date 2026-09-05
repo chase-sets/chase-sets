@@ -1820,3 +1820,179 @@ describeDb("claimed cart mutations against real PostgreSQL", () => {
     }
   });
 });
+
+describeDb("post-claim read authority against the claim alias in Postgres", () => {
+  beforeAll(async () => {
+    const databaseUrls = createMultiContextTestDatabaseUrls(
+      requireDatabaseBaseUrl(),
+      contextNames,
+      "cart_read_authority",
+    );
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
+    pools = createMultiContextTestPools(databaseUrls);
+    pool = pools.checkout;
+    checkoutDatabaseUrl = databaseUrls.checkout;
+  });
+
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas({ checkout: pool });
+    await bootstrapContextDatabase(checkoutModule, pool);
+  });
+
+  afterAll(async () => {
+    if (pools) {
+      await closeMultiContextTestPools(pools);
+    }
+    pools = undefined;
+  });
+
+  const authorityFor = async (runtime: ReturnType<typeof createCartRuntime>["runtime"], actingOwnerKey: string) =>
+    runtime.resolveCartSourceAuthority({ actingOwnerKey, presentedAnonymousCartId: claimedSourceA });
+
+  it("admits the claimant and refuses a stranger while the claim alias is absent", async () => {
+    await seedReadModel([claimedLine()], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    // The event-first, alias-second window #5731 leaves open: the claim event is
+    // durable and the routing row is gone.
+    await pool.query("DELETE FROM checkout_cart_claims WHERE source_owner_key = $1", [claimedSourceA]);
+    expect(await readClaims()).toEqual([]);
+
+    await expect(authorityFor(runtime, claimAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "account",
+    });
+    await expect(authorityFor(runtime, otherAccount)).resolves.toEqual({
+      status: "refused",
+      clearRetainedAnonymousCartCookie: true,
+    });
+    await expect(authorityFor(runtime, claimedSourceA)).resolves.toEqual({
+      status: "refused",
+      clearRetainedAnonymousCartCookie: true,
+    });
+    // The authorized read agrees: with no alias row, the claimant still sees the
+    // claimed line and the retained key sees nothing.
+    expect(
+      (
+        await runtime.listAuthorizedCartLines({ accountId: claimAccount, presentedAnonymousCartId: claimedSourceA })
+      ).map((line) => line.line_id),
+    ).toEqual(["cli_source"]);
+    expect(await runtime.listAuthorizedCartLines({ accountId: claimedSourceA })).toEqual([]);
+  });
+
+  it("ignores a stale alias row that names a different Account", async () => {
+    await seedReadModel([claimedLine()], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    // A stale routing row that contradicts the events outright.
+    await pool.query("UPDATE checkout_cart_claims SET account_id = $2 WHERE source_owner_key = $1", [
+      claimedSourceA,
+      otherAccount,
+    ]);
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: otherAccount }]);
+
+    // The alias cannot hand authority to the Account it names, and cannot take
+    // it away from the Account the events name.
+    await expect(authorityFor(runtime, otherAccount)).resolves.toEqual({
+      status: "refused",
+      clearRetainedAnonymousCartCookie: true,
+    });
+    await expect(authorityFor(runtime, claimAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "account",
+    });
+  });
+
+  it("cannot invent authority from a partial alias row on an unclaimed source", async () => {
+    await seedReadModel([claimedLine()], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+
+    // No claim event was ever appended; only a routing row exists.
+    await pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+      claimedSourceA,
+      claimAccount,
+    ]);
+
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual([]);
+    // Presence of a row is not claim completeness: the source is still
+    // unclaimed, so possession still authorizes it and no Account is elevated.
+    await expect(authorityFor(runtime, claimedSourceA)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "possession",
+    });
+    await expect(authorityFor(runtime, otherAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "possession",
+    });
+    await expect(authorityFor(runtime, claimAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "possession",
+    });
+  });
+
+  it("decides identically after a runtime restart rebuilds state from the durable stream", async () => {
+    await seedReadModel([claimedLine()], [seededOption()]);
+    const first = createCartRuntime(pool);
+    await first.runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    await pool.query("DELETE FROM checkout_cart_claims");
+
+    // A brand new runtime and event store instance: nothing in memory carries
+    // over, so this answer comes from replaying the durable stream.
+    const restarted = createCartRuntime(pool);
+
+    await expect(authorityFor(restarted.runtime, claimAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "account",
+    });
+    await expect(authorityFor(restarted.runtime, otherAccount)).resolves.toEqual({
+      status: "refused",
+      clearRetainedAnonymousCartCookie: true,
+    });
+    expect(await readClaims()).toEqual([]);
+  });
+
+  it("keeps the alias out of the authority read entirely", async () => {
+    await seedReadModel([claimedLine()], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    // Dropping the routing table outright would break any read that consulted
+    // it. Authority is unaffected, which is the strongest available proof that
+    // the alias is not in this decision path.
+    await pool.query("DROP TABLE checkout_cart_claims");
+
+    await expect(authorityFor(runtime, claimAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "account",
+    });
+    await expect(authorityFor(runtime, otherAccount)).resolves.toEqual({
+      status: "refused",
+      clearRetainedAnonymousCartCookie: true,
+    });
+  });
+
+  it("refuses the retained key through the real readiness path while the claimant still reads the source", async () => {
+    await seedReadModel(
+      [seededLine({ buyer_account_id: claimAccount, line_id: "cli_own" }), claimedLine()],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    const retained = await runtime.createReadinessSnapshot({ accountId: claimedSourceA });
+    const absent = await runtime.createReadinessSnapshot({ accountId: "anon_cart_never_seeded" });
+    const claimant = await runtime.createReadinessSnapshot({
+      accountId: claimAccount,
+      presentedAnonymousCartId: claimedSourceA,
+    });
+
+    // Non-enumerating: the refused key produces exactly the snapshot an
+    // unclaimed empty key produces.
+    expect(retained).toEqual(absent);
+    expect(retained.status).toBe("blocked");
+    // And the claimant still reads both its own and the claimed source's lines.
+    expect(claimant.lineOutcomes.map((outcome) => outcome.lineId).sort()).toEqual(["cli_own", "cli_source"]);
+  });
+});

@@ -421,6 +421,31 @@ function assertSessionNotCancelled(state: Pick<CheckoutSessionState, "cancelledA
   }
 }
 
+/**
+ * The one place Checkout Session asks Cart whether a presented anonymous source
+ * may still be sourced, and the only shape in which the answer is used.
+ *
+ * Cart owns the decision; Checkout Session only obeys it. An unaccepted key is
+ * dropped rather than argued with, so a foreign claimant and a store failure
+ * both leave the acting Account's own Cart as the sole source.
+ */
+async function acceptedPresentedAnonymousCartId(
+  cart: Pick<CheckoutCartServices, "resolveCartSourceAuthority">,
+  actingOwnerKey: string,
+  presentedAnonymousCartId: string | null | undefined,
+) {
+  const presented = presentedAnonymousCartId ?? null;
+  if (!presented) {
+    return null;
+  }
+
+  const authority = await cart.resolveCartSourceAuthority({
+    actingOwnerKey,
+    presentedAnonymousCartId: presented,
+  });
+  return authority.status === "accepted" ? presented : null;
+}
+
 async function assertCurrentCartReadinessForUncommittedSession(
   state: Readonly<{
     sourceType: "cart" | "buy-now" | "offer-intent" | null;
@@ -451,7 +476,21 @@ async function assertCurrentCartReadinessForUncommittedSession(
     throw readinessStaleError();
   }
 
-  const presentedAnonymousCartId = state.presentedAnonymousCartId ?? null;
+  // Stored provenance is re-evaluated on every pass, never trusted because an
+  // earlier request accepted it. A key claimed by someone else after the
+  // session started, or one whose authority cannot be read right now, refuses
+  // here -- before any cart line is read and before any command is applied, so
+  // the session appends no reservation, order, or cart side effect and the
+  // refusal names no owner.
+  const presentedAnonymousCartId = await acceptedPresentedAnonymousCartId(
+    cart,
+    String(accountId),
+    state.presentedAnonymousCartId,
+  );
+  if (state.presentedAnonymousCartId && !presentedAnonymousCartId) {
+    throw readinessStaleError();
+  }
+
   const cartLines = presentedAnonymousCartId
     ? await cart.listCartLines(accountId as AccountId, presentedAnonymousCartId)
     : await cart.listCartLines(accountId as AccountId);
@@ -819,7 +858,15 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
   return {
     commandHandler,
     createFromCart: async (params, context) => {
-      const presentedAnonymousCartId = params.presentedAnonymousCartId ?? null;
+      // Exclusion happens before line resolution, so a refused key contributes
+      // no line, no readiness snapshot binding, and no `presentedAnonymousCartId`
+      // on the started event. The request continues against the acting
+      // Account's own Cart.
+      const presentedAnonymousCartId = await acceptedPresentedAnonymousCartId(
+        deps.cart,
+        params.accountId,
+        params.presentedAnonymousCartId,
+      );
       const cartLines = presentedAnonymousCartId
         ? await deps.cart.listCartLines(params.accountId, presentedAnonymousCartId)
         : await deps.cart.listCartLines(params.accountId);

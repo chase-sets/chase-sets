@@ -3631,3 +3631,167 @@ describe("HTTP union cleanup caller closure", () => {
     expect((await h.cartState(h.anonymous)).lines).toEqual([]);
   });
 });
+
+describe("direct-header post-claim source authority through the real HTTP path", () => {
+  const SOURCE = "anon_raw_marker";
+  const OWNER = "acc_synthetic_owner";
+  const OTHER = "acc_synthetic_other";
+
+  const sourceLine: CheckoutCartLineRow = { ...readyCartLine, buyer_account_id: SOURCE, line_id: "cli_source" };
+  const otherLine: CheckoutCartLineRow = {
+    ...readyCartLine,
+    buyer_account_id: OTHER,
+    line_id: "cli_other_account",
+    locked_listing_id: "lst_other",
+    seller_options: [{ ...readyCartLine.seller_options[0]!, listing_id: "lst_other" }],
+  };
+
+  /**
+   * Real Cart runtime, real Checkout Session runtime, real HTTP route.
+   *
+   * The line double keeps returning the claimed source's line whenever the key
+   * is passed down, so a route that forwarded an unauthorized key would visibly
+   * put a foreign line into the session.
+   */
+  function harness() {
+    const cartMemory = createInMemoryEventStore();
+    const checkpointStore: ProjectionCheckpointStore = {
+      loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
+      saveCheckpoint: async () => {},
+    };
+    const cartRuntime = createCheckoutCartRuntime({
+      eventStore: cartMemory.eventStore,
+      checkpointStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+    });
+    const resolveLines = (accountId: string, presented?: string | null) => [
+      ...(accountId === OTHER ? [otherLine] : []),
+      ...(presented === SOURCE ? [sourceLine] : []),
+    ];
+    const cart = {
+      ...cartRuntime,
+      listCartLines: vi.fn<CheckoutCartServices["listCartLines"]>(async (accountId, presented) =>
+        resolveLines(String(accountId), presented),
+      ),
+    } satisfies CheckoutCartServices;
+    const sessionMemory = createInMemoryEventStore();
+    const sessions = createCheckoutSessionRuntime({
+      eventStore: sessionMemory.eventStore,
+      checkpointStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart,
+    });
+
+    return {
+      cart,
+      cartMemory,
+      cartRuntime,
+      sessionMemory,
+      resolveLines,
+      app: buildApp(sessions, createBuyerActor({ accountId: OTHER })),
+      claimSourceFor: (accountId: string) =>
+        cartRuntime.commandHandler({
+          streamId: `checkout.cart-${SOURCE}`,
+          context: {
+            tenantId: "tnt_synthetic" as never,
+            audit: { performedByUserId: "usr_synthetic" as never, forAccountId: accountId as never },
+          },
+          command: { type: "ClaimCart", sourceOwnerKey: SOURCE, accountId: accountId as never },
+        }),
+    };
+  }
+
+  const startRequest = (readiness: ReturnType<typeof createCartReadinessSnapshot>, headers: Record<string, string>) =>
+    new Request("http://checkout.test/account/checkout-sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({
+        source: {
+          type: "cart",
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+        },
+      }),
+    });
+
+  it("reveals no claimed line and appends no event when another Account presents the key directly", async () => {
+    const test = harness();
+    await test.claimSourceFor(OWNER);
+    const accountOnlyReadiness = createCartReadinessSnapshot(test.resolveLines(OTHER));
+
+    const response = await test.app.fetch(
+      startRequest(accountOnlyReadiness, { "x-checkout-anonymous-cart-id": SOURCE }),
+    );
+    const responseText = await response.text();
+    const started = test.sessionMemory.allEvents.find((event) => event.eventType === "checkout.session.started");
+
+    expect(response.status).toBe(201);
+    expect(responseText).not.toContain(SOURCE);
+    expect(responseText).not.toContain("cli_source");
+    // The route forwarded the key exactly as before; Cart authority is what
+    // removed it, so the session was sourced from the acting Account alone.
+    expect(test.cart.listCartLines).toHaveBeenCalledWith(OTHER);
+    expect(test.cart.listCartLines).not.toHaveBeenCalledWith(OTHER, SOURCE);
+    expect((started?.payload as { lines: readonly { cartLineId: string }[] }).lines.map((l) => l.cartLineId)).toEqual([
+      "cli_other_account",
+    ]);
+    expect(started?.payload).toMatchObject({ presentedAnonymousCartId: null });
+    // No Cart event was appended to the claimed source stream by this request.
+    expect((test.cartMemory.streams.get(`checkout.cart-${SOURCE}`) ?? []).map((event) => event.eventType)).toEqual([
+      "checkout.cart.claimed-by-account",
+    ]);
+  });
+
+  it("refuses identically whether the key came from a retained cookie or a hand-supplied header", async () => {
+    const test = harness();
+    await test.claimSourceFor(OWNER);
+    const accountOnlyReadiness = createCartReadinessSnapshot(test.resolveLines(OTHER));
+
+    // The route has exactly one ingress for the key, so a value copied from a
+    // retained cookie and one typed by hand are the same input.
+    const bodies: string[] = [];
+    for (const _origin of ["retained-cookie", "hand-supplied"]) {
+      const response = await test.app.fetch(
+        startRequest(accountOnlyReadiness, { "x-checkout-anonymous-cart-id": SOURCE }),
+      );
+      expect(response.status).toBe(201);
+      bodies.push((await response.text()).replace(/chk_[0-9a-z]+/gi, "chk_normalized"));
+    }
+
+    expect(bodies[0]).toBe(bodies[1]);
+    expect(bodies.join("")).not.toContain(SOURCE);
+  });
+
+  it("still sources the presented key for the claimant Account through the same route", async () => {
+    const test = harness();
+    await test.claimSourceFor(OTHER);
+    const unionReadiness = createCartReadinessSnapshot(test.resolveLines(OTHER, SOURCE), undefined, {
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+
+    const response = await test.app.fetch(startRequest(unionReadiness, { "x-checkout-anonymous-cart-id": SOURCE }));
+    const started = test.sessionMemory.allEvents.find((event) => event.eventType === "checkout.session.started");
+
+    expect(response.status).toBe(201);
+    expect(test.cart.listCartLines).toHaveBeenCalledWith(OTHER, SOURCE);
+    expect(
+      (started?.payload as { lines: readonly { cartLineId: string }[] }).lines.map((l) => l.cartLineId).sort(),
+    ).toEqual(["cli_other_account", "cli_source"]);
+    // Even on the accepted path the key never reaches the client payload.
+    expect(await response.text()).not.toContain(SOURCE);
+  });
+
+  it("keeps an unclaimed presented key acceptable, so the refusal is not a blanket header rejection", async () => {
+    const test = harness();
+    const unionReadiness = createCartReadinessSnapshot(test.resolveLines(OTHER, SOURCE), undefined, {
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+
+    const response = await test.app.fetch(startRequest(unionReadiness, { "x-checkout-anonymous-cart-id": SOURCE }));
+
+    expect(response.status).toBe(201);
+    expect(test.cart.listCartLines).toHaveBeenCalledWith(OTHER, SOURCE);
+  });
+});
