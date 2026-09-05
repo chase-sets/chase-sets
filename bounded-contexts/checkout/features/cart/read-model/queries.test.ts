@@ -946,7 +946,11 @@ describe("listAuthorizedOwnerCartLines", () => {
 
   it("reproduces the alias-driven union exactly when every claimed candidate is authorized", async () => {
     const own = line({ line_id: "cli_own", updated_at: "2026-06-10T00:00:00.000Z" });
-    const claimed = line({ buyer_account_id: claimedA, line_id: "cli_claimed", updated_at: "2026-06-20T00:00:00.000Z" });
+    const claimed = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_claimed",
+      updated_at: "2026-06-20T00:00:00.000Z",
+    });
     const presentedOnly = line({
       buyer_account_id: presented,
       line_id: "cli_presented",
@@ -1032,7 +1036,11 @@ describe("listAuthorizedOwnerCartLines", () => {
   });
 
   it("contributes one requested owner for a key that is both authorized-claimed and presented", async () => {
-    const overlap = line({ buyer_account_id: claimedA, line_id: "cli_overlap", updated_at: "2026-06-05T00:00:00.000Z" });
+    const overlap = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_overlap",
+      updated_at: "2026-06-05T00:00:00.000Z",
+    });
     const own = line({ line_id: "cli_own", updated_at: "2026-06-06T00:00:00.000Z" });
     const db = new CartReadModelDb([overlap, own], [], [], claims);
 
@@ -1044,7 +1052,11 @@ describe("listAuthorizedOwnerCartLines", () => {
 
   it("keeps the source revision the alias-driven union produced", async () => {
     const own = line({ line_id: "cli_own", updated_at: "2026-06-10T00:00:00.000Z" });
-    const claimed = line({ buyer_account_id: claimedA, line_id: "cli_claimed", updated_at: "2026-06-20T00:00:00.000Z" });
+    const claimed = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_claimed",
+      updated_at: "2026-06-20T00:00:00.000Z",
+    });
     const presentedOnly = line({
       buyer_account_id: presented,
       line_id: "cli_presented",
