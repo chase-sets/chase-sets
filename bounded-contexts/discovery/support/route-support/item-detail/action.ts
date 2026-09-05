@@ -386,7 +386,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
             : "",
           fulfillment: t("discovery.routes.itemDetail.confirmed.at.checkout"),
         });
-        return redirect(`/checkout/buy/readiness?${query.toString()}`);
+        return redirect(`/checkout/buy/readiness?${query.toString()}`, { status: 307 });
       }
 
       const session = await checkoutApi.createCheckoutSession({

@@ -317,6 +317,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
   });
 
   it("proves signed-in Buy Cart reaches account payment with saved rows and fresh readiness", async () => {
+    mockMergeGuestCartToAccount.mockResolvedValue({ mergedLineCount: 1, failedLineCount: 1 });
     mockCreateCheckoutSession.mockResolvedValue({
       session_id: "chk_signed_in",
       ...checkoutCommit("42", "evt_checkout_session_started"),
@@ -333,7 +334,10 @@ describe("checkout web routes: signed-in buy checkout", () => {
     const startResponse = (await checkoutStartAction({
       request: new Request("http://localhost/checkout/buy/readiness", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_presented",
+        },
         body: startForm.toString(),
       }),
       params: {},
@@ -352,6 +356,9 @@ describe("checkout web routes: signed-in buy checkout", () => {
       },
     ]);
     expect(mockCreateCartReadiness).toHaveBeenCalledWith({});
+    expect(mockCreateCheckoutRequestApiClient).toHaveBeenCalledWith(expect.any(Request), {
+      headers: { "x-checkout-anonymous-cart-id": "anon_cart_presented" },
+    });
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
       source: {
         type: "cart",
@@ -361,7 +368,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
       },
     });
     expect(mockStartGuestCheckout).not.toHaveBeenCalled();
-    expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
+    expect(mockMergeGuestCartToAccount).toHaveBeenCalledWith("anon_cart_presented");
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
 
     mockSignedInSavedRows();

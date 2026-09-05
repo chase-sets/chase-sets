@@ -10,7 +10,10 @@ import {
   createGuestCheckoutContext,
 } from "../../../support/request-support/checkout-route-guard";
 import type { CartLineId } from "../../../support/runtime-support/common";
-import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
+import {
+  recordCheckoutObservabilityTelemetry,
+  type CheckoutObservabilityTelemetry,
+} from "../../sessions/api/checkout-observability-telemetry";
 import { recordCartReadinessObservability } from "./cart-readiness-observability";
 import { parseCartReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutCartServices } from "./runtime";
@@ -715,13 +718,39 @@ export function createGuestCartRoutes(
       );
     }
 
-    const result = await services.mergeCartIntoAccount(
-      {
-        sourceOwnerId: ownerId,
-        targetAccountId: access.actor.accountId as AccountId,
-      },
-      context,
-    );
+    let result: Awaited<ReturnType<CheckoutCartServices["mergeCartIntoAccount"]>>;
+    try {
+      result = await services.mergeCartIntoAccount(
+        {
+          sourceOwnerId: ownerId,
+          targetAccountId: access.actor.accountId as AccountId,
+        },
+        context,
+      );
+    } catch (error) {
+      try {
+        recordCheckoutObservabilityTelemetry(checkoutObservabilityTelemetry, {
+          state: "cart-merge-best-effort-failed",
+          entrySource: "cart",
+          actorMode: access.actor.roleKey === "guest-buyer" ? "guest" : "signed-in",
+          scenarioState: "reconciliation",
+          visibleState: "entry-continues",
+          sideEffectStatus: "merge-failed",
+        });
+      } catch {
+        // Telemetry must never replace the merge response consumed by the
+        // best-effort entry caller.
+      }
+      return c.json(
+        {
+          error: {
+            code: "cart_merge_failed",
+            message: t("checkout.features.cart.api.route.request.failed"),
+          },
+        },
+        500,
+      );
+    }
 
     return c.json(result);
   });

@@ -54,6 +54,40 @@ describe("checkout observability telemetry", () => {
     ).toThrow("does not allow 'blocked'");
   });
 
+  it("derives the fixed cart merge failure event without accepting exception data", () => {
+    expect(
+      checkoutObservabilityTelemetryEvent({
+        state: "cart-merge-best-effort-failed",
+        entrySource: "cart",
+        actorMode: "signed-in",
+        scenarioState: "reconciliation",
+        visibleState: "entry-continues",
+        sideEffectStatus: "merge-failed",
+      }),
+    ).toEqual({
+      eventName: "checkout.entry.cart_merge_best_effort_failed",
+      telemetryClass: "checkout-entry",
+      alertClass: "event-only",
+      operatorSignalRequired: false,
+      entrySource: "cart",
+      actorMode: "signed-in",
+      scenarioState: "reconciliation",
+      visibleState: "entry-continues",
+      sideEffectStatus: "merge-failed",
+      readinessContract: null,
+      readinessSnapshotState: null,
+      sourceRevisionState: null,
+      freshWriteReceiptPresence: null,
+      supportReferencePresent: false,
+      performanceBudgetId: null,
+      providerCategory: null,
+      riskCategory: null,
+      downstreamStatus: null,
+      capabilityDecision: null,
+      freshStateScanResult: null,
+    });
+  });
+
   it("records through the injected host port without raw identifiers", () => {
     const telemetry = { recordCheckoutEvent: vi.fn() };
 

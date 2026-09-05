@@ -49,6 +49,27 @@ describe("Checkout observability contract", () => {
     }
   });
 
+  it("closes the best-effort cart merge profile over fixed redacted dimensions", () => {
+    expect(checkoutObservabilityProfiles.find((profile) => profile.state === "cart-merge-best-effort-failed")).toEqual(
+      expect.objectContaining({
+        eventName: "checkout.entry.cart_merge_best_effort_failed",
+        telemetryClass: "checkout-entry",
+        scenarioStates: ["reconciliation"],
+        alertClass: "event-only",
+        operatorSignalRequired: false,
+      }),
+    );
+    expect(checkoutObservabilityForbiddenFields).toEqual(
+      expect.arrayContaining([
+        "anonymous-owner-key",
+        "request-header",
+        "request-body",
+        "raw-exception-message",
+        "raw-exception-stack",
+      ]),
+    );
+  });
+
   it("documents the executable observability contract", () => {
     const doc = readFileSync(new URL("../../../docs/checkout-observability-contract.md", import.meta.url), "utf8");
     const checkoutReadme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
@@ -65,6 +86,7 @@ describe("Checkout observability contract", () => {
       "The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-observability-contract.ts`.",
     );
     expect(doc).toContain("No raw `afterWrite`, cookies, emails, addresses, provider payloads");
+    expect(doc).toContain("raw exception messages or stacks");
     expect(doc).toContain("support-safe references");
     expect(checkoutReadme).toContain("./docs/checkout-observability-contract.md");
 
