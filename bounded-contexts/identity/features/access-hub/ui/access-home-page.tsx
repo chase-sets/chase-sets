@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   Badge,
   Button,
@@ -18,6 +18,12 @@ import {
 } from "@chase-sets/design-system";
 import type { Account } from "../../accounts/ui/contracts";
 import type { AccessHome } from "../api/contracts";
+import {
+  accountStatusLabel,
+  accountTypeLabel,
+  identityDateUnavailable,
+  membershipRoleLabel,
+} from "../../../support/ui-support/value-labels";
 
 type AttentionRow = Readonly<{
   id: string;
@@ -39,8 +45,8 @@ function buildAttentionRows(data: AccessHome): AttentionRow[] {
       account: invitation.account_display_name ?? invitation.account_name ?? invitation.account_id,
       detail: t("identity.features.accessHub.ui.accessHome.pending.invitation.detail", {
         email: invitation.email,
-        role: invitation.role_key,
-        expiresAt: invitation.expires_at,
+        role: membershipRoleLabel(invitation.role_key),
+        expiresAt: formatDateTime(invitation.expires_at, { fallback: identityDateUnavailable() }),
       }),
       href: `/access/accounts/${invitation.account_id}?tab=team&invitation=${invitation.invitation_id}`,
     })),
@@ -51,7 +57,7 @@ function buildAttentionRows(data: AccessHome): AttentionRow[] {
       detail: t("identity.features.accessHub.ui.accessHome.api.key.rotation.detail", {
         name: apiKey.name,
         user: apiKey.user_display_name ?? apiKey.user_primary_email ?? apiKey.user_id,
-        dueAt: apiKey.rotation_due_at,
+        dueAt: formatDateTime(apiKey.rotation_due_at, { fallback: identityDateUnavailable() }),
       }),
       href: `/access/accounts/${apiKey.account_id}?tab=api-access&apiKey=${apiKey.api_key_id}`,
     })),
@@ -59,7 +65,7 @@ function buildAttentionRows(data: AccessHome): AttentionRow[] {
       id: account.account_id,
       kind: t("identity.features.accessHub.ui.accessHome.suspended.account"),
       account: accountLabel(account),
-      detail: account.updated_at,
+      detail: formatDateTime(account.updated_at, { fallback: identityDateUnavailable() }),
       href: `/access/accounts/${account.account_id}?tab=overview`,
     })),
     ...data.attention.memberships_awaiting_review.map((membership) => ({
@@ -68,7 +74,7 @@ function buildAttentionRows(data: AccessHome): AttentionRow[] {
       account: membership.account_display_name ?? membership.account_name ?? membership.account_id,
       detail: t("identity.features.accessHub.ui.accessHome.membership.review.detail", {
         user: membership.user_display_name ?? membership.user_primary_email ?? membership.user_id,
-        role: membership.role_key,
+        role: membershipRoleLabel(membership.role_key),
       }),
       href: `/access/accounts/${membership.account_id}?tab=team&membership=${membership.membership_id}`,
     })),
@@ -84,12 +90,14 @@ const accountColumns: DataColumn<Account>[] = [
   {
     key: "account_type",
     header: t("identity.features.accounts.ui.accountListPage.type"),
-    cell: (account) => account.account_type,
+    cell: (account) => accountTypeLabel(account.account_type),
   },
   {
     key: "status",
     header: t("identity.features.accounts.ui.accountListPage.status"),
-    cell: (account) => <Badge tone={account.status === "active" ? "success" : "warning"}>{account.status}</Badge>,
+    cell: (account) => (
+      <Badge tone={account.status === "active" ? "success" : "warning"}>{accountStatusLabel(account.status)}</Badge>
+    ),
   },
   {
     key: "open",

@@ -169,7 +169,7 @@ async function expectAccountLifecycleControls(page: Page, account: AccountSnapsh
   await page.goto(`/access/accounts/${account.account_id}`, { waitUntil: "domcontentloaded" });
   await expectAdminPageReady(page, { heading: account.display_name });
   await expect(page.getByText(account.account_id)).toBeVisible();
-  await expect(page.getByText(account.status).first()).toBeVisible();
+  await expect(page.getByText(accountStatusLabel(account.status)).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Update Profile" })).toBeVisible();
 
   if (account.status === "active") {
@@ -191,6 +191,17 @@ async function expectAccountLifecycleControls(page: Page, account: AccountSnapsh
     await expect(page.getByRole("button", { name: "Reactivate" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Close" })).toHaveCount(0);
   }
+}
+
+function accountStatusLabel(value: string) {
+  const labels: Readonly<Record<string, string>> = {
+    active: "Active",
+    suspended: "Suspended",
+    closed: "Closed",
+  };
+  const label = labels[value];
+  expect(label, `account status ${value} should have a visible label`).toBeDefined();
+  return label!;
 }
 
 async function exerciseBadgeToggle(

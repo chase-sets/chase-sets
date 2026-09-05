@@ -18,6 +18,11 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import { ApiKeySecretReveal } from "./api-key-secret-reveal";
+import {
+  apiKeyStatusLabel,
+  identityAuthenticationMethodLabel,
+  identityDateUnavailable,
+} from "../../../support/ui-support/value-labels";
 
 export function SecurityPage({
   user,
@@ -29,11 +34,11 @@ export function SecurityPage({
   oneTimeSecret?: OneTimeApiKeySecret | null;
 }) {
   const enabledMethods = user.auth_methods.length
-    ? user.auth_methods.join(", ")
+    ? user.auth_methods.map((method) => identityAuthenticationMethodLabel(method)).join(", ")
     : t("identity.features.apiKeys.ui.accountSecurityPage.no.interactive.methods.enabled");
   const activeApiKeys = apiKeys.filter((key) => key.status === "active").length;
   const lastUpdated = user.updated_at
-    ? formatDate(user.updated_at)
+    ? formatDate(user.updated_at, { fallback: identityDateUnavailable() })
     : t("identity.features.apiKeys.ui.accountSecurityPage.not.available");
 
   return (
@@ -139,7 +144,7 @@ export function SecurityPage({
                 label: t("identity.features.apiKeys.ui.accountSecurityPage.api.keys"),
                 value:
                   apiKeys.length > 0
-                    ? apiKeys.map((key) => `${key.name} (${key.status})`).join(", ")
+                    ? apiKeys.map((key) => `${key.name} (${apiKeyStatusLabel(key.status)})`).join(", ")
                     : t("identity.features.apiKeys.ui.accountSecurityPage.no.api.keys.yet"),
               },
             ]}
@@ -150,7 +155,10 @@ export function SecurityPage({
                 <SpecificationList
                   specs={[
                     { label: t("identity.features.apiKeys.ui.accountSecurityPage.api.key"), value: apiKey.name },
-                    { label: t("identity.features.apiKeys.ui.accountSecurityPage.status"), value: apiKey.status },
+                    {
+                      label: t("identity.features.apiKeys.ui.accountSecurityPage.status"),
+                      value: apiKeyStatusLabel(apiKey.status),
+                    },
                   ]}
                 />
                 {apiKey.status === "active" ? (

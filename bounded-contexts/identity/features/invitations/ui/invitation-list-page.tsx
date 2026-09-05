@@ -19,6 +19,7 @@ import { IDENTITY_INVITATION_STATUSES, type IdentityListFilters } from "../../..
 import { grantableRoleSelectItems } from "../../memberships/ui/role-select-items";
 import type { Account } from "../../accounts/ui/contracts";
 import type { Invitation } from "./contracts";
+import { invitationStatusLabel, membershipRoleLabel } from "../../../support/ui-support/value-labels";
 
 type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
@@ -41,26 +42,19 @@ const columns: DataColumn<Invitation>[] = [
   {
     key: "role_key",
     header: t("identity.features.invitations.ui.invitationListPage.role"),
-    cell: (row) => row.role_key,
+    cell: (row) => membershipRoleLabel(row.role_key),
   },
-  { key: "status", header: t("identity.features.invitations.ui.invitationListPage.status"), cell: (row) => row.status },
+  {
+    key: "status",
+    header: t("identity.features.invitations.ui.invitationListPage.status"),
+    cell: (row) => invitationStatusLabel(row.status),
+  },
 ];
 
 function invitationStatusFilterLabel(status: string) {
-  switch (status) {
-    case "pending":
-      return t("identity.features.invitations.ui.invitationListPage.status.filter.pending");
-    case "accepted":
-      return t("identity.features.invitations.ui.invitationListPage.status.filter.accepted");
-    case "declined":
-      return t("identity.features.invitations.ui.invitationListPage.status.filter.declined");
-    case "cancelled":
-      return t("identity.features.invitations.ui.invitationListPage.status.filter.cancelled");
-    case "expired":
-      return t("identity.features.invitations.ui.invitationListPage.status.filter.expired");
-    default:
-      return t("identity.features.invitations.ui.invitationListPage.status.filter.all");
-  }
+  return status === "all"
+    ? t("identity.features.invitations.ui.invitationListPage.status.filter.all")
+    : invitationStatusLabel(status);
 }
 
 function invitationStatusFilterItems() {

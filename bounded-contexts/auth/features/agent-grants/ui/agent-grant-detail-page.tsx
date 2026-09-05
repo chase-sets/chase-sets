@@ -32,6 +32,11 @@ import {
   agentGrantPaymentRailLabel,
   agentGrantStatusTone,
 } from "./agent-grant-presentation";
+import {
+  agentGrantOutcomeLabel,
+  agentGrantStatusLabel,
+  authDateUnavailable,
+} from "../../../support/ui-support/value-labels";
 
 function clientLabel(grant: AgentGrant) {
   return grant.client_name ?? grant.client_uri ?? grant.platform_profile_url;
@@ -155,7 +160,7 @@ const activityColumns: DataColumn<AgentGrantActivityRecord>[] = [
   {
     key: "occurred_at",
     header: t("auth.features.agentGrants.ui.agentGrantDetailPage.activity.when"),
-    cell: (row) => formatDateTime(row.occurred_at, { preset: "short" }),
+    cell: (row) => formatDateTime(row.occurred_at, { preset: "short", fallback: authDateUnavailable() }),
   },
   {
     key: "tool",
@@ -165,7 +170,9 @@ const activityColumns: DataColumn<AgentGrantActivityRecord>[] = [
   {
     key: "outcome",
     header: t("auth.features.agentGrants.ui.agentGrantDetailPage.activity.outcome"),
-    cell: (row) => <Badge tone={agentGrantActivityOutcomeTone(row.outcome)}>{row.outcome}</Badge>,
+    cell: (row) => (
+      <Badge tone={agentGrantActivityOutcomeTone(row.outcome)}>{agentGrantOutcomeLabel(row.outcome)}</Badge>
+    ),
   },
   {
     key: "reason",
@@ -258,7 +265,7 @@ export function AgentGrantDetailPage({
         { label: name },
       ]}
       title={name}
-      status={grant.status}
+      status={agentGrantStatusLabel(grant.status)}
       actions={
         grant.status === "active" ? (
           <AlertDialog
@@ -286,10 +293,13 @@ export function AgentGrantDetailPage({
               <Text tone="secondary">{grant.platform_profile_url}</Text>
               <Text tone="secondary">
                 {t("auth.features.agentGrants.ui.agentGrantDetailPage.connected.on", {
-                  date: formatDateTime(grant.granted_at, { preset: "short" }),
+                  date: formatDateTime(grant.granted_at, {
+                    preset: "short",
+                    fallback: authDateUnavailable(),
+                  }),
                 })}
               </Text>
-              <Badge tone={agentGrantStatusTone(grant.status)}>{grant.status}</Badge>
+              <Badge tone={agentGrantStatusTone(grant.status)}>{agentGrantStatusLabel(grant.status)}</Badge>
             </Stack>
           ),
         },

@@ -47,7 +47,7 @@ test.describe("access admin users and memberships", () => {
     );
     await expectAdminPageReady(page, { heading: accountHeading });
     await expect(page.getByText(user.user_id)).toBeVisible();
-    await expect(page.getByText(user.status).first()).toBeVisible();
+    await expect(page.getByText(userStatusLabel(user.status)).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Update Profile" })).toBeVisible();
     await expect(page.getByRole("button", { name: user.status === "active" ? "Suspend" : "Reactivate" })).toBeVisible();
 
@@ -61,8 +61,8 @@ test.describe("access admin users and memberships", () => {
     );
     await expectAdminPageReady(page, { heading: accountHeading });
     const membershipRow = page.getByRole("row").filter({ hasText: membershipUserLabel(membership) });
-    await expect(membershipRow.getByText(membership.role_key, { exact: true })).toBeVisible();
-    await expect(membershipRow.getByText(membership.status, { exact: true })).toBeVisible();
+    await expect(membershipRow.getByText(membershipRoleLabel(membership.role_key), { exact: true })).toBeVisible();
+    await expect(membershipRow.getByText(membershipStatusLabel(membership.status), { exact: true })).toBeVisible();
     await expect(membershipRow.getByLabel("Role")).toHaveValue(membership.role_key);
     await expect(membershipRow.getByRole("button", { name: "Change Role" })).toBeVisible();
     await expect(
@@ -94,4 +94,37 @@ async function getMembershipSnapshot(page: Page, membershipId: string) {
 
 function membershipUserLabel(membership: MembershipSnapshot) {
   return membership.user_display_name ?? membership.user_primary_email ?? membership.user_id;
+}
+
+function userStatusLabel(value: string) {
+  const labels: Readonly<Record<string, string>> = {
+    active: "Active",
+    suspended: "Suspended",
+  };
+  const label = labels[value];
+  expect(label, `user status ${value} should have a visible label`).toBeDefined();
+  return label!;
+}
+
+function membershipRoleLabel(value: string) {
+  const labels: Readonly<Record<string, string>> = {
+    "platform-admin": "Platform administrator",
+    owner: "Owner",
+    manager: "Manager",
+    fulfillment: "Fulfillment",
+    viewer: "Viewer",
+  };
+  const label = labels[value];
+  expect(label, `membership role ${value} should have a visible label`).toBeDefined();
+  return label!;
+}
+
+function membershipStatusLabel(value: string) {
+  const labels: Readonly<Record<string, string>> = {
+    active: "Active",
+    revoked: "Revoked",
+  };
+  const label = labels[value];
+  expect(label, `membership status ${value} should have a visible label`).toBeDefined();
+  return label!;
 }
