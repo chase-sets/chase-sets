@@ -25,6 +25,12 @@ const catalogItem: CatalogItemDetail = {
   display_template_key: null,
   display_identity_hash: null,
   display_identity_resolved_at: null,
+  display_identity_publication: {
+    status: "current-resolved",
+    reason_code: null,
+    missing_tokens: [],
+    retryable: false,
+  },
   description_i18n: null,
   description: "Japanese printed Bulbasaur",
   blueprint: null,
@@ -57,6 +63,57 @@ describe("CatalogItemDetailPage", () => {
     expect(within(dialog).queryByLabelText("Title")).toBeNull();
     expect(within(dialog).queryByLabelText("Subtitle")).toBeNull();
     expect(within(dialog).getByLabelText("Description")).toBeTruthy();
+  });
+
+  it("keeps an outdated draft editable through failed publish, recheck, and retry", async () => {
+    const outdatedItem: CatalogItemDetail = {
+      ...catalogItem,
+      status: "draft",
+      display_identity_publication: {
+        status: "outdated",
+        reason_code: "display-identity-outdated",
+        missing_tokens: [],
+        retryable: true,
+      },
+    };
+    stubCatalogFetches({
+      publicationResponses: [
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "display-identity-outdated",
+              message: "Display identity is outdated. Recheck and retry publication.",
+              readiness: "outdated",
+              missingTokens: [],
+            },
+          }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        ),
+      ],
+      recheckDetail: {
+        ...outdatedItem,
+        display_identity_publication: {
+          status: "current-resolved",
+          reason_code: null,
+          missing_tokens: [],
+          retryable: false,
+        },
+      },
+    });
+
+    render(<CatalogItemDetailPage id="cat_1" initialData={outdatedItem} />);
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const dialog = screen.getByRole("dialog", { name: "Publish Catalog Item" });
+    const requiredFields = within(dialog).getByLabelText("Required Field IDs (comma-separated)");
+    fireEvent.change(requiredFields, { target: { value: "fld_name" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
+
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("Display identity is outdated");
+    expect((requiredFields as HTMLInputElement).value).toBe("fld_name");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Recheck display identity" }));
+    await waitFor(() => expect(within(dialog).getByText("current-resolved")).toBeTruthy());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Publish Catalog Item" })).toBeNull());
   });
 
   it("renders reference field values as flattened clickable detail rows", () => {
@@ -374,6 +431,8 @@ function stubCatalogFetches(
     contentLines?: unknown[];
     containerLines?: unknown[];
     productContentsSaveError?: string;
+    publicationResponses?: Response[];
+    recheckDetail?: CatalogItemDetail;
   } = {},
 ) {
   const contentLines = input.contentLines ?? [];
@@ -393,6 +452,18 @@ function stubCatalogFetches(
         typeof request === "object" && request !== null && "url" in request
           ? String((request as { url: unknown }).url)
           : String(request);
+      if (url.includes("/items/cat_1/publish")) {
+        return Promise.resolve(
+          input.publicationResponses?.shift() ??
+            new Response(JSON.stringify({ status: "active" }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+        );
+      }
+      if (url.endsWith("/items/cat_1")) {
+        return jsonResponse(input.recheckDetail ?? catalogItem);
+      }
       if (url.includes("/product-contents/content-types")) {
         return jsonResponse({
           items: [

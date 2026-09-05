@@ -10,9 +10,8 @@ import {
 } from "./display-alias-policy";
 
 const MAX_REFERENCE_EXPANSION_DEPTH = 4;
-// Bump this version whenever the resolved hash depends on a new input (e.g. the
-// chosen display alias, or the resolution-outcome metadata), so a resolver
-// upgrade re-resolves every item even when the template output is unchanged.
+// Version 3 binds the complete raw item tuple as well as aliases and resolution
+// outcome. Future input classes must bump this version so every item re-resolves.
 const DISPLAY_IDENTITY_RESOLVER_VERSION = 3;
 
 // Sentinel recorded in missing_tokens when no display template targeted the item
@@ -50,7 +49,32 @@ export type PersistedDisplayIdentityResult = Readonly<{
   changed: boolean;
   publicationRequired: boolean;
   resolvedAt: string;
+  /** Present only for guarded update-only publication refreshes. */
+  persisted?: boolean;
 }>;
+
+export type ObservedDisplayIdentityFact = Readonly<{
+  catalog_item_id: string;
+  language_code: string;
+  title: string;
+  subtitle: string | null;
+  display_template_key: string | null;
+  display_template_target_kind: string | null;
+  display_template_target_id: string | null;
+  display_identity_hash: string;
+  resolver_version: number;
+  resolved_at: string;
+  resolution_status: unknown;
+  missing_tokens: unknown;
+}>;
+
+export type GuardedDisplayIdentityItem = DisplayIdentityItem &
+  Readonly<{
+    title_i18n: unknown;
+    subtitle_i18n: unknown;
+    projected_title: string;
+    projected_subtitle: string | null;
+  }>;
 
 type FieldDefinitionRow = Readonly<{
   field_id: string;
@@ -161,6 +185,54 @@ export async function resolveAndPersistCatalogItemDisplayIdentities<TItem extend
     return new Map();
   }
 
+  const identitiesById = await resolveCatalogItemDisplayIdentities(db, uniqueItems);
+  const identities = uniqueItems.map((item) => {
+    const identity = identitiesById.get(item.catalog_item_id);
+    if (!identity) {
+      throw new Error(`Missing resolved display identity for Catalog Item ${item.catalog_item_id}.`);
+    }
+    return identity;
+  });
+  const existingHashes = await loadExistingDisplayIdentityHashes(db, identities);
+  const resolvedAtForItem = typeof resolvedAt === "function" ? resolvedAt : () => resolvedAt;
+  const results = new Map<string, PersistedDisplayIdentityResult>(
+    identities.map((identity, index) => {
+      const item = uniqueItems[index];
+      if (!item) {
+        throw new Error(`Missing Catalog Item for display identity ${identity.catalogItemId}.`);
+      }
+
+      const resolvedAtValue = resolvedAtForItem(item);
+      const existing = existingHashes.get(displayIdentityKey(identity.catalogItemId, identity.languageCode));
+      const changed = existing?.displayIdentityHash !== identity.hash;
+
+      return [
+        identity.catalogItemId,
+        {
+          identity,
+          changed,
+          publicationRequired: existing?.lastPublishedDisplayIdentityHash !== identity.hash,
+          resolvedAt: resolvedAtValue,
+        },
+      ];
+    }),
+  );
+
+  await persistDisplayIdentities(db, [...results.values()]);
+
+  return results;
+}
+
+/** Resolve many items with shared dependency loads and bounded query fan-out. */
+export async function resolveCatalogItemDisplayIdentities<TItem extends DisplayIdentityItem>(
+  db: PgQueryable,
+  items: readonly TItem[],
+): Promise<Map<string, ResolvedDisplayIdentity>> {
+  const uniqueItems = [...new Map(items.map((item) => [item.catalog_item_id, item])).values()];
+  if (uniqueItems.length === 0) {
+    return new Map();
+  }
+
   const fieldValuesByItemId = new Map(
     uniqueItems.map((item) => [item.catalog_item_id, asArray<FieldValue>(item.field_values)] as const),
   );
@@ -197,47 +269,22 @@ export async function resolveAndPersistCatalogItemDisplayIdentities<TItem extend
     db,
     uniqueItems.flatMap((item) => directReferenceIdsByItemId.get(item.catalog_item_id) ?? []),
   );
-  const identities = uniqueItems.map((item) =>
-    resolveCatalogItemDisplayIdentityWithLoadedData(
-      item,
-      fieldValuesByItemId.get(item.catalog_item_id) ?? [],
-      fieldDefinitions,
-      templates,
-      buildReferenceRecordMap(directReferenceIdsByItemId.get(item.catalog_item_id) ?? [], referenceRowsById),
-      {
-        itemDisplayAlias: itemDisplayAliasesById.get(item.catalog_item_id) ?? null,
-        referenceDisplayAliasesById,
-      },
-    ),
-  );
-  const existingHashes = await loadExistingDisplayIdentityHashes(db, identities);
-  const resolvedAtForItem = typeof resolvedAt === "function" ? resolvedAt : () => resolvedAt;
-  const results = new Map<string, PersistedDisplayIdentityResult>(
-    identities.map((identity, index) => {
-      const item = uniqueItems[index];
-      if (!item) {
-        throw new Error(`Missing Catalog Item for display identity ${identity.catalogItemId}.`);
-      }
-
-      const resolvedAtValue = resolvedAtForItem(item);
-      const existing = existingHashes.get(displayIdentityKey(identity.catalogItemId, identity.languageCode));
-      const changed = existing?.displayIdentityHash !== identity.hash;
-
-      return [
-        identity.catalogItemId,
+  return new Map(
+    uniqueItems.map((item) => [
+      item.catalog_item_id,
+      resolveCatalogItemDisplayIdentityWithLoadedData(
+        item,
+        fieldValuesByItemId.get(item.catalog_item_id) ?? [],
+        fieldDefinitions,
+        templates,
+        buildReferenceRecordMap(directReferenceIdsByItemId.get(item.catalog_item_id) ?? [], referenceRowsById),
         {
-          identity,
-          changed,
-          publicationRequired: existing?.lastPublishedDisplayIdentityHash !== identity.hash,
-          resolvedAt: resolvedAtValue,
+          itemDisplayAlias: itemDisplayAliasesById.get(item.catalog_item_id) ?? null,
+          referenceDisplayAliasesById,
         },
-      ];
-    }),
+      ),
+    ]),
   );
-
-  await persistDisplayIdentities(db, [...results.values()]);
-
-  return results;
 }
 
 function resolveCatalogItemDisplayIdentityWithLoadedData(
@@ -322,8 +369,99 @@ export async function resolveAndPersistCatalogItemDisplayIdentity(
   db: PgQueryable,
   item: DisplayIdentityItem,
   resolvedAt: string,
+  options?: Readonly<{
+    guardedBy: Readonly<{
+      item: GuardedDisplayIdentityItem;
+      fact: ObservedDisplayIdentityFact;
+    }>;
+  }>,
 ): Promise<PersistedDisplayIdentityResult> {
   const identity = await resolveCatalogItemDisplayIdentity(db, item);
+  if (options) {
+    const observed = options.guardedBy;
+    const updated = await db.query(
+      `UPDATE catalog_item_display_identities AS identity
+       SET title = $1,
+           subtitle = $2,
+           display_template_key = $3,
+           display_template_target_kind = $4,
+           display_template_target_id = $5,
+           display_identity_hash = $6,
+           resolver_version = $7,
+           resolved_at = $8,
+           resolution_status = $9,
+           missing_tokens = $10::jsonb,
+           updated_at = $8
+       FROM catalog_items AS item
+       WHERE identity.catalog_item_id = $11
+         AND identity.language_code = $12
+         AND identity.catalog_item_id = item.catalog_item_id
+         AND identity.catalog_item_id IS NOT DISTINCT FROM $13
+         AND identity.language_code IS NOT DISTINCT FROM $14
+         AND identity.title IS NOT DISTINCT FROM $15
+         AND identity.subtitle IS NOT DISTINCT FROM $16
+         AND identity.display_template_key IS NOT DISTINCT FROM $17
+         AND identity.display_template_target_kind IS NOT DISTINCT FROM $18
+         AND identity.display_template_target_id IS NOT DISTINCT FROM $19
+         AND identity.display_identity_hash IS NOT DISTINCT FROM $20
+         AND identity.resolver_version IS NOT DISTINCT FROM $21
+         AND identity.resolved_at IS NOT DISTINCT FROM $22::timestamptz
+         AND identity.resolution_status IS NOT DISTINCT FROM $23
+         AND identity.missing_tokens IS NOT DISTINCT FROM $24::jsonb
+         AND item.language_code IS NOT DISTINCT FROM $25
+         AND item.title_i18n IS NOT DISTINCT FROM $26::jsonb
+         AND item.title IS NOT DISTINCT FROM $27
+         AND item.subtitle_i18n IS NOT DISTINCT FROM $28::jsonb
+         AND item.subtitle IS NOT DISTINCT FROM $29
+         AND item.blueprint_id IS NOT DISTINCT FROM $30
+         AND item.field_values IS NOT DISTINCT FROM $31::jsonb
+         AND item.category_ids IS NOT DISTINCT FROM $32::jsonb
+       RETURNING identity.catalog_item_id`,
+      [
+        identity.title,
+        identity.subtitle,
+        identity.templateKey,
+        identity.templateTargetKind,
+        identity.templateTargetId,
+        identity.hash,
+        identity.resolverVersion,
+        resolvedAt,
+        identity.resolutionStatus,
+        JSON.stringify(identity.missingTokens),
+        identity.catalogItemId,
+        identity.languageCode,
+        observed.fact.catalog_item_id,
+        observed.fact.language_code,
+        observed.fact.title,
+        observed.fact.subtitle,
+        observed.fact.display_template_key,
+        observed.fact.display_template_target_kind,
+        observed.fact.display_template_target_id,
+        observed.fact.display_identity_hash,
+        observed.fact.resolver_version,
+        observed.fact.resolved_at,
+        observed.fact.resolution_status,
+        JSON.stringify(asStringArray(observed.fact.missing_tokens)),
+        observed.item.language_code,
+        JSON.stringify(observed.item.title_i18n),
+        observed.item.projected_title,
+        observed.item.subtitle_i18n === null ? null : JSON.stringify(observed.item.subtitle_i18n),
+        observed.item.projected_subtitle,
+        observed.item.blueprint_id,
+        JSON.stringify(observed.item.field_values),
+        JSON.stringify(observed.item.category_ids),
+      ],
+    );
+
+    return {
+      identity,
+      changed: observed.fact.display_identity_hash !== identity.hash,
+      publicationRequired: false,
+      resolvedAt,
+      persisted: updated.rows.length === 1,
+    };
+  }
+
   const existing = await db.query<{
     display_identity_hash: string;
     last_published_display_identity_hash: string | null;
@@ -537,7 +675,19 @@ function withDisplayIdentityMetadata(
 
   return {
     ...snapshot,
-    hash: displayIdentityHash({ ...snapshot, displayAlias: identity.displayAlias }),
+    hash: displayIdentityHash({
+      ...snapshot,
+      displayAlias: identity.displayAlias,
+      resolverInputs: {
+        fallbackTitle: item.title,
+        fallbackSubtitle: item.subtitle,
+        blueprintId: item.blueprint_id,
+        fieldValues: asArray<FieldValue>(item.field_values)
+          .map((fieldValue) => ({ fieldId: fieldValue.fieldId, value: canonicalHashValue(fieldValue.value) }))
+          .sort((left, right) => left.fieldId.localeCompare(right.fieldId)),
+        categoryIds: asStringArray(item.category_ids).sort((left, right) => left.localeCompare(right)),
+      },
+    }),
   };
 }
 
@@ -553,6 +703,13 @@ function displayIdentityHash(input: {
   resolutionStatus: CatalogItemDisplayResolutionStatus;
   missingTokens: readonly string[];
   displayAlias: ResolvedDisplayAlias | null;
+  resolverInputs: Readonly<{
+    fallbackTitle: string;
+    fallbackSubtitle: string | null;
+    blueprintId: string | null;
+    fieldValues: readonly Readonly<{ fieldId: string; value: unknown }>[];
+    categoryIds: readonly string[];
+  }>;
 }): string {
   return createHash("sha256")
     .update(
@@ -570,6 +727,7 @@ function displayIdentityHash(input: {
         // rendered title/subtitle happen to be identical.
         resolutionStatus: input.resolutionStatus,
         missingTokens: input.missingTokens,
+        resolverInputs: input.resolverInputs,
         // The chosen display alias is part of resolved display truth: include its
         // identity so the hash changes when the display-relevant alias changes,
         // even if the rendered title text happens to collide.
@@ -583,6 +741,20 @@ function displayIdentityHash(input: {
       }),
     )
     .digest("hex");
+}
+
+function canonicalHashValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalHashValue);
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalHashValue(entry)]),
+    );
+  }
+  return value;
 }
 
 function normalizeLanguageCode(value: string | undefined): string {

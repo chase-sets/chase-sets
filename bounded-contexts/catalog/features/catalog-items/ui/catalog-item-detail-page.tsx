@@ -19,6 +19,7 @@ import {
   type DataColumn,
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
+import { CatalogItemPublicationApiError } from "../../../support/shell-support/api/client";
 import { EntityDetailPage } from "../../../support/shell-support/ui/entity-detail-page";
 import { toCatalogAdminHref } from "../../../support/shell-support/ui/catalog-admin-hrefs";
 import { sourceObservationsForProviderHref } from "./catalog-item-provenance-links";
@@ -36,6 +37,7 @@ import {
   assignCategory,
   removeCategory,
   publishCatalogItem,
+  recheckCatalogItemPublication,
   reviseMetadata,
   localizedTextMapFromEnglish,
   localizedTextMapFromUnknown,
@@ -61,6 +63,7 @@ import type {
   ProductContentLineInput,
   ProductContentSelectedOption,
   ProductContentsResolvedSnapshot,
+  DisplayIdentityPublicationReadiness,
 } from "./contracts";
 import { buildReferenceDetailRows, formatReferenceTypeLabel, type ReferenceDetailRow } from "./reference-detail-rows";
 
@@ -374,6 +377,9 @@ export function CatalogItemDetailPage({
   const [showPublish, setShowPublish] = useState(false);
   const [publishBlueprintActive, setPublishBlueprintActive] = useState(true);
   const [publishRequiredFieldIds, setPublishRequiredFieldIds] = useState("");
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [recheckedPublication, setRecheckedPublication] = useState<DisplayIdentityPublicationReadiness | null>(null);
 
   // Tags
   const [showSetTags, setShowSetTags] = useState(false);
@@ -478,10 +484,45 @@ export function CatalogItemDetailPage({
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    await publishCatalogItem(id, publishBlueprintActive, requiredIds);
-    addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.catalog.item.published"), "success");
-    setShowPublish(false);
-    refresh();
+    setPublishBusy(true);
+    setPublishError(null);
+    try {
+      await publishCatalogItem(id, publishBlueprintActive, requiredIds);
+      addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.catalog.item.published"), "success");
+      setShowPublish(false);
+      setRecheckedPublication(null);
+      refresh();
+    } catch (error) {
+      const message =
+        error instanceof CatalogItemPublicationApiError
+          ? error.message
+          : t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish.failed");
+      setPublishError(message);
+      addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish.failed"), "danger", message);
+    } finally {
+      setPublishBusy(false);
+    }
+  }
+
+  async function handleRecheckPublication() {
+    if (publishBusy) {
+      return;
+    }
+    setPublishBusy(true);
+    setPublishError(null);
+    try {
+      const current = await recheckCatalogItemPublication(id);
+      setRecheckedPublication(current.display_identity_publication);
+    } catch {
+      setRecheckedPublication({
+        status: "unavailable",
+        reason_code: "display-identity-unavailable",
+        missing_tokens: [],
+        retryable: true,
+      });
+    } finally {
+      setPublishBusy(false);
+    }
   }
 
   async function handleAssignBlueprint() {
@@ -1439,16 +1480,49 @@ export function CatalogItemDetailPage({
 
       <Dialog
         open={showPublish}
-        onOpenChange={setShowPublish}
+        onOpenChange={(open) => {
+          setShowPublish(open);
+          if (!open) {
+            setPublishError(null);
+            setRecheckedPublication(null);
+          }
+        }}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish.catalog.item")}
         description={t("catalog.features.catalogItems.ui.catalogItemDetailPage.confirm.that.the.blueprint.is.active")}
         footer={
-          <Button onClick={handlePublish}>
-            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish.2")}
-          </Button>
+          <Inline gap={2}>
+            {((recheckedPublication ?? data?.display_identity_publication)?.retryable || publishError) && (
+              <Button tone="secondary" onClick={handleRecheckPublication} loading={publishBusy} disabled={publishBusy}>
+                {t("catalog.features.catalogItems.ui.catalogItemDetailPage.recheck.display.identity")}
+              </Button>
+            )}
+            <Button onClick={handlePublish} loading={publishBusy} disabled={publishBusy}>
+              {t("catalog.features.catalogItems.ui.catalogItemDetailPage.publish.2")}
+            </Button>
+          </Inline>
         }
       >
         <Stack gap={3}>
+          <KeyValueList
+            items={[
+              {
+                key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.display.identity.readiness"),
+                value: (recheckedPublication ?? data?.display_identity_publication)?.status ?? "unavailable",
+              },
+            ]}
+          />
+          {(recheckedPublication ?? data?.display_identity_publication)?.missing_tokens.length ? (
+            <Text tone="danger">
+              {t("catalog.features.catalogItems.ui.catalogItemDetailPage.display.identity.missing.tokens", {
+                tokens: (recheckedPublication ?? data?.display_identity_publication)?.missing_tokens.join(", ") ?? "",
+              })}
+            </Text>
+          ) : null}
+          {publishError ? (
+            <Text tone="danger" role="alert">
+              {publishError}
+            </Text>
+          ) : null}
           <TextInput
             label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.required.field.ids.comma.separated")}
             value={publishRequiredFieldIds}

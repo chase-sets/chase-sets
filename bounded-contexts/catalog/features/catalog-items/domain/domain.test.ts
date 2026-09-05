@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { decideCatalogItem, evolveCatalogItem, initialCatalogItemState, type CatalogItemEvent } from "./domain";
+import {
+  decideCatalogItem,
+  evolveCatalogItem,
+  initialCatalogItemState,
+  type CatalogItemEvent,
+  type CatalogItemPublicationDisplayIdentityEvidence,
+  type CatalogItemState,
+} from "./domain";
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../ids";
 import { givenEvents, decide, expectDomainError } from "../../../support/authoring-support/test-helpers";
 
@@ -50,6 +57,31 @@ function activeState() {
     { type: "catalog.catalog-item.field-value-set", data: { fieldId: fieldA, value: "Red" } },
     { type: "catalog.catalog-item.published", data: { blueprintId: bpId } },
   ] as CatalogItemEvent[]);
+}
+
+function currentDisplayIdentity(
+  state: CatalogItemState = draftWithBlueprint(),
+): CatalogItemPublicationDisplayIdentityEvidence {
+  return {
+    readiness: "current-resolved",
+    catalogItemId: itemId,
+    languageCode: state.languageCode,
+    title: state.title ?? l10n("Test Card"),
+    subtitle: state.subtitle,
+    blueprintId: state.blueprintId ?? bpId,
+    fieldValues: state.fieldValues,
+    categoryIds: state.categoryIds,
+    resolvedTitle: "Test Card",
+    resolvedSubtitle: null,
+    displayTemplateKey: "item-title",
+    displayTemplateTargetKind: "global",
+    displayTemplateTargetId: null,
+    displayIdentityHash: "identity-hash",
+    resolvedAt: "2026-09-05T00:00:00.000Z",
+    resolverVersion: 3,
+    resolutionStatus: "resolved",
+    missingTokens: [],
+  };
 }
 
 describe("CatalogItem aggregate", () => {
@@ -335,10 +367,12 @@ describe("CatalogItem aggregate", () => {
     });
 
     it("publishes a draft item with all required fields", () => {
-      const events = decide(decideCatalogItem, draftWithBlueprint(), {
+      const state = draftWithBlueprint();
+      const events = decide(decideCatalogItem, state, {
         type: "PublishCatalogItem" as const,
         blueprintIsActive: true,
         requiredFieldIds: [fieldA],
+        displayIdentity: currentDisplayIdentity(state),
       });
 
       expect(events[0].type).toBe("catalog.catalog-item.published");
@@ -351,6 +385,7 @@ describe("CatalogItem aggregate", () => {
             type: "PublishCatalogItem" as const,
             blueprintIsActive: true,
             requiredFieldIds: [],
+            displayIdentity: currentDisplayIdentity(createdState()),
           }),
         "Items require a blueprint before publish.",
       );
@@ -367,6 +402,7 @@ describe("CatalogItem aggregate", () => {
             type: "PublishCatalogItem" as const,
             blueprintIsActive: false,
             requiredFieldIds: [],
+            displayIdentity: currentDisplayIdentity(state),
           }),
         "Items may only publish against active blueprints.",
       );
@@ -383,8 +419,77 @@ describe("CatalogItem aggregate", () => {
             type: "PublishCatalogItem" as const,
             blueprintIsActive: true,
             requiredFieldIds: [fieldA],
+            displayIdentity: currentDisplayIdentity(state),
           }),
         "Items must satisfy all required field rules before publish.",
+      );
+    });
+
+    it.each([
+      ["degraded", ["field.set"], "Catalog Item requires a current resolved display identity."],
+      ["unavailable", [], "Catalog Item requires a current resolved display identity."],
+      ["outdated", [], "Catalog Item requires a current resolved display identity."],
+    ] as const)("rejects %s display identity evidence without publishing", (readiness, missingTokens, message) => {
+      const state = draftWithBlueprint();
+      expectDomainError(
+        () =>
+          decide(decideCatalogItem, state, {
+            type: "PublishCatalogItem" as const,
+            blueprintIsActive: true,
+            requiredFieldIds: [fieldA],
+            displayIdentity: {
+              ...currentDisplayIdentity(state),
+              readiness,
+              missingTokens,
+            },
+          }),
+        message,
+      );
+    });
+
+    it("rejects malformed or wrong-language resolved evidence", () => {
+      const state = draftWithBlueprint();
+      expectDomainError(
+        () =>
+          decide(decideCatalogItem, state, {
+            type: "PublishCatalogItem" as const,
+            blueprintIsActive: true,
+            requiredFieldIds: [fieldA],
+            displayIdentity: { ...currentDisplayIdentity(state), languageCode: "fr" },
+          }),
+        "Catalog Item display identity belongs to a different language.",
+      );
+      expectDomainError(
+        () =>
+          decide(decideCatalogItem, state, {
+            type: "PublishCatalogItem" as const,
+            blueprintIsActive: true,
+            requiredFieldIds: [fieldA],
+            displayIdentity: undefined,
+          }),
+        "Catalog Item requires a current resolved display identity.",
+      );
+      expectDomainError(
+        () =>
+          decide(decideCatalogItem, state, {
+            type: "PublishCatalogItem" as const,
+            blueprintIsActive: true,
+            requiredFieldIds: [fieldA],
+            displayIdentity: { ...currentDisplayIdentity(state), resolutionStatus: undefined },
+          }),
+        "Catalog Item display identity is degraded.",
+      );
+    });
+
+    it("preserves the non-draft repeat-publication rejection before identity validation", () => {
+      expectDomainError(
+        () =>
+          decide(decideCatalogItem, activeState(), {
+            type: "PublishCatalogItem" as const,
+            blueprintIsActive: true,
+            requiredFieldIds: [],
+          }),
+        "Only draft items can be published.",
       );
     });
 

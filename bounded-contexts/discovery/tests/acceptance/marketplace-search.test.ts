@@ -210,6 +210,21 @@ describe("marketplace search", () => {
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
     await bootstrapContextDatabase(orderingModule, pools.ordering);
     await bootstrapContextDatabase(discoveryModule, pools.discovery);
+    await sendCommand(catalogServices.displayTemplates.commandHandler, "catalog.display-template-dtp_search_default", {
+      type: "CreateDisplayTemplate",
+      displayTemplateId: "dtp_search_default" as never,
+      key: "search-default",
+      name: l10n("Search default"),
+      description: l10n("Discovery acceptance publication identity"),
+      target: { kind: "global" },
+      priority: 0,
+      titleTemplate: "{item.title}",
+      subtitleTemplate: "{item.subtitle}",
+    });
+    await sendCommand(catalogServices.displayTemplates.commandHandler, "catalog.display-template-dtp_search_default", {
+      type: "PublishDisplayTemplate",
+    });
+    await drainContextProcesses({ subscriptionRunners });
   });
 
   afterAll(async () => {
@@ -332,6 +347,7 @@ describe("marketplace search", () => {
       imageUrls: ["https://images.example/charizard.png"],
     });
 
+    await drainContextProcesses({ subscriptionRunners });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.itemId}`, {
       type: "PublishCatalogItem",
       blueprintIsActive: true,
@@ -435,6 +451,7 @@ describe("marketplace search", () => {
       type: "AssignCatalogItemToCategory",
       categoryId: itemSeed.categoryId as never,
     });
+    await drainContextProcesses({ subscriptionRunners });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemSeed.japaneseItemId}`, {
       type: "PublishCatalogItem",
       blueprintIsActive: true,
@@ -573,6 +590,7 @@ describe("marketplace search", () => {
       fieldId: expansionFieldId as never,
       value: { referenceId: expansionReferenceId },
     });
+    await drainContextProcesses({ subscriptionRunners });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${itemId}`, {
       type: "PublishCatalogItem",
       blueprintIsActive: true,
@@ -938,6 +956,7 @@ describe("marketplace search", () => {
       type: "AssignCatalogItemToCategory",
       categoryId: ids.categoryId as never,
     });
+    await drainContextProcesses({ subscriptionRunners });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.cardItemId}`, {
       type: "PublishCatalogItem",
       blueprintIsActive: true,
@@ -969,6 +988,7 @@ describe("marketplace search", () => {
       type: "AssignCatalogItemToCategory",
       categoryId: ids.categoryId as never,
     });
+    await drainContextProcesses({ subscriptionRunners });
     await sendCommand(catalogServices.items.commandHandler, `catalog.item-${ids.sealedItemId}`, {
       type: "PublishCatalogItem",
       blueprintIsActive: true,
@@ -1876,6 +1896,7 @@ describe("marketplace search", () => {
           type: "AssignCatalogItemToCategory",
           categoryId: aliasSeed.categoryId as never,
         });
+        await drainContextProcesses({ subscriptionRunners });
         await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
           type: "PublishCatalogItem",
           blueprintIsActive: true,
@@ -2004,6 +2025,7 @@ describe("marketplace search", () => {
         fieldId: aliasSeed.fieldId as never,
         value: "Spiky Cactus",
       });
+      await drainContextProcesses({ subscriptionRunners });
       await sendCommand(catalogServices.items.commandHandler, `catalog.item-cat_generated`, {
         type: "PublishCatalogItem",
         blueprintIsActive: true,

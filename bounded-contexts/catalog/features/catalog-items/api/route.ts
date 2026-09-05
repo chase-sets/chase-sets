@@ -1,7 +1,13 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import { parseTypedIdArrayBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
-import type { BulkEditCatalogItemOperation, BulkPublishSelection, CatalogItemServices } from "./runtime";
+import {
+  CatalogItemPublicationError,
+  type BulkEditCatalogItemOperation,
+  type BulkPublishSelection,
+  type CatalogItemServices,
+} from "./runtime";
+import type { ExpectedStreamVersion } from "@chase-sets/event-core/storage";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
@@ -104,7 +110,6 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
     const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json();
     const context = c.get("context");
-
     const result = await services.commandHandler({
       streamId: `catalog.item-${itemId}`,
       command: {
@@ -192,16 +197,36 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
     const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json();
     const context = c.get("context");
+    const expectedVersion = toExpectedVersion(body.expectedVersion);
 
-    const result = await services.commandHandler({
-      streamId: `catalog.item-${itemId}`,
-      command: {
-        type: "PublishCatalogItem",
-        blueprintIsActive: body.blueprintIsActive,
-        requiredFieldIds: parseTypedIdArrayBoundary(body.requiredFieldIds, "fld", "requiredFieldIds"),
-      },
-      context,
-    });
+    let result: Awaited<ReturnType<CatalogItemServices["commandHandler"]>>;
+    try {
+      result = await services.commandHandler({
+        streamId: `catalog.item-${itemId}`,
+        command: {
+          type: "PublishCatalogItem",
+          blueprintIsActive: body.blueprintIsActive,
+          requiredFieldIds: parseTypedIdArrayBoundary(body.requiredFieldIds, "fld", "requiredFieldIds"),
+        },
+        context,
+        ...(expectedVersion === undefined ? {} : { expectedVersion }),
+      });
+    } catch (error) {
+      if (error instanceof CatalogItemPublicationError) {
+        return c.json(
+          {
+            error: {
+              code: error.code,
+              message: error.message,
+              readiness: error.readiness,
+              missingTokens: error.missingTokens,
+            },
+          },
+          409,
+        );
+      }
+      throw error;
+    }
 
     return c.json(commandSnapshotResponse(itemId, result));
   });
@@ -481,6 +506,16 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
   });
 
   return app;
+}
+
+function toExpectedVersion(value: unknown): ExpectedStreamVersion | undefined {
+  if (value === undefined || value === "any" || value === "no_stream") {
+    return value;
+  }
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return value;
+  }
+  throw new CatalogDomainError("expectedVersion must be a non-negative integer, any, or no_stream.");
 }
 
 function catalogItemListQueryFromRecord(record: Record<string, unknown>) {

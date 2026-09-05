@@ -267,6 +267,9 @@ export function CatalogItemListPage({
   const [showRemoveDrafts, setShowRemoveDrafts] = useState(false);
   const bulkColumns = useMemo(() => buildBulkPreviewColumns(), []);
   const bulkRows = (bulkResult?.candidates ?? bulkPreview?.candidates ?? []).slice(0, 20);
+  const retryBulkPublishIds = (bulkResult?.candidates ?? [])
+    .filter((candidate) => candidate.retryable && candidate.outcome !== "published")
+    .map((candidate) => candidate.catalog_item_id);
   const selectedItems = useMemo(
     () => data.items.filter((item) => selectedKeys.has(item.catalog_item_id)),
     [data.items, selectedKeys],
@@ -385,8 +388,8 @@ export function CatalogItemListPage({
       const preview = await previewBulkPublishCatalogItems(selection);
       setBulkPreview(preview);
       setBulkScopeLabel(scopeLabel);
-    } catch (error) {
-      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } catch {
+      addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.partial"), "danger");
     } finally {
       setBulkBusy(false);
     }
@@ -402,14 +405,33 @@ export function CatalogItemListPage({
     try {
       const result = await confirmBulkPublishCatalogItems(bulkPreview.item_ids, { onProgress: setBulkProgress });
       setBulkResult(result);
-      addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.completed"), "success");
-      setSelectedKeys(new Set());
+      const retryIds = result.candidates
+        .filter((candidate) => candidate.retryable && candidate.outcome !== "published")
+        .map((candidate) => candidate.catalog_item_id);
+      setSelectedKeys(new Set(retryIds));
+      addToast(
+        result.published_count === result.total
+          ? t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.completed")
+          : t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.partial"),
+        result.published_count === result.total ? "success" : "warning",
+      );
       revalidator.revalidate();
-    } catch (error) {
-      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } catch {
+      addToast(t("catalog.features.catalogItems.ui.catalogItemListPage.bulk.publish.partial"), "danger");
     } finally {
       setBulkBusy(false);
     }
+  }
+
+  async function handleRetryBulkPublish() {
+    if (retryBulkPublishIds.length === 0 || bulkBusy) {
+      return;
+    }
+    setBulkResult(null);
+    await handlePreviewBulkPublish(
+      { mode: "ids", ids: retryBulkPublishIds },
+      t("catalog.features.catalogItems.ui.catalogItemListPage.retry.items", { count: retryBulkPublishIds.length }),
+    );
   }
 
   async function handleRemoveSelectedDrafts() {
@@ -843,21 +865,33 @@ export function CatalogItemListPage({
         }
         footer={
           bulkResult ? (
-            <Button
-              onClick={() => {
-                setBulkPreview(null);
-                setBulkResult(null);
-                setBulkProgress(null);
-                setBulkScopeLabel("");
-              }}
-            >
-              {t("catalog.features.catalogItems.ui.catalogItemListPage.close")}
-            </Button>
+            <Inline gap={2}>
+              {retryBulkPublishIds.length > 0 && (
+                <Button onClick={handleRetryBulkPublish} loading={bulkBusy} disabled={bulkBusy}>
+                  {t("catalog.features.catalogItems.ui.catalogItemListPage.retry.failed.items")}
+                </Button>
+              )}
+              <Button
+                tone="secondary"
+                onClick={() => {
+                  setBulkPreview(null);
+                  setBulkResult(null);
+                  setBulkProgress(null);
+                  setBulkScopeLabel("");
+                }}
+              >
+                {t("catalog.features.catalogItems.ui.catalogItemListPage.close")}
+              </Button>
+            </Inline>
           ) : (
             <Inline gap={2}>
               <Button
                 onClick={handleConfirmBulkPublish}
-                disabled={bulkBusy || !bulkPreview || bulkPreview.ready_count === 0}
+                disabled={
+                  bulkBusy ||
+                  !bulkPreview ||
+                  (bulkPreview.ready_count === 0 && !bulkPreview.candidates.some((candidate) => candidate.retryable))
+                }
               >
                 {t("catalog.features.catalogItems.ui.catalogItemListPage.publish.ready.items")}
               </Button>

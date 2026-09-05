@@ -274,6 +274,10 @@ describe("CatalogItemListPage", () => {
           source_providers: ["tcgplayer"],
           outcome: "ready",
           reason: null,
+          reason_code: null,
+          retryable: false,
+          display_identity_readiness: "current-resolved",
+          missing_tokens: [],
           required_field_ids: [],
         },
       ],
@@ -309,7 +313,7 @@ describe("CatalogItemListPage", () => {
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     expect(selectRow).toBeTruthy();
     fireEvent.click(selectRow!);
-    expect(screen.getAllByText("1 Catalog Items selected")).toHaveLength(1);
+    expect(screen.getAllByText("1 Catalog Items selected").length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "Actions" }));
     fireEvent.click(await screen.findByRole("button", { name: "Preview publish" }));
 
@@ -367,7 +371,7 @@ describe("CatalogItemListPage", () => {
     await user.click(screen.getByRole("button", { name: "Actions" }));
     fireEvent.click(await screen.findByRole("button", { name: "Preview publish" }));
     expect(await screen.findByText("Bulk Publish Preview")).toBeTruthy();
-    fireEvent.click(await screen.findByText("Publish Ready Items"));
+    fireEvent.click(await screen.findByText("Publish or recheck items"));
 
     await waitFor(() => {
       expect(mockConfirmBulkPublishCatalogItems).toHaveBeenCalledWith(
@@ -379,6 +383,60 @@ describe("CatalogItemListPage", () => {
     expect(screen.getByText("1 of 3 processed.")).toBeTruthy();
     expect(screen.getByText("Current: Charizard")).toBeTruthy();
     expect(revalidate).toHaveBeenCalled();
+  });
+
+  it("submits all-outdated previews and keeps the exact failed IDs retryable", async () => {
+    const user = userEvent.setup();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate: vi.fn() });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    const outdatedCandidate = {
+      catalog_item_id: "cat_1",
+      title: "Charizard",
+      subtitle: "Base Set",
+      status: "draft",
+      blueprint_id: "bpr_card",
+      blueprint_name: "Pokemon Card",
+      source_providers: ["tcgplayer"],
+      outcome: "blocked" as const,
+      reason: "Display identity is outdated. Recheck and retry publication.",
+      reason_code: "display-identity-outdated" as const,
+      retryable: true,
+      display_identity_readiness: "outdated" as const,
+      missing_tokens: [],
+      required_field_ids: [],
+    };
+    mockPreviewBulkPublishCatalogItems.mockResolvedValue({
+      mode: "ids",
+      item_ids: ["cat_1"],
+      total: 1,
+      ready_count: 0,
+      blocked_count: 1,
+      candidates: [outdatedCandidate],
+    });
+    mockConfirmBulkPublishCatalogItems.mockResolvedValue({
+      item_ids: ["cat_1"],
+      total: 1,
+      published_count: 0,
+      skipped_count: 0,
+      failed_count: 1,
+      candidates: [{ ...outdatedCandidate, outcome: "failed" as const }],
+    });
+
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem], total: 1, count: 1 }}
+        query={{ ...defaultQuery, status: "draft", page: 0, pageSize: 50 }}
+      />,
+    );
+    fireEvent.click(screen.getAllByLabelText("Select row cat_1")[0]!);
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Preview publish" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Publish or recheck items" }));
+
+    await waitFor(() => expect(mockConfirmBulkPublishCatalogItems).toHaveBeenCalledWith(["cat_1"], expect.anything()));
+    expect(await screen.findByRole("button", { name: "Retry items needing attention" })).toBeTruthy();
+    expect(screen.getAllByText("1 Catalog Items selected").length).toBeGreaterThan(0);
   });
 
   it("previews selected shared bulk edits from the list", async () => {

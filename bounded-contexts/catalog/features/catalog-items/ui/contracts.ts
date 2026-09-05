@@ -42,6 +42,7 @@ export interface CatalogItemDetail {
   display_template_key: string | null;
   display_identity_hash: string | null;
   display_identity_resolved_at: string | null;
+  display_identity_publication: DisplayIdentityPublicationReadiness;
   description_i18n: unknown;
   description: string;
   blueprint: BlueprintRef | null;
@@ -69,6 +70,15 @@ export interface CatalogItemDetail {
   product_asset_sets: ProductAssetSet[];
   image_fallback: CatalogItemImageFallback | null;
   updated_at: string;
+}
+
+export type DisplayIdentityPublicationStatus = "current-resolved" | "degraded" | "unavailable" | "outdated";
+
+export interface DisplayIdentityPublicationReadiness {
+  status: DisplayIdentityPublicationStatus;
+  reason_code: "display-identity-degraded" | "display-identity-unavailable" | "display-identity-outdated" | null;
+  missing_tokens: string[];
+  retryable: boolean;
 }
 
 export interface CatalogReferenceRecordRef {
@@ -168,6 +178,15 @@ export interface BulkPublishCandidate {
   source_providers: string[];
   outcome: "ready" | "blocked" | "published" | "failed" | "skipped";
   reason: string | null;
+  reason_code:
+    | "display-identity-degraded"
+    | "display-identity-unavailable"
+    | "display-identity-outdated"
+    | "publication-precondition"
+    | null;
+  retryable: boolean;
+  display_identity_readiness: DisplayIdentityPublicationStatus;
+  missing_tokens: string[];
   required_field_ids: string[];
 }
 
