@@ -149,7 +149,7 @@ async function createHarness(
   let guardedUpdates = 0;
   const sql: string[] = [];
   const db: PgQueryable = {
-    query: vi.fn(async <T>(statement: string, params?: readonly unknown[]) => {
+    query: async <T>(statement: string, params?: readonly unknown[]) => {
       sql.push(statement);
       if (statement.includes("FROM catalog_display_templates")) {
         return {
@@ -197,7 +197,7 @@ async function createHarness(
         };
       }
       return { rows: [] as T[] };
-    }),
+    },
   };
 
   const identity = await resolveCatalogItemDisplayIdentity(db, item);
