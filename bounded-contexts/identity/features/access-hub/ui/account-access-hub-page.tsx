@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   Badge,
   Breadcrumbs,
@@ -30,17 +30,22 @@ import type { OneTimeApiKeySecret } from "../../api-keys/ui/contracts";
 import { grantableRoleSelectItems } from "../../memberships/ui/role-select-items";
 import type { User } from "../../users/ui/contracts";
 import type { AccountAccessHub, AccountAuditEvent } from "../api/contracts";
+import {
+  accountStatusLabel,
+  accountTypeLabel,
+  apiKeyStatusLabel,
+  contactMethodTypeLabel,
+  contactMethodTypeSelectItems,
+  identityAuthenticationMethodLabel,
+  identityAuthenticationMethodSelectItems,
+  identityDateUnavailable,
+  invitationStatusLabel,
+  membershipRoleLabel,
+  membershipStatusLabel,
+} from "../../../support/ui-support/value-labels";
 
 export const accountAccessHubTabs = ["overview", "team", "api-access", "audit"] as const;
 export type AccountAccessHubTab = (typeof accountAccessHubTabs)[number];
-
-const authMethodItems = [
-  { value: "password", label: "password" },
-  { value: "magic-link", label: "magic-link" },
-  { value: "passkey", label: "passkey" },
-  { value: "sms-code", label: "sms-code" },
-  { value: "social-login", label: "social-login" },
-];
 
 function hasPermission(actorPermissions: readonly string[], permission: string) {
   return actorPermissions.includes(permission);
@@ -92,11 +97,13 @@ function OverviewPanel({ data, actor }: { data: AccountAccessHub; actor: Resolve
             </Stack>
             <Stack gap={1}>
               <Text weight="semibold">{t("identity.features.accounts.ui.accountDetailPage.account.type")}</Text>
-              <Text tone="secondary">{account.account_type}</Text>
+              <Text tone="secondary">{accountTypeLabel(account.account_type)}</Text>
             </Stack>
             <Stack gap={1}>
               <Text weight="semibold">{t("identity.features.accounts.ui.accountDetailPage.updated.at")}</Text>
-              <Text tone="secondary">{account.updated_at}</Text>
+              <Text tone="secondary">
+                {formatDateTime(account.updated_at, { fallback: identityDateUnavailable() })}
+              </Text>
             </Stack>
           </Inline>
           {canManageAccount ? (
@@ -133,7 +140,7 @@ function OverviewPanel({ data, actor }: { data: AccountAccessHub; actor: Resolve
         </Card.Header>
         <Card.Body>
           <Inline align="center" gap={2}>
-            <StatusPill>{account.status}</StatusPill>
+            <StatusPill>{accountStatusLabel(account.status)}</StatusPill>
             {canManageAccount && account.status === "active" ? (
               <ModalDialog
                 title={t("identity.features.accounts.ui.accountDetailPage.suspend.confirm.title", {
@@ -305,10 +312,7 @@ function UserAccessCard({ user, actor, accountId }: { user: User; actor: Resolve
             <NativeSelect
               name="contactMethodType"
               label={t("identity.features.users.ui.userDetailPage.contact.method.type")}
-              items={[
-                { value: "email", label: t("identity.features.users.ui.userDetailPage.email") },
-                { value: "phone", label: t("identity.features.users.ui.userDetailPage.phone") },
-              ]}
+              items={contactMethodTypeSelectItems}
               required
             />
             <TextInput
@@ -324,7 +328,7 @@ function UserAccessCard({ user, actor, accountId }: { user: User; actor: Resolve
         {user.contact_methods.map((method) => (
           <Inline key={method.contactMethodId} align="center" gap={2}>
             <Text>
-              {method.type}: {method.value}
+              {contactMethodTypeLabel(method.type)}: {method.value}
             </Text>
             <Badge tone={method.verifiedAt ? "success" : "warning"}>
               {method.verifiedAt
@@ -350,7 +354,7 @@ function UserAccessCard({ user, actor, accountId }: { user: User; actor: Resolve
             <NativeSelect
               name="authMethod"
               label={t("identity.features.users.ui.userDetailPage.auth.method")}
-              items={authMethodItems}
+              items={identityAuthenticationMethodSelectItems}
               required
             />
             <Button type="submit" tone="secondary">
@@ -365,7 +369,9 @@ function UserAccessCard({ user, actor, accountId }: { user: User; actor: Resolve
               <HiddenInput type="hidden" name="userId" value={user.user_id} readOnly />
               <HiddenInput type="hidden" name="authMethod" value={authMethod} readOnly />
               <Button type="submit" size="sm" tone="danger">
-                {t("identity.features.accessHub.ui.account.disable.auth.method", { authMethod })}
+                {t("identity.features.accessHub.ui.account.disable.auth.method", {
+                  authMethod: identityAuthenticationMethodLabel(authMethod),
+                })}
               </Button>
             </Form>
           ))}
@@ -387,12 +393,12 @@ function TeamPanel({ data, actor }: { data: AccountAccessHub; actor: ResolvedAct
     {
       key: "role",
       header: t("identity.features.memberships.ui.membershipListPage.role"),
-      cell: (membership) => membership.role_key,
+      cell: (membership) => membershipRoleLabel(membership.role_key),
     },
     {
       key: "status",
       header: t("identity.features.memberships.ui.membershipListPage.status"),
-      cell: (membership) => <StatusPill>{membership.status}</StatusPill>,
+      cell: (membership) => <StatusPill>{membershipStatusLabel(membership.status)}</StatusPill>,
     },
     {
       key: "actions",
@@ -463,12 +469,12 @@ function TeamPanel({ data, actor }: { data: AccountAccessHub; actor: ResolvedAct
     {
       key: "role",
       header: t("identity.features.invitations.ui.invitationListPage.role"),
-      cell: (invitation) => invitation.role_key,
+      cell: (invitation) => membershipRoleLabel(invitation.role_key),
     },
     {
       key: "status",
       header: t("identity.features.invitations.ui.invitationListPage.status"),
-      cell: (invitation) => <StatusPill>{invitation.status}</StatusPill>,
+      cell: (invitation) => <StatusPill>{invitationStatusLabel(invitation.status)}</StatusPill>,
     },
     {
       key: "actions",
@@ -624,7 +630,7 @@ function ApiAccessPanel({
     {
       key: "status",
       header: t("identity.features.apiKeys.ui.apiKeyListPage.status"),
-      cell: (apiKey) => <StatusPill>{apiKey.status}</StatusPill>,
+      cell: (apiKey) => <StatusPill>{apiKeyStatusLabel(apiKey.status)}</StatusPill>,
     },
     {
       key: "actions",
@@ -719,7 +725,7 @@ function AuditPanel({ events }: { events: readonly AccountAuditEvent[] }) {
           streamId: event.stream_id,
           performedByUserId: event.performed_by_user_id,
         }),
-        timestamp: event.recorded_at,
+        timestamp: formatDateTime(event.recorded_at, { fallback: identityDateUnavailable() }),
       }))}
     />
   ) : (
@@ -769,7 +775,7 @@ export function AccountAccessHubPage({
       />
       <Inline align="center" gap={3}>
         <AccountBadgeList badges={data.account.badges} founderNumber={data.account.founder_number} />
-        <StatusPill>{data.account.status}</StatusPill>
+        <StatusPill>{accountStatusLabel(data.account.status)}</StatusPill>
       </Inline>
       <Tabs
         defaultValue={initialTab}

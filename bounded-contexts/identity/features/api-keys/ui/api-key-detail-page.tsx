@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   AdminResourceDetailPage,
   HiddenInput,
@@ -10,6 +10,7 @@ import {
 } from "@chase-sets/design-system";
 import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import { ApiKeySecretReveal } from "./api-key-secret-reveal";
+import { apiKeyStatusLabel, identityDateUnavailable } from "../../../support/ui-support/value-labels";
 
 export function ApiKeyDetailPage({
   data,
@@ -26,7 +27,7 @@ export function ApiKeyDetailPage({
         { label: data.name },
       ]}
       title={data.name}
-      status={data.status}
+      status={apiKeyStatusLabel(data.status)}
       actions={
         <Stack gap={3}>
           <ApiKeySecretReveal
@@ -76,9 +77,14 @@ export function ApiKeyDetailPage({
         { label: t("identity.features.apiKeys.ui.apiKeyDetailPage.key.prefix"), value: data.key_prefix },
         {
           label: t("identity.features.apiKeys.ui.apiKeyDetailPage.last.used"),
-          value: data.last_used_at ?? t("identity.features.apiKeys.ui.apiKeyDetailPage.never"),
+          value: data.last_used_at
+            ? formatDateTime(data.last_used_at, { fallback: identityDateUnavailable() })
+            : t("identity.features.apiKeys.ui.apiKeyDetailPage.never"),
         },
-        { label: t("identity.features.apiKeys.ui.apiKeyDetailPage.updated.at"), value: data.updated_at },
+        {
+          label: t("identity.features.apiKeys.ui.apiKeyDetailPage.updated.at"),
+          value: formatDateTime(data.updated_at, { fallback: identityDateUnavailable() }),
+        },
       ]}
     />
   );

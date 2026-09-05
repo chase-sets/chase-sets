@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   AdminResourceDetailPage,
   HiddenInput,
@@ -11,6 +11,11 @@ import {
 } from "@chase-sets/design-system";
 import type { Membership } from "./contracts";
 import { grantableRoleSelectItems } from "./role-select-items";
+import {
+  identityDateUnavailable,
+  membershipRoleLabel,
+  membershipStatusLabel,
+} from "../../../support/ui-support/value-labels";
 
 export function MembershipDetailPage({ data }: { data: Membership }) {
   const user = data.user_display_name ?? data.user_primary_email ?? data.user_id;
@@ -23,7 +28,7 @@ export function MembershipDetailPage({ data }: { data: Membership }) {
         { label: user },
       ]}
       title={t("identity.features.memberships.ui.membershipDetailPage.title", { user, account })}
-      status={data.status}
+      status={membershipStatusLabel(data.status)}
       actions={
         <Inline gap={2}>
           <Form spacing="none" method="post">
@@ -74,8 +79,14 @@ export function MembershipDetailPage({ data }: { data: Membership }) {
         { label: t("identity.features.memberships.ui.membershipDetailPage.membership.id"), value: data.membership_id },
         { label: t("identity.features.memberships.ui.membershipDetailPage.user"), value: user },
         { label: t("identity.features.memberships.ui.membershipDetailPage.account"), value: account },
-        { label: t("identity.features.memberships.ui.membershipDetailPage.role"), value: data.role_key },
-        { label: t("identity.features.memberships.ui.membershipDetailPage.updated.at"), value: data.updated_at },
+        {
+          label: t("identity.features.memberships.ui.membershipDetailPage.role"),
+          value: membershipRoleLabel(data.role_key),
+        },
+        {
+          label: t("identity.features.memberships.ui.membershipDetailPage.updated.at"),
+          value: formatDateTime(data.updated_at, { fallback: identityDateUnavailable() }),
+        },
       ]}
     />
   );

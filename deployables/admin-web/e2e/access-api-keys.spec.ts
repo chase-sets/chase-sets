@@ -41,7 +41,7 @@ test.describe("access admin api keys", () => {
     await page.goto(accountApiAccessPath, { waitUntil: "domcontentloaded" });
     const apiKeyRow = page.getByRole("row").filter({ hasText: apiKeyName });
     await expect(apiKeyRow).toHaveCount(1);
-    await expect(apiKeyRow.getByText("active", { exact: true })).toBeVisible();
+    await expect(apiKeyRow.getByText("Active", { exact: true })).toBeVisible();
 
     await clickApiKeySecretAction(page, {
       button: apiKeyRow.getByRole("button", { name: "Rotate" }),
@@ -52,7 +52,7 @@ test.describe("access admin api keys", () => {
 
     await page.goto(accountApiAccessPath, { waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: accountHeading });
-    await expect(apiKeyRow.getByText("active", { exact: true })).toBeVisible();
+    await expect(apiKeyRow.getByText("Active", { exact: true })).toBeVisible();
     await expect(page.getByText(createdSecret, { exact: true })).toHaveCount(0);
     await expect(page.getByText(rotatedSecret, { exact: true })).toHaveCount(0);
 
@@ -61,7 +61,7 @@ test.describe("access admin api keys", () => {
     await page.goto(`${revokeUrl.pathname}${revokeUrl.search}`, { waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: accountHeading });
     const revokedApiKeyRow = page.getByRole("row").filter({ hasText: apiKeyName });
-    await expect(revokedApiKeyRow.getByText("revoked", { exact: true })).toBeVisible();
+    await expect(revokedApiKeyRow.getByText("Revoked", { exact: true })).toBeVisible();
     await expect(revokedApiKeyRow.getByRole("button", { name: "Revoke" })).toHaveCount(0);
   });
 });

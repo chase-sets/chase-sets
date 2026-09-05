@@ -20,6 +20,7 @@ import { IDENTITY_API_KEY_STATUSES, type IdentityListFilters } from "../../../su
 import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import type { User } from "../../users/ui/contracts";
 import { ApiKeySecretReveal } from "./api-key-secret-reveal";
+import { apiKeyStatusLabel } from "../../../support/ui-support/value-labels";
 
 type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
@@ -31,7 +32,11 @@ const columns: DataColumn<ApiKey>[] = [
   { key: "name", header: t("identity.features.apiKeys.ui.apiKeyListPage.name"), cell: (row) => row.name },
   { key: "user_id", header: t("identity.features.apiKeys.ui.apiKeyListPage.user"), cell: userLabel },
   { key: "key_prefix", header: t("identity.features.apiKeys.ui.apiKeyListPage.prefix"), cell: (row) => row.key_prefix },
-  { key: "status", header: t("identity.features.apiKeys.ui.apiKeyListPage.status"), cell: (row) => row.status },
+  {
+    key: "status",
+    header: t("identity.features.apiKeys.ui.apiKeyListPage.status"),
+    cell: (row) => apiKeyStatusLabel(row.status),
+  },
 ];
 
 function pickerUserLabel(user: User) {
@@ -47,14 +52,9 @@ export function buildApiKeyUserPickerItems(users: readonly User[]) {
 }
 
 function apiKeyStatusFilterLabel(status: string) {
-  switch (status) {
-    case "active":
-      return t("identity.features.apiKeys.ui.apiKeyListPage.status.filter.active");
-    case "revoked":
-      return t("identity.features.apiKeys.ui.apiKeyListPage.status.filter.revoked");
-    default:
-      return t("identity.features.apiKeys.ui.apiKeyListPage.status.filter.all");
-  }
+  return status === "all"
+    ? t("identity.features.apiKeys.ui.apiKeyListPage.status.filter.all")
+    : apiKeyStatusLabel(status);
 }
 
 function apiKeyStatusFilterItems() {

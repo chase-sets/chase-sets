@@ -17,6 +17,7 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { IDENTITY_ACCOUNT_STATUSES, type IdentityListFilters } from "../../../support/route-support/list-filters";
 import { AccountBadgeList } from "./account-badges";
 import type { Account } from "./contracts";
+import { accountStatusLabel, accountTypeLabel } from "../../../support/ui-support/value-labels";
 
 type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
@@ -35,22 +36,19 @@ const columns: DataColumn<Account>[] = [
   {
     key: "account_type",
     header: t("identity.features.accounts.ui.accountListPage.type"),
-    cell: (row) => row.account_type,
+    cell: (row) => accountTypeLabel(row.account_type),
   },
-  { key: "status", header: t("identity.features.accounts.ui.accountListPage.status"), cell: (row) => row.status },
+  {
+    key: "status",
+    header: t("identity.features.accounts.ui.accountListPage.status"),
+    cell: (row) => accountStatusLabel(row.status),
+  },
 ];
 
 function accountStatusFilterLabel(status: string) {
-  switch (status) {
-    case "active":
-      return t("identity.features.accounts.ui.accountListPage.status.filter.active");
-    case "suspended":
-      return t("identity.features.accounts.ui.accountListPage.status.filter.suspended");
-    case "closed":
-      return t("identity.features.accounts.ui.accountListPage.status.filter.closed");
-    default:
-      return t("identity.features.accounts.ui.accountListPage.status.filter.all");
-  }
+  return status === "all"
+    ? t("identity.features.accounts.ui.accountListPage.status.filter.all")
+    : accountStatusLabel(status);
 }
 
 function accountStatusFilterItems() {
