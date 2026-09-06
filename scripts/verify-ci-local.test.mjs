@@ -297,5 +297,24 @@ describe("verify-ci-local", () => {
     }
     expect(() => parseCiLocalArgs(["--wat"])).toThrow("UNKNOWN_ARGUMENT");
     expect(() => parseCiLocalArgs(["--mode=merge-group", "--mode=pull-request"])).toThrow("DUPLICATE_ARGUMENT");
+    expect(
+      parseCiLocalArgs([
+        "--",
+        "--mode=pull-request",
+        "--provenance=same-repository",
+        "--base=origin/main",
+        "--head=HEAD",
+        "--dry-run",
+        "--json",
+      ]),
+    ).toEqual({
+      baseRef: "origin/main",
+      headRef: "HEAD",
+      labels: [],
+      dryRun: true,
+      json: true,
+      mode: "pull-request",
+      provenance: "same-repository",
+    });
   });
 });

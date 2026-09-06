@@ -615,7 +615,8 @@ export function runCiLocalVerification(
 export function parseCiLocalArgs(argv) {
   const options = { baseRef: "origin/main", headRef: "HEAD", labels: [], dryRun: false, json: false };
   const seen = new Set();
-  for (const arg of argv) {
+  const forwardedArgv = argv[0] === "--" ? argv.slice(1) : argv;
+  for (const arg of forwardedArgv) {
     if (arg.startsWith("--mode=")) {
       if (seen.has("mode")) throw new Error("DUPLICATE_ARGUMENT: mode");
       seen.add("mode");
