@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +44,72 @@ const gitText = (root, args) => git(root, args).toString("utf8").trim();
 const status = (root) => git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
 const indexPath = (root) => path.resolve(root, gitText(root, ["rev-parse", "--git-path", "index"]));
 
+const recognizedIndexModes = new Set(["100644", "100755", "120000"]);
+function nulRecords(bytes, label) {
+  const records = [];
+  let start = 0;
+  for (let end = 0; end < bytes.length; end++) {
+    if (bytes[end] !== 0) continue;
+    if (end === start) throw new Error(`${label}: empty record`);
+    records.push(bytes.subarray(start, end));
+    start = end + 1;
+  }
+  if (start !== bytes.length) throw new Error(`${label}: unterminated record`);
+  return records;
+}
+
+export function reconcileIndexedPathRecords(enumerated, staged) {
+  const paths = nulRecords(enumerated, "Git enumeration");
+  const enumeratedByBytes = new Map();
+  for (const pathBytes of paths) {
+    const key = pathBytes.toString("hex");
+    if (enumeratedByBytes.has(key)) throw new Error("Git enumeration: duplicate path");
+    enumeratedByBytes.set(key, pathBytes);
+  }
+
+  const stagedByBytes = new Map();
+  for (const record of nulRecords(staged, "Git stage records")) {
+    const tab = record.indexOf(9);
+    if (tab <= 0 || tab === record.length - 1) throw new Error("Git stage records: malformed record");
+    const header = record.subarray(0, tab).toString("ascii");
+    const match = /^([0-7]{6}) ([0-9a-f]{40}|[0-9a-f]{64}) ([0-3])$/.exec(header);
+    if (!match) throw new Error("Git stage records: malformed header");
+    const pathBytes = record.subarray(tab + 1);
+    const key = pathBytes.toString("hex");
+    if (!enumeratedByBytes.has(key)) throw new Error("Git stage records: path missing from enumeration");
+    if (stagedByBytes.has(key)) throw new Error("Git stage records: duplicate or multiple stages");
+    const [, mode, oid, stage] = match;
+    if (stage !== "0") throw new Error("Git stage records: nonzero stage");
+    if (!recognizedIndexModes.has(mode)) throw new Error(`Git stage records: unknown mode ${mode}`);
+    stagedByBytes.set(key, { pathBytes: enumeratedByBytes.get(key), mode, oid, stage: 0 });
+  }
+
+  return paths.map((pathBytes) => {
+    const entry = stagedByBytes.get(pathBytes.toString("hex"));
+    if (!entry) throw new Error("Git stage records: enumerated path has no stage-0 entry");
+    return entry;
+  });
+}
+
+function readIndexedPaths(root) {
+  const entries = reconcileIndexedPathRecords(git(root, ["ls-files", "-z"]), git(root, ["ls-files", "--stage", "-z"]));
+  return entries.map((entry) => {
+    const worktreePath = Buffer.concat([Buffer.from(path.resolve(root) + path.sep), entry.pathBytes]);
+    if (entry.mode === "100644" || entry.mode === "100755")
+      return { ...entry, bytes: readFileSync(worktreePath) };
+
+    lstatSync(worktreePath);
+    const bytes = git(root, ["cat-file", "blob", entry.oid]);
+    const algorithm = entry.oid.length === 40 ? "sha1" : "sha256";
+    const actualOid = createHash(algorithm)
+      .update(`blob ${bytes.length}\0`)
+      .update(bytes)
+      .digest("hex");
+    if (actualOid !== entry.oid) throw new Error(`Git object mismatch for ${entry.oid}`);
+    return { ...entry, bytes };
+  });
+}
+
 export function assertProofArguments(args) {
   assert.equal(args.length, 0, "brand foil proof accepts no arguments or root override");
 }
@@ -54,23 +129,15 @@ export function inspectProofCandidate(root, cwd) {
 
 export function snapshotProofRepository(root) {
   const index = readFileSync(indexPath(root));
-  const tracked = git(root, ["ls-files", "-z"]);
+  const tracked = readIndexedPaths(root);
   const digest = createHash("sha256");
-  let start = 0;
-  let files = 0;
-  for (let end = 0; end < tracked.length; end++) {
-    if (tracked[end] !== 0) continue;
-    const name = tracked.subarray(start, end);
-    const bytes = readFileSync(Buffer.concat([Buffer.from(root + path.sep), name]));
-    digest.update(name).update("\0").update(String(bytes.length)).update("\0").update(bytes);
-    start = end + 1;
-    files++;
+  for (const { pathBytes, bytes } of tracked) {
+    digest.update(pathBytes).update("\0").update(String(bytes.length)).update("\0").update(bytes);
   }
-  assert.equal(start, tracked.length, "unterminated tracked path");
   return {
     head: gitText(root, ["rev-parse", "HEAD"]),
     tree: gitText(root, ["rev-parse", "HEAD^{tree}"]),
-    files,
+    files: tracked.length,
     bytes: digest.digest("hex"),
     index: hash(index),
     status: status(root).toString("hex"),
