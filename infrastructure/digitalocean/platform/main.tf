@@ -247,7 +247,10 @@ resource "terraform_data" "context_database_grants" {
   count = local.managed_postgres_enabled ? 1 : 0
 
   triggers_replace = concat(
-    [digitalocean_database_cluster.postgres[0].id],
+    [
+      digitalocean_database_cluster.postgres[0].id,
+      "managed-postgres-grant-trust-v2",
+    ],
     [
       for context_name in sort(keys(local.managed_context_databases)) :
       "${digitalocean_database_db.contexts[context_name].id}:${digitalocean_database_user.contexts[context_name].id}"
@@ -265,12 +268,12 @@ resource "terraform_data" "context_database_grants" {
           user     = digitalocean_database_user.contexts[context_name].name
         }
       ])
-      PGDATABASE = digitalocean_database_db.contexts[sort(keys(local.managed_context_databases))[0]].name
-      PGHOST     = digitalocean_database_cluster.postgres[0].host
-      PGPASSWORD = digitalocean_database_cluster.postgres[0].password
-      PGPORT     = tostring(digitalocean_database_cluster.postgres[0].port)
-      PGSSLMODE  = "require"
-      PGUSER     = digitalocean_database_cluster.postgres[0].user
+      DIGITALOCEAN_ACCESS_TOKEN        = var.digitalocean_token
+      DIGITALOCEAN_DATABASE_CLUSTER_ID = digitalocean_database_cluster.postgres[0].id
+      PGHOST                           = digitalocean_database_cluster.postgres[0].host
+      PGPASSWORD                       = digitalocean_database_cluster.postgres[0].password
+      PGPORT                           = tostring(digitalocean_database_cluster.postgres[0].port)
+      PGUSER                           = digitalocean_database_cluster.postgres[0].user
     }
   }
 
@@ -288,7 +291,10 @@ resource "terraform_data" "wake_listener_database_grants" {
   count = length(local.wake_listener_grant_contexts) > 0 ? 1 : 0
 
   triggers_replace = concat(
-    [digitalocean_database_cluster.postgres[0].id],
+    [
+      digitalocean_database_cluster.postgres[0].id,
+      "managed-postgres-grant-trust-v2",
+    ],
     [
       for context_name in sort(local.wake_listener_grant_contexts) :
       "${digitalocean_database_db.contexts[context_name].id}:${digitalocean_database_user.wake_listeners[context_name].id}"
@@ -307,12 +313,12 @@ resource "terraform_data" "wake_listener_database_grants" {
           kind     = "wake-listener"
         }
       ])
-      PGDATABASE = digitalocean_database_db.contexts[sort(local.wake_listener_grant_contexts)[0]].name
-      PGHOST     = digitalocean_database_cluster.postgres[0].host
-      PGPASSWORD = digitalocean_database_cluster.postgres[0].password
-      PGPORT     = tostring(digitalocean_database_cluster.postgres[0].port)
-      PGSSLMODE  = "require"
-      PGUSER     = digitalocean_database_cluster.postgres[0].user
+      DIGITALOCEAN_ACCESS_TOKEN        = var.digitalocean_token
+      DIGITALOCEAN_DATABASE_CLUSTER_ID = digitalocean_database_cluster.postgres[0].id
+      PGHOST                           = digitalocean_database_cluster.postgres[0].host
+      PGPASSWORD                       = digitalocean_database_cluster.postgres[0].password
+      PGPORT                           = tostring(digitalocean_database_cluster.postgres[0].port)
+      PGUSER                           = digitalocean_database_cluster.postgres[0].user
     }
   }
 
