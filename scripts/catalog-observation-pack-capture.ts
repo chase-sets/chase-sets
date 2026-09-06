@@ -72,18 +72,18 @@ export const observationPackCapturePresets: Readonly<
     scope: {
       unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       scopeKey: "expansion",
-      values: { languageCode: "en", seriesId: "sv", setId: "sv8.5" },
+      values: { languageCode: "en", seriesId: "sv", setId: "sv08.5" },
     },
     identity: {
       productLineKey: "pokemon-tcg",
       productLineDisplayName: "Pokemon TCG",
       setKind: "expansion",
-      setExternalId: "sv8.5",
+      setExternalId: "sv08.5",
       setDisplayName: "Prismatic Evolutions",
       providerKey: "tcgdex",
       language: "en",
       scopeKey: "expansion",
-      scopeCoordinates: { languageCode: "en", seriesId: "sv", setId: "sv8.5" },
+      scopeCoordinates: { languageCode: "en", seriesId: "sv", setId: "sv08.5" },
     },
   },
   "mtg-time-spiral": {

@@ -78,12 +78,17 @@ export async function captureObservationPack(input: {
     throw new Error("Provider transport returned no source image references for the bounded capture.");
   }
 
+  const fetchAsset: typeof globalThis.fetch = (resource, options) => {
+    const headers = new Headers(options?.headers);
+    headers.set("User-Agent", "ChaseSets/1.0 (+https://chasesets.com)");
+    return (input.fetch ?? globalThis.fetch)(resource, { ...options, headers });
+  };
   const assets: ObservationPackAssetInput[] = [];
   for (const [sourceReference, envelopeContentHashes] of [...imageReferencesByUrl.entries()].sort(([left], [right]) =>
     left.localeCompare(right),
   )) {
     const object = await readBoundedHttpObject({
-      fetch: input.fetch ?? globalThis.fetch,
+      fetch: fetchAsset,
       url: sourceReference,
       maxBytes: MAX_CAPTURE_ASSET_BYTES,
       deadlineMs: CAPTURE_ASSET_DEADLINE_MS,
