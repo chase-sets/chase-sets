@@ -5131,10 +5131,12 @@ function setSyntheticStripeTestModeEnv() {
 }
 
 function setCredentialFreeBootstrapEnv(deploymentEnvironment: string) {
-  delete process.env.STRIPE_SECRET_KEY;
-  delete process.env.STRIPE_PUBLISHABLE_KEY;
-  delete process.env.STRIPE_WEBHOOK_SECRET;
-  delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+  // Freezes every STRIPE_* input rather than a named subset: a hosted runner can carry ambient
+  // Stripe-prefixed tooling variables (e.g. STRIPE_WEBHOOK_FORWARD_URL) that a fixed name list would
+  // miss, and AC-03 requires this environment provably carry zero.
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith("STRIPE_")) delete process.env[name];
+  }
   process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
   process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
   process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
