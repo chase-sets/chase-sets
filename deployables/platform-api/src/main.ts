@@ -299,6 +299,7 @@ const runtime = createPlatformApiHost({
     processorGateway: paymentProcessorGateway,
     paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
     webhookTelemetry,
+    providerModeObservation: config.providerModeObservation,
     moneyMovementGateway,
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,

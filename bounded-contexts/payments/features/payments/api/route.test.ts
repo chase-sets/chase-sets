@@ -1,11 +1,13 @@
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildPaymentsApi } from "../../../api";
 import type { PaymentsApiEnv } from "./route";
 import { createAccountPaymentRoutes, createPaymentProcessorWebhookRoutes } from "./route";
 import type { PaymentServices } from "./runtime";
 import { PaymentsDomainError } from "../../../support/runtime-support/common";
 import { ProviderWebhookError } from "@chase-sets/http/provider-errors";
+import { DEPLOYMENT_ENVIRONMENTS } from "@chase-sets/platform-runtime/config-schema";
+import { PAYMENT_PROVIDER_DEPLOYMENT_ENVIRONMENTS, parsePaymentProviderModeResponse } from "./contracts";
 
 const checkoutFeeQuote = {
   payment_method_category: "card" as const,
@@ -1165,5 +1167,249 @@ describe("payments routes", () => {
 
     expect(response.status).toBe(404);
     expect(refundServices.issueRefund).not.toHaveBeenCalled();
+  });
+});
+
+// -------------------------------------------------------------------------------------------------
+// Provider mode observation (#7414).
+//
+// The endpoint reports the locally configured observation the API host loaded once. It is never the
+// payment provider's own opinion, and every fixture below is unmistakably synthetic.
+// -------------------------------------------------------------------------------------------------
+
+const SYNTHETIC_CONNECT_ONLY_OBSERVATION = {
+  mode: "test",
+  paymentProcessorKind: "fake",
+  moneyMovementKind: "stripe",
+  deploymentEnvironment: "dev",
+} as const;
+
+const SYNTHETIC_UNCONFIGURED_OBSERVATION = {
+  mode: "unconfigured",
+  paymentProcessorKind: "fake",
+  moneyMovementKind: "fake",
+  deploymentEnvironment: "local",
+} as const;
+
+const PLANTED_SECRET_MARKER = "sk_test_PLANTEDMARKERMUSTNEVERESCAPE";
+
+function buildProviderModeApp(observation: unknown) {
+  const app = new Hono<PaymentsApiEnv>();
+  app.route(
+    "/",
+    buildPaymentsApi({
+      payments: createServices(),
+      refunds: {},
+      publicConfig: {},
+      providerModeObservation: observation,
+    } as never),
+  );
+  return app;
+}
+
+function withoutMember(value: object | null, member: string): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value ?? {}).filter(([key]) => key !== member));
+}
+
+async function requestProviderMode(observation: unknown, method = "GET") {
+  return buildProviderModeApp(observation).fetch(new Request("http://payments.test/payment-provider-mode", { method }));
+}
+
+describe("payments provider mode observation route", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("closes the deployment environment vocabulary against the platform declaration", () => {
+    expect(PAYMENT_PROVIDER_DEPLOYMENT_ENVIRONMENTS).toEqual(DEPLOYMENT_ENVIRONMENTS);
+  });
+
+  it("serves payment provider mode at the Payments root", async () => {
+    const response = await requestProviderMode(SYNTHETIC_CONNECT_ONLY_OBSERVATION);
+
+    expect(response.status).toBe(200);
+    const body: unknown = await response.json();
+    const parsed = parsePaymentProviderModeResponse(body);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.mode).toBe("test");
+    expect(parsed?.paymentProcessorKind).toBe("fake");
+    expect(parsed?.moneyMovementKind).toBe("stripe");
+    expect(parsed?.deploymentEnvironment).toBe("dev");
+
+    // A credential-bearing request reaches the same handler and receives the same observation: the
+    // endpoint neither inspects nor varies on a request credential.
+    const credentialBearing = await buildProviderModeApp(SYNTHETIC_CONNECT_ONLY_OBSERVATION).fetch(
+      new Request("http://payments.test/payment-provider-mode", {
+        headers: { Authorization: "Bearer synthetic-probe-token", Cookie: "session=synthetic" },
+      }),
+    );
+    expect(credentialBearing.status).toBe(200);
+    const credentialBearingBody: unknown = await credentialBearing.json();
+    expect(parsePaymentProviderModeResponse(credentialBearingBody)).not.toBeNull();
+  });
+
+  it("does not create an account payment provider mode alias", async () => {
+    const app = buildProviderModeApp(SYNTHETIC_CONNECT_ONLY_OBSERVATION);
+
+    const aliased = await app.fetch(new Request("http://payments.test/account/payment-provider-mode"));
+    expect(aliased.status).toBe(404);
+
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      const response = await app.fetch(new Request("http://payments.test/payment-provider-mode", { method }));
+      expect(response.status, `${method} must not reach the observation handler`).toBe(404);
+    }
+
+    // The account router keeps every route it had, and none of them is the observation.
+    const accountPaths = createAccountPaymentRoutes(createServices())
+      .routes.filter((route) => route.method !== "ALL")
+      .map((route) => route.path);
+    expect(accountPaths).not.toContain("/payment-provider-mode");
+    expect(new Set(accountPaths).size).toBe(16);
+  });
+
+  it("reports the merged 6829 provider test-mode observation without contacting Stripe", async () => {
+    const transport = vi.spyOn(globalThis, "fetch");
+
+    const response = await requestProviderMode(SYNTHETIC_CONNECT_ONLY_OBSERVATION);
+    const body: unknown = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(parsePaymentProviderModeResponse(body)).toMatchObject({
+      mode: "test",
+      paymentProcessorKind: "fake",
+      moneyMovementKind: "stripe",
+    });
+    expect(transport).not.toHaveBeenCalled();
+    transport.mockRestore();
+  });
+
+  it("closes payment provider mode observation", () => {
+    const candidate = { ...SYNTHETIC_CONNECT_ONLY_OBSERVATION, observedAt: "2026-09-06T04:05:06.007Z" };
+    expect(parsePaymentProviderModeResponse(candidate)).toEqual(candidate);
+
+    // Connect-only is accepted, both-fake must report `unconfigured`, and every other combination of
+    // unknown, missing, extra, date-only, offset-less and contradictory values is refused.
+    const unconfiguredCandidate = { ...SYNTHETIC_UNCONFIGURED_OBSERVATION, observedAt: "2026-09-06T04:05:06.007Z" };
+    expect(parsePaymentProviderModeResponse(unconfiguredCandidate)).toEqual(unconfiguredCandidate);
+
+    const refusedMutants: readonly (readonly [string, unknown])[] = [
+      ["extra member", { ...candidate, extra: "unexpected" }],
+      ["planted secret member", { ...candidate, secretKey: PLANTED_SECRET_MARKER }],
+      ["missing mode", withoutMember(candidate, "mode")],
+      ["missing paymentProcessorKind", withoutMember(candidate, "paymentProcessorKind")],
+      ["missing moneyMovementKind", withoutMember(candidate, "moneyMovementKind")],
+      ["missing deploymentEnvironment", withoutMember(candidate, "deploymentEnvironment")],
+      ["missing observedAt", withoutMember(candidate, "observedAt")],
+      ["unknown mode", { ...candidate, mode: "sandbox" }],
+      ["unknown processor kind", { ...candidate, paymentProcessorKind: "paypal" }],
+      ["unknown money movement kind", { ...candidate, moneyMovementKind: "paypal" }],
+      ["unknown deployment environment", { ...candidate, deploymentEnvironment: "prod" }],
+      ["nested mode", { ...candidate, mode: { value: "test" } }],
+      ["null processor kind", { ...candidate, paymentProcessorKind: null }],
+      ["date-only observedAt", { ...candidate, observedAt: "2026-09-06" }],
+      ["offset-less observedAt", { ...candidate, observedAt: "2026-09-06T04:05:06.007" }],
+      ["unparseable observedAt", { ...candidate, observedAt: "not-an-instant-Z" }],
+      ["contradictory unconfigured", { ...candidate, mode: "unconfigured" }],
+      ["contradictory both-fake test", { ...unconfiguredCandidate, mode: "test" }],
+      ["not an object", "unconfigured"],
+      ["null", null],
+    ];
+
+    for (const [label, mutant] of refusedMutants) {
+      expect(parsePaymentProviderModeResponse(mutant), `${label} must be refused`).toBeNull();
+    }
+  });
+
+  it("advances observedAt with the controlled clock", async () => {
+    const firstInstant = Date.UTC(2026, 8, 6, 4, 5, 6, 7);
+    vi.useFakeTimers();
+    vi.setSystemTime(firstInstant);
+    const clock = vi.spyOn(Date, "now");
+
+    const app = buildProviderModeApp(SYNTHETIC_CONNECT_ONLY_OBSERVATION);
+
+    const firstBody: unknown = await (
+      await app.fetch(new Request("http://payments.test/payment-provider-mode"))
+    ).json();
+    expect(clock, "the handler must read the clock exactly once per request").toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(firstInstant + 1_000);
+    const secondBody: unknown = await (
+      await app.fetch(new Request("http://payments.test/payment-provider-mode"))
+    ).json();
+    expect(clock, "the handler must read the clock exactly once per request").toHaveBeenCalledTimes(2);
+
+    const first = parsePaymentProviderModeResponse(firstBody);
+    const second = parsePaymentProviderModeResponse(secondBody);
+    expect(first?.observedAt).toBe(new Date(firstInstant).toISOString());
+    expect(second?.observedAt).toBe(new Date(firstInstant + 1_000).toISOString());
+
+    // Only `observedAt` is request-time; the configuration-time members are byte-identical.
+    expect(withoutMember(first, "observedAt")).toEqual(withoutMember(second, "observedAt"));
+
+    clock.mockRestore();
+  });
+
+  it("repeats the same observedAt under a frozen clock", async () => {
+    const frozenInstant = Date.UTC(2026, 8, 6, 4, 5, 6, 7);
+    vi.useFakeTimers();
+    vi.setSystemTime(frozenInstant);
+
+    const app = buildProviderModeApp(SYNTHETIC_CONNECT_ONLY_OBSERVATION);
+    const firstBody: unknown = await (
+      await app.fetch(new Request("http://payments.test/payment-provider-mode"))
+    ).json();
+    const secondBody: unknown = await (
+      await app.fetch(new Request("http://payments.test/payment-provider-mode"))
+    ).json();
+
+    // Equality is the required pass. The endpoint imposes no uniqueness, monotonicity, counter, cache
+    // or per-request state, so two responses served on an unmoved clock report the same instant.
+    expect(firstBody).toEqual(secondBody);
+    expect(parsePaymentProviderModeResponse(firstBody)?.observedAt).toBe(new Date(frozenInstant).toISOString());
+
+    // A composition-capture or alternate-source mutant would keep reporting the instant captured here
+    // after the clock advances; the request-time read must move instead.
+    const capturedAtComposition = new Date(Date.now()).toISOString();
+    vi.setSystemTime(frozenInstant + 1_000);
+    const afterAdvance: unknown = await (
+      await app.fetch(new Request("http://payments.test/payment-provider-mode"))
+    ).json();
+    expect(parsePaymentProviderModeResponse(afterAdvance)?.observedAt).not.toBe(capturedAtComposition);
+  });
+
+  it("fails the missing or hostile observation closed without leaking a planted marker", async () => {
+    const perFieldMutants: readonly (readonly [string, unknown])[] = [
+      ["absent", undefined],
+      ["null", null],
+      ["empty", {}],
+      ["missing mode", withoutMember(SYNTHETIC_CONNECT_ONLY_OBSERVATION, "mode")],
+      ["missing paymentProcessorKind", withoutMember(SYNTHETIC_CONNECT_ONLY_OBSERVATION, "paymentProcessorKind")],
+      ["missing moneyMovementKind", withoutMember(SYNTHETIC_CONNECT_ONLY_OBSERVATION, "moneyMovementKind")],
+      ["missing deploymentEnvironment", withoutMember(SYNTHETIC_CONNECT_ONLY_OBSERVATION, "deploymentEnvironment")],
+      ["planted secret member", { ...SYNTHETIC_CONNECT_ONLY_OBSERVATION, secretKey: PLANTED_SECRET_MARKER }],
+      ["planted secret mode", { ...SYNTHETIC_CONNECT_ONLY_OBSERVATION, mode: PLANTED_SECRET_MARKER }],
+    ];
+
+    for (const [label, mutant] of perFieldMutants) {
+      const response = await requestProviderMode(mutant);
+      const text = await response.text();
+
+      expect(response.status, `${label} must fail closed`).toBe(500);
+      expect(JSON.parse(text), `${label} must report the bounded refusal`).toEqual({
+        error: {
+          code: "payment_provider_mode_observation_unavailable",
+          message: "Request failed.",
+        },
+      });
+
+      // Never defaults to a mode, a gateway kind or a deployment environment, and never echoes a
+      // planted marker in the body or in any response header.
+      expect(text).not.toContain("PLANTEDMARKER");
+      expect(text).not.toContain("test");
+      expect(text).not.toContain("fake");
+      expect(text).not.toContain("dev");
+      expect(JSON.stringify([...response.headers.entries()])).not.toContain("PLANTEDMARKER");
+    }
   });
 });
