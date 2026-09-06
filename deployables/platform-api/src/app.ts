@@ -803,6 +803,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       : options.ucp;
   const resolveActor = options.resolveActor ?? (async () => null);
   const anonymousRoutes = resolveAuthIdentityAnonymousRoutes(runtime);
+  const platformActorAnonymousRoutes = resolvePlatformActorAnonymousRoutes(runtime);
 
   app.onError(errorHandler);
   app.use("*", createHonoObservabilityMiddleware());
@@ -836,7 +837,9 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     );
   }
 
-  const platformActorMiddleware = createPlatformActorMiddleware(resolveActor);
+  const platformActorMiddleware = createPlatformActorMiddleware(resolveActor, {
+    anonymousRoutes: platformActorAnonymousRoutes,
+  });
   app.use("/api/platform/projections", platformActorMiddleware);
   app.use("/api/platform/projections/*", platformActorMiddleware);
   app.route(
@@ -954,6 +957,50 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   assertApiRouteTableHasNoCollisions(apiMounts);
 
   return app;
+}
+
+const PLATFORM_ACTOR_ANONYMOUS_METHODS = ["GET", "HEAD"];
+
+/**
+ * A module outside the auth composition may only exempt a safe method on one exact absolute API path.
+ * A widened declaration is refused when the host is composed rather than at request time, so a module
+ * cannot quietly open a prefix, a parameterised path or a mutating method on the platform actor path.
+ * Auth and identity declarations are governed by the identity composition and are untouched here.
+ */
+function assertPlatformActorAnonymousRoute(contextName: string, route: AnonymousRouteDeclaration): void {
+  const declaration = `${contextName} anonymous route ${route.routePath}`;
+
+  if (route.match === "prefix") {
+    throw new Error(`${declaration} must match exactly; prefix matching is not permitted on the platform actor path.`);
+  }
+
+  if (
+    !route.routePath.startsWith("/api/") ||
+    route.routePath.endsWith("/") ||
+    route.routePath.includes(":") ||
+    route.routePath.includes("*")
+  ) {
+    throw new Error(`${declaration} must be an exact absolute path beginning /api/ with no parameter or wildcard.`);
+  }
+
+  for (const method of route.methods) {
+    if (!PLATFORM_ACTOR_ANONYMOUS_METHODS.includes(method.toUpperCase())) {
+      throw new Error(`${declaration} must declare only safe methods on the platform actor path.`);
+    }
+  }
+}
+
+function resolvePlatformActorAnonymousRoutes(runtime: ApiHostRuntime): readonly AnonymousRouteDeclaration[] {
+  return runtime.mountedContexts
+    .filter((entry) => entry.contextName !== "auth" && entry.contextName !== "identity")
+    .flatMap((entry) => {
+      const module = entry.module as Readonly<{ anonymousRoutes?: readonly AnonymousRouteDeclaration[] }>;
+      const declarations = module.anonymousRoutes ?? [];
+      for (const declaration of declarations) {
+        assertPlatformActorAnonymousRoute(entry.contextName, declaration);
+      }
+      return declarations;
+    });
 }
 
 function resolveAuthIdentityAnonymousRoutes(runtime: ApiHostRuntime): readonly AnonymousRouteDeclaration[] {

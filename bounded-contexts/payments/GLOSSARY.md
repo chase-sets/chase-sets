@@ -200,3 +200,21 @@ Notes:
 
 - AP2 Mandates are accepted for headless UCP checkout completion only when a production verifier is configured and a supported payment handler is present.
 - Without a verified AP2 Mandate, UCP checkout completion must use Trusted Checkout Handoff.
+
+## Payment Provider Mode
+
+A **Payment Provider Mode** is the boot-time effective classification of the platform payment provider configuration, one of `unconfigured`, `test` or `live`.
+
+Notes:
+
+- The classification is decided solely by the shared platform Stripe key classification; Payments transports the result and never re-derives it from a key, a prefix or an environment variable.
+- The mode reports locally configured authority, never the payment provider's own opinion about the account.
+
+## Provider Mode Observation
+
+A **Provider Mode Observation** is the immutable configuration-time record of the Payment Provider Mode together with the payment-processor gateway kind, the money-movement gateway kind and the deployment environment.
+
+Notes:
+
+- The record is loaded once per process by the API host; the observation endpoint reports it with one request-time `observedAt` instant.
+- `observedAt` carries no uniqueness guarantee: two requests served while the clock has not advanced legitimately report the same instant.
