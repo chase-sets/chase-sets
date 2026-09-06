@@ -1,11 +1,11 @@
 # Guest Buy Now Freshness Verification
 
-Signed-out Buy Now checkout is a critical read-after-write path. A shopper starts on a catalog item, chooses Buy Now, enters guest contact details, and expects to review the checkout session before any payment or order exists.
+Signed-out Buy Now checkout is a critical read-after-write path. A shopper starts on a catalog item, chooses Buy Now, and expects the single POST to mint a guest identity and open checkout review before any payment or order exists.
 
 ## Contract
 
-- Discovery redirects signed-out Buy Now submissions to `/checkout/buy/readiness` with the Buy Now source preserved.
-- Checkout starts guest checkout through Auth, writes the `chase_sets_guest_checkout` cookie on the document response, and redirects to `/checkout/buy/session/:sessionId` with an `afterWrite` receipt.
+- Discovery redirects signed-out Buy Now submissions to `/checkout/buy/readiness` with a method-preserving `307` and the Buy Now source preserved.
+- Checkout consumes that POST, starts guest checkout through Auth, writes the `chase_sets_guest_checkout` cookie on the document response, and redirects directly to `/checkout/buy/session/:sessionId` with an `afterWrite` receipt. The readiness route is a redirecting action hop, not a shopper form.
 - Platform API freshness middleware must wait on the exact Checkout session dependency for `/api/marketplace/account/checkout-sessions/:sessionId`: `checkout.session-projection`, resolved from `checkout_session_pages`.
 - While the fresh receipt is valid, `404`, `projection_freshness_timeout`, and bounded gateway/service timeout responses are temporary preparing-checkout states, not permanent checkout-session-not-found recovery. Internal API freshness timeouts can remain 503 JSON, but customer-facing checkout recovery documents must avoid 5xx statuses because the deployment edge owns generic 5xx error pages.
 - Retrying or refreshing the same fresh URL must show the checkout session once `checkout_session_pages` catches up.
@@ -33,7 +33,7 @@ Use these state names for deterministic tests and synthetic canaries.
 
 The #1074 integration coverage asserts:
 
-- signed-out Buy Now guest contact submission;
+- signed-out Buy Now single-POST guest entry and server-side guest identity creation;
 - guest cookie handoff on the document redirect;
 - `afterWrite` receipt preservation from the Checkout command response;
 - fresh `404` retry to eventual session readiness;
