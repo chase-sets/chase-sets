@@ -116,6 +116,15 @@ describe("platform actor middleware anonymous declarations", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ actor: null, eventStoreContext: "null" });
     expect(resolveActor, "the exempt request must perform zero actor resolution").not.toHaveBeenCalled();
+
+    // The discriminating mutant, and the reason composition refuses a prefix declaration outright: a
+    // middleware that treats a declaration as a prefix exempts sibling account routes as well.
+    const widenedResolveActor = vi.fn(async () => null);
+    const widened = buildPlatformActorApp(widenedResolveActor, [
+      { routePath: "/api/marketplace", methods: ["GET"], match: "prefix" },
+    ]);
+    await widened.request("/api/marketplace/account/payments");
+    expect(widenedResolveActor, "a prefix declaration would escape into the account routes").not.toHaveBeenCalled();
   });
 
   it("resolves the actor for every undeclared request", async () => {
