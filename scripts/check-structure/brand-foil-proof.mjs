@@ -95,16 +95,12 @@ function readIndexedPaths(root) {
   const entries = reconcileIndexedPathRecords(git(root, ["ls-files", "-z"]), git(root, ["ls-files", "--stage", "-z"]));
   return entries.map((entry) => {
     const worktreePath = Buffer.concat([Buffer.from(path.resolve(root) + path.sep), entry.pathBytes]);
-    if (entry.mode === "100644" || entry.mode === "100755")
-      return { ...entry, bytes: readFileSync(worktreePath) };
+    if (entry.mode === "100644" || entry.mode === "100755") return { ...entry, bytes: readFileSync(worktreePath) };
 
     lstatSync(worktreePath);
     const bytes = git(root, ["cat-file", "blob", entry.oid]);
     const algorithm = entry.oid.length === 40 ? "sha1" : "sha256";
-    const actualOid = createHash(algorithm)
-      .update(`blob ${bytes.length}\0`)
-      .update(bytes)
-      .digest("hex");
+    const actualOid = createHash(algorithm).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
     if (actualOid !== entry.oid) throw new Error(`Git object mismatch for ${entry.oid}`);
     return { ...entry, bytes };
   });

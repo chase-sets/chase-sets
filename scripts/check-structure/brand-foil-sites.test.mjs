@@ -915,9 +915,7 @@ describe("occurrence owners and complete accounting", () => {
     const stages = git(directory, ["ls-files", "--stage", "-z"]);
     expect(enumeration).toEqual(Buffer.concat([pathBytes, Buffer.from([0])]));
     for (const reconcile of [reconcileDiscoveryIndex, reconcileProofIndex])
-      expect(reconcile(enumeration, stages)).toEqual([
-        { pathBytes, mode: "120000", oid: linkOid, stage: 0 },
-      ]);
+      expect(reconcile(enumeration, stages)).toEqual([{ pathBytes, mode: "120000", oid: linkOid, stage: 0 }]);
     const stageHeader = stages.subarray(0, stages.indexOf(9)).toString("ascii");
     expect(stageHeader).toBe(`120000 ${linkOid} 0`);
     expect(stages.subarray(stages.indexOf(9) + 1, -1)).toEqual(pathBytes);
