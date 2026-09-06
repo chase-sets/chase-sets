@@ -192,14 +192,14 @@ describe("worktree sandbox", () => {
     expect(env).not.toHaveProperty(getContextDatabaseEnvName("neutral-foundation"));
   });
 
-  it("channels-behavior-free-sandbox-exclusion keeps the real foundation out of database, env, and cursor targets", async () => {
+  it("channels-behavior-backed-sandbox-inclusion keeps the registered context in database, env, and cursor targets", async () => {
     const manifest = JSON.parse(readFileSync(path.join(repoRoot, "bounded-contexts/channels/context.json"), "utf8"));
     expect(manifest.contextName).toBe("channels");
     const sandbox = resolveWorktreeSandbox({ rootDir: repoRoot, env: {} });
-    expect(sandbox.contextNames).not.toContain("channels");
-    expect(sandbox.contextDatabaseUrls).not.toHaveProperty("channels");
-    expect(listSandboxDatabases(sandbox).map(({ key }) => key)).not.toContain("channels");
-    expect(buildSandboxEnv(sandbox)).not.toHaveProperty("DATABASE_URL_CHANNELS");
+    expect(sandbox.contextNames).toContain("channels");
+    expect(sandbox.contextDatabaseUrls).toHaveProperty("channels");
+    expect(listSandboxDatabases(sandbox).map(({ key }) => key)).toContain("channels");
+    expect(buildSandboxEnv(sandbox)).toHaveProperty("DATABASE_URL_CHANNELS");
 
     const queried = [];
     await primeBrowserE2eProjectionWakeRelayCursors({
@@ -214,11 +214,18 @@ describe("worktree sandbox", () => {
       }),
     });
     expect(queried.sort()).toEqual(Object.values(sandbox.contextDatabaseUrls).sort());
+    expect(queried).toContain(sandbox.contextDatabaseUrls.channels);
 
     const rootDir = createTempRepo();
-    writeContext(rootDir, "channels", manifest);
+    const unregisteredManifest = {
+      ...manifest,
+      apiDeployables: [],
+      sourceRuntimeDeployables: [],
+      sourceRuntimeProfiles: [],
+    };
+    writeContext(rootDir, "channels", unregisteredManifest);
     expect(resolveWorktreeSandbox({ rootDir, env: {} }).contextNames).not.toContain("channels");
-    writeContext(rootDir, "channels", { ...manifest, apiDeployables: ["platform-api"] });
+    writeContext(rootDir, "channels", { ...unregisteredManifest, apiDeployables: ["platform-api"] });
     const registered = resolveWorktreeSandbox({ rootDir, env: {} });
     expect(registered.contextNames).toContain("channels");
     expect(buildSandboxEnv(registered)).toHaveProperty("DATABASE_URL_CHANNELS");
