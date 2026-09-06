@@ -540,8 +540,15 @@ export function toOutputMap(scope) {
   };
 }
 
+export function toGithubOutputMap(scope) {
+  return {
+    ...toOutputMap(scope),
+    scope_json: JSON.stringify(scope),
+  };
+}
+
 function writeGithubOutputs(outputPath, scope) {
-  const content = Object.entries(toOutputMap(scope))
+  const content = Object.entries(toGithubOutputMap(scope))
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
   appendFileSync(outputPath, `${content}\n`, "utf8");
@@ -566,7 +573,7 @@ function main() {
       throw new Error("GITHUB_OUTPUT is not set. Pass --output=<path> when running outside GitHub Actions.");
     }
     writeGithubOutputs(outputPath, scope);
-    console.log(JSON.stringify(toOutputMap(scope), null, 2));
+    console.log(JSON.stringify(toGithubOutputMap(scope), null, 2));
     return;
   }
 

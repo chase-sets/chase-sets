@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";
+import { classifyChanges, listChangedFiles, toGithubOutputMap, toOutputMap } from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk, classifyRisk } from "./lib/risk-policy-v1.mjs";
@@ -646,6 +646,14 @@ function batchDurationSeconds(batch) {
 }
 
 describe("change-scope", () => {
+  it("exposes the exact classifier result for the shared CI gate plan", () => {
+    const scope = classifyChanges({ changedFiles: ["README.md"] });
+    const output = toGithubOutputMap(scope);
+
+    expect(JSON.parse(output.scope_json)).toEqual(scope);
+    expect(Object.keys(output)).toEqual([...baseCapturedOutputMapKeyOrder, "scope_json"]);
+  });
+
   it("diffs changed files from the merge-base instead of the moving base branch tip", () => {
     const calls = [];
     const changedFiles = listChangedFiles("origin/main", "HEAD", {

@@ -296,8 +296,10 @@ describe("exact-target extraction and trigger/caller structure", () => {
     expect(Object.hasOwn(workflow.on, "merge_group")).toBe(true);
     expect(jobId).toBe("compose-preview-smoke");
     expect(job.if).toBe(
-      "always() && github.event_name == 'pull_request' && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.compose_smoke == 'true' && !contains(github.event.pull_request.labels.*.name, 'preview') && (needs['change-scope'].outputs.local_checks != 'true' || needs.static.result == 'success') && needs.typecheck.result == 'success' && (needs['change-scope'].outputs.unit_tests != 'true' || needs['unit-tests'].result == 'success')\n",
+      "always() && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.compose_preview_smoke_required == 'true' && (needs['change-scope'].outputs.static_required != 'true' || needs.static.result == 'success') && (needs['change-scope'].outputs.typecheck_required != 'true' || needs.typecheck.result == 'success') && (needs['change-scope'].outputs.unit_tests_required != 'true' || needs['unit-tests'].result == 'success')\n",
     );
+    expect(job.if).not.toContain("outputs.compose_smoke");
+    expect(job.if).not.toContain("!contains(github.event.pull_request.labels.*.name, 'preview')");
     expect(job.needs).toEqual(["change-scope", "static", "typecheck", "unit-tests"]);
     expect(job.with).toEqual({
       target_sha: "${{ github.sha }}",
@@ -428,8 +430,11 @@ describe("exact-target terminal behavior and isolation", () => {
     expect(toleratedSteps).toHaveLength(1);
     expect(toleratedSteps[0].id).toBe("buildx");
     expect(rollup.needs).toContain("compose-preview-smoke");
-    expect(rollupScript).toContain(`compose_result="\${{ needs['compose-preview-smoke'].result }}"`);
-    expect(rollupScript).toContain(`if [ "$compose_required" = "true" ] && [ "$compose_result" != "success" ]; then`);
+    expect(rollupScript).toContain(
+      `require_job "Compose Boot Smoke" "\${{ needs['compose-preview-smoke'].result }}" "\${{ needs['change-scope'].outputs.compose_preview_smoke_required }}"`,
+    );
+    expect(rollupScript).not.toContain("compose_result=");
+    expect(rollupScript).not.toContain("compose_required");
   });
 
   it("is credential-free and has no environment, provider, cluster, or inherited-secret surface", () => {
