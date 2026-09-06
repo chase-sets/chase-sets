@@ -1346,7 +1346,7 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("keeps PR fast-lane checks separate from merge-group full battery", () => {
-    const fullBatteryStep = workflowStep(platformPrWorkflow, "Resolve full battery lane");
+    const gatePlanStep = workflowStep(platformPrWorkflow, "Resolve shared gate plan");
     const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
     const e2eJob = workflowJob(platformPrWorkflow, "e2e-tests");
     const buildJob = workflowJob(platformPrWorkflow, "build");
@@ -1357,36 +1357,44 @@ describe("DigitalOcean platform configuration", () => {
     const terraformObservabilityJob = workflowJob(platformPrWorkflow, "terraform-observability-plan");
     const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
 
-    expect(platformPrWorkflow).toContain("full_battery_required: ${{ steps.full-battery.outputs.required }}");
+    expect(platformPrWorkflow).toContain("gate_plan_json: ${{ steps.gate-plan.outputs.plan_json }}");
+    expect(platformPrWorkflow).toContain("full_battery_required: ${{ steps.gate-plan.outputs.full_battery_required }}");
     expect(platformPrWorkflow).toContain(
       "integration_risk_required: ${{ steps.scope.outputs.integration_risk_required }}",
     );
     expect(platformPrWorkflow).toContain("integration_risk_reason: ${{ steps.scope.outputs.integration_risk_reason }}");
     expect(platformPrWorkflow).toContain(
-      "targeted_heavy_required: ${{ steps.full-battery.outputs.targeted_required }}",
+      "targeted_heavy_required: ${{ steps.gate-plan.outputs.targeted_heavy_required }}",
     );
-    expect(fullBatteryStep).toContain('"${{ github.event_name }}" = "merge_group"');
-    expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'full-ci')");
-    expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
-    expect(fullBatteryStep).toContain(
-      "INTEGRATION_RISK_REQUIRED: ${{ steps.scope.outputs.integration_risk_required }}",
-    );
-    expect(fullBatteryStep).toContain('targeted_reason="integration-risk: $INTEGRATION_RISK_REASON"');
+    expect(gatePlanStep).toContain("CI_GATE_PLAN_MODE:");
+    expect(gatePlanStep).toContain("CI_GATE_PLAN_LABELS_JSON:");
+    expect(gatePlanStep).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(gatePlanStep).toContain("CI_GATE_PLAN_SCOPE_JSON: ${{ steps.scope.outputs.scope_json }}");
+    expect(gatePlanStep).toContain("node ./scripts/ci-gate-plan.mjs github-output");
 
-    for (const job of [buildJob, dockerJob, terraformPreviewJob, terraformStagingJob, terraformProductionJob]) {
-      expect(job).toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
+    for (const [job, output] of [
+      [buildJob, "build_required"],
+      [dockerJob, "docker_image_required"],
+      [terraformPreviewJob, "terraform_preview_plan_required"],
+      [terraformStagingJob, "terraform_staging_plan_required"],
+      [terraformProductionJob, "terraform_production_plan_required"],
+    ]) {
+      expect(job).toContain(`needs['change-scope'].outputs.${output} == 'true'`);
+      expect(job).not.toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
     }
 
     expect(workflowJobCondition(platformPrWorkflow, "db-tests")).toBe(
-      "needs['change-scope'].outputs.db_tests == 'true'",
+      "needs['change-scope'].outputs.db_tests_required == 'true'",
     );
     expect(dbProfileJob).not.toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
     expect(dbProfileJob).not.toContain("needs['change-scope'].outputs.integration_risk_required == 'true'");
     expect(workflowJobCondition(platformPrWorkflow, "e2e-tests")).toBe(
-      "(needs['change-scope'].outputs.full_battery_required == 'true' || needs['change-scope'].outputs.integration_risk_required == 'true') && needs['change-scope'].outputs.e2e_tests == 'true'",
+      "needs['change-scope'].outputs.e2e_tests_required == 'true'",
     );
 
-    expect(terraformObservabilityJob).toContain("if: needs['change-scope'].outputs.terraform == 'true'");
+    expect(terraformObservabilityJob).toContain(
+      "if: needs['change-scope'].outputs.terraform_observability_plan_required == 'true'",
+    );
     expect(terraformObservabilityJob).not.toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
     expect(terraformObservabilityJob).toContain("Terraform plan shared observability");
     expect(terraformObservabilityJob).toContain('plan_root="${RUNNER_TEMP}/chase-sets-observability-plan"');
@@ -1406,20 +1414,15 @@ describe("DigitalOcean platform configuration", () => {
       'node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan',
     );
 
-    expect(requiredJob).toContain(
-      "full_battery_required=\"${{ needs['change-scope'].outputs.full_battery_required }}\"",
-    );
-    expect(requiredJob).toContain(
-      "targeted_heavy_required=\"${{ needs['change-scope'].outputs.targeted_heavy_required }}\"",
-    );
+    expect(requiredJob).toContain("has unknown or missing gate-plan requirement");
     expect(requiredJob).toContain('require_job "DB Profile Tests"');
     expect(requiredJob).not.toContain('require_targeted_heavy_job "DB Profile Tests"');
-    expect(requiredJob).toContain('require_targeted_heavy_job "E2E Tests"');
-    expect(requiredJob).toContain('require_heavy_job "Build"');
-    expect(requiredJob).toContain('require_heavy_job "Docker Image Build"');
-    expect(requiredJob).toContain('require_heavy_job "Terraform Preview Plan"');
-    expect(requiredJob).toContain('require_heavy_job "Terraform Staging Plan"');
-    expect(requiredJob).toContain('require_heavy_job "Terraform Production Plan"');
+    expect(requiredJob).toContain('require_job "E2E Tests"');
+    expect(requiredJob).toContain('require_job "Build"');
+    expect(requiredJob).toContain('require_job "Docker Image Build"');
+    expect(requiredJob).toContain('require_job "Terraform Preview Plan"');
+    expect(requiredJob).toContain('require_job "Terraform Staging Plan"');
+    expect(requiredJob).toContain('require_job "Terraform Production Plan"');
     expect(requiredJob).toContain('require_job "Terraform Observability Plan"');
     expect(requiredJob).toContain('require_job "Workflow Lint"');
   });
@@ -1428,18 +1431,14 @@ describe("DigitalOcean platform configuration", () => {
     const dbCondition = workflowJobCondition(platformPrWorkflow, "db-tests");
     const e2eCondition = workflowJobCondition(platformPrWorkflow, "e2e-tests");
     const overlapValues = {
-      "needs['change-scope'].outputs.full_battery_required": "false",
-      "needs['change-scope'].outputs.integration_risk_required": "false",
-      "needs['change-scope'].outputs.db_tests": "true",
-      "needs['change-scope'].outputs.e2e_tests": "true",
+      "needs['change-scope'].outputs.db_tests_required": "true",
+      "needs['change-scope'].outputs.e2e_tests_required": "false",
     };
 
     expect(evaluateWorkflowBooleanExpression(dbCondition, overlapValues)).toBe(true);
     expect(evaluateWorkflowBooleanExpression(e2eCondition, overlapValues)).toBe(false);
-    expect(dbCondition).toBe("needs['change-scope'].outputs.db_tests == 'true'");
-    expect(e2eCondition).toBe(
-      "(needs['change-scope'].outputs.full_battery_required == 'true' || needs['change-scope'].outputs.integration_risk_required == 'true') && needs['change-scope'].outputs.e2e_tests == 'true'",
-    );
+    expect(dbCondition).toBe("needs['change-scope'].outputs.db_tests_required == 'true'");
+    expect(e2eCondition).toBe("needs['change-scope'].outputs.e2e_tests_required == 'true'");
 
     const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
     expect(dbProfileJob).toContain("timeout-minutes: 30");
@@ -1456,31 +1455,24 @@ describe("DigitalOcean platform configuration", () => {
 
   it("evaluates the preview DB prerequisite truth table and retained-bypass mutant from workflow text", () => {
     const previewCondition = workflowJobCondition(platformPrWorkflow, "preview-deploy-smoke");
-    const dbPrerequisite = workflowPrerequisite(previewCondition, "db_tests", "db-tests");
-    const e2ePrerequisite = workflowPrerequisite(previewCondition, "e2e_tests", "e2e-tests");
+    const dbPrerequisite = workflowPrerequisite(previewCondition, "db_tests_required", "db-tests");
+    const e2ePrerequisite = workflowPrerequisite(previewCondition, "e2e_tests_required", "e2e-tests");
     const expectedPreviewCondition = `
       always() &&
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
       needs['change-scope'].result == 'success' &&
-      (needs['change-scope'].outputs.cluster_preview == 'true' ||
-       contains(github.event.pull_request.labels.*.name, 'preview')) &&
-      (needs['change-scope'].outputs.local_checks != 'true' || needs.static.result == 'success') &&
-      needs.typecheck.result == 'success' &&
-      (needs['change-scope'].outputs.unit_tests != 'true' || needs['unit-tests'].result == 'success') &&
-      (needs['change-scope'].outputs.db_tests != 'true' || needs['db-tests'].result == 'success') &&
-      (needs['change-scope'].outputs.full_battery_required != 'true' ||
-       needs['change-scope'].outputs.e2e_tests != 'true' ||
+      needs['change-scope'].outputs.preview_deploy_smoke_required == 'true' &&
+      (needs['change-scope'].outputs.static_required != 'true' || needs.static.result == 'success') &&
+      (needs['change-scope'].outputs.typecheck_required != 'true' || needs.typecheck.result == 'success') &&
+      (needs['change-scope'].outputs.unit_tests_required != 'true' || needs['unit-tests'].result == 'success') &&
+      (needs['change-scope'].outputs.db_tests_required != 'true' || needs['db-tests'].result == 'success') &&
+      (needs['change-scope'].outputs.e2e_tests_required != 'true' ||
        needs['e2e-tests'].result == 'success') &&
-      (needs['change-scope'].outputs.full_battery_required != 'true' ||
-       needs['change-scope'].outputs.build != 'true' ||
+      (needs['change-scope'].outputs.build_required != 'true' ||
        needs.build.result == 'success') &&
-      (needs['change-scope'].outputs.full_battery_required != 'true' ||
-       needs['change-scope'].outputs.docker_image != 'true' ||
+      (needs['change-scope'].outputs.docker_image_required != 'true' ||
        needs['docker-image'].result == 'success') &&
-      (needs['change-scope'].outputs.workflow_lint != 'true' || needs['workflow-lint'].result == 'success') &&
-      (needs['change-scope'].outputs.full_battery_required != 'true' ||
-       needs['change-scope'].outputs.terraform != 'true' ||
+      (needs['change-scope'].outputs.workflow_lint_required != 'true' || needs['workflow-lint'].result == 'success') &&
+      (needs['change-scope'].outputs.terraform_preview_plan_required != 'true' ||
        (needs['terraform-preview-plan'].result == 'success' &&
         needs['terraform-staging-plan'].result == 'success' &&
         needs['terraform-production-plan'].result == 'success'))
@@ -1490,10 +1482,10 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(previewCondition.replace(/\s+/g, " ").trim()).toBe(expectedPreviewCondition);
     expect(dbPrerequisite).toBe(
-      "(needs['change-scope'].outputs.db_tests != 'true' || needs['db-tests'].result == 'success')",
+      "(needs['change-scope'].outputs.db_tests_required != 'true' || needs['db-tests'].result == 'success')",
     );
     expect(e2ePrerequisite).toBe(
-      "(needs['change-scope'].outputs.full_battery_required != 'true' || needs['change-scope'].outputs.e2e_tests != 'true' || needs['e2e-tests'].result == 'success')",
+      "(needs['change-scope'].outputs.e2e_tests_required != 'true' || needs['e2e-tests'].result == 'success')",
     );
 
     const results = ["failure", "skipped", "cancelled", "success"];
@@ -1501,7 +1493,7 @@ describe("DigitalOcean platform configuration", () => {
     for (const dbTests of ["true", "false"]) {
       for (const result of results) {
         const admitted = evaluateWorkflowBooleanExpression(dbPrerequisite, {
-          "needs['change-scope'].outputs.db_tests": dbTests,
+          "needs['change-scope'].outputs.db_tests_required": dbTests,
           "needs['db-tests'].result": result,
         });
         truthTable.push({ dbTests, result, admitted });
@@ -1510,16 +1502,16 @@ describe("DigitalOcean platform configuration", () => {
     }
 
     const retainedBypassMutant =
-      "(needs['change-scope'].outputs.full_battery_required != 'true' || needs['change-scope'].outputs.db_tests != 'true' || needs['db-tests'].result == 'success')";
+      "(needs['change-scope'].outputs.full_battery_required != 'true' || needs['change-scope'].outputs.db_tests_required != 'true' || needs['db-tests'].result == 'success')";
     const retainedBypassMutantAdmitsFailure = evaluateWorkflowBooleanExpression(retainedBypassMutant, {
       "needs['change-scope'].outputs.full_battery_required": "false",
-      "needs['change-scope'].outputs.db_tests": "true",
+      "needs['change-scope'].outputs.db_tests_required": "true",
       "needs['db-tests'].result": "failure",
     });
     expect(retainedBypassMutantAdmitsFailure).toBe(true);
     expect(
       evaluateWorkflowBooleanExpression(dbPrerequisite, {
-        "needs['change-scope'].outputs.db_tests": "true",
+        "needs['change-scope'].outputs.db_tests_required": "true",
         "needs['db-tests'].result": "failure",
       }),
     ).toBe(false);
@@ -1532,18 +1524,22 @@ describe("DigitalOcean platform configuration", () => {
     const dbCall = workflowRequiredCall(requiredJob, "DB Profile Tests");
     const e2eCall = workflowRequiredCall(requiredJob, "E2E Tests");
     const requireJobFunction = workflowShellFunction(requiredJob, "require_job");
-    const targetedHelper = workflowShellFunction(requiredJob, "require_targeted_heavy_job");
 
     expect(dbCall.line).toBe(
-      'require_job "DB Profile Tests" "${{ needs[\'db-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.db_tests }}"',
+      'require_job "DB Profile Tests" "${{ needs[\'db-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.db_tests_required }}"',
     );
     expect(e2eCall.line).toBe(
-      'require_targeted_heavy_job "E2E Tests" "${{ needs[\'e2e-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.e2e_tests }}"',
+      'require_job "E2E Tests" "${{ needs[\'e2e-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.e2e_tests_required }}"',
     );
     expect(requireJobFunction).toBe(`          require_job() {
             local name="$1"
             local result="$2"
             local required="$3"
+
+            if [ "$required" != "true" ] && [ "$required" != "false" ]; then
+              echo "\${name} has unknown or missing gate-plan requirement '\${required}'." >&2
+              exit 1
+            fi
 
             if [ "$required" = "true" ]; then
               if [ "$result" != "success" ]; then
@@ -1558,34 +1554,23 @@ describe("DigitalOcean platform configuration", () => {
               exit 1
             fi
           }`);
-    expect(targetedHelper).toBe(`          require_targeted_heavy_job() {
-            local name="$1"
-            local result="$2"
-            local affected="$3"
-
-            if [ "$targeted_heavy_required" = "true" ] && [ "$affected" = "true" ]; then
-              require_job "$name" "$result" "true"
-              return
-            fi
-
-            require_job "$name" "$result" "false"
-          }`);
-
     const expectedRequiredCalls = [
-      'require_job "Known Failure Guard" "${{ needs[\'known-failure-guard\'].result }}" "true"',
-      'require_job "Change Scope" "${{ needs[\'change-scope\'].result }}" "true"',
-      'require_job "Static Checks" "${{ needs.static.result }}" "${{ needs[\'change-scope\'].outputs.local_checks }}"',
-      'require_job "Typecheck" "${{ needs.typecheck.result }}" "true"',
-      'require_job "Unit Tests" "${{ needs[\'unit-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.unit_tests }}"',
-      'require_job "Workflow Lint" "${{ needs[\'workflow-lint\'].result }}" "${{ needs[\'change-scope\'].outputs.workflow_lint }}"',
+      'require_job "Known Failure Guard" "${{ needs[\'known-failure-guard\'].result }}" "${{ needs[\'change-scope\'].outputs.known_failure_guard_required }}"',
+      'require_job "Change Scope" "${{ needs[\'change-scope\'].result }}" "${{ needs[\'change-scope\'].outputs.change_scope_required }}"',
+      'require_job "Static Checks" "${{ needs.static.result }}" "${{ needs[\'change-scope\'].outputs.static_required }}"',
+      'require_job "Typecheck" "${{ needs.typecheck.result }}" "${{ needs[\'change-scope\'].outputs.typecheck_required }}"',
+      'require_job "Unit Tests" "${{ needs[\'unit-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.unit_tests_required }}"',
       dbCall.line,
       e2eCall.line,
-      'require_heavy_job "Build" "${{ needs.build.result }}" "${{ needs[\'change-scope\'].outputs.build }}"',
-      'require_heavy_job "Docker Image Build" "${{ needs[\'docker-image\'].result }}" "${{ needs[\'change-scope\'].outputs.docker_image }}"',
-      'require_heavy_job "Terraform Preview Plan" "${{ needs[\'terraform-preview-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
-      'require_heavy_job "Terraform Staging Plan" "${{ needs[\'terraform-staging-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
-      'require_heavy_job "Terraform Production Plan" "${{ needs[\'terraform-production-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
-      'require_job "Terraform Observability Plan" "${{ needs[\'terraform-observability-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
+      'require_job "Build" "${{ needs.build.result }}" "${{ needs[\'change-scope\'].outputs.build_required }}"',
+      'require_job "Docker Image Build" "${{ needs[\'docker-image\'].result }}" "${{ needs[\'change-scope\'].outputs.docker_image_required }}"',
+      'require_job "Workflow Lint" "${{ needs[\'workflow-lint\'].result }}" "${{ needs[\'change-scope\'].outputs.workflow_lint_required }}"',
+      'require_job "Terraform Preview Plan" "${{ needs[\'terraform-preview-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform_preview_plan_required }}"',
+      'require_job "Terraform Staging Plan" "${{ needs[\'terraform-staging-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform_staging_plan_required }}"',
+      'require_job "Terraform Production Plan" "${{ needs[\'terraform-production-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform_production_plan_required }}"',
+      'require_job "Terraform Observability Plan" "${{ needs[\'terraform-observability-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform_observability_plan_required }}"',
+      'require_job "Deploy Preview and Smoke" "${{ needs[\'preview-deploy-smoke\'].result }}" "${{ needs[\'change-scope\'].outputs.preview_deploy_smoke_required }}"',
+      'require_job "Compose Boot Smoke" "${{ needs[\'compose-preview-smoke\'].result }}" "${{ needs[\'change-scope\'].outputs.compose_preview_smoke_required }}"',
     ];
     const actualRequiredCalls = requiredJob
       .split(/\r?\n/)
@@ -1600,7 +1585,7 @@ describe("DigitalOcean platform configuration", () => {
           targetedHeavyRequired: false,
           templateValues: {
             "needs['db-tests'].result": result,
-            "needs['change-scope'].outputs.db_tests": dbTests,
+            "needs['change-scope'].outputs.db_tests_required": dbTests,
           },
         });
         truthTable.push({ dbTests, result, admitted });
@@ -1613,7 +1598,7 @@ describe("DigitalOcean platform configuration", () => {
       targetedHeavyRequired: false,
       templateValues: {
         "needs['db-tests'].result": "skipped",
-        "needs['change-scope'].outputs.db_tests": "true",
+        "needs['change-scope'].outputs.db_tests_required": "true",
       },
     });
     expect(mutantAdmitsFastLaneSkip).toBe(true);
@@ -1622,7 +1607,7 @@ describe("DigitalOcean platform configuration", () => {
         targetedHeavyRequired: false,
         templateValues: {
           "needs['db-tests'].result": "skipped",
-          "needs['change-scope'].outputs.db_tests": "true",
+          "needs['change-scope'].outputs.db_tests_required": "true",
         },
       }),
     ).toBe(false);
@@ -1632,16 +1617,24 @@ describe("DigitalOcean platform configuration", () => {
 
   it("requires preview deploy and smoke for deploy-scoped same-repository PRs without blocking forks", () => {
     const previewJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
+    const composeJob = workflowJob(platformPrWorkflow, "compose-preview-smoke");
     const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
+    const gatePlanStep = workflowStep(platformPrWorkflow, "Resolve shared gate plan");
     const runtimeSecretsStep = workflowStep(previewJob, "Apply preview Kubernetes runtime secrets");
 
-    expect(previewJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(gatePlanStep).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(previewJob).toContain("needs['change-scope'].result == 'success'");
-    expect(previewJob).toContain("needs['change-scope'].outputs.cluster_preview == 'true'");
-    expect(previewJob).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
-    expect(previewJob).toContain("needs['change-scope'].outputs.e2e_tests != 'true'");
+    expect(previewJob).toContain("needs['change-scope'].outputs.preview_deploy_smoke_required == 'true'");
+    expect(previewJob).not.toContain("needs['change-scope'].outputs.cluster_preview == 'true'");
+    expect(previewJob).not.toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
+    expect(previewJob).toContain("needs['change-scope'].outputs.e2e_tests_required != 'true'");
     expect(previewJob).toContain("needs['e2e-tests'].result == 'success'");
-    expect(previewJob).toContain("needs['change-scope'].outputs.full_battery_required != 'true'");
+    expect(previewJob).not.toContain("needs['change-scope'].outputs.full_battery_required != 'true'");
+    expect(workflowJobCondition(platformPrWorkflow, "compose-preview-smoke")).toContain(
+      "needs['change-scope'].outputs.compose_preview_smoke_required == 'true'",
+    );
+    expect(composeJob).not.toContain("needs['change-scope'].outputs.compose_smoke == 'true'");
+    expect(composeJob).not.toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
     expect(previewJob).toContain("id: preview_domains");
     expect(previewJob).toContain('echo "landing_domain_ready=${landing_domain_ready}"');
     expect(previewJob).toContain('} >> "$GITHUB_OUTPUT"');
@@ -1685,15 +1678,10 @@ describe("DigitalOcean platform configuration", () => {
       expect(runtimeSecretsStep).toContain(`export ${environmentName}="\${TF_VAR_${terraformName}`);
     }
 
-    expect(requiredJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
-    expect(requiredJob).toContain("needs['change-scope'].outputs.cluster_preview == 'true'");
-    expect(requiredJob).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
     expect(requiredJob).toContain(
-      "Preview deployment and smoke must pass for same-repository deploy-surface PRs and manual preview-label PRs.",
+      'require_job "Deploy Preview and Smoke" "${{ needs[\'preview-deploy-smoke\'].result }}" "${{ needs[\'change-scope\'].outputs.preview_deploy_smoke_required }}"',
     );
-    expect(requiredJob).toContain(
-      "Preview deployment had an unexpected result when it was not required: ${preview_result}.",
-    );
+    expect(requiredJob).not.toContain("github.event.pull_request.head.repo.full_name == github.repository");
   });
 
   it("keeps non-blocking coverage off merge groups and on a daily workflow", () => {

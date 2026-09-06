@@ -102,6 +102,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:install": "playwright install",
     "verify": "pnpm run sync:workspace-metadata && pnpm run verify:static && pnpm run verify:typecheck && pnpm run verify:test && pnpm run verify:test-db && pnpm run verify:build",
+    "verify:ci-local": "node ./scripts/verify-ci-local.mjs",
     "verify:metadata": "node ./scripts/sync-workspace-metadata.mjs --check",
     "test:scripts": "vitest run --config ./vitest.scripts.config.mjs",
     "check:kb-reference-ratchet": "node ./scripts/check-structure/kb-reference-ratchet.mjs",
