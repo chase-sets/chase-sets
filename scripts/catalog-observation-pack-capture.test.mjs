@@ -16,6 +16,7 @@ describe("Observation Pack provider image requests", () => {
     ["pokemon-prismatic-evolutions", "https://assets.example.invalid/synthetic/card/high.webp", "", null],
     ["pokemon-prismatic-evolutions", "https://assets.example.invalid/synthetic/variant", "/low.webp", "low.webp"],
     ["mtg-time-spiral", "https://images.example.invalid/synthetic/card.png", "", null],
+    ["one-piece-romance-dawn", "https://images.example.invalid/synthetic/negotiated-card", "", null],
   ])("captures %s source %s without changing its retained identity", async (key, source, suffix, syntheticVariant) => {
     const preset = observationPackCapturePresets[key];
     const profileVersion = getActiveCatalogProviderIntegrationProfileVersion(preset.providerKey, {
@@ -59,6 +60,14 @@ describe("Observation Pack provider image requests", () => {
         expect(options).toMatchObject({ method: "GET", redirect: "error", signal: expect.any(AbortSignal) });
         expect(new Headers(options.headers).get("User-Agent")).toMatch(/^ChaseSets\//);
         expect(new Headers(options.headers).get("Accept")).toContain("image/webp");
+        const accept = new Headers(options.headers).get("Accept");
+        if (preset.providerKey === "scrydex") {
+          // This provider's AVIF response cannot pass the downstream full decoder.
+          if (accept.includes("image/avif")) return new Response(null, { status: 406 });
+          expect(accept).toBe("image/webp,image/jpeg,image/png");
+        } else {
+          expect(accept).toBe("image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8");
+        }
         return resource === source + suffix
           ? new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), {
               status: 200,
