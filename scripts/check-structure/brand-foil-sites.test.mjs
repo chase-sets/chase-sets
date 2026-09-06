@@ -880,7 +880,8 @@ describe("occurrence owners and complete accounting", () => {
     const name = "synthetic link opaque.data";
     const pathBytes = Buffer.from(name);
     const signature = lexicalLaw.properties[0];
-    const linkBlob = Buffer.concat([Buffer.from(`${signature} synthetic `), Buffer.from([0x80])]);
+    const linkBlobPrefix = ".git/";
+    const linkBlob = Buffer.concat([Buffer.from(`${linkBlobPrefix}${signature} synthetic `), Buffer.from([0x80])]);
     const ordinaryBytes = Buffer.from("ordinary synthetic target bytes\n");
     const changedBlob = Buffer.concat([Buffer.from("changed synthetic link bytes-"), Buffer.from([0x81])]);
     const absolute = (bytes) => Buffer.concat([Buffer.from(path.resolve(directory) + path.sep), bytes]);
@@ -937,7 +938,10 @@ describe("occurrence owners and complete accounting", () => {
     expect(discovery.readFailures).toEqual([]);
     expect(discovery).toMatchObject({ tracked: 1, scanned: 1, bytes: linkBlob.length });
     expect(Buffer.from(discovery.carriers[0].source, "latin1")).toEqual(linkBlob);
-    expect(discovery.carriers[0].occurrences[0]).toMatchObject({ detector: "literal", start: 0 });
+    expect(discovery.carriers[0].occurrences[0]).toMatchObject({
+      detector: "literal",
+      start: Buffer.byteLength(linkBlobPrefix),
+    });
     expect(snapshot).toMatchObject({ files: 1, bytes: expectedSnapshotBytes(linkBlob) });
     expect(validateBrandFoilDiscovery(discovery, []).ok).toBe(false);
 
