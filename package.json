@@ -133,7 +133,7 @@
     "sandbox:gc": "node ./scripts/sandbox.mjs gc",
     "sandbox:clean:all": "node ./scripts/sandbox.mjs clean-all",
     "test:platform": "pnpm --filter @chase-sets/app-platform-api run test",
-    "check:structure": "node ./scripts/check-structure.mjs",
+    "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
     "check:structure:ci": "STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT=violation pnpm run check:structure",
     "test:typecheck": "tsc -p ./tsconfig.tests.json --noEmit",
     "test:typecheck:watch": "tsc -p ./tsconfig.tests.json --noEmit --watch --preserveWatchOutput",
