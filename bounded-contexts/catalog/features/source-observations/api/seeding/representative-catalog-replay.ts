@@ -31,6 +31,8 @@ import {
   type ObservationPackObjectStorage,
 } from "./observation-pack";
 import { assertDecodableProductAssetSource } from "./product-asset-normalization";
+import { recoverObservationPackAssetReferences } from "./observation-pack-asset-references";
+import { resolveTcgdexImageReference } from "../providers/tcgdex/image-reference";
 import type { ProviderAdapter, ProviderImportPlan, ProviderImportScope } from "../provider-adapters/provider-adapter";
 import {
   catalogProviderProfileVersionIngestionUnitKey,
@@ -431,6 +433,11 @@ async function prepareObservations(
   assets: readonly PreflightAsset[],
 ): Promise<readonly PreparedObservation[]> {
   const contract = requireSourceObservationMappingContract(profileVersion);
+  const connector = profileVersion.profile.connector;
+  const resolveImageReference =
+    connector.kind === "tcgdex-json"
+      ? (reference: string) => resolveTcgdexImageReference(reference, connector.highQualityAssetVariant)
+      : undefined;
   const assetsByEnvelope = new Map<string, PreflightAsset[]>();
   const imageReferencesByEnvelope = new Map(
     envelopes.map((envelope) => [
@@ -442,7 +449,11 @@ async function prepareObservations(
     const candidateReferences = [
       ...new Set(asset.envelopeContentHashes.flatMap((hash) => imageReferencesByEnvelope.get(hash) ?? [])),
     ].sort();
-    const sourceReferences = recoverAssetSourceReferences(candidateReferences, asset.sourceReferenceHash);
+    const sourceReferences = recoverObservationPackAssetReferences(
+      candidateReferences,
+      asset.sourceReferenceHash,
+      resolveImageReference,
+    );
     if (sourceReferences.length === 0) {
       throw new RepresentativeCatalogReplayError("representative-catalog-pack-contract-invalid");
     }
@@ -494,27 +505,6 @@ async function prepareObservations(
     throw new RepresentativeCatalogReplayError("representative-catalog-pack-contract-invalid");
   }
   return prepared;
-}
-
-function recoverAssetSourceReferences(candidates: readonly string[], expectedHash: string): readonly string[] {
-  const hash = (values: readonly string[]) => sha256(new TextEncoder().encode([...values].sort().join("\n")));
-  if (hash(candidates) === expectedHash) {
-    return candidates;
-  }
-  const singles = candidates.filter((candidate) => hash([candidate]) === expectedHash);
-  if (singles.length === 1) {
-    return singles;
-  }
-  if (candidates.length > 16) {
-    return [];
-  }
-  for (let mask = 1; mask < 2 ** candidates.length; mask += 1) {
-    const subset = candidates.filter((_, index) => (mask & (1 << index)) !== 0);
-    if (hash(subset) === expectedHash) {
-      return subset;
-    }
-  }
-  return [];
 }
 
 function preferredObservationImageReferences(observation: CatalogProviderSourceObservationInput): readonly string[] {
