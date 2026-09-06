@@ -1879,12 +1879,7 @@ function collectRepositorySourceFiles(root: string): string[] {
   return files.map((file) => file.split("\\").join("/"));
 }
 
-function countConstructionCallSites(
-  files: readonly string[],
-  root: string,
-  callee: string,
-  declaration: string,
-) {
+function countConstructionCallSites(files: readonly string[], root: string, callee: string, declaration: string) {
   const callSites: { file: string; count: number }[] = [];
   for (const file of files) {
     const source = readFileSync(file, "utf8").split(declaration).join("");
@@ -1945,9 +1940,9 @@ describe("platform API payment provider mode observation", () => {
     const hostile = createPaymentsHostRuntime({
       observation: { ...SYNTHETIC_HOST_OBSERVATION, secretKey: PLANTED_HOST_MARKER },
     });
-    const hostileResponse = await buildPlatformApiApp(hostile.runtime, { resolveActor: vi.fn(async () => null) }).request(
-      PROVIDER_MODE_PATH,
-    );
+    const hostileResponse = await buildPlatformApiApp(hostile.runtime, {
+      resolveActor: vi.fn(async () => null),
+    }).request(PROVIDER_MODE_PATH);
     const hostileText = await hostileResponse.text();
     expect(hostileResponse.status).toBe(500);
     expect(hostileText).not.toContain("PLANTEDHOSTMARKER");
@@ -2082,9 +2077,9 @@ describe("platform API payment provider mode observation", () => {
         observation: SYNTHETIC_HOST_OBSERVATION,
         module: anonymousDeclarationModule([{ routePath, methods: ["GET"] }]),
       });
-      expect(() =>
-        buildPlatformApiApp(parameterised.runtime, { resolveActor: vi.fn(async () => null) }),
-      ).toThrow(`payments anonymous route ${routePath} must be an exact absolute path beginning /api/ with no parameter or wildcard.`);
+      expect(() => buildPlatformApiApp(parameterised.runtime, { resolveActor: vi.fn(async () => null) })).toThrow(
+        `payments anonymous route ${routePath} must be an exact absolute path beginning /api/ with no parameter or wildcard.`,
+      );
     }
 
     // Positive control: the exact Payments declaration still constructs.
@@ -2200,10 +2195,23 @@ describe("platform API payment provider mode observation", () => {
     const paymentsManifest = JSON.parse(
       readFileSync(join(repositoryRoot, "bounded-contexts/payments/context.json"), "utf8"),
     ) as Readonly<{ anonymousRoutes?: readonly unknown[]; hostPorts: readonly { portName: string }[] }>;
-    expect(paymentsManifest.anonymousRoutes).toEqual([
-      { routePath: PROVIDER_MODE_PATH, methods: ["GET"] },
-    ]);
+    expect(paymentsManifest.anonymousRoutes).toEqual([{ routePath: PROVIDER_MODE_PATH, methods: ["GET"] }]);
     expect(paymentsManifest.hostPorts.map((port) => port.portName)).toContain("providerModeObservation");
+  });
+
+  it("turns red when the manifest declaration is deleted", async () => {
+    // Manifest-deletion mutant for the caller closure above: without the declaration the exempt route
+    // is no longer exempt, so the mounted observation request resolves the actor.
+    const resolveActor = vi.fn(async () => null);
+    const { runtime } = createPaymentsHostRuntime({
+      observation: SYNTHETIC_HOST_OBSERVATION,
+      module: anonymousDeclarationModule([]),
+    });
+
+    const response = await buildPlatformApiApp(runtime, { resolveActor }).request(PROVIDER_MODE_PATH);
+
+    expect(response.status).toBe(200);
+    expect(resolveActor, "the deleted declaration must restore actor resolution").toHaveBeenCalledTimes(1);
   });
 
   it("removes the observation without changing prior routes", async () => {

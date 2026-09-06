@@ -1328,7 +1328,9 @@ describe("payments provider mode observation route", () => {
 
     const app = buildProviderModeApp(SYNTHETIC_CONNECT_ONLY_OBSERVATION);
 
-    const firstBody: unknown = await (await app.fetch(new Request("http://payments.test/payment-provider-mode"))).json();
+    const firstBody: unknown = await (
+      await app.fetch(new Request("http://payments.test/payment-provider-mode"))
+    ).json();
     expect(clock, "the handler must read the clock exactly once per request").toHaveBeenCalledTimes(1);
 
     vi.setSystemTime(firstInstant + 1_000);
@@ -1354,7 +1356,9 @@ describe("payments provider mode observation route", () => {
     vi.setSystemTime(frozenInstant);
 
     const app = buildProviderModeApp(SYNTHETIC_CONNECT_ONLY_OBSERVATION);
-    const firstBody: unknown = await (await app.fetch(new Request("http://payments.test/payment-provider-mode"))).json();
+    const firstBody: unknown = await (
+      await app.fetch(new Request("http://payments.test/payment-provider-mode"))
+    ).json();
     const secondBody: unknown = await (
       await app.fetch(new Request("http://payments.test/payment-provider-mode"))
     ).json();

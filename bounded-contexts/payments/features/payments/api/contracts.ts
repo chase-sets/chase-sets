@@ -59,10 +59,7 @@ const PROVIDER_MODE_OBSERVATION_MEMBERS = [
   "deploymentEnvironment",
 ] as const;
 
-export const PAYMENT_PROVIDER_MODE_RESPONSE_MEMBERS = [
-  ...PROVIDER_MODE_OBSERVATION_MEMBERS,
-  "observedAt",
-] as const;
+export const PAYMENT_PROVIDER_MODE_RESPONSE_MEMBERS = [...PROVIDER_MODE_OBSERVATION_MEMBERS, "observedAt"] as const;
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null;

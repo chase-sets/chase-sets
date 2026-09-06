@@ -13,7 +13,9 @@ export function buildPaymentsApi(services: PaymentServices | PaymentsServices) {
 
   app.route(
     "/",
-    createPaymentProviderModeRoutes("providerModeObservation" in services ? services.providerModeObservation : undefined),
+    createPaymentProviderModeRoutes(
+      "providerModeObservation" in services ? services.providerModeObservation : undefined,
+    ),
   );
 
   app.route(

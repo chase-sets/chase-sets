@@ -5244,8 +5244,7 @@ describe("platform api provider mode observation", () => {
 
   it("has one Stripe mode classifier and no observation-side classifier", () => {
     const repositoryRoot = normalizeAnalysisPath(join(stripeProvenanceTestDirectory, "../../.."));
-    const readRepositorySource = (relativePath: string) =>
-      readFileSync(join(repositoryRoot, relativePath), "utf8");
+    const readRepositorySource = (relativePath: string) => readFileSync(join(repositoryRoot, relativePath), "utf8");
 
     // Key-classification constructs. A surface that carries any of them is deciding provider mode for
     // itself instead of transporting the single shared decision.
