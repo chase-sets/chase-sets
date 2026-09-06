@@ -302,7 +302,7 @@ async function seedDisplayTemplatesWhenAuthoringDependenciesAreActive(
   fields: FieldIds,
 ): Promise<void> {
   const requiredFieldKeys = Object.keys(fields);
-  const activeDependencies = await services.db.query<Readonly<{ dependency_kind: "field" | "reference"; key: string }>>(
+  let activeDependencies = await services.db.query<Readonly<{ dependency_kind: "field" | "reference"; key: string }>>(
     `SELECT 'field' AS dependency_kind, key
      FROM catalog_fields
      WHERE status = 'active' AND key = ANY($1::text[])
@@ -312,12 +312,30 @@ async function seedDisplayTemplatesWhenAuthoringDependenciesAreActive(
      WHERE status = 'active' AND key = ANY($2::text[])`,
     [requiredFieldKeys, ["expansion", "set"]],
   );
-  const activeFieldCount = activeDependencies.rows.filter(({ dependency_kind }) => dependency_kind === "field").length;
-  const activeReferenceTypeCount = activeDependencies.rows.length - activeFieldCount;
+  let activeFieldCount = activeDependencies.rows.filter(({ dependency_kind }) => dependency_kind === "field").length;
+  let activeReferenceTypeCount = activeDependencies.rows.length - activeFieldCount;
 
   if (activeFieldCount !== requiredFieldKeys.length || activeReferenceTypeCount !== 2) {
     console.log("Catalog display template seed deferred until Field and Reference Type projections are active.");
-    return;
+    await rebuildLocalProjectionHandlerSets("catalog", pool, [
+      ...services.fields.projectors,
+      ...services.referenceData.projectors,
+    ]);
+    activeDependencies = await services.db.query<Readonly<{ dependency_kind: "field" | "reference"; key: string }>>(
+      `SELECT 'field' AS dependency_kind, key
+       FROM catalog_fields
+       WHERE status = 'active' AND key = ANY($1::text[])
+       UNION ALL
+       SELECT 'reference', key
+       FROM catalog_reference_types
+       WHERE status = 'active' AND key = ANY($2::text[])`,
+      [requiredFieldKeys, ["expansion", "set"]],
+    );
+    activeFieldCount = activeDependencies.rows.filter(({ dependency_kind }) => dependency_kind === "field").length;
+    activeReferenceTypeCount = activeDependencies.rows.length - activeFieldCount;
+    if (activeFieldCount !== requiredFieldKeys.length || activeReferenceTypeCount !== 2) {
+      throw new Error("Catalog display template seed prerequisites did not become active after bounded recovery.");
+    }
   }
 
   await seedDisplayTemplates(services);
@@ -342,7 +360,10 @@ async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: Cat
         authoring.fields,
         authoring.categories,
         authoring.references,
-        { catalogItemIds: [targetCatalogItemId] },
+        {
+          catalogItemIds: [targetCatalogItemId],
+          beforePublication: () => drainCatalogItemPublicationInputs(pool, services),
+        },
       );
     }
   } else {
@@ -353,6 +374,7 @@ async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: Cat
       authoring.fields,
       authoring.categories,
       authoring.references,
+      { beforePublication: () => drainCatalogItemPublicationInputs(pool, services) },
     );
   }
 
@@ -458,7 +480,12 @@ async function seedRepresentativeProductContentsCatalogItems(
   console.log("Seeding representative Product Contents Catalog Items...");
   await seedCatalogItems(services, authoring.blueprints, authoring.fields, authoring.categories, authoring.references, {
     catalogItemIds: missingCatalogItemIds,
+    beforePublication: () => drainCatalogItemPublicationInputs(pool, services),
   });
+}
+
+async function drainCatalogItemPublicationInputs(pool: PgTransactionalPool, services: CatalogServices): Promise<void> {
+  await drainLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
 }
 
 type CatalogIntegrationIds = Readonly<{

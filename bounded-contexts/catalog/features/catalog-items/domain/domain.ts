@@ -144,6 +144,35 @@ export type PublishCatalogItemCommand = Readonly<{
   type: "PublishCatalogItem";
   blueprintIsActive: boolean;
   requiredFieldIds: readonly FieldId[];
+  displayIdentity?: CatalogItemPublicationDisplayIdentityEvidence;
+}>;
+
+export type CatalogItemPublicationReadiness = "current-resolved" | "degraded" | "unavailable" | "outdated";
+
+/**
+ * Server-derived evidence carried across the final aggregate reload. Keeping the
+ * complete resolver-input tuple here makes a concurrent item edit fail in the
+ * pure decider before the version-bound append.
+ */
+export type CatalogItemPublicationDisplayIdentityEvidence = Readonly<{
+  readiness: CatalogItemPublicationReadiness;
+  catalogItemId: CatalogItemId;
+  languageCode: string;
+  title: LocalizedTextMap;
+  subtitle: LocalizedTextMap | null;
+  blueprintId: BlueprintId | null;
+  fieldValues: readonly ItemFieldValue[];
+  categoryIds: readonly CategoryId[];
+  resolvedTitle: string;
+  resolvedSubtitle: string | null;
+  displayTemplateKey: string | null;
+  displayTemplateTargetKind: string | null;
+  displayTemplateTargetId: string | null;
+  displayIdentityHash: string;
+  resolvedAt: string;
+  resolverVersion: number;
+  resolutionStatus: CatalogItemDisplayResolutionStatus | undefined;
+  missingTokens: readonly string[];
 }>;
 
 export type ReviseCatalogItemMetadataCommand = Readonly<{
@@ -590,6 +619,7 @@ export const decideCatalogItem: AggregateDecider<CatalogItemState, CatalogItemCo
       assert(state.status === "draft", "Only draft items can be published.");
       assert(state.blueprintId !== null, "Items require a blueprint before publish.");
       assert(command.blueprintIsActive, "Items may only publish against active blueprints.");
+      assertCurrentPublicationDisplayIdentity(state, command.displayIdentity);
 
       const requiredFieldIds = normalizeRequiredFieldIds(command.requiredFieldIds);
       const populatedFieldIds = new Set(state.fieldValues.map((fieldValue) => fieldValue.fieldId));
@@ -978,6 +1008,52 @@ export const evolveCatalogItem: AggregateEvolver<CatalogItemState, CatalogItemEv
 
 function requireCreatedItem(state: CatalogItemState): void {
   assert(state.id !== null, "Catalog item must be created first.");
+}
+
+function assertCurrentPublicationDisplayIdentity(
+  state: CatalogItemState,
+  evidence: CatalogItemPublicationDisplayIdentityEvidence | undefined,
+): void {
+  assert(evidence?.readiness === "current-resolved", "Catalog Item requires a current resolved display identity.");
+  assert(evidence.catalogItemId === state.id, "Catalog Item display identity belongs to a different item.");
+  assert(
+    normalizeLocaleCode(evidence.languageCode) === normalizeLocaleCode(state.languageCode),
+    "Catalog Item display identity belongs to a different language.",
+  );
+  assert(evidence.resolverVersion === 3, "Catalog Item display identity uses an unsupported resolver version.");
+  assert(evidence.resolutionStatus === "resolved", "Catalog Item display identity is degraded.");
+  assert(
+    Array.isArray(evidence.missingTokens) && evidence.missingTokens.length === 0,
+    "Catalog Item display identity has missing tokens.",
+  );
+  assert(evidence.displayIdentityHash.trim().length > 0, "Catalog Item display identity hash is required.");
+  assert(evidence.resolvedTitle.trim().length > 0, "Catalog Item resolved display title is required.");
+  assert(
+    evidence.resolvedAt.trim().length > 0 && Number.isFinite(Date.parse(evidence.resolvedAt)),
+    "Catalog Item display identity resolved-at value is required.",
+  );
+  assert(state.title !== null, "Catalog Item title is required.");
+  assert(
+    JSON.stringify(normalizeLocalizedTextMap(evidence.title, { requiredEnglish: true })) ===
+      JSON.stringify(normalizeLocalizedTextMap(state.title, { requiredEnglish: true })),
+    "Catalog Item display identity title input is outdated.",
+  );
+  assert(
+    JSON.stringify(evidence.subtitle ? normalizeLocalizedTextMap(evidence.subtitle) : null) ===
+      JSON.stringify(state.subtitle ? normalizeLocalizedTextMap(state.subtitle) : null),
+    "Catalog Item display identity subtitle input is outdated.",
+  );
+  assert(evidence.blueprintId === state.blueprintId, "Catalog Item display identity blueprint input is outdated.");
+  assert(
+    JSON.stringify(normalizeFieldValues(evidence.fieldValues)) ===
+      JSON.stringify(normalizeFieldValues(state.fieldValues)),
+    "Catalog Item display identity field inputs are outdated.",
+  );
+  assert(
+    JSON.stringify([...evidence.categoryIds].sort((left, right) => left.localeCompare(right))) ===
+      JSON.stringify([...state.categoryIds].sort((left, right) => left.localeCompare(right))),
+    "Catalog Item display identity category inputs are outdated.",
+  );
 }
 
 function assertCatalogItemCanBeModified(state: CatalogItemState): void {

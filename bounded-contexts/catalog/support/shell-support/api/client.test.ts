@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiError, createCatalogApiClient } from "./client";
+import { ApiError, CatalogItemPublicationApiError, createCatalogApiClient } from "./client";
 
 describe("catalog API durable job client", () => {
   it("preserves nested API error messages", () => {
@@ -17,6 +17,32 @@ describe("catalog API durable job client", () => {
     const error = new ApiError(400, { error: "Required selected option is missing." });
 
     expect(error.message).toBe("Required selected option is missing.");
+  });
+
+  it("parses only the closed publication-readiness error shape", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "display-identity-outdated",
+            message: "Display identity is outdated. Recheck and retry publication.",
+            readiness: "outdated",
+            missingTokens: [],
+          },
+        }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const client = createCatalogApiClient({ baseUrl: "http://catalog.test/api/catalog", fetch });
+
+    const error = await client.publishCatalogItem("cat_1", true, []).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(CatalogItemPublicationApiError);
+    expect(error).toMatchObject({
+      code: "display-identity-outdated",
+      readiness: "outdated",
+      missingTokens: [],
+    });
   });
 
   it("reconnects job event streams with the last durable event id", async () => {
