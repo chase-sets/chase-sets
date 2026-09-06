@@ -97,8 +97,25 @@ export function createIdentityAuthMiddleware(
 
 export type PlatformActorResolver = (request: Request) => Promise<ResolvedActor | null>;
 
-export function createPlatformActorMiddleware(resolveActor: PlatformActorResolver) {
+/**
+ * Declared anonymous routes are matched before the actor is resolved, so an exempt request performs
+ * no actor resolution at all. Every request that does not match an exact declaration keeps the
+ * resolver-first behaviour and its existing downstream semantics.
+ */
+export function createPlatformActorMiddleware(
+  resolveActor: PlatformActorResolver,
+  options: Readonly<{ anonymousRoutes?: readonly AnonymousRouteDeclaration[] }> = {},
+) {
+  const anonymousRoutes = options.anonymousRoutes ?? [];
   return async function platformActorMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<void> {
+    if (isAnonymousAllowed(anonymousRoutes, c.req.method, new URL(c.req.url).pathname)) {
+      c.set("actor", null);
+      c.set("context", null);
+
+      await next();
+      return;
+    }
+
     const actor = await resolveActor(c.req.raw);
 
     c.set("actor", actor);

@@ -1,5 +1,8 @@
 import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
@@ -27,6 +30,7 @@ import {
   UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
 } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp } from "../src/app";
+import { apiContextRegistry } from "../src/generated/api-context-registry";
 
 const NO_API_ENTRIES: ReturnType<typeof authModule.buildApis> = [];
 
@@ -1656,5 +1660,598 @@ describe("platform api app wiring", () => {
 
     expect(response.status).toBe(201);
     expect(runOnce).not.toHaveBeenCalled();
+  });
+});
+
+// -------------------------------------------------------------------------------------------------
+// Provider mode observation through the complete mounted request (#7414).
+//
+// Every case below drives the real Payments module through `buildPlatformApiApp`, so the evidence is
+// the complete mounted request rather than a focused handler.
+// -------------------------------------------------------------------------------------------------
+
+const PROVIDER_MODE_PATH = "/api/marketplace/payment-provider-mode";
+
+const SYNTHETIC_HOST_OBSERVATION = {
+  mode: "test",
+  paymentProcessorKind: "fake",
+  moneyMovementKind: "stripe",
+  deploymentEnvironment: "dev",
+} as const;
+
+const PLANTED_HOST_MARKER = "sk_test_PLANTEDHOSTMARKER";
+
+type PaymentsHostModule = Readonly<Record<string, unknown>>;
+
+function paymentsRegistryModule(): PaymentsHostModule {
+  const entry = apiContextRegistry.find((candidate) => candidate.contextName === "payments");
+  if (!entry) {
+    throw new Error("The Payments context must be registered for the mounted observation cases.");
+  }
+  return entry.module as unknown as PaymentsHostModule;
+}
+
+function createRecordingServiceProxy(calls: string[], path: string): unknown {
+  const target = () => undefined;
+  return new Proxy(target, {
+    get(_target, property) {
+      if (property === "then") {
+        return undefined;
+      }
+      return createRecordingServiceProxy(calls, `${path}.${String(property)}`);
+    },
+    has() {
+      return true;
+    },
+    apply() {
+      calls.push(path);
+      return createRecordingServiceProxy(calls, path);
+    },
+  });
+}
+
+function createPaymentsHostRuntime(
+  options: Readonly<{
+    observation?: unknown;
+    module?: PaymentsHostModule;
+    extraContexts?: readonly Readonly<{ contextName: string; module: unknown }>[];
+  }> = {},
+) {
+  const serviceCalls: string[] = [];
+  const paymentsServices = {
+    payments: createRecordingServiceProxy(serviceCalls, "payments"),
+    refunds: createRecordingServiceProxy(serviceCalls, "refunds"),
+    publicConfig: {
+      processorName: "stripe",
+      publishableKey: null,
+      confirmationExperience: "processor-managed-form",
+      dynamicPaymentMethods: true,
+      sensitivePaymentDetailsHandledByProcessor: true,
+    },
+    projectors: [],
+    pool: createRecordingServiceProxy(serviceCalls, "pool"),
+    db: createRecordingServiceProxy(serviceCalls, "db"),
+    providerModeObservation: options.observation,
+  };
+  const paymentsHostModule = options.module ?? paymentsRegistryModule();
+  const mountedContexts = [
+    {
+      contextName: "payments",
+      mountRole: "active",
+      module: paymentsHostModule,
+      services: paymentsServices,
+      pool: paymentsServices.pool,
+      projectionHandlerSets: [],
+    },
+    ...(options.extraContexts ?? []).map((extra) => ({
+      contextName: extra.contextName,
+      mountRole: "active",
+      module: extra.module,
+      services: {},
+      pool: {},
+      projectionHandlerSets: [],
+    })),
+  ];
+
+  return {
+    serviceCalls,
+    paymentsServices,
+    runtime: {
+      mountedContexts,
+      mountedModules: mountedContexts.map((entry) => ({ module: entry.module, services: entry.services })),
+      services: {
+        auth: { identity: { bootstrapTenantId: "tenant_auth" } },
+        identity: {},
+        payments: paymentsServices,
+      },
+      projectionGroups: mountedProjectionGroups(mountedContexts),
+      subscriptionRunners: [],
+    } as never,
+  };
+}
+
+/** Mirrors the host's own projection-group binding so declared read-freshness routes resolve. */
+function mountedProjectionGroups(
+  mountedContexts: readonly Readonly<{ contextName: string; module: unknown }>[],
+): readonly unknown[] {
+  return mountedContexts.flatMap((entry) => {
+    const module = entry.module as Readonly<{
+      projectionGroups?: readonly Readonly<{
+        projectionName: string;
+        projectionRevision?: number;
+        sourceContextNames: readonly string[];
+        optionalSourceContextNames?: readonly string[];
+        ownedTables: readonly string[];
+        resetStrategy: string;
+        requiredDuringBootstrap?: boolean;
+      }>[];
+    }>;
+    return (module.projectionGroups ?? []).map((group) => ({
+      projectionName: group.projectionName,
+      projectionRevision: group.projectionRevision ?? 1,
+      targetContextName: entry.contextName,
+      sourceContextNames: group.sourceContextNames,
+      optionalSourceContextNames: group.optionalSourceContextNames ?? [],
+      ownedTables: group.ownedTables,
+      resetStrategy: group.resetStrategy,
+      requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
+      subscriptionRunners: [],
+      reset: async () => {},
+      getStatus: () => ({}),
+      refreshStatus: async () => ({}),
+      markRevisionSynced: async () => {},
+    }));
+  });
+}
+
+type PaymentsApiEntry = Readonly<{
+  mountPath: string;
+  contextMountOrdinal: number;
+  router: { routes: readonly { method: string; path: string; handler: unknown }[] };
+}>;
+
+function paymentsApiEntries(module: PaymentsHostModule, services: unknown): readonly PaymentsApiEntry[] {
+  const buildApis = module.buildApis;
+  if (typeof buildApis !== "function") {
+    throw new Error("The Payments module must publish buildApis.");
+  }
+  return Reflect.apply(buildApis, module, [services]) as readonly PaymentsApiEntry[];
+}
+
+function mountedPaymentsRoutes(module: PaymentsHostModule, services: unknown) {
+  const entries = paymentsApiEntries(module, services);
+  const marketplaceEntry = entries.find((entry) => entry.mountPath === "/api/marketplace");
+  if (!marketplaceEntry) {
+    throw new Error("Payments must publish a /api/marketplace mount.");
+  }
+  return marketplaceEntry.router;
+}
+
+function materializePathParameters(path: string) {
+  return path
+    .split("/")
+    .map((segment) => (segment.startsWith(":") ? `syn_${segment.slice(1)}` : segment))
+    .join("/");
+}
+
+function accountRouteInventory(module: PaymentsHostModule, services: unknown) {
+  const seen = new Set<string>();
+  const inventory: { method: string; path: string }[] = [];
+  for (const route of mountedPaymentsRoutes(module, services).routes) {
+    if (route.method === "ALL" || !route.path.startsWith("/account")) {
+      continue;
+    }
+    const key = `${route.method} ${route.path}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    inventory.push({ method: route.method, path: route.path });
+  }
+  return inventory;
+}
+
+function anonymousDeclarationModule(declaration: unknown) {
+  return { ...paymentsRegistryModule(), anonymousRoutes: declaration };
+}
+
+function repositoryRootFromTests() {
+  return join(dirname(fileURLToPath(import.meta.url)), "../../..");
+}
+
+function collectRepositorySourceFiles(root: string): string[] {
+  const skipped = new Set([".git", ".cache", ".next", ".turbo", ".vite", "artifacts", "dist", "node_modules", "out"]);
+  const files: string[] = [];
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!skipped.has(entry.name)) {
+          walk(join(directory, entry.name));
+        }
+        continue;
+      }
+      if (entry.name.endsWith(".ts") || entry.name.endsWith(".mts")) {
+        files.push(join(directory, entry.name));
+      }
+    }
+  };
+  walk(root);
+  return files.map((file) => file.split("\\").join("/"));
+}
+
+function countConstructionCallSites(
+  files: readonly string[],
+  root: string,
+  callee: string,
+  declaration: string,
+) {
+  const callSites: { file: string; count: number }[] = [];
+  for (const file of files) {
+    const source = readFileSync(file, "utf8").split(declaration).join("");
+    const count = source.split(`${callee}(`).length - 1;
+    if (count > 0) {
+      callSites.push({ file: file.slice(root.length + 1), count });
+    }
+  }
+  return callSites;
+}
+
+describe("platform API payment provider mode observation", () => {
+  it("serves the configured provider mode observation without resolving an actor", async () => {
+    const resolveActor = vi.fn(async () => null);
+    const { runtime, serviceCalls } = createPaymentsHostRuntime({ observation: SYNTHETIC_HOST_OBSERVATION });
+    const app = buildPlatformApiApp(runtime, { resolveActor });
+
+    const serviceCallsBefore = serviceCalls.length;
+    const resolverCallsBefore = resolveActor.mock.calls.length;
+    const response = await app.request(PROVIDER_MODE_PATH);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject(SYNTHETIC_HOST_OBSERVATION);
+    expect(typeof (body as { observedAt?: unknown }).observedAt).toBe("string");
+    expect(resolveActor.mock.calls.length - resolverCallsBefore, "resolver delta must be 0").toBe(0);
+    expect(serviceCalls.length - serviceCallsBefore, "no Payments service or database call").toBe(0);
+
+    // The complete mounted request performs zero actor resolution whether or not it carries a
+    // credential, because the exempt path never reads one.
+    const credentialBearing = await app.request(PROVIDER_MODE_PATH, {
+      headers: { Authorization: "Bearer synthetic-probe-token" },
+    });
+    expect(credentialBearing.status).toBe(200);
+    expect(resolveActor).not.toHaveBeenCalled();
+  });
+
+  it("fails the mounted missing observation before resolving an actor", async () => {
+    const resolveActor = vi.fn(async () => null);
+    const transport = vi.spyOn(globalThis, "fetch");
+    const { runtime, serviceCalls } = createPaymentsHostRuntime({ observation: undefined });
+    const app = buildPlatformApiApp(runtime, { resolveActor });
+
+    const response = await app.request(PROVIDER_MODE_PATH);
+    const text = await response.text();
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(text)).toEqual({
+      error: { code: "payment_provider_mode_observation_unavailable", message: "Request failed." },
+    });
+    expect(resolveActor, "resolver delta must be 0 on the missing observation").not.toHaveBeenCalled();
+    expect(serviceCalls, "no Payments service, database or provider call").toEqual([]);
+    expect(text).not.toContain("PLANTEDHOSTMARKER");
+    expect(JSON.stringify([...response.headers.entries()])).not.toContain("PLANTEDHOSTMARKER");
+
+    // A hostile observation carrying a planted marker also fails closed and never echoes it into the
+    // body, a header, or the emitted telemetry.
+    const hostile = createPaymentsHostRuntime({
+      observation: { ...SYNTHETIC_HOST_OBSERVATION, secretKey: PLANTED_HOST_MARKER },
+    });
+    const hostileResponse = await buildPlatformApiApp(hostile.runtime, { resolveActor: vi.fn(async () => null) }).request(
+      PROVIDER_MODE_PATH,
+    );
+    const hostileText = await hostileResponse.text();
+    expect(hostileResponse.status).toBe(500);
+    expect(hostileText).not.toContain("PLANTEDHOSTMARKER");
+
+    // The only outbound traffic this process makes is the loopback observability exporter; no request
+    // reaches a provider, and nothing it carries repeats the planted marker.
+    const outboundTargets = transport.mock.calls.map(([input]) => String(input));
+    expect(outboundTargets.filter((target) => !target.startsWith("http://localhost:"))).toEqual([]);
+    expect(JSON.stringify(transport.mock.calls)).not.toContain("PLANTEDHOSTMARKER");
+    transport.mockRestore();
+
+    // Manifest-deletion mutant. A Payments clone with `anonymousRoutes: []` keeps the bounded 500 but
+    // moves the resolver delta from 0 to 1, which is what makes the delta above load-bearing.
+    const clonedResolveActor = vi.fn(async () => null);
+    const cloned = createPaymentsHostRuntime({
+      observation: undefined,
+      module: anonymousDeclarationModule([]),
+    });
+    const clonedResponse = await buildPlatformApiApp(cloned.runtime, { resolveActor: clonedResolveActor }).request(
+      PROVIDER_MODE_PATH,
+    );
+
+    expect(clonedResponse.status).toBe(500);
+    expect(clonedResolveActor, "the deletion mutant must resolve the actor").toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps every Payments account route behind actor resolution", async () => {
+    const resolveActor = vi.fn(async () => null);
+    const { runtime, serviceCalls, paymentsServices } = createPaymentsHostRuntime({
+      observation: SYNTHETIC_HOST_OBSERVATION,
+    });
+    const app = buildPlatformApiApp(runtime, { resolveActor });
+    const inventory = accountRouteInventory(paymentsRegistryModule(), paymentsServices);
+
+    expect(inventory, "the complete mounted account inventory").toHaveLength(16);
+
+    for (const [index, route] of inventory.entries()) {
+      const serviceCallsBefore = serviceCalls.length;
+      const requestPath = `/api/marketplace${materializePathParameters(route.path)}`;
+      const response = await app.request(requestPath, {
+        method: route.method,
+        ...(route.method === "GET" || route.method === "HEAD"
+          ? {}
+          : { headers: { "Content-Type": "application/json" }, body: "{}" }),
+      });
+
+      expect(response.status, `${route.method} ${requestPath} must refuse an anonymous request`).toBe(401);
+      expect(resolveActor, `${route.method} ${requestPath} must resolve exactly once`).toHaveBeenCalledTimes(index + 1);
+      expect(
+        serviceCalls.length - serviceCallsBefore,
+        `${route.method} ${requestPath} must refuse before any Payments service call`,
+      ).toBe(0);
+    }
+
+    // A declaration widened to the mount prefix, or a middleware that treats an exact declaration as a
+    // prefix, would make these sixteen controls stop resolving; composition refuses that declaration
+    // outright, which is asserted in the refusal cases below.
+    expect(resolveActor).toHaveBeenCalledTimes(inventory.length);
+  });
+
+  it("keeps sibling platform actor consumers behind actor resolution", async () => {
+    const resolveActor = vi.fn(async () => null);
+    const siblingRouter = new Hono();
+    siblingRouter.get("/items", (c) => c.json({ items: [] }));
+    const siblingModule = {
+      contextName: "catalog",
+      apiMounts: [{ mountPath: "/api/catalog", kind: "primary", requiresAuth: true }],
+      buildApis: () => [{ mountPath: "/api/catalog", contextMountOrdinal: 1, router: siblingRouter }],
+      projectionHandlerSets: () => [],
+    };
+    const { runtime } = createPaymentsHostRuntime({
+      observation: SYNTHETIC_HOST_OBSERVATION,
+      extraContexts: [{ contextName: "catalog", module: siblingModule }],
+    });
+    const app = buildPlatformApiApp(runtime, { resolveActor });
+
+    const siblingRequests = [
+      "/api/platform/projections",
+      "/mcp",
+      "/ucp/v1/products",
+      "/ucp/mcp",
+      "/api/catalog/items",
+    ] as const;
+
+    const siblingDeltas: Record<string, number> = {};
+    for (const path of siblingRequests) {
+      const before = resolveActor.mock.calls.length;
+      await app.request(path, { method: "GET" });
+      const delta = resolveActor.mock.calls.length - before;
+      expect(delta, `${path} must retain resolver invocation`).toBeGreaterThanOrEqual(1);
+      siblingDeltas[path] = delta;
+    }
+
+    // The exemption reaches only the exact declared observation request.
+    const before = resolveActor.mock.calls.length;
+    const exempt = await app.request(PROVIDER_MODE_PATH);
+    expect(exempt.status).toBe(200);
+    expect(resolveActor.mock.calls.length - before, "only the declared request is exempt").toBe(0);
+
+    // Discriminating control: the same sibling requests against a host whose Payments module declares
+    // no anonymous route produce byte-identical resolver deltas, so the declaration changes nothing
+    // for any other platform actor consumer.
+    const controlResolveActor = vi.fn(async () => null);
+    const control = createPaymentsHostRuntime({
+      observation: SYNTHETIC_HOST_OBSERVATION,
+      module: anonymousDeclarationModule([]),
+      extraContexts: [{ contextName: "catalog", module: siblingModule }],
+    });
+    const controlApp = buildPlatformApiApp(control.runtime, { resolveActor: controlResolveActor });
+    const controlDeltas: Record<string, number> = {};
+    for (const path of siblingRequests) {
+      const controlBefore = controlResolveActor.mock.calls.length;
+      await controlApp.request(path, { method: "GET" });
+      controlDeltas[path] = controlResolveActor.mock.calls.length - controlBefore;
+    }
+    expect(siblingDeltas).toEqual(controlDeltas);
+  });
+
+  it("refuses a prefix anonymous declaration on the platform actor path", () => {
+    const { runtime } = createPaymentsHostRuntime({
+      observation: SYNTHETIC_HOST_OBSERVATION,
+      module: anonymousDeclarationModule([{ routePath: "/api/marketplace", methods: ["GET"], match: "prefix" }]),
+    });
+
+    expect(() => buildPlatformApiApp(runtime, { resolveActor: vi.fn(async () => null) })).toThrow(
+      "payments anonymous route /api/marketplace must match exactly; prefix matching is not permitted on the platform actor path.",
+    );
+
+    // A parameterised or non-absolute path is refused for the same reason.
+    for (const routePath of ["/api/marketplace/:id", "/marketplace/payment-provider-mode", "/api/marketplace/"]) {
+      const parameterised = createPaymentsHostRuntime({
+        observation: SYNTHETIC_HOST_OBSERVATION,
+        module: anonymousDeclarationModule([{ routePath, methods: ["GET"] }]),
+      });
+      expect(() =>
+        buildPlatformApiApp(parameterised.runtime, { resolveActor: vi.fn(async () => null) }),
+      ).toThrow(`payments anonymous route ${routePath} must be an exact absolute path beginning /api/ with no parameter or wildcard.`);
+    }
+
+    // Positive control: the exact Payments declaration still constructs.
+    const exact = createPaymentsHostRuntime({ observation: SYNTHETIC_HOST_OBSERVATION });
+    expect(() => buildPlatformApiApp(exact.runtime, { resolveActor: vi.fn(async () => null) })).not.toThrow();
+  });
+
+  it("refuses a non-safe anonymous method on the platform actor path", () => {
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      const { runtime } = createPaymentsHostRuntime({
+        observation: SYNTHETIC_HOST_OBSERVATION,
+        module: anonymousDeclarationModule([{ routePath: PROVIDER_MODE_PATH, methods: [method] }]),
+      });
+
+      expect(() => buildPlatformApiApp(runtime, { resolveActor: vi.fn(async () => null) })).toThrow(
+        `payments anonymous route ${PROVIDER_MODE_PATH} must declare only safe methods on the platform actor path.`,
+      );
+    }
+
+    // Positive control: GET and HEAD are admitted.
+    const safe = createPaymentsHostRuntime({
+      observation: SYNTHETIC_HOST_OBSERVATION,
+      module: anonymousDeclarationModule([{ routePath: PROVIDER_MODE_PATH, methods: ["GET", "HEAD"] }]),
+    });
+    expect(() => buildPlatformApiApp(safe.runtime, { resolveActor: vi.fn(async () => null) })).not.toThrow();
+  });
+
+  it("leaves auth and identity anonymous declarations unchanged", async () => {
+    // The identity precedent declares an anonymous POST. The non-auth/identity refusal must not reach
+    // it: it still constructs, still serves, and still resolves the actor exactly once.
+    const resolveActor = vi.fn(async () => null);
+    const identityRouter = new Hono();
+    identityRouter.post("/public-token", (c) => c.json({ ok: true }));
+    const identityHostModule = {
+      contextName: "identity",
+      apiMounts: [{ mountPath: "/api/identity", kind: "primary", requiresAuth: true }],
+      anonymousRoutes: [{ routePath: "/api/identity/public-token", methods: ["POST"], match: "prefix" }],
+      buildApis: () => [{ mountPath: "/api/identity", contextMountOrdinal: 1, router: identityRouter }],
+      projectionHandlerSets: () => [],
+    };
+    const { runtime } = createPaymentsHostRuntime({
+      observation: SYNTHETIC_HOST_OBSERVATION,
+      extraContexts: [{ contextName: "identity", module: identityHostModule }],
+    });
+
+    const app = buildPlatformApiApp(runtime, { resolveActor });
+    const response = await app.request("/api/identity/public-token", { method: "POST" });
+
+    expect(response.status).toBe(200);
+    expect(resolveActor).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes every platform host, Payments service and platform actor middleware consumer", () => {
+    const repositoryRoot = repositoryRootFromTests().split("\\").join("/");
+    const sourceFiles = collectRepositorySourceFiles(repositoryRoot);
+
+    const hostCallSites = countConstructionCallSites(
+      sourceFiles,
+      repositoryRoot,
+      "createPlatformApiHost",
+      "export function createPlatformApiHost",
+    );
+    const hostCallCount = hostCallSites.reduce((total, entry) => total + entry.count, 0);
+    const productionHostFiles = hostCallSites
+      .filter((entry) => !entry.file.includes("/__tests__/"))
+      .map((entry) => entry.file);
+
+    // Re-derived at the dispatch base rather than carried forward.
+    expect(hostCallCount).toBe(23);
+    expect(productionHostFiles.sort()).toEqual([
+      "deployables/platform-api/src/admin-qa-actor-fixtures.ts",
+      "deployables/platform-api/src/bootstrap.ts",
+      "deployables/platform-api/src/main.ts",
+      "deployables/platform-api/src/representative-commerce-state.ts",
+      "scripts/replay-projection.ts",
+    ]);
+    expect(
+      hostCallSites.filter((entry) => entry.file.includes("/__tests__/")).reduce((total, e) => total + e.count, 0),
+    ).toBe(18);
+
+    // Only the serving composition root supplies the port, and the manifest declares it once.
+    const mainSource = readFileSync(join(repositoryRoot, "deployables/platform-api/src/main.ts"), "utf8");
+    expect(mainSource.includes("providerModeObservation: config.providerModeObservation")).toBe(true);
+    const bootstrapSource = readFileSync(join(repositoryRoot, "deployables/platform-api/src/bootstrap.ts"), "utf8");
+    expect(bootstrapSource.includes("providerModeObservation")).toBe(false);
+
+    const paymentsServiceCallSites = countConstructionCallSites(
+      sourceFiles,
+      repositoryRoot,
+      "createPaymentsServices",
+      "export function createPaymentsServices",
+    ).map((entry) => entry.file);
+    expect(paymentsServiceCallSites.sort()).toEqual([
+      "bounded-contexts/payments/index.ts",
+      "bounded-contexts/payments/support/runtime-support/seed.ts",
+    ]);
+    const seedSource = readFileSync(
+      join(repositoryRoot, "bounded-contexts/payments/support/runtime-support/seed.ts"),
+      "utf8",
+    );
+    expect(seedSource.includes("providerModeObservation"), "the seed caller omits the port").toBe(false);
+
+    const middlewareCallSites = countConstructionCallSites(
+      sourceFiles,
+      repositoryRoot,
+      "createPlatformActorMiddleware",
+      "export function createPlatformActorMiddleware",
+    ).filter((entry) => entry.file.startsWith("deployables/platform-api/src/"));
+    expect(middlewareCallSites.map((entry) => entry.count)).toEqual([1]);
+
+    // The manifest declares exactly the one exempt route, and no other context outside the auth
+    // composition declares an anonymous route at all.
+    const paymentsManifest = JSON.parse(
+      readFileSync(join(repositoryRoot, "bounded-contexts/payments/context.json"), "utf8"),
+    ) as Readonly<{ anonymousRoutes?: readonly unknown[]; hostPorts: readonly { portName: string }[] }>;
+    expect(paymentsManifest.anonymousRoutes).toEqual([
+      { routePath: PROVIDER_MODE_PATH, methods: ["GET"] },
+    ]);
+    expect(paymentsManifest.hostPorts.map((port) => port.portName)).toContain("providerModeObservation");
+  });
+
+  it("removes the observation without changing prior routes", async () => {
+    // Rollback model: the manifest declaration and the root route registration are withdrawn while
+    // every prior account route keeps the handler it has today.
+    const resolveActor = vi.fn(async () => null);
+    const { paymentsServices } = createPaymentsHostRuntime({ observation: SYNTHETIC_HOST_OBSERVATION });
+    const currentRouter = mountedPaymentsRoutes(paymentsRegistryModule(), paymentsServices);
+    const rolledBackRouter = new Hono();
+    for (const route of currentRouter.routes) {
+      if (route.path === "/payment-provider-mode") {
+        continue;
+      }
+      const handler = route.handler as Parameters<typeof rolledBackRouter.all>[1];
+      if (route.method === "ALL") {
+        rolledBackRouter.all(route.path, handler);
+        continue;
+      }
+      rolledBackRouter.on(route.method, route.path, handler);
+    }
+
+    const currentEntries = paymentsApiEntries(paymentsRegistryModule(), paymentsServices);
+    const rolledBackModule = {
+      ...paymentsRegistryModule(),
+      anonymousRoutes: [],
+      buildApis: () =>
+        currentEntries.map((entry) =>
+          entry.mountPath === "/api/marketplace" ? { ...entry, router: rolledBackRouter } : entry,
+        ),
+    };
+    const rolledBack = createPaymentsHostRuntime({ observation: undefined, module: rolledBackModule });
+    const app = buildPlatformApiApp(rolledBack.runtime, { resolveActor });
+
+    const removed = await app.request(PROVIDER_MODE_PATH);
+    expect(removed.status, "the observation path is absent after rollback").toBe(404);
+
+    const inventory = accountRouteInventory(paymentsRegistryModule(), paymentsServices);
+    const resolverCallsBeforeInventory = resolveActor.mock.calls.length;
+    for (const route of inventory) {
+      const requestPath = `/api/marketplace${materializePathParameters(route.path)}`;
+      const response = await app.request(requestPath, {
+        method: route.method,
+        ...(route.method === "GET" || route.method === "HEAD"
+          ? {}
+          : { headers: { "Content-Type": "application/json" }, body: "{}" }),
+      });
+      expect(response.status, `${route.method} ${requestPath} must be unchanged after rollback`).toBe(401);
+    }
+    expect(resolveActor.mock.calls.length - resolverCallsBeforeInventory).toBe(inventory.length);
   });
 });

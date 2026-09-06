@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "@chase-sets/typescript-compiler-api";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadStripeProviderConfig } from "@chase-sets/platform-runtime/config-schema";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadDeploymentEnvironment, loadStripeProviderConfig } from "@chase-sets/platform-runtime/config-schema";
 import { PLATFORM_INTERNAL_AUTH_SECRET_ENV } from "@chase-sets/platform-runtime/http";
 import { DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS } from "@chase-sets/platform-runtime/ucp";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
@@ -18,6 +18,21 @@ import {
 } from "../src/config";
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
+
+const loadStripeProviderConfigCallCount = vi.hoisted(() => ({ value: 0 }));
+
+// Module-level call counter for the single shared Stripe provider load. It delegates to the real
+// classifier, so every existing case keeps its exact behaviour while the call count stays observable.
+vi.mock("@chase-sets/platform-runtime/config-schema", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@chase-sets/platform-runtime/config-schema")>();
+  return {
+    ...actual,
+    loadStripeProviderConfig: (input: Parameters<typeof actual.loadStripeProviderConfig>[0]) => {
+      loadStripeProviderConfigCallCount.value += 1;
+      return actual.loadStripeProviderConfig(input);
+    },
+  };
+});
 
 const defaultCriticalReadConsistencyRouteTuning = [
   {
@@ -5089,5 +5104,200 @@ describe("AC-F2 clause (1j) symbol-resolved caller inventory", () => {
     const spelled = inventory.calls.filter((call) => call.callee.includes(LOADER_NAME));
 
     expect(spelled).toHaveLength(inventory.calls.length);
+  });
+});
+
+// -------------------------------------------------------------------------------------------------
+// Provider mode observation retention (#7414).
+//
+// The serving loader retains one closed observation from the single shared Stripe provider load. The
+// bootstrap loader never classifies a provider key, so the credential-free bootstrap Job keeps
+// loading in staging and production with zero STRIPE_* variables present.
+// -------------------------------------------------------------------------------------------------
+
+const PROVIDER_MODE_OBSERVATION_MEMBERS = [
+  "deploymentEnvironment",
+  "mode",
+  "moneyMovementKind",
+  "paymentProcessorKind",
+] as const;
+
+function setSyntheticStripeTestModeEnv() {
+  process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+  process.env.STRIPE_SECRET_KEY = "sk_test_SYNTHETICAPI";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_SYNTHETICAPI";
+  process.env.STRIPE_WEBHOOK_SECRET = SYNTHETIC_API_PAYMENTS_WEBHOOK_SECRET;
+  process.env.STRIPE_CONNECT_WEBHOOK_SECRET = SYNTHETIC_API_CONNECT_WEBHOOK_SECRET;
+}
+
+function setCredentialFreeBootstrapEnv(deploymentEnvironment: string) {
+  delete process.env.STRIPE_SECRET_KEY;
+  delete process.env.STRIPE_PUBLISHABLE_KEY;
+  delete process.env.STRIPE_WEBHOOK_SECRET;
+  delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+  process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+  process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+  process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+  process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+  process.env.CATALOG_ASSET_S3_BUCKET = "assets";
+  process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+  process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
+  process.env.DEPLOYMENT_ENVIRONMENT = deploymentEnvironment;
+}
+
+function stripeVariablesPresent() {
+  return Object.keys(process.env).filter((name) => name.startsWith("STRIPE_"));
+}
+
+describe("platform api provider mode observation", () => {
+  it("retains one provider observation in main config", () => {
+    setSyntheticStripeTestModeEnv();
+    loadStripeProviderConfigCallCount.value = 0;
+
+    const config = loadConfig();
+
+    expect(loadStripeProviderConfigCallCount.value, "the serving loader must classify exactly once").toBe(1);
+    expect(config.providerModeObservation).toEqual({
+      mode: "test",
+      paymentProcessorKind: "stripe",
+      moneyMovementKind: "stripe",
+      deploymentEnvironment: "dev",
+    });
+    expect(Object.keys(config.providerModeObservation).sort()).toEqual([...PROVIDER_MODE_OBSERVATION_MEMBERS]);
+
+    // Differing-second-read mutant. A member re-derived from the environment after the load diverges
+    // from the retained observation, and the equality asserted above is what turns that mutant red.
+    process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    const rereadMutant = {
+      ...config.providerModeObservation,
+      deploymentEnvironment: loadDeploymentEnvironment(),
+    };
+    expect(rereadMutant).not.toEqual(config.providerModeObservation);
+    expect(config.providerModeObservation.deploymentEnvironment).toBe("dev");
+  });
+
+  it("never classifies provider keys in bootstrap config", () => {
+    setSyntheticStripeTestModeEnv();
+    loadStripeProviderConfigCallCount.value = 0;
+
+    const bootstrapConfig = loadBootstrapConfig();
+
+    expect(loadStripeProviderConfigCallCount.value, "the bootstrap loader must never classify").toBe(0);
+    expect(Object.keys(bootstrapConfig)).not.toContain("providerModeObservation");
+    expect("providerModeObservation" in bootstrapConfig).toBe(false);
+  });
+
+  it("loads bootstrap config with no Stripe variables in staging and production", () => {
+    for (const deploymentEnvironment of ["staging", "production"] as const) {
+      setCredentialFreeBootstrapEnv(deploymentEnvironment);
+      loadStripeProviderConfigCallCount.value = 0;
+
+      expect(stripeVariablesPresent(), `${deploymentEnvironment} must carry zero STRIPE_* variables`).toEqual([]);
+
+      const bootstrapConfig = loadBootstrapConfig();
+
+      expect(bootstrapConfig.deploymentEnvironment).toBe(deploymentEnvironment);
+      expect("providerModeObservation" in bootstrapConfig).toBe(false);
+      expect(
+        loadStripeProviderConfigCallCount.value,
+        `${deploymentEnvironment} bootstrap must not reach the classifier`,
+      ).toBe(0);
+
+      // The classifier-reintroduction mutant: the same frozen environment run through the serving
+      // loader still refuses, which is exactly what adding that call to the bootstrap loader would do
+      // to the credential-free Job.
+      expect(() => loadConfig(), `${deploymentEnvironment} serving load must still refuse`).toThrow();
+    }
+
+    setCredentialFreeBootstrapEnv("staging");
+    expect(() => loadConfig()).toThrow(
+      "STRIPE_CONNECT_WEBHOOK_SECRET is required when DEPLOYMENT_ENVIRONMENT=staging; staging must use a distinct Connect webhook secret.",
+    );
+  });
+
+  it("reports the merged 6829 provider test-mode observation without contacting Stripe", () => {
+    const transport = vi.spyOn(globalThis, "fetch");
+
+    // Connect-only: a synthetic test-mode secret key plus a Connect webhook secret, with no
+    // publishable key, is the supported shape that keeps the payment processor fake while money
+    // movement is Stripe. The fixtures are unmistakably synthetic and nothing leaves this process.
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.STRIPE_SECRET_KEY = "sk_test_SYNTHETICAPI";
+    delete process.env.STRIPE_PUBLISHABLE_KEY;
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = SYNTHETIC_API_CONNECT_WEBHOOK_SECRET;
+
+    const config = loadConfig();
+
+    expect(config.providerModeObservation).toEqual({
+      mode: "test",
+      paymentProcessorKind: "fake",
+      moneyMovementKind: "stripe",
+      deploymentEnvironment: "dev",
+    });
+    expect(config.paymentProcessor.kind).toBe("fake");
+    expect(config.moneyMovement.kind).toBe("stripe");
+    expect(transport, "the observation is locally configured, never a provider call").not.toHaveBeenCalled();
+
+    transport.mockRestore();
+  });
+
+  it("has one Stripe mode classifier and no observation-side classifier", () => {
+    const repositoryRoot = normalizeAnalysisPath(join(stripeProvenanceTestDirectory, "../../.."));
+    const readRepositorySource = (relativePath: string) =>
+      readFileSync(join(repositoryRoot, relativePath), "utf8");
+
+    // Key-classification constructs. A surface that carries any of them is deciding provider mode for
+    // itself instead of transporting the single shared decision.
+    const classifierConstructs = [
+      "classifyStripeKeys",
+      "loadStripeProviderConfig",
+      "serverKeyMode",
+      "serverKeyClass",
+      "publishableKeyMode",
+      "keyClassification",
+      "STRIPE_SECRET_KEY",
+      "STRIPE_PUBLISHABLE_KEY",
+      "sk_test",
+      "sk_live",
+      "pk_test",
+      "pk_live",
+      "rk_test",
+      "rk_live",
+    ] as const;
+    const constructsIn = (source: string) => classifierConstructs.filter((construct) => source.includes(construct));
+
+    // The observation-side surfaces: the Payments contract, handler, router and services, plus the
+    // platform host composition and the actor middleware.
+    const observationSurfaces = [
+      "bounded-contexts/payments/features/payments/api/contracts.ts",
+      "bounded-contexts/payments/features/payments/api/route.ts",
+      "bounded-contexts/payments/api.ts",
+      "bounded-contexts/payments/support/runtime-support/services.ts",
+      "deployables/platform-api/src/app.ts",
+      "deployables/platform-api/src/middleware/auth-context.ts",
+    ] as const;
+
+    for (const surface of observationSurfaces) {
+      expect(constructsIn(readRepositorySource(surface)), `${surface} must carry no classifier construct`).toEqual([]);
+    }
+
+    // The semantically equivalent widening mutant: a surface that re-derives the mode from the
+    // classification under a different spelling is still caught, so this is not a syntax-only guard.
+    const wideningMutant = [
+      "const mode = keyClassification.serverKeyMode === 'live' ? 'live' : 'test';",
+      "export const observedMode = mode;",
+    ].join("\n");
+    expect(constructsIn(wideningMutant)).toEqual(["serverKeyMode", "keyClassification"]);
+
+    // The single classifier and the single serving-loader call site.
+    const classifierSource = readRepositorySource("infrastructure/platform-runtime/config-schema.ts");
+    expect(classifierSource.split("export function loadStripeProviderConfig(").length - 1).toBe(1);
+    expect(classifierSource.split("function classifyStripeKeys(").length - 1).toBe(1);
+
+    const platformApiConfigSource = readRepositorySource("deployables/platform-api/src/config.ts");
+    expect(platformApiConfigSource.split("loadStripeProviderConfig({").length - 1).toBe(1);
+    expect(platformApiConfigSource.includes("classifyStripeKeys")).toBe(false);
+    expect(platformApiConfigSource.split("effectiveMode").length - 1).toBe(1);
   });
 });

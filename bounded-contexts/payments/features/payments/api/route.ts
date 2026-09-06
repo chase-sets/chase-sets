@@ -13,6 +13,7 @@ import { PaymentsRateLimitExceededError, type PaymentServices } from "./runtime"
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
+import { parseProviderModeObservation, type ProviderModeObservation } from "./contracts";
 
 export type PaymentsApiEnv = AuthenticatedApiEnv;
 
@@ -755,6 +756,37 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
     }
 
     return c.json(timeline);
+  });
+
+  return app;
+}
+
+/**
+ * The read-only payment provider mode observation. It reports the locally loaded platform
+ * configuration and is never the payment provider's own opinion: the handler performs no provider
+ * call, reads no storage, and derives nothing beyond the one request-time instant it stamps.
+ *
+ * A missing or malformed observation fails closed with a bounded server error rather than defaulting
+ * to any mode, gateway kind or deployment environment.
+ */
+export function createPaymentProviderModeRoutes(observation: ProviderModeObservation | undefined) {
+  const app = new Hono<PaymentsApiEnv>();
+
+  app.get("/payment-provider-mode", (c) => {
+    const observed = parseProviderModeObservation(observation);
+    if (!observed) {
+      return c.json(
+        {
+          error: {
+            code: "payment_provider_mode_observation_unavailable",
+            message: t("payments.features.payments.api.route.request.failed"),
+          },
+        },
+        500,
+      );
+    }
+
+    return c.json({ ...observed, observedAt: new Date(Date.now()).toISOString() });
   });
 
   return app;
