@@ -18,6 +18,7 @@ const platformApiContextNames = [
   "auth",
   "authenticity",
   "catalog",
+  "channels",
   "checkout",
   "collections",
   "commercial-terms",
