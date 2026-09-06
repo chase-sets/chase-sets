@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   AdminResourceDetailPage,
   HiddenInput,
@@ -14,6 +14,11 @@ import {
 import { grantableRoleSelectItems } from "../../memberships/ui/role-select-items";
 import { AccountBadgeList, accountBadgeLabel, accountBadgeKeys, accountBadgeLabels } from "./account-badges";
 import type { Account } from "./contracts";
+import {
+  accountStatusLabel,
+  accountTypeLabel,
+  identityDateUnavailable,
+} from "../../../support/ui-support/value-labels";
 
 // Settlement owns the wallet-adjustments.view permission (ADR 0020); this link only
 // crosses from the access section into the commerce section when the signed-in admin
@@ -37,7 +42,7 @@ export function AccountDetailPage({
       ]}
       title={data.display_name}
       titleAside={<AccountBadgeList badges={data.badges} founderNumber={data.founder_number} />}
-      status={data.status}
+      status={accountStatusLabel(data.status)}
       actions={
         <Inline gap={2}>
           {hasPermission(actorPermissions, "wallet-adjustments.view") ? (
@@ -168,7 +173,10 @@ export function AccountDetailPage({
       sections={[
         { label: t("identity.features.accounts.ui.accountDetailPage.account.id"), value: data.account_id },
         { label: t("identity.features.accounts.ui.accountDetailPage.legal.name"), value: data.name },
-        { label: t("identity.features.accounts.ui.accountDetailPage.account.type"), value: data.account_type },
+        {
+          label: t("identity.features.accounts.ui.accountDetailPage.account.type"),
+          value: accountTypeLabel(data.account_type),
+        },
         {
           label: t("identity.features.accounts.ui.accountDetailPage.account.badges"),
           value:
@@ -176,7 +184,10 @@ export function AccountDetailPage({
               ? data.badges.map(accountBadgeLabel).join(", ")
               : t("identity.features.accounts.ui.accountDetailPage.no.account.badges"),
         },
-        { label: t("identity.features.accounts.ui.accountDetailPage.updated.at"), value: data.updated_at },
+        {
+          label: t("identity.features.accounts.ui.accountDetailPage.updated.at"),
+          value: formatDateTime(data.updated_at, { fallback: identityDateUnavailable() }),
+        },
       ]}
     />
   );

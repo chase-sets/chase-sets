@@ -324,4 +324,15 @@ export const authEnglishTranslations = {
     "Passkey challenge is invalid or expired.",
   "auth.support.apiSupport.guestCheckoutRoutes.sign.in.to.continue.checkout.with.this.email":
     "Sign in to continue checkout with this email.",
+  "auth.values.agentGrantOutcome.allowed": "Allowed",
+  "auth.values.agentGrantOutcome.denied": "Denied",
+  "auth.values.agentGrantOutcome.failed": "Failed",
+  "auth.values.agentGrantStatus.active": "Active",
+  "auth.values.agentGrantStatus.revoked": "Revoked",
+  "auth.values.date.unavailable": "Date unavailable",
+  "auth.values.family.agentGrantOutcome": "Agent Grant outcome",
+  "auth.values.family.agentGrantStatus": "Agent Grant status",
+  "auth.values.family.sessionStatus": "Session status",
+  "auth.values.unrecognized": "Unrecognized {family}",
+  "auth.values.unrecognized.withValue": "Unrecognized {family}: {value}",
 } as const;

@@ -38,7 +38,8 @@ describe("AccountProfilePage", () => {
     expect(html).toContain("Card Vault");
     expect(html).toContain("Alex Clerk");
     expect(html).toContain("alex@example.com");
-    expect(html).toContain("Fulfillment Manager");
+    expect(html).toContain("Unrecognized Membership role");
+    expect(html).not.toContain("fulfillment_manager");
     expect(html).toContain("Founding Account");
     expect(html.indexOf("Signed-In Identity")).toBeLessThan(html.indexOf("Marketplace Readiness"));
   });

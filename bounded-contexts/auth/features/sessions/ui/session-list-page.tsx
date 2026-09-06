@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { authenticationMethodLabel, t } from "@chase-sets/localization";
 import {
   AdminResourceListPage,
   AppliedFilterChips,
@@ -15,6 +15,7 @@ import { useAdminResourceListPageChange } from "@chase-sets/design-system/react-
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { Session } from "./contracts";
 import { AUTH_SESSION_STATUSES, type AuthSessionListFilters } from "./list-filters";
+import { sessionStatusLabel } from "../../../support/ui-support/value-labels";
 
 type SessionListResponse = ListResponse<Session> & Partial<Readonly<{ limit: number; offset: number }>>;
 
@@ -38,22 +39,19 @@ const columns: DataColumn<Session>[] = [
   {
     key: "authentication_method",
     header: t("auth.features.sessions.ui.sessionListPage.method"),
-    cell: (row) => row.authentication_method,
+    cell: (row) => authenticationMethodLabel(row.authentication_method, t),
   },
-  { key: "status", header: t("auth.features.sessions.ui.sessionListPage.status"), cell: (row) => row.status },
+  {
+    key: "status",
+    header: t("auth.features.sessions.ui.sessionListPage.status"),
+    cell: (row) => sessionStatusLabel(row.status),
+  },
 ];
 
 function sessionStatusFilterLabel(status: string) {
-  switch (status) {
-    case "active":
-      return t("auth.features.sessions.ui.sessionListPage.status.filter.active");
-    case "revoked":
-      return t("auth.features.sessions.ui.sessionListPage.status.filter.revoked");
-    case "expired":
-      return t("auth.features.sessions.ui.sessionListPage.status.filter.expired");
-    default:
-      return t("auth.features.sessions.ui.sessionListPage.status.filter.all");
-  }
+  return status === "all"
+    ? t("auth.features.sessions.ui.sessionListPage.status.filter.all")
+    : sessionStatusLabel(status);
 }
 
 function sessionStatusFilterItems() {

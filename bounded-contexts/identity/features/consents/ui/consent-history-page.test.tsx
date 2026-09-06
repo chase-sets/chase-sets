@@ -7,7 +7,7 @@ import { ConsentHistoryPage } from "./consent-history-page";
 afterEach(cleanup);
 
 describe("ConsentHistoryPage", () => {
-  it("offers confirmed withdrawal only for the current recorded consent", async () => {
+  it("renders policy history labels while preserving the consent command value", async () => {
     render(
       <ConsentHistoryPage
         consents={[
@@ -16,7 +16,7 @@ describe("ConsentHistoryPage", () => {
             subject_type: "user",
             user_id: "usr_1",
             account_id: "acc_1",
-            policy_key: "marketing-email",
+            policy_key: "terms-of-service",
             policy_version: "v2",
             status: "recorded",
             recorded_at: "2026-07-03T00:00:00.000Z",
@@ -29,7 +29,7 @@ describe("ConsentHistoryPage", () => {
             subject_type: "user",
             user_id: "usr_1",
             account_id: "acc_1",
-            policy_key: "marketing-email",
+            policy_key: "privacy-policy",
             policy_version: "v1",
             status: "withdrawn",
             recorded_at: "2026-07-01T00:00:00.000Z",
@@ -42,11 +42,13 @@ describe("ConsentHistoryPage", () => {
     );
 
     expect(screen.getAllByText("Withdrawn")).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 2, name: "Terms of Service · Version v2" })).toBeTruthy();
+    expect(screen.getByText("Recorded Jul 3, 2026, 12:00 AM UTC")).toBeTruthy();
     expect(document.querySelector('input[name="intent"][value="withdraw"]')).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Withdraw consent" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Withdraw marketing-email consent?" });
+    const dialog = await screen.findByRole("dialog", { name: "Withdraw Terms of Service consent?" });
     expect(within(dialog).getByRole("button", { name: "Confirm withdrawal" })).toBeTruthy();
     expect(within(dialog).getByDisplayValue("withdraw")).toBeTruthy();
     expect(within(dialog).getByDisplayValue("cns_current")).toBeTruthy();
@@ -63,7 +65,7 @@ describe("consent history page heading hierarchy", () => {
             account_id: "acc_1",
             user_id: "usr_1",
             subject_type: "account",
-            policy_key: "marketplace-terms",
+            policy_key: "terms-of-service",
             policy_version: "2026-07",
             status: "recorded",
             recorded_at: "2026-07-15T12:00:00.000Z",
@@ -77,6 +79,6 @@ describe("consent history page heading hierarchy", () => {
 
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { level: 1, name: "Consent History" })).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 2, name: /marketplace-terms/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Terms of Service · Version 2026-07" })).toBeTruthy();
   });
 });

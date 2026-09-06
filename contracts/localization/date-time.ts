@@ -14,6 +14,9 @@ export type FormatDateOptions = Readonly<{
   /** Set false to omit the day-of-month, for month/year-only display (e.g. "member
    * since January 2026"). Defaults to true. */
   includeDay?: boolean;
+  /** Presentation-only fallback for invalid values. When omitted, the historic
+   * raw invalid-value behavior is retained for unchanged callers. */
+  fallback?: string;
 }>;
 
 export type FormatDateTimeOptions = Readonly<{
@@ -23,7 +26,12 @@ export type FormatDateTimeOptions = Readonly<{
   /** "medium" (default): month + day + year + time. "short": month + day + time,
    * no year (for surfaces where the year is redundant, e.g. recent-activity feeds). */
   preset?: DateTimeDisplayPreset;
+  /** Presentation-only fallback for invalid values. When omitted, the historic
+   * raw invalid-value behavior is retained for unchanged callers. */
+  fallback?: string;
 }>;
+
+const DEFAULT_DATE_LOCALE = "en";
 
 const DATE_PRESET_MONTH: Record<DateDisplayPreset, Intl.DateTimeFormatOptions["month"]> = {
   short: "short",
@@ -65,7 +73,7 @@ function parseDisplayDate(value: string): Date | null {
 export function formatDate(value: string, options: FormatDateOptions = {}): string {
   const date = parseDisplayDate(value);
   if (!date) {
-    return value;
+    return options.fallback ?? value;
   }
 
   const preset = options.preset ?? "medium";
@@ -78,7 +86,7 @@ export function formatDate(value: string, options: FormatDateOptions = {}): stri
     ...(DATE_PRESET_INCLUDES_YEAR[preset] ? { year: "numeric" } : {}),
   };
 
-  return new Intl.DateTimeFormat(options.locale, intlOptions).format(date);
+  return new Intl.DateTimeFormat(options.locale ?? DEFAULT_DATE_LOCALE, intlOptions).format(date);
 }
 
 /**
@@ -98,7 +106,7 @@ export function formatDate(value: string, options: FormatDateOptions = {}): stri
 export function formatDateTime(value: string, options: FormatDateTimeOptions = {}): string {
   const date = parseDisplayDate(value);
   if (!date) {
-    return value;
+    return options.fallback ?? value;
   }
 
   const timeZone = options.timeZone ?? "UTC";
@@ -114,6 +122,6 @@ export function formatDateTime(value: string, options: FormatDateTimeOptions = {
     ...(preset === "medium" ? { year: "numeric" } : {}),
   };
 
-  const formatted = new Intl.DateTimeFormat(options.locale, intlOptions).format(date);
+  const formatted = new Intl.DateTimeFormat(options.locale ?? DEFAULT_DATE_LOCALE, intlOptions).format(date);
   return timeZone === "UTC" ? `${formatted} UTC` : formatted;
 }

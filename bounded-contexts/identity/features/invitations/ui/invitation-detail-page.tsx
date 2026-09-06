@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   AdminResourceDetailPage,
   HiddenInput,
@@ -10,6 +10,11 @@ import {
   Stack,
 } from "@chase-sets/design-system";
 import type { Invitation } from "./contracts";
+import {
+  identityDateUnavailable,
+  invitationStatusLabel,
+  membershipRoleLabel,
+} from "../../../support/ui-support/value-labels";
 
 export function InvitationDetailPage({ data }: { data: Invitation }) {
   const account = data.account_display_name ?? data.account_name ?? data.account_id;
@@ -26,7 +31,7 @@ export function InvitationDetailPage({ data }: { data: Invitation }) {
         { label: data.email },
       ]}
       title={data.email}
-      status={data.status}
+      status={invitationStatusLabel(data.status)}
       actions={
         <Inline gap={2}>
           {data.status === "pending" ? (
@@ -79,8 +84,14 @@ export function InvitationDetailPage({ data }: { data: Invitation }) {
       sections={[
         { label: t("identity.features.invitations.ui.invitationDetailPage.invitation.id"), value: data.invitation_id },
         { label: t("identity.features.invitations.ui.invitationDetailPage.account"), value: account },
-        { label: t("identity.features.invitations.ui.invitationDetailPage.role"), value: data.role_key },
-        { label: t("identity.features.invitations.ui.invitationDetailPage.expires.at"), value: data.expires_at },
+        {
+          label: t("identity.features.invitations.ui.invitationDetailPage.role"),
+          value: membershipRoleLabel(data.role_key),
+        },
+        {
+          label: t("identity.features.invitations.ui.invitationDetailPage.expires.at"),
+          value: formatDateTime(data.expires_at, { fallback: identityDateUnavailable() }),
+        },
         { label: t("identity.features.invitations.ui.invitationDetailPage.accepted.by"), value: acceptedBy },
       ]}
     />

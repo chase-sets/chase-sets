@@ -15,6 +15,7 @@ import { useAdminResourceListPageChange } from "@chase-sets/design-system/react-
 import type { ListResponse } from "@chase-sets/http/responses";
 import { IDENTITY_MEMBERSHIP_STATUSES, type IdentityListFilters } from "../../../support/route-support/list-filters";
 import type { Membership } from "./contracts";
+import { membershipRoleLabel, membershipStatusLabel } from "../../../support/ui-support/value-labels";
 
 type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
@@ -36,20 +37,19 @@ const columns: DataColumn<Membership>[] = [
   {
     key: "role_key",
     header: t("identity.features.memberships.ui.membershipListPage.role"),
-    cell: (row) => row.role_key,
+    cell: (row) => membershipRoleLabel(row.role_key),
   },
-  { key: "status", header: t("identity.features.memberships.ui.membershipListPage.status"), cell: (row) => row.status },
+  {
+    key: "status",
+    header: t("identity.features.memberships.ui.membershipListPage.status"),
+    cell: (row) => membershipStatusLabel(row.status),
+  },
 ];
 
 function membershipStatusFilterLabel(status: string) {
-  switch (status) {
-    case "active":
-      return t("identity.features.memberships.ui.membershipListPage.status.filter.active");
-    case "revoked":
-      return t("identity.features.memberships.ui.membershipListPage.status.filter.revoked");
-    default:
-      return t("identity.features.memberships.ui.membershipListPage.status.filter.all");
-  }
+  return status === "all"
+    ? t("identity.features.memberships.ui.membershipListPage.status.filter.all")
+    : membershipStatusLabel(status);
 }
 
 function membershipStatusFilterItems() {

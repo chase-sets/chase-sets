@@ -1928,7 +1928,7 @@
     "ui-support": {
       "classification": "support",
       "purpose": "Provide reusable ui-support assets shared by identity-owned features and composition seams.",
-      "expectedConsumers": ["consents", "memberships"]
+      "expectedConsumers": ["access-hub", "accounts", "api-keys", "consents", "invitations", "memberships", "users"]
     },
     "routes": {
       "classification": "routes",

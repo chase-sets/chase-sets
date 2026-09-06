@@ -16,6 +16,7 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { formatDateTime } from "@chase-sets/localization";
 import type { AgentGrant } from "./contracts";
 import { agentGrantSpendSummary, agentGrantStatusTone } from "./agent-grant-presentation";
+import { agentGrantStatusLabel, authDateUnavailable } from "../../../support/ui-support/value-labels";
 
 type AgentGrantListResponse = ListResponse<AgentGrant> & Partial<Readonly<{ limit: number; offset: number }>>;
 
@@ -34,7 +35,7 @@ const columns: DataColumn<AgentGrant>[] = [
     cell: (row) => (
       <Stack gap={0}>
         <Text weight="semibold">{clientLabel(row)}</Text>
-        <Badge tone={agentGrantStatusTone(row.status)}>{row.status}</Badge>
+        <Badge tone={agentGrantStatusTone(row.status)}>{agentGrantStatusLabel(row.status)}</Badge>
       </Stack>
     ),
   },
@@ -51,7 +52,7 @@ const columns: DataColumn<AgentGrant>[] = [
   {
     key: "granted_at",
     header: t("auth.features.agentGrants.ui.agentGrantListPage.granted"),
-    cell: (row) => formatDateTime(row.granted_at, { preset: "short" }),
+    cell: (row) => formatDateTime(row.granted_at, { preset: "short", fallback: authDateUnavailable() }),
   },
 ];
 
