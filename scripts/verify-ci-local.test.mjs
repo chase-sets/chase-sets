@@ -5,6 +5,7 @@ import {
   CI_GATE_EVIDENCE,
   CI_LOCAL_DISPOSITIONS,
   createLocalCommandPlan,
+  defaultCommandExecutor,
   executeGateEntries,
   parseCiLocalArgs,
   runCiLocalVerification,
@@ -92,6 +93,48 @@ describe("verify-ci-local", () => {
     expect(() => validateLocalCommandCoverage(omitChangeScopeCommandShape, { baseSha, headSha })).toThrow(
       "MISSING_LOCAL_COMMAND_SHAPE",
     );
+  });
+
+  it("executes the resolved pnpm program through the real command executor", () => {
+    const scope = scopeFor();
+    const plan = createCiGatePlan({ mode: "merge-group", scope });
+    const matrix = createLocalCommandPlan({ plan, baseSha, headSha, scope });
+    const resolvedPnpm = matrix.get("typecheck")[0].command;
+    const result = defaultCommandExecutor({ command: resolvedPnpm, args: ["--version"], env: {}, clearEnv: [] });
+    expect(result).toMatchObject({ outcome: "passed", exitCode: 0, signal: null });
+    expect(result.stdout.trim()).not.toBe("");
+  });
+
+  it("records large-output commands as completed through the real executor", () => {
+    const plan = createCiGatePlan({ mode: "merge-group", scope: scopeFor() });
+    const entries = plan.gates.filter(({ id }) => id === "typecheck");
+    const commandPlan = new Map([
+      [
+        "typecheck",
+        [
+          {
+            command: process.execPath,
+            args: ["-e", "process.stdout.write('x'.repeat(3 * 1024 * 1024))"],
+            env: {},
+            clearEnv: [],
+          },
+        ],
+      ],
+    ]);
+    let commandOutcome;
+    const result = executeGateEntries({
+      entries,
+      commandPlan,
+      executor: (spec) => {
+        commandOutcome = defaultCommandExecutor(spec);
+        return commandOutcome;
+      },
+    });
+    expect(commandOutcome).toMatchObject({ outcome: "passed", exitCode: 0, signal: null });
+    expect(commandOutcome.stdout).toHaveLength(3 * 1024 * 1024);
+    expect(result.gates.map(({ evidence }) => evidence)).toEqual(["PASSED"]);
+    expect(result.disposition).toBe("PASS");
+    expect(result.gates.some(({ evidence }) => evidence === "INTERRUPTED")).toBe(false);
   });
 
   it("emits complete PLAN_ONLY receipts for both honest dry-run modes", () => {

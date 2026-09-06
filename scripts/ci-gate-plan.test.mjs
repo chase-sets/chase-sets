@@ -13,8 +13,9 @@ import {
 } from "./ci-gate-plan.mjs";
 import { batchE2eSuiteIds } from "./e2e-suites.mjs";
 
-const mergeBase = execFileSync("git", ["merge-base", "origin/main", "HEAD"], { encoding: "utf8" }).trim();
-const baseWorkflow = execFileSync("git", ["show", `${mergeBase}:.github/workflows/platform-pr.yml`], {
+const IMPLEMENTATION_BASE_SHA = "0b4bf3adde0adda5bae2060dd898443cb4dcdb21";
+execFileSync("git", ["cat-file", "-e", `${IMPLEMENTATION_BASE_SHA}^{commit}`], { stdio: "ignore" });
+const baseWorkflow = execFileSync("git", ["show", `${IMPLEMENTATION_BASE_SHA}:.github/workflows/platform-pr.yml`], {
   encoding: "utf8",
 });
 const headWorkflow = readFileSync(".github/workflows/platform-pr.yml", "utf8");
@@ -221,7 +222,19 @@ describe("shared CI gate plan", () => {
       }
     }
     expect(deltas).toEqual([]);
-    expect(mergeBase).toMatch(/^[0-9a-f]{40}$/);
+    expect(IMPLEMENTATION_BASE_SHA).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it("anchors the parity oracle to the immutable implementation base", () => {
+    expect(IMPLEMENTATION_BASE_SHA).toBe("0b4bf3adde0adda5bae2060dd898443cb4dcdb21");
+    expect(baseWorkflow).not.toBe(headWorkflow);
+    expect(baseWorkflow).toContain("require_heavy_job()");
+    expect(baseWorkflow).toContain("preview_required=");
+    expect(new Set(derivedCategories(baseWorkflow).values())).toEqual(new Set(CI_GATE_CATEGORIES));
+    const scope = classifyChanges({ changedFiles: ["README.md"] });
+    expect(
+      baseSelection("static", { mode: "pull-request", labels: [], provenance: "same-repository", scope }),
+    ).toBeTypeOf("boolean");
   });
 
   it("derives six disjoint categories over the closed required-check universe", () => {
@@ -240,11 +253,29 @@ describe("shared CI gate plan", () => {
       .filter((id) => !universe.includes(id));
     expect(outside).toEqual(["release-status", "release-qualification-scope-advisory"]);
 
-    const forcePreviewIntoScopeGated = new Map(categories).set("preview-deploy-smoke", "scope-gated");
-    expect(forcePreviewIntoScopeGated).not.toEqual(categories);
-    const omitComplementCategory = new Map(categories);
-    omitComplementCategory.delete("compose-preview-smoke");
-    expect([...omitComplementCategory.keys()]).not.toEqual(universe);
+    const scope = classifyChanges({ changedFiles: ["README.md"] });
+    const forcePreviewIntoScopeGated = CI_GATE_DEFINITIONS.map((definition) =>
+      definition.id === "preview-deploy-smoke"
+        ? { ...definition, category: "scope-gated", capability: "clusterPreviewRequired" }
+        : definition,
+    );
+    expect(() =>
+      createCiGatePlan({
+        mode: "pull-request",
+        provenance: "same-repository",
+        scope,
+        definitions: forcePreviewIntoScopeGated,
+      }),
+    ).toThrow("GATE_CATEGORY_MISMATCH: preview-deploy-smoke");
+    const omitComplementCategory = CI_GATE_DEFINITIONS.filter(({ id }) => id !== "compose-preview-smoke");
+    expect(() =>
+      createCiGatePlan({
+        mode: "pull-request",
+        provenance: "same-repository",
+        scope,
+        definitions: omitComplementCategory,
+      }),
+    ).toThrow("UNKNOWN_OR_MISSING_GATE_IDS");
   });
 
   it("closes executability over exactly the same seventeen gates", () => {
@@ -298,9 +329,10 @@ describe("shared CI gate plan", () => {
     const mergeGroup = createCiGatePlan({ mode: "merge-group", scope });
     expect(mergeGroup.gates.find(({ id }) => id === "e2e-tests").selection).toBe("REQUIRED");
 
-    const bypassDbWithHeavyLane = fast.fullBatteryRequired || fast.targetedHeavyRequired;
-    expect(bypassDbWithHeavyLane && scope.dbTestsRequired).toBe(false);
-    expect(fast.gates.find(({ id }) => id === "db-tests").selection).toBe("REQUIRED");
+    const shippedDbSelection = fast.gates.find(({ id }) => id === "db-tests").selection;
+    const bypassDbWithHeavyLane = fast.targetedHeavyRequired && scope.dbTestsRequired ? "REQUIRED" : "NOT_REQUIRED";
+    expect(bypassDbWithHeavyLane).not.toBe(shippedDbSelection);
+    expect(shippedDbSelection).toBe("REQUIRED");
   });
 
   it("keeps provenance explicit and affects only the preview complement", () => {
@@ -320,11 +352,16 @@ describe("shared CI gate plan", () => {
       selection: "UNDECIDABLE",
       reason: "missing-provenance",
     });
-    const omitSameRepositoryInput = scope.clusterPreviewRequired || same.labels.includes("preview");
-    expect(omitSameRepositoryInput).toBe(true);
-    expect(
-      baseSelection("preview-deploy-smoke", { mode: "pull-request", labels: ["preview"], provenance: "fork", scope }),
-    ).toBe(false);
+    const forkInputs = { mode: "pull-request", labels: ["preview"], provenance: "fork", scope };
+    const previewExpression = baseComplementExpression(baseWorkflow, "preview_required");
+    const omitSameRepositoryInput = previewExpression.replace(
+      "github.event.pull_request.head.repo.full_name == github.repository && ",
+      "",
+    );
+    expect(omitSameRepositoryInput).not.toBe(previewExpression);
+    expect(evaluateBaseExpression(omitSameRepositoryInput, forkInputs)).toBe(true);
+    expect(fork.gates.find(({ id }) => id === "preview-deploy-smoke").selection).toBe("NOT_REQUIRED");
+    expect(baseSelection("preview-deploy-smoke", forkInputs)).toBe(false);
     const mergeGroup = createCiGatePlan({
       mode: "merge-group",
       labels: ["preview"],
