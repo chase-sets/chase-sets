@@ -172,7 +172,7 @@ export async function captureObservationPack(input: {
     adapter: input.adapter,
     packVersion: input.packVersion,
     capturedAt: input.capturedAt,
-    ...(input.fetch ? { fetch: input.fetch } : {}),
+    fetch: createConfiguredAssetFetch(input.preset, input.profileVersion, input.fetch),
     credentialValues: input.credentialValues,
   });
 }
@@ -196,6 +196,7 @@ export async function runCatalogObservationPackCli(
         adapter,
         packVersion: options.packVersion,
         capturedAt: options.capturedAt,
+        fetch: createConfiguredAssetFetch(preset, profileVersion),
         credentialValues: credentialValues(env),
       });
       const prefix =
@@ -281,6 +282,25 @@ export async function runCatalogObservationPackCli(
     });
     return 1;
   }
+}
+
+function createConfiguredAssetFetch(
+  preset: ObservationPackCapturePreset,
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord,
+  fetch: typeof globalThis.fetch = globalThis.fetch,
+): typeof globalThis.fetch {
+  if (preset.providerKey !== "tcgdex") {
+    return fetch;
+  }
+  const connector = profileVersion.profile.connector;
+  if (connector.kind !== "tcgdex-json") {
+    throw new Error("TCGdex capture requires its configured image variant.");
+  }
+  return (resource, options) => {
+    const source = typeof resource === "string" ? resource : resource instanceof URL ? resource.href : resource.url;
+    const suffix = `/${connector.highQualityAssetVariant}`;
+    return fetch(source.endsWith(suffix) ? source : `${source.replace(/\/$/, "")}${suffix}`, options);
+  };
 }
 
 function requireActiveProfileVersion(
