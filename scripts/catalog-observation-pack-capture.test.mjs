@@ -5,6 +5,12 @@ import { getActiveCatalogProviderIntegrationProfileVersion } from "../bounded-co
 import { sha256 } from "../bounded-contexts/catalog/features/source-observations/api/observation-pack.ts";
 
 describe("Observation Pack provider image requests", () => {
+  it("uses the provider's Romance Dawn identifier throughout capture identity and scope", () => {
+    const preset = observationPackCapturePresets["one-piece-romance-dawn"];
+    expect(preset.scope.values.expansionId).toBe("OP01");
+    expect(preset.identity.setExternalId).toBe("OP01");
+    expect(preset.identity.scopeCoordinates.expansionId).toBe("OP01");
+  });
   it.each([
     ["pokemon-prismatic-evolutions", "https://assets.example.invalid/synthetic/card", "/high.webp", null],
     ["pokemon-prismatic-evolutions", "https://assets.example.invalid/synthetic/card/high.webp", "", null],

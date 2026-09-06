@@ -1278,6 +1278,7 @@ async function fetchScrydexPagedJson<TItem>(
 ): Promise<readonly ScrydexPage<TItem>[]> {
   const pages: ScrydexPage<TItem>[] = [];
   const pageSize = Number(query.page_size);
+  let countPagination: { total: number; size: number } | null = null;
   let page = 1;
   let nextUrl: string | null = scrydexUrl(path, { page: String(page), ...query }, options, productDomain);
 
@@ -1286,6 +1287,34 @@ async function fetchScrydexPagedJson<TItem>(
     const body = await fetchScrydexJson(sourceUrl, options);
     const items = extractScrydexItems<TItem>(body);
     pages.push({ items, sourceUrl });
+    const totalCountValue = recordValue(body, "total_count") ?? recordValue(body, "totalCount");
+    if (totalCountValue !== undefined || countPagination !== null) {
+      const total = totalCountValue;
+      const size = recordValue(body, "page_size") ?? recordValue(body, "pageSize");
+      const returnedPage = recordValue(body, "page");
+      const count = recordValue(body, "count");
+      if (
+        typeof total !== "number" ||
+        !Number.isSafeInteger(total) ||
+        total < 0 ||
+        typeof size !== "number" ||
+        !Number.isSafeInteger(size) ||
+        size <= 0 ||
+        returnedPage !== page ||
+        (count !== undefined && count !== items.length) ||
+        (countPagination !== null && (total !== countPagination.total || size !== countPagination.size)) ||
+        items.length !== Math.min(size, Math.max(0, total - (page - 1) * size))
+      ) {
+        throw new Error("Scrydex pagination metadata is inconsistent or incomplete.");
+      }
+      countPagination ??= { total, size };
+      page += 1;
+      nextUrl =
+        page <= Math.ceil(total / size)
+          ? scrydexUrl(path, { page: String(page), ...query }, options, productDomain)
+          : null;
+      continue;
+    }
     const explicitNextUrl = stringValue(recordValue(body, "next_page") ?? recordValue(body, "nextPage"));
     if (explicitNextUrl) {
       nextUrl = absoluteScrydexUrl(explicitNextUrl, options, productDomain);

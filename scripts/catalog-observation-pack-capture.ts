@@ -118,18 +118,18 @@ export const observationPackCapturePresets: Readonly<
     scope: {
       unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       scopeKey: "expansion",
-      values: { languageCode: "en", expansionId: "op-01" },
+      values: { languageCode: "en", expansionId: "OP01" },
     },
     identity: {
       productLineKey: "one-piece-card-game",
       productLineDisplayName: "One Piece Card Game",
       setKind: "set",
-      setExternalId: "op-01",
+      setExternalId: "OP01",
       setDisplayName: "Romance Dawn",
       providerKey: "scrydex",
       language: "en",
       scopeKey: "expansion",
-      scopeCoordinates: { languageCode: "en", expansionId: "op-01" },
+      scopeCoordinates: { languageCode: "en", expansionId: "OP01" },
     },
   },
   "lorcana-the-first-chapter": {
