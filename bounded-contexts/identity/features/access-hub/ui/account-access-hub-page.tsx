@@ -312,7 +312,7 @@ function UserAccessCard({ user, actor, accountId }: { user: User; actor: Resolve
             <NativeSelect
               name="contactMethodType"
               label={t("identity.features.users.ui.userDetailPage.contact.method.type")}
-              items={contactMethodTypeSelectItems}
+              items={[...contactMethodTypeSelectItems]}
               required
             />
             <TextInput
@@ -354,7 +354,7 @@ function UserAccessCard({ user, actor, accountId }: { user: User; actor: Resolve
             <NativeSelect
               name="authMethod"
               label={t("identity.features.users.ui.userDetailPage.auth.method")}
-              items={identityAuthenticationMethodSelectItems}
+              items={[...identityAuthenticationMethodSelectItems]}
               required
             />
             <Button type="submit" tone="secondary">

@@ -13,12 +13,12 @@ const candidateHookUrl = pathToFileURL(
   path.join(repositoryRoot, "infrastructure/platform-runtime/typescript-resolver.mjs"),
 ).href;
 const expectedCallers = Object.freeze([
-  ["scripts/generate-agent-connector-packaging.mjs", "extension", 149, 294],
-  ["scripts/representative-snapshot.mjs", "extension", 397, 1555],
-  ["scripts/run-catalog-observation-pack-capture.mjs", "extension", 162, 382],
+  ["scripts/generate-agent-connector-packaging.mjs", "extension", 150, 296],
+  ["scripts/representative-snapshot.mjs", "extension", 398, 1557],
+  ["scripts/run-catalog-observation-pack-capture.mjs", "extension", 163, 384],
   ["scripts/run-catalog-production-completion-report.mjs", "extension", 8, 12],
-  ["scripts/run-catalog-real-provider-proof.mjs", "extension", 193, 501],
-  ["scripts/verify-observation-pack.mjs", "extension", 394, 1545],
+  ["scripts/run-catalog-real-provider-proof.mjs", "extension", 194, 503],
+  ["scripts/verify-observation-pack.mjs", "extension", 395, 1547],
   ["scripts/discovery-search-embedding-backfill.mjs", "source", 110, 209],
   ["scripts/discovery-search-relevance-embeddings.mjs", "source", 2, 1],
   ["scripts/discovery-search-relevance.mjs", "source", 12, 14],
@@ -227,10 +227,10 @@ describe("TypeScript resolver caller parity", () => {
 
     expect(sourceOnly.errors, "source-only errors").toEqual([]);
     expect(union.errors, "union errors").toEqual([]);
-    expect(sourceOnly.modules, "source-only module count").toHaveLength(97);
-    expect(sourceOnly.edges, "source-only edge count").toHaveLength(177);
-    expect(union.modules, "union module count").toHaveLength(113);
-    expect(union.edges, "union edge count").toHaveLength(217);
+    expect(sourceOnly.modules, "source-only module count").toHaveLength(98);
+    expect(sourceOnly.edges, "source-only edge count").toHaveLength(179);
+    expect(union.modules, "union module count").toHaveLength(114);
+    expect(union.edges, "union edge count").toHaveLength(219);
     expect(JSON.stringify(union), "source-only equality must stay red").not.toBe(JSON.stringify(sourceOnly));
     expect(changedEdges).toEqual(changedSpecifierEdges);
     expect(gainedEdges).toHaveLength(40);

@@ -61,7 +61,9 @@ test.describe("access admin users and memberships", () => {
     );
     await expectAdminPageReady(page, { heading: accountHeading });
     const membershipRow = page.getByRole("row").filter({ hasText: membershipUserLabel(membership) });
-    await expect(membershipRow.getByText(membershipRoleLabel(membership.role_key), { exact: true })).toBeVisible();
+    await expect(
+      membershipRow.getByRole("cell", { name: membershipRoleLabel(membership.role_key), exact: true }),
+    ).toBeVisible();
     await expect(membershipRow.getByText(membershipStatusLabel(membership.status), { exact: true })).toBeVisible();
     await expect(membershipRow.getByLabel("Role")).toHaveValue(membership.role_key);
     await expect(membershipRow.getByRole("button", { name: "Change Role" })).toBeVisible();
