@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import {
   CART_SELLER_OPTIONS_PER_LINE_LIMIT,
+  listAuthorizedOwnerCartLines,
   listCartLines,
   listClaimedCartOwnerKeys,
   listOwnCartLines,
 } from "./queries";
+import { createCartReadinessSnapshot } from "../domain/readiness";
 
 type CartLinePage = Readonly<{
   buyer_account_id: string;
@@ -84,12 +86,16 @@ function holdsAccurateAvailableQuantity(option: SellerOption): number {
  * resolution, price-ascending, empty -> []) are actually exercised.
  *
  * It also interprets the requested-owner expansion: the primary owner key, the
- * claimed source keys of an `acc_` owner when claim expansion is on, and the
- * optional presented key, deduplicated to the strongest precedence before
- * ranking. Winner selection and output order are modelled separately, because
- * they are different orderings: the winner is the strongest precedence, then the
- * newest row, then the byte-smallest source owner (`COLLATE "C"`), while output
- * puts the Account union ahead of presented-only rows.
+ * claimed source keys supplied as the `$4` allowlist, and the optional presented
+ * key, deduplicated to the strongest precedence before ranking. The interpreter
+ * deliberately has no claim-table branch for the resolver statement, because the
+ * resolver no longer has one either: a claimed key becomes a requested owner
+ * only by arriving in that allowlist.
+ *
+ * Winner selection and output order are modelled separately, because they are
+ * different orderings: the winner is the strongest precedence, then the newest
+ * row, then the byte-smallest source owner (`COLLATE "C"`), while output puts
+ * the Account union ahead of presented-only rows.
  *
  * This interpreter is a shape check, not the oracle. Selection and ordering are
  * proved against real PostgreSQL in `seller-options-readiness.db.test.ts`.
@@ -127,15 +133,12 @@ class CartReadModelDb implements PgQueryable {
     const ownerKey = String(values[0]);
     const presentedAnonymousCartId = values[1] === null || values[1] === undefined ? null : String(values[1]);
     const sellerOptionsLimit = Number(values[2]);
-    const includeClaimedOwners = Boolean(values[3]);
+    const authorizedClaimedOwnerKeys = Array.isArray(values[3]) ? values[3].map(String) : [];
     const candidateOwners: Array<{ ownerId: string; precedence: number }> = [{ ownerId: ownerKey, precedence: 0 }];
 
-    if (includeClaimedOwners && ownerKey.startsWith("acc_")) {
-      for (const claim of this.claims) {
-        if (claim.account_id === ownerKey) {
-          candidateOwners.push({ ownerId: claim.source_owner_key, precedence: 1 });
-        }
-      }
+    // unnest($4::text[]) -- the caller's authoritative allowlist, verbatim.
+    for (const claimedOwnerKey of authorizedClaimedOwnerKeys) {
+      candidateOwners.push({ ownerId: claimedOwnerKey, precedence: 1 });
     }
     if (presentedAnonymousCartId) {
       candidateOwners.push({ ownerId: presentedAnonymousCartId, precedence: 2 });
@@ -309,8 +312,10 @@ describe("listCartLines seller_options join", () => {
 
     const rows = await listCartLines(db, "acc_buyer", "anon_cart");
 
-    expect(db.queryCount).toBe(1);
-    expect(db.lastValues).toEqual(["acc_buyer", "anon_cart", CART_SELLER_OPTIONS_PER_LINE_LIMIT, true]);
+    // The alias lookup is now its own routing-breadth query ahead of the
+    // resolver, which is why a claim-capable owner costs two round trips.
+    expect(db.queryCount).toBe(2);
+    expect(db.lastValues).toEqual(["acc_buyer", "anon_cart", CART_SELLER_OPTIONS_PER_LINE_LIMIT, []]);
     expect(rows.map((row) => row.line_id)).toEqual(["cli_account", "cli_shared", "cli_anonymous"]);
     expect(rows.find((row) => row.line_id === "cli_shared")).toMatchObject({
       buyer_account_id: "acc_buyer",
@@ -613,15 +618,17 @@ describe("listCartLines seller_options join", () => {
     await listCartLines(db, "acc_buyer");
 
     expect(db.lastSql).toContain("LEFT JOIN LATERAL");
-    expect(db.lastValues).toEqual(["acc_buyer", null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, true]);
+    expect(db.lastValues).toEqual(["acc_buyer", null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, []]);
     expect(db.lastSql).toContain("WITH requested_owners AS");
     // Requested owners are deduplicated to one row per key before ranking, so a
     // key that is both claimed and presented cannot multiply rows.
     expect(db.lastSql).toContain("MIN(candidate_owner.owner_precedence) AS owner_precedence");
     expect(db.lastSql).toContain("GROUP BY candidate_owner.owner_id");
-    expect(db.lastSql).toContain("FROM checkout_cart_claims AS claim");
-    expect(db.lastSql).toContain("starts_with($1::text, 'acc_')");
-    expect(db.lastSql).toContain("claim.account_id = $1::text");
+    // Authority is an input, not something this statement discovers: the
+    // claimed owners arrive as the $4 allowlist and the alias table is not read
+    // here at all, so no stale, partial, or foreign alias row can widen a read.
+    expect(db.lastSql).toContain("FROM unnest($4::text[]) AS authorized_claimed_owner(owner_id)");
+    expect(db.lastSql).not.toContain("checkout_cart_claims");
     expect(db.lastSql).toContain("PARTITION BY cart_line.line_id");
     expect(db.lastSql).toContain("requested_owner.owner_precedence ASC");
     expect(db.lastSql).toContain("cart_line.updated_at DESC");
@@ -691,8 +698,8 @@ describe("listCartLines claimed-key expansion", () => {
 
     const rows = await listCartLines(db, account, presented);
 
-    expect(db.queryCount).toBe(1);
-    expect(db.lastValues).toEqual([account, presented, CART_SELLER_OPTIONS_PER_LINE_LIMIT, true]);
+    expect(db.queryCount).toBe(2);
+    expect(db.lastValues).toEqual([account, presented, CART_SELLER_OPTIONS_PER_LINE_LIMIT, [claimedA, claimedB]]);
     // Account union (own + claimed) ordered updated_at DESC, then presented-only.
     expect(rows.map((row) => row.line_id)).toEqual(["cli_claimed", "cli_own", "cli_presented"]);
     expect(rows.map((row) => row.buyer_account_id)).toEqual([claimedA, account, presented]);
@@ -906,12 +913,196 @@ describe("listCartLines claimed-key expansion", () => {
   });
 });
 
+/**
+ * The authorized read takes the claimed owners it may resolve as an input.
+ *
+ * These cases fix the two things that must not change when the claimed owners
+ * stop coming from the alias table: the settled #5733 ranking, dedup, grouping
+ * and revision behaviour, and the statement's independence from
+ * `checkout_cart_claims`.
+ */
+describe("listAuthorizedOwnerCartLines", () => {
+  const account = "acc_buyer";
+  const claimedA = "anon_cart_a";
+  const claimedB = "anon_cart_b";
+  const presented = "anon_presented";
+  const claims: readonly CartClaim[] = [
+    { source_owner_key: claimedA, account_id: account },
+    { source_owner_key: claimedB, account_id: account },
+  ];
+
+  it("resolves the allowlist without reading the claim table", async () => {
+    const db = new CartReadModelDb([line()], [], [], claims);
+
+    await listAuthorizedOwnerCartLines(db, account, [claimedA, claimedB], presented);
+
+    expect(db.queryCount).toBe(1);
+    expect(db.lastValues).toEqual([account, presented, CART_SELLER_OPTIONS_PER_LINE_LIMIT, [claimedA, claimedB]]);
+    expect(db.lastSql).toContain("FROM unnest($4::text[]) AS authorized_claimed_owner(owner_id)");
+    expect(db.lastSql).not.toContain("checkout_cart_claims");
+    expect(db.lastSql).toContain("MIN(candidate_owner.owner_precedence) AS owner_precedence");
+    expect(db.lastSql).toContain("GROUP BY candidate_owner.owner_id");
+  });
+
+  it("reproduces the alias-driven union exactly when every claimed candidate is authorized", async () => {
+    const own = line({ line_id: "cli_own", updated_at: "2026-06-10T00:00:00.000Z" });
+    const claimed = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_claimed",
+      updated_at: "2026-06-20T00:00:00.000Z",
+    });
+    const presentedOnly = line({
+      buyer_account_id: presented,
+      line_id: "cli_presented",
+      updated_at: "2026-06-30T00:00:00.000Z",
+    });
+    const rows = [presentedOnly, own, claimed];
+
+    const routing = await listCartLines(new CartReadModelDb(rows, [], [], claims), account, presented);
+    const authorized = await listAuthorizedOwnerCartLines(
+      new CartReadModelDb(rows, [], [], claims),
+      account,
+      [claimedA, claimedB],
+      presented,
+    );
+
+    expect(authorized).toEqual(routing);
+    expect(authorized.map((row) => row.line_id)).toEqual(["cli_claimed", "cli_own", "cli_presented"]);
+    expect(authorized.map((row) => row.buyer_account_id)).toEqual([claimedA, account, presented]);
+  });
+
+  it("keeps the Account's own whole row when an authorized claimed stream duplicates a line id", async () => {
+    const accountWinner = line({
+      buyer_account_id: account,
+      line_id: "cli_shared",
+      product_id: "prd_account",
+      locked_listing_id: "lst_account",
+      updated_at: "2026-06-01T00:00:00.000Z",
+    });
+    const claimedLoser = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_shared",
+      product_id: "prd_claimed",
+      locked_listing_id: "lst_claimed",
+      updated_at: "2026-06-25T00:00:00.000Z",
+    });
+    const db = new CartReadModelDb([claimedLoser, accountWinner], [], [], claims);
+
+    const rows = await listAuthorizedOwnerCartLines(db, account, [claimedA], null);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      buyer_account_id: account,
+      product_id: "prd_account",
+      locked_listing_id: "lst_account",
+    });
+  });
+
+  it("hands a duplicated line id to the authorized claimed source instead of dropping the line", async () => {
+    // The post-filter hazard, stated as a test: two claimed streams tie on
+    // precedence and break on `updated_at DESC`, so the newer unauthorized row
+    // would win the shared line id and then be filtered away -- losing the
+    // authorized row with it. Excluding it before ranking keeps the line.
+    const authorizedRow = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_shared",
+      product_id: "prd_authorized",
+      locked_listing_id: "lst_authorized",
+      updated_at: "2026-06-10T00:00:00.000Z",
+    });
+    const unauthorizedNewer = line({
+      buyer_account_id: claimedB,
+      line_id: "cli_shared",
+      product_id: "prd_unauthorized",
+      locked_listing_id: "lst_unauthorized",
+      updated_at: "2026-06-28T00:00:00.000Z",
+    });
+    const rows = [authorizedRow, unauthorizedNewer];
+
+    expect((await listCartLines(new CartReadModelDb(rows, [], [], claims), account))[0]).toMatchObject({
+      buyer_account_id: claimedB,
+      product_id: "prd_unauthorized",
+    });
+
+    const authorized = await listAuthorizedOwnerCartLines(
+      new CartReadModelDb(rows, [], [], claims),
+      account,
+      [claimedA],
+      null,
+    );
+
+    expect(authorized).toHaveLength(1);
+    expect(authorized[0]).toMatchObject({ buyer_account_id: claimedA, product_id: "prd_authorized" });
+  });
+
+  it("contributes one requested owner for a key that is both authorized-claimed and presented", async () => {
+    const overlap = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_overlap",
+      updated_at: "2026-06-05T00:00:00.000Z",
+    });
+    const own = line({ line_id: "cli_own", updated_at: "2026-06-06T00:00:00.000Z" });
+    const db = new CartReadModelDb([overlap, own], [], [], claims);
+
+    const rows = await listAuthorizedOwnerCartLines(db, account, [claimedA], claimedA);
+
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_own", "cli_overlap"]);
+    expect(rows.filter((row) => row.line_id === "cli_overlap")).toHaveLength(1);
+  });
+
+  it("keeps the source revision the alias-driven union produced", async () => {
+    const own = line({ line_id: "cli_own", updated_at: "2026-06-10T00:00:00.000Z" });
+    const claimed = line({
+      buyer_account_id: claimedA,
+      line_id: "cli_claimed",
+      updated_at: "2026-06-20T00:00:00.000Z",
+    });
+    const presentedOnly = line({
+      buyer_account_id: presented,
+      line_id: "cli_presented",
+      updated_at: "2026-06-30T00:00:00.000Z",
+    });
+    const rows = [presentedOnly, own, claimed];
+    const unionSource = { accountId: account, presentedAnonymousCartId: presented };
+
+    const routing = createCartReadinessSnapshot(
+      await listCartLines(new CartReadModelDb(rows, [], [], claims), account, presented),
+      undefined,
+      unionSource,
+    );
+    const authorized = createCartReadinessSnapshot(
+      await listAuthorizedOwnerCartLines(
+        new CartReadModelDb(rows, [], [], claims),
+        account,
+        [claimedA, claimedB],
+        presented,
+      ),
+      undefined,
+      unionSource,
+    );
+
+    expect(authorized.sourceRevision).toBe(routing.sourceRevision);
+    expect(authorized.snapshotId).toBe(routing.snapshotId);
+  });
+
+  it("resolves an empty allowlist to the owner's own lines and the presented key only", async () => {
+    const own = line({ line_id: "cli_own" });
+    const claimedLine = line({ buyer_account_id: claimedA, line_id: "cli_claimed" });
+    const presentedLine = line({ buyer_account_id: presented, line_id: "cli_presented" });
+    const db = new CartReadModelDb([own, claimedLine, presentedLine], [], [], claims);
+
+    const rows = await listAuthorizedOwnerCartLines(db, account, [], presented);
+
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_own", "cli_presented"]);
+  });
+});
+
 describe("listOwnCartLines", () => {
   const account = "acc_buyer";
   const claimed = "anon_cart_a";
   const claims: readonly CartClaim[] = [{ source_owner_key: claimed, account_id: account }];
 
-  it("resolves only the supplied owner's own lines, with claim expansion off and no presented key", async () => {
+  it("resolves only the supplied owner's own lines, with an empty allowlist and no presented key", async () => {
     const own = line({ line_id: "cli_own" });
     const claimedLine = line({ buyer_account_id: claimed, line_id: "cli_claimed" });
     const db = new CartReadModelDb([own, claimedLine], [], [], claims);
@@ -919,7 +1110,7 @@ describe("listOwnCartLines", () => {
     const rows = await listOwnCartLines(db, account);
 
     expect(rows.map((row) => row.line_id)).toEqual(["cli_own"]);
-    expect(db.lastValues).toEqual([account, null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, false]);
+    expect(db.lastValues).toEqual([account, null, CART_SELLER_OPTIONS_PER_LINE_LIMIT, []]);
     expect(db.queryCount).toBe(1);
   });
 

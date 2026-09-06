@@ -207,10 +207,10 @@ export async function reconcileCheckoutCartClaim(db: PgQueryable, claim: Checkou
 /**
  * Whether an owner key can resolve across more than its own stream.
  *
- * Only an Account can claim, which is the `starts_with($1, 'acc_')` predicate
- * the union resolver applies below. An anonymous key therefore always resolves
- * to exactly itself, and callers can skip work that could only ever confirm
- * that. Keeping the rule here keeps it next to the SQL it mirrors.
+ * Only an Account can claim, which is the predicate the claim lookup below
+ * applies. An anonymous key therefore always resolves to exactly itself, and
+ * callers can skip work that could only ever confirm that. Keeping the rule
+ * here keeps it next to the lookup it guards.
  */
 export function ownerKeyCanHoldClaims(ownerKey: string): boolean {
   return ownerKey.startsWith("acc_");
@@ -249,10 +249,17 @@ export async function listClaimedCartOwnerKeys(db: PgQueryable, accountId: strin
 /**
  * Resolves the cart lines a requested owner may read, in one statement.
  *
- * Requested owners are the primary owner key, every source key that owner has
- * claimed (Account reads only), and an optional presented anonymous key. They
- * are deduplicated before ranking so a key that is both claimed and presented
+ * Requested owners are the primary owner key, the claimed source keys the
+ * caller supplies, and an optional presented anonymous key. They are
+ * deduplicated before ranking so a key that is both claimed and presented
  * contributes one requested owner rather than multiplying rows.
+ *
+ * The claimed keys arrive as an allowlist the caller has already decided. This
+ * statement never reads `checkout_cart_claims`, which turns the settled
+ * decide-from-the-aggregate rule into a structural property rather than a
+ * discipline: no missing, stale, partial, or foreign alias row can widen a read
+ * set, because the read set is not derived from that table at all. Deciding
+ * those keys is the Cart aggregate's job, and a read model may not do it.
  *
  * A `line_id` held by more than one requested owner resolves to exactly one
  * whole row: the Account's own row wins, then the newest claimed row, then the
@@ -266,7 +273,7 @@ async function resolveCartLines(
   db: PgQueryable,
   ownerKey: string,
   presentedAnonymousCartId: string | null,
-  includeClaimedOwners: boolean,
+  authorizedClaimedOwnerKeys: readonly string[],
 ): Promise<CheckoutCartLineRow[]> {
   const result = await db.query<CartLinePageRow>(
     `WITH requested_owners AS (
@@ -274,11 +281,8 @@ async function resolveCartLines(
        FROM (
          SELECT $1::text AS owner_id, 0::integer AS owner_precedence
          UNION ALL
-         SELECT claim.source_owner_key AS owner_id, 1::integer AS owner_precedence
-         FROM checkout_cart_claims AS claim
-         WHERE $4::boolean
-           AND starts_with($1::text, 'acc_')
-           AND claim.account_id = $1::text
+         SELECT authorized_claimed_owner.owner_id, 1::integer AS owner_precedence
+         FROM unnest($4::text[]) AS authorized_claimed_owner(owner_id)
          UNION ALL
          SELECT $2::text AS owner_id, 2::integer AS owner_precedence
          WHERE $2::text IS NOT NULL
@@ -400,18 +404,56 @@ async function resolveCartLines(
          ON seller.account_id = o.seller_account_id
      ) opt ON true
      ORDER BY line.owner_output_group ASC, line.updated_at DESC, line.line_id ASC`,
-    [ownerKey, presentedAnonymousCartId, CART_SELLER_OPTIONS_PER_LINE_LIMIT, includeClaimedOwners],
+    [ownerKey, presentedAnonymousCartId, CART_SELLER_OPTIONS_PER_LINE_LIMIT, [...authorizedClaimedOwnerKeys]],
   );
 
   return result.rows.map(mapCartLineRow);
 }
 
+/**
+ * The raw routing read: the owner's own lines plus every stream the claim alias
+ * says the owner may hold a line on, plus an optional presented key.
+ *
+ * This is routing breadth, never authorization -- the same rule
+ * `listClaimedCartOwnerKeys` states, which is now the only place the alias table
+ * is read. Claimed-stream write routing and the internal merge service need that
+ * breadth to find which stream actually holds a line, and each resulting write
+ * is still authorized by the target stream's own evolved state. A reader that must not
+ * see a stream it has lost authority over asks for `listAuthorizedOwnerCartLines`
+ * instead, with an allowlist the Cart aggregate decided.
+ */
 export async function listCartLines(
   db: PgQueryable,
   buyerAccountId: string,
   presentedAnonymousCartId?: string | null,
 ): Promise<CheckoutCartLineRow[]> {
-  return resolveCartLines(db, buyerAccountId, presentedAnonymousCartId ?? null, true);
+  return resolveCartLines(
+    db,
+    buyerAccountId,
+    presentedAnonymousCartId ?? null,
+    await listClaimedCartOwnerKeys(db, buyerAccountId),
+  );
+}
+
+/**
+ * The same union, restricted to claimed sources an aggregate has already
+ * accepted for this reader.
+ *
+ * The allowlist is an input rather than something this function discovers,
+ * because discovering it here would mean reading the alias table again and
+ * re-opening exactly the bypass this shape exists to close. The caller resolves
+ * each candidate against its own Cart aggregate and passes only the accepted
+ * ones; refused and indeterminate candidates never reach the statement, so they
+ * cannot win a duplicate `line_id` and hide an authorized row the way
+ * post-filtering a resolved union would.
+ */
+export async function listAuthorizedOwnerCartLines(
+  db: PgQueryable,
+  ownerKey: string,
+  authorizedClaimedOwnerKeys: readonly string[],
+  presentedAnonymousCartId?: string | null,
+): Promise<CheckoutCartLineRow[]> {
+  return resolveCartLines(db, ownerKey, presentedAnonymousCartId ?? null, authorizedClaimedOwnerKeys);
 }
 
 /**
@@ -424,5 +466,5 @@ export async function listCartLines(
  * line does not exist.
  */
 export async function listOwnCartLines(db: PgQueryable, ownerKey: string): Promise<CheckoutCartLineRow[]> {
-  return resolveCartLines(db, ownerKey, null, false);
+  return resolveCartLines(db, ownerKey, null, []);
 }

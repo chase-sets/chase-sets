@@ -280,6 +280,85 @@ function assertActingOwnerMayWrite(state: CheckoutCartState, actingOwnerKey: str
   assert(owner === null || owner === actingOwnerKey, "Cart is owned by a different account.");
 }
 
+/**
+ * How a presented anonymous source stands relative to the reader asking for it.
+ *
+ * Every decidable variant is read from evolved aggregate state alone. The
+ * `checkout_cart_claims` alias is a rebuildable routing index that can lag,
+ * hold a stale or partial row, or be absent after a committed claim event, so
+ * it never contributes a standing here.
+ *
+ * `undecidable` is the one variant no state can produce: it is how a caller
+ * that could not read complete aggregate state -- a store outage or a
+ * concurrency failure -- reports that fact without inventing an answer. Keeping
+ * it inside the same closed union is what stops a generic catch from quietly
+ * degrading an unreadable stream into `unclaimed`.
+ */
+export type CheckoutCartSourceStanding =
+  | Readonly<{ kind: "unclaimed" }>
+  | Readonly<{ kind: "claimed-by-actor" }>
+  | Readonly<{ kind: "claimed-by-other" }>
+  | Readonly<{ kind: "undecidable" }>;
+
+/**
+ * The exhaustive post-claim read decision for one presented anonymous source.
+ *
+ * `acceptedVia` exists only on `accepted`: a refusal and an indeterminate carry
+ * no acceptance provenance at all, so no caller can read one off a negative
+ * answer.
+ */
+export type CheckoutCartReadAuthority =
+  | Readonly<{ status: "accepted"; acceptedVia: "possession" | "account" }>
+  | Readonly<{ status: "refused" }>
+  | Readonly<{ status: "indeterminate" }>;
+
+/**
+ * Classifies complete aggregate state for one reader.
+ *
+ * An unclaimed stream stands open to whoever holds its key; once claimed, only
+ * the claimant stands as its reader. `buyerAccountId` deliberately does not
+ * participate: claiming never rewrites it, so an anonymous source keeps writing
+ * its own identity onto its lines long after possession stopped authorizing
+ * anything.
+ */
+export function checkoutCartSourceStanding(
+  state: CheckoutCartState,
+  actingOwnerKey: string,
+): Exclude<CheckoutCartSourceStanding, Readonly<{ kind: "undecidable" }>> {
+  if (state.claimedByAccountId === null) {
+    return { kind: "unclaimed" };
+  }
+
+  return state.claimedByAccountId === actingOwnerKey ? { kind: "claimed-by-actor" } : { kind: "claimed-by-other" };
+}
+
+/**
+ * Total over the closed standing union, so a future standing cannot be added
+ * without this decision refusing to compile.
+ */
+export function decideCheckoutCartReadAuthority(standing: CheckoutCartSourceStanding): CheckoutCartReadAuthority {
+  switch (standing.kind) {
+    case "unclaimed":
+      return { status: "accepted", acceptedVia: "possession" };
+    case "claimed-by-actor":
+      return { status: "accepted", acceptedVia: "account" };
+    case "claimed-by-other":
+      return { status: "refused" };
+    case "undecidable":
+      return { status: "indeterminate" };
+    default:
+      return assertNever(standing);
+  }
+}
+
+/** Convenience for the common decidable path: complete state plus one reader. */
+export function decideCheckoutCartReadAuthorityFromState(
+  state: CheckoutCartState,
+  actingOwnerKey: string,
+): CheckoutCartReadAuthority {
+  return decideCheckoutCartReadAuthority(checkoutCartSourceStanding(state, actingOwnerKey));
+}
+
 function normalizeFulfillmentMode(
   value: "optimize" | "locked-listing" | undefined,
   lockedListingId: string | null | undefined,

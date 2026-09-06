@@ -14,6 +14,7 @@ import type {
 } from "../../sessions/api/checkout-observability-telemetry";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import { createAccountCartRoutes, createGuestCartRoutes } from "./route";
+import type { CheckoutCartLineRow } from "../read-model/queries";
 import { createCheckoutCartRuntime, type CheckoutCartServices } from "./runtime";
 
 function buildApp(
@@ -56,6 +57,11 @@ function createServices(): CheckoutCartServices {
     checkout: vi.fn(async () => ({ version: 5 })),
     claimCart: vi.fn(async () => ({ version: 1 })),
     listCartLines: vi.fn(async () => []),
+    resolveCartSourceAuthority: vi.fn<CheckoutCartServices["resolveCartSourceAuthority"]>(async () => ({
+      status: "accepted",
+      acceptedVia: "possession",
+    })),
+    listAuthorizedCartLines: vi.fn<CheckoutCartServices["listAuthorizedCartLines"]>(async () => []),
     listClaimedOwnerKeys: vi.fn(async () => []),
     mergeCartIntoAccount: vi.fn<CheckoutCartServices["mergeCartIntoAccount"]>(async () => ({ mergedLineCount: 0 })),
     createReadinessSnapshot: vi.fn<CheckoutCartServices["createReadinessSnapshot"]>(async () => ({
@@ -118,6 +124,61 @@ function cartLine(index: number) {
   };
 }
 
+/**
+ * A complete internal Cart line row, typed against the real read-model shape.
+ *
+ * Route reads project rows onto the public contract, so a hand-shrunk stub
+ * would exercise a row the projection can never produce. Deriving from the real
+ * type keeps these tests honest about what the boundary actually receives.
+ */
+function internalCartLineRow(overrides: Partial<CheckoutCartLineRow> = {}): CheckoutCartLineRow {
+  return {
+    buyer_account_id: "acc_buyer",
+    line_id: "cli_1",
+    catalog_catalog_item_id: "cat_1",
+    product_id: "cat_1::",
+    item_language_code: "en",
+    item_title: "Charizard",
+    item_subtitle: null,
+    item_image_url: null,
+    item_image_srcset: null,
+    item_image_loading_url: null,
+    item_image_loading_alt: null,
+    item_image_loading_srcset: null,
+    selected_options: [],
+    product_summary: null,
+    quantity: 1,
+    fulfillment_mode: "locked-listing",
+    locked_listing_id: "lst_1",
+    selected_listing_id: null,
+    selected_listing_seller_account_id: null,
+    selected_listing_seller_display_name: null,
+    selected_listing_seller_slug: null,
+    selected_listing_price_amount: null,
+    selected_listing_snapshot_source: null,
+    selected_listing_snapshot_captured_at: null,
+    seller_preference_id: null,
+    availability_state: "available",
+    seller_options: [
+      {
+        listing_id: "lst_1",
+        seller_account_id: "acc_seller",
+        seller_slug: "seller",
+        seller_display_name: "Card Vault",
+        seller_average_rating: null,
+        seller_review_count: 0,
+        price_amount: "25.00",
+        available_quantity: 1,
+        product_summary: null,
+        product_measure_snapshot: { measureVersion: "pm_1" },
+      },
+    ],
+    created_at: "2026-09-05T00:00:00.000Z",
+    updated_at: "2026-09-05T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
 function collectCheckoutObservabilityEvents() {
   const events: CheckoutObservabilityTelemetryEvent[] = [];
   const telemetry: CheckoutObservabilityTelemetry = {
@@ -132,10 +193,10 @@ function collectCheckoutObservabilityEvents() {
 describe("checkout cart routes", () => {
   it("counts cart item quantities instead of raw cart lines", async () => {
     const services = createServices();
-    vi.mocked(services.listCartLines).mockResolvedValue([
-      { line_id: "cli_1", quantity: 2 },
-      { line_id: "cli_2", quantity: 3 },
-    ] as never);
+    vi.mocked(services.listAuthorizedCartLines).mockResolvedValue([
+      internalCartLineRow({ line_id: "cli_1", quantity: 2 }),
+      internalCartLineRow({ line_id: "cli_2", quantity: 3 }),
+    ]);
     const app = buildApp({
       actor: accountCartActor(),
       services,
@@ -150,7 +211,7 @@ describe("checkout cart routes", () => {
 
   it("lets guest checkout actors read their merged account cart", async () => {
     const services = createServices();
-    vi.mocked(services.listCartLines).mockResolvedValue([{ line_id: "cli_1", quantity: 1 }] as never);
+    vi.mocked(services.listAuthorizedCartLines).mockResolvedValue([internalCartLineRow({ line_id: "cli_1" })]);
     const app = buildApp({
       actor: guestCheckoutActor(),
       services,
@@ -162,7 +223,7 @@ describe("checkout cart routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       count: 1,
     });
-    expect(services.listCartLines).toHaveBeenCalledWith("acc_guest");
+    expect(services.listAuthorizedCartLines).toHaveBeenCalledWith({ accountId: "acc_guest" });
   });
 
   it("adds a browsed marketplace item to the current account cart", async () => {
@@ -1233,5 +1294,380 @@ describe("guest cart routes on a claimed anonymous key", () => {
       lineId: "cli_1",
       quantity: 3,
     });
+  });
+});
+
+describe("post-claim cart reads through the real Cart runtime", () => {
+  const CLAIMED_SOURCE = "anon_synthetic_claimed";
+  const UNCLAIMED_SOURCE = "anon_synthetic_unclaimed";
+  const OWNER = "acc_synthetic_owner";
+  const OTHER = "acc_synthetic_other";
+
+  const projectedLine = (ownerId: string, lineId: string) =>
+    internalCartLineRow({ buyer_account_id: ownerId, line_id: lineId, item_title: `Title ${lineId}` });
+
+  /**
+   * A real Cart runtime over a real in-memory event store, with the claimed
+   * source stream genuinely claimed by an appended event.
+   *
+   * The line-page double deliberately does hold lines for the claimed source,
+   * so every read below would return them if authority were skipped. A guard
+   * that passed here only because the projection happened to be empty would
+   * prove nothing.
+   */
+  function claimedCartHarness() {
+    const memory = createInMemoryEventStore();
+    // Timing-relevant work, recorded in order: an aggregate read and a
+    // projection read are the only I/O a guest cart read performs, so an
+    // inequality here is exactly the extra-query oracle AC3 forbids.
+    const work: string[] = [];
+    const unreadableStreams = new Set<string>();
+    const runtime = createCheckoutCartRuntime({
+      eventStore: {
+        ...memory.eventStore,
+        readStream: async (input: Parameters<typeof memory.eventStore.readStream>[0]) => {
+          work.push("aggregate-read");
+          if (unreadableStreams.has(input.streamId)) {
+            unreadableStreams.delete(input.streamId);
+            throw new Error("event store unavailable");
+          }
+          return memory.eventStore.readStream(input);
+        },
+      },
+      checkpointStore: {} as never,
+      db: {
+        query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+          if (sql.includes("WHERE claim.account_id = $1")) {
+            work.push("claim-lookup");
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.includes("WITH requested_owners")) {
+            work.push("projection-query");
+            const requested = [values[0], values[1], ...(Array.isArray(values[3]) ? values[3] : [])].filter(
+              (value): value is string => typeof value === "string",
+            );
+            const rows = [
+              ...(requested.includes(CLAIMED_SOURCE) ? [projectedLine(CLAIMED_SOURCE, "cli_claimed")] : []),
+              ...(requested.includes(UNCLAIMED_SOURCE) ? [projectedLine(UNCLAIMED_SOURCE, "cli_unclaimed")] : []),
+              ...(requested.includes(OTHER) ? [projectedLine(OTHER, "cli_other_account")] : []),
+            ];
+            return { rows, rowCount: rows.length };
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        }),
+      },
+    });
+    const context = {
+      tenantId: "tnt_synthetic",
+      audit: { performedByUserId: "usr_synthetic", forAccountId: OWNER },
+    } as never;
+
+    return {
+      memory,
+      runtime,
+      work,
+      resetWork: () => {
+        work.length = 0;
+      },
+      makeStreamUnreadableOnce: (ownerKey: string) => unreadableStreams.add(`checkout.cart-${ownerKey}`),
+      seedClaim: async () =>
+        runtime.commandHandler({
+          streamId: `checkout.cart-${CLAIMED_SOURCE}`,
+          context,
+          command: { type: "ClaimCart", sourceOwnerKey: CLAIMED_SOURCE, accountId: OWNER as AccountId },
+        }),
+      guestApp: () => {
+        const app = new Hono();
+        app.route("/guest", createGuestCartRoutes(runtime));
+        return app;
+      },
+      accountApp: (accountId: string) => buildApp({ actor: accountCartActor({ accountId }), services: runtime }),
+    };
+  }
+
+  it("returns the existing empty guest cart payload for a claimed key, byte-equal to the no-key control", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+
+    const claimed = await app.request("/guest/cart", {
+      headers: { "x-checkout-anonymous-cart-id": CLAIMED_SOURCE },
+    });
+    const noKey = await app.request("/guest/cart");
+    const claimedBody = await claimed.text();
+
+    expect([claimed.status, noKey.status]).toEqual([200, 200]);
+    expect(claimedBody).toBe(await noKey.text());
+    expect(JSON.parse(claimedBody)).toEqual({ items: [], count: 0 });
+  });
+
+  it("still reads an unclaimed key by possession, so the claimed refusal is not a vacuous empty read", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+
+    const response = await app.request("/guest/cart", {
+      headers: { "x-checkout-anonymous-cart-id": UNCLAIMED_SOURCE },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      count: 1,
+      items: [{ line_id: "cli_unclaimed" }],
+    });
+  });
+
+  it("returns guest readiness for a claimed key structurally equal to valid unclaimed-empty readiness", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+
+    const readiness = async (ownerKey: string) =>
+      app.request("/guest/cart/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": ownerKey },
+        body: JSON.stringify({}),
+      });
+
+    const refused = await readiness(CLAIMED_SOURCE);
+    // A key that never existed is the honest valid-unclaimed-and-empty control:
+    // it holds no lines and carries no claim.
+    const unclaimedEmpty = await readiness("anon_synthetic_absent");
+    const refusedBody = await refused.text();
+
+    expect([refused.status, unclaimedEmpty.status]).toEqual([200, 200]);
+    expect(refusedBody).toBe(await unclaimedEmpty.text());
+    const body = JSON.parse(refusedBody) as { readiness: { status: string; includedLineIds: readonly string[] } };
+    expect(body.readiness.status).toBe("blocked");
+    expect(body.readiness.includedLineIds).toEqual([]);
+  });
+
+  it("keeps the existing HTTP 400 for missing and malformed readiness headers", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+
+    for (const headers of [
+      {} as Record<string, string>,
+      { "x-checkout-anonymous-cart-id": "" },
+      { "x-checkout-anonymous-cart-id": "cart_synthetic_claimed" },
+      { "x-checkout-anonymous-cart-id": "  " },
+    ]) {
+      const response = await app.request("/guest/cart/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({}),
+      });
+
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as { error: { code: string } }).error.code).toBe("anonymous_cart_required");
+    }
+  });
+
+  it("excludes a foreign claimed key from Account readiness and leaves only the acting Account cart", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.accountApp(OTHER);
+
+    const readiness = async (headers: Record<string, string>) =>
+      app.request(
+        new Request("http://checkout.test/account/cart/readiness", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...headers },
+          body: JSON.stringify({}),
+        }),
+      );
+
+    const withForeignKey = await readiness({ "x-checkout-anonymous-cart-id": CLAIMED_SOURCE });
+    const accountOnly = await readiness({});
+    const accountOnlyBody = await accountOnly.text();
+
+    expect([withForeignKey.status, accountOnly.status]).toEqual([200, 200]);
+    // Identical to the Account-only snapshot: same included lines, same
+    // snapshot id, and the same source revision -- so the presented key
+    // contributed nothing at all, not merely no visible line.
+    expect(await withForeignKey.text()).toBe(accountOnlyBody);
+    const body = JSON.parse(accountOnlyBody) as { readiness: { includedLineIds: readonly string[] } };
+    expect(body.readiness.includedLineIds).toEqual(["cli_other_account"]);
+  });
+
+  it("lets the claimant Account read the claimed source it owns", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+
+    const authority = await harness.runtime.resolveCartSourceAuthority({
+      actingOwnerKey: OWNER,
+      presentedAnonymousCartId: CLAIMED_SOURCE,
+    });
+    const lines = await harness.runtime.listAuthorizedCartLines({
+      accountId: OWNER,
+      presentedAnonymousCartId: CLAIMED_SOURCE,
+    });
+
+    expect(authority).toEqual({ status: "accepted", acceptedVia: "account" });
+    expect(lines.map((line) => line.line_id)).toEqual(["cli_claimed"]);
+  });
+
+  it("publishes no cart owner marker on any account or guest cart payload", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const guest = harness.guestApp();
+    const account = harness.accountApp(OTHER);
+
+    const guestBody = await (
+      await guest.request("/guest/cart", { headers: { "x-checkout-anonymous-cart-id": UNCLAIMED_SOURCE } })
+    ).text();
+    const accountBody = await (
+      await account.request(new Request("http://checkout.test/account/cart", { method: "GET" }))
+    ).text();
+
+    for (const body of [guestBody, accountBody]) {
+      expect(body).not.toContain("buyer_account_id");
+      expect(body).not.toContain("anon_raw_marker");
+      expect(body).not.toContain(CLAIMED_SOURCE);
+      expect(body).not.toContain(UNCLAIMED_SOURCE);
+      // The cookie-clear classification is internal metadata for #5737 alone:
+      // it is not a public response field and not an error code.
+      expect(body).not.toContain("clearRetainedAnonymousCartCookie");
+      expect(body).not.toContain("acceptedVia");
+    }
+    // Both payloads still carry real line detail, so the absence above is an
+    // owner-field omission rather than an empty response.
+    expect(JSON.parse(guestBody)).toMatchObject({
+      items: [{ line_id: "cli_unclaimed", item_title: "Title cli_unclaimed" }],
+    });
+    expect(JSON.parse(accountBody)).toMatchObject({ items: [{ line_id: "cli_other_account" }] });
+  });
+
+  /**
+   * Byte-equal responses are not enough on their own: a refusal that skipped
+   * the projection read would still be distinguishable by the work performed.
+   * These controls freeze every non-governing fact and vary only the presented
+   * key's authority, then compare status, headers, body bytes and the ordered
+   * I/O trace together.
+   */
+  const headerPairs = (response: Response) =>
+    [...response.headers.entries()].map(([name, value]) => `${name}: ${value}`).sort();
+
+  it("performs identical read work for a refused claimed guest cart and a valid unclaimed-empty one", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+    const read = async (ownerKey: string) => {
+      harness.resetWork();
+      const response = await app.request("/guest/cart", {
+        headers: { "x-checkout-anonymous-cart-id": ownerKey },
+      });
+      return { response, body: await response.text(), work: [...harness.work] };
+    };
+
+    const refused = await read(CLAIMED_SOURCE);
+    const unclaimedEmpty = await read("anon_synthetic_absent");
+
+    expect(refused.work).toEqual(unclaimedEmpty.work);
+    expect(refused.work).toEqual(["aggregate-read", "projection-query"]);
+    expect(refused.response.status).toBe(unclaimedEmpty.response.status);
+    expect(headerPairs(refused.response)).toEqual(headerPairs(unclaimedEmpty.response));
+    expect(refused.body).toBe(unclaimedEmpty.body);
+    expect(JSON.parse(refused.body)).toEqual({ items: [], count: 0 });
+  });
+
+  it("performs identical read work for refused and valid unclaimed-empty guest readiness", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+    const read = async (ownerKey: string) => {
+      harness.resetWork();
+      const response = await app.request("/guest/cart/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-checkout-anonymous-cart-id": ownerKey },
+        body: JSON.stringify({}),
+      });
+      return { response, body: await response.text(), work: [...harness.work] };
+    };
+
+    const refused = await read(CLAIMED_SOURCE);
+    const unclaimedEmpty = await read("anon_synthetic_absent");
+
+    expect(refused.work).toEqual(unclaimedEmpty.work);
+    expect(refused.work).toEqual(["aggregate-read", "projection-query"]);
+    expect(refused.response.status).toBe(unclaimedEmpty.response.status);
+    expect(headerPairs(refused.response)).toEqual(headerPairs(unclaimedEmpty.response));
+    expect(refused.body).toBe(unclaimedEmpty.body);
+  });
+
+  it("keeps the unclaimed-nonempty positive control on the same read work, so equality is not vacuous", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+
+    harness.resetWork();
+    const response = await app.request("/guest/cart", {
+      headers: { "x-checkout-anonymous-cart-id": UNCLAIMED_SOURCE },
+    });
+    const body = await response.text();
+
+    // Same two reads as the refused control, and a real line comes back --
+    // so the equal-work claim is about the work, not about doing none.
+    expect(harness.work).toEqual(["aggregate-read", "projection-query"]);
+    expect(response.status).toBe(200);
+    expect(JSON.parse(body)).toMatchObject({ count: 1, items: [{ line_id: "cli_unclaimed" }] });
+  });
+
+  it("keeps an indeterminate guest read on the same work and response, and re-decides on retry", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+    const read = async (ownerKey: string) => {
+      harness.resetWork();
+      const response = await app.request("/guest/cart", {
+        headers: { "x-checkout-anonymous-cart-id": ownerKey },
+      });
+      return { response, body: await response.text(), work: [...harness.work] };
+    };
+
+    const unclaimedEmpty = await read("anon_synthetic_absent");
+    harness.makeStreamUnreadableOnce(UNCLAIMED_SOURCE);
+    const indeterminate = await read(UNCLAIMED_SOURCE);
+    const retry = await read(UNCLAIMED_SOURCE);
+
+    // A store failure is not a refusal and not an oracle: same status, headers,
+    // body bytes and work as a valid unclaimed-empty read, nothing cached, and
+    // the next attempt resolves the cart normally.
+    expect(indeterminate.work).toEqual(unclaimedEmpty.work);
+    expect(indeterminate.response.status).toBe(unclaimedEmpty.response.status);
+    expect(headerPairs(indeterminate.response)).toEqual(headerPairs(unclaimedEmpty.response));
+    expect(indeterminate.body).toBe(unclaimedEmpty.body);
+    expect(indeterminate.body).not.toContain("clearRetainedAnonymousCartCookie");
+    expect(JSON.parse(retry.body)).toMatchObject({ count: 1, items: [{ line_id: "cli_unclaimed" }] });
+  });
+
+  it("goes red against a bypass that skips the projection read once authority is refused", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+    const app = harness.guestApp();
+
+    harness.resetWork();
+    await app.request("/guest/cart", { headers: { "x-checkout-anonymous-cart-id": CLAIMED_SOURCE } });
+    const refusedWork = [...harness.work];
+    // The mutant: short-circuit to [] the moment authority is not accepted.
+    const shortCircuited = refusedWork.filter((entry) => entry !== "projection-query");
+
+    expect(refusedWork).toContain("projection-query");
+    expect(shortCircuited).not.toEqual(refusedWork);
+  });
+
+  it("would surface the claimed lines if the read authority guard were bypassed", async () => {
+    const harness = claimedCartHarness();
+    await harness.seedClaim();
+
+    // The bypass mutant: read the same source through the raw union instead of
+    // the authorized read. It returns the claimed line, which is exactly what
+    // every guarded read above must never return.
+    const bypassed = await harness.runtime.listCartLines(CLAIMED_SOURCE);
+    const guarded = await harness.runtime.listAuthorizedCartLines({ accountId: CLAIMED_SOURCE });
+
+    expect(bypassed.map((line) => line.line_id)).toEqual(["cli_claimed"]);
+    expect(guarded).toEqual([]);
   });
 });

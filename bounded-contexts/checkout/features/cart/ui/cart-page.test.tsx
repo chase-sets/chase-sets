@@ -39,8 +39,10 @@ vi.mock("react-router", async () => {
   };
 });
 
+// The public Cart line the UI actually consumes. It carries no
+// `buyer_account_id`: the field is absent from `CheckoutCartLine`, so adding it
+// back here would fail to compile before it could ever reach a rendered page.
 const cartLine: CheckoutCartLine = {
-  buyer_account_id: "acc_buyer",
   line_id: "cart_line_1",
   catalog_catalog_item_id: "cat_charizard",
   product_id: "cat_charizard::condition:raw",
@@ -819,5 +821,20 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Keep shopping");
     expect(markup).toContain('href="/account/cart?afterWrite=expired"');
     expect(markup).not.toContain("Your cart is catching up");
+  });
+
+  it("renders a cart line without publishing any cart owner marker", () => {
+    const anonymousSourcedLine = { ...cartLine, line_id: "cart_line_anonymous" };
+
+    // The public UI contract has no owner field to populate, so the only way an
+    // owner key could reach the page is through some other value. Presenting a
+    // recognizable marker everywhere a string is accepted proves none does.
+    const markup = renderToString(<CheckoutCartPage cartLines={[anonymousSourcedLine]} />);
+
+    expect(markup).toContain("Charizard");
+    expect(markup).not.toContain("buyer_account_id");
+    expect(markup).not.toContain("anon_raw_marker");
+    expect(markup).not.toContain("acc_buyer");
+    expect(Object.keys(anonymousSourcedLine)).not.toContain("buyer_account_id");
   });
 });

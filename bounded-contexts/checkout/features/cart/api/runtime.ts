@@ -16,6 +16,7 @@ import {
 } from "../../../support/runtime-support/common";
 import {
   decideCheckoutCart,
+  decideCheckoutCartReadAuthorityFromState,
   evolveCheckoutCart,
   initialCheckoutCartState,
   requireCheckoutCartClaimIdentity,
@@ -24,6 +25,7 @@ import {
   type CheckoutSelectedListingSnapshotInput,
   type CheckoutCartState,
 } from "../domain/domain";
+import { classifyCheckoutCartSourceAuthority, type CheckoutCartSourceAuthority } from "./contracts";
 import {
   createCartReadinessSnapshot,
   type CartReadinessDecisionInput,
@@ -31,12 +33,47 @@ import {
 } from "../domain/readiness";
 import { buildCheckoutCartProjectionHandlers } from "../read-model/projection";
 import {
+  listAuthorizedOwnerCartLines,
   listCartLines,
   listClaimedCartOwnerKeys,
   listOwnCartLines,
   ownerKeyCanHoldClaims,
   reconcileCheckoutCartClaim,
+  type CheckoutCartLineRow,
 } from "../read-model/queries";
+
+/**
+ * Aggregate reads for claimed-source candidates run a few at a time so that an
+ * uncapped claim set cannot turn one Cart read into one simultaneous
+ * event-store round trip per claimed source.
+ */
+export const CHECKOUT_CART_SOURCE_AUTHORITY_WORKERS = 4;
+
+/**
+ * Maps every input with at most `limit` calls in flight, in input order.
+ *
+ * The pool is deliberately explicit rather than a `Promise.all` over the whole
+ * set: the caller's input is uncapped, and the result array is filled by index
+ * so the bound costs no determinism.
+ */
+async function mapWithBoundedConcurrency<TInput, TOutput>(
+  inputs: readonly TInput[],
+  limit: number,
+  map: (input: TInput) => Promise<TOutput>,
+): Promise<TOutput[]> {
+  const results = new Array<TOutput>(inputs.length);
+  let nextIndex = 0;
+  const runWorker = async () => {
+    while (nextIndex < inputs.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await map(inputs[index]!);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(limit, inputs.length) }, runWorker));
+  return results;
+}
 
 function isIdempotentMergeReplay(error: unknown) {
   return (
@@ -161,12 +198,40 @@ export type CheckoutCartServices = Readonly<{
     }>,
   ) => Promise<CartReadinessSnapshot>;
   listCartLines: (accountId: string, presentedAnonymousCartId?: string | null) => ReturnType<typeof listCartLines>;
+  /**
+   * The single post-claim read decision for one presented anonymous source,
+   * taken from complete Cart aggregate state.
+   *
+   * Callers that need to know *whether* a key may be sourced -- Checkout
+   * Session start and every active-session revalidation -- ask here. Callers
+   * that only need the lines a reader may see use `listAuthorizedCartLines`,
+   * which applies this same decision.
+   */
+  resolveCartSourceAuthority: (
+    params: Readonly<{ actingOwnerKey: string; presentedAnonymousCartId: string }>,
+  ) => Promise<CheckoutCartSourceAuthority>;
+  /**
+   * Cart lines the acting owner may actually read, with every unauthorized
+   * source -- presented or alias-derived -- already excluded. Unlike
+   * `listCartLines`, which is the raw union used for write routing and internal
+   * provenance, this never returns a line sourced from a stream the reader has
+   * lost authority over, and never derives a source from the claim alias.
+   *
+   * The projection read is issued for every syntactically valid key and its rows
+   * are discarded afterwards when authority is refused or indeterminate, so a
+   * guest refusal costs the same aggregate reads and projection queries a valid
+   * unclaimed key does. Nothing about the decision is cached, exposed, or
+   * allowed to change a status, body, or header.
+   */
+  listAuthorizedCartLines: (
+    params: Readonly<{ accountId: string; presentedAnonymousCartId?: string | null }>,
+  ) => Promise<CheckoutCartLineRow[]>;
   listClaimedOwnerKeys: (accountId: string) => ReturnType<typeof listClaimedCartOwnerKeys>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): CheckoutCartServices {
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<CheckoutCartEvent>(),
     initialState: () => initialCheckoutCartState,
@@ -220,6 +285,113 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
 
   function isMissingCartLine(error: unknown) {
     return error instanceof CheckoutDomainError && error.message === "Cart line not found.";
+  }
+
+  /**
+   * Resolves post-claim read authority from the source stream's own complete
+   * event history.
+   *
+   * The read is deliberately the aggregate and nothing else. `checkout_cart_claims`
+   * is never consulted: an event-committed claim whose alias row never landed
+   * must still refuse a stranger, and a stale or foreign alias row must not
+   * invent access that the events do not support.
+   *
+   * A failed load is reported as `indeterminate`, never as an unclaimed cart.
+   * This catch is the whole point of the variant -- degrading an unreadable
+   * stream into "nobody claimed it" is exactly how possession would quietly
+   * outlive a claim during a store outage. Indeterminate is not remembered
+   * anywhere: the next attempt re-reads authority from scratch.
+   */
+  const resolveCartSourceAuthority: CheckoutCartServices["resolveCartSourceAuthority"] = async (params) => {
+    let state: CheckoutCartState;
+    try {
+      state = (await repository.load(`checkout.cart-${params.presentedAnonymousCartId}`)).state;
+    } catch {
+      return { status: "indeterminate" };
+    }
+
+    return classifyCheckoutCartSourceAuthority(decideCheckoutCartReadAuthorityFromState(state, params.actingOwnerKey));
+  };
+
+  /**
+   * Narrows a read to the sources the acting owner still has authority over.
+   *
+   * Two shapes reach here. A guest reads under the anonymous key itself, so a
+   * refused or indeterminate answer leaves no readable source at all and the
+   * read resolves to zero lines -- the same answer an unclaimed empty cart
+   * gives, which is what keeps guest responses non-enumerating. An Account
+   * reads under its own key, carries every source key its claim alias names,
+   * and may additionally present an anonymous one.
+   *
+   * The alias rows are candidate discovery and nothing more. An absent
+   * presented key is not an absence of sources to authorize: every candidate is
+   * decided against its own Cart aggregate here, and only a candidate accepted
+   * *via Account* becomes a requested owner. A refused candidate is a stale or
+   * foreign alias row that must not widen the read set, and an indeterminate one
+   * is excluded for this request only -- retryable, never recorded, and never
+   * cookie-clear eligible -- so a store failure can transiently narrow a
+   * claimant's union but can never widen one.
+   *
+   * The presented key is admitted more broadly than a candidate, by possession
+   * of an unclaimed cart or by being the claimant, because presenting a key is
+   * the one place possession still means something.
+   *
+   * The acting Account's own key is never a candidate and never gated:
+   * `checkout.cart-acc_x` is that Account's own stream by construction.
+   *
+   * Candidate decisions are issued as one bounded concurrent batch -- at most
+   * `CHECKOUT_CART_SOURCE_AUTHORITY_WORKERS` aggregate reads in flight,
+   * never one per alias row and never one serial read per alias row -- are
+   * taken once per call, and are never memoized across calls or requests.
+   */
+  async function resolveAuthorizedCartSource(
+    accountId: string,
+    presentedAnonymousCartId?: string | null,
+  ): Promise<{
+    readable: boolean;
+    presentedAnonymousCartId: string | null;
+    authorizedClaimedOwnerKeys: readonly string[];
+  }> {
+    if (!ownerKeyCanHoldClaims(accountId)) {
+      const authority = await resolveCartSourceAuthority({
+        actingOwnerKey: accountId,
+        presentedAnonymousCartId: accountId,
+      });
+      return {
+        readable: authority.status === "accepted",
+        presentedAnonymousCartId: null,
+        authorizedClaimedOwnerKeys: [],
+      };
+    }
+
+    const presented = presentedAnonymousCartId ?? null;
+    const candidateOwnerKeys = await listClaimedCartOwnerKeys(deps.db, accountId);
+    // A presented key that is also claimed is decided once, not twice: it is the
+    // same aggregate either way, and the union collapses it to one requested
+    // owner at the stronger claimed precedence.
+    const decidedOwnerKeys =
+      presented && !candidateOwnerKeys.includes(presented) ? [...candidateOwnerKeys, presented] : candidateOwnerKeys;
+    const decisions = new Map(
+      await mapWithBoundedConcurrency(
+        decidedOwnerKeys,
+        CHECKOUT_CART_SOURCE_AUTHORITY_WORKERS,
+        async (ownerKey) =>
+          [
+            ownerKey,
+            await resolveCartSourceAuthority({ actingOwnerKey: accountId, presentedAnonymousCartId: ownerKey }),
+          ] as const,
+      ),
+    );
+
+    const presentedDecision = presented ? decisions.get(presented) : undefined;
+    return {
+      readable: true,
+      presentedAnonymousCartId: presentedDecision?.status === "accepted" ? presented : null,
+      authorizedClaimedOwnerKeys: candidateOwnerKeys.filter((ownerKey) => {
+        const decision = decisions.get(ownerKey);
+        return decision?.status === "accepted" && decision.acceptedVia === "account";
+      }),
+    };
   }
 
   const addLine: CheckoutCartServices["addLine"] = async (params, context) => {
@@ -556,20 +728,45 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
 
       return { mergedLineCount: sourceLines.length };
     },
+    // Readiness resolves its own source authority rather than trusting the
+    // caller's key, so a guest whose cart was claimed and an Account presenting
+    // a foreign key both get a snapshot built from sources they may actually
+    // read. A refused guest key yields the zero-line snapshot an unclaimed
+    // empty cart produces, and reaches it after the same projection read, so
+    // the refusal is non-enumerating in the work performed as well as in the
+    // bytes returned.
     createReadinessSnapshot: async (params) => {
-      const lines = await listCartLines(deps.db, params.accountId, params.presentedAnonymousCartId);
+      const source = await resolveAuthorizedCartSource(params.accountId, params.presentedAnonymousCartId);
+      const projected = await listAuthorizedOwnerCartLines(
+        deps.db,
+        params.accountId,
+        source.authorizedClaimedOwnerKeys,
+        source.presentedAnonymousCartId,
+      );
+      const lines = source.readable ? projected : [];
       return createCartReadinessSnapshot(
         lines,
         params.decisions,
-        params.presentedAnonymousCartId
+        source.presentedAnonymousCartId
           ? {
               accountId: params.accountId,
-              presentedAnonymousCartId: params.presentedAnonymousCartId,
+              presentedAnonymousCartId: source.presentedAnonymousCartId,
             }
           : undefined,
       );
     },
     listCartLines: (accountId, presentedAnonymousCartId) => listCartLines(deps.db, accountId, presentedAnonymousCartId),
+    resolveCartSourceAuthority,
+    listAuthorizedCartLines: async (params) => {
+      const source = await resolveAuthorizedCartSource(params.accountId, params.presentedAnonymousCartId);
+      const projected = await listAuthorizedOwnerCartLines(
+        deps.db,
+        params.accountId,
+        source.authorizedClaimedOwnerKeys,
+        source.presentedAnonymousCartId,
+      );
+      return source.readable ? projected : [];
+    },
     listClaimedOwnerKeys: (accountId) => listClaimedCartOwnerKeys(deps.db, accountId),
     projectors: [cartProjector],
   };

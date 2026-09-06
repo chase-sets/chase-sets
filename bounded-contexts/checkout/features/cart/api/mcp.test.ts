@@ -3,7 +3,48 @@ import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import { createCheckoutCartMcpHandlers, type CheckoutCartMcpServices } from "./mcp";
+import type { CheckoutCartLineRow } from "../read-model/queries";
 import type { CheckoutCartServices } from "./runtime";
+
+/**
+ * A complete internal Cart line row, derived from the real read-model type
+ * rather than hand-shaped. It carries `buyer_account_id` because the internal
+ * row does; whether that survives the MCP boundary is what these tests decide.
+ */
+function internalCartLineRow(overrides: Partial<CheckoutCartLineRow> = {}): CheckoutCartLineRow {
+  return {
+    buyer_account_id: "anon_raw_marker",
+    line_id: "cli_1",
+    catalog_catalog_item_id: "cat_1",
+    product_id: "cat_1::condition:near-mint",
+    item_language_code: "en",
+    item_title: "Charizard",
+    item_subtitle: null,
+    item_image_url: null,
+    item_image_srcset: null,
+    item_image_loading_url: null,
+    item_image_loading_alt: null,
+    item_image_loading_srcset: null,
+    selected_options: [],
+    product_summary: null,
+    quantity: 1,
+    fulfillment_mode: "locked-listing",
+    locked_listing_id: "lst_1",
+    selected_listing_id: null,
+    selected_listing_seller_account_id: null,
+    selected_listing_seller_display_name: null,
+    selected_listing_seller_slug: null,
+    selected_listing_price_amount: null,
+    selected_listing_snapshot_source: null,
+    selected_listing_snapshot_captured_at: null,
+    seller_preference_id: null,
+    availability_state: "available",
+    seller_options: [],
+    created_at: "2026-07-07T00:00:00.000Z",
+    updated_at: "2026-07-07T00:00:00.000Z",
+    ...overrides,
+  };
+}
 
 const actor = {
   sessionId: "sess_1",
@@ -24,23 +65,25 @@ const legacyMcpProtocol = {
 
 function services(): CheckoutCartMcpServices {
   return {
+    // Typed against the real Cart interface rather than cast through `unknown`:
+    // a signature change on any member the MCP boundary consumes must fail this
+    // double to compile before it can fail a handler at runtime.
     cart: {
-      listCartLines: vi.fn(async (accountId) => [
-        {
-          line_id: "cli_1",
-          buyer_account_id: accountId,
-          catalog_item_id: "cat_1",
-          product_id: "cat_1::condition:near-mint",
-          item_title: "Charizard",
-          quantity: 1,
-          updated_at: "2026-07-07T00:00:00.000Z",
-        },
+      listAuthorizedCartLines: vi.fn<CheckoutCartServices["listAuthorizedCartLines"]>(async () => [
+        internalCartLineRow(),
       ]),
-      addLine: vi.fn(async () => ({ lineId: "cli_2", version: 2, status: "added" })),
-      setLineQuantity: vi.fn(async ({ lineId }) => ({ lineId, version: 3 })),
-      setLineFulfillment: vi.fn(async ({ lineId }) => ({ lineId, version: 4 })),
-      removeLine: vi.fn(async ({ lineId }) => ({ lineId, version: 5 })),
-    } as unknown as CheckoutCartMcpServices["cart"],
+      addLine: vi.fn<CheckoutCartServices["addLine"]>(async () => ({
+        lineId: "cli_2" as never,
+        version: 2,
+        status: "added",
+      })),
+      setLineQuantity: vi.fn<CheckoutCartServices["setLineQuantity"]>(async ({ lineId }) => ({ lineId, version: 3 })),
+      setLineFulfillment: vi.fn<CheckoutCartServices["setLineFulfillment"]>(async ({ lineId }) => ({
+        lineId,
+        version: 4,
+      })),
+      removeLine: vi.fn<CheckoutCartServices["removeLine"]>(async ({ lineId }) => ({ lineId, version: 5 })),
+    } satisfies CheckoutCartMcpServices["cart"],
     sessions: {
       cancelSession: vi.fn(async ({ sessionId }) => ({
         sessionId,
@@ -130,7 +173,59 @@ describe("checkout cart MCP handlers", () => {
       total: 1,
       items: [expect.objectContaining({ line_id: "cli_1", item_title: "Charizard" })],
     });
-    expect(fakeServices.cart.listCartLines).toHaveBeenCalledWith("acc_1");
+    expect(fakeServices.cart.listAuthorizedCartLines).toHaveBeenCalledWith({ accountId: "acc_1" });
+  });
+
+  it("publishes Account-scoped cart lines with no owner provenance in the MCP payload", async () => {
+    const fakeServices = services();
+    const handlers = createCheckoutCartMcpHandlers(fakeServices);
+
+    const result = await handlers.toolHandlers["checkout.get-cart"]?.({
+      actor,
+      tool: null as never,
+      arguments: { accountId: "acc_1" },
+      request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
+    });
+
+    // The row the service returned carries `anon_raw_marker` as its owner. If
+    // the boundary forwarded rows unmapped -- as it did before this slice --
+    // the marker would appear verbatim in the serialized tool output.
+    const [item] = (result as { items: readonly Record<string, unknown>[] }).items;
+    expect(Object.keys(item ?? {})).not.toContain("buyer_account_id");
+    expect(JSON.stringify(result)).not.toContain("anon_raw_marker");
+    expect(JSON.stringify(result)).not.toContain("buyer_account_id");
+    expect(JSON.stringify(result)).not.toContain("clearRetainedAnonymousCartCookie");
+    expect(JSON.stringify(result)).not.toContain("acceptedVia");
+    // Non-owner line detail still reaches the agent, so this is a targeted
+    // omission rather than a blanket redaction that would pass vacuously.
+    expect(item).toMatchObject({ line_id: "cli_1", item_title: "Charizard", quantity: 1 });
+  });
+
+  it("keeps checkout.get-cart Account-scoped when anonymous-looking arguments and headers are presented", async () => {
+    const fakeServices = services();
+    const handlers = createCheckoutCartMcpHandlers(fakeServices);
+
+    const result = await handlers.toolHandlers["checkout.get-cart"]?.({
+      actor,
+      tool: null as never,
+      arguments: {
+        accountId: "acc_1",
+        anonymousCartId: "anon_raw_marker",
+        presentedAnonymousCartId: "anon_raw_marker",
+        ownerKey: "anon_raw_marker",
+      },
+      request: new Request("https://api.test/mcp", {
+        headers: { "x-checkout-anonymous-cart-id": "anon_raw_marker" },
+      }),
+      protocol: legacyMcpProtocol,
+    });
+
+    // MCP has no anonymous transport to guard: scope comes only from the
+    // resolved actor account, so no argument or header reaches Cart at all.
+    expect(fakeServices.cart.listAuthorizedCartLines).toHaveBeenCalledTimes(1);
+    expect(fakeServices.cart.listAuthorizedCartLines).toHaveBeenCalledWith({ accountId: "acc_1" });
+    expect(JSON.stringify(result)).not.toContain("anon_raw_marker");
   });
 
   it("rejects account id mismatches before reading cart state", async () => {
@@ -146,7 +241,7 @@ describe("checkout cart MCP handlers", () => {
         protocol: legacyMcpProtocol,
       }),
     ).rejects.toThrow("accountId must match the authenticated actor account.");
-    expect(fakeServices.cart.listCartLines).not.toHaveBeenCalled();
+    expect(fakeServices.cart.listAuthorizedCartLines).not.toHaveBeenCalled();
   });
 
   it("adds cart lines through Checkout and returns an MCP write receipt", async () => {
