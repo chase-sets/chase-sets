@@ -289,6 +289,13 @@ function createConfiguredAssetFetch(
   profileVersion: CatalogProviderIntegrationProfileVersionRecord,
   fetch: typeof globalThis.fetch = globalThis.fetch,
 ): typeof globalThis.fetch {
+  if (preset.providerKey === "scrydex") {
+    return (resource, options) => {
+      const headers = new Headers(options?.headers);
+      headers.set("Accept", "image/webp,image/jpeg,image/png");
+      return fetch(resource, { ...options, headers });
+    };
+  }
   if (preset.providerKey !== "tcgdex") {
     return fetch;
   }
