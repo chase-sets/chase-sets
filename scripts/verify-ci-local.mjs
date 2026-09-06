@@ -86,7 +86,7 @@ function errorCode(error, fallback = "FAIL_CLOSED_ERROR") {
 }
 
 function resolvePnpmCommand() {
-  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  return "pnpm";
 }
 
 function command(commandName, args, { env = {}, clearEnv = [] } = {}) {
@@ -229,6 +229,7 @@ export function defaultCommandExecutor(spec) {
     env,
     encoding: "utf8",
     stdio: ["inherit", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
     windowsHide: true,
   });
   if (result.error) throw result.error;
