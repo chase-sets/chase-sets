@@ -1807,7 +1807,7 @@ function mountedProjectionGroups(
 type PaymentsApiEntry = Readonly<{
   mountPath: string;
   contextMountOrdinal: number;
-  router: { routes: readonly { method: string; path: string; handler: unknown }[] };
+  router: Hono;
 }>;
 
 function paymentsApiEntries(module: PaymentsHostModule, services: unknown): readonly PaymentsApiEntry[] {
@@ -2217,12 +2217,7 @@ describe("platform API payment provider mode observation", () => {
       if (route.path === "/payment-provider-mode") {
         continue;
       }
-      const handler = route.handler as Parameters<typeof rolledBackRouter.all>[1];
-      if (route.method === "ALL") {
-        rolledBackRouter.all(route.path, handler);
-        continue;
-      }
-      rolledBackRouter.on(route.method, route.path, handler);
+      rolledBackRouter.on([route.method], [route.path], route.handler);
     }
 
     const currentEntries = paymentsApiEntries(paymentsRegistryModule(), paymentsServices);
