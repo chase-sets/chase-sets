@@ -126,6 +126,7 @@ function resetConfigEnv() {
   delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS;
   delete process.env.STRIPE_CONNECT_ACCOUNTS_API;
   delete process.env.STRIPE_API_BASE_URL;
+  delete process.env.EVIDENCE_WINDOW_ADMISSION_SECRET;
   delete process.env.EASYPOST_API_KEY;
   delete process.env.EASYPOST_WEBHOOK_SECRET;
   delete process.env.EASYPOST_API_BASE_URL;
@@ -519,6 +520,8 @@ describe("platform api config", () => {
 
     expect(loadConfig().paymentProcessor).toEqual({ kind: "fake" });
     expect(loadConfig().moneyMovement).toEqual({ kind: "fake" });
+    expect(loadConfig().stripeEffectiveMode).toBe("unconfigured");
+    expect(loadConfig().evidenceWindowAdmissionSecret).toBeUndefined();
     expect(loadConfig().mobileMessaging).toEqual({ kind: "noop" });
     expect(loadConfig().catalogAssetStorage).toEqual({
       kind: "filesystem",
@@ -531,6 +534,24 @@ describe("platform api config", () => {
       publicBaseUrl: "http://localhost:6182/marketplace-listing-photos",
     });
     expect(loadConfig().taxProviderBackedQuotesRequired).toBe(false);
+  });
+
+  it("loads only the dedicated evidence-window secret and preserves the constructed-gateway mode authority", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "shared-internal-secret";
+
+    expect(loadConfig().evidenceWindowAdmissionSecret).toBeUndefined();
+
+    process.env.EVIDENCE_WINDOW_ADMISSION_SECRET = "  dedicated-window-secret  ";
+    process.env.STRIPE_SECRET_KEY = "sk_test_asymmetric";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_asymmetric";
+    const config = loadConfig();
+
+    expect(config.evidenceWindowAdmissionSecret).toBe("dedicated-window-secret");
+    expect(config.evidenceWindowAdmissionSecret).not.toBe(process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV]);
+    expect(config.paymentProcessor).toEqual({ kind: "fake" });
+    expect(config.moneyMovement).toMatchObject({ kind: "stripe" });
+    expect(config.stripeEffectiveMode).toBe("test");
   });
 
   it("matches the pre-extraction shared config shape for a representative environment", () => {

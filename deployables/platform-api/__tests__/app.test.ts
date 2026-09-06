@@ -21,6 +21,10 @@ import {
   MCP_PROTOCOL_VERSION_HEADER,
 } from "@chase-sets/platform-runtime/mcp-protocol";
 import {
+  EVIDENCE_WINDOW_ADMISSION_HEADER,
+  type EvidenceWindowRegistration,
+} from "@chase-sets/platform-runtime/control-plane";
+import {
   createUcpEnvelope,
   UCP_MCP_CART_REVIEW_RESOURCE_URI,
   UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
@@ -241,6 +245,69 @@ function createIdentityRuntime(services: Record<string, unknown>) {
 }
 
 describe("platform api app wiring", () => {
+  it("keeps every evidence-window route unmounted until dedicated admission is configured", async () => {
+    const app = buildPlatformApiApp(createEmptyRuntime());
+
+    const responses = await Promise.all([
+      app.request("/internal/evidence-windows/open", { method: "POST" }),
+      app.request("/internal/evidence-windows/current"),
+      app.request("/internal/evidence-windows/0123456789abcdef0123456789abcdef/close", { method: "POST" }),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([404, 404, 404]);
+  });
+
+  it("mounts the three registration-only routes under the dedicated admission contract", async () => {
+    const registration: EvidenceWindowRegistration = {
+      open: vi.fn(async ({ windowId }) => ({
+        windowId,
+        state: "open" as const,
+        openedAt: "2026-09-05T20:00:00.000Z",
+        expiresAt: "2026-09-05T21:00:00.000Z",
+        version: 1,
+      })),
+      current: vi.fn(async () => null),
+      close: vi.fn(async ({ windowId }) => ({
+        windowId,
+        state: "closed" as const,
+        closedAt: "2026-09-05T20:30:00.000Z",
+        version: 2,
+      })),
+    };
+    const app = buildPlatformApiApp(createEmptyRuntime(), {
+      evidenceWindowRegistration: {
+        admissionSecret: "synthetic-evidence-window-secret",
+        authority: {
+          effectiveMode: "test",
+          gatewayKinds: { paymentProcessor: "fake", moneyMovement: "stripe" },
+        },
+        registration,
+      },
+    });
+    const headers = {
+      "content-type": "application/json",
+      [EVIDENCE_WINDOW_ADMISSION_HEADER]: "synthetic-evidence-window-secret",
+    };
+
+    const open = await app.request("/internal/evidence-windows/open", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ windowId: "0123456789abcdef0123456789abcdef", retentionSeconds: 3_600 }),
+    });
+    const current = await app.request("/internal/evidence-windows/current", { headers });
+    const close = await app.request("/internal/evidence-windows/0123456789abcdef0123456789abcdef/close", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ expectedVersion: 1 }),
+    });
+
+    expect([open.status, current.status, close.status]).toEqual([200, 200, 200]);
+    await expect(current.json()).resolves.toEqual({ current: null });
+    expect(registration.open).toHaveBeenCalledTimes(1);
+    expect(registration.current).toHaveBeenCalledTimes(1);
+    expect(registration.close).toHaveBeenCalledTimes(1);
+  });
+
   it("mounts platform health aliases", async () => {
     const app = buildPlatformApiApp(createEmptyRuntime(), {
       readinessChecks: [

@@ -74,6 +74,9 @@ import { createPostgresWebNotificationAdapter } from "@chase-sets/web-notificati
 import { createTwilioMessagingAdapter } from "@chase-sets/twilio-messaging";
 import {
   bootstrapPlatformControlPlane,
+  createEvidenceWindowCorrelation,
+  createNullEvidenceWindowCorrelation,
+  createPostgresEvidenceWindowRegistration,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
@@ -124,6 +127,10 @@ await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>
 );
 const runtimeLifecycle = createRuntimeLifecycleRegistry();
 const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
+const evidenceWindowCorrelation =
+  config.evidenceWindowAdmissionSecret && config.stripeEffectiveMode === "test"
+    ? createEvidenceWindowCorrelation(createPostgresEvidenceWindowRegistration(pools.control))
+    : createNullEvidenceWindowCorrelation();
 let projectionWakeRunnerLoop: WorkerRunnerLoop | null = null;
 const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   observer: {
@@ -247,6 +254,7 @@ runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     catalogAssetStorage,
     ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
+    evidenceWindowCorrelation,
     ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
     ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
     ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),

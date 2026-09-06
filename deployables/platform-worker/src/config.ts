@@ -20,6 +20,7 @@ import {
   type PlatformPaymentProcessorConfig,
   type PlatformPoolConfig,
   type PlatformPostageConfig,
+  type PlatformStripeEffectiveMode,
   type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
 import {
@@ -42,6 +43,8 @@ export type PlatformWorkerConfig = Readonly<{
   pool: PlatformWorkerPoolConfig;
   catalogAssetStorage: PlatformWorkerCatalogAssetStorageConfig;
   port: number;
+  evidenceWindowAdmissionSecret?: string;
+  stripeEffectiveMode: PlatformStripeEffectiveMode;
   workerId: string;
   maxConcurrentRunners: number;
   projectionMaxConcurrentRunners: number;
@@ -320,6 +323,7 @@ export function loadConfig(): PlatformWorkerConfig {
       )}/catalog-assets`,
     }),
     port,
+    evidenceWindowAdmissionSecret: getOptionalEnv("EVIDENCE_WINDOW_ADMISSION_SECRET") ?? undefined,
     workerId: getOptionalEnv("WORKER_ID") ?? `platform-worker-${process.pid}-${Date.now().toString(36)}`,
     maxConcurrentRunners,
     projectionMaxConcurrentRunners: getPositiveNumberEnv(
@@ -559,6 +563,7 @@ export function loadConfig(): PlatformWorkerConfig {
     },
     paymentProcessor: stripeProvider.paymentProcessor,
     moneyMovement: stripeProvider.moneyMovement,
+    stripeEffectiveMode: stripeProvider.effectiveMode,
     mobileMessaging:
       mobileMessagingProvider === "twilio"
         ? {
