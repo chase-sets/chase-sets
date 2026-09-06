@@ -122,6 +122,7 @@ export const frozenProfileDiagnostics: Readonly<Record<string, ProfileUniverse>>
       "auth",
       "authenticity",
       "catalog",
+      "channels",
       "checkout",
       "collections",
       "commercial-terms",
@@ -147,6 +148,7 @@ export const frozenProfileDiagnostics: Readonly<Record<string, ProfileUniverse>>
       "auth",
       "authenticity",
       "catalog",
+      "channels",
       "checkout",
       "collections",
       "commercial-terms",
@@ -172,6 +174,7 @@ export const frozenProfileDiagnostics: Readonly<Record<string, ProfileUniverse>>
       "auth",
       "authenticity",
       "catalog",
+      "channels",
       "checkout",
       "collections",
       "commercial-terms",
@@ -197,6 +200,7 @@ export const frozenProfileDiagnostics: Readonly<Record<string, ProfileUniverse>>
     sourceOnly: ["commercial-terms", "fulfillment", "marketplace", "ordering", "settlement"],
     omitted: [
       "authenticity",
+      "channels",
       "checkout",
       "collections",
       "customer-feedback",
@@ -1424,7 +1428,7 @@ export function assignAuthoritativeSeedResumeState(state: PlatformApiBootstrapTe
  * asserts this, which is what proves the opt-in handoff did not leak.
  */
 export async function expectZeroRelationCaseEntry(caseLabel: string): Promise<void> {
-  expect(platformApiContextNames).toHaveLength(19);
+  expect(platformApiContextNames).toHaveLength(20);
   const relations = await activeContextRelationCounts();
   expect(relations, `case entry for '${caseLabel}': ${JSON.stringify(relations)}`).toEqual(
     Object.fromEntries(platformApiContextNames.map((contextName) => [contextName, 0])),

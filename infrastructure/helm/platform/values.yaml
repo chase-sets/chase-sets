@@ -334,6 +334,9 @@ components:
       - name: "DATABASE_URL_CATALOG"
         secret: true
         secretKey: "DATABASE_URL_CATALOG"
+      - name: "DATABASE_URL_CHANNELS"
+        secret: true
+        secretKey: "DATABASE_URL_CHANNELS"
       - name: "DATABASE_URL_CATALOG_WAITER"
         secret: true
         secretKey: "DATABASE_URL_CATALOG_WAITER"
@@ -634,6 +637,9 @@ components:
       - name: "DATABASE_URL_CATALOG"
         secret: true
         secretKey: "DATABASE_URL_CATALOG"
+      - name: "DATABASE_URL_CHANNELS"
+        secret: true
+        secretKey: "DATABASE_URL_CHANNELS"
       - name: "DATABASE_URL_CHECKOUT"
         secret: true
         secretKey: "DATABASE_URL_CHECKOUT"
@@ -943,6 +949,9 @@ components:
       - name: "DATABASE_URL_CATALOG"
         secret: true
         secretKey: "BOOTSTRAP_DATABASE_URL_CATALOG"
+      - name: "DATABASE_URL_CHANNELS"
+        secret: true
+        secretKey: "BOOTSTRAP_DATABASE_URL_CHANNELS"
       - name: "DATABASE_URL_CHECKOUT"
         secret: true
         secretKey: "BOOTSTRAP_DATABASE_URL_CHECKOUT"

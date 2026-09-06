@@ -1,26 +1,70 @@
 {
   "contextName": "channels",
   "packageName": "@chase-sets/channels",
-  "ownedNouns": [],
+  "ownedNouns": ["channel-connection"],
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
-  "slices": [],
+  "slices": ["connections"],
   "allowedSupportDirectories": [],
   "publicExports": [".", "./context"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [],
-  "apiDeployables": [],
-  "apiRuntimeProfiles": [],
-  "apiMounts": [],
-  "workerRuntimeProfiles": [],
+  "projectionGroups": [
+    {
+      "projectionName": "channel-connection-projection",
+      "sourceContextNames": ["channels"],
+      "ownedTables": ["channel_connections"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    }
+  ],
+  "apiDeployables": ["platform-api"],
+  "apiRuntimeProfiles": ["proof", "public"],
+  "apiMounts": [
+    {
+      "mountPath": "/api/channels",
+      "kind": "primary",
+      "requiresAuth": true
+    }
+  ],
+  "workerRuntimeProfiles": ["proof", "public"],
   "deployableContributions": [],
   "shellContributions": [],
+  "mutationConsistencyInventory": [
+    {
+      "id": "channels.connection-command-snapshots",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/pause",
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/resume",
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/disconnect"
+      ],
+      "visibleDestination": {
+        "description": "Each public Channel Connection mutation returns the committed aggregate snapshot without waiting for or rereading the asynchronous projection."
+      },
+      "proof": {
+        "authoritativeResponse": "The route maps CommandExecutionResult.state directly to the closed public DTO for writes and accepted no-ops.",
+        "tests": [
+          "bounded-contexts/channels/features/connections/tests/channel-connection-http-contract.test.ts",
+          "bounded-contexts/channels/features/connections/tests/channel-connection-command-snapshot-responses.test.ts"
+        ]
+      }
+    }
+  ],
   "directoryIntent": {
+    "connections": {
+      "classification": "slice",
+      "purpose": "Own the connections slice lifecycle, setup authority, HTTP contract, and projection.",
+      "expectedConsumers": ["Internal Channels module composition"]
+    },
     "routes": {
       "classification": "routes",
-      "purpose": "Reserve Channels route metadata until behavior-backed Channels routes exist.",
-      "expectedConsumers": ["Future behavior-backed Channels route contributions"]
+      "purpose": "Reserve Channels route metadata for future seller browser-route contributions.",
+      "expectedConsumers": ["Future generated deployable route adapters"]
     }
-  }
+  },
+  "runtimeDeployables": ["platform-worker"]
 }

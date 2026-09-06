@@ -144,4 +144,15 @@ describe("auth role permissions", () => {
     expect(AUTH_ROLE_PERMISSIONS.owner).not.toContain("listing-evidence-policy.activate");
     expect(AUTH_ROLE_PERMISSIONS.manager).not.toContain("listing-evidence-policy.validate");
   });
+
+  it("mirrors account-scoped Channel Connection authority without granting platform-admin", () => {
+    expect(AUTH_ROLE_PERMISSIONS.owner).toEqual(expect.arrayContaining(["channels.view", "channels.manage"]));
+    expect(AUTH_ROLE_PERMISSIONS.manager).toEqual(expect.arrayContaining(["channels.view", "channels.manage"]));
+    expect(AUTH_ROLE_PERMISSIONS.fulfillment).toContain("channels.view");
+    expect(AUTH_ROLE_PERMISSIONS.viewer).toContain("channels.view");
+    expect(AUTH_ROLE_PERMISSIONS.fulfillment).not.toContain("channels.manage");
+    expect(AUTH_ROLE_PERMISSIONS.viewer).not.toContain("channels.manage");
+    expect(AUTH_ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.view");
+    expect(AUTH_ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.manage");
+  });
 });
