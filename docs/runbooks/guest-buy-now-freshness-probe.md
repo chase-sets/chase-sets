@@ -7,7 +7,7 @@ This runbook owns the synthetic Buy Now → Checkout readiness probe for the pro
 The staging deployment workflow runs both flows against the deployed staging marketplace:
 
 ```powershell
-# Guest flow (signed-out Buy Now, guest contact handoff)
+# Guest flow (signed-out single-POST Buy Now entry)
 pnpm run guest-buy-now:freshness-probe -- --flow guest --environment staging --base-url https://marketplace.staging.chasesets.com --admin-base-url https://admin.staging.chasesets.com --search-query "air balloon" --fixture-key <fixture-key> --guest-email <probe-namespace-email> --ready-slo-ms 10000 --attempts 3
 
 # Account flow (signed-in Buy Now direct to checkout session)
@@ -32,10 +32,10 @@ The workflow discovers active buyable item candidates from `/api/marketplace/ite
 
 | Flow | Identity | Handoff checks |
 | --- | --- | --- |
-| `guest` | Guest contact form on `/checkout/buy/readiness`; probe-namespaced email | `afterWrite` receipt plus `chase_sets_guest_checkout` cookie |
+| `guest` | Server-minted guest identity from the signed-out Buy Now POST | `afterWrite` receipt plus `chase_sets_guest_checkout` cookie |
 | `account` | On staging, a run-unique synthetic `buy-now-probe+account-*@chasesets.test` account provisioned through the platform-admin invitation path. Direct callers may explicitly provide `GUEST_BUY_NOW_PROBE_ACCOUNT_EMAIL`/`PASSWORD`; production proof requires those dedicated credentials. | `afterWrite` receipt plus `chase_sets_session` cookie; signed-in Buy Now redirects straight to `/checkout/buy/session/:sessionId` |
 
-The browser probe follows the current fresh-state routes: signed-out Buy Now opens `/checkout/buy/readiness`, guest contact submission redirects to `/checkout/buy/session/:sessionId`, and signed-in Buy Now redirects directly to `/checkout/buy/session/:sessionId`. Item-page and route-transition waits stop at browser commit; checkout document readiness is then measured separately, so a slow document load is recorded in the document/readiness segment instead of being collapsed into route navigation.
+The browser probe follows the current fresh-state routes: signed-out Buy Now sends one POST, Discovery answers with a method-preserving `307` through `/checkout/buy/readiness`, and Checkout mints the guest identity before redirecting the same navigation to `/checkout/buy/session/:sessionId`. A redirecting readiness response is only a healthy hop, regardless of duration or transient body content. If the readiness route itself commits as the main-frame document, the probe records the hard `guest-entry-stalled-at-readiness` failure. Signed-in Buy Now continues to redirect directly to the session route. Item-page and route-transition waits stop at browser commit; checkout document readiness is then measured separately, so a slow document load is recorded in the document/readiness segment instead of being collapsed into route navigation.
 
 ## States And Gate Decisions
 
@@ -46,7 +46,7 @@ The probe uses the shared Checkout state model with the tightened #1227 gate:
 | `pass` within SLO | Promote | Checkout review reached a payable state inside the readiness budget with receipt and cookie handoff intact. |
 | `pass` beyond SLO | Warn in `slo-mode=warn` (default), abort in `gate` (`checkout-ready-slo-exceeded`) | Checkout eventually became payable but slower than the ratified single-write readiness SLO. |
 | `temporary` without pay-ready | Warn in `slo-mode=warn` (default), abort in `gate` (`checkout-ready-slo-exceeded`) | Fresh receipt valid and recovery user-safe, but the page never became pay-ready inside the budget. |
-| `fail` | Abort | Checkout start recovery (`checkout-start-recovery-visible`), permanent checkout-session-not-found, lost receipt/cookie handoff, platform error page, or no recognizable checkout state. |
+| `fail` | Abort | Committed readiness document (`guest-entry-stalled-at-readiness`), Checkout start recovery (`checkout-start-recovery-visible`), permanent checkout-session-not-found, lost receipt/cookie handoff, platform error page, or no recognizable checkout state. |
 | any non-abort state + failed negative probe | Abort (`negative-probe-*`) | Recovery is masking real errors; see below. Probe failures override SLO warnings. |
 
 Exit codes: `0` promote or warn (warning logged and recorded in evidence), `1` abort with evidence written, `2` configuration error or unexpected script failure before the probe can build evidence. Controlled browser navigation/load timeouts are probe failures, not blind runtime exits: they record `failureReason: "browser-navigation-timeout"`, include a redacted `runtimeFailure` stage/message, skip the negative probe, and retry within the configured attempt budget before failing closed. Transient 5xx account setup failures record `platform-temporary-unavailable` and use the same bounded retry policy.
@@ -129,6 +129,7 @@ A public production guest browser probe remains not feasible: it would create pe
 7. If fixture discovery reports no active buyable item, refresh representative commerce state or update `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`.
 8. If `platform-error-page-detected` or `negative-probe-platform-error`, check whether ingress or a customer-facing checkout recovery is returning a generic 5xx document. Temporary checkout recovery should render with a non-5xx document status while internal API freshness timeouts can remain 503 JSON.
 9. If `checkout-start-recovery-visible`, the checkout start route rendered its own recovery before creating a session. Check the resolved fixture first: a stale or checkout-unsafe active listing can keep the probe on `/checkout/buy/readiness` with "Checkout needs attention" instead of redirecting. Treat this as a fixture/supply readiness blocker, not a browser wait failure.
-10. If `browser-navigation-timeout`, inspect `runtimeFailure.stage` first. `wait-guest-buy-readiness` points at Buy Now routing from item detail to `/checkout/buy/readiness`; `wait-buy-checkout-session` points at checkout session creation/redirect to `/checkout/buy/session/:sessionId`; `load-buy-now-item-page` points at marketplace item detail availability or edge latency. The runtime message is redacted, so use the correlation id and Playwright artifacts rather than raw URLs.
-11. If `checkout-review-state-not-detected`, confirm the resolved fixture still exposes Buy Now and reaches checkout review copy.
-12. Correlate the diagnostic id with read-after-write freshness audit records, the projection wake pipeline dashboard, and projection operations.
+10. If `guest-entry-stalled-at-readiness`, the readiness route committed as the main-frame document instead of redirecting the signed-out Buy Now POST onward to a checkout session. This is not a slow-hop classification: inspect Checkout guest-start action data and the server-side redirect decision. A route-owned recovery banner still takes precedence and is reported as `checkout-start-recovery-visible`.
+11. If `browser-navigation-timeout`, inspect `runtimeFailure.stage` first. `wait-buy-checkout-session` points at checkout session creation/redirect to `/checkout/buy/session/:sessionId`; `load-buy-now-item-page` points at marketplace item detail availability or edge latency. The runtime message is redacted, so use the correlation id and Playwright artifacts rather than raw URLs.
+12. If `checkout-review-state-not-detected`, confirm the resolved fixture still exposes Buy Now and reaches checkout review copy.
+13. Correlate the diagnostic id with read-after-write freshness audit records, the projection wake pipeline dashboard, and projection operations.

@@ -148,6 +148,111 @@ function commitReceiptFor(sources) {
   return encodeURIComponent(JSON.stringify(sources));
 }
 
+function createFakeGuestEntryBrowser(entries, options = {}) {
+  const baseUrl = "https://marketplace.staging.chasesets.com";
+  const handlers = new Map();
+  const eventLog = [];
+  let currentUrl = `${baseUrl}/items/canary`;
+  let pageText = "";
+  const mainFrame = { url: () => currentUrl };
+  const body = {
+    innerText: vi.fn(async () => pageText),
+  };
+  const buyNowButton = {
+    click: vi.fn(async () => {
+      eventLog.push("click-buy-now");
+      options.onClick?.();
+      const entry = entries.shift();
+      if (!entry) {
+        throw new Error("Fake guest entry browser has no remaining entry outcome.");
+      }
+
+      const readinessUrl = `${baseUrl}/checkout/buy/readiness?source=buy-now`;
+      handlers.get("response")?.({
+        request: () => ({ resourceType: () => "document" }),
+        status: () => (entry.kind === "session" ? 307 : 200),
+        url: () => readinessUrl,
+      });
+      eventLog.push(`response-readiness-${entry.kind === "session" ? 307 : 200}`);
+
+      if (entry.kind === "session") {
+        currentUrl = `${baseUrl}/checkout/buy/session/chk_test?afterWrite=redacted`;
+        pageText = "Checkout Summary Continue to payment Payable total";
+        handlers.get("response")?.({
+          request: () => ({ resourceType: () => "document" }),
+          status: () => 200,
+          url: () => currentUrl,
+        });
+        eventLog.push("response-session-200");
+      } else {
+        currentUrl = readinessUrl;
+        pageText = entry.pageText ?? "";
+      }
+
+      handlers.get("framenavigated")?.(mainFrame);
+      eventLog.push(`committed-${entry.kind === "session" ? "session" : "readiness"}`);
+    }),
+  };
+  const getByLabel = vi.fn(() => {
+    throw new Error("The shipped guest entry has no entry-time contact field.");
+  });
+  const getByRole = vi.fn(() => {
+    throw new Error("The shipped guest entry has no entry-time guest continuation control.");
+  });
+  const page = {
+    on: vi.fn((event, handler) => handlers.set(event, handler)),
+    mainFrame: () => mainFrame,
+    url: () => currentUrl,
+    goto: vi.fn(async (url) => {
+      currentUrl = url;
+      pageText = "";
+      eventLog.push("load-item");
+    }),
+    locator: vi.fn((selector) => (selector === "body" ? body : { first: () => buyNowButton })),
+    getByLabel,
+    getByRole,
+    waitForLoadState: vi.fn(async () => undefined),
+    waitForTimeout: vi.fn(async () => undefined),
+  };
+  const context = {
+    newPage: vi.fn(async () => page),
+    cookies: vi.fn(async () =>
+      options.guestCookiePresent === false ? [] : [{ name: "chase_sets_guest_checkout", value: "redacted" }],
+    ),
+  };
+  const browser = {
+    newContext: vi.fn(async () => context),
+    close: vi.fn(async () => undefined),
+  };
+
+  return {
+    body,
+    browser,
+    buyNowButton,
+    eventLog,
+    getByLabel,
+    getByRole,
+    launchBrowser: vi.fn(async () => browser),
+  };
+}
+
+function guestEntryOptions(fakeBrowser, overrides = {}) {
+  return {
+    baseUrl: "https://marketplace.staging.chasesets.com",
+    itemPath: "/items/canary",
+    fixtureKey: "canary-fixture",
+    guestEmail: "guest-buy-now-canary@example.test",
+    contactName: "Guest Buy Now Probe",
+    environment: "staging",
+    checkedAt: baseOptions.checkedAt,
+    diagnosticCorrelationId: "diag_123",
+    skipNegativeProbe: true,
+    maxAttempts: 1,
+    launchBrowser: fakeBrowser.launchBrowser,
+    ...overrides,
+  };
+}
+
 describe("guest Buy Now freshness probe", () => {
   it("classifies pay-ready checkout inside the readiness SLO as promote", () => {
     expect(
@@ -964,6 +1069,164 @@ describe("guest Buy Now freshness probe", () => {
     expect(isCheckoutSessionDocumentResponseUrl("https://marketplace.staging.chasesets.com/checkout/chk_123")).toBe(
       false,
     );
+  });
+
+  it("follows the shipped single-POST guest entry through a redirecting readiness hop into the checkout session", async () => {
+    let now = 1_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fakeBrowser = createFakeGuestEntryBrowser([{ kind: "session" }], {
+      onClick: () => {
+        now = 1_040;
+      },
+    });
+
+    try {
+      const evidence = await runGuestBuyNowFreshnessProbe(guestEntryOptions(fakeBrowser));
+
+      expect(evidence).toMatchObject({
+        finalState: "pass",
+        promotionDecision: "promote",
+        failureReason: null,
+        guestCookiePresent: true,
+        afterWritePresent: true,
+        checkoutReviewVisible: true,
+        checkoutDocumentStatus: 200,
+        segments: { writeToRedirectMs: 40, writeToCheckoutReadyMs: 40 },
+      });
+      expect(fakeBrowser.eventLog).toEqual([
+        "load-item",
+        "click-buy-now",
+        "response-readiness-307",
+        "response-session-200",
+        "committed-session",
+      ]);
+      expect(fakeBrowser.getByLabel).not.toHaveBeenCalled();
+      expect(fakeBrowser.getByRole).not.toHaveBeenCalled();
+      expect(fakeBrowser.buyNowButton.click).toHaveBeenCalledTimes(1);
+      expect(evidence.failureReason).not.toBe("guest-entry-stalled-at-readiness");
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    {
+      title: "fails hard when guest entry commits a blank readiness document",
+      pageText: "",
+    },
+    {
+      title: "fails hard when guest entry commits a rendered readiness document",
+      pageText: "Checkout is unavailable.",
+    },
+  ])("$title", async ({ pageText }) => {
+    const fakeBrowser = createFakeGuestEntryBrowser([{ kind: "readiness", pageText }]);
+    const evidence = await runGuestBuyNowFreshnessProbe(guestEntryOptions(fakeBrowser));
+
+    expect(evidence).toMatchObject({
+      finalState: "fail",
+      promotionDecision: "abort",
+      failureReason: "guest-entry-stalled-at-readiness",
+      attemptCount: 1,
+      runtimeFailure: {
+        stage: "wait-buy-checkout-session",
+        reason: "guest-entry-stalled-at-readiness",
+        message: "Guest entry committed the Checkout readiness document.",
+      },
+    });
+    expect(
+      evidence.attemptSummaries.filter(({ failureReason }) => failureReason === "guest-entry-stalled-at-readiness"),
+    ).toHaveLength(1);
+    expect(fakeBrowser.body.innerText).toHaveBeenCalledTimes(1);
+    expect(fakeBrowser.getByLabel).not.toHaveBeenCalled();
+    expect(fakeBrowser.getByRole).not.toHaveBeenCalled();
+  });
+
+  it("keeps checkout start recovery precedence over the committed readiness stall", async () => {
+    const fakeBrowser = createFakeGuestEntryBrowser([
+      {
+        kind: "readiness",
+        pageText: "Checkout needs attention. We could not start checkout from the current cart or item.",
+      },
+      {
+        kind: "readiness",
+        pageText: "Checkout needs attention. We could not start checkout from the current cart or item.",
+      },
+    ]);
+    const fetchImpl = vi.fn(async (input) => {
+      const url = new URL(input);
+      if (url.pathname === "/api/marketplace/items") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [{ slug: "canary", market_summary: { active_listing_count: 2, total_visible_quantity: 2 } }],
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          market_listings: ["lst_1", "lst_2"].map((listingId) => ({
+            listing_id: listingId,
+            catalog_catalog_item_id: "cat_1",
+            product_id: `product_${listingId}`,
+            status: "active",
+            price_amount: 100,
+            selected_options: [],
+            visible_quantity: 1,
+          })),
+        }),
+      };
+    });
+    vi.stubGlobal("fetch", fetchImpl);
+
+    try {
+      const evidence = await runGuestBuyNowFreshnessProbe(
+        guestEntryOptions(fakeBrowser, { itemPath: undefined, searchQuery: "canary" }),
+      );
+
+      expect(evidence).toMatchObject({
+        finalState: "fail",
+        promotionDecision: "abort",
+        failureReason: "checkout-start-recovery-visible",
+        checkoutStartRecoveryVisible: true,
+        attemptCount: 1,
+      });
+      expect(evidence.attemptSummaries).toHaveLength(1);
+      expect(evidence.failureReason).not.toBe("guest-entry-stalled-at-readiness");
+      expect(fakeBrowser.buyNowButton.click).toHaveBeenCalledTimes(2);
+      expect(fakeBrowser.body.innerText).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("carries the guest entry readiness stall through normalization and the attempt budget", async () => {
+    const fakeBrowser = createFakeGuestEntryBrowser([{ kind: "readiness", pageText: "" }]);
+    const evidence = await runGuestBuyNowFreshnessProbe(
+      guestEntryOptions(fakeBrowser, {
+        maxAttempts: 3,
+      }),
+    );
+
+    expect(fakeBrowser.launchBrowser).toHaveBeenCalledTimes(1);
+    expect(evidence).toMatchObject({
+      finalState: "fail",
+      promotionDecision: "abort",
+      failureReason: "guest-entry-stalled-at-readiness",
+      attemptCount: 1,
+      maxAttempts: 3,
+    });
+    expect(evidence.attemptSummaries).toEqual([
+      {
+        attempt: 1,
+        finalState: "fail",
+        promotionDecision: "abort",
+        failureReason: "guest-entry-stalled-at-readiness",
+        readyLatencyMs: null,
+      },
+    ]);
   });
 
   it("discovers active buyable item candidates from marketplace search and pins the exact listing", async () => {
