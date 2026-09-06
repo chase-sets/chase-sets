@@ -829,9 +829,9 @@ describe("repository-wide SQL execution partition", () => {
     expect(removedClassification.violations).toEqual([]);
     expect(removedClassification.unresolvedMemberRoots).toEqual({ count: 0, fileList: [] });
 
-    expect(legacyPartition.sqlExecuting).toHaveLength(397);
+    expect(legacyPartition.sqlExecuting).toHaveLength(398);
     expect(legacyPartition.unprovableForm).toHaveLength(3);
-    expect(legacyPartition.notSql).toHaveLength(1971);
+    expect(legacyPartition.notSql).toHaveLength(1966);
     expect(legacyPartition.unresolvedMemberRoots.count).toBe(265);
     expect(partition.sqlExecuting).toEqual(legacyPartition.sqlExecuting);
     expect(partition.unprovableForm).toEqual(legacyPartition.unprovableForm);

@@ -296,6 +296,11 @@
       "portName": "termsAcceptanceResolver",
       "providedBy": "identity",
       "purpose": "Resolve whether a buyer has accepted the active Terms of Service version so wallet balance credit can be applied at checkout without Settlement querying Identity storage."
+    },
+    {
+      "portName": "evidenceWindowCorrelation",
+      "providedBy": "platform-runtime",
+      "purpose": "Read the current admitted provider evidence window immediately before a provider call without gaining registration write authority."
     }
   ],
   "apiDeployables": ["platform-api"],

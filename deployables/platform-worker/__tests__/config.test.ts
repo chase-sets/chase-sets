@@ -22,6 +22,7 @@ const envNames = [
   "STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS",
   "STRIPE_CONNECT_ACCOUNTS_API",
   "STRIPE_API_BASE_URL",
+  "EVIDENCE_WINDOW_ADMISSION_SECRET",
   "EASYPOST_API_KEY",
   "EASYPOST_API_BASE_URL",
   "EASYPOST_MODE",
@@ -178,6 +179,8 @@ describe("platform worker config", () => {
     expect(config.runtimeProfile).toBe("public");
     expect(config.paymentProcessor).toEqual({ kind: "fake" });
     expect(config.moneyMovement).toEqual({ kind: "fake" });
+    expect(config.stripeEffectiveMode).toBe("unconfigured");
+    expect(config.evidenceWindowAdmissionSecret).toBeUndefined();
     expect(config.mobileMessaging).toEqual({ kind: "noop" });
     expect(config.postage).toEqual({ kind: "sandbox" });
     expect(config.tcgplayerAutomation).toBeNull();
@@ -202,6 +205,20 @@ describe("platform worker config", () => {
       rootDir: "artifacts/catalog-assets",
       publicBaseUrl: `http://localhost:${config.port}/catalog-assets`,
     });
+  });
+
+  it("loads the dedicated evidence-window secret with the immutable constructed-gateway mode", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.EVIDENCE_WINDOW_ADMISSION_SECRET = "  dedicated-worker-window-secret  ";
+    process.env.STRIPE_SECRET_KEY = "sk_test_asymmetric";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_asymmetric";
+
+    const config = loadConfig();
+
+    expect(config.evidenceWindowAdmissionSecret).toBe("dedicated-worker-window-secret");
+    expect(config.paymentProcessor).toEqual({ kind: "fake" });
+    expect(config.moneyMovement).toMatchObject({ kind: "stripe" });
+    expect(config.stripeEffectiveMode).toBe("test");
   });
 
   it("loads optional Voyage enrichment config without requiring a live key", () => {

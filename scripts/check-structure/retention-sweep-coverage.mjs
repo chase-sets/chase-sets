@@ -18,6 +18,10 @@ const requiredKnownTables = new Map([
 export const retentionCoverageExemptions = new Map([
   ["event_store_events", "Canonical event ledgers are permanent and are never age-swept."],
   [
+    "evidence_window",
+    "Durable single-open lifecycle record governed by registration: closed only by expected-version close or expired-replacement retirement; never age-swept and has no reaper.",
+  ],
+  [
     "event_store_aggregate_snapshots",
     "Bounded one-row-per-stream load-time cache (m113: aggregate snapshots in event-core), not unbounded history; rows are replaced in place and already cascade-deleted with their event_store_streams row via ON DELETE CASCADE.",
   ],

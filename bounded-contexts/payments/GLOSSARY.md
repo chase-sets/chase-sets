@@ -153,6 +153,14 @@ Readiness states:
 - `setup-required`: The provider method exists in history but needs buyer action, mandate repair, or provider reconciliation before reuse.
 - `removed`: The buyer or provider detached the credential; Checkout must not offer it, but historical Payments keep their Saved Checkout Instrument reference.
 
+## Evidence Window Registration
+
+An **Evidence Window Registration** is a bounded, self-expiring control-plane statement that one governed evidence window is current. It records neither ownership nor liveness.
+
+## Window Correlation
+
+**Window Correlation** is the read-only association a deployed provider writer may observe immediately before a provider call.
+
 ## Provider Object Class
 
 A **Provider Object Class** is one of the six governed categories of Stripe test-mode object that an Ink & Foil evidence window may create, fixed by Decision #6728: captured PaymentIntent, uncaptured PaymentIntent, SetupIntent, Stripe Checkout Session, Stripe Customer, and Stripe Account Session.

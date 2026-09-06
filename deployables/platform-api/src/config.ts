@@ -137,6 +137,7 @@ export type PlatformApiBaseConfig = Readonly<{
   pool?: PlatformApiPoolConfig;
   port: number;
   internalAuthSecret?: string;
+  evidenceWindowAdmissionSecret?: string;
   realtime?: PlatformApiRealtimeConfig;
   mcpToolCallLimits?: PlatformApiMcpToolCallLimitsConfig;
   agentGrantRateLimit?: RateLimitRule;
@@ -325,6 +326,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     realtime: PlatformApiRealtimeConfig;
     paymentProcessor: PlatformApiPaymentProcessorConfig;
     moneyMovement: PlatformApiMoneyMovementConfig;
+    stripeEffectiveMode: PlatformStripeEffectiveMode;
     mobileMessaging: PlatformApiMobileMessagingConfig;
     postage: PlatformApiPostageConfig;
     socialLogin: PlatformApiSocialLoginConfig;
@@ -665,6 +667,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       productionLike,
       productionMissingSecretError: `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
     }),
+    evidenceWindowAdmissionSecret: getOptionalEnv("EVIDENCE_WINDOW_ADMISSION_SECRET") ?? undefined,
     realtime: {
       batchSize: getPositiveNumberEnv("REALTIME_BATCH_SIZE", 100),
       pollIntervalMs: getPositiveNumberEnv("REALTIME_POLL_INTERVAL_MS", 1_000),
@@ -920,6 +923,7 @@ export function loadConfig(): PlatformApiConfig {
     ucpAp2Verifier,
     ucpSignatureCreatedFreshnessWindowMs,
     paymentProcessor: stripeProvider.paymentProcessor,
+    stripeEffectiveMode: stripeProvider.effectiveMode,
   };
 }
 

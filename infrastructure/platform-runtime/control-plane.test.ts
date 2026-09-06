@@ -39,6 +39,8 @@ describe("platform control plane", () => {
     expect(statements[0]).toContain("ADD COLUMN IF NOT EXISTS fencing_token bigint");
     expect(statements[0]).toContain("CREATE INDEX IF NOT EXISTS platform_worker_heartbeats_heartbeat_at_worker_id_idx");
     expect(statements[0]).toContain("ON platform_worker_heartbeats (heartbeat_at, worker_id)");
+    expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS evidence_window");
+    expect(statements[0]).toContain("CREATE UNIQUE INDEX IF NOT EXISTS evidence_window_single_open_idx");
 
     // Bootstrap must also reap stale in-flight operations (running or
     // cancel_requested with an expired or cleared claim) so #4496-style ghost
@@ -48,6 +50,42 @@ describe("platform control plane", () => {
     expect(reapStatement).toContain("state IN ('running', 'cancel_requested')");
     expect(reapStatement).toContain("claimed_until IS NULL");
     expect(reapStatement).toContain("FOR UPDATE SKIP LOCKED");
+  });
+
+  it("defines the evidence-window registration as one constrained table with database-enforced single-open admission", () => {
+    const tableStart = platformControlPlaneSchemaSql.indexOf("CREATE TABLE IF NOT EXISTS evidence_window");
+    const tableEnd = platformControlPlaneSchemaSql.indexOf("CREATE TABLE IF NOT EXISTS platform_control_leases");
+    const evidenceWindowSql = platformControlPlaneSchemaSql.slice(tableStart, tableEnd);
+
+    expect(tableStart).toBeGreaterThanOrEqual(0);
+    expect(evidenceWindowSql).toContain("window_id text PRIMARY KEY CHECK (window_id ~ '^[0-9a-f]{32}$')");
+    expect(evidenceWindowSql).toContain("state text NOT NULL CHECK (state IN ('open', 'closed'))");
+    expect(evidenceWindowSql).toContain(
+      "retention_seconds integer NOT NULL CHECK (retention_seconds BETWEEN 3600 AND 82800)",
+    );
+    expect(evidenceWindowSql).toContain("observed_mode text NOT NULL CHECK (observed_mode = 'test')");
+    expect(evidenceWindowSql).toContain("expires_at = opened_at + (retention_seconds * interval '1 second')");
+    expect(evidenceWindowSql).toContain("ON evidence_window ((true))");
+    expect(evidenceWindowSql).toContain("WHERE state = 'open'");
+    for (const forbidden of [
+      "json",
+      "phase",
+      "outcome",
+      "order_id",
+      "source_identity",
+      "release_obligation",
+      "provider_reference",
+      "credential",
+      "request_body",
+      "exception",
+      "owner_id",
+      "host_id",
+      "heartbeat",
+      "renewal",
+      "lease",
+    ]) {
+      expect(evidenceWindowSql).not.toContain(forbidden);
+    }
   });
 
   it("adds projection-operation compatibility columns before any index that references them", () => {
