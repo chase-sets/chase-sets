@@ -185,3 +185,9 @@ A **Safety Hold** is the planned Platform Operations restriction that pauses a r
 ### Support Reference Lookup
 
 A **Support Reference Lookup** is the Platform Operations admin surface that resolves any support-safe reference (`ORD-`, `SHP-`, `PYO-`, `SUP-`, `CSG-`, `CS-SL-`) or raw order/shipment/payout/support-request id to the owning record, by routing to that record's owning bounded context.
+
+## Seller Compliance Sale
+
+A **Seller Compliance Sale** is one recorded, replayable fact about a platform-processed sale: the `(payment_id, order_id)` pair a Payments capture creates against an Ordering order, together with Ordering's authoritative seller, the capture occurrence instant, the gross money decomposition in cents when every source value is present and reconciles, the recorded per-line classification inputs, cancellation, and the cumulative refund total and cap when a refund has affected that order.
+
+It is an observation, not a verdict. It asserts no statutory applicability, evaluates no threshold, and classifies no seller; a later policy evaluator reads these facts. It is distinct from **Risk Alert**, which is an operator-facing Trust & Safety queue item raised by velocity thresholds, whereas a Seller Compliance Sale raises nothing and simply records what Ordering and Payments published.

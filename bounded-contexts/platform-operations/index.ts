@@ -22,6 +22,10 @@ import {
   buildPlatformOperationsReportedContentProjectionHandlers,
 } from "./features/reported-content/read-model/projection";
 import {
+  buildOrderingSellerComplianceSalesProjectionHandlers,
+  buildPaymentsSellerComplianceSalesProjectionHandlers,
+} from "./features/seller-compliance-sales/read-model/projection";
+import {
   buildIdentityRiskAlertProjectionHandlers,
   buildMarketplaceRiskAlertProjectionHandlers,
   buildPaymentsRiskAlertProjectionHandlers,
@@ -38,6 +42,7 @@ import { buildSupportReturnLabelSourceProjectionHandlers } from "./features/supp
 import { buildInventoryCollisionSupportReactionHandlers } from "./features/support-requests/integrations/inventory-collision/inventory-collision-reaction";
 import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
 import { supportRequestSchemaMigrations } from "./features/support-requests/read-model/schema";
+import { sellerComplianceSalesSchemaMigrations } from "./features/seller-compliance-sales/read-model/schema";
 import { platformOperationsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { inspectPlatformOperationsSeedState, seedPlatformOperationsDatabase } from "./support/runtime-support/seed";
 import {
@@ -55,7 +60,11 @@ export const module = defineBoundedContextModule<
 >({
   manifest: platformOperationsContextManifest,
   schemaSql: platformOperationsSchemaSql,
-  schemaMigrations: [...platformOperationsUnloggedProjectionSchemaMigrations, ...supportRequestSchemaMigrations],
+  schemaMigrations: [
+    ...platformOperationsUnloggedProjectionSchemaMigrations,
+    ...supportRequestSchemaMigrations,
+    ...sellerComplianceSalesSchemaMigrations,
+  ],
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),
   buildApis: (services) => [
     { mountPath: "/api/platform", contextMountOrdinal: 1, router: buildPlatformOperationsApi(services) },
@@ -121,6 +130,13 @@ export const module = defineBoundedContextModule<
           buildPaymentsRiskAlertProjectionHandlers(services.db, { policies: services.policies }),
         "platform-operations.risk-alert-queue-projection": () =>
           buildPlatformOperationsRiskAlertProjectionHandlers(services.db),
+        // Two declarations, one projection: `buildEventSubscriptionsFromManifest` keys
+        // registration on `(sourceContextName, projectionName)`, so Ordering created/cancelled
+        // and Payments captured/refunded reach the same handler set exactly once each.
+        "ordering.seller-compliance-sales-projection": () =>
+          buildOrderingSellerComplianceSalesProjectionHandlers(services.db),
+        "payments.seller-compliance-sales-projection": () =>
+          buildPaymentsSellerComplianceSalesProjectionHandlers(services.db),
       },
     }),
     ...buildEventReactionsFromManifest({

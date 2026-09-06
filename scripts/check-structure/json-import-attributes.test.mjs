@@ -700,11 +700,11 @@ describe("real repository execution membership", () => {
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(95);
+    expect(result.inventory.declarations).toHaveLength(96);
     expect(result.inventory.partition).toEqual({
       "node-enforced": 39,
       "vite-excluded": 48,
-      "vitest-excluded": 7,
+      "vitest-excluded": 8,
       "manifest-only": 1,
       indeterminate: 0,
     });
@@ -719,7 +719,7 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "3789f7e693b2b23cb1dd736713b41a0a95bbd27c657d55af1d6fed42db19bd72",
+      "5a5639b9ea7b4583c1427c387ee71f937b0a066414ca81d7b91c130ce25e425e",
     );
     expect(
       result.inventory.declarations.find(
@@ -741,6 +741,17 @@ describe("real repository execution membership", () => {
         (entry) => entry.relativeFile === "bounded-contexts/ordering/tests/inventory-reservation-subscription.test.ts",
       ),
     ).toMatchObject({ disposition: "vitest-excluded" });
+    expect(
+      result.inventory.declarations.find(
+        (entry) =>
+          entry.relativeFile ===
+          "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/projection.test.ts",
+      ),
+    ).toMatchObject({
+      disposition: "vitest-excluded",
+      resolved: "bounded-contexts/platform-operations/context.json",
+      attributeText: 'with { type: "json" }',
+    });
   });
 
   it("fails closed when tracked discovery collapses despite implemented contexts", async () => {
