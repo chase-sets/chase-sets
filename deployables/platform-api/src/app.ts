@@ -129,7 +129,11 @@ import {
   type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
-import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
+import {
+  createEvidenceWindowRegistrationRoutes,
+  type EvidenceWindowRoutesOptions,
+  type PlatformControlPlane,
+} from "@chase-sets/platform-runtime/control-plane";
 import {
   buildMcpHandlersFromModules,
   createMcpOAuthProtectedResourceMetadataRoutes,
@@ -202,6 +206,7 @@ export type BuildPlatformApiOptions = Readonly<{
   internalAuthSecret?: string;
   adminRegistrationEnabled?: boolean;
   controlPlane?: PlatformControlPlane;
+  evidenceWindowRegistration?: EvidenceWindowRoutesOptions;
   workSignalStore?: ProjectionWakeStatusWorkSignalStore;
   readConsistencyAuditLogger?: Readonly<{
     info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
@@ -822,6 +827,9 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       isDraining: options.isDraining,
     }),
   );
+  if (options.evidenceWindowRegistration) {
+    app.route("/internal/evidence-windows", createEvidenceWindowRegistrationRoutes(options.evidenceWindowRegistration));
+  }
   if (marketplacePlatformRoutesEnabled) {
     app.get("/internal/realtime/status", async (c) =>
       c.json(

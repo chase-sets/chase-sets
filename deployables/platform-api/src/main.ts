@@ -51,6 +51,9 @@ import {
 } from "@chase-sets/platform-runtime/agent-guardrails";
 import {
   bootstrapPlatformControlPlane,
+  createEvidenceWindowCorrelation,
+  createNullEvidenceWindowCorrelation,
+  createPostgresEvidenceWindowRegistration,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
@@ -115,6 +118,13 @@ const pools = createPlatformApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const runtimeLifecycle = createRuntimeLifecycleRegistry();
 const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
+const evidenceWindowRegistration = config.evidenceWindowAdmissionSecret
+  ? createPostgresEvidenceWindowRegistration(pools.control)
+  : undefined;
+const evidenceWindowCorrelation =
+  evidenceWindowRegistration && config.stripeEffectiveMode === "test"
+    ? createEvidenceWindowCorrelation(evidenceWindowRegistration)
+    : createNullEvidenceWindowCorrelation();
 
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
@@ -316,6 +326,7 @@ const runtime = createPlatformApiHost({
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
+    evidenceWindowCorrelation,
     securityLifetimes: config.authSecurityLifetimes,
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
     searchTelemetry: {
@@ -577,6 +588,21 @@ const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   controlPlane,
+  ...(evidenceWindowRegistration && config.evidenceWindowAdmissionSecret
+    ? {
+        evidenceWindowRegistration: {
+          admissionSecret: config.evidenceWindowAdmissionSecret,
+          authority: {
+            effectiveMode: config.stripeEffectiveMode,
+            gatewayKinds: {
+              paymentProcessor: config.paymentProcessor.kind,
+              moneyMovement: config.moneyMovement.kind,
+            },
+          },
+          registration: evidenceWindowRegistration,
+        },
+      }
+    : {}),
   workSignalStore,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readConsistencyAuditLogger: logger,

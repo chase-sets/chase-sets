@@ -368,6 +368,7 @@
     "infrastructure/platform-runtime/control-plane.ts",
     "infrastructure/platform-runtime/durable-job-store.ts",
     "infrastructure/platform-runtime/durable-job-work-units.ts",
+    "infrastructure/platform-runtime/evidence-window-registration.ts",
     "infrastructure/platform-runtime/mcp-audit-log.ts",
     "infrastructure/platform-runtime/post-write-token-store.ts",
     "infrastructure/platform-runtime/realtime-outbox-store.ts",

@@ -209,6 +209,11 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox consumed only by payment and refund event projectors."
+    },
+    {
+      "portName": "evidenceWindowCorrelation",
+      "providedBy": "platform-runtime",
+      "purpose": "Read the current admitted provider evidence window immediately before a provider call without gaining registration write authority."
     }
   ],
   "apiDeployables": ["platform-api"],
