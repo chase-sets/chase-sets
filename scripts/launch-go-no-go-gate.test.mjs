@@ -1,23 +1,93 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   LAUNCH_GO_NO_GO_GATE_VERSION,
+  MARKETPLACE_PROMOTION_EVIDENCE_COMMAND,
   REQUIRED_PRODUCTION_APPROVAL_CATEGORIES,
   SUPPORT_DISPUTE_SELF_SERVICE_SURFACE_FILES,
   WAVE_ONE_ADMISSION_BAR,
   buildLaunchGoNoGoGate,
   parseLaunchGoNoGoGateArgs,
+  resolveCanonicalLegalCorpusMembership,
 } from "./launch-go-no-go-gate.mjs";
 import { MARKETPLACE_PRODUCTION_LAUNCH_READINESS_VERSION } from "./marketplace-production-launch-readiness.mjs";
 import { MARKETPLACE_PROMOTION_EVIDENCE_VERSION } from "./marketplace-promotion-evidence.mjs";
+import {
+  MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION,
+  REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS,
+} from "./marketplace-public-presence-copy-audit.mjs";
+import { COUNSEL_REVIEW_PACKET_VERSION } from "./legal-review-corpus.mjs";
 import { GOOGLE_SHOPPING_LAUNCH_READINESS_EVIDENCE_VERSION } from "./google-shopping-launch-readiness-evidence.mjs";
 import { RELEASE_HEALTH_REPORT_VERSION } from "./release-health-report.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 
 const checkedAt = "2026-07-13T12:00:00.000Z";
 const validCommit = "a".repeat(40);
+const SYNTHETIC_PACKET_SHA256 = `sha256:${"a".repeat(64)}`;
+const SYNTHETIC_CORPUS_SHA256 = `sha256:${"b".repeat(64)}`;
+
+// Resolved from the real registry and the real source-owned compliance
+// manifest, so the promotion row's revalidation is compared against canonical
+// membership rather than a list re-typed in this test.
+let canonicalMembership;
+
+beforeAll(async () => {
+  canonicalMembership = await resolveCanonicalLegalCorpusMembership();
+  expect(canonicalMembership.ok, JSON.stringify(canonicalMembership.errors ?? [])).toBe(true);
+}, 120_000);
+
+// The audited page rows a real promotion record derives from its audit input,
+// reduced to the identities this gate can revalidate against canonical
+// membership rather than accepting a bare count or boolean.
+function auditPageEvidence(overrides = {}) {
+  return {
+    fetchedPathCount: canonicalMembership.uniqueFetchedPathCount,
+    requiredPagePaths: [...REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS],
+    launchPolicyPolicyKeys: [...canonicalMembership.launchRequiredPolicyKeys],
+    complianceArticleSlugs: [...canonicalMembership.complianceArticleSlugs],
+    verifiedOnAuditedOriginCount: canonicalMembership.uniqueFetchedPathCount,
+    ...overrides,
+  };
+}
+
+function promotionEvidenceRecord(overrides = {}) {
+  return {
+    schemaVersion: MARKETPLACE_PROMOTION_EVIDENCE_VERSION,
+    passesPromotionGate: true,
+    marketplacePromotion: {
+      approved: true,
+      publicPresenceCopyAuditVersion: MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION,
+      publicPresenceCopyAuditMode: "launch",
+      publicPresenceCopyAuditRequiredPageCount: REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS.length,
+      publicPresenceCopyAuditRequiredPagePaths: [...REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS],
+      publicPresenceCopyAuditLaunchRequiredPolicyCount: canonicalMembership.launchRequiredPolicyKeys.length,
+      publicPresenceCopyAuditLaunchRequiredPolicyKeys: [...canonicalMembership.launchRequiredPolicyKeys],
+      publicPresenceCopyAuditComplianceArticleCount: canonicalMembership.complianceArticleSlugs.length,
+      publicPresenceCopyAuditComplianceArticleSlugs: [...canonicalMembership.complianceArticleSlugs],
+      publicPresenceCopyAuditUniqueFetchedPathCount: canonicalMembership.uniqueFetchedPathCount,
+      publicPresenceCopyAuditLegalCorpusDigest: SYNTHETIC_CORPUS_SHA256,
+      counselPacketSchemaVersion: COUNSEL_REVIEW_PACKET_VERSION,
+      counselPacketSha256: SYNTHETIC_PACKET_SHA256,
+      counselPacketUtf8Bytes: 225_583,
+      counselPacketCorpusSha256: SYNTHETIC_CORPUS_SHA256,
+      counselPacketVerified: true,
+      publicPresenceCopyAuditPassed: true,
+      publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved: true,
+      publicPresenceCopyAuditPolicyPagesReviewed: true,
+      publicPresenceCopyAuditComplianceArticlesReviewed: true,
+      publicPresenceCopyAuditDmcaRegistrationMarkerAbsent: true,
+      publicPresenceCopyAuditUncertifiedClaimsAbsent: true,
+      publicPresenceCopyAuditPageEvidence: auditPageEvidence(),
+      publicPresenceLaunchCopyReviewed: true,
+      futureOnlyLaunchCopyRemoved: true,
+      policyPagesReviewed: true,
+      ...overrides.marketplacePromotion,
+    },
+    ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== "marketplacePromotion")),
+  };
+}
 
 function fullOperatorEvidence(overrides = {}) {
   return {
@@ -26,10 +96,7 @@ function fullOperatorEvidence(overrides = {}) {
       passesProductionLaunchReadinessGate: true,
       environmentName: "production",
     },
-    marketplacePromotionEvidence: {
-      schemaVersion: MARKETPLACE_PROMOTION_EVIDENCE_VERSION,
-      passesPromotionGate: true,
-    },
+    marketplacePromotionEvidence: promotionEvidenceRecord(),
     googleShoppingLaunchReadiness: {
       schemaVersion: GOOGLE_SHOPPING_LAUNCH_READINESS_EVIDENCE_VERSION,
       passesGoogleShoppingLaunchReadinessGate: true,
@@ -361,6 +428,158 @@ describe("launch go/no-go gate: operator-attested rows", () => {
     const row = result.rows.find((entry) => entry.key === "rollback-readiness");
     expect(row.status).toBe("fail");
     expect(row.note).toContain("40-character Git commit SHA");
+  });
+});
+
+describe("launch go/no-go gate: promotion-evidence legal-corpus revalidation", () => {
+  function promotionRow(marketplacePromotionOverrides, recordOverrides = {}) {
+    const result = buildLaunchGoNoGoGate(
+      fullDecisionInput({
+        decision: "hold",
+        operatorEvidence: fullOperatorEvidence({
+          marketplacePromotionEvidence: promotionEvidenceRecord({
+            marketplacePromotion: marketplacePromotionOverrides,
+            ...recordOverrides,
+          }),
+        }),
+      }),
+    );
+    return result.rows.find((entry) => entry.key === "marketplace-promotion-evidence");
+  }
+
+  it("passes only for the exact v2 legal-corpus projection and displays the audit-record command", () => {
+    const row = promotionRow({});
+    expect(row.status, row.note).toBe("pass");
+    expect(MARKETPLACE_PROMOTION_EVIDENCE_COMMAND).toContain("--public-presence-copy-audit <audit-v2.json>");
+    expect(row.evidence.marketplacePromotion.publicPresenceCopyAuditLaunchRequiredPolicyKeys).toEqual(
+      canonicalMembership.launchRequiredPolicyKeys,
+    );
+  });
+
+  it("rejects a stale digest pair, a reordered or shortened membership, and a count-only claim", () => {
+    expect(promotionRow({ counselPacketCorpusSha256: `sha256:${"c".repeat(64)}` }).note).toContain(
+      "counselPacketCorpusSha256 must equal the audited current publicPresenceCopyAuditLegalCorpusDigest",
+    );
+    expect(
+      promotionRow({
+        publicPresenceCopyAuditLaunchRequiredPolicyKeys: [...canonicalMembership.launchRequiredPolicyKeys].reverse(),
+      }).note,
+    ).toContain("must be the canonical launch-required policy keys in registry order");
+    expect(
+      promotionRow({
+        publicPresenceCopyAuditComplianceArticleSlugs: canonicalMembership.complianceArticleSlugs.slice(1),
+        publicPresenceCopyAuditComplianceArticleCount: canonicalMembership.complianceArticleSlugs.length,
+      }).note,
+    ).toContain("must be the canonical compliance article slugs in manifest order");
+    expect(
+      promotionRow({
+        publicPresenceCopyAuditComplianceArticleSlugs: undefined,
+        publicPresenceCopyAuditComplianceArticleCount: 5,
+      }).note,
+    ).toContain("must be the canonical compliance article slugs in manifest order");
+    expect(promotionRow({ publicPresenceCopyAuditUniqueFetchedPathCount: 8 }).note).toContain(
+      `publicPresenceCopyAuditUniqueFetchedPathCount must be ${canonicalMembership.uniqueFetchedPathCount}`,
+    );
+  });
+
+  it("rejects a missing packet verification and every un-proved audit-derived boolean", () => {
+    expect(promotionRow({ counselPacketVerified: false }).note).toContain("counselPacketVerified must be true.");
+    expect(promotionRow({ counselPacketSchemaVersion: "counsel-review-packet/v0" }).note).toContain(
+      `counselPacketSchemaVersion must be ${COUNSEL_REVIEW_PACKET_VERSION}`,
+    );
+    expect(promotionRow({ counselPacketSha256: "not-a-digest" }).note).toContain("counselPacketSha256 must be");
+    for (const field of [
+      "publicPresenceCopyAuditPassed",
+      "publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved",
+      "publicPresenceCopyAuditPolicyPagesReviewed",
+      "publicPresenceCopyAuditComplianceArticlesReviewed",
+      "publicPresenceCopyAuditDmcaRegistrationMarkerAbsent",
+      "publicPresenceCopyAuditUncertifiedClaimsAbsent",
+      "publicPresenceLaunchCopyReviewed",
+      "futureOnlyLaunchCopyRemoved",
+      "policyPagesReviewed",
+    ]) {
+      expect(promotionRow({ [field]: false }).note, field).toContain(`${field} must be true.`);
+    }
+  });
+
+  it("refuses a projection that asserts the audit booleans without the audited page evidence", () => {
+    // The exact bypass this row exists to stop: every flattened count, array,
+    // digest, and boolean is canonical, but no audited row backs any of it.
+    expect(promotionRow({ publicPresenceCopyAuditPageEvidence: undefined }).note).toContain(
+      "publicPresenceCopyAuditPageEvidence must carry the audited page rows",
+    );
+    expect(promotionRow({ publicPresenceCopyAuditPageEvidence: null }).status).toBe("pending");
+
+    expect(
+      promotionRow({
+        publicPresenceCopyAuditPageEvidence: auditPageEvidence({
+          requiredPagePaths: REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS.map((_, index) => `/synthetic-${index}`),
+        }),
+      }).note,
+    ).toContain("requiredPagePaths must be the canonical required-page paths in order");
+
+    expect(
+      promotionRow({
+        publicPresenceCopyAuditPageEvidence: auditPageEvidence({
+          launchPolicyPolicyKeys: canonicalMembership.launchRequiredPolicyKeys.slice(1),
+        }),
+      }).note,
+    ).toContain("launchPolicyPolicyKeys must be exactly the canonical launch-required policy keys");
+
+    expect(
+      promotionRow({
+        publicPresenceCopyAuditPageEvidence: auditPageEvidence({
+          complianceArticleSlugs: [...canonicalMembership.complianceArticleSlugs].reverse(),
+        }),
+      }).note,
+    ).toContain("complianceArticleSlugs must be the canonical compliance article slugs in manifest order");
+
+    expect(
+      promotionRow({ publicPresenceCopyAuditPageEvidence: auditPageEvidence({ fetchedPathCount: 8 }) }).note,
+    ).toContain(`fetchedPathCount must be ${canonicalMembership.uniqueFetchedPathCount}`);
+
+    expect(
+      promotionRow({
+        publicPresenceCopyAuditPageEvidence: auditPageEvidence({
+          verifiedOnAuditedOriginCount: canonicalMembership.uniqueFetchedPathCount - 1,
+        }),
+      }).note,
+    ).toContain(`verifiedOnAuditedOriginCount must be ${canonicalMembership.uniqueFetchedPathCount}`);
+
+    // The canonical projection still passes: the new rule rejects absent or
+    // incoherent page evidence, not evidence in general.
+    expect(promotionRow({}).status).toBe("pass");
+  });
+
+  it("keeps a v1 promotion record rejected even when v2-looking fields and booleans are added to it", () => {
+    const v1Row = promotionRow({}, { schemaVersion: "marketplace-promotion-evidence/v1" });
+    expect(v1Row.status).toBe("pending");
+    expect(v1Row.note).toContain(`schemaVersion must be ${MARKETPLACE_PROMOTION_EVIDENCE_VERSION}`);
+
+    const v1CopyAuditRow = promotionRow({
+      publicPresenceCopyAuditVersion: "marketplace-public-presence-copy-audit/v1",
+    });
+    expect(v1CopyAuditRow.status).toBe("pending");
+    expect(v1CopyAuditRow.note).toContain(
+      `publicPresenceCopyAuditVersion must be ${MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION}`,
+    );
+
+    const prelaunchRow = promotionRow({ publicPresenceCopyAuditMode: "prelaunch" });
+    expect(prelaunchRow.status).toBe("pending");
+    expect(prelaunchRow.note).toContain("publicPresenceCopyAuditMode must be launch.");
+  });
+
+  it("refuses to revalidate when the canonical legal corpus membership cannot be resolved", () => {
+    const result = buildLaunchGoNoGoGate(
+      fullDecisionInput({
+        decision: "hold",
+        legalCorpusMembership: { ok: false, errors: ["synthetic membership resolution failure"] },
+      }),
+    );
+    const row = result.rows.find((entry) => entry.key === "marketplace-promotion-evidence");
+    expect(row.status).toBe("pending");
+    expect(row.note).toContain("canonical legal corpus membership could not be resolved");
   });
 });
 

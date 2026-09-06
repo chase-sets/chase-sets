@@ -6,7 +6,7 @@ The private proof-mode collection phase is retired. Historical proof artifacts b
 
 ## Required Gates
 
-- Public Presence: prelaunch copy is replaced or reviewed for live marketplace availability, and terms, privacy, refunds and returns, order protection, and sales fee pages no longer describe live transactions as future-only.
+- Public Presence: prelaunch copy is replaced or reviewed for live marketplace availability, and terms, privacy, refunds and returns, order protection, and sales fee pages no longer describe live transactions as future-only. The launch-mode copy audit additionally verifies the retained counsel review packet bytes against their receipt, verifies that receipt's reviewed-content corpus identity against current source, and audits all six launch-required policy routes and all five compliance article routes. Authenticity Service Terms stays packet-only and is never audited as launch-required.
 - Tax: production Tax readiness evidence is approved, `PRODUCTION_TAX_READINESS_APPROVED=true`, `PRODUCTION_TAX_READINESS_REFERENCE` points to the approval record, and Tax nexus tracking confirms either no jurisdiction currently requires collection or `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true` is paired with a provider-backed Tax Quote resolver before live order creation.
 - Payments: counsel/provider review approves buyer-facing Marketplace Checkout Fee copy, state-specific disclosures, refund language, and Stripe live-mode configuration; `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED=true` and `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE` point to the Payments approval record.
 - Checkout: the Shopify-simple buy-now, buy-cart, and sell-list checkout paths are proven for guest and signed-in actors on desktop and mobile; unassigned fulfillment and optional fulfillment-savings optimization are resolved in cart, Sell List, or conditional readiness before checkout; no customer-committing side effects happen before confirmation; no legacy checkout compatibility adapters remain; `PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED=true` and `PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE` point to the Checkout launch evidence record.
@@ -29,15 +29,45 @@ Marketplace promotion evidence is carried by `PRODUCTION_MARKETPLACE_PROMOTION_A
 
 After setting the domain-owned approval variables and required secret names, run `pnpm run ops marketplace:production-launch-readiness --variables <github-production-variables.json> --secrets <github-production-secrets.json>`. This final preflight combines the public launch variable snapshot with required production secret-name checks and fails while public launch is disabled, evidence references are missing or placeholders, admin Google Workspace SSO is not configured for `chasesets.com`, SES is not set to `amazon-ses`/`transactional-production`, or live Stripe/EasyPost/Google SSO secret names are absent.
 
-Build the redacted Marketplace promotion and UCP/AP2 marketing approval records from the final launch review record instead of hand-editing approval variables:
+Build the redacted Marketplace promotion and UCP/AP2 marketing approval records from the final launch review record **and** the exact successful launch-mode Public Presence copy audit record, instead of hand-editing approval variables:
 
 ```powershell
-pnpm run ops marketplace:promotion-evidence --review .\secure\marketplace-promotion-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
+pnpm run ops marketplace:promotion-evidence -- --review .\secure\marketplace-promotion-2026-05-30.json --public-presence-copy-audit .\secure\public-presence-copy-audit-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
 ```
 
-The final launch review record must include `reviewCompletedAt`, `checkoutLaunchEvidenceReference`, `checkoutLaunchEvidenceCompletedAt`, and a launch-mode Public Presence copy audit with `publicPresenceCopyAuditCompletedAt`. Rerun launch review, Checkout launch evidence, and copy audit when any timestamp is older than 30 days at promotion review.
+`marketplace-promotion-evidence/v2` derives every legal-corpus and counsel-packet value from that audit file: schema version, base URL, `checkedAt`, mode, the eight required page paths, the six launch-required policy keys, the five compliance article slugs, the unique fetched-path count, the current corpus digest, the retained packet digest/byte length/corpus digest/verification, and the audit's own review booleans. The review record must NOT carry any `publicPresenceCopyAudit*` value, any `counselPacket*` value, or the legacy `publicPresenceLaunchCopyReviewed`, `futureOnlyLaunchCopyRemoved`, and `policyPagesReviewed` proofs; the recursively closed normalizer rejects them as unknown fields. `publicPresenceCopyAuditReference` stays as the human custody pointer.
 
-The command fails unless the review is production-scoped, includes staging and production workflow run references, carries the Checkout launch evidence and launch-mode Public Presence copy audit references, proves Checkout buy-now/buy-cart/Sell List coverage, guest and signed-in coverage, desktop/mobile accessibility coverage, no pre-confirmation side effects, observability/support/security handoffs coverage, fulfillment assignment resolved before checkout session creation, fresh-state cleanup, no legacy compatibility paths, launch-mode public copy and policy-page review, assigns a rollback owner, and either keeps UCP/AP2 public claims disabled with uncertified claims absent or supplies a separate certification reference.
+The final launch review record must include `reviewCompletedAt`, `checkoutLaunchEvidenceReference`, and `checkoutLaunchEvidenceCompletedAt`. Rerun launch review, Checkout launch evidence, and the launch-mode copy audit when any timestamp — including the audit record's own `checkedAt` — is older than 30 days at promotion review.
+
+The command fails unless the review is production-scoped, includes staging and production workflow run references, carries the Checkout launch evidence and Public Presence copy audit references, proves Checkout buy-now/buy-cart/Sell List coverage, guest and signed-in coverage, desktop/mobile accessibility coverage, no pre-confirmation side effects, observability/support/security handoffs coverage, fulfillment assignment resolved before checkout session creation, fresh-state cleanup, no legacy compatibility paths, assigns a rollback owner, and either keeps UCP/AP2 public claims disabled with uncertified claims absent or supplies a separate certification reference. It additionally fails unless the supplied audit record is an exact, closed, passing, launch-mode `marketplace-public-presence-copy-audit/v2` record whose retained counsel packet verified and whose packet corpus digest equals the audited current corpus digest. The launch go/no-go gate revalidates that derived projection against the canonical registry and compliance manifest rather than trusting `passesPromotionGate`.
+
+## Counsel Review Packet Custody
+
+The counsel review packet is generated offline, before counsel, and never from a deployed environment. It is not attached to a GitHub issue or pull request, and it is not committed:
+
+```powershell
+pnpm run ops legal:review-packet > <counsel-workspace>\chase-sets-counsel-review.md
+pnpm run ops legal:review-packet -- --receipt > <counsel-workspace>\chase-sets-counsel-review.receipt.json
+```
+
+Both commands write only to stdout. The packet is deterministic UTF-8/LF Markdown with no generated timestamp; the receipt is the closed `counsel-review-packet-receipt/v1` record for exactly those bytes. Verify that the receipt's `packet.sha256` and `packet.utf8Bytes` match the retained file before sending anything to counsel, then retain both files unchanged through counsel review and the launch gate. Share the packet with counsel out of band and record only a durable non-privileged review reference binding the exact packet SHA-256 and the lifecycle-stable `corpus.sha256`.
+
+Two identities do two different jobs, and the launch gate depends on the distinction:
+
+- `packet.sha256` names the immutable pre-counsel bytes counsel actually read, including the then-current publication metadata and section review statuses. Launch verification checks those retained bytes; it never regenerates or substitutes a post-publication packet.
+- `corpus.sha256` and each member's `reviewedContentSha256` name the lifecycle-stable reviewed content. They deliberately exclude `publicationStatus`, `effectiveAt`, `counselApprovalReference`, `rolloutJurisdictionsOrProductLimits`, and section `reviewStatus`.
+
+A publication PR that changes only those five excluded lifecycle fields, under the current approval reference, leaves the reviewed-content identity stable and implies no second counsel review. Any change to operative prose, a title or description, a review manifest, a canonical claim or its disclosure text, stable metadata (`policyKey`/`version`/`locale`/`href`/`launchRequired`), a compliance article, an incorporation, or a consent surface invalidates the reviewed corpus and requires a newly generated exact packet and a new counsel reference.
+
+The launch-mode copy audit consumes the retained pair and writes its exact successful record to controlled evidence storage:
+
+```powershell
+pnpm run ops marketplace:public-presence-copy-audit -- --base-url https://chasesets.com --mode launch --counsel-packet <counsel-workspace>\chase-sets-counsel-review.md --counsel-packet-receipt <counsel-workspace>\chase-sets-counsel-review.receipt.json > .\secure\public-presence-copy-audit-2026-05-30.json
+```
+
+The promotion command receives that file through `--public-presence-copy-audit`, never by copied booleans. Retention and deletion after the launch gate follow the counsel engagement and operator record policy; `scripts/legal-review-packet.mjs` and `scripts/marketplace-public-presence-copy-audit.mjs` neither upload nor delete files.
+
+Public launch also stays blocked while the checked-in DMCA article carries `registration-status-unverified`. Removing that marker requires its own exact Copyright Office designated-agent directory probe at the replacement moment, matching entity, contact, and current record; a historical issue comment is not sufficient.
 
 Marketplace Checkout Fee evidence is carried by `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED` and `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE` in the production GitHub Environment. Keep approval unset until Payments has a counsel/provider-reviewed record covering buyer-facing fee copy, fee labels, refund handling language, state-specific disclosures, and Stripe live-mode configuration.
 
