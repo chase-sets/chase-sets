@@ -97,7 +97,7 @@ export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSec
                 <NativeSelect
                   name="contactMethodType"
                   label={t("identity.features.users.ui.userDetailPage.contact.method.type")}
-                  items={contactMethodTypeSelectItems}
+                  items={[...contactMethodTypeSelectItems]}
                   required
                 />
                 <TextInput
@@ -116,7 +116,7 @@ export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSec
                 <NativeSelect
                   name="authMethod"
                   label={t("identity.features.users.ui.userDetailPage.auth.method")}
-                  items={identityAuthenticationMethodSelectItems}
+                  items={[...identityAuthenticationMethodSelectItems]}
                   required
                 />
                 <Button type="submit" tone="secondary">
