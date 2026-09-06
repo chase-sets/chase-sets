@@ -756,6 +756,15 @@
       "workspace": "@chase-sets/identity-seed",
       "script": "test",
       "observedDurationMs": 1661
+    },
+    {
+      "runId": 34058792975,
+      "runAttempt": 1,
+      "jobId": 101555519566,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/channels",
+      "script": "test:unit",
+      "observedDurationMs": 4544
     }
   ]
 }

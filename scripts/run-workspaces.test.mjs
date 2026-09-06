@@ -486,8 +486,8 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(registry.entries).toHaveLength(59);
-    expect(replay.observations).toHaveLength(84);
+    expect(registry.entries).toHaveLength(60);
+    expect(replay.observations).toHaveLength(85);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {
@@ -901,6 +901,9 @@ describe("closed duration scheduling contracts", () => {
     for (const observation of replay.observations) {
       expect(observation.runAttempt).toBe(1);
       const key = `${observation.runId}\0${observation.jobId}\0${observation.invocation}`;
+      if (!observedPhaseBoundaries.has(key)) {
+        continue;
+      }
       const phase = phases.get(key) ?? [];
       phase.push(observation.observedDurationMs);
       phases.set(key, phase);

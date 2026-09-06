@@ -31,13 +31,13 @@ function createPlatformOperationsServiceProxy(includeRiskAlerts: boolean) {
 }
 
 describe("platform API route collision assembly", () => {
-  it("boots all contexts with all 30 API entries using the exact closed keyed shape", () => {
+  it("boots all contexts with all 31 API entries using the exact closed keyed shape", () => {
     const runtime = createRouteInventoryRuntime();
     const rawEntries = runtime.mountedContexts.flatMap((entry) =>
       Reflect.apply(entry.module.buildApis, entry.module, [entry.services]),
     );
 
-    expect(rawEntries).toHaveLength(30);
+    expect(rawEntries).toHaveLength(31);
     for (const apiEntry of rawEntries) {
       expect(Reflect.ownKeys(apiEntry)).toEqual(["mountPath", "contextMountOrdinal", "router"]);
     }
