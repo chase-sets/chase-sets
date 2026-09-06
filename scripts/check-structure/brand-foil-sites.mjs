@@ -660,8 +660,8 @@ function indexedPathEntries(repoRoot) {
   };
   return {
     entries: reconcileIndexedPathRecords(
-    execFileSync("git", ["ls-files", "-z"], options),
-    execFileSync("git", ["ls-files", "--stage", "-z"], options),
+      execFileSync("git", ["ls-files", "-z"], options),
+      execFileSync("git", ["ls-files", "--stage", "-z"], options),
     ),
     options,
   };
@@ -674,10 +674,7 @@ function readIndexedPath(repoRoot, entry, options) {
   lstatSync(worktreePath);
   const bytes = execFileSync("git", ["cat-file", "blob", entry.oid], options);
   const algorithm = entry.oid.length === 40 ? "sha1" : "sha256";
-  const actualOid = createHash(algorithm)
-    .update(`blob ${bytes.length}\0`)
-    .update(bytes)
-    .digest("hex");
+  const actualOid = createHash(algorithm).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
   if (actualOid !== entry.oid) throw new Error(`Git object mismatch for ${entry.oid}`);
   return bytes;
 }
