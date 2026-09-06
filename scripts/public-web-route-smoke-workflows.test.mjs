@@ -388,13 +388,17 @@ describe("public route smoke workflow composition", () => {
     expect(scope.composeSmokeRequired).toBe(false);
 
     const platformPr = parseWorkflow(".github/workflows/platform-pr.yml");
-    const requiredStep = runSteps(platformPr).find((step) => step.run.includes('preview_required="${{'));
-    expect(requiredStep).toBeDefined();
-    expect(requiredStep.run).toContain(`preview_result="\${{ needs['preview-deploy-smoke'].result }}"`);
-    expect(requiredStep.run).toContain(
-      `if [ "$preview_required" = "true" ] && [ "$preview_result" != "success" ]; then`,
+    const requiredStep = runSteps(platformPr).find((step) =>
+      step.run.includes(
+        `require_job "Deploy Preview and Smoke" "\${{ needs['preview-deploy-smoke'].result }}" "\${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}"`,
+      ),
     );
-    expect(requiredStep.run).toMatch(/Preview deployment and smoke must pass[\s\S]*exit 1/);
+    expect(requiredStep).toBeDefined();
+    expect(requiredStep.run).toContain(
+      `require_job "Deploy Preview and Smoke" "\${{ needs['preview-deploy-smoke'].result }}" "\${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}"`,
+    );
+    expect(requiredStep.run).not.toContain("preview_result=");
+    expect(requiredStep.run).not.toContain("preview_required=");
   });
 
   it.each([
