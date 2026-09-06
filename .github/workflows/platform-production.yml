@@ -1078,7 +1078,7 @@ jobs:
             exit 1
           fi
 
-          if [[ "${TF_VAR_stripe_secret_key}" != sk_test* || "${TF_VAR_stripe_publishable_key}" != pk_test* ]]; then
+          if ! node scripts/stripe-key-mode.mjs require-unrestricted-pair --mode test --secret-var TF_VAR_stripe_secret_key --publishable-var TF_VAR_stripe_publishable_key; then
             echo "Staging requires dedicated Stripe test-mode keys; production live-mode keys must not be used in the staging GitHub Environment." >&2
             exit 1
           fi
@@ -2866,7 +2866,7 @@ jobs:
               exit 1
             fi
 
-            if [[ "${TF_VAR_stripe_secret_key}" != sk_live* || "${TF_VAR_stripe_publishable_key}" != pk_live* ]]; then
+            if ! node scripts/stripe-key-mode.mjs require-unrestricted-pair --mode live --secret-var TF_VAR_stripe_secret_key --publishable-var TF_VAR_stripe_publishable_key; then
               echo "Production proof/public platform deployment requires Stripe live-mode keys." >&2
               exit 1
             fi

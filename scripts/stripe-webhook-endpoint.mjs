@@ -4,6 +4,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import webhookEventRegistry from "../infrastructure/stripe-config/webhook-events.json" with { type: "json" };
 import { PAYMENTS_PROVIDER_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
+import { classifyStripeKeys } from "./stripe-key-mode.mjs";
 import { STRIPE_DELIVERABLE_PAYMENT_WEBHOOK_EVENTS, appendStripeEnabledEvents } from "./stripe-webhook-events.mjs";
 
 export const STRIPE_WEBHOOK_ENDPOINT_PROBE_VERSION = "stripe-webhook-endpoint/v1";
@@ -40,12 +41,9 @@ function assertEnvironment(environment) {
   return config;
 }
 
-function assertKeyMode(apiKey, expectedMode) {
-  const actualMode = String(apiKey ?? "").startsWith("sk_test_")
-    ? "test"
-    : String(apiKey ?? "").startsWith("sk_live_")
-      ? "live"
-      : "unknown";
+export function assertKeyMode(apiKey, expectedMode) {
+  const classification = classifyStripeKeys(apiKey, null);
+  const actualMode = classification.serverKeyClass === "standard" ? classification.serverKeyMode : "unknown";
   if (actualMode !== expectedMode) {
     throw new Error(`Expected a Stripe ${expectedMode}-mode secret key; received ${actualMode}.`);
   }
