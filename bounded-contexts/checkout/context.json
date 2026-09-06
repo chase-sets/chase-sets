@@ -1327,7 +1327,7 @@
     "route-support": {
       "classification": "support",
       "purpose": "Provide checkout route loader/action modules for buy checkout and sell checkout route adapters.",
-      "expectedConsumers": ["routes"]
+      "expectedConsumers": ["sessions"]
     },
     "runtime-support": {
       "classification": "support",
