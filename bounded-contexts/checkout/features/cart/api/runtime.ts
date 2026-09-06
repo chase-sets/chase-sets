@@ -42,6 +42,39 @@ import {
   type CheckoutCartLineRow,
 } from "../read-model/queries";
 
+/**
+ * Aggregate reads for claimed-source candidates run a few at a time so that an
+ * uncapped claim set cannot turn one Cart read into one simultaneous
+ * event-store round trip per claimed source.
+ */
+export const CHECKOUT_CART_SOURCE_AUTHORITY_WORKERS = 4;
+
+/**
+ * Maps every input with at most `limit` calls in flight, in input order.
+ *
+ * The pool is deliberately explicit rather than a `Promise.all` over the whole
+ * set: the caller's input is uncapped, and the result array is filled by index
+ * so the bound costs no determinism.
+ */
+async function mapWithBoundedConcurrency<TInput, TOutput>(
+  inputs: readonly TInput[],
+  limit: number,
+  map: (input: TInput) => Promise<TOutput>,
+): Promise<TOutput[]> {
+  const results = new Array<TOutput>(inputs.length);
+  let nextIndex = 0;
+  const runWorker = async () => {
+    while (nextIndex < inputs.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await map(inputs[index]!);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(limit, inputs.length) }, runWorker));
+  return results;
+}
+
 function isIdempotentMergeReplay(error: unknown) {
   return (
     error instanceof Error &&
@@ -306,9 +339,10 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
    * The acting Account's own key is never a candidate and never gated:
    * `checkout.cart-acc_x` is that Account's own stream by construction.
    *
-   * Candidate decisions are issued as one bounded concurrent batch rather than
-   * one serial read per alias row, are taken once per call, and are never
-   * memoized across calls or requests.
+   * Candidate decisions are issued as one bounded concurrent batch -- at most
+   * `CHECKOUT_CART_SOURCE_AUTHORITY_WORKERS` aggregate reads in flight,
+   * never one per alias row and never one serial read per alias row -- are
+   * taken once per call, and are never memoized across calls or requests.
    */
   async function resolveAuthorizedCartSource(
     accountId: string,
@@ -338,14 +372,14 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
     const decidedOwnerKeys =
       presented && !candidateOwnerKeys.includes(presented) ? [...candidateOwnerKeys, presented] : candidateOwnerKeys;
     const decisions = new Map(
-      await Promise.all(
-        decidedOwnerKeys.map(
-          async (ownerKey) =>
-            [
-              ownerKey,
-              await resolveCartSourceAuthority({ actingOwnerKey: accountId, presentedAnonymousCartId: ownerKey }),
-            ] as const,
-        ),
+      await mapWithBoundedConcurrency(
+        decidedOwnerKeys,
+        CHECKOUT_CART_SOURCE_AUTHORITY_WORKERS,
+        async (ownerKey) =>
+          [
+            ownerKey,
+            await resolveCartSourceAuthority({ actingOwnerKey: accountId, presentedAnonymousCartId: ownerKey }),
+          ] as const,
       ),
     );
 

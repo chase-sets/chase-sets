@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createCheckoutCartRuntime } from "./runtime";
+import { CHECKOUT_CART_SOURCE_AUTHORITY_WORKERS, createCheckoutCartRuntime } from "./runtime";
 import { evolveCheckoutCart, initialCheckoutCartState } from "../domain/domain";
 import { CART_SELLER_OPTIONS_PER_LINE_LIMIT, type CheckoutCartLineRow } from "../read-model/queries";
 
@@ -1295,10 +1295,13 @@ describe("checkout cart post-claim read authority runtime", () => {
 
   it("decides every candidate in one bounded concurrent batch rather than one serial read per alias row", async () => {
     const memory = createInMemoryEventStore();
-    const sources = ["anon_synthetic_a", "anon_synthetic_b", "anon_synthetic_c"];
+    // Deliberately far above the worker limit: the claim set has no cardinality
+    // cap, so the batch's shape only becomes visible once candidates outnumber
+    // the workers by a wide margin.
+    const sources = Array.from({ length: 64 }, (_, index) => `anon_synthetic_${String(index).padStart(2, "0")}`);
     const started: string[] = [];
-    const settled: string[] = [];
-    const log: string[] = [];
+    let active = 0;
+    let maxConcurrent = 0;
     const db = authorityDb(
       () => [],
       sources.map((source_owner_key) => ({ source_owner_key, account_id: OWNER })),
@@ -1308,11 +1311,16 @@ describe("checkout cart post-claim read authority runtime", () => {
         ...memory.eventStore,
         readStream: async (input: Parameters<typeof memory.eventStore.readStream>[0]) => {
           started.push(input.streamId);
-          log.push("start:" + input.streamId);
-          const result = await memory.eventStore.readStream(input);
-          settled.push(input.streamId);
-          log.push("end:" + input.streamId);
-          return result;
+          active += 1;
+          maxConcurrent = Math.max(maxConcurrent, active);
+          // Held open across a macrotask so every read the implementation is
+          // willing to start at once is in flight at the same moment.
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          try {
+            return await memory.eventStore.readStream(input);
+          } finally {
+            active -= 1;
+          }
         },
       },
       checkpointStore: {} as never,
@@ -1326,17 +1334,23 @@ describe("checkout cart post-claim read authority runtime", () => {
       });
     }
     started.length = 0;
-    settled.length = 0;
-    log.length = 0;
+    active = 0;
+    maxConcurrent = 0;
 
-    await runtime.listAuthorizedCartLines({ accountId: OWNER });
+    const lines = await runtime.listAuthorizedCartLines({ accountId: OWNER });
 
-    // Linear in claimed sources, and issued as one batch: every candidate read
-    // had started before the first one settled, which one serial read per alias
-    // row could not produce.
-    expect(started).toEqual(sources.map((source) => `checkout.cart-${source}`));
-    expect(settled).toHaveLength(sources.length);
-    expect(log.slice(0, sources.length).every((entry) => entry.startsWith("start:"))).toBe(true);
+    // Linear in claimed sources and decided exactly once each, dispatched in
+    // candidate order, and concurrent -- but never all at once. An unbounded
+    // fan-out reaches one simultaneous aggregate read per alias row here, and a
+    // serial read per row never exceeds one.
+    expect(started).toHaveLength(sources.length);
+    expect([...started].sort()).toEqual(sources.map((source) => `checkout.cart-${source}`).sort());
+    expect(started.slice(0, CHECKOUT_CART_SOURCE_AUTHORITY_WORKERS)).toEqual(
+      sources.slice(0, CHECKOUT_CART_SOURCE_AUTHORITY_WORKERS).map((source) => `checkout.cart-${source}`),
+    );
+    expect(maxConcurrent).toBeGreaterThan(1);
+    expect(maxConcurrent).toBeLessThanOrEqual(CHECKOUT_CART_SOURCE_AUTHORITY_WORKERS);
+    expect(lines).toEqual([]);
   });
 
   it("keeps the raw union read available to internal write routing", async () => {
