@@ -26,7 +26,7 @@ function createRegistration(overrides: Partial<EvidenceWindowRegistration> = {})
   return {
     open: vi.fn(async ({ windowId, retentionSeconds }) => ({
       windowId,
-      state: "open",
+      state: "open" as const,
       openedAt: "2026-09-05T20:00:00.000Z",
       expiresAt: new Date(Date.parse("2026-09-05T20:00:00.000Z") + retentionSeconds * 1_000).toISOString(),
       version: 1,
@@ -38,7 +38,7 @@ function createRegistration(overrides: Partial<EvidenceWindowRegistration> = {})
     })),
     close: vi.fn(async ({ windowId }) => ({
       windowId,
-      state: "closed",
+      state: "closed" as const,
       closedAt: "2026-09-05T20:30:00.000Z",
       version: 2,
     })),
@@ -79,7 +79,7 @@ describe("evidence window registration routes", () => {
         sequence.push("storage");
         return {
           windowId: input.windowId,
-          state: "open",
+          state: "open" as const,
           openedAt: "2026-09-05T20:00:00.000Z",
           expiresAt: "2026-09-05T21:00:00.000Z",
           version: 1,
@@ -215,7 +215,7 @@ describe("evidence window registration routes", () => {
       }),
       close: vi.fn(async ({ windowId }) => {
         sequence.push("close-storage");
-        return { windowId, state: "closed", closedAt: "2026-09-05T20:30:00.000Z", version: 2 };
+        return { windowId, state: "closed" as const, closedAt: "2026-09-05T20:30:00.000Z", version: 2 };
       }),
     });
     const authorityProbe = vi.fn(({ operation }: { operation: string }) => sequence.push(`${operation}-authority`));
