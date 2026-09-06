@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -603,24 +603,101 @@ export const brandFoilRegistry = [
   },
 ];
 
+const recognizedIndexModes = new Set(["100644", "100755", "120000"]);
+function nulRecords(bytes, label) {
+  const records = [];
+  let start = 0;
+  for (let end = 0; end < bytes.length; end++) {
+    if (bytes[end] !== 0) continue;
+    if (end === start) throw new Error(`${label}: empty record`);
+    records.push(bytes.subarray(start, end));
+    start = end + 1;
+  }
+  if (start !== bytes.length) throw new Error(`${label}: unterminated record`);
+  return records;
+}
+
+export function reconcileIndexedPathRecords(enumerated, staged) {
+  const paths = nulRecords(enumerated, "Git enumeration");
+  const enumeratedByBytes = new Map();
+  for (const pathBytes of paths) {
+    const key = pathBytes.toString("hex");
+    if (enumeratedByBytes.has(key)) throw new Error("Git enumeration: duplicate path");
+    enumeratedByBytes.set(key, pathBytes);
+  }
+
+  const stagedByBytes = new Map();
+  for (const record of nulRecords(staged, "Git stage records")) {
+    const tab = record.indexOf(9);
+    if (tab <= 0 || tab === record.length - 1) throw new Error("Git stage records: malformed record");
+    const header = record.subarray(0, tab).toString("ascii");
+    const match = /^([0-7]{6}) ([0-9a-f]{40}|[0-9a-f]{64}) ([0-3])$/.exec(header);
+    if (!match) throw new Error("Git stage records: malformed header");
+    const pathBytes = record.subarray(tab + 1);
+    const key = pathBytes.toString("hex");
+    if (!enumeratedByBytes.has(key)) throw new Error("Git stage records: path missing from enumeration");
+    if (stagedByBytes.has(key)) throw new Error("Git stage records: duplicate or multiple stages");
+    const [, mode, oid, stage] = match;
+    if (stage !== "0") throw new Error("Git stage records: nonzero stage");
+    if (!recognizedIndexModes.has(mode)) throw new Error(`Git stage records: unknown mode ${mode}`);
+    stagedByBytes.set(key, { pathBytes: enumeratedByBytes.get(key), mode, oid, stage: 0 });
+  }
+
+  return paths.map((pathBytes) => {
+    const entry = stagedByBytes.get(pathBytes.toString("hex"));
+    if (!entry) throw new Error("Git stage records: enumerated path has no stage-0 entry");
+    return entry;
+  });
+}
+
+function indexedPathEntries(repoRoot) {
+  const options = {
+    cwd: repoRoot,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 32 * 1024 * 1024,
+    windowsHide: true,
+  };
+  return {
+    entries: reconcileIndexedPathRecords(
+    execFileSync("git", ["ls-files", "-z"], options),
+    execFileSync("git", ["ls-files", "--stage", "-z"], options),
+    ),
+    options,
+  };
+}
+
+function readIndexedPath(repoRoot, entry, options) {
+  const worktreePath = Buffer.concat([Buffer.from(path.resolve(repoRoot) + path.sep), entry.pathBytes]);
+  if (entry.mode === "100644" || entry.mode === "100755") return readFileSync(worktreePath);
+
+  lstatSync(worktreePath);
+  const bytes = execFileSync("git", ["cat-file", "blob", entry.oid], options);
+  const algorithm = entry.oid.length === 40 ? "sha1" : "sha256";
+  const actualOid = createHash(algorithm)
+    .update(`blob ${bytes.length}\0`)
+    .update(bytes)
+    .digest("hex");
+  if (actualOid !== entry.oid) throw new Error(`Git object mismatch for ${entry.oid}`);
+  return bytes;
+}
+
 export function discoverBrandFoilSites(repoRoot) {
   const result = { tracked: 0, scanned: 0, bytes: 0, nul: 0, readFailures: [], carriers: [] };
-  let index;
+  let entries;
+  let options;
   try {
-    index = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024 });
+    ({ entries, options } = indexedPathEntries(repoRoot));
   } catch (error) {
     result.readFailures.push(`Git index: ${error.message}`);
     return result;
   }
-  let start = 0;
-  for (let end = 0; end < index.length; end++) {
-    if (index[end] !== 0) continue;
-    const pathBytes = index.subarray(start, end);
+  result.tracked = entries.length;
+  for (const entry of entries) {
+    const { pathBytes } = entry;
     const relativePath = pathBytes.toString("utf8");
-    start = end + 1;
-    result.tracked++;
     try {
-      const bytes = readFileSync(Buffer.concat([Buffer.from(path.resolve(repoRoot) + path.sep), pathBytes]));
+      const bytes = readIndexedPath(repoRoot, entry, options);
       result.scanned++;
       result.bytes += bytes.length;
       if (bytes.includes(0)) result.nul++;
@@ -631,7 +708,6 @@ export function discoverBrandFoilSites(repoRoot) {
       result.readFailures.push(`${relativePath}: ${error.code ?? error.message}`);
     }
   }
-  if (start !== index.length) result.readFailures.push("Git index: unterminated path");
   return result;
 }
 

@@ -1,7 +1,17 @@
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +24,7 @@ import {
   discoverBrandFoilSites,
   lexicalLaw,
   matchesBrandFoilAncestry,
+  reconcileIndexedPathRecords as reconcileDiscoveryIndex,
   validateBrandFoilDiscovery,
 } from "./brand-foil-sites.mjs";
 
@@ -29,6 +40,7 @@ import {
   withProofMutation,
   omitBrandFoilRegistration,
   proofEnvironment,
+  reconcileIndexedPathRecords as reconcileProofIndex,
 } from "./brand-foil-proof.mjs";
 const temporaryRoots = [];
 const proofRows = [];
@@ -861,6 +873,163 @@ describe("occurrence owners and complete accounting", () => {
       union: 0,
       allowed: 0,
       violations: 0,
+    });
+  });
+  it("uses synthetic mode-120000 index blob bytes for both readers without opening the target", () => {
+    const directory = temporaryRepo();
+    const name = "synthetic link opaque.data";
+    const pathBytes = Buffer.from(name);
+    const signature = lexicalLaw.properties[0];
+    const linkBlob = Buffer.concat([Buffer.from(`${signature} synthetic `), Buffer.from([0x80])]);
+    const ordinaryBytes = Buffer.from("ordinary synthetic target bytes\n");
+    const changedBlob = Buffer.concat([Buffer.from("changed synthetic link bytes-"), Buffer.from([0x81])]);
+    const absolute = (bytes) => Buffer.concat([Buffer.from(path.resolve(directory) + path.sep), bytes]);
+    const writeObject = (bytes) =>
+      execFileSync("git", ["hash-object", "-w", "--stdin"], {
+        cwd: directory,
+        input: bytes,
+        encoding: "utf8",
+      }).trim();
+    const linkOid = writeObject(linkBlob);
+    git(directory, ["update-index", "--add", "--cacheinfo", `120000,${linkOid},${name}`]);
+    git(directory, [
+      "-c",
+      "user.name=Synthetic link fixture",
+      "-c",
+      "user.email=fixture@example.invalid",
+      "commit",
+      "--quiet",
+      "-m",
+      "Synthetic indexed link fixture",
+    ]);
+    const originalIndex = readFileSync(path.join(directory, ".git", "index"));
+    const targetPath = absolute(linkBlob);
+    const worktreePath = absolute(pathBytes);
+    if (process.platform === "win32") writeFileSync(worktreePath, ordinaryBytes);
+    else {
+      writeFileSync(targetPath, ordinaryBytes);
+      symlinkSync(linkBlob, worktreePath);
+    }
+
+    const enumeration = git(directory, ["ls-files", "-z"]);
+    const stages = git(directory, ["ls-files", "--stage", "-z"]);
+    expect(enumeration).toEqual(Buffer.concat([pathBytes, Buffer.from([0])]));
+    for (const reconcile of [reconcileDiscoveryIndex, reconcileProofIndex])
+      expect(reconcile(enumeration, stages)).toEqual([
+        { pathBytes, mode: "120000", oid: linkOid, stage: 0 },
+      ]);
+    const stageHeader = stages.subarray(0, stages.indexOf(9)).toString("ascii");
+    expect(stageHeader).toBe(`120000 ${linkOid} 0`);
+    expect(stages.subarray(stages.indexOf(9) + 1, -1)).toEqual(pathBytes);
+    expect(lstatSync(worktreePath).isSymbolicLink()).toBe(process.platform !== "win32");
+    const filesystemBytes =
+      process.platform === "win32" ? readFileSync(worktreePath) : readlinkSync(worktreePath, { encoding: "buffer" });
+    expect(filesystemBytes).toEqual(process.platform === "win32" ? ordinaryBytes : linkBlob);
+
+    const expectedSnapshotBytes = (bytes) =>
+      createHash("sha256")
+        .update(pathBytes)
+        .update("\0")
+        .update(String(bytes.length))
+        .update("\0")
+        .update(bytes)
+        .digest("hex");
+    const discovery = discoverBrandFoilSites(directory);
+    const snapshot = snapshotProofRepository(directory);
+    expect(discovery.readFailures).toEqual([]);
+    expect(discovery).toMatchObject({ tracked: 1, scanned: 1, bytes: linkBlob.length });
+    expect(Buffer.from(discovery.carriers[0].source, "latin1")).toEqual(linkBlob);
+    expect(discovery.carriers[0].occurrences[0]).toMatchObject({ detector: "literal", start: 0 });
+    expect(snapshot).toMatchObject({ files: 1, bytes: expectedSnapshotBytes(linkBlob) });
+    expect(validateBrandFoilDiscovery(discovery, []).ok).toBe(false);
+
+    const targetMutation = Buffer.from("mutated ordinary synthetic target bytes\n");
+    writeFileSync(process.platform === "win32" ? worktreePath : targetPath, targetMutation);
+    expect(discoverBrandFoilSites(directory)).toEqual(discovery);
+    expect(snapshotProofRepository(directory)).toEqual(snapshot);
+    if (process.platform === "win32") {
+      for (const representation of [
+        Buffer.alloc(2 * 1024 * 1024, 65),
+        Buffer.from("..\\synthetic-out-of-root-target"),
+        Buffer.from("\\\\.\\NUL"),
+      ]) {
+        writeFileSync(worktreePath, representation);
+        expect(discoverBrandFoilSites(directory)).toEqual(discovery);
+        expect(snapshotProofRepository(directory).bytes).toBe(snapshot.bytes);
+      }
+    } else {
+      rmSync(targetPath);
+      expect(discoverBrandFoilSites(directory)).toEqual(discovery);
+      expect(snapshotProofRepository(directory)).toEqual(snapshot);
+      writeFileSync(targetPath, Buffer.alloc(2 * 1024 * 1024, 65));
+      expect(discoverBrandFoilSites(directory)).toEqual(discovery);
+      expect(snapshotProofRepository(directory)).toEqual(snapshot);
+      for (const target of ["../synthetic-out-of-root-target", "/dev/null"]) {
+        rmSync(worktreePath);
+        symlinkSync(target, worktreePath);
+        expect(discoverBrandFoilSites(directory)).toEqual(discovery);
+        expect(snapshotProofRepository(directory).bytes).toBe(snapshot.bytes);
+      }
+    }
+
+    const changedOid = writeObject(changedBlob);
+    git(directory, ["update-index", "--add", "--cacheinfo", `120000,${changedOid},${name}`]);
+    const changedDiscovery = discoverBrandFoilSites(directory);
+    const changedSnapshot = snapshotProofRepository(directory);
+    expect(changedDiscovery).toMatchObject({ tracked: 1, scanned: 1, bytes: changedBlob.length, carriers: [] });
+    expect(changedSnapshot.bytes).toBe(expectedSnapshotBytes(changedBlob));
+    expect(changedSnapshot.bytes).not.toBe(snapshot.bytes);
+
+    const invalidRecords = [
+      [enumeration, Buffer.alloc(0)],
+      [Buffer.alloc(0), stages],
+      [enumeration, stages.subarray(0, -1)],
+      [Buffer.concat([enumeration, enumeration]), stages],
+      [enumeration, Buffer.concat([stages, stages])],
+      [enumeration, Buffer.concat([Buffer.from(`100644 ${linkOid} 1\t`), pathBytes, Buffer.from([0])])],
+      [enumeration, Buffer.concat([Buffer.from(`160000 ${linkOid} 0\t`), pathBytes, Buffer.from([0])])],
+      [
+        enumeration,
+        Buffer.concat([
+          Buffer.from(`100644 ${linkOid} 1\t`),
+          pathBytes,
+          Buffer.from([0]),
+          Buffer.from(`100644 ${linkOid} 2\t`),
+          pathBytes,
+          Buffer.from([0]),
+        ]),
+      ],
+    ];
+    for (const reconcile of [reconcileDiscoveryIndex, reconcileProofIndex])
+      for (const [listed, indexed] of invalidRecords) expect(() => reconcile(listed, indexed)).toThrow();
+
+    writeFileSync(path.join(directory, ".git", "index"), originalIndex);
+    rmSync(worktreePath);
+    expect(discoverBrandFoilSites(directory).readFailures).toHaveLength(1);
+    expect(() => snapshotProofRepository(directory)).toThrow();
+
+    writeFileSync(worktreePath, ordinaryBytes);
+    const missingOid = "f".repeat(linkOid.length);
+    execFileSync("git", ["update-index", "--info-only", "--add", "--cacheinfo", `120000,${missingOid},${name}`], {
+      cwd: directory,
+    });
+    expect(discoverBrandFoilSites(directory).readFailures).toHaveLength(1);
+    expect(() => snapshotProofRepository(directory)).toThrow();
+    proofRows.push({
+      kind: "synthetic-indexed-link",
+      platform: process.platform,
+      rawPathHex: pathBytes.toString("hex"),
+      stage: 0,
+      mode: "120000",
+      oid: linkOid,
+      linkBlobHex: linkBlob.toString("hex"),
+      filesystemKind: process.platform === "win32" ? "ordinary-file" : "symbolic-link",
+      filesystemBytesHex: filesystemBytes.toString("hex"),
+      discoveryBytesHex: Buffer.from(discovery.carriers[0].source, "latin1").toString("hex"),
+      snapshotBytes: snapshot.bytes,
+      targetMutationInvariant: true,
+      stagedBlobSensitive: true,
+      invalidStatesRefused: invalidRecords.length + 2,
     });
   });
   it.each(["renamed", "nested", "duplicate", "whitespace", "template", "mutable"])(
