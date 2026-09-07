@@ -17,9 +17,7 @@ describe("provider market-capture production caller closure", () => {
 
   it("imports the real PricingHostPorts and supplies the raw four-client transport without a bridge cast", () => {
     const main = source("../../../../../deployables/platform-worker/src/main.ts");
-    expect(main).toMatch(
-      /import\s*\{[^}]*\btype PricingHostPorts\b[^}]*\}\s*from "@chase-sets\/pricing\/server";/,
-    );
+    expect(main).toMatch(/import\s*\{[^}]*\btype PricingHostPorts\b[^}]*\}\s*from "@chase-sets\/pricing\/server";/);
     expect(main).toContain("tcgplayerMarketTransport: tcgplayerAutomationHttpClients");
     expect(main).not.toMatch(/tcgplayerMarketTransport:[^\n]+\bas\b/);
   });
