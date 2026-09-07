@@ -122,7 +122,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Purchase-limit edits change only purchase limits; this is structural evidence, not a dedicated behavioral test.",
-            evidenceRef: `${listingDomain}:773-781; ${listingDomain}:986-991`,
+            evidenceRef: `${listingDomain}:773-783; ${listingDomain}:986-991`,
           },
           {
             assertion:
