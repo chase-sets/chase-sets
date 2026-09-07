@@ -54,12 +54,12 @@ type ListingCatalogItemSearchResponse = Readonly<{
   items?: readonly ListingCatalogItemSnapshot[];
 }>;
 
-function formatMoney(amount: string | null) {
-  if (!amount) {
+function formatMoney(amount: string | null, currencyCode: string) {
+  if (!amount || !currencyCode.trim()) {
     return t("marketplace.features.listings.ui.listingCreatePage.not.set");
   }
 
-  return formatMoneyDisplay(amount, "USD");
+  return formatMoneyDisplay(amount, currencyCode);
 }
 
 function inventoryLabel(inventoryItem: MarketplaceListingInventoryItemOption) {
@@ -111,6 +111,7 @@ export function MarketplaceListingCreatePage({
     catalogItemId?: string | null;
     selectedOptions?: readonly { dimensionId: string; optionId: string }[] | null;
     priceAmount?: string | null;
+    priceCurrencyCode?: string | null;
     quantityCap?: string | null;
     maxUnitsPerOrder?: string | null;
     maxUnitsPerDay?: string | null;
@@ -126,6 +127,7 @@ export function MarketplaceListingCreatePage({
 }) {
   const [inventoryItemId, setInventoryItemId] = useState(createForm?.inventoryItemId?.trim() ?? "");
   const [priceAmount, setPriceAmount] = useState(createForm?.priceAmount?.trim() ?? "");
+  const [priceCurrencyCode, setPriceCurrencyCode] = useState(createForm?.priceCurrencyCode?.trim() ?? "");
   const [evidenceReadiness, setEvidenceReadiness] = useState(initialEvidenceReadiness ?? null);
   const [evidenceReadinessPending, setEvidenceReadinessPending] = useState(false);
   const selectedInventory = selectedInventorySummary(inventoryItems, inventoryItemId);
@@ -384,15 +386,23 @@ export function MarketplaceListingCreatePage({
                     <CurrencyInput
                       label={t("marketplace.features.listings.ui.listingCreatePage.price")}
                       name="priceAmount"
-                      currencyCode="USD"
-                      currencyAccessibleDescription={t("localization.currency.amountIn", {
-                        currency: t("localization.currency.usd"),
-                      })}
+                      currencyCode={priceCurrencyCode}
                       decrementLabel={t("localization.currency.decreaseAmount")}
                       incrementLabel={t("localization.currency.increaseAmount")}
                       placeholder="24.99"
                       value={priceAmount}
                       onValueChange={(value) => setPriceAmount(value ?? "")}
+                      required
+                    />
+                    <TextInput
+                      label={t("marketplace.features.listings.ui.listingCreatePage.price.currency.code")}
+                      name="priceCurrencyCode"
+                      value={priceCurrencyCode}
+                      onChange={(event) => setPriceCurrencyCode(event.target.value)}
+                      placeholder="ISO 4217"
+                      minLength={3}
+                      maxLength={3}
+                      autoCapitalize="characters"
                       required
                     />
                     <NumberField
@@ -591,11 +601,11 @@ export function MarketplaceListingCreatePage({
               },
               {
                 label: t("marketplace.features.listings.ui.listingCreatePage.basis.amount"),
-                value: formatMoney(createPreview.basis_amount),
+                value: formatMoney(createPreview.basis_amount, priceCurrencyCode),
               },
               {
                 label: t("marketplace.features.listings.ui.listingCreatePage.locked.fee"),
-                value: formatMoney(createPreview.marketplace_sales_fee_unit_amount),
+                value: formatMoney(createPreview.marketplace_sales_fee_unit_amount, priceCurrencyCode),
               },
               {
                 label: t("marketplace.features.listings.ui.listingCreatePage.buyer.shipping.credit.summary", {
@@ -610,7 +620,7 @@ export function MarketplaceListingCreatePage({
                   t("marketplace.features.listings.ui.listingCreatePage.no.schedule.available"),
               },
             ]}
-            total={formatMoney(createPreview.seller_net_unit_amount)}
+            total={formatMoney(createPreview.seller_net_unit_amount, priceCurrencyCode)}
             totalLabel={t("marketplace.features.listings.ui.listingCreatePage.listing.fee.preview")}
           />
         ) : null}

@@ -110,6 +110,7 @@ type DraftRow = {
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string;
   quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
@@ -153,10 +154,11 @@ function createDraftIntentDb() {
                 row.product_id === params[2] &&
                 selectedOptionsMatch(row, params[3]) &&
                 row.price_amount === params[4] &&
-                row.quantity_cap === params[5] &&
-                row.max_units_per_order === params[6] &&
-                row.max_units_per_day === params[7] &&
-                row.max_units_per_customer_account === params[8],
+                row.price_currency_code === params[5] &&
+                row.quantity_cap === params[6] &&
+                row.max_units_per_order === params[7] &&
+                row.max_units_per_day === params[8] &&
+                row.max_units_per_customer_account === params[9],
             )
             .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
             .slice(0, 1),
@@ -183,14 +185,15 @@ function createDraftIntentDb() {
           selected_options: JSON.parse(String(params[5])) as DraftRow["selected_options"],
           product_summary: params[6] === null ? null : String(params[6]),
           price_amount: String(params[7]),
-          quantity_cap: Number(params[8]),
-          max_units_per_order: params[9] === null ? null : Number(params[9]),
-          max_units_per_day: params[10] === null ? null : Number(params[10]),
-          max_units_per_customer_account: params[11] === null ? null : Number(params[11]),
+          price_currency_code: String(params[8]),
+          quantity_cap: Number(params[9]),
+          max_units_per_order: params[10] === null ? null : Number(params[10]),
+          max_units_per_day: params[11] === null ? null : Number(params[11]),
+          max_units_per_customer_account: params[12] === null ? null : Number(params[12]),
           status: "active",
           claimed_account_id: null,
           claimed_at: null,
-          expires_at: String(params[12]),
+          expires_at: String(params[13]),
           created_at: now(),
           updated_at: now(),
         };
@@ -261,6 +264,7 @@ describe("marketplace listing runtime", () => {
         selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
         productSummary: "Form: Raw",
         priceAmount: "20",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
       });
       const second = await services.createAnonymousListingDraftIntent({
@@ -271,6 +275,7 @@ describe("marketplace listing runtime", () => {
         selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
         productSummary: "Form: Raw",
         priceAmount: "20.00",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
       });
 
@@ -369,6 +374,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_seed_1" as never,
         },
@@ -465,6 +471,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: listingId as never,
         },
@@ -499,6 +506,7 @@ describe("marketplace listing runtime", () => {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_after_rollout" as never,
       },
@@ -569,6 +577,7 @@ describe("marketplace listing runtime", () => {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_seed_1" as never,
       },
@@ -590,6 +599,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller",
           listingId: "lst_seed_1",
           priceAmount: "20.00",
+          priceCurrencyCode: "USD",
           feeQuoteFingerprint: preview.fee_quote_fingerprint,
         },
         context,
@@ -601,6 +611,23 @@ describe("marketplace listing runtime", () => {
 
     const streamEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_seed_1" });
     expect(streamEvents.map((event) => event.eventType)).toEqual(["marketplace.listing.created"]);
+
+    await expect(
+      services.updateListingPrice(
+        {
+          accountId: "acc_seller",
+          listingId: "lst_seed_1",
+          priceAmount: "20.00",
+          priceCurrencyCode: "EUR",
+          feeQuoteFingerprint: preview.fee_quote_fingerprint,
+        },
+        context,
+      ),
+    ).resolves.toEqual({ listingId: "lst_seed_1", version: 2 });
+    await expect(services.loadListingState("lst_seed_1")).resolves.toMatchObject({
+      priceAmount: "20.00",
+      priceCurrencyCode: "EUR",
+    });
   });
 
   it("rejects publication when inventory supply lacks a resolved shipping measure", async () => {
@@ -660,6 +687,7 @@ describe("marketplace listing runtime", () => {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_missing_measure" as never,
       },
@@ -734,6 +762,7 @@ describe("marketplace listing runtime", () => {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_history" as never,
       },
@@ -831,6 +860,7 @@ describe("marketplace listing runtime", () => {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "300.00",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_high_dollar" as never,
       },
@@ -909,6 +939,7 @@ describe("marketplace listing runtime", () => {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "300.00",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_high_dollar" as never,
       },
@@ -999,6 +1030,7 @@ describe("marketplace listing runtime", () => {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_original" as never,
       },
@@ -1028,6 +1060,7 @@ describe("marketplace listing runtime", () => {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_after_change" as never,
       },
@@ -1184,6 +1217,7 @@ describe("marketplace listing runtime", () => {
         totalQuantity: 3,
         acquisitionCostAmount: "1.00",
         priceAmount: "5.00",
+        priceCurrencyCode: "USD",
         quantityCap: 2,
       },
       context,
@@ -1242,6 +1276,7 @@ describe("marketplace listing runtime", () => {
           totalQuantity: 1,
           acquisitionCostAmount: null,
           priceAmount: "5.00",
+          priceCurrencyCode: "USD",
           quantityCap: 2,
         },
         context,
@@ -1276,6 +1311,7 @@ describe("marketplace listing runtime", () => {
           availableQuantity: 1,
           acquisitionCostAmount: null,
           priceAmount: "5.00",
+          priceCurrencyCode: "USD",
           quantityCap: 2,
         },
         context,
@@ -1339,6 +1375,7 @@ describe("marketplace listing runtime", () => {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "100.00",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_default_threshold" as never,
       },
@@ -1390,6 +1427,7 @@ describe("marketplace listing runtime", () => {
       productId: "cat_charizard::form:raw",
       selectedOptions: [],
       priceAmount: "20.00",
+      priceCurrencyCode: "USD",
       quantityCap: 1,
     });
 
@@ -1401,6 +1439,7 @@ describe("marketplace listing runtime", () => {
         productId: "cat_blastoise::form:raw",
         selectedOptions: [],
         priceAmount: "30.00",
+        priceCurrencyCode: "USD",
         quantityCap: 1,
       }),
     ).rejects.toThrow(
@@ -1485,6 +1524,7 @@ describe("marketplace listing runtime", () => {
       const event = events.filter((candidate) => candidate.eventType === "marketplace.listing.price-updated").at(-1);
       expect(event).toBeDefined();
       return event!.payload as {
+        priceCurrencyCode: string;
         feeLocks: readonly MarketplaceListingFeeLock[];
         feeQuoteFingerprint: string;
         termsScheduleId: string | null;
@@ -1569,6 +1609,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_founder_preserved" as never,
         },
@@ -1581,13 +1622,24 @@ describe("marketplace listing runtime", () => {
         services.applyBulkListingPriceUpdates(
           {
             accountId: "acc_seller",
-            updates: [{ listingId: "lst_founder_preserved", priceAmount: "25.00" }],
+            updates: [{ listingId: "lst_founder_preserved", priceAmount: "25.00", priceCurrencyCode: "USD" }],
           },
           context,
         ),
       ).resolves.toEqual([{ listingId: "lst_founder_preserved", outcome: "applied", version: 2 }]);
 
+      await expect(
+        services.applyBulkListingPriceUpdates(
+          {
+            accountId: "acc_seller",
+            updates: [{ listingId: "lst_founder_preserved", priceAmount: "25.00", priceCurrencyCode: "EUR" }],
+          },
+          context,
+        ),
+      ).resolves.toEqual([{ listingId: "lst_founder_preserved", outcome: "applied", version: 3 }]);
+
       const payload = await readPriceUpdatedPayload(eventStore, "lst_founder_preserved");
+      expect(payload.priceCurrencyCode).toBe("EUR");
       expect(payload.feeLocks[0]?.terms).toEqual(syntheticFounderTerms);
       expect(payload.feeLocks[0]?.terms).toEqual(created.feeLocks[0]?.terms);
       expect(payload.feeQuoteFingerprint).not.toBe(created.feeLocks[0]?.feeQuoteFingerprint);
@@ -1620,6 +1672,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_nonzero_requote" as never,
         },
@@ -1632,7 +1685,7 @@ describe("marketplace listing runtime", () => {
       await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
-          updates: [{ listingId: "lst_nonzero_requote", priceAmount: "40.00" }],
+          updates: [{ listingId: "lst_nonzero_requote", priceAmount: "40.00", priceCurrencyCode: "USD" }],
         },
         context,
       );
@@ -1663,6 +1716,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_multi_tranche" as never,
         },
@@ -1695,7 +1749,7 @@ describe("marketplace listing runtime", () => {
       await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
-          updates: [{ listingId: "lst_multi_tranche", priceAmount: "30.00" }],
+          updates: [{ listingId: "lst_multi_tranche", priceAmount: "30.00", priceCurrencyCode: "USD" }],
         },
         context,
       );
@@ -1728,6 +1782,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: listingId as never,
         },
@@ -1741,6 +1796,7 @@ describe("marketplace listing runtime", () => {
       const update = {
         listingId,
         priceAmount: "25.00",
+        priceCurrencyCode: "USD",
         ...(callerShape === "http"
           ? {
               feeQuoteFingerprint: currentSession!.quote("25.00").fee_quote_fingerprint,
@@ -1775,6 +1831,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_owned" as never,
         },
@@ -1787,6 +1844,7 @@ describe("marketplace listing runtime", () => {
             accountId: "acc_intruder" as never,
             inventoryItemId: "inv_1",
             priceAmount: "20.00",
+            priceCurrencyCode: "USD",
             quantityCap: 1,
             listingIdOverride: "lst_owned" as never,
           },
@@ -1811,6 +1869,7 @@ describe("marketplace listing runtime", () => {
             accountId: "acc_seller" as never,
             inventoryItemId: "inv_1",
             priceAmount: "20.00",
+            priceCurrencyCode: "USD",
             quantityCap: 1,
             listingIdOverride: listingId as never,
           },
@@ -1830,11 +1889,22 @@ describe("marketplace listing runtime", () => {
         {
           accountId: "acc_seller",
           updates: [
-            { listingId: "lst_bulk_1", priceAmount: "25.00", feeQuoteFingerprint: changedQuote.fee_quote_fingerprint },
-            { listingId: "lst_bulk_2", priceAmount: "20.00", feeQuoteFingerprint: sameQuote.fee_quote_fingerprint },
+            {
+              listingId: "lst_bulk_1",
+              priceAmount: "25.00",
+              priceCurrencyCode: "USD",
+              feeQuoteFingerprint: changedQuote.fee_quote_fingerprint,
+            },
+            {
+              listingId: "lst_bulk_2",
+              priceAmount: "20.00",
+              priceCurrencyCode: "USD",
+              feeQuoteFingerprint: sameQuote.fee_quote_fingerprint,
+            },
             {
               listingId: "lst_bulk_3",
               priceAmount: "30.00",
+              priceCurrencyCode: "USD",
               feeQuoteFingerprint: withdrawnQuote.fee_quote_fingerprint,
             },
           ],
@@ -1877,20 +1947,23 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_manual_wins" as never,
         },
         context,
       );
       await services.updateListingPrice(
-        { accountId: "acc_seller", listingId: "lst_manual_wins", priceAmount: "22.00" },
+        { accountId: "acc_seller", listingId: "lst_manual_wins", priceAmount: "22.00", priceCurrencyCode: "USD" },
         context,
       );
 
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
-          updates: [{ listingId: "lst_manual_wins", priceAmount: "18.00", expectedVersion: 1 }],
+          updates: [
+            { listingId: "lst_manual_wins", priceAmount: "18.00", priceCurrencyCode: "USD", expectedVersion: 1 },
+          ],
         },
         context,
       );
@@ -1919,6 +1992,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "10.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_authoritative_tolerance" as never,
         },
@@ -1932,6 +2006,7 @@ describe("marketplace listing runtime", () => {
             {
               listingId: "lst_authoritative_tolerance",
               priceAmount: "11.00",
+              priceCurrencyCode: "USD",
               expectedVersion: 1,
               minimumChange: { mode: "absolute", amount: "0.25" },
               idempotencyKey: "repricing:round:product:listing:price",
@@ -1944,6 +2019,7 @@ describe("marketplace listing runtime", () => {
       expect(outcomes[0]).toMatchObject({ outcome: "applied" });
       await expect(services.loadListingState("lst_authoritative_tolerance")).resolves.toMatchObject({
         priceAmount: "11.00",
+        priceCurrencyCode: "USD",
       });
     });
 
@@ -1960,6 +2036,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "100.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_retry_once" as never,
         },
@@ -1971,6 +2048,7 @@ describe("marketplace listing runtime", () => {
           {
             listingId: "lst_retry_once",
             priceAmount: "90.00",
+            priceCurrencyCode: "USD",
             expectedVersion: 1,
             minimumChange: { mode: "absolute" as const, amount: "0.25" },
             idempotencyKey: "repricing:round-1:product-1:lst_retry_once:price",
@@ -2003,6 +2081,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "100.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: listingId as never,
         },
@@ -2030,6 +2109,7 @@ describe("marketplace listing runtime", () => {
           eventType: "marketplace.listing.price-updated",
           payload: {
             priceAmount: "90.00",
+            priceCurrencyCode: "USD",
             marketplaceSalesFeeUnitAmount: createdPayload.marketplaceSalesFeeUnitAmount,
             sellerNetUnitAmount: createdPayload.sellerNetUnitAmount,
             shippingAllowancePercentageBps: createdPayload.shippingAllowancePercentageBps,
@@ -2050,6 +2130,7 @@ describe("marketplace listing runtime", () => {
               {
                 listingId,
                 priceAmount: "90.00",
+                priceCurrencyCode: "USD",
                 expectedVersion: 501,
                 idempotencyKey,
               },
@@ -2082,6 +2163,7 @@ describe("marketplace listing runtime", () => {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_owned" as never,
         },
@@ -2092,8 +2174,18 @@ describe("marketplace listing runtime", () => {
         {
           accountId: "acc_seller",
           updates: [
-            { listingId: "lst_does_not_exist", priceAmount: "25.00", feeQuoteFingerprint: "stale" },
-            { listingId: "lst_owned", priceAmount: "25.00", feeQuoteFingerprint: "stale-too" },
+            {
+              listingId: "lst_does_not_exist",
+              priceAmount: "25.00",
+              priceCurrencyCode: "USD",
+              feeQuoteFingerprint: "stale",
+            },
+            {
+              listingId: "lst_owned",
+              priceAmount: "25.00",
+              priceCurrencyCode: "USD",
+              feeQuoteFingerprint: "stale-too",
+            },
           ],
         },
         context,
@@ -2138,6 +2230,7 @@ describe("marketplace listing runtime", () => {
             accountId: "acc_seller" as never,
             inventoryItemId: "inv_1",
             priceAmount: "20.00",
+            priceCurrencyCode: "USD",
             quantityCap: 1,
             listingIdOverride: listingId as never,
           },
@@ -2157,6 +2250,7 @@ describe("marketplace listing runtime", () => {
           updates: listingIds.map((listingId, index) => ({
             listingId,
             priceAmount: `${21 + index}.00`,
+            priceCurrencyCode: "USD",
             feeQuoteFingerprint: quotes[index]!.fee_quote_fingerprint,
           })),
         },
@@ -2190,6 +2284,7 @@ describe("marketplace listing runtime", () => {
             accountId: "acc_seller" as never,
             inventoryItemId: "inv_1",
             priceAmount: "20.00",
+            priceCurrencyCode: "USD",
             quantityCap: 1,
             listingIdOverride: listingId as never,
           },
@@ -2203,6 +2298,7 @@ describe("marketplace listing runtime", () => {
           updates: listingIds.map((listingId, index) => ({
             listingId,
             priceAmount: `${21 + index}.00`,
+            priceCurrencyCode: "USD",
           })),
         },
         context,
@@ -2285,6 +2381,7 @@ describe("marketplace listing runtime", () => {
             accountId: "acc_seller" as never,
             inventoryItemId: "inv_1",
             priceAmount: "20.00",
+            priceCurrencyCode: "USD",
             quantityCap: 1,
             listingIdOverride: listingId as never,
           },
@@ -2296,8 +2393,8 @@ describe("marketplace listing runtime", () => {
         {
           accountId: "acc_seller",
           updates: [
-            { listingId: "lst_revision_1", priceAmount: "21.00" },
-            { listingId: "lst_revision_2", priceAmount: "22.00" },
+            { listingId: "lst_revision_1", priceAmount: "21.00", priceCurrencyCode: "USD" },
+            { listingId: "lst_revision_2", priceAmount: "22.00", priceCurrencyCode: "USD" },
           ],
         },
         context,

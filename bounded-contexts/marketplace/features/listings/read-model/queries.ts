@@ -28,6 +28,8 @@ export type MarketplaceListingListRow = Readonly<{
   ship_from_code: string | null;
   ship_from_address: AddressSnapshot;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number | null;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -68,6 +70,7 @@ export type MarketplaceListingFeeLockReportRow = Readonly<{
   product_summary: string | null;
   status: string;
   price_amount: string;
+  price_currency_code: string | null;
   quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
@@ -135,6 +138,8 @@ type MarketplaceListingPageRow = Readonly<{
   ship_from_code: string | null;
   ship_from_address: unknown;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number | null;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -183,6 +188,8 @@ const listingPageColumnSelectSql = `
        listing.ship_from_code,
        listing.ship_from_address,
        listing.price_amount,
+       listing.price_currency_code,
+       listing.listing_stream_version,
        listing.marketplace_sales_fee_unit_amount,
        listing.seller_net_unit_amount,
        listing.shipping_allowance_percentage_bps,
@@ -864,6 +871,7 @@ export async function listSellerListingFeeLockReport(
          product_summary,
          status,
          price_amount,
+         price_currency_code,
          quantity_cap,
          max_units_per_order,
          max_units_per_day,

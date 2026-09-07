@@ -150,6 +150,7 @@ export type RepresentativeMarketplaceServices = Readonly<{
         accountId: AccountId;
         inventoryItemId: string;
         priceAmount: string;
+        priceCurrencyCode: string;
         quantityCap: number;
         listingIdOverride?: ListingId;
         listingPhotoUploads?: readonly RepresentativeListingPhotoUpload[] | null;
@@ -862,6 +863,7 @@ export async function publishRepresentativeListings(
         accountId: stock.accountId as AccountId,
         inventoryItemId: stock.inventoryItemId,
         priceAmount: representativePrice(index),
+        priceCurrencyCode: "USD",
         quantityCap: Math.max(1, Math.min(stock.totalQuantity, index % 2 === 0 ? 2 : 4)),
         listingIdOverride: listingId as ListingId,
         // A retained draft already carries its creation photo evidence;

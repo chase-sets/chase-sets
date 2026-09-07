@@ -68,6 +68,8 @@ function buildListingRow(overrides: Partial<MarketplaceListingListItem> = {}): M
       country: "US",
     },
     price_amount: "20.00",
+    price_currency_code: "USD",
+    listing_stream_version: 1,
     marketplace_sales_fee_unit_amount: "1.00",
     seller_net_unit_amount: "19.00",
     shipping_allowance_percentage_bps: 500,
@@ -175,6 +177,19 @@ describe("marketplace listings workbench", () => {
     expect((screen.getByLabelText("Status") as HTMLSelectElement).value).toBe("paused");
     expect(screen.getByText("Title: Charizard")).toBeTruthy();
     expect(screen.getByText("Status: Paused")).toBeTruthy();
+  });
+
+  it("renders legacy amount-only rows as an incomplete price without inventing a currency", () => {
+    const { container } = render(
+      <MarketplaceListingListPage
+        data={{ items: [buildListingRow({ price_currency_code: null })] }}
+        listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
+      />,
+    );
+
+    expect(screen.getAllByText("Incomplete price").length).toBeGreaterThan(0);
+    expect(container.textContent).not.toContain("$20.00");
   });
 
   it("selects listing rows and submits bulk pause with the selected ids", () => {

@@ -395,6 +395,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.list.for.sale.action.description": "Set price and quantity to create a listing.",
   "discovery.routes.itemDetail.listing.is": "listing is $",
   "discovery.routes.itemDetail.listing.price": "Listing price",
+  "discovery.routes.itemDetail.listing.price.currency.code": "Listing price currency code",
   "discovery.routes.itemDetail.listing.stock.created.automatically": "Listing stock is created automatically.",
   "discovery.routes.itemDetail.just.now": "just now",
   "discovery.routes.itemDetail.manage.listing": "Manage listing",

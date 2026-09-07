@@ -102,6 +102,7 @@ const createListingCommand = {
   shipFromCode: "AUS",
   shipFromAddress,
   priceAmount: "10.00",
+  priceCurrencyCode: "USD",
   feeLock: feeLock(),
   quantityCap: 3,
   evidenceRequirements,
@@ -148,6 +149,7 @@ describe("marketplace listing no-op suppression", () => {
     const [event] = decideMarketplaceListing(initialMarketplaceListingState, {
       ...createListingCommand,
       priceAmount: "007.50",
+      priceCurrencyCode: "USD",
     });
 
     expect(event?.type).toBe("marketplace.listing.created");
@@ -157,11 +159,49 @@ describe("marketplace listing no-op suppression", () => {
     expect(event.data.priceAmount).toBe("7.50");
   });
 
+  it("normalizes the seller-authored currency once beside the amount", () => {
+    const [event] = decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      priceCurrencyCode: " usd ",
+    });
+
+    expect(event).toMatchObject({
+      type: "marketplace.listing.created",
+      data: { priceAmount: "10.00", priceCurrencyCode: "USD" },
+    });
+  });
+
+  it.each(["", "   ", "US", "USDD", "U1D"])("rejects an invalid listing currency %j", (priceCurrencyCode) => {
+    expect(() =>
+      decideMarketplaceListing(initialMarketplaceListingState, {
+        ...createListingCommand,
+        priceCurrencyCode,
+      }),
+    ).toThrow("Price currency code must be a three-letter ISO-4217 code.");
+  });
+
+  it("rehydrates historical amount-only creation as an explicitly incomplete price", () => {
+    const [created] = decideMarketplaceListing(initialMarketplaceListingState, createListingCommand);
+    if (created?.type !== "marketplace.listing.created") {
+      throw new Error("Expected a listing-created event.");
+    }
+    const { priceCurrencyCode: _omittedHistoricalCurrency, ...historicalData } = created.data;
+
+    const state = evolveMarketplaceListing(initialMarketplaceListingState, {
+      ...created,
+      data: historicalData,
+    });
+
+    expect(state).toMatchObject({ priceAmount: "10.00", priceCurrencyCode: null });
+    expect(() => decideMarketplaceListing(state, publishListingCommand)).toThrow("Listing price is incomplete");
+  });
+
   it("rejects listing prices above the shared money ceiling", () => {
     expect(() =>
       decideMarketplaceListing(initialMarketplaceListingState, {
         ...createListingCommand,
         priceAmount: "10000000000.00",
+        priceCurrencyCode: "USD",
       }),
     ).toThrow();
   });
@@ -172,6 +212,30 @@ describe("marketplace listing no-op suppression", () => {
       ...overrides,
     }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
   }
+
+  it("treats a normalized currency change as material while preserving pair no-op semantics", () => {
+    const listing = createdListing();
+    const currencyChange = decideMarketplaceListing(listing, {
+      type: "UpdateListingPrice",
+      priceAmount: "10.0",
+      priceCurrencyCode: " eur ",
+      feeLocks: listing.feeLocks,
+    });
+
+    expect(currencyChange).toHaveLength(1);
+    expect(currencyChange[0]).toMatchObject({
+      type: "marketplace.listing.price-updated",
+      data: { priceAmount: "10.00", priceCurrencyCode: "EUR" },
+    });
+    expect(
+      decideMarketplaceListing(listing, {
+        type: "UpdateListingPrice",
+        priceAmount: "10.0",
+        priceCurrencyCode: " usd ",
+        feeLocks: listing.feeLocks,
+      }),
+    ).toEqual([]);
+  });
 
   describe("fee-lock mutation semantics", () => {
     it("locks every creation-time unit to the resolved terms snapshot", () => {
@@ -212,6 +276,7 @@ describe("marketplace listing no-op suppression", () => {
         decideMarketplaceListing(listing, {
           type: "UpdateListingPrice",
           priceAmount: "25.00",
+          priceCurrencyCode: "USD",
           feeLocks: [requoted],
         });
 
@@ -235,6 +300,7 @@ describe("marketplace listing no-op suppression", () => {
         decideMarketplaceListing(listing, {
           type: "UpdateListingPrice",
           priceAmount: "10.0",
+          priceCurrencyCode: "USD",
           feeLocks: [feeLock({ marketplaceSalesFeeUnitAmount: "1.0" })],
         }),
       ).toEqual([]);
@@ -346,6 +412,7 @@ describe("marketplace listing no-op suppression", () => {
         decideMarketplaceListing(withdrawn, {
           type: "UpdateListingPrice",
           priceAmount: "11.00",
+          priceCurrencyCode: "USD",
           feeLocks: withdrawn.feeLocks,
         }),
       ).toThrow("Withdrawn listings cannot be updated");
@@ -374,6 +441,7 @@ describe("marketplace listing no-op suppression", () => {
       const repriced = decideMarketplaceListing(listing, {
         type: "UpdateListingPrice",
         priceAmount: "12.00",
+        priceCurrencyCode: "USD",
         feeLocks: [
           feeLock({
             marketplaceSalesFeeUnitAmount: "1.20",

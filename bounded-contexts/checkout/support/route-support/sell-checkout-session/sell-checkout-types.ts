@@ -63,7 +63,12 @@ export type SellListReviewPlanLine = Readonly<{
     feeQuoteFingerprint: string;
     quantity: number;
   }>[];
-  fallbackListing: Readonly<{ inventoryItemId: string; priceAmount: string; quantityCap: number }> | null;
+  fallbackListing: Readonly<{
+    inventoryItemId: string;
+    priceAmount: string;
+    priceCurrencyCode: string;
+    quantityCap: number;
+  }> | null;
   skippedReasons: readonly string[];
 }>;
 

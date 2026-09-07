@@ -221,6 +221,7 @@ function fingerprint(
     values.storageLocationId ?? "",
     values.totalQuantity ?? "",
     values.listingPriceAmount ?? "",
+    values.listingPriceCurrencyCode ?? "",
   ].join("|");
 }
 

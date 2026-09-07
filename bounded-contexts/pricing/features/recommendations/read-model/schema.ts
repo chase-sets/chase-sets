@@ -59,6 +59,7 @@ SELECT
   recommendation.market_signal_type,
   recommendation.market_observed_at,
   recommendation.current_price_amount,
+  listing_input.price_currency_code AS current_price_currency_code,
   recommendation.recommended_list_amount,
   recommendation.recommendation_reason,
   recommendation.quantity_cap,
@@ -78,6 +79,8 @@ SELECT
 FROM pricing_recommendation_pages AS recommendation
 LEFT JOIN pricing_catalog_item_inputs AS catalog_input
   ON catalog_input.catalog_item_id = recommendation.catalog_catalog_item_id
+LEFT JOIN pricing_market_listing_inputs AS listing_input
+  ON listing_input.listing_id = recommendation.listing_id
 LEFT JOIN (
   SELECT
     item_input.seller_account_id,

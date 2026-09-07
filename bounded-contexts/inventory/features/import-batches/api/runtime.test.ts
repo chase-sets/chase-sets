@@ -53,6 +53,7 @@ type StoredRow = Readonly<{
   acquisition_cost_amount: string | null;
   seller_sku: string | null;
   listing_price_amount: string | null;
+  listing_price_currency_code: string | null;
   listing_quantity_cap: number | null;
   row_note: string | null;
   validation_errors: readonly string[];
@@ -292,6 +293,10 @@ class ImportBatchDb implements PgQueryable {
           acquisition_cost_amount: typeof values[17] === "string" ? values[17] : null,
           seller_sku: typeof values[18] === "string" ? values[18] : null,
           listing_price_amount: typeof values[19] === "string" ? values[19] : null,
+          listing_price_currency_code:
+            typeof (JSON.parse(String(values[4])) as Record<string, unknown>).listingPriceCurrencyCode === "string"
+              ? String((JSON.parse(String(values[4])) as Record<string, unknown>).listingPriceCurrencyCode)
+              : null,
           listing_quantity_cap: typeof values[20] === "number" ? values[20] : null,
           row_note: typeof values[21] === "string" ? values[21] : null,
           validation_errors: JSON.parse(String(values[22])) as string[],
@@ -745,7 +750,7 @@ describe("inventory import batch runtime", () => {
     const template = await services.getNativeCsvTemplate({ accountId: "acc_1" as AccountId });
 
     expect(template).toContain(
-      "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
+      "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
     );
     expect(template).toContain("loc_active");
     expect(template).toContain("Example for Active shelf");
@@ -780,8 +785,8 @@ describe("inventory import batch runtime", () => {
 
     expect(csv).toBe(
       [
-        "catalogItemId,storageLocationId,totalQuantity,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
-        "cat_active,loc_active,6,near_mint,1.25,,,,",
+        "catalogItemId,storageLocationId,totalQuantity,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
+        "cat_active,loc_active,6,near_mint,1.25,,,,,",
       ].join("\n"),
     );
     expect(csv).not.toContain("cat_other");
@@ -794,8 +799,8 @@ describe("inventory import batch runtime", () => {
         accountId: "acc_1" as AccountId,
         sourceFilename: "stock.csv",
         csvText: [
-          "catalogItemId,storageLocationId,totalQuantity,option:condition,acquisitionCostAmount,listingPriceAmount,listingQuantityCap",
-          "cat_active,loc_active,2,near_mint,1.25,4.50,1",
+          "catalogItemId,storageLocationId,totalQuantity,option:condition,acquisitionCostAmount,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap",
+          "cat_active,loc_active,2,near_mint,1.25,4.50,USD,1",
           "cat_unknown,loc_active,2,near_mint,,,",
           "cat_inactive,loc_active,2,near_mint,,,",
           "cat_active,loc_active,2,bad_option,,,",
@@ -803,19 +808,21 @@ describe("inventory import batch runtime", () => {
           "cat_active,loc_active,0,near_mint,,,",
           "cat_active,loc_active,2,near_mint,bad-money,,",
           "cat_active,loc_active,2,near_mint,,4.50,",
+          "cat_active,loc_active,2,near_mint,,4.50,US,1",
         ].join("\n"),
       },
       context,
     );
 
-    expect(batch.total_count).toBe(8);
+    expect(batch.total_count).toBe(9);
     expect(batch.accepted_count).toBe(1);
-    expect(batch.rejected_count).toBe(7);
+    expect(batch.rejected_count).toBe(8);
     expect(batch.rows[0]).toMatchObject({
       status: "accepted",
       product_id: "cat_active::condition:near_mint",
       selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
       listing_price_amount: "4.50",
+      listing_price_currency_code: "USD",
       listing_quantity_cap: 1,
     });
     expect(batch.rows.slice(1).flatMap((row) => row.validation_errors)).toEqual(
@@ -827,6 +834,8 @@ describe("inventory import batch runtime", () => {
         "add imports require totalQuantity to be a non-zero whole number.",
         "acquisitionCostAmount must be a zero-or-greater decimal amount.",
         "listingQuantityCap is required when listingPriceAmount is set.",
+        "listingPriceCurrencyCode is required when listingPriceAmount is set.",
+        "listingPriceCurrencyCode must be a three-letter ISO-4217 code.",
       ]),
     );
   });
@@ -837,10 +846,10 @@ describe("inventory import batch runtime", () => {
       {
         accountId: "acc_1" as AccountId,
         csvText: [
-          "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,listingPriceAmount,listingQuantityCap",
-          "cat_form_condition,loc_active,1,Raw,Damaged,5.55,1",
-          "cat_form_condition,loc_active,2,Raw,Near Mint,6.66,1",
-          "cat_unknown,loc_active,3,Raw,Near Mint,7.77,1",
+          "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap",
+          "cat_form_condition,loc_active,1,Raw,Damaged,5.55,USD,1",
+          "cat_form_condition,loc_active,2,Raw,Near Mint,6.66,USD,1",
+          "cat_unknown,loc_active,3,Raw,Near Mint,7.77,USD,1",
         ].join("\n"),
       },
       context,
@@ -859,6 +868,7 @@ describe("inventory import batch runtime", () => {
         { dimensionId: "dim_condition", optionId: "opt_damaged" },
       ],
       listing_price_amount: "5.55",
+      listing_price_currency_code: "USD",
       listing_quantity_cap: 1,
     });
     expect(batch.rows[1]).toMatchObject({
@@ -869,6 +879,7 @@ describe("inventory import batch runtime", () => {
         { dimensionId: "dim_condition", optionId: "opt_near_mint" },
       ],
       listing_price_amount: "6.66",
+      listing_price_currency_code: "USD",
       listing_quantity_cap: 1,
     });
     expect(batch.rows[2]).toMatchObject({
@@ -1231,8 +1242,8 @@ describe("inventory import batch runtime", () => {
       {
         accountId: "acc_1" as AccountId,
         csvText: [
-          "catalogItemId,storageLocationId,totalQuantity,option:condition,listingPriceAmount,listingQuantityCap",
-          "cat_active,loc_active,3,near_mint,5.00,2",
+          "catalogItemId,storageLocationId,totalQuantity,option:condition,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap",
+          "cat_active,loc_active,3,near_mint,5.00,USD,2",
         ].join("\n"),
       },
       context,
@@ -1326,9 +1337,9 @@ describe("inventory import batch runtime", () => {
       {
         accountId: "acc_1" as AccountId,
         csvText: [
-          "catalogItemId,storageLocationId,totalQuantity,option:condition,listingPriceAmount,listingQuantityCap",
-          "cat_active,loc_active,2,near_mint,4.44,1",
-          "cat_unknown,loc_active,2,near_mint,,",
+          "catalogItemId,storageLocationId,totalQuantity,option:condition,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap",
+          "cat_active,loc_active,2,near_mint,4.44,USD,1",
+          "cat_unknown,loc_active,2,near_mint,,,,,",
         ].join("\n"),
       },
       context,
@@ -1366,9 +1377,9 @@ describe("inventory import batch runtime", () => {
         quantityMode: "replace",
         defaultStorageLocationId: "loc_active",
         csvText: [
-          "TCGplayer SKU,Product Name,Set Name,Condition,Quantity,TCG Marketplace Price",
-          "tcg_sku_1,Charizard,Base Set,Near Mint,4,12.50",
-          "tcg_unknown,Pikachu,Jungle,Lightly Played,2,1.25",
+          "TCGplayer SKU,Product Name,Set Name,Condition,Quantity,TCG Marketplace Price,Currency",
+          "tcg_sku_1,Charizard,Base Set,Near Mint,4,12.50,USD",
+          "tcg_unknown,Pikachu,Jungle,Lightly Played,2,1.25,USD",
         ].join("\n"),
       },
       context,
@@ -1391,6 +1402,7 @@ describe("inventory import batch runtime", () => {
       seller_sku: "tcg_sku_1",
       set_quantity: 4,
       source_price_amount: "12.50",
+      listing_price_currency_code: "USD",
     });
     expect(batch.rows[1]?.validation_errors).toContain(
       "External product reference is not mapped to a Chase Sets catalog item.",
@@ -1406,8 +1418,8 @@ describe("inventory import batch runtime", () => {
         quantityMode: "replace",
         defaultStorageLocationId: "loc_active",
         csvText: [
-          "TCGplayer SKU,Product ID,Product Name,Set Name,Condition,Quantity,TCG Marketplace Price",
-          "missing_sku,12345,Pikachu,Jungle,Near Mint,4,12.50",
+          "TCGplayer SKU,Product ID,Product Name,Set Name,Condition,Quantity,TCG Marketplace Price,Currency",
+          "missing_sku,12345,Pikachu,Jungle,Near Mint,4,12.50,USD",
         ].join("\n"),
       },
       context,
@@ -1437,9 +1449,9 @@ describe("inventory import batch runtime", () => {
         quantityMode: "replace",
         defaultStorageLocationId: "loc_active",
         csvText: [
-          "Product ID,Product Name,Set Name,Condition,Quantity,TCG Marketplace Price",
-          "12345,Pikachu,Jungle,Near Mint,4,12.50",
-          "12345,Pikachu,Jungle,Damaged,2,1.25",
+          "Product ID,Product Name,Set Name,Condition,Quantity,TCG Marketplace Price,Currency",
+          "12345,Pikachu,Jungle,Near Mint,4,12.50,USD",
+          "12345,Pikachu,Jungle,Damaged,2,1.25,USD",
         ].join("\n"),
       },
       context,
@@ -1475,7 +1487,8 @@ describe("inventory import batch runtime", () => {
         sourceKey: "shopify-csv",
         quantityMode: "replace",
         defaultStorageLocationId: "loc_active",
-        csvText: "Title,Variant ID,Variant SKU,Variant Inventory Qty,Variant Price\nCharizard,987,box-1,2,9.50",
+        csvText:
+          "Title,Variant ID,Variant SKU,Variant Inventory Qty,Variant Price,Currency\nCharizard,987,box-1,2,9.50,USD",
       },
       context,
     );
@@ -1488,6 +1501,7 @@ describe("inventory import batch runtime", () => {
         externalKey: "variant:987",
       },
       listing_price_amount: "9.50",
+      listing_price_currency_code: "USD",
       listing_quantity_cap: 2,
     });
   });

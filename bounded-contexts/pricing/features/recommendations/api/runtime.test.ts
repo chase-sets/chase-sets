@@ -102,6 +102,7 @@ const proposedRecommendation = {
   market_signal_type: "competition",
   market_observed_at: "2026-05-09T00:00:00.000Z",
   current_price_amount: 20,
+  current_price_currency_code: "USD",
   recommended_list_amount: 17.99,
   recommendation_reason: "Priced one cent below the lowest competing active listing.",
   quantity_cap: 1,
@@ -296,7 +297,7 @@ describe("pricing recommendation runtime", () => {
     // previewListingTerms + updateListingPrice pair per listing.
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledTimes(1);
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
-      { updates: [{ listingId: "lst_1", priceAmount: "17.99" }] },
+      { updates: [{ listingId: "lst_1", priceAmount: "17.99", priceCurrencyCode: "USD" }] },
       expect.any(Object),
     );
     expect(events.at(-1)?.eventType).toBe("pricing.recommendation.applied");
@@ -340,8 +341,8 @@ describe("pricing recommendation runtime", () => {
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
       {
         updates: [
-          { listingId: "lst_1", priceAmount: "17.99" },
-          { listingId: "lst_2", priceAmount: "24.99" },
+          { listingId: "lst_1", priceAmount: "17.99", priceCurrencyCode: "USD" },
+          { listingId: "lst_2", priceAmount: "24.99", priceCurrencyCode: "USD" },
         ],
       },
       expect.any(Object),
@@ -396,6 +397,7 @@ describe("pricing recommendation runtime", () => {
       {
         inventoryItemId: "inv_2",
         priceAmount: "5.00",
+        priceCurrencyCode: "USD",
         quantityCap: 3,
         listingIdOverride: "lst_pricing_rec_create",
       },
@@ -435,6 +437,34 @@ describe("pricing recommendation runtime", () => {
     expect(events.at(-1)?.eventType).toBe("pricing.recommendation.failed");
     expect(events.at(-1)?.payload).toMatchObject({
       errorMessage: "Fee quote changed.",
+    });
+  });
+
+  it("refuses to reprice a legacy amount-only listing instead of choosing a currency", async () => {
+    const incompleteRecommendation = {
+      ...proposedRecommendation,
+      current_price_currency_code: null,
+    } satisfies AccountRecommendationListItem;
+    const gateway: PricingMarketplaceListingGateway = {
+      applyBulkListingPriceUpdates: vi.fn(async () => ({ items: [] })),
+      createListing: vi.fn(async () => ({ id: "lst_created" })),
+    };
+    const { services, events } = createRuntime(queryStub({ recommendations: [incompleteRecommendation] }));
+    await seedRecommendation(services, incompleteRecommendation);
+
+    const result = await services.applyRecommendations(
+      {
+        accountId: "acc_1",
+        recommendationIds: ["rec_active"],
+        marketplaceListings: gateway,
+      },
+      context,
+    );
+
+    expect(result).toEqual({ appliedCount: 0, failedCount: 1 });
+    expect(gateway.applyBulkListingPriceUpdates).not.toHaveBeenCalled();
+    expect(events.at(-1)?.payload).toMatchObject({
+      errorMessage: "Listing price is incomplete. A seller-authored currency is required.",
     });
   });
 

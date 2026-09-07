@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   HiddenInput,
   Form,
@@ -108,6 +108,7 @@ export function MarketplaceListingSubmissionSection({
   allowDraftWithoutShipFromSetup?: boolean;
   errorMessage?: string | null;
 }) {
+  const [priceCurrencyCode, setPriceCurrencyCode] = useState("");
   const listing = ownListing ?? null;
   const listPrice = listing?.price_amount ?? bestListing?.price_amount ?? "";
   const defaultQuantity = listing?.quantity_cap ?? 1;
@@ -215,16 +216,24 @@ export function MarketplaceListingSubmissionSection({
             <CurrencyInput
               label={t("discovery.routes.itemDetail.listing.price")}
               name="priceAmount"
-              currencyCode="USD"
-              currencyAccessibleDescription={t("localization.currency.amountIn", {
-                currency: t("localization.currency.usd"),
-              })}
+              currencyCode={priceCurrencyCode}
               decrementLabel={t("localization.currency.decreaseAmount")}
               incrementLabel={t("localization.currency.increaseAmount")}
               defaultValue={listPrice || undefined}
               placeholder="24.99"
               min="0"
               step="0.01"
+              required
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.listing.price.currency.code")}
+              name="priceCurrencyCode"
+              value={priceCurrencyCode}
+              onChange={(event) => setPriceCurrencyCode(event.target.value)}
+              placeholder="ISO 4217"
+              minLength={3}
+              maxLength={3}
+              autoCapitalize="characters"
               required
             />
             <NumberField

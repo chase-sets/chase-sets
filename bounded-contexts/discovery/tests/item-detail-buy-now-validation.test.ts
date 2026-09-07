@@ -1904,6 +1904,7 @@ describe("item detail buy now validation and watch intents", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Form: Raw");
     form.set("priceAmount", "350.00");
+    form.set("priceCurrencyCode", "USD");
     form.set("quantityCap", "1");
 
     const result = (await action({
@@ -1928,6 +1929,7 @@ describe("item detail buy now validation and watch intents", () => {
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Form: Raw",
       priceAmount: "350.00",
+      priceCurrencyCode: "USD",
       quantityCap: 1,
     });
     expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
@@ -2008,6 +2010,7 @@ describe("item detail buy now validation and watch intents", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Form: Raw");
     form.set("priceAmount", "24.35");
+    form.set("priceCurrencyCode", "USD");
     form.set("quantityCap", "1");
 
     const result = (await action({
@@ -2051,6 +2054,7 @@ describe("item detail buy now validation and watch intents", () => {
     expect(createListing).toHaveBeenCalledWith({
       inventoryItemId: "",
       priceAmount: "24.35",
+      priceCurrencyCode: "USD",
       quantityCap: 1,
       inventorySnapshot: expect.anything(),
     });
@@ -2106,6 +2110,7 @@ describe("item detail buy now validation and watch intents", () => {
     form.set("intent", "list-at-price");
     form.set("listingId", "lst_item_detail");
     form.set("priceAmount", "26.75");
+    form.set("priceCurrencyCode", "EUR");
     form.set("quantityCap", "2");
 
     const result = (await action({
@@ -2144,6 +2149,7 @@ describe("item detail buy now validation and watch intents", () => {
     expect(previewListingTerms).toHaveBeenCalledWith({ priceAmount: "26.75" });
     expect(updateListingPrice).toHaveBeenCalledWith("lst_item_detail", {
       priceAmount: "26.75",
+      priceCurrencyCode: "EUR",
       feeQuoteFingerprint: "quote_2",
     });
     expect(updateListingQuantityCap).toHaveBeenCalledWith("lst_item_detail", {

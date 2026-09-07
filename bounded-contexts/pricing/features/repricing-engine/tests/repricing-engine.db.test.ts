@@ -90,6 +90,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
             catalogItemId: "cat_1",
             productId: "cat_1::",
             priceAmount,
+            priceCurrencyCode: "USD",
             quantityCap: 1,
           },
           `marketplace.listing-${listingId}`,
@@ -109,6 +110,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           catalogItemId: "cat_1",
           productId: "cat_1::",
           priceAmount: "12.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
         },
         "marketplace.listing-lst_competitor",
@@ -156,7 +158,9 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
   }
 
   function gateway(outcomeForListing: (listingId: string) => "applied" | "no_op" | "conflict" | "error") {
-    const calls: Array<readonly { listingId: string; priceAmount: string; expectedVersion: number }[]> = [];
+    const calls: Array<
+      readonly { listingId: string; priceAmount: string; priceCurrencyCode: string; expectedVersion: number }[]
+    > = [];
     const pauseCalls: string[] = [];
     const publishCalls: string[] = [];
     const value: RepricingMarketplaceGateway & {
@@ -232,8 +236,18 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     ).resolves.toBe(1);
 
     expect(marketplace.calls[0]).toEqual([
-      expect.objectContaining({ listingId: "lst_policy_1", priceAmount: "11.99", expectedVersion: 2 }),
-      expect.objectContaining({ listingId: "lst_policy_2", priceAmount: "11.99", expectedVersion: 2 }),
+      expect.objectContaining({
+        listingId: "lst_policy_1",
+        priceAmount: "11.99",
+        priceCurrencyCode: "USD",
+        expectedVersion: 2,
+      }),
+      expect.objectContaining({
+        listingId: "lst_policy_2",
+        priceAmount: "11.99",
+        priceCurrencyCode: "USD",
+        expectedVersion: 2,
+      }),
     ]);
     const facts = await evaluationFacts(pool);
     expect(facts).toHaveLength(1);
@@ -388,14 +402,14 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     await pool.query(
       `INSERT INTO pricing_market_listing_inputs (
          listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id,
-         price_amount, quantity_cap, status, grading, created_at, updated_at, last_stream_version
+         price_amount, price_currency_code, quantity_cap, status, grading, created_at, updated_at, last_stream_version
        )
        SELECT 'lst_page_2', seller_account_id, inventory_item_id, catalog_catalog_item_id, 'cat_1::page-2',
-              price_amount, quantity_cap, status, grading, created_at, updated_at, last_stream_version
+              price_amount, price_currency_code, quantity_cap, status, grading, created_at, updated_at, last_stream_version
        FROM pricing_market_listing_inputs WHERE listing_id = $1
        UNION ALL
        SELECT 'lst_page_3', seller_account_id, inventory_item_id, catalog_catalog_item_id, 'cat_1::page-3',
-              price_amount, quantity_cap, status, grading, created_at, updated_at, last_stream_version
+              price_amount, price_currency_code, quantity_cap, status, grading, created_at, updated_at, last_stream_version
        FROM pricing_market_listing_inputs WHERE listing_id = $1`,
       [seeded.listingIds[0]],
     );
@@ -421,6 +435,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           catalogItemId: "cat_1",
           productId: "cat_1::",
           priceAmount: "8.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
         },
         "marketplace.listing-lst_policy_two",

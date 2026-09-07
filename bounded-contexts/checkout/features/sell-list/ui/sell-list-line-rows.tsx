@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { t } from "@chase-sets/localization";
 import { evidenceCoverageCodeLocaleKey } from "../../../support/request-support/marketplace-listing-evidence";
 import {
@@ -19,6 +20,7 @@ import {
   Stack,
   Surface,
   Text,
+  TextInput,
 } from "@chase-sets/design-system";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import { buyerLabel, formatMoney, productOptionsFromSelectedOptions } from "./sell-list-formatting";
@@ -270,6 +272,7 @@ export function ProductLineRow({
   review: SellListProductOfferReview | undefined;
   inventoryOptions: readonly SellListInventoryItem[];
 }) {
+  const [priceCurrencyCode, setPriceCurrencyCode] = useState("");
   const defaultInventoryItem = inventoryOptions[0] ?? null;
   const readiness = productLineReadiness({ line, review, defaultInventoryItem });
   const matchingOfferQuantity = review?.offers.reduce((sum, item) => sum + item.offer.quantity_requested, 0) ?? 0;
@@ -444,15 +447,24 @@ export function ProductLineRow({
               form="sell-list-checkout-form"
               label={t("checkout.features.sellList.ui.sellListPage.listing.price")}
               name={`priceAmount:${line.line_id}`}
-              currencyCode="USD"
-              currencyAccessibleDescription={t("localization.currency.amountIn", {
-                currency: t("localization.currency.usd"),
-              })}
+              currencyCode={priceCurrencyCode}
               decrementLabel={t("localization.currency.decreaseAmount")}
               incrementLabel={t("localization.currency.increaseAmount")}
               defaultValue={defaultPrice || undefined}
-              min="0.01"
+              min="0"
               step="0.01"
+              required={Boolean(defaultInventoryItem)}
+            />
+            <TextInput
+              form="sell-list-checkout-form"
+              label={t("checkout.features.sellList.ui.sellListPage.listing.price.currency.code")}
+              name={`priceCurrencyCode:${line.line_id}`}
+              value={priceCurrencyCode}
+              onChange={(event) => setPriceCurrencyCode(event.target.value)}
+              placeholder="ISO 4217"
+              minLength={3}
+              maxLength={3}
+              autoCapitalize="characters"
               required={Boolean(defaultInventoryItem)}
             />
             <HiddenInput

@@ -735,7 +735,12 @@ type SellListReviewPlanLine = Readonly<{
     feeQuoteFingerprint: string;
     quantity: number;
   }>[];
-  fallbackListing: Readonly<{ inventoryItemId: string; priceAmount: string; quantityCap: number }> | null;
+  fallbackListing: Readonly<{
+    inventoryItemId: string;
+    priceAmount: string;
+    priceCurrencyCode: string;
+    quantityCap: number;
+  }> | null;
   skippedReasons: readonly string[];
 }>;
 
@@ -837,14 +842,15 @@ async function buildSellListReviewPlan(
     if (plannedRemainingQuantity > 0 && createFallbackListing) {
       const inventoryItemId = formValue(formData, `inventoryItemId:${line.line_id}`);
       const priceAmount = formValue(formData, `priceAmount:${line.line_id}`);
+      const priceCurrencyCode = formValue(formData, `priceCurrencyCode:${line.line_id}`);
       const requestedQuantityCap = Number(
         formValue(formData, `quantityCap:${line.line_id}`) || plannedRemainingQuantity,
       );
       const quantityCap = Math.min(plannedRemainingQuantity, requestedQuantityCap);
-      if (!inventoryItemId || !priceAmount || !Number.isFinite(quantityCap) || quantityCap < 1) {
-        skippedReasons.push(`${line.item_title}: listing needs inventory, price, and quantity.`);
+      if (!inventoryItemId || !priceAmount || !priceCurrencyCode || !Number.isFinite(quantityCap) || quantityCap < 1) {
+        skippedReasons.push(`${line.item_title}: listing needs inventory, price, currency, and quantity.`);
       } else {
-        fallbackListing = { inventoryItemId, priceAmount, quantityCap };
+        fallbackListing = { inventoryItemId, priceAmount, priceCurrencyCode, quantityCap };
       }
     } else if (plannedRemainingQuantity > 0 && !isBulkOfferReview) {
       skippedReasons.push(

@@ -59,6 +59,8 @@ function listing(overrides: Partial<MarketplaceListingListItem> = {}): Marketpla
     ship_from_code: null,
     ship_from_address: {} as MarketplaceListingListItem["ship_from_address"],
     price_amount: "20.00",
+    price_currency_code: "USD",
+    listing_stream_version: 1,
     marketplace_sales_fee_unit_amount: "1.00",
     seller_net_unit_amount: "19.00",
     shipping_allowance_percentage_bps: 0,

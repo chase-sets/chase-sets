@@ -71,6 +71,7 @@ export type RepricingMarketplaceGateway = Readonly<{
     updates: readonly Readonly<{
       listingId: string;
       priceAmount: string;
+      priceCurrencyCode: string;
       expectedVersion: number;
       minimumChange: RepricingListingEvaluation["tolerance"];
       idempotencyKey: string;
@@ -410,6 +411,7 @@ async function executeProductRound(
       Readonly<{
         listingId: string;
         priceAmount: string;
+        priceCurrencyCode: string;
         expectedVersion: number;
         minimumChange: RepricingListingEvaluation["tolerance"];
         idempotencyKey: string;
@@ -460,12 +462,21 @@ async function executeProductRound(
       }
     }
     const accountCommands = commandsByAccount.get(plan.first.listing.sellerAccountId) ?? [];
+    for (const entry of plan.commandEntries.filter((candidate) => !candidate.listing.priceCurrencyCode)) {
+      outcomesByListingId.set(entry.listing.listingId, {
+        listingId: entry.listing.listingId,
+        outcome: "error",
+        message: "Listing price is incomplete. A seller-authored currency is required.",
+      });
+    }
     accountCommands.push(
       ...plan.commandEntries
         .filter((entry) => !resumeWaitingListingIds.has(entry.listing.listingId))
+        .filter((entry) => entry.listing.priceCurrencyCode !== null)
         .map((entry) => ({
           listingId: entry.listing.listingId,
           priceAmount: entry.evaluation.targetPriceAmount!,
+          priceCurrencyCode: entry.listing.priceCurrencyCode!,
           expectedVersion: entry.listing.listingVersion,
           minimumChange: entry.evaluation.tolerance,
           idempotencyKey: buildMarketplaceMutationIdempotencyKey(

@@ -23,6 +23,12 @@ import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
+import type { MarketplaceListingServices } from "@chase-sets/marketplace/server";
+import type {
+  BulkRepriceIngestionServices,
+  PricingRecommendationServices,
+  RepricingEngineServices,
+} from "@chase-sets/pricing/server";
 import { createIdentityTermsAcceptanceResolver } from "@chase-sets/identity/server";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import {
@@ -1590,112 +1596,21 @@ function createPricingJobRunners(
 ): readonly WorkerRunner[] {
   const pricing = services.pricing as
     | {
-        recommendations?: {
-          processNextRecommendationJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            marketplaceListingGatewayForAccount: (accountId: string) => {
-              previewListingTerms: (body: { priceAmount: string }) => Promise<{ fee_quote_fingerprint: string }>;
-              updateListingPrice: (
-                listingId: string,
-                body: { priceAmount: string; feeQuoteFingerprint?: string | null },
-              ) => Promise<unknown>;
-              createListing: (body: {
-                inventoryItemId: string;
-                priceAmount: string;
-                quantityCap: number;
-                listingIdOverride?: string;
-              }) => Promise<{ id?: string; listing_id?: string }>;
-              staleFeeQuoteFingerprint?: (error: unknown) => string | null;
-            };
-            workflowMaxActiveClaims?: number;
-            jobMaxActiveClaims?: number;
-            laneName?: string | null;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
-        repricingEngine?: {
-          processNextEvaluationJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            marketplaceGatewayForAccount: (accountId: string) => {
-              applyBulkListingPriceUpdates: (body: {
-                updates: readonly {
-                  listingId: string;
-                  priceAmount: string;
-                  expectedVersion: number;
-                  minimumChange: { mode: "absolute"; amount: string } | { mode: "percent"; percent: number };
-                  idempotencyKey: string;
-                }[];
-              }) => Promise<{
-                items: readonly {
-                  listingId: string;
-                  outcome: "applied" | "no_op" | "conflict" | "error";
-                  message?: string;
-                }[];
-              }>;
-              pauseListing: (
-                listingId: string,
-                body: { reason: "policy-input-missing"; idempotencyKey: string },
-              ) => Promise<unknown>;
-              publishListing: (listingId: string, body: { idempotencyKey: string }) => Promise<unknown>;
-            };
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
+        recommendations?: Pick<PricingRecommendationServices, "processNextRecommendationJob">;
+        repricingEngine?: Pick<RepricingEngineServices, "processNextEvaluationJob">;
       }
     | undefined;
   const marketplace = services.marketplace as
     | {
-        listings?: {
-          previewListingTerms?: (params: {
-            accountId: string;
-            priceAmount: string;
-          }) => Promise<{ fee_quote_fingerprint: string }>;
-          updateListingPrice?: (
-            params: { accountId: string; listingId: string; priceAmount: string; feeQuoteFingerprint?: string | null },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<unknown>;
-          createListing?: (
-            params: {
-              accountId: string;
-              inventoryItemId: string;
-              priceAmount: string;
-              quantityCap: number;
-              listingIdOverride?: string;
-            },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<{ listingId?: string; id?: string; listing_id?: string }>;
-          applyBulkListingPriceUpdates?: (
-            params: {
-              accountId: string;
-              updates: readonly {
-                listingId: string;
-                priceAmount: string;
-                expectedVersion?: number;
-                minimumChange?: { mode: "absolute"; amount: string } | { mode: "percent"; percent: number };
-                idempotencyKey?: string;
-              }[];
-            },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<
-            readonly {
-              listingId: string;
-              outcome: "applied" | "no_op" | "conflict" | "error";
-              message?: string;
-            }[]
-          >;
-          pauseListing?: (
-            params: { accountId: string; listingId: string; reason?: "seller" | "policy-input-missing" },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<unknown>;
-          publishListing?: (
-            params: { accountId: string; listingId: string; idempotencyKey?: string },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<unknown>;
-        };
+        listings?: Pick<
+          MarketplaceListingServices,
+          | "previewListingTerms"
+          | "updateListingPrice"
+          | "createListing"
+          | "applyBulkListingPriceUpdates"
+          | "pauseListing"
+          | "publishListing"
+        >;
       }
     | undefined;
   const processNextRecommendationJob = pricing?.recommendations?.processNextRecommendationJob;
@@ -1724,8 +1639,8 @@ function createPricingJobRunners(
                 createListing: async (body) => {
                   const result = await marketplace.listings!.createListing!({ accountId, ...body }, SYSTEM_CONTEXT);
                   return {
-                    id: result.id ?? result.listingId,
-                    listing_id: result.listing_id ?? result.listingId,
+                    id: result.listingId,
+                    listing_id: result.listingId,
                   };
                 },
               }),
@@ -1784,44 +1699,11 @@ function createBulkRepriceIngestionJobRunners(
   >,
 ): readonly WorkerRunner[] {
   const pricing = services.pricing as
-    | {
-        bulkRepriceIngestion?: {
-          processNextBulkRepriceJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            workflowMaxActiveClaims?: number;
-            jobMaxActiveClaims?: number;
-            laneName?: string | null;
-            marketplaceListingGatewayForAccount: (accountId: string) => {
-              applyBulkListingPriceUpdates: (body: {
-                updates: readonly { listingId: string; priceAmount: string }[];
-              }) => Promise<{ items: readonly { listingId: string; outcome: string; message?: string }[] }>;
-            };
-            inventorySkuGatewayForAccount: (accountId: string) => {
-              resolveSellerSkusToInventoryItems: (sellerSkus: readonly string[]) => Promise<
-                readonly Readonly<{
-                  sellerSku: string;
-                  status: "missing" | "ambiguous" | "unmapped-item" | "mapped";
-                  inventoryItemId?: string;
-                  productId?: string;
-                  catalogItemId?: string;
-                }>[]
-              >;
-            };
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
-      }
+    | { bulkRepriceIngestion?: Pick<BulkRepriceIngestionServices, "processNextBulkRepriceJob"> }
     | undefined;
   const marketplace = services.marketplace as
     | {
-        listings?: {
-          applyBulkListingPriceUpdates?: (
-            params: { accountId: string; updates: readonly { listingId: string; priceAmount: string }[] },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<readonly { listingId: string; outcome: string; version: number; message?: string }[]>;
-        };
+        listings?: Pick<MarketplaceListingServices, "applyBulkListingPriceUpdates">;
       }
     | undefined;
   const inventory = services.inventory as

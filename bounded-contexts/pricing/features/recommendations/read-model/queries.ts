@@ -17,6 +17,7 @@ export type AccountRecommendationListItem = Readonly<{
   market_signal_type: "competition" | "offer";
   market_observed_at: string;
   current_price_amount: number | null;
+  current_price_currency_code: string | null;
   recommended_list_amount: number | null;
   recommendation_reason: string | null;
   quantity_cap: number | null;
@@ -67,6 +68,7 @@ export async function listAccountRecommendations(
          market_signal_type,
          market_observed_at,
          current_price_amount,
+         current_price_currency_code,
          recommended_list_amount,
          recommendation_reason,
          quantity_cap,
@@ -120,6 +122,7 @@ export async function getAccountRecommendation(
        market_signal_type,
        market_observed_at,
        current_price_amount,
+       current_price_currency_code,
        recommended_list_amount,
        recommendation_reason,
        quantity_cap,
@@ -171,6 +174,7 @@ export async function listAccountRecommendationsByIds(
        market_signal_type,
        market_observed_at,
        current_price_amount,
+       current_price_currency_code,
        recommended_list_amount,
        recommendation_reason,
        quantity_cap,

@@ -69,13 +69,16 @@ export type PricingMarketplaceListingOutcome = Readonly<{
  */
 export type PricingMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
-    body: Readonly<{ updates: readonly Readonly<{ listingId: string; priceAmount: string }>[] }>,
+    body: Readonly<{
+      updates: readonly Readonly<{ listingId: string; priceAmount: string; priceCurrencyCode: string }>[];
+    }>,
     options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<Readonly<{ items: readonly PricingMarketplaceListingOutcome[] }>>;
   createListing: (
     body: Readonly<{
       inventoryItemId: string;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       listingIdOverride?: string;
     }>,
@@ -586,7 +589,12 @@ export function createPricingRecommendationRuntime(
       string,
       Readonly<{ status: "applied"; appliedListingId: string }> | Readonly<{ status: "failed"; errorMessage: string }>
     >();
-    const bulkUpdates: Readonly<{ recommendationId: string; listingId: string; priceAmount: string }>[] = [];
+    const bulkUpdates: Readonly<{
+      recommendationId: string;
+      listingId: string;
+      priceAmount: string;
+      priceCurrencyCode: string;
+    }>[] = [];
 
     for (const row of selectedRows) {
       if (row.action_type !== "active-listing-price-update" && row.action_type !== "draft-listing-price-update") {
@@ -606,10 +614,18 @@ export function createPricingRecommendationRuntime(
         });
         continue;
       }
+      if (!row.current_price_currency_code) {
+        priceUpdateOutcomeByRecommendationId.set(row.recommendation_id, {
+          status: "failed",
+          errorMessage: "Listing price is incomplete. A seller-authored currency is required.",
+        });
+        continue;
+      }
       bulkUpdates.push({
         recommendationId: row.recommendation_id,
         listingId: row.listing_id,
         priceAmount: moneyString(Number(row.recommended_list_amount)),
+        priceCurrencyCode: row.current_price_currency_code,
       });
     }
 
@@ -617,7 +633,13 @@ export function createPricingRecommendationRuntime(
       jobContext?.throwIfCancelled();
       const bulkResult = await runPricingJobSideEffect(jobContext, (signal) =>
         params.marketplaceListings.applyBulkListingPriceUpdates(
-          { updates: bulkUpdates.map(({ listingId, priceAmount }) => ({ listingId, priceAmount })) },
+          {
+            updates: bulkUpdates.map(({ listingId, priceAmount, priceCurrencyCode }) => ({
+              listingId,
+              priceAmount,
+              priceCurrencyCode,
+            })),
+          },
           { signal },
         ),
       );
@@ -669,6 +691,7 @@ export function createPricingRecommendationRuntime(
               {
                 inventoryItemId,
                 priceAmount: price,
+                priceCurrencyCode: row.market_currency,
                 quantityCap,
                 listingIdOverride: listingIdForPricingRecommendation(row.recommendation_id),
               },

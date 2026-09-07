@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   price_amount numeric(12, 2) NOT NULL,
+  price_currency_code text NULL,
   quantity_cap integer NOT NULL CHECK (quantity_cap >= 0),
   status text NOT NULL,
   grading text NULL CHECK (grading IS NULL OR grading IN ('graded', 'raw')),
@@ -157,6 +158,15 @@ CREATE INDEX IF NOT EXISTS pricing_fulfillment_signal_lines_lookup_idx
 `;
 
 export const pricingRecommendationSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_pricing_market_listing_input_price_currency",
+    description:
+      "Project nullable Marketplace listing price currency without defaulting historical amount-only listing events.",
+    statements: [
+      `ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL`,
+    ],
+  },
   {
     migrationId: "20260720_pricing_market_listing_inputs_grading",
     description: "Add grading to projected listing inputs for repricing rule evaluation.",

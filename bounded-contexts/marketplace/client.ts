@@ -20,11 +20,14 @@ export type {
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
   MarketplaceAnonymousListingDraftIntent,
+  MarketplaceAnonymousListingDraftInput,
+  MarketplaceCreateListingInput,
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
   MarketplaceSellerOrderCapacity,
   MarketplaceSellerListingStatusCounts,
   MarketplaceListingTermsPreview,
+  MarketplaceUpdateListingPriceInput,
   MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
   MarketplaceListingEvidenceCoverage,
@@ -55,11 +58,14 @@ import type {
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
   MarketplaceAnonymousListingDraftIntent,
+  MarketplaceAnonymousListingDraftInput,
+  MarketplaceCreateListingInput,
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
   MarketplaceSellerOrderCapacity,
   MarketplaceSellerListingStatusCounts,
   MarketplaceListingTermsPreview,
+  MarketplaceUpdateListingPriceInput,
   MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
   MarketplaceListingEvidenceCoverage,
@@ -204,7 +210,7 @@ export function createMarketplaceApiClient({
     },
     async createAnonymousListingDraftIntent(
       anonymousOwnerId: string,
-      body: Record<string, unknown>,
+      body: MarketplaceAnonymousListingDraftInput,
       options: Readonly<{ signal?: AbortSignal }> = {},
     ): Promise<MarketplaceAnonymousListingDraftIntent> {
       return parseJsonResponse(
@@ -392,7 +398,7 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async createListing(body: Record<string, unknown>, options: Readonly<{ signal?: AbortSignal }> = {}) {
+    async createListing(body: MarketplaceCreateListingInput, options: Readonly<{ signal?: AbortSignal }> = {}) {
       return parseJsonResponse(
         await configuredFetch(joinApiPath(baseUrl, "/account/listings"), {
           method: "POST",
@@ -504,7 +510,7 @@ export function createMarketplaceApiClient({
     },
     async updateListingPrice(
       id: string,
-      body: Record<string, unknown>,
+      body: MarketplaceUpdateListingPriceInput,
       options: Readonly<{ signal?: AbortSignal }> = {},
     ) {
       return parseJsonResponse(

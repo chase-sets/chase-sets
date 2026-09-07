@@ -263,6 +263,19 @@ describe("MCP service catalog", () => {
     expect(validateObject({ ...required, unexpected: true }, schema!)).toContain("unexpected is not allowed.");
   });
 
+  it("requires the complete price pair in closed Marketplace listing write schemas", () => {
+    const createSchema = findMcpTool("marketplace.create-listing")?.inputSchema;
+    const updateSchema = findMcpTool("marketplace.update-listing-price")?.inputSchema;
+
+    expect(createSchema?.additionalProperties).toBe(false);
+    expect(createSchema?.required).toContain("priceAmount");
+    expect(createSchema?.required).toContain("priceCurrencyCode");
+    expect(createSchema?.properties.purchaseLimits).toMatchObject({ additionalProperties: false });
+    expect(updateSchema?.additionalProperties).toBe(false);
+    expect(updateSchema?.required).toContain("priceAmount");
+    expect(updateSchema?.required).toContain("priceCurrencyCode");
+  });
+
   it("publishes output schemas for available MCP handler outputs", () => {
     const listSourcesOutput = {
       items: [

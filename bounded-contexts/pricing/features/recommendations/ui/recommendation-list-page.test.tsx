@@ -22,6 +22,7 @@ const recommendation = {
   market_signal_type: "competition",
   market_observed_at: "2026-05-09T00:00:00.000Z",
   current_price_amount: 23,
+  current_price_currency_code: "USD",
   recommended_list_amount: 22,
   recommendation_reason: "Protect margin.",
   quantity_cap: 1,

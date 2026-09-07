@@ -299,6 +299,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
         catalogItemId: string;
         productId: string;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityCap: number;
         gradedCard?: unknown | null;
       };
@@ -311,6 +312,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
            catalog_catalog_item_id,
            product_id,
            price_amount,
+           price_currency_code,
            quantity_cap,
            status,
            grading,
@@ -318,13 +320,14 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
            pause_reason,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9, NULL, $9, $10)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, NULL, $10, $11)
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              inventory_item_id = EXCLUDED.inventory_item_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
              quantity_cap = EXCLUDED.quantity_cap,
              grading = EXCLUDED.grading,
              created_at = EXCLUDED.created_at,
@@ -339,6 +342,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
           data.catalogItemId,
           data.productId,
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
           data.quantityCap,
           data.gradedCard ? "graded" : "raw",
           event.timing.recordedAt,
@@ -347,18 +351,20 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
       );
     },
     "marketplace.listing.price-updated": async (event) => {
-      const data = event.data as { priceAmount: string };
+      const data = event.data as { priceAmount: string; priceCurrencyCode?: string | null };
 
       await db.query(
         `UPDATE pricing_market_listing_inputs
          SET price_amount = $2,
-             updated_at = $3,
-             last_stream_version = $4
+             price_currency_code = $3,
+             updated_at = $4,
+             last_stream_version = $5
          WHERE listing_id = $1
-           AND last_stream_version < $4`,
+           AND last_stream_version < $5`,
         [
           extractIdFromStreamId(event.streamId, "marketplace.listing-"),
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
           event.timing.recordedAt,
           event.streamVersion,
         ],

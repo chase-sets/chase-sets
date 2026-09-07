@@ -450,6 +450,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.view.seller.activity": "View seller activity",
   "checkout.features.sellList.ui.sellListPage.line.readiness": "Line readiness",
   "checkout.features.sellList.ui.sellListPage.listing.price": "Listing price",
+  "checkout.features.sellList.ui.sellListPage.listing.price.currency.code": "Listing price currency code",
   "checkout.features.sellList.ui.sellListPage.matching.offers": "Matching offers",
   "checkout.features.sellList.ui.sellListPage.marketplace.fee": "Marketplace fee",
   "checkout.features.sellList.ui.sellListPage.seller.terms": "Seller terms",

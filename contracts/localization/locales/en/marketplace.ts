@@ -188,6 +188,10 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingDetailPage.preview.fees": "Preview fees",
   "marketplace.features.listings.ui.listingDetailPage.price": "Price: ",
   "marketplace.features.listings.ui.listingDetailPage.price.2": "Price",
+  "marketplace.features.listings.ui.listingDetailPage.price.currency.code": "Price currency code",
+  "marketplace.features.listings.ui.listingDetailPage.price.incomplete": "Incomplete price",
+  "marketplace.features.listings.ui.listingDetailPage.price.incomplete.description":
+    "This historical listing has an amount but no currency. Enter both to repair its price before publishing.",
   "marketplace.features.listings.ui.listingDetailPage.publish.listing": "Publish listing",
   "marketplace.features.listings.ui.listingDetailPage.quantity.cap": "Quantity cap: ",
   "marketplace.features.listings.ui.listingDetailPage.quantity.cap.2": "Quantity cap",
@@ -354,6 +358,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.preview.fees": "Preview fees",
   "marketplace.features.listings.ui.listingListPage.price": "Price",
   "marketplace.features.listings.ui.listingListPage.price.2": "Price",
+  "marketplace.features.listings.ui.listingListPage.price.incomplete": "Incomplete price",
   "marketplace.features.listings.ui.listingListPage.quantity.cap": "Quantity cap",
   "marketplace.features.listings.ui.listingListPage.quantity.cap.exposure.copy": "Units this listing exposes for sale.",
   "marketplace.features.listings.ui.listingListPage.limit.per.order": "Limit per order",
@@ -461,6 +466,7 @@ export const marketplaceEnglishTranslations = {
     "No active catalog items matched that search.",
   "marketplace.features.listings.ui.listingCreatePage.catalog.item.lookup.failed": "Catalog item lookup failed.",
   "marketplace.features.listings.ui.listingCreatePage.price": "Price",
+  "marketplace.features.listings.ui.listingCreatePage.price.currency.code": "Price currency code",
   "marketplace.features.listings.ui.listingCreatePage.quantity.cap": "Quantity cap",
   "marketplace.features.listings.ui.listingCreatePage.quantity.cap.exposure.copy":
     "Units this listing exposes for sale.",

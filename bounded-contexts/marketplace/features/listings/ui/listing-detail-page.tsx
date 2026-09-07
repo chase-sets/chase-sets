@@ -32,17 +32,20 @@ import type {
 } from "./contracts";
 import { ListingEvidenceReadiness } from "./listing-evidence-readiness";
 
-function formatOptionalMoney(amount: string | null) {
-  return amount ? formatMoney(amount, "USD") : t("marketplace.features.listings.ui.listingDetailPage.not.set");
+function formatOptionalMoney(amount: string | null, currencyCode: string | null) {
+  return amount && currencyCode
+    ? formatMoney(amount, currencyCode)
+    : t("marketplace.features.listings.ui.listingDetailPage.price.incomplete");
 }
 
-function renderPreviewSummary(preview: MarketplaceListingTermsPreview) {
+function renderPreviewSummary(preview: MarketplaceListingTermsPreview, currencyCode: string | null) {
+  const formatPreviewMoney = (amount: string) => formatOptionalMoney(amount, currencyCode);
   return [
     t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee.summary", {
-      amount: formatMoney(preview.marketplace_sales_fee_unit_amount, "USD"),
+      amount: formatPreviewMoney(preview.marketplace_sales_fee_unit_amount),
     }),
     t("marketplace.features.listings.ui.listingDetailPage.net.summary", {
-      amount: formatMoney(preview.seller_net_unit_amount, "USD"),
+      amount: formatPreviewMoney(preview.seller_net_unit_amount),
     }),
     t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.summary", {
       percentage: formatBpsPercent(preview.shipping_allowance_percentage_bps),
@@ -122,12 +125,14 @@ export function MarketplaceListingDetailPage({
   listing,
   feeHistory,
   priceDraftAmount,
+  priceDraftCurrencyCode,
   pricePreview,
   errorMessage,
 }: {
   listing: MarketplaceListingDetail;
   feeHistory?: readonly MarketplaceListingFeeHistoryEntry[];
   priceDraftAmount?: string | null;
+  priceDraftCurrencyCode?: string | null;
   pricePreview?: MarketplaceListingTermsPreview | null;
   errorMessage?: string | null;
 }) {
@@ -135,6 +140,7 @@ export function MarketplaceListingDetailPage({
   const publishDisabled =
     listing.status === "active" ||
     listing.status === "withdrawn" ||
+    listing.price_currency_code === null ||
     listing.product_measure_snapshot === null ||
     !listing.evidence_readiness.ready;
 
@@ -158,6 +164,14 @@ export function MarketplaceListingDetailPage({
           tone="danger"
           title={t("marketplace.features.listings.ui.listingDetailPage.update.listing")}
           description={errorMessage}
+        />
+      ) : null}
+
+      {listing.price_currency_code === null ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("marketplace.features.listings.ui.listingDetailPage.price.incomplete")}
+          description={t("marketplace.features.listings.ui.listingDetailPage.price.incomplete.description")}
         />
       ) : null}
 
@@ -199,23 +213,27 @@ export function MarketplaceListingDetailPage({
                   <ProductOptions options={productOptionsFromSummary(listing.product_summary)} variant="chips" />
                 ) : null}
                 <Text size="lg" weight="semibold">
-                  {formatMoney(listing.price_amount, "USD")}
+                  {formatOptionalMoney(listing.price_amount, listing.price_currency_code)}
                 </Text>
                 <Text size="sm" tone="secondary">
-                  {renderPreviewSummary({
-                    account_type: "personal",
-                    basis_amount: listing.price_amount,
-                    fee_quote_fingerprint: listing.fee_quote_fingerprint,
-                    marketplace_sales_fee_unit_amount: listing.marketplace_sales_fee_unit_amount ?? "0.00",
-                    seller_net_unit_amount: listing.seller_net_unit_amount ?? "0.00",
-                    marketplace_sales_fee_percentage_bps: currentFeeLock?.terms.marketplaceSalesFeePercentageBps ?? 0,
-                    marketplace_sales_fee_fixed_amount: currentFeeLock?.terms.marketplaceSalesFeeFixedAmount ?? "0.00",
-                    marketplace_sales_fee_cap_amount: currentFeeLock?.terms.marketplaceSalesFeeCapAmount ?? null,
-                    shipping_allowance_percentage_bps: listing.shipping_allowance_percentage_bps,
-                    schedule_id: listing.terms_schedule_id,
-                    agreement_id: listing.terms_agreement_id,
-                    resolved_at: listing.terms_resolved_at ?? new Date().toISOString(),
-                  })}
+                  {renderPreviewSummary(
+                    {
+                      account_type: "personal",
+                      basis_amount: listing.price_amount,
+                      fee_quote_fingerprint: listing.fee_quote_fingerprint,
+                      marketplace_sales_fee_unit_amount: listing.marketplace_sales_fee_unit_amount ?? "0.00",
+                      seller_net_unit_amount: listing.seller_net_unit_amount ?? "0.00",
+                      marketplace_sales_fee_percentage_bps: currentFeeLock?.terms.marketplaceSalesFeePercentageBps ?? 0,
+                      marketplace_sales_fee_fixed_amount:
+                        currentFeeLock?.terms.marketplaceSalesFeeFixedAmount ?? "0.00",
+                      marketplace_sales_fee_cap_amount: currentFeeLock?.terms.marketplaceSalesFeeCapAmount ?? null,
+                      shipping_allowance_percentage_bps: listing.shipping_allowance_percentage_bps,
+                      schedule_id: listing.terms_schedule_id,
+                      agreement_id: listing.terms_agreement_id,
+                      resolved_at: listing.terms_resolved_at ?? new Date().toISOString(),
+                    },
+                    listing.price_currency_code,
+                  )}
                 </Text>
               </Stack>
               <KeyValueList
@@ -247,11 +265,11 @@ export function MarketplaceListingDetailPage({
             lines={[
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.price"),
-                value: formatMoney(listing.price_amount, "USD"),
+                value: formatOptionalMoney(listing.price_amount, listing.price_currency_code),
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee"),
-                value: formatOptionalMoney(listing.marketplace_sales_fee_unit_amount),
+                value: formatOptionalMoney(listing.marketplace_sales_fee_unit_amount, listing.price_currency_code),
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.rate"),
@@ -262,7 +280,7 @@ export function MarketplaceListingDetailPage({
                 value: listing.quantity_cap,
               },
             ]}
-            total={formatOptionalMoney(listing.seller_net_unit_amount)}
+            total={formatOptionalMoney(listing.seller_net_unit_amount, listing.price_currency_code)}
             totalLabel={t("marketplace.features.listings.ui.listingDetailPage.seller.net")}
           />
 
@@ -363,9 +381,10 @@ export function MarketplaceListingDetailPage({
                     </Text>
                     <Text size="sm" tone="secondary">
                       {t("marketplace.features.listings.ui.listingDetailPage.price")}
-                      {entry.price_amount
-                        ? formatMoney(entry.price_amount, "USD")
-                        : formatMoney(listing.price_amount, "USD")}
+                      {formatOptionalMoney(
+                        entry.price_amount ?? listing.price_amount,
+                        entry.price_amount === null ? listing.price_currency_code : entry.price_currency_code,
+                      )}
                     </Text>
                     {entry.quantity_cap !== null ? (
                       <Text size="sm" tone="secondary">
@@ -375,11 +394,17 @@ export function MarketplaceListingDetailPage({
                     ) : null}
                     <Text size="sm" tone="secondary">
                       {t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee")}
-                      {formatOptionalMoney(entry.marketplace_sales_fee_unit_amount)}
+                      {formatOptionalMoney(
+                        entry.marketplace_sales_fee_unit_amount,
+                        entry.price_amount === null ? listing.price_currency_code : entry.price_currency_code,
+                      )}
                     </Text>
                     <Text size="sm" tone="secondary">
                       {t("marketplace.features.listings.ui.listingDetailPage.seller.net")}
-                      {formatOptionalMoney(entry.seller_net_unit_amount)}
+                      {formatOptionalMoney(
+                        entry.seller_net_unit_amount,
+                        entry.price_amount === null ? listing.price_currency_code : entry.price_currency_code,
+                      )}
                     </Text>
                     <Text size="sm" tone="secondary">
                       {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule")}
@@ -414,6 +439,16 @@ export function MarketplaceListingDetailPage({
                   inputMode="decimal"
                   required
                 />
+                <TextInput
+                  label={t("marketplace.features.listings.ui.listingDetailPage.price.currency.code")}
+                  name="priceCurrencyCode"
+                  defaultValue={priceDraftCurrencyCode ?? listing.price_currency_code ?? ""}
+                  placeholder="ISO 4217"
+                  minLength={3}
+                  maxLength={3}
+                  autoCapitalize="characters"
+                  required
+                />
                 <HiddenInput
                   type="hidden"
                   name="feeQuoteFingerprint"
@@ -439,11 +474,14 @@ export function MarketplaceListingDetailPage({
                   {pricePreview.account_type}
                 </Text>
                 <Text size="sm" tone="secondary">
-                  {renderPreviewSummary(pricePreview)}
+                  {renderPreviewSummary(pricePreview, priceDraftCurrencyCode ?? listing.price_currency_code)}
                 </Text>
                 <Text size="sm" tone="secondary">
                   {t("marketplace.features.listings.ui.listingDetailPage.basis.amount")}
-                  {formatMoney(pricePreview.basis_amount, "USD")}
+                  {formatOptionalMoney(
+                    pricePreview.basis_amount,
+                    priceDraftCurrencyCode ?? listing.price_currency_code,
+                  )}
                 </Text>
                 <Text size="sm" tone="secondary">
                   {t("marketplace.features.listings.ui.listingDetailPage.terms.schedule.2")}

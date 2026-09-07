@@ -8,6 +8,7 @@ export type RepricingRoundListing = Readonly<{
   catalogItemId: string;
   productId: string;
   priceAmount: string;
+  priceCurrencyCode: string | null;
   quantityCap: number;
   listingVersion: number;
   listingStatus: "active" | "paused";
@@ -41,6 +42,7 @@ type ListingRow = Readonly<{
   catalog_catalog_item_id: string;
   product_id: string;
   price_amount: string;
+  price_currency_code: string | null;
   quantity_cap: number;
   last_stream_version: number;
   status: "active" | "paused";
@@ -68,6 +70,7 @@ export async function loadRepricingRoundInputs(
          listing.catalog_catalog_item_id,
          listing.product_id,
          listing.price_amount::text,
+         listing.price_currency_code,
          listing.quantity_cap,
          listing.last_stream_version,
          listing.status,
@@ -145,6 +148,7 @@ export async function loadRepricingRoundInputs(
       catalogItemId: row.catalog_catalog_item_id,
       productId: row.product_id,
       priceAmount: row.price_amount,
+      priceCurrencyCode: row.price_currency_code,
       quantityCap: row.quantity_cap,
       listingVersion: Number(row.last_stream_version),
       listingStatus: row.status,

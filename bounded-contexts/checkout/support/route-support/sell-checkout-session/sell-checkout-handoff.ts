@@ -220,6 +220,7 @@ export async function performMarketplaceHandoff(
       const createdListing = await marketplaceApi.createListing({
         inventoryItemId: review.fallbackListing.inventoryItemId,
         priceAmount: review.fallbackListing.priceAmount,
+        priceCurrencyCode: review.fallbackListing.priceCurrencyCode,
         quantityCap: review.fallbackListing.quantityCap,
         listingIdOverride,
       });

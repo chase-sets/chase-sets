@@ -1218,6 +1218,7 @@ describe("checkout web routes: account sell list", () => {
     form.set("fallbackMode:sll_product", "create-listing");
     form.set("inventoryItemId:sll_product", "inv_1");
     form.set("priceAmount:sll_product", "12.00");
+    form.set("priceCurrencyCode:sll_product", "USD");
     form.set("quantityCap:sll_product", "1");
 
     const response = (await accountSellListAction({
@@ -1244,7 +1245,12 @@ describe("checkout web routes: account sell list", () => {
       expect.objectContaining({
         lineId: "sll_product",
         productOfferTargets: [],
-        fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+        fallbackListing: {
+          inventoryItemId: "inv_1",
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+        },
       }),
     );
     expectNoSellerCommitSideEffects();
@@ -1384,6 +1390,7 @@ describe("checkout web routes: account sell list", () => {
     form.set("fallbackMode:sll_product", "create-listing");
     form.set("inventoryItemId:sll_product", "inv_1");
     form.set("priceAmount:sll_product", "12.00");
+    form.set("priceCurrencyCode:sll_product", "USD");
     form.set("quantityCap:sll_product", "1");
 
     const response = (await accountSellListAction({
@@ -1412,7 +1419,12 @@ describe("checkout web routes: account sell list", () => {
             quantity: 1,
           },
         ],
-        fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+        fallbackListing: {
+          inventoryItemId: "inv_1",
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+        },
       }),
     );
     expectNoSellerCommitSideEffects();

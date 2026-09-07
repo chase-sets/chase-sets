@@ -151,6 +151,8 @@ export type MarketplaceListingCreatedPayload = Readonly<{
   shipFromCode: string | null;
   shipFromAddress: JsonValue;
   priceAmount: string;
+  /** Absent only when decoding historical amount-only listing events. */
+  priceCurrencyCode?: string | null;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   shippingAllowancePercentageBps?: number;
@@ -164,6 +166,8 @@ export type MarketplaceListingCreatedPayload = Readonly<{
 
 export type MarketplaceListingPriceUpdatedPayload = Readonly<{
   priceAmount: string;
+  /** Absent only when decoding historical amount-only listing events. */
+  priceCurrencyCode?: string | null;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   shippingAllowancePercentageBps?: number;

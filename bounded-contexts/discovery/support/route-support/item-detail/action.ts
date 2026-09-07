@@ -520,6 +520,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const priceAmount = normalizeMoneyAmount(formData.get("priceAmount"), {
         invalidMessage: t("discovery.routes.itemDetail.validation.price.required"),
       });
+      const priceCurrencyCode = String(formData.get("priceCurrencyCode") ?? "");
       const quantityCap = parsePositiveQuantity(formData.get("quantityCap"));
 
       if (listingId) {
@@ -530,6 +531,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         const quote = await marketplaceApi.previewListingTerms({ priceAmount });
         const priceResult = await marketplaceApi.updateListingPrice(listingId, {
           priceAmount,
+          priceCurrencyCode,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         });
         const result = await marketplaceApi.updateListingQuantityCap(listingId, {
@@ -560,6 +562,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           selectedOptions,
           productSummary,
           priceAmount,
+          priceCurrencyCode,
           quantityCap,
         });
         const response = redirect(buildRegisterToClaimListingDraftHref(draft.intent_id));
@@ -575,11 +578,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
         ? {
             inventoryItemId,
             priceAmount,
+            priceCurrencyCode,
             quantityCap,
           }
         : {
             inventoryItemId: "",
             priceAmount,
+            priceCurrencyCode,
             quantityCap,
             inventorySnapshot: (
               await inventoryApi.ensureListingStock({
