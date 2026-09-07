@@ -7,7 +7,7 @@ import type {
 } from "@chase-sets/event-core/public-event-payloads";
 import type { InventoryRuntimeDeps } from "./index";
 
-export type InventoryAdjustmentCommandFingerprintInput = Readonly<{
+type ExistingInventoryAdjustmentCommandFingerprintInput = Readonly<{
   accountId: string;
   itemId: string;
   quantityDelta: number;
@@ -20,9 +20,31 @@ export type InventoryAdjustmentCommandFingerprintInput = Readonly<{
   collisionMode?: "protect-orders" | "honor-offline";
 }>;
 
+type ExternalChannelSaleCommandFingerprintInput = Readonly<{
+  externalChannelSale: Readonly<{
+    saleKeyVersion: "v1";
+    accountId: string;
+    inventoryItemId: string;
+    storageLocationId: string;
+    requestedQuantity: number;
+    unitPriceAmount?: string;
+    currencyCode?: string;
+    soldAt?: string;
+    collisionMode: "protect-orders";
+    collisionPolicyRef: string;
+    collisionPolicyRevision: number;
+    reasonCode: "sold-external-channel";
+  }>;
+}>;
+
+export type InventoryAdjustmentCommandFingerprintInput =
+  | ExistingInventoryAdjustmentCommandFingerprintInput
+  | ExternalChannelSaleCommandFingerprintInput;
+
 export type InventoryAdjustmentIdempotencyRow<TCollision = unknown> = Readonly<{
   inserted: boolean;
   command_fingerprint: string;
+  claim_generation: string;
   status: "in_progress" | "completed";
   result_item_id: string | null;
   result_version: string | number | null;
@@ -41,6 +63,31 @@ export function normalizeInventoryAdjustmentNote(value: string | null | undefine
 }
 
 export function inventoryAdjustmentCommandFingerprint(input: InventoryAdjustmentCommandFingerprintInput): string {
+  if ("externalChannelSale" in input) {
+    const sale = input.externalChannelSale;
+    const price =
+      sale.unitPriceAmount !== undefined || sale.currencyCode !== undefined
+        ? { unitPriceAmount: sale.unitPriceAmount ?? null, currencyCode: sale.currencyCode ?? null }
+        : {};
+    const soldAt = sale.soldAt !== undefined ? { soldAt: sale.soldAt } : {};
+    return createHash("sha256")
+      .update(
+        JSON.stringify({
+          saleKeyVersion: sale.saleKeyVersion,
+          accountId: sale.accountId,
+          inventoryItemId: sale.inventoryItemId,
+          storageLocationId: sale.storageLocationId,
+          requestedQuantity: sale.requestedQuantity,
+          ...price,
+          ...soldAt,
+          collisionMode: sale.collisionMode,
+          collisionPolicyRef: sale.collisionPolicyRef,
+          collisionPolicyRevision: sale.collisionPolicyRevision,
+          reasonCode: sale.reasonCode,
+        }),
+      )
+      .digest("hex");
+  }
   const extendedReason =
     input.reasonCode !== undefined || input.note !== undefined
       ? {
@@ -79,6 +126,7 @@ export async function claimInventoryAdjustmentIdempotency<TCollision = unknown>(
     accountId: string;
     itemId: string;
     commandFingerprint: string;
+    claimGeneration: string;
   }>,
 ): Promise<InventoryAdjustmentIdempotencyRow<TCollision> | null> {
   const result = await db.query<InventoryAdjustmentIdempotencyRow<TCollision>>(
@@ -88,21 +136,22 @@ export async function claimInventoryAdjustmentIdempotency<TCollision = unknown>(
          account_id,
          item_id,
          command_fingerprint,
+         claim_generation,
          status,
          created_at
-       ) VALUES ($1, $2, $3, $4, 'in_progress', now())
+       ) VALUES ($1, $2, $3, $4, $5, 'in_progress', now())
        ON CONFLICT (idempotency_key) DO NOTHING
-       RETURNING true AS inserted, command_fingerprint, status, result_item_id, result_version, result_collision, created_at
+       RETURNING true AS inserted, command_fingerprint, claim_generation, status, result_item_id, result_version, result_collision, created_at
      )
-     SELECT inserted, command_fingerprint, status, result_item_id, result_version, result_collision, created_at
+     SELECT inserted, command_fingerprint, claim_generation, status, result_item_id, result_version, result_collision, created_at
      FROM inserted
      UNION ALL
-     SELECT false AS inserted, command_fingerprint, status, result_item_id, result_version, result_collision, created_at
+     SELECT false AS inserted, command_fingerprint, claim_generation, status, result_item_id, result_version, result_collision, created_at
      FROM inventory_item_adjustment_idempotency
      WHERE idempotency_key = $1
        AND NOT EXISTS (SELECT 1 FROM inserted)
      LIMIT 1`,
-    [input.idempotencyKey, input.accountId, input.itemId, input.commandFingerprint],
+    [input.idempotencyKey, input.accountId, input.itemId, input.commandFingerprint, input.claimGeneration],
   );
   const row = result.rows[0] ?? null;
   return row?.inserted ? null : row;
@@ -164,6 +213,7 @@ export async function recoverInventoryAdjustmentIdempotency(
   const completed = await completeInventoryAdjustmentIdempotency(deps.db, {
     idempotencyKey: input.idempotencyKey,
     commandFingerprint: input.commandFingerprint,
+    claimGeneration: input.existing.claim_generation,
     resultItemId: input.itemId,
     resultVersion: version,
     resultCollision: null,
@@ -176,6 +226,7 @@ export async function completeInventoryAdjustmentIdempotency<TCollision>(
   input: Readonly<{
     idempotencyKey: string;
     commandFingerprint: string;
+    claimGeneration: string;
     resultItemId: string;
     resultVersion: number;
     resultCollision: TCollision | null;
@@ -184,16 +235,18 @@ export async function completeInventoryAdjustmentIdempotency<TCollision>(
   const result = await db.query(
     `UPDATE inventory_item_adjustment_idempotency
      SET status = 'completed',
-         result_item_id = $3,
-         result_version = $4,
-         result_collision = $5::jsonb,
+         result_item_id = $4,
+         result_version = $5,
+         result_collision = $6::jsonb,
          completed_at = now()
      WHERE idempotency_key = $1
        AND status = 'in_progress'
-       AND command_fingerprint = $2`,
+       AND command_fingerprint = $2
+       AND claim_generation = $3`,
     [
       input.idempotencyKey,
       input.commandFingerprint,
+      input.claimGeneration,
       input.resultItemId,
       input.resultVersion,
       JSON.stringify(input.resultCollision),
@@ -204,12 +257,28 @@ export async function completeInventoryAdjustmentIdempotency<TCollision>(
 
 export async function releaseInventoryAdjustmentIdempotency(
   db: InventoryRuntimeDeps["db"],
-  idempotencyKey: string,
+  input: Readonly<{ idempotencyKey: string; commandFingerprint: string; claimGeneration: string }>,
 ): Promise<void> {
   await db.query(
     `DELETE FROM inventory_item_adjustment_idempotency
      WHERE idempotency_key = $1
-       AND status = 'in_progress'`,
+       AND status = 'in_progress'
+       AND command_fingerprint = $2
+       AND claim_generation = $3`,
+    [input.idempotencyKey, input.commandFingerprint, input.claimGeneration],
+  );
+}
+
+export async function readInventoryAdjustmentIdempotency<TCollision = unknown>(
+  db: InventoryRuntimeDeps["db"],
+  idempotencyKey: string,
+): Promise<InventoryAdjustmentIdempotencyRow<TCollision> | null> {
+  const result = await db.query<InventoryAdjustmentIdempotencyRow<TCollision>>(
+    `SELECT false AS inserted, command_fingerprint, claim_generation, status,
+            result_item_id, result_version, result_collision, created_at
+     FROM inventory_item_adjustment_idempotency
+     WHERE idempotency_key = $1`,
     [idempotencyKey],
   );
+  return result.rows[0] ?? null;
 }

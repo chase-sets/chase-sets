@@ -11,7 +11,7 @@ import type { StorageLocationServices } from "../../storage-locations/api/runtim
 import type { InventoryItemServices } from "./runtime";
 import type { InventoryHoldCollisionServices } from "../../hold-collisions/api/runtime";
 import {
-  isInventoryAdjustmentReason,
+  isInventoryCallerSelectableAdjustmentReason,
   type InventoryAdjustmentReason,
 } from "@chase-sets/event-core/public-event-payloads";
 
@@ -197,7 +197,7 @@ export function createInventoryItemMcpHandlers(
     const itemId = readMcpTypedIdArgument(args, "inventoryItemId", "inv");
     const mode = readMcpStringArgument(args, "collisionMode") ?? "protect-orders";
     const suppliedReasonCode = readMcpStringArgument(args, "reasonCode");
-    if (suppliedReasonCode !== null && !isInventoryAdjustmentReason(suppliedReasonCode)) {
+    if (suppliedReasonCode !== null && !isInventoryCallerSelectableAdjustmentReason(suppliedReasonCode)) {
       throw new Error("reasonCode must be a supported inventory adjustment reason.");
     }
     let reasonCode = (suppliedReasonCode ?? undefined) as InventoryAdjustmentReason | undefined;

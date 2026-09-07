@@ -26,6 +26,7 @@ import type {
   IdentityAccountSuspendedPayload,
   IdentityFounderNumberClaimedPayload,
   InventoryHoldPlacedPayload,
+  InventoryExternalChannelSaleRecordedPayload,
   InventoryItemOfflineSaleRecordedPayload,
   MarketplaceEventPayloads,
   MarketplaceListingCreatedPayload,
@@ -236,6 +237,10 @@ const aggregateTypeIdentity = {
     ChaseSetsEventPayloads["inventory.item.offline-sale-recorded"],
     InventoryItemOfflineSaleRecordedPayload
   >,
+  "inventory.external-channel-sale.recorded": true satisfies IsExactly<
+    ChaseSetsEventPayloads["inventory.external-channel-sale.recorded"],
+    InventoryExternalChannelSaleRecordedPayload
+  >,
   "ordering.order.created": true satisfies IsExactly<
     ChaseSetsEventPayloads["ordering.order.created"],
     OrderingOrderCreatedPayload
@@ -424,7 +429,7 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(29);
+    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(30);
   });
 
   it("preserves the historical optionality of the unversioned dispatch fact", () => {

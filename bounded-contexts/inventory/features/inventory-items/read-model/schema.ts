@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS inventory_item_adjustment_idempotency (
   account_id text NOT NULL,
   item_id text NOT NULL,
   command_fingerprint text NOT NULL,
+  claim_generation text NOT NULL,
   status text NOT NULL CHECK (status IN ('in_progress', 'completed')),
   result_item_id text NULL,
   result_version bigint NULL CHECK (result_version IS NULL OR result_version >= 0),
@@ -95,6 +96,19 @@ export const inventoryItemSchemaMigrations: readonly BcSchemaMigration[] = [
   ADD COLUMN IF NOT EXISTS channel text`,
       `ALTER TABLE inventory_item_adjustment_idempotency
   ADD COLUMN IF NOT EXISTS result_collision jsonb`,
+    ],
+  },
+  {
+    migrationId: "20260906_inventory_adjustment_claim_generation",
+    description: "Fence adjustment journal completion and release to the exact claim generation.",
+    statements: [
+      `ALTER TABLE inventory_item_adjustment_idempotency
+  ADD COLUMN IF NOT EXISTS claim_generation text`,
+      `UPDATE inventory_item_adjustment_idempotency
+  SET claim_generation = 'legacy:' || idempotency_key || ':' || created_at::text
+  WHERE claim_generation IS NULL`,
+      `ALTER TABLE inventory_item_adjustment_idempotency
+  ALTER COLUMN claim_generation SET NOT NULL`,
     ],
   },
 ];

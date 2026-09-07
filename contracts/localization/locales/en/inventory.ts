@@ -28,6 +28,8 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.code": "Adjustment reason",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.placeholder": "Choose a reason",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.sold-offline": "Sold offline",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.sold-external-channel":
+    "Sold through an external channel",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.damaged": "Damaged",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.lost": "Lost",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.found": "Found",

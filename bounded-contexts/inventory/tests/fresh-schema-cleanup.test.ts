@@ -12,6 +12,7 @@ describe("fresh inventory schemas", () => {
     expect(inventoryItemSchemaSql).toContain("sale_price_amount numeric(12,2) NULL");
     expect(inventoryItemSchemaSql).toContain("channel text NULL");
     expect(inventoryItemSchemaSql).toContain("result_collision jsonb NULL");
+    expect(inventoryItemSchemaSql).toContain("claim_generation text NOT NULL");
     expect(inventoryItemSchemaSql).not.toContain("inventory_item_ledger_item_occurred_idx");
     expect(inventoryItemSchemaSql).not.toContain("inventory_item_ledger_account_item_idx");
     expect(migrationSql).toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_item_ledger_item_occurred_idx");
@@ -21,5 +22,7 @@ describe("fresh inventory schemas", () => {
     expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS sale_price_amount numeric(12,2)");
     expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS channel text");
     expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS result_collision jsonb");
+    expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS claim_generation text");
+    expect(migrationSql).toContain("ALTER COLUMN claim_generation SET NOT NULL");
   });
 });

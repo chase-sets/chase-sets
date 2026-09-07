@@ -8,6 +8,18 @@ export type {
   InventoryListingStockSnapshot,
 } from "./support/request-support/api-client";
 export type { InventoryDraftListingCreator } from "./features/import-batches/api/runtime";
+export type {
+  CommittedExternalChannelSale,
+  ExternalChannelSaleConflictField,
+  ExternalChannelSaleHistoryFailure,
+  ExternalChannelSaleHistoryFailureReason,
+  ExternalChannelSaleKeyV1,
+  RecordExternalChannelSale,
+  RecordExternalChannelSaleCommand,
+  RecordExternalChannelSaleConflict,
+  RecordExternalChannelSaleOutcome,
+  RecordExternalChannelSaleResult,
+} from "./features/channel-sales/api/contracts";
 /**
  * Read-only Hold/reservation cleanup authority. The platform-api
  * composition root binds this to Ordering's `inventoryCleanupAuthority` host

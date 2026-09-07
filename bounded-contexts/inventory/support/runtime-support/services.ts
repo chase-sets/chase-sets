@@ -13,6 +13,10 @@ import {
 } from "../../features/holds/api/cleanup-authority";
 import { createInventoryHoldCollisionRuntime } from "../../features/hold-collisions/api/runtime";
 import {
+  createInventoryExternalChannelSaleRuntime,
+  type InventoryExternalChannelSaleServices,
+} from "../../features/channel-sales/api/runtime";
+import {
   createInventoryImportBatchRuntime,
   type InventoryDraftListingCreator,
 } from "../../features/import-batches/api/runtime";
@@ -35,6 +39,7 @@ export type InventoryServices = Readonly<{
    */
   holdCleanupAuthority: InventoryHoldCleanupAuthorityServices;
   holdCollisions: ReturnType<typeof createInventoryHoldCollisionRuntime>;
+  channelSales: InventoryExternalChannelSaleServices;
   reservations: ReturnType<typeof createInventoryReservationRuntime>;
   restockDecisions: ReturnType<typeof createRestockDecisionRuntime>;
   recoveredItems: ReturnType<typeof createRecoveredItemRuntime>;
@@ -92,6 +97,7 @@ export function createInventoryServices(
   const holdCleanupAuthority = createInventoryHoldCleanupAuthority({ eventStore, db });
   const reservations = createInventoryReservationRuntime(deps);
   const holdCollisions = createInventoryHoldCollisionRuntime(deps);
+  const channelSales = createInventoryExternalChannelSaleRuntime(deps, holdCollisions);
   const restockDecisions = createRestockDecisionRuntime(deps, items, reservations);
   const recoveredItems = createRecoveredItemRuntime(deps);
 
@@ -103,6 +109,7 @@ export function createInventoryServices(
     holds,
     holdCleanupAuthority,
     holdCollisions,
+    channelSales,
     reservations,
     restockDecisions,
     recoveredItems,

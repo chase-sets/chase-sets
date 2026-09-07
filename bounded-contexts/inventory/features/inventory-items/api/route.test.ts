@@ -298,6 +298,15 @@ describe("inventory item routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ quantityDelta: 1, reason: "Count", reasonCode: "other" }),
     });
+    const producerOnly = await app.request("/items/inv_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantityDelta: -1,
+        reason: "Forged channel sale",
+        reasonCode: "sold-external-channel",
+      }),
+    });
     const conflicting = await app.request("/items/inv_1/adjustments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -321,6 +330,7 @@ describe("inventory item routes", () => {
     });
 
     expect(unknown.status).toBe(400);
+    expect(producerOnly.status).toBe(400);
     expect(conflicting.status).toBe(400);
     expect(derived.status).toBe(200);
     expect(reduceItem).toHaveBeenCalledWith(expect.objectContaining({ reasonCode: "sold-offline" }), context);

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   completeInventoryAdjustmentIdempotency,
   inventoryAdjustmentCommandFingerprint,
+  releaseInventoryAdjustmentIdempotency,
 } from "./inventory-adjustment-idempotency";
 
 const baseInput = {
@@ -86,6 +87,7 @@ describe("inventory adjustment idempotency", () => {
       completeInventoryAdjustmentIdempotency({ query } as never, {
         idempotencyKey: "sale-1",
         commandFingerprint: "fingerprint-a",
+        claimGeneration: "generation-a",
         resultItemId: "inv_1",
         resultVersion: 2,
         resultCollision: null,
@@ -93,7 +95,20 @@ describe("inventory adjustment idempotency", () => {
     ).resolves.toBe(false);
     expect(query).toHaveBeenCalledWith(
       expect.stringMatching(/status = 'in_progress'[\s\S]*command_fingerprint = \$2/),
-      ["sale-1", "fingerprint-a", "inv_1", 2, "null"],
+      ["sale-1", "fingerprint-a", "generation-a", "inv_1", 2, "null"],
+    );
+  });
+
+  it("guards release by status, fingerprint, and claim generation", async () => {
+    const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    await releaseInventoryAdjustmentIdempotency({ query } as never, {
+      idempotencyKey: "sale-1",
+      commandFingerprint: "fingerprint-a",
+      claimGeneration: "generation-a",
+    });
+    expect(query).toHaveBeenCalledWith(
+      expect.stringMatching(/status = 'in_progress'[\s\S]*command_fingerprint = \$2[\s\S]*claim_generation = \$3/),
+      ["sale-1", "fingerprint-a", "generation-a"],
     );
   });
 });

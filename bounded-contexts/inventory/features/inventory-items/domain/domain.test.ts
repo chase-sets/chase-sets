@@ -174,6 +174,43 @@ describe("inventory item domain", () => {
     );
   });
 
+  it("fences the external-channel reason behind its dedicated Inventory command", () => {
+    const state = {
+      ...initialInventoryItemState,
+      id: "inv_1" as never,
+      accountId: "acc_1" as never,
+      storageLocationId: "loc_1",
+      totalQuantity: 3,
+    };
+    expect(() =>
+      decideInventoryItem(state, {
+        type: "AdjustInventoryItemQuantity",
+        quantityDelta: -1,
+        heldQuantity: 0,
+        reason: "Forged channel sale",
+        reasonCode: "sold-external-channel",
+      }),
+    ).toThrow("require the Inventory-owned external sale command");
+    expect(
+      decideInventoryItem(state, {
+        type: "RecordExternalChannelSaleAdjustment",
+        quantity: 1,
+        heldQuantity: 0,
+      }),
+    ).toEqual([
+      {
+        type: "inventory.item.adjusted",
+        data: {
+          itemId: "inv_1",
+          quantityDelta: -1,
+          reason: "External channel sale",
+          reasonCode: "sold-external-channel",
+          sourceRef: null,
+        },
+      },
+    ]);
+  });
+
   it("rejects invalid offline-sale quantity, price, channel, and held floors", () => {
     const state = {
       ...initialInventoryItemState,

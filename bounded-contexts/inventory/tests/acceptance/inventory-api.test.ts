@@ -1409,19 +1409,26 @@ describe("inventory api", () => {
       accountId: "acc_inventory",
       itemId: "inv_a",
       commandFingerprint: "fingerprint-a",
+      claimGeneration: "generation-a",
     });
-    await releaseInventoryAdjustmentIdempotency(pools.inventory, "stale-completion");
+    await releaseInventoryAdjustmentIdempotency(pools.inventory, {
+      idempotencyKey: "stale-completion",
+      commandFingerprint: "fingerprint-a",
+      claimGeneration: "generation-a",
+    });
     await claimInventoryAdjustmentIdempotency(pools.inventory, {
       idempotencyKey: "stale-completion",
       accountId: "acc_inventory",
       itemId: "inv_b",
-      commandFingerprint: "fingerprint-b",
+      commandFingerprint: "fingerprint-a",
+      claimGeneration: "generation-b",
     });
 
     await expect(
       completeInventoryAdjustmentIdempotency(pools.inventory, {
         idempotencyKey: "stale-completion",
         commandFingerprint: "fingerprint-a",
+        claimGeneration: "generation-a",
         resultItemId: "inv_a",
         resultVersion: 2,
         resultCollision: null,
@@ -1430,17 +1437,19 @@ describe("inventory api", () => {
     const row = await pools.inventory.query<{
       status: string;
       command_fingerprint: string;
+      claim_generation: string;
       result_version: string | null;
       result_collision: unknown;
     }>(
-      `SELECT status, command_fingerprint, result_version, result_collision
+      `SELECT status, command_fingerprint, claim_generation, result_version, result_collision
        FROM inventory_item_adjustment_idempotency
        WHERE idempotency_key = 'stale-completion'`,
     );
     expect(row.rows).toEqual([
       {
         status: "in_progress",
-        command_fingerprint: "fingerprint-b",
+        command_fingerprint: "fingerprint-a",
+        claim_generation: "generation-b",
         result_version: null,
         result_collision: null,
       },

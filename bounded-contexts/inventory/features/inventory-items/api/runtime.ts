@@ -254,6 +254,7 @@ export function createInventoryItemRuntime(
     },
     adjustItem: async (params, context) => {
       const idempotencyKey = normalizeInventoryIdempotencyKey(params.idempotencyKey);
+      const claimGeneration = createId("iaj");
       const normalizedNote = params.note === undefined ? undefined : normalizeInventoryAdjustmentNote(params.note);
       const commandFingerprint = inventoryAdjustmentCommandFingerprint({
         accountId: params.accountId,
@@ -270,6 +271,7 @@ export function createInventoryItemRuntime(
           accountId: params.accountId,
           itemId: params.itemId,
           commandFingerprint,
+          claimGeneration,
         });
         if (existing) {
           if (existing.command_fingerprint !== commandFingerprint) {
@@ -342,7 +344,11 @@ export function createInventoryItemRuntime(
         }
       } catch (error) {
         if (idempotencyKey) {
-          await releaseInventoryAdjustmentIdempotency(deps.db, idempotencyKey);
+          await releaseInventoryAdjustmentIdempotency(deps.db, {
+            idempotencyKey,
+            commandFingerprint,
+            claimGeneration,
+          });
         }
         throw error;
       }
@@ -351,6 +357,7 @@ export function createInventoryItemRuntime(
         const completed = await completeInventoryAdjustmentIdempotency(deps.db, {
           idempotencyKey,
           commandFingerprint,
+          claimGeneration,
           resultItemId: params.itemId,
           resultVersion,
           resultCollision: null,

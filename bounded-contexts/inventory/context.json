@@ -2,7 +2,14 @@
   "contextName": "inventory",
   "packageName": "@chase-sets/inventory",
   "localeCatalogs": ["contracts/localization/locales/en/inventory.ts"],
-  "ownedNouns": ["inventory-item", "inventory-hold", "import-batch", "recovered-item", "storage-location"],
+  "ownedNouns": [
+    "inventory-item",
+    "inventory-hold",
+    "import-batch",
+    "recovered-item",
+    "storage-location",
+    "external-channel-sale"
+  ],
   "streamPrefix": "inventory.",
   "accountCapabilities": [
     {
@@ -15,6 +22,7 @@
   "apiBasePath": "/api/inventory",
   "slices": [
     "inventory-items",
+    "channel-sales",
     "hold-collisions",
     "import-batches",
     "holds",
@@ -894,6 +902,11 @@
     }
   ],
   "directoryIntent": {
+    "channel-sales": {
+      "classification": "slice",
+      "purpose": "Own the channel-sales slice's provider-neutral command, permanent sale-line authority, replay, and conflict behavior.",
+      "expectedConsumers": ["Connected channel adapters through the Inventory server contract"]
+    },
     "inventory-items": {
       "classification": "slice",
       "purpose": "Own inventory item feature behavior, read models, and UI contracts for the inventory context.",
@@ -950,6 +963,7 @@
       "purpose": "Provide reusable runtime-support assets shared by inventory-owned features and composition seams.",
       "expectedConsumers": [
         "hold-collisions",
+        "channel-sales",
         "holds",
         "import-batches",
         "inventory-items",

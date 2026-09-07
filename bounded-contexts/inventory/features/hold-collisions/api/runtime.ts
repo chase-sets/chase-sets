@@ -3,7 +3,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput, EventRecordToStore, EventStoreContext } from "@chase-sets/event-core/storage";
 import type {
   InventoryAdjustmentReason,
   InventoryHoldOrderSourceRef,
@@ -12,7 +12,7 @@ import type {
 import { isInventoryOfflineSaleChannel } from "@chase-sets/event-core/public-event-payloads";
 import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, EventId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
 import {
@@ -73,6 +73,19 @@ export type InventoryOfflineSaleReduction = Readonly<{
   channel: InventoryOfflineSaleChannel;
 }>;
 
+export type InventoryExternalChannelSaleReduction = Readonly<{
+  saleStreamId: string;
+  storageLocationId: string;
+  inventoryAdjustmentEventId: EventId;
+  buildTerminalEvent: (
+    result: Readonly<{
+      appliedQuantity: number;
+      refusedQuantity: number;
+      protectedOrderIds: readonly string[];
+    }>,
+  ) => EventRecordToStore;
+}>;
+
 export type InventoryHoldCollisionServices = Readonly<{
   reduceItem: (
     params: Readonly<{
@@ -85,6 +98,7 @@ export type InventoryHoldCollisionServices = Readonly<{
       mode?: InventoryHoldCollisionMode;
       actorRole?: string | null;
       offlineSale?: InventoryOfflineSaleReduction;
+      externalChannelSale?: InventoryExternalChannelSaleReduction;
     }>,
     context: EventStoreContext,
   ) => Promise<InventoryHoldCollisionResult>;
@@ -127,6 +141,18 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
       const mode = params.mode ?? "protect-orders";
       const normalizedNote = params.note === undefined ? undefined : normalizeInventoryAdjustmentNote(params.note);
       const offlineSale = normalizeOfflineSaleReduction(params.offlineSale);
+      const externalChannelSale = params.externalChannelSale;
+      if (offlineSale && externalChannelSale) {
+        throw new InventoryDomainError("A stock reduction cannot be both an offline and external channel sale.");
+      }
+      if (
+        externalChannelSale &&
+        (mode !== "protect-orders" || params.actorRole != null || params.reasonCode !== "sold-external-channel")
+      ) {
+        throw new InventoryDomainError(
+          "External channel sales require protect-orders, a null actor role, and reasonCode sold-external-channel.",
+        );
+      }
       const commandFingerprint = offlineSale
         ? inventoryAdjustmentCommandFingerprint({
             accountId: params.accountId,
@@ -141,6 +167,7 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
             collisionMode: mode,
           })
         : null;
+      const claimGeneration = createId("iaj");
       let claimOwned = false;
 
       if (offlineSale && commandFingerprint) {
@@ -149,6 +176,7 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
           accountId: params.accountId,
           itemId: params.itemId,
           commandFingerprint,
+          claimGeneration,
         });
         if (existing) {
           if (existing.command_fingerprint !== commandFingerprint) {
@@ -187,10 +215,15 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
             if (item.state.id !== params.itemId || item.state.accountId !== params.accountId) {
               throw new InventoryDomainError("Inventory item not found.");
             }
+            if (externalChannelSale && item.state.storageLocationId !== externalChannelSale.storageLocationId) {
+              throw new InventoryDomainError(
+                "External channel sale storage location does not match the Inventory item.",
+              );
+            }
             if (!Number.isInteger(params.requestedQuantity) || params.requestedQuantity <= 0) {
               throw new InventoryDomainError("Inventory reductions require a positive whole-number quantity.");
             }
-            if (params.requestedQuantity > item.state.totalQuantity) {
+            if (!externalChannelSale && params.requestedQuantity > item.state.totalQuantity) {
               throw new InventoryDomainError("Inventory quantity cannot fall below zero.");
             }
 
@@ -214,34 +247,40 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
                 ? []
                 : decideInventoryItem(
                     item.state,
-                    offlineSale
+                    externalChannelSale
                       ? {
-                          type: "RecordOfflineSale",
-                          csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-                            accountId: params.accountId as AccountId,
-                            itemId: params.itemId as InventoryItemId,
-                            idempotencyKey: offlineSale.idempotencyKey,
-                          }),
+                          type: "RecordExternalChannelSaleAdjustment",
                           quantity: appliedQuantity,
                           heldQuantity,
-                          salePriceAmount: offlineSale.salePriceAmount,
-                          channel: offlineSale.channel,
-                          ...(normalizedNote !== undefined ? { note: normalizedNote } : {}),
-                          recordedAt: new Date().toISOString(),
                         }
-                      : {
-                          type: "AdjustInventoryItemQuantity",
-                          csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-                            accountId: params.accountId as AccountId,
-                            itemId: params.itemId as InventoryItemId,
-                            idempotencyKey: `inventory:hold-collision:${params.itemId}:${attempt}:${Date.now()}`,
-                          }),
-                          quantityDelta: -appliedQuantity,
-                          heldQuantity,
-                          reason: params.reason,
-                          ...(reasonCode !== undefined ? { reasonCode } : {}),
-                          ...(normalizedNote !== undefined ? { note: normalizedNote } : {}),
-                        },
+                      : offlineSale
+                        ? {
+                            type: "RecordOfflineSale",
+                            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+                              accountId: params.accountId as AccountId,
+                              itemId: params.itemId as InventoryItemId,
+                              idempotencyKey: offlineSale.idempotencyKey,
+                            }),
+                            quantity: appliedQuantity,
+                            heldQuantity,
+                            salePriceAmount: offlineSale.salePriceAmount,
+                            channel: offlineSale.channel,
+                            ...(normalizedNote !== undefined ? { note: normalizedNote } : {}),
+                            recordedAt: new Date().toISOString(),
+                          }
+                        : {
+                            type: "AdjustInventoryItemQuantity",
+                            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+                              accountId: params.accountId as AccountId,
+                              itemId: params.itemId as InventoryItemId,
+                              idempotencyKey: `inventory:hold-collision:${params.itemId}:${attempt}:${Date.now()}`,
+                            }),
+                            quantityDelta: -appliedQuantity,
+                            heldQuantity,
+                            reason: params.reason,
+                            ...(reasonCode !== undefined ? { reasonCode } : {}),
+                            ...(normalizedNote !== undefined ? { note: normalizedNote } : {}),
+                          },
                   );
 
             const appends: AppendToStreamInput[] = [
@@ -250,7 +289,12 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
                     {
                       streamId: `inventory.item-${params.itemId}`,
                       expectedVersion: item.version,
-                      events: itemEvents.map((event) => itemCodec.encode(event)),
+                      events: itemEvents.map((event) => {
+                        const encoded = itemCodec.encode(event);
+                        return externalChannelSale && event.type === "inventory.item.adjusted"
+                          ? { ...encoded, eventId: externalChannelSale.inventoryAdjustmentEventId! }
+                          : encoded;
+                      }),
                       context,
                     },
                   ]
@@ -313,6 +357,24 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
               });
             }
 
+            if (externalChannelSale) {
+              const protectedOrderIds = [
+                ...new Set((collision?.affectedOrders ?? []).map((affected) => affected.orderId)),
+              ].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+              appends.push({
+                streamId: externalChannelSale.saleStreamId,
+                expectedVersion: "no_stream",
+                events: [
+                  externalChannelSale.buildTerminalEvent({
+                    appliedQuantity,
+                    refusedQuantity: collision?.refusedQuantity ?? 0,
+                    protectedOrderIds,
+                  }),
+                ],
+                context,
+              });
+            }
+
             // A zero-available protect-orders collision still advances the item
             // authority stream so a simultaneous hold placement cannot commit
             // against the snapshot used for this decision.
@@ -348,6 +410,7 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
               const completed = await completeInventoryAdjustmentIdempotency(deps.db, {
                 idempotencyKey: offlineSale.idempotencyKey,
                 commandFingerprint,
+                claimGeneration,
                 resultItemId: result.itemId,
                 resultVersion: result.version,
                 resultCollision: result.collision,
@@ -360,7 +423,7 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
             }
             return result;
           } catch (error) {
-            if (attempt < 3 && isConcurrencyConflict(error)) {
+            if (attempt < 3 && isConcurrencyConflict(error) && !externalChannelSale) {
               continue;
             }
             throw error;
@@ -369,7 +432,11 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
         throw new InventoryDomainError("Inventory stock changed while resolving the hold collision.");
       } catch (error) {
         if (claimOwned && offlineSale) {
-          await releaseInventoryAdjustmentIdempotency(deps.db, offlineSale.idempotencyKey);
+          await releaseInventoryAdjustmentIdempotency(deps.db, {
+            idempotencyKey: offlineSale.idempotencyKey,
+            commandFingerprint: commandFingerprint!,
+            claimGeneration,
+          });
         }
         throw error;
       }
@@ -617,6 +684,7 @@ async function recoverOfflineSaleResult(
   const completed = await completeInventoryAdjustmentIdempotency(deps.db, {
     idempotencyKey: input.idempotencyKey,
     commandFingerprint: input.commandFingerprint,
+    claimGeneration: input.existing.claim_generation,
     resultItemId: result.itemId,
     resultVersion: result.version,
     resultCollision: result.collision,

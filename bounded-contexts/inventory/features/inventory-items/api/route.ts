@@ -6,7 +6,7 @@ import type { InventoryItemServices } from "./runtime";
 import type { InventoryHoldCollisionServices } from "../../hold-collisions/api/runtime";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
-  isInventoryAdjustmentReason,
+  isInventoryCallerSelectableAdjustmentReason,
   isInventoryOfflineSaleChannel,
   type InventoryAdjustmentReason,
 } from "@chase-sets/event-core/public-event-payloads";
@@ -171,7 +171,7 @@ export function inventoryItemRoutes(
     if (
       suppliedReasonCode !== undefined &&
       suppliedReasonCode !== null &&
-      !isInventoryAdjustmentReason(suppliedReasonCode)
+      !isInventoryCallerSelectableAdjustmentReason(suppliedReasonCode)
     ) {
       return c.json(
         {

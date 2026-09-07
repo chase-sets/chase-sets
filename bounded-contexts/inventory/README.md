@@ -23,6 +23,7 @@ If an item uses a `condition` dimension, that condition is chosen through the se
 - Storage locations and their ship-from location mapping
 - Hold state
 - Hold-collision decisions and evidence
+- Permanent provider-neutral external channel sale-line records
 - Bulk stock import workflows
 - Recovered return custody, identification, disposition, and value evidence
 
@@ -62,6 +63,7 @@ CSV import row formats and examples are documented in [Inventory CSV Import Exam
 - `inventory.hold-collision-recorded`
 - `InventoryItemAdjusted`
 - `inventory.item.offline-sale-recorded`
+- `inventory.external-channel-sale.recorded`
 - `inventory.recovered-item.authenticity-review-required.v1`
 - `inventory.recovered-item.sellable.v1`
 - `inventory.recovered-item.transferred.v1`
@@ -90,6 +92,7 @@ The producer registry is closed and owned here:
 
 - Operator adjustments choose `damaged`, `lost`, `found`, or `correction`.
 - Honor Offline reductions use `sold-offline`.
+- External Channel Sale reductions use the producer-only `sold-external-channel`.
 - Listing-stock top-ups and positive additive imports use `intake`.
 - Replace imports and negative additive imports use `correction`.
 - Restocked return decisions use `return-restocked`.
@@ -97,9 +100,15 @@ The producer registry is closed and owned here:
 
 The separate Restock Decision Outcome `written-off` records the seller's decision without changing quantity, so it emits no inventory adjustment.
 
+Connected channel sales use the producer-only `sold-external-channel` reason. Caller-facing adjustment APIs and MCP tools cannot choose it.
+
 ## Offline Sales
 
 `inventory.item.offline-sale-recorded` preserves the applied quantity, optional per-unit sale price, Inventory-owned channel, Storage Location, per-unit Acquisition Cost snapshot, and server-recorded time. The companion `inventory.item.adjusted` event remains the only quantity truth.
+
+## External Channel Sales
+
+Inventory records each provider-neutral external order-line key once in a permanent one-event stream. Notification and polling delivery replay the same immutable result. The sale record and any applied `inventory.item.adjusted` decrement commit atomically; active order holds are always protected and any refused quantity is preserved as a stable shortfall reference.
 
 ## Recovered Returns
 
