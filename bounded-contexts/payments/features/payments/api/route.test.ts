@@ -1286,9 +1286,19 @@ describe("payments provider mode observation route", () => {
   it("closes payment provider mode observation", () => {
     const candidate = { ...SYNTHETIC_CONNECT_ONLY_OBSERVATION, observedAt: "2026-09-06T04:05:06.007Z" };
     expect(parsePaymentProviderModeResponse(candidate)).toEqual(candidate);
+    const numericOffsetCandidate = {
+      ...SYNTHETIC_CONNECT_ONLY_OBSERVATION,
+      observedAt: "2026-09-06T04:05:06.007+05:30",
+    };
+    expect(parsePaymentProviderModeResponse(numericOffsetCandidate)).toEqual(numericOffsetCandidate);
+    const leapYearCandidate = {
+      ...SYNTHETIC_CONNECT_ONLY_OBSERVATION,
+      observedAt: "2024-02-29T04:05:06.007Z",
+    };
+    expect(parsePaymentProviderModeResponse(leapYearCandidate)).toEqual(leapYearCandidate);
 
     // Connect-only is accepted, both-fake must report `unconfigured`, and every other combination of
-    // unknown, missing, extra, date-only, offset-less and contradictory values is refused.
+    // unknown, missing, extra, malformed instant and contradictory values is refused.
     const unconfiguredCandidate = { ...SYNTHETIC_UNCONFIGURED_OBSERVATION, observedAt: "2026-09-06T04:05:06.007Z" };
     expect(parsePaymentProviderModeResponse(unconfiguredCandidate)).toEqual(unconfiguredCandidate);
 
@@ -1309,6 +1319,14 @@ describe("payments provider mode observation route", () => {
       ["date-only observedAt", { ...candidate, observedAt: "2026-09-06" }],
       ["offset-less observedAt", { ...candidate, observedAt: "2026-09-06T04:05:06.007" }],
       ["unparseable observedAt", { ...candidate, observedAt: "not-an-instant-Z" }],
+      ["invalid calendar day observedAt", { ...candidate, observedAt: "2026-02-30T00:00:00Z" }],
+      ["invalid non-leap day observedAt", { ...candidate, observedAt: "2025-02-29T00:00:00Z" }],
+      ["hour 24 observedAt", { ...candidate, observedAt: "2026-09-06T24:00:00Z" }],
+      ["minute 60 observedAt", { ...candidate, observedAt: "2026-09-06T04:60:00Z" }],
+      ["second 60 observedAt", { ...candidate, observedAt: "2026-09-06T04:05:60Z" }],
+      ["offset hour 24 observedAt", { ...candidate, observedAt: "2026-09-06T04:05:06+24:00" }],
+      ["offset minute 60 observedAt", { ...candidate, observedAt: "2026-09-06T04:05:06+00:60" }],
+      ["compact offset observedAt", { ...candidate, observedAt: "2026-09-06T04:05:06+0000" }],
       ["contradictory unconfigured", { ...candidate, mode: "unconfigured" }],
       ["contradictory both-fake test", { ...unconfiguredCandidate, mode: "test" }],
       ["not an object", "unconfigured"],
