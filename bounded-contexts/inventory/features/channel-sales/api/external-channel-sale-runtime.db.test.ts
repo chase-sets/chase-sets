@@ -23,7 +23,7 @@ import {
 } from "../../../support/runtime-support/inventory-adjustment-idempotency";
 import { externalChannelSaleStreamId } from "../domain/validation";
 import type { RecordExternalChannelSaleCommand } from "./contracts";
-import { createInventoryExternalChannelSaleRuntime } from "./runtime";
+import { createInventoryExternalChannelSaleRuntime, externalChannelSaleCommandFingerprint } from "./runtime";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -170,6 +170,61 @@ describeDb("external-channel-sale real event-store authority", () => {
         resultCollision: null,
       }),
     ).resolves.toBe(false);
+  });
+
+  it("resumes claim-generation migration after constraint creation without a ledger receipt", async () => {
+    await resetMultiContextTestSchemas(pools);
+    await pool.query(`CREATE TABLE inventory_item_adjustment_idempotency (
+      idempotency_key text PRIMARY KEY,
+      account_id text NOT NULL,
+      item_id text NOT NULL,
+      command_fingerprint text NOT NULL,
+      status text NOT NULL CHECK (status IN ('in_progress', 'completed')),
+      result_item_id text NULL,
+      result_version bigint NULL CHECK (result_version IS NULL OR result_version >= 0),
+      result_collision jsonb NULL,
+      created_at timestamptz NOT NULL,
+      completed_at timestamptz NULL
+    )`);
+    await pool.query(`CREATE TABLE bounded_context_schema_migrations (
+      migration_id text PRIMARY KEY,
+      description text NOT NULL,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    )`);
+    await pool.query(`INSERT INTO inventory_item_adjustment_idempotency (
+      idempotency_key, account_id, item_id, command_fingerprint, status, created_at
+    ) VALUES ('legacy-claim', 'acc_seller', 'inv_external', 'legacy-fingerprint', 'in_progress', now())`);
+    const migration = inventoryModule.schemaMigrations?.find(
+      (candidate) => candidate.migrationId === "20260906_inventory_adjustment_claim_generation",
+    );
+    expect(migration).toBeDefined();
+    for (const statement of migration!.statements.slice(0, 3)) {
+      await pool.query(statement);
+    }
+    const before = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM bounded_context_schema_migrations WHERE migration_id = $1",
+      [migration!.migrationId],
+    );
+    expect(before.rows).toEqual([{ count: "0" }]);
+
+    await expect(bootstrapContextDatabase(inventoryModule, pool)).resolves.toBeUndefined();
+
+    const row = await pool.query<{ claim_generation: string }>(
+      "SELECT claim_generation FROM inventory_item_adjustment_idempotency WHERE idempotency_key = 'legacy-claim'",
+    );
+    const column = await pool.query<{ is_nullable: string }>(
+      `SELECT is_nullable FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'inventory_item_adjustment_idempotency'
+         AND column_name = 'claim_generation'`,
+    );
+    const receipts = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM bounded_context_schema_migrations WHERE migration_id = $1",
+      [migration!.migrationId],
+    );
+    expect(row.rows[0]?.claim_generation).toMatch(/^legacy:legacy-claim:/);
+    expect(column.rows).toEqual([{ is_nullable: "NO" }]);
+    expect(receipts.rows).toEqual([{ count: "1" }]);
   });
 
   it("external-channel-sale-two-line-out-of-order creates two facts for two line keys", async () => {
@@ -330,6 +385,92 @@ describeDb("external-channel-sale real event-store authority", () => {
     await expect(services.channelSales.record(versionCommand, context)).resolves.toMatchObject({
       reason: "wrong-order-or-version",
     });
+  });
+
+  it("rejects non-canonical soldAt history with a matching raw fingerprint and accepts canonical UTC", async () => {
+    const rawSoldAt = "2026-09-06T12:00:00-05:00";
+    const poisonedCommand = command("poison-offset-sold-at", { soldAt: rawSoldAt });
+    await services.channelSales.record(poisonedCommand, context);
+    const streamId = externalChannelSaleStreamId(poisonedCommand.saleKey);
+    const rawFingerprint = externalChannelSaleCommandFingerprint(poisonedCommand as never);
+    await pool.query(
+      `UPDATE event_store_events
+       SET payload = jsonb_set(
+         jsonb_set(payload, '{soldAt}', to_jsonb($2::text)),
+         '{commandFingerprint}', to_jsonb($3::text)
+       )
+       WHERE stream_id = $1`,
+      [streamId, rawSoldAt, rawFingerprint],
+    );
+    const before = await countEvents("inventory.item.adjusted");
+    await expect(services.channelSales.record(poisonedCommand, context)).resolves.toMatchObject({
+      code: "external-channel-sale-history-invalid",
+      reason: "target-or-profile-mismatch",
+    });
+    expect(await countEvents("inventory.item.adjusted")).toBe(before);
+    expect(await countEvents("inventory.external-channel-sale.recorded", streamId)).toBe(1);
+
+    const canonicalCommand = command("canonical-utc", { soldAt: "2026-09-06T17:00:00.000Z" });
+    const canonical = await services.channelSales.record(canonicalCommand, context);
+    await expect(services.channelSales.record(canonicalCommand, context)).resolves.toEqual(canonical);
+  });
+
+  it("accepts 128-scalar event references and rejects either reference at 129", async () => {
+    const reference = (marker: string, length: number) => `evt_${marker.repeat(length - 4)}`;
+    const cases = [
+      {
+        line: "max-128-event-references",
+        saleEventId: reference("s", 128),
+        inventoryAdjustmentEventId: reference("a", 128),
+        accepted: true,
+      },
+      {
+        line: "max-129-sale-event-reference",
+        saleEventId: reference("s", 129),
+        inventoryAdjustmentEventId: reference("a", 128),
+        accepted: false,
+      },
+      {
+        line: "max-129-adjustment-event-reference",
+        saleEventId: reference("s", 128),
+        inventoryAdjustmentEventId: reference("a", 129),
+        accepted: false,
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const saleCommand = command(testCase.line);
+      await services.channelSales.record(saleCommand, context);
+      const streamId = externalChannelSaleStreamId(saleCommand.saleKey);
+      await pool.query(
+        `UPDATE event_store_events
+         SET event_id = $2,
+             payload = jsonb_set(
+               jsonb_set(payload, '{result,saleEventId}', to_jsonb($2::text)),
+               '{result,inventoryAdjustmentEventId}', to_jsonb($3::text)
+             )
+         WHERE stream_id = $1`,
+        [streamId, testCase.saleEventId, testCase.inventoryAdjustmentEventId],
+      );
+      const before = await countEvents("inventory.item.adjusted");
+      const outcome = await services.channelSales.record(saleCommand, context);
+      if (testCase.accepted) {
+        expect(outcome).toMatchObject({
+          status: "committed",
+          sale: {
+            saleEventId: testCase.saleEventId,
+            inventoryAdjustmentEventId: testCase.inventoryAdjustmentEventId,
+          },
+        });
+      } else {
+        expect(outcome).toMatchObject({
+          code: "external-channel-sale-history-invalid",
+          reason: "malformed-result",
+        });
+      }
+      expect(await countEvents("inventory.item.adjusted")).toBe(before);
+      expect(await countEvents("inventory.external-channel-sale.recorded", streamId)).toBe(1);
+    }
   });
 
   it("external-channel-sale-crash-boundaries converges from each injected boundary", async () => {

@@ -381,8 +381,9 @@ function validStoredCommandFacts(payload: InventoryExternalChannelSaleRecordedPa
   )
     return false;
   try {
-    normalizeExternalChannelSaleCommand(normalizedCommandFromPayload(payload));
-    return true;
+    const storedCommand = normalizedCommandFromPayload(payload);
+    const normalizedStoredCommand = normalizeExternalChannelSaleCommand(storedCommand);
+    return sameJson(normalizedStoredCommand, storedCommand);
   } catch {
     return false;
   }
@@ -409,7 +410,7 @@ function normalizedCommandFromPayload(
 function validResultShape(result: CommittedExternalChannelSale): boolean {
   return (
     typeof result.saleStreamId === "string" &&
-    typeof result.saleEventId === "string" &&
+    isValidReference(result.saleEventId) &&
     /^evt_/.test(result.saleEventId) &&
     typeof result.accountId === "string" &&
     typeof result.inventoryItemId === "string" &&
@@ -424,7 +425,7 @@ function validResultShape(result: CommittedExternalChannelSale): boolean {
     Number.isSafeInteger(result.collisionPolicyRevision) &&
     result.collisionPolicyRevision > 0 &&
     (result.inventoryAdjustmentEventId === null ||
-      (typeof result.inventoryAdjustmentEventId === "string" &&
+      (isValidReference(result.inventoryAdjustmentEventId) &&
         /^evt_/.test(result.inventoryAdjustmentEventId) &&
         result.inventoryAdjustmentEventId !== result.saleEventId)) &&
     (result.saleShortfallKey === null ||

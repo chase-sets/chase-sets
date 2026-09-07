@@ -107,9 +107,20 @@ export const inventoryItemSchemaMigrations: readonly BcSchemaMigration[] = [
       `UPDATE inventory_item_adjustment_idempotency
   SET claim_generation = 'legacy:' || idempotency_key || ':' || created_at::text
   WHERE claim_generation IS NULL`,
-      `ALTER TABLE inventory_item_adjustment_idempotency
-  ADD CONSTRAINT inventory_item_adjustment_idempotency_claim_generation_not_null
-  CHECK (claim_generation IS NOT NULL) NOT VALID`,
+      `DO $migration$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'inventory_item_adjustment_idempotency_claim_generation_not_null'
+      AND conrelid = 'inventory_item_adjustment_idempotency'::regclass
+  ) THEN
+    ALTER TABLE inventory_item_adjustment_idempotency
+      ADD CONSTRAINT inventory_item_adjustment_idempotency_claim_generation_not_null
+      CHECK (claim_generation IS NOT NULL) NOT VALID;
+  END IF;
+END
+$migration$`,
       `ALTER TABLE inventory_item_adjustment_idempotency
   VALIDATE CONSTRAINT inventory_item_adjustment_idempotency_claim_generation_not_null`,
       `SET LOCAL lock_timeout = '5s'`,

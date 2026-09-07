@@ -6,7 +6,7 @@ import { decideInventoryItem, initialInventoryItemState } from "../../inventory-
 import { createInventoryHoldCollisionRuntime } from "../../hold-collisions/api/runtime";
 import { externalChannelSaleStreamId } from "../domain/validation";
 import type { RecordExternalChannelSaleCommand } from "./contracts";
-import { createInventoryExternalChannelSaleRuntime } from "./runtime";
+import { createInventoryExternalChannelSaleRuntime, externalChannelSaleCommandFingerprint } from "./runtime";
 
 type JournalRow = {
   inserted: boolean;
@@ -340,6 +340,101 @@ describe("external-channel-sale-crash-boundaries", () => {
 });
 
 describe("external-channel-sale-history", () => {
+  it("rejects a stored offset soldAt even when its raw fingerprint agrees", async () => {
+    const harness = createHarness();
+    await harness.seedItem();
+    const line = "poison-offset-sold-at";
+    const rawSoldAt = "2026-09-06T12:00:00-05:00";
+    const saleCommand = baseCommand(line, { soldAt: rawSoldAt });
+    await harness.record(saleCommand);
+    const streamId = externalChannelSaleStreamId(saleCommand.saleKey);
+    const events = harness.streams.get(streamId)!;
+    const payload = events[0]!.payload as Record<string, unknown>;
+    (events[0] as { payload: unknown }).payload = {
+      ...payload,
+      soldAt: rawSoldAt,
+      commandFingerprint: externalChannelSaleCommandFingerprint(saleCommand as never),
+    };
+    const eventCount = harness.readAllEvents().length;
+    const adjustmentCount = harness
+      .readAllEvents()
+      .filter((event) => event.eventType === "inventory.item.adjusted").length;
+
+    await expect(harness.record(saleCommand)).resolves.toMatchObject({
+      code: "external-channel-sale-history-invalid",
+      reason: "target-or-profile-mismatch",
+    });
+    expect(harness.readAllEvents()).toHaveLength(eventCount);
+    expect(harness.readAllEvents().filter((event) => event.eventType === "inventory.item.adjusted")).toHaveLength(
+      adjustmentCount,
+    );
+  });
+
+  it("accepts canonical UTC stored soldAt and event references through the 128-scalar boundary", async () => {
+    const harness = createHarness();
+    await harness.seedItem();
+    const canonicalCommand = baseCommand("canonical-utc", { soldAt: "2026-09-06T17:00:00.000Z" });
+    const canonical = await harness.record(canonicalCommand);
+    await expect(harness.record(canonicalCommand)).resolves.toEqual(canonical);
+
+    const reference = (marker: string, length: number) => `evt_${marker.repeat(length - 4)}`;
+    const cases = [
+      {
+        line: "max-128-event-references",
+        saleEventId: reference("s", 128),
+        inventoryAdjustmentEventId: reference("a", 128),
+        accepted: true,
+      },
+      {
+        line: "max-129-sale-event-reference",
+        saleEventId: reference("s", 129),
+        inventoryAdjustmentEventId: reference("a", 128),
+        accepted: false,
+      },
+      {
+        line: "max-129-adjustment-event-reference",
+        saleEventId: reference("s", 128),
+        inventoryAdjustmentEventId: reference("a", 129),
+        accepted: false,
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const saleCommand = baseCommand(testCase.line);
+      await harness.record(saleCommand);
+      const streamId = externalChannelSaleStreamId(saleCommand.saleKey);
+      const events = harness.streams.get(streamId)!;
+      const payload = events[0]!.payload as Record<string, unknown>;
+      const result = payload.result as Record<string, unknown>;
+      (events[0] as { eventId: string }).eventId = testCase.saleEventId;
+      (events[0] as { payload: unknown }).payload = {
+        ...payload,
+        result: {
+          ...result,
+          saleEventId: testCase.saleEventId,
+          inventoryAdjustmentEventId: testCase.inventoryAdjustmentEventId,
+        },
+      };
+      const eventCount = harness.readAllEvents().length;
+      const outcome = await harness.record(saleCommand);
+      if (testCase.accepted) {
+        expect(outcome).toMatchObject({
+          status: "committed",
+          sale: {
+            saleEventId: testCase.saleEventId,
+            inventoryAdjustmentEventId: testCase.inventoryAdjustmentEventId,
+          },
+        });
+      } else {
+        expect(outcome).toMatchObject({
+          code: "external-channel-sale-history-invalid",
+          reason: "malformed-result",
+        });
+      }
+      expect(harness.readAllEvents()).toHaveLength(eventCount);
+    }
+  });
+
   it.each([
     ["empty-existing-stream", "empty"],
     ["unknown-event", "unknown"],
