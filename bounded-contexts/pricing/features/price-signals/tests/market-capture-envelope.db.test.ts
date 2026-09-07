@@ -60,6 +60,14 @@ describeDb("provider market-capture envelope reconciliation", () => {
       { pageSize: 1, limit: 3 },
     ],
     ["cap+1 response", [salesPage({ total: 2, rows: [sale(1), sale(2)], resultCount: 2 })], { pageSize: 1, limit: 1 }],
+    [
+      "cumulative cap+1 through a rejected row",
+      [
+        salesPage({ total: 3, rows: [sale(1), { ...sale(2), orderDate: "invalid" }], nextPage: "Yes" }),
+        salesPage({ total: 3, rows: [sale(3)], previousPage: "Yes" }),
+      ],
+      { pageSize: 2, limit: 2 },
+    ],
     ["unsafe empty continuation", [salesPage({ total: 1, rows: [], nextPage: "Yes" })], { pageSize: 1 }],
     [
       "repeated continuation",
@@ -76,19 +84,15 @@ describeDb("provider market-capture envelope reconciliation", () => {
   });
 
   it("preserves request-cap, page-budget, and unavailable classifications", async () => {
-    await runCapture(
-      pool,
-      [salesPage({ total: 2, rows: [sale(1)], nextPage: "Yes" })],
-      { pageSize: 1, limit: 1 },
-    );
+    await runCapture(pool, [salesPage({ total: 2, rows: [sale(1)], nextPage: "Yes" })], { pageSize: 1, limit: 1 });
     await expect(salesHeader(pool)).resolves.toMatchObject({ sales_coverage: "request-cap-truncated" });
 
     await resetCaptureFacts(pool);
-    await runCapture(
-      pool,
-      [salesPage({ total: 2, rows: [sale(1)], nextPage: "Yes" })],
-      { pageSize: 1, pageBudget: 1, limit: 2 },
-    );
+    await runCapture(pool, [salesPage({ total: 2, rows: [sale(1)], nextPage: "Yes" })], {
+      pageSize: 1,
+      pageBudget: 1,
+      limit: 2,
+    });
     await expect(salesHeader(pool)).resolves.toMatchObject({ sales_coverage: "page-budget-truncated" });
 
     await resetCaptureFacts(pool);
@@ -135,21 +139,40 @@ function transport(nextSalesPage: () => unknown): TcgplayerMarketTransport {
   return {
     mpGateway: {
       post: async <T>() =>
-        [{ skuId: 9001, marketPrice: 10, lowestPrice: 9, highestPrice: 11, priceCount: 3, calculatedAt: "2026-09-01T15:00:00.000Z" }] as T,
+        [
+          {
+            skuId: 9001,
+            marketPrice: 10,
+            lowestPrice: 9,
+            highestPrice: 11,
+            priceCount: 3,
+            calculatedAt: "2026-09-01T15:00:00.000Z",
+          },
+        ] as T,
     },
     mpApi: { post: async <T>() => nextSalesPage() as T },
-    mpSearchApi: { post: async <T>() => { throw new Error("synthetic-listings-unavailable") as T; } },
-    infiniteApi: { get: async <T>() => { throw new Error("synthetic-history-unavailable") as T; } },
+    mpSearchApi: {
+      post: async <T>() => {
+        throw new Error("synthetic-listings-unavailable") as T;
+      },
+    },
+    infiniteApi: {
+      get: async <T>() => {
+        throw new Error("synthetic-history-unavailable") as T;
+      },
+    },
   };
 }
 
-function salesPage(input: Readonly<{
-  total: number;
-  rows: readonly ReturnType<typeof sale>[];
-  resultCount?: number;
-  previousPage?: "Yes" | "";
-  nextPage?: "Yes" | "";
-}>) {
+function salesPage(
+  input: Readonly<{
+    total: number;
+    rows: readonly ReturnType<typeof sale>[];
+    resultCount?: number;
+    previousPage?: "Yes" | "";
+    nextPage?: "Yes" | "";
+  }>,
+) {
   return {
     previousPage: input.previousPage ?? "",
     nextPage: input.nextPage ?? "",

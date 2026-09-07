@@ -265,13 +265,13 @@ async function askEvidence(
       [params.providerKey, params.catalogItemId, params.captureId],
     ),
     db.query<AskRow>(
-    `SELECT d.capture_id, d.anonymous_capture_seller_ordinal, d.provider_condition,
+      `SELECT d.capture_id, d.anonymous_capture_seller_ordinal, d.provider_condition,
             d.delivered_amount::text, d.coverage
      FROM pricing_external_listing_ask_depth d
      JOIN pricing_external_market_captures c ON c.capture_id = d.capture_id
      WHERE c.provider_key = $1 AND c.catalog_item_id = $2 AND d.capture_id = $3
      ORDER BY d.provider_condition, d.delivered_amount, d.anonymous_capture_seller_ordinal`,
-    [params.providerKey, params.catalogItemId, params.captureId],
+      [params.providerKey, params.catalogItemId, params.captureId],
     ),
   ]);
   return {

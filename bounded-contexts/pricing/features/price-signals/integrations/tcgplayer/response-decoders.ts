@@ -335,12 +335,11 @@ function decodeAggregations(value: unknown): void {
 }
 
 function decodeCustomData(value: unknown): void {
-  const customData = exactRecord(
-    value,
-    ["images", "title", "description", "linkId"],
-    "listing-custom-data-invalid",
-    ["title", "description", "linkId"],
-  );
+  const customData = exactRecord(value, ["images", "title", "description", "linkId"], "listing-custom-data-invalid", [
+    "title",
+    "description",
+    "linkId",
+  ]);
   if (!Array.isArray(customData.images) || customData.images.some((image) => typeof image !== "string")) {
     throw new Error("listing-custom-data-invalid");
   }

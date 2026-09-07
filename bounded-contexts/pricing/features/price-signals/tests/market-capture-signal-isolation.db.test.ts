@@ -44,7 +44,9 @@ describeDb("essential price-signal isolation from secondary capture", () => {
         events.push("capture-policy");
         return null;
       },
-      resolveStatHygienePolicy: async () => { throw new Error("must-not-run"); },
+      resolveStatHygienePolicy: async () => {
+        throw new Error("must-not-run");
+      },
       recordTcgplayerPriceSignal: async (input) => {
         events.push("signal-write-start");
         const result = await priceSignals.recordTcgplayerPriceSignal(input);
@@ -52,7 +54,11 @@ describeDb("essential price-signal isolation from secondary capture", () => {
         return result;
       },
     });
-    await expect(run()).resolves.toMatchObject({ status: "configuration-invalid", signalsRecorded: 1, capturesCommitted: 1 });
+    await expect(run()).resolves.toMatchObject({
+      status: "configuration-invalid",
+      signalsRecorded: 1,
+      capturesCommitted: 1,
+    });
     expect(events.indexOf("signal-write-committed")).toBeLessThan(events.indexOf("capture-policy"));
     expect(events).not.toContain("sales");
     const state = await persistedState(pool);
@@ -127,7 +133,8 @@ class HeaderFailingPool implements PgTransactionalPool {
     return {
       ...client,
       query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
-        if (sql.includes("INSERT INTO pricing_external_market_captures")) throw new Error("synthetic-capture-write-failure");
+        if (sql.includes("INSERT INTO pricing_external_market_captures"))
+          throw new Error("synthetic-capture-write-failure");
         return client.query<Row>(sql, params);
       },
       release: () => client.release(),
@@ -135,12 +142,24 @@ class HeaderFailingPool implements PgTransactionalPool {
   }
 }
 
-function transport(events: string[], options: Readonly<{ malformedSecondary?: boolean }> = {}): TcgplayerMarketTransport {
+function transport(
+  events: string[],
+  options: Readonly<{ malformedSecondary?: boolean }> = {},
+): TcgplayerMarketTransport {
   return {
     mpGateway: {
       post: async <T>() => {
         events.push("price-points");
-        return [{ skuId: 9001, marketPrice: 10, lowestPrice: 9, highestPrice: 11, priceCount: 3, calculatedAt: "2026-09-01T15:00:00.000Z" }] as T;
+        return [
+          {
+            skuId: 9001,
+            marketPrice: 10,
+            lowestPrice: 9,
+            highestPrice: 11,
+            priceCount: 3,
+            calculatedAt: "2026-09-01T15:00:00.000Z",
+          },
+        ] as T;
       },
     },
     mpApi: {
@@ -182,7 +201,9 @@ async function seedMappings(pool: PgTransactionalPool) {
 
 async function persistedState(pool: PgTransactionalPool) {
   const [signals, headers, cursor] = await Promise.all([
-    pool.query<{ source_payload: Record<string, unknown> }>("SELECT source_payload FROM pricing_tcgplayer_price_signals"),
+    pool.query<{ source_payload: Record<string, unknown> }>(
+      "SELECT source_payload FROM pricing_tcgplayer_price_signals",
+    ),
     pool.query<{ outcome_kind: string }>("SELECT outcome_kind FROM pricing_external_market_captures"),
     pool.query<{ generation: string }>("SELECT generation::text FROM pricing_external_market_capture_cursors"),
   ]);

@@ -11,7 +11,10 @@ import {
   createTcgplayerAutomationCatalogClient,
   createTcgplayerAutomationHttpClients,
 } from "@chase-sets/catalog/server";
-import type { PricingHostPorts } from "@chase-sets/pricing/server";
+import {
+  createObjectStorageTcgplayerMarketCaptureReceiptSink,
+  type PricingHostPorts,
+} from "@chase-sets/pricing/server";
 import { createSesEmailNotificationAdapter, createSesSendRequest } from "@chase-sets/ses-email";
 import { createLocalEmailCaptureNotificationAdapter } from "@chase-sets/local-email-capture";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
@@ -199,6 +202,7 @@ const tcgplayerAutomationCatalogClient = tcgplayerAutomationHttpClients
   : undefined;
 const pricingHostPorts: PricingHostPorts = {
   tcgplayerMarketTransport: tcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
+  tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
 };
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;

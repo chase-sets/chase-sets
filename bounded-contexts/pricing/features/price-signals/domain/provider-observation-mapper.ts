@@ -369,10 +369,7 @@ function mapListings(
   askDepth: ProviderListingAskDepthRow[];
 } {
   const sellerOrdinals = new Map<string, number>();
-  const cheapestBySellerCondition = new Map<
-    string,
-    { ordinal: number; condition: string; amount: number }
-  >();
+  const cheapestBySellerCondition = new Map<string, { ordinal: number; condition: string; amount: number }>();
   const cheapestBySellerSnapshotGrain = new Map<
     string,
     { ordinal: number; condition: string; amount: number; variant: string; language: string }

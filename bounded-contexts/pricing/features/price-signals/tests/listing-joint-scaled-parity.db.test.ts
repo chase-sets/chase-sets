@@ -138,8 +138,9 @@ function work() {
 function marginals(rows: readonly { providerCondition: string; deliveredAmount: string }[]) {
   return rows
     .map((row) => [row.providerCondition, row.deliveredAmount])
-    .sort(([conditionA, amountA], [conditionB, amountB]) =>
-      conditionA!.localeCompare(conditionB!) || Number(amountA) - Number(amountB),
+    .sort(
+      ([conditionA, amountA], [conditionB, amountB]) =>
+        conditionA!.localeCompare(conditionB!) || Number(amountA) - Number(amountB),
     );
 }
 

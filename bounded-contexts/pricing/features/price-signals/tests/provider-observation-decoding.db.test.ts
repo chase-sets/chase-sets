@@ -75,11 +75,17 @@ describe("closed provider response decoders", () => {
       const envelope = validSalesEnvelope() as Record<string, unknown>;
       delete envelope[field];
       expect(() => decodeLatestSales(envelope)).toThrow();
+      const wrongType = validSalesEnvelope() as Record<string, unknown>;
+      wrongType[field] = null;
+      expect(() => decodeLatestSales(wrongType), `wrong type sales envelope.${field}`).toThrow();
     }
     for (const field of Object.keys(validSale())) {
       const envelope = validSalesEnvelope();
       delete (envelope.data[0] as Record<string, unknown>)[field];
       expect(decodeLatestSales(envelope).rejectedRows, `missing sale.${field}`).toBe(1);
+      const wrongType = validSalesEnvelope();
+      (wrongType.data[0] as Record<string, unknown>)[field] = null;
+      expect(decodeLatestSales(wrongType).rejectedRows, `wrong type sale.${field}`).toBe(1);
     }
   });
 
@@ -88,11 +94,17 @@ describe("closed provider response decoders", () => {
       const envelope = validListingsEnvelope() as Record<string, unknown>;
       delete envelope[field];
       expect(() => decodeListings(envelope)).toThrow();
+      const wrongType = validListingsEnvelope() as Record<string, unknown>;
+      wrongType[field] = null;
+      expect(() => decodeListings(wrongType), `wrong type listings envelope.${field}`).toThrow();
     }
     for (const field of ["totalResults", "resultId", "aggregations", "results"] as const) {
       const envelope = validListingsEnvelope();
       delete (envelope.results[0] as Record<string, unknown>)[field];
       expect(() => decodeListings(envelope), `missing listings result.${field}`).toThrow();
+      const wrongType = validListingsEnvelope();
+      (wrongType.results[0] as Record<string, unknown>)[field] = null;
+      expect(() => decodeListings(wrongType), `wrong type listings result.${field}`).toThrow();
     }
     for (const field of REQUIRED_LISTING_FIELDS) {
       const envelope = validListingsEnvelope();
@@ -106,6 +118,11 @@ describe("closed provider response decoders", () => {
     }
     expect(decodeListings(validListingsEnvelope()).results).toHaveLength(1);
     expect(decodeListings(validListingsEnvelope({ omitOptionalDates: true })).results).toHaveLength(1);
+    for (const field of ["listedDate", "soldDate"] as const) {
+      const wrongType = validListingsEnvelope();
+      (wrongType.results[0]!.results[0] as Record<string, unknown>)[field] = {};
+      expect(decodeListings(wrongType).rejectedRows, `wrong type optional listing.${field}`).toBe(1);
+    }
 
     const missingImages = validListingsEnvelope();
     delete (missingImages.results[0]!.results[0]!.customData as Record<string, unknown>).images;
@@ -113,6 +130,24 @@ describe("closed provider response decoders", () => {
     const badAggregation = validListingsEnvelope();
     badAggregation.results[0]!.aggregations.condition = [{ value: "Near Mint", count: "1" as never }];
     expect(() => decodeListings(badAggregation)).toThrow("listings-aggregation-count-invalid");
+    for (const aggregationField of ["condition", "quantity", "listingType", "language", "printing"] as const) {
+      const wrongType = validListingsEnvelope();
+      wrongType.results[0]!.aggregations[aggregationField] = null as never;
+      expect(() => decodeListings(wrongType), `wrong type aggregations.${aggregationField}`).toThrow();
+    }
+    for (const field of ["value", "count"] as const) {
+      const missing = validListingsEnvelope();
+      delete (missing.results[0]!.aggregations.condition[0] as Record<string, unknown>)[field];
+      expect(() => decodeListings(missing), `missing aggregation.${field}`).toThrow();
+      const wrongType = validListingsEnvelope();
+      (wrongType.results[0]!.aggregations.condition[0] as Record<string, unknown>)[field] = null;
+      expect(() => decodeListings(wrongType), `wrong type aggregation.${field}`).toThrow();
+    }
+    for (const field of ["title", "description", "linkId"] as const) {
+      const wrongType = validListingsEnvelope();
+      (wrongType.results[0]!.results[0]!.customData as Record<string, unknown>)[field] = null;
+      expect(decodeListings(wrongType).rejectedRows, `wrong type customData.${field}`).toBe(1);
+    }
   });
 
   it("requires and types every history envelope, result, and bucket field", () => {
@@ -120,11 +155,17 @@ describe("closed provider response decoders", () => {
       const envelope = validHistoryEnvelope() as Record<string, unknown>;
       delete envelope[field];
       expect(() => decodePriceHistory(envelope)).toThrow();
+      const wrongType = validHistoryEnvelope() as Record<string, unknown>;
+      wrongType[field] = null;
+      expect(() => decodePriceHistory(wrongType), `wrong type history envelope.${field}`).toThrow();
     }
     for (const field of Object.keys(validHistoryResult())) {
       const envelope = validHistoryEnvelope();
       delete (envelope.result[0] as Record<string, unknown>)[field];
       expect(decodePriceHistory(envelope).rejectedRows, `missing history result.${field}`).toBe(1);
+      const wrongType = validHistoryEnvelope();
+      (wrongType.result[0] as Record<string, unknown>)[field] = null;
+      expect(decodePriceHistory(wrongType).rejectedRows, `wrong type history result.${field}`).toBe(1);
     }
     for (const field of Object.keys(validHistoryBucket())) {
       const envelope = validHistoryEnvelope();
@@ -132,7 +173,39 @@ describe("closed provider response decoders", () => {
       const decoded = decodePriceHistory(envelope);
       expect(decoded.rejectedRows, `missing history bucket.${field}`).toBe(1);
       expect(decoded.result[0]?.buckets).toEqual([]);
+      const wrongType = validHistoryEnvelope();
+      (wrongType.result[0]!.buckets[0] as Record<string, unknown>)[field] = null;
+      const wrongDecoded = decodePriceHistory(wrongType);
+      expect(wrongDecoded.rejectedRows, `wrong type history bucket.${field}`).toBe(1);
+      expect(wrongDecoded.result[0]?.buckets).toEqual([]);
     }
+  });
+
+  it("keeps the mapper-used-field decoder bypass mutant red", () => {
+    const sparse = validListingsEnvelope();
+    const listing = sparse.results[0]!.results[0] as Record<string, unknown>;
+    for (const field of REQUIRED_LISTING_FIELDS) {
+      if (
+        ![
+          "condition",
+          "printing",
+          "language",
+          "verifiedSeller",
+          "sellerKey",
+          "sellerId",
+          "sellerName",
+          "listingId",
+          "price",
+          "sellerShippingPrice",
+        ].includes(field)
+      ) {
+        delete listing[field];
+      }
+    }
+    const permissiveMapperOnlyMutant = (value: ReturnType<typeof validListingsEnvelope>) =>
+      value.results[0]?.results.filter((row) => typeof row.condition === "string") ?? [];
+    expect(permissiveMapperOnlyMutant(sparse)).toHaveLength(1);
+    expect(decodeListings(sparse).rejectedRows).toBe(1);
   });
 });
 

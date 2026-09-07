@@ -17,8 +17,7 @@ export function effectiveSaleAmount(input: EffectiveSaleInput, freeShippingThres
   const unitPriceCents = canonicalCents(input.unitPrice, "unitPrice");
   const thresholdCents = canonicalCents(freeShippingThreshold, "freeShippingThreshold");
   const shippingCents = canonicalCents(input.orderShipping, "orderShipping");
-  const exactCentNumerator =
-    unitPriceCents * units + (unitPriceCents >= thresholdCents ? shippingCents : 0n);
+  const exactCentNumerator = unitPriceCents * units + (unitPriceCents >= thresholdCents ? shippingCents : 0n);
   const roundedCents = (exactCentNumerator * 2n + units) / (units * 2n);
   return formatCents(roundedCents);
 }

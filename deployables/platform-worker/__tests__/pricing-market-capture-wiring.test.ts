@@ -7,9 +7,16 @@ describe("Pricing market-capture worker wiring", () => {
     const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
     const runners = readFileSync(new URL("../src/scheduled-runners.ts", import.meta.url), "utf8");
     expect(pricingContext.hostPorts).toContainEqual(expect.objectContaining({ portName: "tcgplayerMarketTransport" }));
+    expect(pricingContext.hostPorts).toContainEqual(
+      expect.objectContaining({ portName: "tcgplayerMarketCaptureReceiptSink" }),
+    );
     expect(main).toContain("const pricingHostPorts: PricingHostPorts");
     expect(main).toContain("tcgplayerMarketTransport: tcgplayerAutomationHttpClients");
+    expect(main).toContain(
+      "tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage)",
+    );
     expect(main).not.toMatch(/tcgplayerMarketTransport[^\n]+\bas\b/);
+    expect(main).not.toMatch(/tcgplayerMarketCaptureReceiptSink[^\n]+\bas\b/);
     expect(runners).toContain("pricing?.priceSignals.runTcgplayerMarketCapture");
     expect(runners).toContain("const pricingCandidate = services.pricing;");
     expect(runners).toContain("const pricing = isPricingServices(pricingCandidate) ? pricingCandidate : undefined;");

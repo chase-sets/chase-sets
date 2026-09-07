@@ -10,14 +10,21 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as pricingModule } from "../../../index";
 import { mapProviderObservationCapture } from "../domain/provider-observation-mapper";
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../domain/provider-observation-policy";
-import type { EndpointStatus, ListingsCoverage, TcgplayerSecondaryObservation } from "../integrations/tcgplayer/market-client";
+import type {
+  EndpointStatus,
+  ListingsCoverage,
+  TcgplayerSecondaryObservation,
+} from "../integrations/tcgplayer/market-client";
 import {
   countProviderCompetingSellersAt,
   latestProviderMarketCapture,
   listProviderListingAskDepth,
   listProviderListingSnapshots,
 } from "../read-model/provider-observation-queries";
-import { commitProviderObservationCapture, type MarketCaptureWorkItem } from "../read-model/provider-observation-writes";
+import {
+  commitProviderObservationCapture,
+  type MarketCaptureWorkItem,
+} from "../read-model/provider-observation-writes";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required in CI.");
@@ -222,7 +229,12 @@ function listing(sellerKey: string, condition: string, price: number, printing =
   };
 }
 
-function work(afterExternalKey: string, generation: number, nextAfter: string, nextGeneration: number): MarketCaptureWorkItem {
+function work(
+  afterExternalKey: string,
+  generation: number,
+  nextAfter: string,
+  nextGeneration: number,
+): MarketCaptureWorkItem {
   return {
     productExternalKey: "product:7001",
     productId: 7001,

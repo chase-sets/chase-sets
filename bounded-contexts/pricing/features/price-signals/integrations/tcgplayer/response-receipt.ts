@@ -86,14 +86,7 @@ export type ProviderOwnedResponseField =
   | (typeof HISTORY_RESULT_FIELDS)[number]
   | (typeof HISTORY_BUCKET_FIELDS)[number];
 
-export type ProviderResponseValueType =
-  | "array"
-  | "boolean"
-  | "null"
-  | "number"
-  | "object"
-  | "string"
-  | "undefined";
+export type ProviderResponseValueType = "array" | "boolean" | "null" | "number" | "object" | "string" | "undefined";
 
 export type ProviderResponseObjectShapeSummary = Readonly<{
   objectCount: number;
@@ -152,7 +145,10 @@ export function summarizeListingsResponseAtReceipt(raw: unknown) {
     aggregations: summarizeObjects(aggregationContainers, AGGREGATIONS_FIELDS),
     aggregationItems: summarizeObjects(aggregationItems, AGGREGATION_FIELDS),
     items: summarizeObjects(listings, LISTING_FIELDS),
-    customData: summarizeObjects(listings.flatMap((entry) => objectProperty(entry, "customData")), CUSTOM_DATA_FIELDS),
+    customData: summarizeObjects(
+      listings.flatMap((entry) => objectProperty(entry, "customData")),
+      CUSTOM_DATA_FIELDS,
+    ),
   } as const;
 }
 
@@ -161,7 +157,10 @@ export function summarizeHistoryResponseAtReceipt(raw: unknown) {
   return {
     envelope: summarizeObjects([raw], HISTORY_ENVELOPE_FIELDS),
     results: summarizeObjects(results, HISTORY_RESULT_FIELDS),
-    buckets: summarizeObjects(results.flatMap((entry) => arrayProperty(entry, "buckets")), HISTORY_BUCKET_FIELDS),
+    buckets: summarizeObjects(
+      results.flatMap((entry) => arrayProperty(entry, "buckets")),
+      HISTORY_BUCKET_FIELDS,
+    ),
   } as const;
 }
 
@@ -178,7 +177,8 @@ function summarizeObjects(
     objectCount: objects.length,
     nonObjectCount: values.length - objects.length,
     unexpectedFieldCount: objects.reduce(
-      (count, value) => count + Object.keys(value).filter((key) => !fields.includes(key as ProviderOwnedResponseField)).length,
+      (count, value) =>
+        count + Object.keys(value).filter((key) => !fields.includes(key as ProviderOwnedResponseField)).length,
       0,
     ),
     fields: fields.map((field) => {

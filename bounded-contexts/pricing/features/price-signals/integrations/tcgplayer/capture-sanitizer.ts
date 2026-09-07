@@ -41,6 +41,34 @@ export type TcgplayerMarketCaptureReceiptSinkCapability =
   | TcgplayerMarketCaptureReceiptSink
   | Readonly<{ kind: "not-mounted" }>;
 
+export type TcgplayerMarketCaptureReceiptStorage = Readonly<{
+  putObject: (
+    input: Readonly<{
+      key: string;
+      body: Uint8Array;
+      contentType: string;
+      cacheControl: string;
+      visibility: "private";
+    }>,
+  ) => Promise<unknown>;
+}>;
+
+export function createObjectStorageTcgplayerMarketCaptureReceiptSink(
+  storage: TcgplayerMarketCaptureReceiptStorage,
+): TcgplayerMarketCaptureReceiptSink {
+  return {
+    async retain(receipt) {
+      await storage.putObject({
+        key: `provider-evidence/tcgplayer-market-captures/${encodeURIComponent(receipt.captureId)}.json`,
+        body: new TextEncoder().encode(`${JSON.stringify(receipt, null, 2)}\n`),
+        contentType: "application/json",
+        cacheControl: "no-store",
+        visibility: "private",
+      });
+    },
+  };
+}
+
 export function isTcgplayerMarketCaptureReceiptSink(
   capability: TcgplayerMarketCaptureReceiptSinkCapability,
 ): capability is TcgplayerMarketCaptureReceiptSink {

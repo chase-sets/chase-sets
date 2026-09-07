@@ -35,8 +35,9 @@ describeDb("provider sale occurrence identity and immutable replay", () => {
 
   it("reuses a byte-identical same-id replay without child append or cursor advance", async () => {
     const capture = compactCapture(2);
-    await expect(commitProviderObservationCapture(pool, "tcgplayer", work("", 0, "product:700000001", 1), capture))
-      .resolves.toBe("committed");
+    await expect(
+      commitProviderObservationCapture(pool, "tcgplayer", work("", 0, "product:700000001", 1), capture),
+    ).resolves.toBe("committed");
     const before = await durableState(pool);
 
     const reordered = {
@@ -47,29 +48,16 @@ describeDb("provider sale occurrence identity and immutable replay", () => {
       askDepth: [...capture.askDepth].reverse(),
     };
     await expect(
-      commitProviderObservationCapture(
-        pool,
-        "tcgplayer",
-        work("product:700000001", 1, "", 2),
-        reordered,
-      ),
+      commitProviderObservationCapture(pool, "tcgplayer", work("product:700000001", 1, "", 2), reordered),
     ).resolves.toBe("replayed");
     expect(await durableState(pool)).toEqual(before);
 
     const appendedChildMutant = {
       ...capture,
-      sales: [
-        ...capture.sales,
-        { ...capture.sales[0]!, saleFingerprint: "synthetic-header-conflict-bypass-mutant" },
-      ],
+      sales: [...capture.sales, { ...capture.sales[0]!, saleFingerprint: "synthetic-header-conflict-bypass-mutant" }],
     };
     await expect(
-      commitProviderObservationCapture(
-        pool,
-        "tcgplayer",
-        work("product:700000001", 1, "", 2),
-        appendedChildMutant,
-      ),
+      commitProviderObservationCapture(pool, "tcgplayer", work("product:700000001", 1, "", 2), appendedChildMutant),
     ).resolves.toBe("replayed");
     expect(await durableState(pool)).toEqual(before);
   });
@@ -79,12 +67,10 @@ describeDb("provider sale occurrence identity and immutable replay", () => {
     await commitProviderObservationCapture(pool, "tcgplayer", work("", 0, "product:700000001", 1), first);
 
     await expect(
-      commitProviderObservationCapture(
-        pool,
-        "tcgplayer",
-        work("product:700000001", 1, "", 2),
-        { ...first, header: { ...first.header, recordedSignalCount: 99 } },
-      ),
+      commitProviderObservationCapture(pool, "tcgplayer", work("product:700000001", 1, "", 2), {
+        ...first,
+        header: { ...first.header, recordedSignalCount: 99 },
+      }),
     ).rejects.toThrow("capture-immutable-conflict");
     await expect(cursor(pool)).resolves.toEqual({ after_external_key: "product:700000001", generation: "1" });
 
@@ -106,12 +92,7 @@ describeDb("provider sale occurrence identity and immutable replay", () => {
       sales: first.sales.map((row) => ({ ...row, captureId: secondId, observedOccurrenceCount: 3 })),
     };
     await expect(
-      commitProviderObservationCapture(
-        pool,
-        "tcgplayer",
-        work("product:700000001", 1, "", 2),
-        second,
-      ),
+      commitProviderObservationCapture(pool, "tcgplayer", work("product:700000001", 1, "", 2), second),
     ).resolves.toBe("committed");
 
     const evidence = await listProviderSaleEvidence(pool, {

@@ -1701,6 +1701,7 @@
     "bounded-contexts/pricing/features/price-signals/integrations/tcgplayer/capture-sanitizer.ts",
     "bounded-contexts/pricing/features/price-signals/integrations/tcgplayer/market-client.ts",
     "bounded-contexts/pricing/features/price-signals/integrations/tcgplayer/response-decoders.ts",
+    "bounded-contexts/pricing/features/price-signals/integrations/tcgplayer/response-receipt.ts",
     "bounded-contexts/pricing/features/price-signals/integrations/tcgplayer/transport-port.ts",
     "bounded-contexts/pricing/features/price-signals/read-model/provider-observations-schema.ts",
     "bounded-contexts/pricing/features/price-signals/read-model/schema.ts",

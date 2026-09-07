@@ -71,9 +71,7 @@ describeDb("Pricing Catalog v5-to-v6 historical bootstrap", () => {
     const v5 = createSubscriptionRunner("pricing", pools.pricing, pools.catalog, {
       ...declared,
       subscriptionVersion: 5,
-      eventTypes: declared.eventTypes?.filter(
-        (eventType) => !eventType.includes("external-catalog-item-reference"),
-      ),
+      eventTypes: declared.eventTypes?.filter((eventType) => !eventType.includes("external-catalog-item-reference")),
     });
     while ((await v5.runOnce()).processed > 0) {
       // Drain the real historical v5 checkpoint to source head.

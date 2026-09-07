@@ -129,7 +129,9 @@ export function createTcgplayerMarketClient(transport: TcgplayerMarketTransport)
 async function fetchSales(
   transport: TcgplayerMarketTransport,
   input: Parameters<TcgplayerMarketClient["fetchSecondary"]>[0],
-): Promise<Readonly<{ observation: SalesObservation; responseSummaries: TcgplayerResponseFieldSummaryV1["salesPages"] }>> {
+): Promise<
+  Readonly<{ observation: SalesObservation; responseSummaries: TcgplayerResponseFieldSummaryV1["salesPages"] }>
+> {
   const requestedAt = input.now();
   const rows: DecodedSale[] = [];
   let rejectedRows = 0;
@@ -182,25 +184,30 @@ async function fetchSales(
       pagesFetched += 1;
       rejectedRows += decoded.rejectedRows;
       rawReturnedCount += pageRowCount;
+      if (rawReturnedCount > input.policy.sales.limit) inconsistent = true;
       firstReportedTotal ??= decoded.totalResults;
       firstResultCount ??= decoded.resultCount;
       lastReportedTotal = decoded.totalResults;
       lastResultCount = decoded.resultCount;
       lastNextPage = decoded.nextPage;
       rows.push(...decoded.data.slice(0, input.policy.sales.limit - rows.length));
-      if (decoded.nextPage !== "Yes") break;
+      if (inconsistent || decoded.nextPage !== "Yes") break;
     }
     const totalsConsistent = firstReportedTotal === lastReportedTotal;
     const terminal = lastNextPage === "";
-    const coverage: SalesCoverage = inconsistent || !totalsConsistent
-      ? "inconsistent"
-      : rawReturnedCount >= input.policy.sales.limit && (lastReportedTotal ?? rawReturnedCount) > rawReturnedCount
-        ? "request-cap-truncated"
-        : !terminal && pagesFetched >= input.policy.sales.pageBudget
-          ? "page-budget-truncated"
-          : terminal && rejectedRows === 0 && rawReturnedCount === lastReportedTotal && rows.length === rawReturnedCount
-            ? "complete"
-            : "unknown";
+    const coverage: SalesCoverage =
+      inconsistent || !totalsConsistent
+        ? "inconsistent"
+        : rawReturnedCount >= input.policy.sales.limit && (lastReportedTotal ?? rawReturnedCount) > rawReturnedCount
+          ? "request-cap-truncated"
+          : !terminal && pagesFetched >= input.policy.sales.pageBudget
+            ? "page-budget-truncated"
+            : terminal &&
+                rejectedRows === 0 &&
+                rawReturnedCount === lastReportedTotal &&
+                rows.length === rawReturnedCount
+              ? "complete"
+              : "unknown";
     return {
       observation: {
         status: "observed",
@@ -304,10 +311,12 @@ async function fetchListings(
 async function fetchHistory(
   transport: TcgplayerMarketTransport,
   input: Parameters<TcgplayerMarketClient["fetchSecondary"]>[0],
-): Promise<Readonly<{
-  observation: HistoryObservation;
-  responseSummary: TcgplayerResponseFieldSummaryV1["history"];
-}>> {
+): Promise<
+  Readonly<{
+    observation: HistoryObservation;
+    responseSummary: TcgplayerResponseFieldSummaryV1["history"];
+  }>
+> {
   const requestedAt = input.now();
   let responseSummary: TcgplayerResponseFieldSummaryV1["history"] = null;
   try {

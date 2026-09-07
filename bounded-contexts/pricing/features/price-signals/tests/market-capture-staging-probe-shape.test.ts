@@ -3,18 +3,30 @@ import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-p
 import { MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE } from "../../market-trades/domain/stat-hygiene-policy";
 import { createPriceSignalRuntime } from "../api/runtime";
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../domain/provider-observation-policy";
-import type { TcgplayerMarketCaptureReceiptV1 } from "../integrations/tcgplayer/capture-sanitizer";
+import {
+  createObjectStorageTcgplayerMarketCaptureReceiptSink,
+  type TcgplayerMarketCaptureReceiptV1,
+} from "../integrations/tcgplayer/capture-sanitizer";
 import type { TcgplayerMarketTransport } from "../integrations/tcgplayer/transport-port";
 
 describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
   it("composes one privacy-safe sink receipt from field summaries captured before decoding", async () => {
     const receipts: TcgplayerMarketCaptureReceiptV1[] = [];
+    const retainedObjects: Array<Readonly<{ key: string; body: Uint8Array; visibility: string }>> = [];
     const pool = new SyntheticProductionPool();
+    const receiptSink = createObjectStorageTcgplayerMarketCaptureReceiptSink({
+      putObject: async (object) => void retainedObjects.push(object),
+    });
     const runtime = createPriceSignalRuntime({
       db: pool,
       pool,
       tcgplayerMarketTransport: syntheticTransport(),
-      tcgplayerMarketCaptureReceiptSink: { retain: async (receipt) => void receipts.push(receipt) },
+      tcgplayerMarketCaptureReceiptSink: {
+        retain: async (receipt) => {
+          receipts.push(receipt);
+          await receiptSink.retain(receipt);
+        },
+      },
     });
 
     await expect(runtime.runTcgplayerMarketCapture()).resolves.toMatchObject({
@@ -46,6 +58,14 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
     });
     expect(JSON.stringify(receipt)).not.toContain("synthetic-external-seller-secret");
     expect(receipt).not.toHaveProperty("responseBody");
+    expect(retainedObjects).toHaveLength(1);
+    expect(retainedObjects[0]).toMatchObject({
+      key: `provider-evidence/tcgplayer-market-captures/${encodeURIComponent(receipt.captureId)}.json`,
+      visibility: "private",
+    });
+    const retainedArtifact = new TextDecoder().decode(retainedObjects[0]!.body);
+    expect(JSON.parse(retainedArtifact)).toEqual(receipt);
+    expect(retainedArtifact).not.toContain("synthetic-external-seller-secret");
   });
 });
 

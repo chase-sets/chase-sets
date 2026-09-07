@@ -8,8 +8,10 @@ export type {
 export type {
   TcgplayerMarketCaptureReceiptSink,
   TcgplayerMarketCaptureReceiptSinkCapability,
+  TcgplayerMarketCaptureReceiptStorage,
   TcgplayerMarketCaptureReceiptV1,
 } from "./features/price-signals/integrations/tcgplayer/capture-sanitizer";
+export { createObjectStorageTcgplayerMarketCaptureReceiptSink } from "./features/price-signals/integrations/tcgplayer/capture-sanitizer";
 /**
  * Platform-wide market analytics reads: imported by the platform-api
  * composition root to build platform-operations' `opsMarketAnalyticsCrossContext`

@@ -31,10 +31,7 @@ describe("TCGplayer source-exact effective sale price and Chase money adaptation
           const expectedCents = (numerator * 2n + divisor) / (divisor * 2n);
           const expected = `${expectedCents / 100n}.${(expectedCents % 100n).toString().padStart(2, "0")}`;
           expect(
-            effectiveSaleAmount(
-              { quantity, unitPrice: unitCents / 100, orderShipping: shippingCents / 100 },
-              5,
-            ),
+            effectiveSaleAmount({ quantity, unitPrice: unitCents / 100, orderShipping: shippingCents / 100 }, 5),
           ).toBe(expected);
         }
       }
@@ -43,7 +40,7 @@ describe("TCGplayer source-exact effective sale price and Chase money adaptation
 
   it("keeps the round-total-before-allocation mutant red", () => {
     const input = { quantity: 3, unitPrice: 5.39, orderShipping: 1 };
-    const mutant = (((539 + 100) / 3) / 100).toFixed(2);
+    const mutant = ((539 + 100) / 3 / 100).toFixed(2);
     expect(mutant).not.toBe(effectiveSaleAmount(input, 5));
   });
 });
