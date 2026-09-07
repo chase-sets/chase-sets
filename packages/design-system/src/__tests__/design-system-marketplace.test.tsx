@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { act, useState } from "react";
+import { act, useState, type ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import * as designSystem from "../index";
 import {
   ActorIdentityCue,
@@ -34,6 +34,7 @@ import {
   AccountReputationSummary,
   OrderProtectionBadge,
   ListingCard,
+  type ListingCardProps,
   TrustBadge,
   VerifiedAccountBadge,
   SecurePaymentCue,
@@ -565,6 +566,114 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("Verified account");
     expect(markup).toContain("Order protected");
     expect(markup).toContain("Arrives May 9-11");
+  });
+
+  it("renders exact ListingCard prices as the sole mono tabular value", () => {
+    const { container } = render(
+      <ListingCard
+        {...listingCardLabels}
+        title="2020 Pikachu VMAX"
+        price="$1,250.00"
+        pricePresentation={{ state: "exact" }}
+        priceDetail="Free insured shipping"
+        priceExplanation="Taxes shown at checkout"
+        primaryAction={<Button>Buy now</Button>}
+      />,
+    );
+
+    const value = container.querySelector("[data-listing-card-price-value]");
+    const wrapper = value?.parentElement;
+
+    expect(value?.textContent).toBe("$1,250.00");
+    expect(value?.className).toBe("font-mono tabular-nums");
+    expect(wrapper?.textContent).toBe("$1,250.00");
+    expect(wrapper?.className).toContain("font-bold");
+    expect(wrapper?.className).not.toContain("font-mono");
+    expect(wrapper?.className).not.toContain("tabular-nums");
+    expect(container.querySelector("[data-listing-card-price-prefix]")).toBeNull();
+    expect(screen.getByRole("heading", { name: "2020 Pikachu VMAX" }).className).not.toContain("font-mono");
+    expect(screen.getByText("Free insured shipping").className).not.toContain("font-mono");
+    expect(screen.getByText("Taxes shown at checkout").className).not.toContain("font-mono");
+  });
+
+  it("renders indicative ListingCard copy in inherited Sans before the mono tabular value", () => {
+    const { container } = render(
+      <ListingCard
+        {...listingCardLabels}
+        title="Pikachu"
+        price="$89.00"
+        pricePresentation={{ state: "indicative", prefix: "From" }}
+        primaryAction={<Button>Buy now</Button>}
+      />,
+    );
+
+    const prefix = container.querySelector("[data-listing-card-price-prefix]");
+    const value = container.querySelector("[data-listing-card-price-value]");
+
+    expect(prefix?.textContent).toBe("From");
+    expect(prefix?.getAttribute("class")).toBeNull();
+    expect(prefix?.nextSibling?.textContent).toBe(" ");
+    expect(value?.textContent).toBe("$89.00");
+    expect(value?.className).toBe("font-mono tabular-nums");
+    expect(value?.parentElement?.textContent).toBe("From $89.00");
+  });
+
+  it("defaults ListingCard prices to exact and ignores an injected prefix on exact state", () => {
+    const { container, rerender } = render(
+      <ListingCard {...listingCardLabels} title="Pikachu" price="$89.00" primaryAction={<Button>Buy now</Button>} />,
+    );
+
+    expect(container.querySelector("[data-listing-card-price-prefix]")).toBeNull();
+    expect(container.querySelector("[data-listing-card-price-value]")?.textContent).toBe("$89.00");
+
+    rerender(
+      <ListingCard
+        {...listingCardLabels}
+        title="Pikachu"
+        price="$89.00"
+        pricePresentation={
+          { state: "exact", prefix: "Injected stray prefix" } as unknown as ListingCardProps["pricePresentation"]
+        }
+        primaryAction={<Button>Buy now</Button>}
+      />,
+    );
+
+    expect(container.querySelector("[data-listing-card-price-prefix]")).toBeNull();
+    expect(container.querySelector("[data-listing-card-price-value]")?.parentElement?.textContent).toBe("$89.00");
+  });
+
+  it("suppresses both ListingCard price hooks for every missing-price representation", () => {
+    const { container, rerender } = render(
+      <ListingCard
+        {...listingCardLabels}
+        title="Pikachu"
+        price={undefined}
+        pricePresentation={{ state: "indicative", prefix: "From" }}
+        primaryAction={<Button>Buy now</Button>}
+      />,
+    );
+
+    for (const price of [undefined, null, false, ""] satisfies ReactNode[]) {
+      rerender(
+        <ListingCard
+          {...listingCardLabels}
+          title="Pikachu"
+          price={price}
+          pricePresentation={{ state: "indicative", prefix: "From" }}
+          primaryAction={<Button>Buy now</Button>}
+        />,
+      );
+      expect(container.querySelector("[data-listing-card-price-prefix]")).toBeNull();
+      expect(container.querySelector("[data-listing-card-price-value]")).toBeNull();
+    }
+  });
+
+  it("requires the indicative ListingCard price prefix in the public inline union", () => {
+    type PricePresentation = NonNullable<ListingCardProps["pricePresentation"]>;
+    type IndicativePricePresentation = Extract<PricePresentation, { state: "indicative" }>;
+    type PrefixIsRequired = {} extends Pick<IndicativePricePresentation, "prefix"> ? false : true;
+
+    expectTypeOf<PrefixIsRequired>().toEqualTypeOf<true>();
   });
 
   it("renders listing product media without image padding or surface chrome", () => {

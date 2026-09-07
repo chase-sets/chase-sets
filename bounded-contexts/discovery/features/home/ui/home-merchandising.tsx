@@ -93,11 +93,13 @@ export function HomeMerchandising({ featuredCategories, newArrivals }: HomeMerch
                     saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
                     savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
                     watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
-                    price={
+                    price={lowestPrice ? formatMoney(lowestPrice) : undefined}
+                    pricePresentation={
                       lowestPrice
-                        ? t("discovery.features.home.ui.homeMerchandising.from.price", {
-                            price: formatMoney(lowestPrice),
-                          })
+                        ? {
+                            state: "indicative",
+                            prefix: t("discovery.features.home.ui.homeMerchandising.from"),
+                          }
                         : undefined
                     }
                     primaryAction={

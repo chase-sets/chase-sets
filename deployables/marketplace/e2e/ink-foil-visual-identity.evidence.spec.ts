@@ -46,6 +46,13 @@ function foilCandidates(mode: "light" | "dark"): string[] {
 }
 
 const itemDetailPath = "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp";
+const populatedSearchPriceProof = {
+  detailPath: itemDetailPath,
+  identity: "Charizard",
+  visiblePriceText: "From $389.00",
+  prefixText: "From",
+  valueText: "$389.00",
+} as const;
 
 async function gotoAndSettle(page: Page, path: string) {
   const response = await page.goto(path, { waitUntil: "load" });
@@ -140,6 +147,83 @@ async function assertShippedPalette(page: Page, mode: "light" | "dark") {
   expect(observed.foreground, `${mode} heading colour must stay the shipped palette`).toBe(expectedForeground);
 }
 
+async function assertPopulatedSearchPriceRole(page: Page) {
+  const card = page.locator(`article:has(> a[href='${populatedSearchPriceProof.detailPath}'])`);
+  const prefix = card.locator("[data-listing-card-price-prefix]");
+  const value = card.locator("[data-listing-card-price-value]");
+
+  await expect(card, "the unchanged populated Search card must be rendered exactly once").toHaveCount(1);
+  await expect(card.locator("h3"), "the populated Search card identity must stay byte-identical").toHaveText(
+    populatedSearchPriceProof.identity,
+  );
+  await expect(card, "the populated Search card price phrase must stay byte-identical").toContainText(
+    populatedSearchPriceProof.visiblePriceText,
+  );
+  await expect(prefix, "the indicative price prefix must render exactly once").toHaveCount(1);
+  await expect(prefix).toHaveText(populatedSearchPriceProof.prefixText);
+  await expect(prefix).not.toHaveAttribute("class");
+  await expect(value, "the mono price value must render exactly once").toHaveCount(1);
+  await expect(value).toHaveText(populatedSearchPriceProof.valueText);
+  await expect(value).toHaveClass(/font-mono/);
+  await expect(value).toHaveClass(/tabular-nums/);
+
+  const exactMonoFontLoaded = await page.evaluate(async () => {
+    await document.fonts.load("1rem 'IBM Plex Mono'");
+    await document.fonts.ready;
+    return document.fonts.check("1rem 'IBM Plex Mono'");
+  });
+  expect(exactMonoFontLoaded).toBe(true);
+
+  const observations = await card.evaluate((element) => {
+    const pricePrefix = element.querySelector<HTMLElement>("[data-listing-card-price-prefix]");
+    const priceValue = element.querySelector<HTMLElement>("[data-listing-card-price-value]");
+    const title = element.querySelector<HTMLElement>("h3");
+    const adjacentCopy = element.querySelector<HTMLElement>("h3 + p");
+    const valueStyle = priceValue ? getComputedStyle(priceValue) : null;
+
+    return {
+      visiblePriceText: priceValue?.parentElement?.textContent ?? null,
+      literalSeparator: pricePrefix?.nextSibling?.textContent ?? null,
+      value: valueStyle
+        ? {
+            fontFamily: valueStyle.fontFamily,
+            fontVariantNumeric: valueStyle.fontVariantNumeric,
+            fontSize: valueStyle.fontSize,
+            fontWeight: valueStyle.fontWeight,
+            lineHeight: valueStyle.lineHeight,
+            color: valueStyle.color,
+          }
+        : null,
+      prefixFontFamily: pricePrefix ? getComputedStyle(pricePrefix).fontFamily : null,
+      titleFontFamily: title ? getComputedStyle(title).fontFamily : null,
+      adjacentCopyFontFamily: adjacentCopy ? getComputedStyle(adjacentCopy).fontFamily : null,
+      monoFontLoaded: document.fonts.check("1rem 'IBM Plex Mono'"),
+      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    };
+  });
+  console.log(`populated Search price role: ${JSON.stringify(observations, null, 2)}`);
+
+  expect(observations.visiblePriceText).toBe(populatedSearchPriceProof.visiblePriceText);
+  expect(observations.literalSeparator).toBe(" ");
+  expect(
+    observations.value?.fontFamily.startsWith('"IBM Plex Mono"') ||
+      observations.value?.fontFamily.startsWith("IBM Plex Mono"),
+  ).toBe(true);
+  expect(observations.value?.fontVariantNumeric).toContain("tabular-nums");
+  expect(observations.value?.fontSize).toBe("18px");
+  expect(observations.value?.fontWeight).toBe("700");
+  expect(observations.value?.lineHeight).toBe("24px");
+  for (const fontFamily of [
+    observations.prefixFontFamily,
+    observations.titleFontFamily,
+    observations.adjacentCopyFontFamily,
+  ]) {
+    expect(fontFamily?.startsWith('"IBM Plex Sans"') || fontFamily?.startsWith("IBM Plex Sans")).toBe(true);
+  }
+  expect(observations.monoFontLoaded).toBe(true);
+  expect(observations.horizontalOverflow).toBe(false);
+}
+
 test.describe("Ink & Foil rendered visual identity", () => {
   test("records browse Ink & Foil evidence at 390x844 light @marketplace-browse", async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: "light" });
@@ -167,6 +251,7 @@ test.describe("Ink & Foil rendered visual identity", () => {
     await assertFontsInstalled(page);
     await assertFoilStops(page, "dark");
     await assertShippedPalette(page, "dark");
+    await assertPopulatedSearchPriceRole(page);
     await captureResponsiveEvidence({ page, testInfo, claimId: "ink-foil-search-mobile-dark" });
   });
 
@@ -176,6 +261,7 @@ test.describe("Ink & Foil rendered visual identity", () => {
     await assertFontsInstalled(page);
     await assertFoilStops(page, "light");
     await assertShippedPalette(page, "light");
+    await assertPopulatedSearchPriceRole(page);
     await captureResponsiveEvidence({ page, testInfo, claimId: "ink-foil-search-desktop-light" });
   });
 
