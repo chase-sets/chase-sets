@@ -22,7 +22,10 @@ import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-conn
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
-import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
+import type {
+  InventoryAccountSellerSkuItemResolution,
+  InventoryDraftListingCreator,
+} from "@chase-sets/inventory/server";
 import type { MarketplaceListingServices } from "@chase-sets/marketplace/server";
 import type {
   BulkRepriceIngestionServices,
@@ -1604,12 +1607,7 @@ function createPricingJobRunners(
     | {
         listings?: Pick<
           MarketplaceListingServices,
-          | "previewListingTerms"
-          | "updateListingPrice"
-          | "createListing"
-          | "applyBulkListingPriceUpdates"
-          | "pauseListing"
-          | "publishListing"
+          "createListing" | "applyBulkListingPriceUpdates" | "pauseListing" | "publishListing"
         >;
       }
     | undefined;
@@ -1633,11 +1631,21 @@ function createPricingJobRunners(
               jobMaxActiveClaims: input.pricingRecommendationJobMaxActiveClaimsPerJob,
               laneName: lane.laneName,
               marketplaceListingGatewayForAccount: (accountId) => ({
-                previewListingTerms: (body) => marketplace.listings!.previewListingTerms!({ accountId, ...body }),
-                updateListingPrice: (listingId, body) =>
-                  marketplace.listings!.updateListingPrice!({ accountId, listingId, ...body }, SYSTEM_CONTEXT),
+                applyBulkListingPriceUpdates: async (body) => ({
+                  items: await marketplace.listings!.applyBulkListingPriceUpdates!(
+                    { accountId: accountId as never, updates: body.updates },
+                    SYSTEM_CONTEXT,
+                  ),
+                }),
                 createListing: async (body) => {
-                  const result = await marketplace.listings!.createListing!({ accountId, ...body }, SYSTEM_CONTEXT);
+                  const result = await marketplace.listings!.createListing!(
+                    {
+                      accountId: accountId as never,
+                      ...body,
+                      listingIdOverride: body.listingIdOverride as never,
+                    },
+                    SYSTEM_CONTEXT,
+                  );
                   return {
                     id: result.listingId,
                     listing_id: result.listingId,
@@ -1651,10 +1659,7 @@ function createPricingJobRunners(
           }),
         })
       : []),
-    ...(processNextEvaluationJob &&
-    marketplace.listings.applyBulkListingPriceUpdates &&
-    marketplace.listings.pauseListing &&
-    marketplace.listings.publishListing
+    ...(processNextEvaluationJob
       ? createDurableJobLaneRunners({
           workflowName: "pricing.repricing-evaluation-jobs",
           laneCount: input.pricingRepricingEvaluationJobLaneCount,
@@ -1712,15 +1717,7 @@ function createBulkRepriceIngestionJobRunners(
           resolveAccountSkuMappingsToInventoryItems?: (params: {
             accountId: string;
             sellerSkus: readonly string[];
-          }) => Promise<
-            readonly Readonly<{
-              sellerSku: string;
-              status: "missing" | "ambiguous" | "unmapped-item" | "mapped";
-              inventoryItemId?: string;
-              productId?: string;
-              catalogItemId?: string;
-            }>[]
-          >;
+          }) => Promise<readonly InventoryAccountSellerSkuItemResolution[]>;
         };
       }
     | undefined;
