@@ -230,7 +230,7 @@ export function MarketplaceListingSubmissionSection({
               name="priceCurrencyCode"
               value={priceCurrencyCode}
               onChange={(event) => setPriceCurrencyCode(event.target.value)}
-              placeholder="ISO 4217"
+              placeholder={t("discovery.routes.itemDetail.listing.price.currency.code.placeholder")}
               minLength={3}
               maxLength={3}
               autoCapitalize="characters"

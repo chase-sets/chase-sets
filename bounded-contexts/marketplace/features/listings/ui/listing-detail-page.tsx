@@ -443,7 +443,7 @@ export function MarketplaceListingDetailPage({
                   label={t("marketplace.features.listings.ui.listingDetailPage.price.currency.code")}
                   name="priceCurrencyCode"
                   defaultValue={priceDraftCurrencyCode ?? listing.price_currency_code ?? ""}
-                  placeholder="ISO 4217"
+                  placeholder={t("marketplace.features.listings.ui.listingDetailPage.price.currency.code.placeholder")}
                   minLength={3}
                   maxLength={3}
                   autoCapitalize="characters"

@@ -335,7 +335,7 @@ export function SellListReviewGrid({
                   form="sell-list-checkout-form"
                   label={t("checkout.features.sellList.ui.sellListPage.listing.price.currency.code")}
                   name={`priceCurrencyCode:${line.line_id}`}
-                  placeholder="ISO 4217"
+                  placeholder={t("checkout.features.sellList.ui.sellListPage.listing.price.currency.code.placeholder")}
                   minLength={3}
                   maxLength={3}
                   autoCapitalize="characters"

@@ -399,7 +399,9 @@ export function MarketplaceListingCreatePage({
                       name="priceCurrencyCode"
                       value={priceCurrencyCode}
                       onChange={(event) => setPriceCurrencyCode(event.target.value)}
-                      placeholder="ISO 4217"
+                      placeholder={t(
+                        "marketplace.features.listings.ui.listingCreatePage.price.currency.code.placeholder",
+                      )}
                       minLength={3}
                       maxLength={3}
                       autoCapitalize="characters"

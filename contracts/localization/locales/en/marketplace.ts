@@ -189,6 +189,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingDetailPage.price": "Price: ",
   "marketplace.features.listings.ui.listingDetailPage.price.2": "Price",
   "marketplace.features.listings.ui.listingDetailPage.price.currency.code": "Price currency code",
+  "marketplace.features.listings.ui.listingDetailPage.price.currency.code.placeholder": "ISO 4217",
   "marketplace.features.listings.ui.listingDetailPage.price.incomplete": "Incomplete price",
   "marketplace.features.listings.ui.listingDetailPage.price.incomplete.description":
     "This historical listing has an amount but no currency. Enter both to repair its price before publishing.",
@@ -467,6 +468,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingCreatePage.catalog.item.lookup.failed": "Catalog item lookup failed.",
   "marketplace.features.listings.ui.listingCreatePage.price": "Price",
   "marketplace.features.listings.ui.listingCreatePage.price.currency.code": "Price currency code",
+  "marketplace.features.listings.ui.listingCreatePage.price.currency.code.placeholder": "ISO 4217",
   "marketplace.features.listings.ui.listingCreatePage.quantity.cap": "Quantity cap",
   "marketplace.features.listings.ui.listingCreatePage.quantity.cap.exposure.copy":
     "Units this listing exposes for sale.",

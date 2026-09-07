@@ -396,6 +396,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.listing.is": "listing is $",
   "discovery.routes.itemDetail.listing.price": "Listing price",
   "discovery.routes.itemDetail.listing.price.currency.code": "Listing price currency code",
+  "discovery.routes.itemDetail.listing.price.currency.code.placeholder": "ISO 4217",
   "discovery.routes.itemDetail.listing.stock.created.automatically": "Listing stock is created automatically.",
   "discovery.routes.itemDetail.just.now": "just now",
   "discovery.routes.itemDetail.manage.listing": "Manage listing",
