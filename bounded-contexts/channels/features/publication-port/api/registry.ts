@@ -26,8 +26,8 @@ export function createChannelProviderRegistry(
   for (const [index, descriptor] of descriptors.entries()) {
     const label = `provider descriptors[${index}]`;
     assertClosedRecord(descriptor, ["identity", "setup", "publication"], label);
-    validateAt(`${label}.identity`, () => assertChannelProviderIdentity(descriptor.identity, `${label}.identity`));
-    validateAt(`${label}.setup`, () => assertSetupDeclaration(descriptor.setup, descriptor.identity));
+    assertProviderIdentityAt(descriptor.identity, `${label}.identity`);
+    assertSetupAt(descriptor.setup, descriptor.identity, `${label}.setup`);
     const key = identityKey(descriptor.identity);
     if (providers.has(key)) invalid(`${label}.identity duplicates a registered provider identity.`);
 
@@ -132,6 +132,18 @@ function identityKey(identity: ChannelProviderIdentity): string {
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function assertProviderIdentityAt(value: unknown, path: string): asserts value is ChannelProviderIdentity {
+  validateAt(path, () => assertChannelProviderIdentity(value, path));
+}
+
+function assertSetupAt(
+  value: unknown,
+  expected: ChannelProviderIdentity,
+  path: string,
+): asserts value is ChannelConnectionSetupDeclaration {
+  validateAt(path, () => assertSetupDeclaration(value, expected));
 }
 
 function validateAt(path: string, validate: () => void): void {
