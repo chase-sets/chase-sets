@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,10 +11,41 @@ import {
   evaluateMergeGateCapacity,
   parseCpuMillicores,
   parseMemoryMib,
+  resolveMergeGateStripeKeyMode,
   validateMergeGateConfig,
 } from "./merge-gate-verification.mjs";
 
 const NOW = new Date("2026-07-21T12:00:00.000Z");
+
+describe("row 11 Stripe test-mode credential contract", () => {
+  it("admits standard and restricted test keys while preserving summary and refusal exit", () => {
+    expect(resolveMergeGateStripeKeyMode("sk_test_fixture")).toBe("test");
+    expect(resolveMergeGateStripeKeyMode("rk_test_fixture")).toBe("test");
+    expect(resolveMergeGateStripeKeyMode("sk_live_fixture")).toBe("not-test");
+    expect(resolveMergeGateStripeKeyMode("sk_testfixture")).toBe("not-test");
+
+    const run = (value) =>
+      spawnSync(
+        process.execPath,
+        [
+          resolve("scripts/merge-gate-verification.mjs"),
+          "credentials",
+          "--require",
+          "STRIPE_SECRET_KEY",
+          "--stripe-test-mode-var",
+          "STRIPE_SECRET_KEY",
+        ],
+        { encoding: "utf8", env: { ...process.env, STRIPE_SECRET_KEY: value } },
+      );
+    const restricted = run("rk_test_fixture");
+    expect(restricted.status).toBe(0);
+    expect(JSON.parse(restricted.stdout)).toMatchObject({ stripeKeyMode: "test", missing: [] });
+    const refused = run("rk_live_fixture");
+    expect(refused.status).not.toBe(0);
+    expect(JSON.parse(refused.stdout)).toMatchObject({ stripeKeyMode: "not-test", missing: [] });
+    expect(refused.stderr).toContain("STRIPE_SECRET_KEY is not a Stripe test-mode key");
+  });
+});
 
 function checkedInConfig() {
   return JSON.parse(readFileSync(resolve("scripts/merge-gate-verification-config.json"), "utf8"));

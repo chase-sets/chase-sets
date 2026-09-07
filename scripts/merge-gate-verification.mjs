@@ -25,9 +25,14 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isCommitSha, readOption, readRepeatedOptions } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { isStripeTestServerKey } from "./stripe-key-mode.mjs";
 
 export const MERGE_GATE_CONFIG_SCHEMA_VERSION = "merge-gate-verification-config/v1";
 export const MERGE_GATE_RUN_RECORD_SCHEMA_VERSION = "merge-gate-verification-run/v1";
+
+export function resolveMergeGateStripeKeyMode(value) {
+  return isStripeTestServerKey(value, { allowRestricted: true }) ? "test" : "not-test";
+}
 export const MERGE_GATE_PROOF_SCHEMA_VERSION = "merge-gate-verification-proof/v1";
 export const MERGE_GATE_PREFLIGHT_SCHEMA_VERSION = "merge-gate-preflight/v1";
 export const MERGE_GATE_DEFAULT_CONFIG_PATH = "scripts/merge-gate-verification-config.json";
@@ -566,7 +571,7 @@ async function main(argv) {
     const stripeVar = readOption(argv, "--stripe-test-mode-var");
     if (stripeVar && !missing.includes(stripeVar)) {
       const value = process.env[stripeVar] ?? "";
-      summary.stripeKeyMode = /^(?:sk|rk)_test_/.test(value) ? "test" : "not-test";
+      summary.stripeKeyMode = resolveMergeGateStripeKeyMode(value);
     }
 
     console.log(JSON.stringify(summary, null, 2));

@@ -1071,7 +1071,7 @@ jobs:
             exit 1
           fi
 
-          if [[ "${TF_VAR_stripe_secret_key}" != sk_test* || "${TF_VAR_stripe_publishable_key}" != pk_test* ]]; then
+          if ! node scripts/stripe-key-mode.mjs require-unrestricted-pair --mode test --secret-var TF_VAR_stripe_secret_key --publishable-var TF_VAR_stripe_publishable_key; then
             echo "Preview deployments require Stripe test-mode keys. Use staging for complete Stripe-delivered webhook proof and production only for approved live proof." >&2
             exit 1
           fi

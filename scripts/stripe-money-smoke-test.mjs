@@ -5,6 +5,7 @@ import process from "node:process";
 import { readEnv } from "./lib/cli-options.mjs";
 import { provisionSyntheticAccountInvitation } from "./lib/synthetic-account-invitations.mjs";
 import { PAYMENTS_PROVIDER_WEBHOOK_PATH, SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
+import { isUnrestrictedStripeKeyPair } from "./stripe-key-mode.mjs";
 
 function stripTrailingSlash(value) {
   return value.replace(/\/+$/, "");
@@ -341,13 +342,13 @@ function validateSmokeEnvironmentForReport(env, missing) {
   return errors;
 }
 
-function resolveStripeKeyMode(env = process.env) {
+export function resolveStripeKeyMode(env = process.env) {
   const secretKey = readEnv("STRIPE_SECRET_KEY", env);
   const publishableKey = readEnv("STRIPE_PUBLISHABLE_KEY", env);
-  if (secretKey?.startsWith("sk_test") === true && publishableKey?.startsWith("pk_test") === true) {
+  if (isUnrestrictedStripeKeyPair(secretKey, publishableKey, "test")) {
     return "test";
   }
-  if (secretKey?.startsWith("sk_live") === true && publishableKey?.startsWith("pk_live") === true) {
+  if (isUnrestrictedStripeKeyPair(secretKey, publishableKey, "live")) {
     return "live";
   }
   return "unknown";
