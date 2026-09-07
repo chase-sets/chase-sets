@@ -26,7 +26,7 @@ This skill is tracked identically at `.agents/skills/` (read by Codex) and `.cla
 
 No plan file, no sandbox bootstrap unless the tests touched need the database, no per-PR deployment verification.
 
-**Full path.** Money movement (payments, settlement, payouts, tax), cross-context contract or event changes, external provider contract changes (payment-provider event sets, webhook payloads, third-party API schemas), schema migrations, destructive data changes, or work explicitly flagged as high risk. Everything in the fast path, plus Planning and a bounded self-review pass before PR readiness; in solo mode, also deploy-awareness after merge (see Deployment).
+**Full path.** Money movement (payments, settlement, payouts, tax), cross-context contract or event changes, external provider contract changes (payment-provider event sets, webhook payloads, third-party API schemas), schema migrations, destructive data changes, or work explicitly flagged as high risk. Everything in the fast path, plus Planning and the full-path review packet; in solo mode, also deploy-awareness after merge (see Deployment).
 
 When in doubt, start on the fast path and escalate the moment scope grows into a full-path trigger.
 
@@ -76,7 +76,7 @@ git -C <worktree> switch -c <branch> --track origin/main
 
 ## Review
 
-- One bounded self-review pass per PR before marking it ready: correctness, security of touched surfaces, simplicity, and test adequacy. Fix what you find; do not loop until perfection.
+- Before the implementation head is dispatched for independent review, complete one bounded author self-review and its `## Self-review` section across Correctness, Simplicity, Elegance, Performance, and Footprint. In each dimension, either make a concrete edit or record why no edit is needed. For every changed rule, contract, or prose claim, check an enforcement pair: the changed item and the test, checker, or direct inspection that constrains it. Re-run the scoped check after each fix; stop a dimension only when a full pass makes no edit. This author loop supplies evidence for an independent review; it never replaces that review or hosted CI ownership.
 - For full-path work, produce a compact review packet from the issue's seed:
   changed invariants, likely failure modes, exact omission-revealing artifacts,
   and the focused commands/probes that exercise them. This packet directs the
@@ -140,10 +140,30 @@ external provider contract → the provider's test-mode validation output>
 ## Verification
 <what you ran and observed>
 
-Closes #<issue>
+## Self-review
+Dimensions passed: <Correctness; Simplicity; Elegance; Performance; Footprint, with pass result>
+Edits per dimension: <edit made, or no-change reason for each dimension>
+Enforcement pairs checked: <changed rule/contract/prose → test/check/inspection>
+Reproduction and results: <exact commands and observed results>
+Unverifiable assumptions: <bounded assumptions or none>
+
+Refs #<issue>
 ```
 
 Do not include goal-completion boilerplate, worktree/sandbox metadata, or restated checklists.
+
+### Self-review snippet
+
+Use this bounded section verbatim as the PR's stable author-review record; it must stay at or below 2,048 UTF-8 bytes.
+
+```markdown
+## Self-review
+Dimensions passed: Correctness; Simplicity; Elegance; Performance; Footprint — <pass result for each>.
+Edits per dimension: <edit made, or no-change reason for each dimension>.
+Enforcement pairs checked: <changed rule/contract/prose → test/check/inspection>.
+Reproduction and results: <exact command → observed result>.
+Unverifiable assumptions: <bounded assumptions, or none>.
+```
 
 **Draft semantics.** Open the PR as a draft while iterating. Mark it ready only when scoped checks are green, the self-review is done, and no full-path assumption is unresolved. If anything is unresolved, stay draft and say why in your report — draft vs. ready is a deliberate signal, and the orchestrator never readies drafts on your behalf.
 
