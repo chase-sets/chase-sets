@@ -127,6 +127,7 @@ export type InventoryRestockDecisionOutcome = (typeof inventoryRestockDecisionOu
 
 export const inventoryAdjustmentReasons = [
   "sold-offline",
+  "sold-external-channel",
   "damaged",
   "lost",
   "found",
@@ -139,6 +140,24 @@ export type InventoryAdjustmentReason = (typeof inventoryAdjustmentReasons)[numb
 
 export function isInventoryAdjustmentReason(value: unknown): value is InventoryAdjustmentReason {
   return inventoryAdjustmentReasons.includes(value as InventoryAdjustmentReason);
+}
+
+export const inventoryCallerSelectableAdjustmentReasons = [
+  "sold-offline",
+  "damaged",
+  "lost",
+  "found",
+  "correction",
+  "intake",
+  "return-restocked",
+] as const satisfies readonly InventoryAdjustmentReason[];
+
+export type InventoryCallerSelectableAdjustmentReason = (typeof inventoryCallerSelectableAdjustmentReasons)[number];
+
+export function isInventoryCallerSelectableAdjustmentReason(
+  value: unknown,
+): value is InventoryCallerSelectableAdjustmentReason {
+  return inventoryCallerSelectableAdjustmentReasons.includes(value as InventoryCallerSelectableAdjustmentReason);
 }
 
 export type InventoryAdjustmentSourceRef = InventoryHoldSourceRef;
@@ -168,6 +187,50 @@ export type InventoryItemOfflineSaleRecordedPayload = Readonly<{
   storageLocationId: string;
   acquisitionCostAmount: string | null;
   recordedAt: string;
+}>;
+
+export type ExternalChannelSaleKeyV1Payload = Readonly<{
+  version: "v1";
+  providerKey: string;
+  sellerEnvironmentLineage: string;
+  orderLineIdentity: string;
+}>;
+
+export type CommittedExternalChannelSalePayload = Readonly<{
+  saleKey: ExternalChannelSaleKeyV1Payload;
+  saleStreamId: string;
+  saleEventId: string;
+  accountId: string;
+  inventoryItemId: string;
+  storageLocationId: string;
+  requestedQuantity: number;
+  appliedQuantity: number;
+  refusedQuantity: number;
+  protectedOrderIds: readonly string[];
+  collisionPolicyRef: string;
+  collisionPolicyRevision: number;
+  inventoryAdjustmentEventId: string | null;
+  saleShortfallKey: string | null;
+  committedAt: string;
+}>;
+
+export type InventoryExternalChannelSaleRecordedPayload = Readonly<{
+  eventVersion: 1;
+  saleKey: ExternalChannelSaleKeyV1Payload;
+  commandFingerprint: string;
+  accountId: string;
+  inventoryItemId: string;
+  storageLocationId: string;
+  requestedQuantity: number;
+  unitPriceAmount?: string;
+  currencyCode?: string;
+  soldAt?: string;
+  connectionAuditReference?: string;
+  collisionMode: "protect-orders";
+  collisionPolicyRef: string;
+  collisionPolicyRevision: number;
+  reasonCode: "sold-external-channel";
+  result: CommittedExternalChannelSalePayload;
 }>;
 
 export type InventoryRestockDecisionPendingPayload = Readonly<{
@@ -249,6 +312,7 @@ export type InventoryRecoveredItemValueReportedPayload = Readonly<{
 export type InventoryEventPayloads = Readonly<{
   "inventory.item.adjusted": InventoryItemAdjustedPayload;
   "inventory.item.offline-sale-recorded": InventoryItemOfflineSaleRecordedPayload;
+  "inventory.external-channel-sale.recorded": InventoryExternalChannelSaleRecordedPayload;
   "inventory.hold.placed": InventoryHoldPlacedPayload;
   "inventory.hold.released": InventoryHoldReleasedPayload;
   "inventory.hold.converted": InventoryHoldConvertedPayload;

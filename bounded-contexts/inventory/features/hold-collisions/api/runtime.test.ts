@@ -11,6 +11,7 @@ import { createInventoryHoldCollisionRuntime } from "./runtime";
 type IdempotencyRow = {
   inserted: boolean;
   command_fingerprint: string;
+  claim_generation: string;
   status: "in_progress" | "completed";
   result_item_id: string | null;
   result_version: number | null;
@@ -47,6 +48,7 @@ function createRecoveryHarness(
         const row: IdempotencyRow = {
           inserted: true,
           command_fingerprint: String(values[3]),
+          claim_generation: String(values[4]),
           status: "in_progress",
           result_item_id: null,
           result_version: null,
@@ -63,15 +65,18 @@ function createRecoveryHarness(
         }
         const key = String(values[0]);
         const existing = idempotencyRows.get(key);
-        const completed = existing?.status === "in_progress" && existing.command_fingerprint === String(values[1]);
+        const completed =
+          existing?.status === "in_progress" &&
+          existing.command_fingerprint === String(values[1]) &&
+          existing.claim_generation === String(values[2]);
         if (completed && existing) {
           idempotencyRows.set(key, {
             ...existing,
             inserted: false,
             status: "completed",
-            result_item_id: String(values[2]),
-            result_version: Number(values[3]),
-            result_collision: JSON.parse(String(values[4])) as InventoryHoldCollisionPlan | null,
+            result_item_id: String(values[3]),
+            result_version: Number(values[4]),
+            result_collision: JSON.parse(String(values[5])) as InventoryHoldCollisionPlan | null,
           });
         }
         return { rows: [], rowCount: completed ? 1 : 0 };
@@ -158,6 +163,7 @@ function createRecoveryHarness(
         channel: "card-show",
         collisionMode: "protect-orders",
       }),
+      claim_generation: "generation-seeded",
       status: "in_progress",
       result_item_id: null,
       result_version: null,

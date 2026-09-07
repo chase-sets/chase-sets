@@ -5,6 +5,8 @@ import { renderToString } from "react-dom/server";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { inventoryAdjustmentReasons } from "@chase-sets/event-core/public-event-payloads";
+import { hasTranslation } from "@chase-sets/localization";
 import type { InventoryOfflineSaleResult } from "../../../client";
 import { InventoryItemDetailPage } from "./inventory-item-detail-page";
 import { InventoryItemListPage } from "./inventory-item-list-page";
@@ -13,6 +15,17 @@ import type { InventoryItemDetail, InventoryItemListItem } from "./contracts";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+it("has an English item-ledger translation for every Inventory adjustment reason", () => {
+  for (const reason of inventoryAdjustmentReasons) {
+    expect(
+      hasTranslation(`inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.${reason}`),
+    ).toBe(true);
+  }
+  expect(
+    hasTranslation("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.synthetic-missing"),
+  ).toBe(false);
 });
 
 const inventoryItem: InventoryItemListItem = {

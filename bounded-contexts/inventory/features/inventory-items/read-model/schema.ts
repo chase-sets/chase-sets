@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS inventory_item_adjustment_idempotency (
   account_id text NOT NULL,
   item_id text NOT NULL,
   command_fingerprint text NOT NULL,
+  claim_generation text NOT NULL,
   status text NOT NULL CHECK (status IN ('in_progress', 'completed')),
   result_item_id text NULL,
   result_version bigint NULL CHECK (result_version IS NULL OR result_version >= 0),
@@ -95,6 +96,36 @@ export const inventoryItemSchemaMigrations: readonly BcSchemaMigration[] = [
   ADD COLUMN IF NOT EXISTS channel text`,
       `ALTER TABLE inventory_item_adjustment_idempotency
   ADD COLUMN IF NOT EXISTS result_collision jsonb`,
+    ],
+  },
+  {
+    migrationId: "20260906_inventory_adjustment_claim_generation",
+    description: "Fence adjustment journal completion and release to the exact claim generation.",
+    statements: [
+      `ALTER TABLE inventory_item_adjustment_idempotency
+  ADD COLUMN IF NOT EXISTS claim_generation text`,
+      `UPDATE inventory_item_adjustment_idempotency
+  SET claim_generation = 'legacy:' || idempotency_key || ':' || created_at::text
+  WHERE claim_generation IS NULL`,
+      `DO $migration$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'inventory_item_adjustment_idempotency_claim_generation_not_null'
+      AND conrelid = 'inventory_item_adjustment_idempotency'::regclass
+  ) THEN
+    ALTER TABLE inventory_item_adjustment_idempotency
+      ADD CONSTRAINT inventory_item_adjustment_idempotency_claim_generation_not_null
+      CHECK (claim_generation IS NOT NULL) NOT VALID;
+  END IF;
+END
+$migration$`,
+      `ALTER TABLE inventory_item_adjustment_idempotency
+  VALIDATE CONSTRAINT inventory_item_adjustment_idempotency_claim_generation_not_null`,
+      `SET LOCAL lock_timeout = '5s'`,
+      `ALTER TABLE inventory_item_adjustment_idempotency
+  ALTER COLUMN claim_generation SET NOT NULL`,
     ],
   },
 ];

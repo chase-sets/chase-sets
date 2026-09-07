@@ -343,6 +343,17 @@ describe("inventory item MCP handlers", () => {
         }),
       ),
     ).rejects.toThrow("supported inventory adjustment reason");
+    await expect(
+      handlers.toolHandlers["inventory.adjust-item"]?.(
+        mcpRequest({
+          accountId: "acc_1",
+          inventoryItemId: "inv_1",
+          quantityDelta: -1,
+          reason: "Forged channel sale",
+          reasonCode: "sold-external-channel",
+        }),
+      ),
+    ).rejects.toThrow("supported inventory adjustment reason");
 
     expect(collisions.reduceItem).toHaveBeenCalledWith(
       expect.objectContaining({ reasonCode: "sold-offline" }),

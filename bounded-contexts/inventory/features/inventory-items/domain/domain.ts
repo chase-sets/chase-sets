@@ -94,6 +94,12 @@ export type RecordOfflineSaleCommand = Readonly<{
   recordedAt: string;
 }>;
 
+export type RecordExternalChannelSaleAdjustmentCommand = Readonly<{
+  type: "RecordExternalChannelSaleAdjustment";
+  quantity: number;
+  heldQuantity: number;
+}>;
+
 export type ClaimInventoryStockAuthorityCommand = Readonly<{
   type: "ClaimInventoryStockAuthority";
   authorityRef: string;
@@ -105,6 +111,7 @@ export type InventoryItemCommand =
   | CreateInventoryItemCommand
   | AdjustInventoryItemQuantityCommand
   | RecordOfflineSaleCommand
+  | RecordExternalChannelSaleAdjustmentCommand
   | ClaimInventoryStockAuthorityCommand;
 
 export type InventoryItemCreatedEvent = DomainEvent<
@@ -191,6 +198,10 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
       ensureInteger(command.heldQuantity, "Inventory adjustments require a whole-number held quantity.");
       assert(command.heldQuantity >= 0, "Inventory held quantity cannot be negative.");
       assert(command.quantityDelta !== 0, "Quantity adjustments must change inventory.");
+      assert(
+        command.reasonCode !== "sold-external-channel",
+        "External channel sale adjustments require the Inventory-owned external sale command.",
+      );
       assert(state.totalQuantity + command.quantityDelta >= 0, "Inventory quantity cannot fall below zero.");
       assert(
         state.totalQuantity + command.quantityDelta >= command.heldQuantity,
@@ -207,6 +218,28 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             ...(command.note !== undefined ? { note: normalizeOptionalText(command.note) } : {}),
             sourceRef: command.sourceRef ?? null,
             ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
+          },
+        },
+      ];
+    case "RecordExternalChannelSaleAdjustment":
+      requireCreatedInventoryItem(state);
+      ensurePositiveInteger(command.quantity, "External channel sales require a positive applied quantity.");
+      ensureInteger(command.heldQuantity, "External channel sales require a whole-number held quantity.");
+      assert(command.heldQuantity >= 0, "Inventory held quantity cannot be negative.");
+      assert(state.totalQuantity - command.quantity >= 0, "Inventory quantity cannot fall below zero.");
+      assert(
+        state.totalQuantity - command.quantity >= command.heldQuantity,
+        `${command.heldQuantity} units are committed to open orders.`,
+      );
+      return [
+        {
+          type: "inventory.item.adjusted",
+          data: {
+            itemId: state.id!,
+            quantityDelta: -command.quantity,
+            reason: "External channel sale",
+            reasonCode: "sold-external-channel",
+            sourceRef: null,
           },
         },
       ];

@@ -48,6 +48,7 @@ describe("inventory item runtime", () => {
       {
         inserted: boolean;
         command_fingerprint: string;
+        claim_generation: string;
         status: "in_progress" | "completed";
         result_item_id: string | null;
         result_version: number | null;
@@ -84,6 +85,7 @@ describe("inventory item runtime", () => {
           const row = {
             inserted: true,
             command_fingerprint: String(values[3]),
+            claim_generation: String(values[4]),
             status: "in_progress" as const,
             result_item_id: null,
             result_version: null,
@@ -100,24 +102,33 @@ describe("inventory item runtime", () => {
             failNextIdempotencyComplete = false;
             throw new Error("ledger complete failed");
           }
-          if (existing?.status === "in_progress" && existing.command_fingerprint === String(values[1])) {
+          const owned =
+            existing?.status === "in_progress" &&
+            existing.command_fingerprint === String(values[1]) &&
+            existing.claim_generation === String(values[2]);
+          if (owned) {
             ledger.set(key, {
               ...existing,
               inserted: false,
               status: "completed",
-              result_item_id: String(values[2]),
-              result_version: Number(values[3]),
-              result_collision: JSON.parse(String(values[4])),
+              result_item_id: String(values[3]),
+              result_version: Number(values[4]),
+              result_collision: JSON.parse(String(values[5])),
             });
           }
           return {
             rows: [],
-            rowCount: existing?.status === "in_progress" && existing.command_fingerprint === String(values[1]) ? 1 : 0,
+            rowCount: owned ? 1 : 0,
           };
         }
         if (sql.includes("DELETE FROM inventory_item_adjustment_idempotency")) {
-          ledger.delete(String(values[0]));
-          return { rows: [], rowCount: 1 };
+          const existing = ledger.get(String(values[0]));
+          const owned =
+            existing?.status === "in_progress" &&
+            existing.command_fingerprint === String(values[1]) &&
+            existing.claim_generation === String(values[2]);
+          if (owned) ledger.delete(String(values[0]));
+          return { rows: [], rowCount: owned ? 1 : 0 };
         }
         if (sql.includes("FROM inventory_items AS item")) {
           return { rows: [inventoryRow] };

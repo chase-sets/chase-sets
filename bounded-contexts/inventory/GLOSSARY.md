@@ -165,6 +165,7 @@ An **Inventory Adjustment Reason** is the typed reason an Inventory quantity adj
 Values:
 
 - `sold-offline`: an Honor Offline reduction recorded stock sold outside an online order.
+- `sold-external-channel`: Inventory applied stock for one immutable connected-channel order line while protecting active order commitments.
 - `damaged`: an operator removed stock that was damaged.
 - `lost`: an operator removed stock that could not be found.
 - `found`: an operator added stock that was found.
@@ -191,6 +192,17 @@ Values:
 - `in-store`: sold at the account's store or counter.
 - `card-show`: sold at a card show or similar in-person event.
 - `other`: sold through another non-connected offline channel.
+
+## External Channel Sale
+
+An **External Channel Sale** is Inventory's permanent, provider-neutral record of one immutable seller order line observed through a connected sales channel.
+
+Notes:
+
+- Its versioned key is supplied by the owning channel adapter and never inferred from provider data by Inventory.
+- The canonical event stream is the sole permanent uniqueness authority; notification and polling delivery replay the first committed result.
+- Inventory protects active order commitments, applies only currently available stock, and preserves any refused quantity as a stable shortfall reference.
+- Provider events, connection identity, paging state, and delivery path are never the durable sale identity.
 
 ## Sale Price Amount
 

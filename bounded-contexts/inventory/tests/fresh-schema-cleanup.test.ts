@@ -12,6 +12,7 @@ describe("fresh inventory schemas", () => {
     expect(inventoryItemSchemaSql).toContain("sale_price_amount numeric(12,2) NULL");
     expect(inventoryItemSchemaSql).toContain("channel text NULL");
     expect(inventoryItemSchemaSql).toContain("result_collision jsonb NULL");
+    expect(inventoryItemSchemaSql).toContain("claim_generation text NOT NULL");
     expect(inventoryItemSchemaSql).not.toContain("inventory_item_ledger_item_occurred_idx");
     expect(inventoryItemSchemaSql).not.toContain("inventory_item_ledger_account_item_idx");
     expect(migrationSql).toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_item_ledger_item_occurred_idx");
@@ -21,5 +22,14 @@ describe("fresh inventory schemas", () => {
     expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS sale_price_amount numeric(12,2)");
     expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS channel text");
     expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS result_collision jsonb");
+    expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS claim_generation text");
+    expect(migrationSql).toContain("FROM pg_constraint");
+    expect(migrationSql).toContain("conname = 'inventory_item_adjustment_idempotency_claim_generation_not_null'");
+    expect(migrationSql).toContain("CHECK (claim_generation IS NOT NULL) NOT VALID");
+    expect(migrationSql).toContain(
+      "VALIDATE CONSTRAINT inventory_item_adjustment_idempotency_claim_generation_not_null",
+    );
+    expect(migrationSql).toContain("SET LOCAL lock_timeout = '5s'");
+    expect(migrationSql).toContain("ALTER COLUMN claim_generation SET NOT NULL");
   });
 });
