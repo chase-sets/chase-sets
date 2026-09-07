@@ -78,7 +78,7 @@ describe("pricing TCGplayer Catalog Product reference projection", () => {
     expect(db.references.get("tcgplayer:sku:9001001")).toMatchObject({
       catalog_item_id: "cat_1",
       catalog_product_key: "cat_1::condition:near_mint",
-    });
+    } as never);
 
     await handlers["catalog.catalog-item.external-product-reference-unlinked"]?.({
       type: "catalog.catalog-item.external-product-reference-unlinked",
@@ -109,10 +109,12 @@ describe("pricing TCGplayer Catalog Product reference projection", () => {
     expect(db.catalogReferences.get("tcgplayer:product:7001")).toMatchObject({ catalog_item_id: "cat_1" });
 
     await handlers["catalog.catalog-item.external-catalog-item-reference-unlinked"]?.({
-      ...linked,
       type: "catalog.catalog-item.external-catalog-item-reference-unlinked",
+      streamId: "catalog.item-cat_1",
       streamVersion: 2,
-    });
+      data: { providerKey: "tcgplayer", externalKey: "product:7001" },
+      timing: { recordedAt: "2026-09-01T00:01:00.000Z" },
+    } as never);
     expect(db.catalogReferences.has("tcgplayer:product:7001")).toBe(false);
   });
 });
