@@ -9,7 +9,11 @@ import type {
   SourceEconomics,
 } from "../../domain/contracts";
 import { assertSourceEconomics } from "../../domain/contracts";
-import type { ResolvedEconomicsPolicy } from "../../domain/policy";
+import {
+  assertEconomicsPolicyEffectiveAt,
+  parseResolvedEconomicsPolicy,
+  type ResolvedEconomicsPolicy,
+} from "../../domain/policy";
 import { canonicalSha256 } from "../../domain/revision";
 
 export function createNativeCommercialTermsEconomicsProvider(
@@ -22,7 +26,8 @@ export function createNativeCommercialTermsEconomicsProvider(
   return {
     identity: input.identity,
     async resolve(request: ResolveEconomicsRequest): Promise<SourceEconomics> {
-      const policy = await input.resolvePolicy(request.effectiveAt);
+      const policy = parseResolvedEconomicsPolicy(await input.resolvePolicy(request.effectiveAt));
+      assertEconomicsPolicyEffectiveAt(policy, request.effectiveAt);
       let terms: Awaited<ReturnType<CommercialTermsResolver["resolveListingTerms"]>>;
       try {
         terms = await input.commercialTermsResolver.resolveListingTerms({

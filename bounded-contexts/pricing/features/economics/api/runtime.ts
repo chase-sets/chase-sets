@@ -10,7 +10,11 @@ import { buildEconomics } from "../domain/economics";
 import { observeCapitalCycle } from "../domain/observations";
 import { applyEconomicsOverrideToFact, economicsOverrideRevisionMaterial } from "../domain/overrides";
 import { quoteSellerOverhead } from "../domain/overhead";
-import { parseResolvedEconomicsPolicy, type ResolvedEconomicsPolicy } from "../domain/policy";
+import {
+  assertEconomicsPolicyEffectiveAt,
+  parseResolvedEconomicsPolicy,
+  type ResolvedEconomicsPolicy,
+} from "../domain/policy";
 import { canonicalSha256 } from "../domain/revision";
 import type { EconomicsEvidenceReader, EconomicsResolution, EconomicsResolver } from "../domain/resolution";
 import { resolveSourceEconomics } from "../domain/source-resolution";
@@ -34,6 +38,7 @@ export function createEconomicsRuntime(deps: EconomicsRuntimeDependencies): Econ
         providerRegistry: deps.providerRegistry,
       });
       const policy = parseResolvedEconomicsPolicy(source.policy ?? (await deps.resolvePolicy(request.effectiveAt)));
+      assertEconomicsPolicyEffectiveAt(policy, request.effectiveAt);
       if (source.kind === "resolved") assertProviderPolicyBinding(source, policy.policyRevision);
 
       const evidence = await deps.evidenceReader.resolve(request);

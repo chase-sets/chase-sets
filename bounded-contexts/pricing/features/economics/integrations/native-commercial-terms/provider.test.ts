@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MoneyAmount } from "@chase-sets/primitives/money";
-import { ECONOMICS_LAUNCH_POLICY_VALUE, type ResolvedEconomicsPolicy } from "../../domain/policy";
+import { ECONOMICS_LAUNCH_POLICY_VALUE, toResolvedEconomicsPolicy } from "../../domain/policy";
 import type { ResolveEconomicsRequest } from "../../domain/contracts";
 import { createNativeCommercialTermsEconomicsProvider } from "./provider";
 
@@ -14,15 +14,15 @@ const request: ResolveEconomicsRequest = {
   quantity: 1,
   effectiveAt: "2026-09-07T06:00:00Z",
 };
-const resolvedPolicy: ResolvedEconomicsPolicy = {
+const resolvedPolicy = toResolvedEconomicsPolicy({
+  policyKey: "pricing.economics",
   value: ECONOMICS_LAUNCH_POLICY_VALUE,
-  policyRevision: "sha256:synthetic-policy-revision",
-  observedAt: "2026-09-06T20:28:41Z",
   source: "fallback",
   documentId: null,
   effectiveFrom: null,
   effectiveUntil: null,
-};
+  resolvedAt: request.effectiveAt,
+});
 
 function terms(overrides: Record<string, unknown> = {}) {
   return {
@@ -113,5 +113,21 @@ describe("native Commercial Terms Economics provider", () => {
       reason: "terms-unavailable",
       policy: resolvedPolicy,
     });
+  });
+
+  it("rejects malformed dynamic policy before reading or formatting Commercial Terms", async () => {
+    const resolveListingTerms = vi.fn(async () => terms());
+    const provider = createNativeCommercialTermsEconomicsProvider({
+      identity,
+      commercialTermsResolver: { resolveListingTerms },
+      resolvePolicy: async () =>
+        ({
+          ...resolvedPolicy,
+          value: { ...resolvedPolicy.value, sellerHandlingFixedPerUnitAmount: "0.3" },
+        }) as never,
+    });
+
+    await expect(provider.resolve(request)).rejects.toThrow(/canonical/);
+    expect(resolveListingTerms).not.toHaveBeenCalled();
   });
 });

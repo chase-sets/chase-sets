@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ECONOMICS_LAUNCH_POLICY_VALUE,
+  assertEconomicsPolicyEffectiveAt,
   decodeEconomicsPolicyValue,
   economicsPolicy,
   parseResolvedEconomicsPolicy,
@@ -107,5 +108,31 @@ describe("pricing.economics policy", () => {
         effectiveUntil: null,
       }),
     ).toThrow(/fallback/);
+  });
+
+  it("requires the resolved document or fallback to apply at the evaluation instant", () => {
+    const fallback = toResolvedEconomicsPolicy({
+      policyKey: "pricing.economics",
+      value: ECONOMICS_LAUNCH_POLICY_VALUE,
+      source: "fallback",
+      documentId: null,
+      effectiveFrom: null,
+      effectiveUntil: null,
+      resolvedAt: "2026-09-07T06:00:00Z",
+    });
+    expect(() => assertEconomicsPolicyEffectiveAt(fallback, "2026-09-06T20:28:40Z")).toThrow(/postdate/);
+
+    const active = toResolvedEconomicsPolicy({
+      policyKey: "pricing.economics",
+      value: ECONOMICS_LAUNCH_POLICY_VALUE,
+      source: "policy",
+      documentId: "synthetic-policy-document",
+      effectiveFrom: "2026-09-01T00:00:00Z",
+      effectiveUntil: "2026-10-01T00:00:00Z",
+      resolvedAt: "2026-09-07T06:00:00Z",
+    });
+    expect(() => assertEconomicsPolicyEffectiveAt(active, "2026-08-31T23:59:59Z")).toThrow(/postdate|not yet/);
+    expect(() => assertEconomicsPolicyEffectiveAt(active, "2026-10-01T00:00:00Z")).toThrow(/no longer/);
+    expect(() => assertEconomicsPolicyEffectiveAt(active, "2026-09-07T06:00:00Z")).not.toThrow();
   });
 });

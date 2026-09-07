@@ -235,6 +235,20 @@ export function parseResolvedEconomicsPolicy(raw: unknown): ResolvedEconomicsPol
   };
 }
 
+export function assertEconomicsPolicyEffectiveAt(policy: ResolvedEconomicsPolicy, effectiveAt: string): void {
+  const evaluationAt = requireRfc3339Instant(effectiveAt, "effectiveAt");
+  if (Date.parse(policy.observedAt) > Date.parse(evaluationAt)) {
+    throw new Error("Resolved Economics policy cannot postdate its evaluation.");
+  }
+  if (policy.source === "fallback") return;
+  if (policy.effectiveFrom === null || Date.parse(policy.effectiveFrom) > Date.parse(evaluationAt)) {
+    throw new Error("Resolved Economics policy is not yet effective at the evaluation instant.");
+  }
+  if (policy.effectiveUntil !== null && Date.parse(evaluationAt) >= Date.parse(policy.effectiveUntil)) {
+    throw new Error("Resolved Economics policy is no longer effective at the evaluation instant.");
+  }
+}
+
 function assertExactKeys(record: Record<string, unknown>, expected: readonly string[], name: string): void {
   const actual = Object.keys(record).sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
