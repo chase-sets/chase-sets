@@ -16,8 +16,8 @@ export type TcgplayerMarketPost = <TResponse>(
 
 /**
  * Pricing's concrete transport seam over the already-mounted automation
- * clients. It intentionally does not generalize provider observations; #4311
- * owns that future port family.
+ * clients. The separate generic provider-observation port family remains
+ * outside this bounded slice.
  */
 export type TcgplayerMarketTransport = Readonly<{
   mpGateway: Readonly<{ post: TcgplayerMarketPost }>;

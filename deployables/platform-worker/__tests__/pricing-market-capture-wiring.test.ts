@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import pricingContext from "@chase-sets/pricing/context" with { type: "json" };
+import { contextManifest as pricingContext } from "@chase-sets/pricing";
 
 describe("Pricing market-capture worker wiring", () => {
   it("mounts the declared typed transport and schedules the real service without casts or a bridge", () => {

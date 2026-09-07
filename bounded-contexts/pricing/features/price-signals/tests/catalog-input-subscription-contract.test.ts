@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import context from "../../../context.json" with { type: "json" };
+import { contextManifest as context } from "../../../index";
 
 describe("Pricing Catalog input subscription v6", () => {
   it("replays both product-reference facts into the new owned table", () => {
