@@ -45,6 +45,20 @@ describe("channel-connection-contract-provenance", () => {
     ).toEqual(expect.arrayContaining([expect.stringContaining("without importing it from @chase-sets/channels")]));
   });
 
+  it("rejects Pricing Economics aliases for either Channels-owned identity contract", () => {
+    expect(
+      findChannelConnectionContractProvenanceViolations(
+        readFixture("economics-local-alias.ts"),
+        "bounded-contexts/pricing/features/economics/domain/fixture.ts",
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("redeclares ChannelEnvironment"),
+        expect.stringContaining("redeclares ChannelProviderIdentity"),
+      ]),
+    );
+  });
+
   it("rejects a structural resolver cast", () => {
     expect(findChannelConnectionContractProvenanceViolations(readFixture("cast.ts"), "cast.ts")).toEqual(
       expect.arrayContaining([expect.stringContaining("structural as/type assertion")]),

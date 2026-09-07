@@ -115,6 +115,26 @@ describe("native Commercial Terms Economics provider", () => {
     });
   });
 
+  it.each([
+    ["malformed fixed amount", { marketplaceSalesFeeFixedAmount: "0.0" }],
+    ["missing cap field", { marketplaceSalesFeeCapAmount: undefined }],
+    ["out-of-range allowance", { shippingAllowancePercentageBps: 10_001 }],
+    ["non-finite relative fee", { marketplaceSalesFeePercentageBps: Number.NaN }],
+  ])("collapses %s from a mixed dynamic Terms result to numeric unavailable", async (_name, overrides) => {
+    const provider = createNativeCommercialTermsEconomicsProvider({
+      identity,
+      commercialTermsResolver: { resolveListingTerms: async () => terms(overrides) as never },
+      resolvePolicy: async () => resolvedPolicy,
+    });
+
+    await expect(provider.resolve(request)).resolves.toEqual({
+      kind: "unavailable",
+      providerIdentity: identity,
+      reason: "terms-unavailable",
+      policy: resolvedPolicy,
+    });
+  });
+
   it("rejects malformed dynamic policy before reading or formatting Commercial Terms", async () => {
     const resolveListingTerms = vi.fn(async () => terms());
     const provider = createNativeCommercialTermsEconomicsProvider({

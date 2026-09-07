@@ -6,6 +6,7 @@ import { ECONOMICS_LAUNCH_POLICY_VALUE, toResolvedEconomicsPolicy } from "../dom
 import type { EconomicsFact, FactSource, ResolveEconomicsRequest } from "../domain/contracts";
 import { createEconomicsRuntime } from "./runtime";
 import { toEconomicsForPricingGoal } from "../domain/resolution";
+import { createNativeCommercialTermsEconomicsProvider } from "../integrations/native-commercial-terms/provider";
 
 const request: ResolveEconomicsRequest = {
   accountId: "synthetic-owner-account",
@@ -181,6 +182,36 @@ describe("Economics runtime", () => {
     });
     expect(deps.resolvePolicy).toHaveBeenCalledOnce();
     expect(deps.resolvePolicy).toHaveBeenCalledWith(request.effectiveAt);
+  });
+
+  it("keeps the registered native Terms-unavailable path numeric without inventing a fee", async () => {
+    const registry = createEconomicsProviderRegistry();
+    const nativeResolvePolicy = vi.fn(async () => policy);
+    registry.registerExact(
+      createNativeCommercialTermsEconomicsProvider({
+        identity,
+        commercialTermsResolver: {
+          resolveListingTerms: async () => {
+            throw new Error("synthetic unavailable Terms authority");
+          },
+        },
+        resolvePolicy: nativeResolvePolicy,
+      }),
+    );
+    const deps = baseDependencies(registry);
+
+    const result = await createEconomicsRuntime(deps).resolve(request);
+    expect(result.kind).toBe("unavailable");
+    if (result.kind !== "unavailable") throw new Error("Expected unavailable Economics.");
+    expect(result.reason).toBe("terms-unavailable");
+    expect(result.facts.dailyReturnHurdle).toMatchObject({
+      sourceValue: 0.005,
+      effectiveValue: 0.005,
+      source: { kind: "policy-default", reason: "terms-unavailable" },
+    });
+    expect(result.facts).not.toHaveProperty("platformFeeRelativeBps");
+    expect(nativeResolvePolicy).toHaveBeenCalledWith(request.effectiveAt);
+    expect(deps.resolvePolicy).not.toHaveBeenCalled();
   });
 
   it("rejects malformed provider policy material before using its values", async () => {
