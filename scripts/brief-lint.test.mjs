@@ -86,19 +86,40 @@ describe("don't-rebuild pointers", () => {
     ).toEqual([]);
   });
 
-  it("accepts bounded root paths and rejects out-of-repository or malformed values", () => {
-    expect(codes("### Don't-rebuild pointers\n\n- `pnpm-lock.yaml`\n- `scripts`\n- `lintBrief#findings()`")).toEqual(
-      [],
-    );
-    for (const value of [
-      "../scripts/outside.mjs",
-      "/scripts/absolute.mjs",
-      "C:/scripts/absolute.mjs",
-      "scripts/a.mjs and scripts/b.mjs",
-      "Thing..method",
-    ]) {
-      expect(codes(`### Don't-rebuild pointers\n\n- \`${value}\``)).toContain("BRIEF_DONT_REBUILD_POINTER_FORMAT");
-    }
+  it.each([
+    [
+      "rejects an indented pseudo-label and second pointer within the same item",
+      "Don't-rebuild pointers:\n\n- `scripts/a.mjs`\n  Note:\n  `scripts/b.mjs`",
+      "BRIEF_DONT_REBUILD_POINTER_FORMAT",
+    ],
+    [
+      "accepts a genuine top-level label boundary",
+      "Don't-rebuild pointers:\n\n- `scripts/a.mjs`\n\nScope:\n\n- bounded behavior",
+      undefined,
+    ],
+  ])("%s", (_description, body, expected) => {
+    const result = codes(body);
+    if (expected) expect(result).toContain(expected);
+    else expect(result).toEqual([]);
+  });
+
+  it.each([
+    ["pnpm-lock.yaml", true],
+    [".github/workflows/platform-pr.yml", true],
+    ["scripts/inside.mjs", true],
+    ["./scripts/inside.mjs", true],
+    ["lintBrief#findings()", true],
+    ["../scripts/outside.mjs", false],
+    ["scripts/../outside.mjs", false],
+    ["/scripts/absolute.mjs", false],
+    ["C:/scripts/absolute.mjs", false],
+    ["././scripts/inside.mjs", false],
+    ["scripts/a.mjs and scripts/b.mjs", false],
+    ["Thing..method", false],
+  ])("classifies bounded repository paths separately from symbols: %s", (value, valid) => {
+    const result = codes(`### Don't-rebuild pointers\n\n- \`${value}\``);
+    if (valid) expect(result).toEqual([]);
+    else expect(result).toContain("BRIEF_DONT_REBUILD_POINTER_FORMAT");
   });
 });
 
@@ -134,6 +155,20 @@ describe("salvage wording", () => {
     }
     expect(codes("Do not use live draft PR #42 as read-only salvage.")).toEqual([]);
     expect(codes("Do not use branch `feature/old` as salvage.")).toEqual([]);
+  });
+
+  it.each([
+    ["Do not rebase this work. Use live draft PR #42 as read-only salvage.", "BRIEF_LIVE_DRAFT_SALVAGE"],
+    [
+      "Do not use branch `feature/old` as salvage; use branch `feature/new` as salvage.",
+      "BRIEF_SALVAGE_BRANCH_STALENESS",
+    ],
+    ["Do not use live draft PR #42 as read-only salvage.", undefined],
+    ["Do not use branch `feature/old` as salvage.", undefined],
+  ])("binds negation to the designation clause", (body, expected) => {
+    const result = codes(body);
+    if (expected) expect(result).toContain(expected);
+    else expect(result).toEqual([]);
   });
 });
 

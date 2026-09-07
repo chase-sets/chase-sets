@@ -6,12 +6,13 @@ import { fileURLToPath } from "node:url";
 export const BRIEF_MAX_BYTES = 12 * 1024;
 export const BRIEF_MAX_DONT_REBUILD_POINTERS = 5;
 
-const REPOSITORY_PATH =
-  /^(?!.*\.\.)(?:(?:\.?[A-Za-z0-9][A-Za-z0-9._@-]*)|[A-Za-z0-9][A-Za-z0-9._@-]*)(?:\/(?:\.?[A-Za-z0-9][A-Za-z0-9._@-]*|[A-Za-z0-9][A-Za-z0-9._@-]*))*$/;
+const REPOSITORY_PATH = /^(?!.*\.\.)(?:\.?[A-Za-z0-9][A-Za-z0-9._@-]*)(?:\/(?:\.?[A-Za-z0-9][A-Za-z0-9._@-]*))*$/;
 const SYMBOL_POINTER = /^[A-Za-z_$][\w$]*(?:(?:\.|#|::)[A-Za-z_$][\w$]*)*(?:\(\))?$/;
 
 function isPointerValue(value) {
-  return REPOSITORY_PATH.test(value) || SYMBOL_POINTER.test(value);
+  if (SYMBOL_POINTER.test(value)) return true;
+  const repositoryPath = value.startsWith("./") ? value.slice(2) : value;
+  return REPOSITORY_PATH.test(repositoryPath);
 }
 
 function normalizeHeading(value) {
@@ -84,7 +85,7 @@ function scanMarkdown(body) {
       continue;
     }
 
-    const label = standaloneLabel(line);
+    const label = /^\S/.test(line) ? standaloneLabel(line) : null;
     if (label) {
       headings.push({ index, level: 7, text: label });
     }
@@ -167,6 +168,16 @@ function proseSegments(markdown) {
   return segments;
 }
 
+function proseClauses(markdown) {
+  return proseSegments(markdown).flatMap((segment) =>
+    segment.text
+      .split(/(?<=[.!?;])\s+/)
+      .map((text) => text.trim())
+      .filter(Boolean)
+      .map((text) => ({ line: segment.line, text })),
+  );
+}
+
 function salvageFindings(markdown) {
   const findings = [];
   const draftPr = String.raw`(?:(?:live|reviewed)\s+)?draft\s+(?:pr|pull request)(?:\s*#?\d+)?|(?:pr|pull request)\s*#?\d+\s*\(draft\)`;
@@ -185,7 +196,7 @@ function salvageFindings(markdown) {
     new RegExp(String.raw`\b(?:${draftPr})\b\s*\(\s*(?:a\s+)?${salvageArtifact}\s*\)`, "i"),
   ];
 
-  for (const segment of proseSegments(markdown)) {
+  for (const segment of proseClauses(markdown)) {
     const isNegated = /\b(?:do\s+not|don't|never)\b/i.test(segment.text);
     if (!isNegated && forbiddenDesignations.some((pattern) => pattern.test(segment.text))) {
       findings.push({
