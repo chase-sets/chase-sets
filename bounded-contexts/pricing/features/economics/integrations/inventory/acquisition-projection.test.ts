@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { describe, expect, it } from "vitest";
+import type { PgQueryable, PgQueryFunction } from "@chase-sets/event-core-postgres";
 import { projectInventoryAcquisitionLot } from "./acquisition-projection";
 
 function db(rows: readonly Record<string, unknown>[] = [{ persisted_count: "1", binding_count: "1" }]) {
-  const query = vi.fn(async () => ({ rows }));
-  return { value: { query } as PgQueryable, query };
+  const calls: Array<readonly [string, readonly unknown[] | undefined]> = [];
+  const query: PgQueryFunction = async <Row>(text: string, values?: readonly unknown[]) => {
+    calls.push([text, values]);
+    return { rows: rows.map((row) => row as unknown as Row) };
+  };
+  return { value: { query } satisfies PgQueryable, calls };
 }
 
 function event(data: Record<string, unknown>, streamVersion = 1) {
@@ -33,7 +37,7 @@ describe("Inventory acquisition lot projection adapter", () => {
       }),
       "inventory.item.created",
     );
-    expect(target.query.mock.calls[0]?.[1]).toEqual([
+    expect(target.calls[0]?.[1]).toEqual([
       "synthetic-owner-account",
       "synthetic-item",
       1,
@@ -53,7 +57,7 @@ describe("Inventory acquisition lot projection adapter", () => {
       event({ itemId: "synthetic-item", accountId: "synthetic-owner-account", totalQuantity: 1 }),
       "inventory.item.created",
     );
-    expect(target.query.mock.calls[0]?.[1]?.slice(4, 7)).toEqual(["unknown", null, null]);
+    expect(target.calls[0]?.[1]?.slice(4, 7)).toEqual(["unknown", null, null]);
   });
 
   it("uses the qualified Inventory item binding only for positive adjustments", async () => {
@@ -70,7 +74,7 @@ describe("Inventory acquisition lot projection adapter", () => {
       ),
       "inventory.item.adjusted",
     );
-    expect(target.query.mock.calls[0]?.[0]).toContain("pricing_inventory_item_inputs.seller_account_id AS account_id");
+    expect(target.calls[0]?.[0]).toContain("pricing_inventory_item_inputs.seller_account_id AS account_id");
 
     const noWrite = db();
     await projectInventoryAcquisitionLot(
@@ -78,7 +82,7 @@ describe("Inventory acquisition lot projection adapter", () => {
       event({ itemId: "synthetic-item", quantityDelta: -1 }, 5),
       "inventory.item.adjusted",
     );
-    expect(noWrite.query).not.toHaveBeenCalled();
+    expect(noWrite.calls).toEqual([]);
   });
 
   it("fails closed for a missing account binding or a future occurrence", async () => {

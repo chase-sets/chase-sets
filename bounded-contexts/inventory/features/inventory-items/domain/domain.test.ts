@@ -87,7 +87,8 @@ describe("inventory item domain", () => {
 
     expect(adjusted?.data).not.toHaveProperty("reasonCode");
     expect(adjusted?.data).not.toHaveProperty("note");
-    expect(adjusted?.data.acquisitionOccurrence).toEqual({ kind: "unknown" });
+    if (adjusted?.type !== "inventory.item.adjusted") throw new Error("Expected an Inventory adjustment event.");
+    expect(adjusted.data.acquisitionOccurrence).toEqual({ kind: "unknown" });
   });
 
   it("captures known acquisition occurrence on create and positive adjustment without using command time", () => {
@@ -107,7 +108,8 @@ describe("inventory item domain", () => {
       },
       commandOccurredAt: "2026-09-07T06:00:00Z",
     });
-    expect(created?.data.acquisitionOccurrence).toEqual({
+    if (created?.type !== "inventory.item.created") throw new Error("Expected an Inventory created event.");
+    expect(created.data.acquisitionOccurrence).toEqual({
       kind: "occurred",
       occurredAt: "2026-09-01T05:00:00-05:00",
       source: "seller-supplied",
@@ -126,7 +128,8 @@ describe("inventory item domain", () => {
       },
       commandOccurredAt: "2026-09-07T06:00:00Z",
     });
-    expect(adjusted?.data.acquisitionOccurrence).toMatchObject({
+    if (adjusted?.type !== "inventory.item.adjusted") throw new Error("Expected an Inventory adjustment event.");
+    expect(adjusted.data.acquisitionOccurrence).toMatchObject({
       occurredAt: "2026-09-02T10:00:00Z",
       source: "import-supplied",
     });
@@ -137,7 +140,7 @@ describe("inventory item domain", () => {
       type: "CreateInventoryItem" as const,
       itemId: "inv_1" as never,
       accountId: "acc_1" as never,
-      catalogItemId: "cat_1",
+      catalogItemId: "cat_1" as never,
       productId: "cat_1::" as never,
       selectedOptions: [],
       storageLocationId: "loc_1",

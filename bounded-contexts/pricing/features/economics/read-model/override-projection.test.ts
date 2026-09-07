@@ -1,6 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { describe, expect, it } from "vitest";
+import type { PgQueryable, PgQueryFunction } from "@chase-sets/event-core-postgres";
 import { buildEconomicsOverrideProjectionHandlers } from "./override-projection";
+
+function recordingDb() {
+  const calls: Array<readonly [string, readonly unknown[] | undefined]> = [];
+  const query: PgQueryFunction = async <Row>(text: string, values?: readonly unknown[]) => {
+    calls.push([text, values]);
+    return { rows: [] as Row[] };
+  };
+  return { value: { query } satisfies PgQueryable, calls };
+}
 
 function event(type: string, streamVersion: number, value: unknown) {
   return {
@@ -27,12 +36,12 @@ function event(type: string, streamVersion: number, value: unknown) {
 
 describe("Economics override projection", () => {
   it("persists an active null cap distinctly and fences stale delivery by stream version", async () => {
-    const query = vi.fn(async () => ({ rows: [] }));
-    const handlers = buildEconomicsOverrideProjectionHandlers({ query } as PgQueryable);
+    const target = recordingDb();
+    const handlers = buildEconomicsOverrideProjectionHandlers(target.value);
     await handlers["pricing.economics-fact-override-set"]!(event("pricing.economics-fact-override-set", 1, null));
 
-    expect(query).toHaveBeenCalledOnce();
-    const [sql, values] = query.mock.calls[0]!;
+    expect(target.calls).toHaveLength(1);
+    const [sql, values] = target.calls[0]!;
     expect(sql).toContain("pricing_economics_overrides.last_stream_version < EXCLUDED.last_stream_version");
     expect(sql).toContain("stream_watermark.last_stream_version >= $9");
     expect(values).toEqual([
@@ -51,12 +60,12 @@ describe("Economics override projection", () => {
   });
 
   it("persists clear tombstones without deleting the row", async () => {
-    const query = vi.fn(async () => ({ rows: [] }));
-    const handlers = buildEconomicsOverrideProjectionHandlers({ query } as PgQueryable);
+    const target = recordingDb();
+    const handlers = buildEconomicsOverrideProjectionHandlers(target.value);
     await handlers["pricing.economics-fact-override-cleared"]!(
       event("pricing.economics-fact-override-cleared", 2, null),
     );
-    const [sql, values] = query.mock.calls[0]!;
+    const [sql, values] = target.calls[0]!;
     expect(sql).not.toMatch(/DELETE FROM pricing_economics_overrides/);
     expect(values?.slice(4, 8)).toEqual(["cleared", null, null, "2026-09-07T06:02:00Z"]);
   });
