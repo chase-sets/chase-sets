@@ -15,6 +15,20 @@ function replaceField(source, field) {
 }
 
 describe("delivery self-review section contract", () => {
+  it("keeps self-review universal and complete before independent-review dispatch", () => {
+    const fullPathOnly =
+      /\*\*Full path\.\*\*[\s\S]*?plus Planning and a bounded self-review pass before PR readiness/.test(
+        readFileSync(skillPath, "utf8"),
+      );
+    const beforeReviewDispatch =
+      /Before the implementation head is dispatched for independent review, complete one bounded author self-review and its `## Self-review` section/.test(
+        readFileSync(skillPath, "utf8"),
+      );
+
+    expect(fullPathOnly).toBe(false);
+    expect(beforeReviewDispatch).toBe(true);
+  });
+
   it("validates the actual documented snippet", () => {
     expect(section).not.toBe("");
     expect(selfReviewSectionErrors(section)).toEqual([]);
