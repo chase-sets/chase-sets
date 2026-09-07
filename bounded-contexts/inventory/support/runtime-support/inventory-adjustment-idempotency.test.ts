@@ -15,9 +15,13 @@ const baseInput = {
 
 describe("inventory adjustment idempotency", () => {
   it("keeps legacy adjustment fingerprints byte-identical when sale fields are absent", () => {
-    expect(inventoryAdjustmentCommandFingerprint(baseInput)).toBe(
+    const legacyFingerprint = inventoryAdjustmentCommandFingerprint(baseInput);
+    expect(legacyFingerprint).toBe(
       "5b7e79c784d1004f25875df18baab87cdf8f6060fe537fa10effd644cfc931bb",
     );
+    expect(
+      inventoryAdjustmentCommandFingerprint({ ...baseInput, acquisitionOccurrence: { kind: "unknown" } }),
+    ).toBe(legacyFingerprint);
     expect(
       inventoryAdjustmentCommandFingerprint({
         ...baseInput,
@@ -25,6 +29,28 @@ describe("inventory adjustment idempotency", () => {
         note: "  Received at counter  ",
       }),
     ).toBe("b4e204c1c02147fe9d06473d002e86c17f75808b9c19d4c80331c744dbff7862");
+  });
+
+  it("binds a known acquisition occurrence into the idempotency identity", () => {
+    const first = inventoryAdjustmentCommandFingerprint({
+      ...baseInput,
+      acquisitionOccurrence: {
+        kind: "occurred",
+        occurredAt: "2026-09-07T05:00:00Z",
+        source: "import-supplied",
+      },
+    });
+    expect(first).not.toBe(inventoryAdjustmentCommandFingerprint(baseInput));
+    expect(first).not.toBe(
+      inventoryAdjustmentCommandFingerprint({
+        ...baseInput,
+        acquisitionOccurrence: {
+          kind: "occurred",
+          occurredAt: "2026-09-07T05:00:01Z",
+          source: "import-supplied",
+        },
+      }),
+    );
   });
 
   it("fingerprints normalized price, channel, and effective collision mode", () => {
