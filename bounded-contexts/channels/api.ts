@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelsServices } from "./features/connections/domain/contracts";
 import { channelConnectionRoutes } from "./features/connections/api/route";
+import { createOutboundOperationRoutes } from "./features/outbound-sync/api/route";
 import type { ChannelListingCompositionServices } from "./features/listing-composition/api/runtime";
 import { channelListingCompositionRoutes } from "./features/listing-composition/api/route";
 
@@ -33,6 +34,7 @@ export function buildChannelsApi(
   });
 
   app.route("/connections", channelConnectionRoutes(services.connections));
+  app.route("/connections", createOutboundOperationRoutes(services.connections, services.outboundSync));
   app.route("/publication", channelListingCompositionRoutes(services.listingComposition));
   return app;
 }

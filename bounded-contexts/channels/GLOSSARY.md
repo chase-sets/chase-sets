@@ -95,3 +95,19 @@ A **Channel Sync Error** is the actionable failure captured during Channel Sync.
 ## Channel Inventory Snapshot
 
 A **Channel Inventory Snapshot** is channel-reported quantity state captured for reconciliation; Inventory remains the source of stock truth.
+
+## Channel Outbound Operation
+
+A **Channel Outbound Operation** is one durable publish, update, or delist instruction for a Channel Connection and Channel Listing Link.
+
+## Outbound Operation Lane
+
+An **Outbound Operation Lane** is the per-connection, per-link ordering and isolation boundary that holds at most one pending and one in-flight operation.
+
+## Outbound Operation Attempt
+
+An **Outbound Operation Attempt** is one fenced execution of an operation under a unique attempt identity and increasing claim generation.
+
+## Claimed Operation Reservation
+
+A **Claimed Operation Reservation** is an atomic, leased, disjoint assignment of claimed-mode operations to one connector or manual claimant.

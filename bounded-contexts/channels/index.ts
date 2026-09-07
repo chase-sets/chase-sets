@@ -74,7 +74,6 @@ export {
   type ResolvedChannelPublication,
   type UpdatePriceQuantityInput,
 } from "./features/publication-port/domain/contracts";
-
 import {
   buildEventReactionsFromManifest,
   buildEventSubscriptionsFromManifest,
@@ -110,6 +109,15 @@ import {
 } from "./features/listing-composition/read-model/facts-projection";
 import { buildChannelListingStateProjectionHandlers } from "./features/listing-composition/read-model/state-projection";
 import { channelProviderRegistry } from "./features/publication-port/api/registry";
+import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { createOutboundSyncRuntime } from "./features/outbound-sync/api/runtime";
+import { outboundOperationBudgetPolicy } from "./features/outbound-sync/domain/policy";
+import {
+  buildChannelOutboundOperationReactionHandlers,
+  createChannelListingPublicationOutcomeRecorder,
+} from "./features/outbound-sync/integrations/listing-composition";
+import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "./features/outbound-sync/read-model/schema";
+import { assertChannelListingDelistDirectivePayload } from "./features/listing-composition/domain/codecs";
 import {
   channelConnectionSchemaMigrations,
   channelConnectionSchemaSql,
@@ -125,8 +133,12 @@ export const module = defineBoundedContextModule<
   ChannelConnectionHostPorts
 >({
   manifest: channelsContextManifest,
-  schemaSql: `${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}`,
-  schemaMigrations: [...channelConnectionSchemaMigrations, ...channelListingCompositionSchemaMigrations],
+  schemaSql: `${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}`,
+  schemaMigrations: [
+    ...channelConnectionSchemaMigrations,
+    ...channelListingCompositionSchemaMigrations,
+    ...outboundSyncSchemaMigrations,
+  ],
   createServices: (pool, ports) => {
     const eventStore = createPostgresEventStore({
       pool,
@@ -147,9 +159,21 @@ export const module = defineBoundedContextModule<
       db: pool,
       profiles: channelCompositionProfileRegistry,
     });
+    const policies = createPolicyRuntime({ eventStore, db: pool });
+    const outboundSync = createOutboundSyncRuntime(
+      {
+        db: pool,
+        resolveBudgetPolicy: async () => (await policies.resolvePolicy(outboundOperationBudgetPolicy)).value,
+        recordOutcome: createChannelListingPublicationOutcomeRecorder(listingComposition),
+      },
+      {
+        assertDelistDirective: assertChannelListingDelistDirectivePayload,
+      },
+    );
     return {
       connections,
       listingComposition,
+      outboundSync,
       db: pool,
       projectors: [...connections.projectors, ...listingComposition.projectors],
     };
@@ -184,6 +208,8 @@ export const module = defineBoundedContextModule<
           buildChannelInventoryDesiredStateReactionHandlers(services.db, services.listingComposition),
         "channels.channel-listing-desired-state-reaction": () =>
           buildChannelOwnedDesiredStateReactionHandlers(services.listingComposition),
+        "channels.channel-outbound-operation-enqueue": () =>
+          buildChannelOutboundOperationReactionHandlers(services.outboundSync),
       },
     }),
   ],

@@ -1,0 +1,62 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { loader } from "./account-channel-connection";
+
+describe("Channels account connection route contribution", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("declares the exact authenticated account contribution", () => {
+    const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../context.json"), "utf8"));
+    expect(manifest.deployableContributions).toEqual([
+      expect.objectContaining({
+        deployable: "marketplace-web",
+        routes: [
+          expect.objectContaining({
+            routeId: "account-channel-connection",
+            routePath: "account/channels/:connectionId",
+            fileExport: "./routes/marketplace/account-channel-connection",
+            authorization: { kind: "authenticated", requiredPermissions: ["channels.view"] },
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("redirects an unauthenticated actor before a Channels read", async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", fetch);
+    const request = new Request("http://localhost/account/channels/connection-a");
+    await expect(loader({ request, params: { connectionId: "connection-a" }, context: {} })).rejects.toMatchObject({
+      status: 302,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads auth first and maps a later read failure to the no-table error state", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: actor() }))
+      .mockRejectedValueOnce(new Error("synthetic channels read failure"));
+    vi.stubGlobal("fetch", fetch);
+    const request = new Request("http://localhost/account/channels/connection-a");
+    await expect(loader({ request, params: { connectionId: "connection-a" }, context: {} })).resolves.toEqual({
+      kind: "read-error",
+      page: 1,
+      nextCursor: null,
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+function actor() {
+  return {
+    sessionId: "session-a",
+    tenantId: "tenant-a",
+    userId: "user-a",
+    accountId: "acc-owner",
+    membershipId: "membership-a",
+    roleKey: "owner",
+    permissions: ["channels.view"],
+  };
+}

@@ -5,6 +5,7 @@ import type { ChannelConnectionServices } from "../domain/contracts";
 import { AUTH_ROLE_PERMISSIONS } from "../../../../auth/support/auth-support/constants";
 import { ROLE_PERMISSIONS } from "../../../../identity/features/memberships/read-model/constants";
 import { testContext } from "./test-support";
+import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
 import { createUnavailableListingCompositionServices } from "../../listing-composition/tests/service-stub";
 
 describe("channel-connection-authorization-isolation and channel-connection-grant-parity", () => {
@@ -19,6 +20,7 @@ describe("channel-connection-authorization-isolation and channel-connection-gran
       "/api/channels",
       buildChannelsApi({
         connections: services(),
+        outboundSync: createUnavailableOutboundSyncServices(),
         listingComposition: createUnavailableListingCompositionServices(),
         projectors: [],
       }),

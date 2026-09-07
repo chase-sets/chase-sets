@@ -22,7 +22,15 @@ const registryPaths = [
   "deployables/marketplace/app/generated/web-context-registry.ts",
   "deployables/public-web/app/generated/web-context-registry.ts",
 ];
-const requiredRootFiles = ["api.ts", "GLOSSARY.md", "README.md", "context.json", "index.ts", "package.json"];
+const requiredRootFiles = [
+  "api.ts",
+  "GLOSSARY.md",
+  "README.md",
+  "context.json",
+  "index.ts",
+  "package.json",
+  "server.ts",
+];
 const requiredReadmeSections = [
   "## Purpose",
   "## Owns",
@@ -82,6 +90,9 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (!relativeFiles.some((file) => file.startsWith("features/listing-composition/"))) {
     violations.push("listing-composition-files");
   }
+  if (!relativeFiles.some((file) => file.startsWith("features/outbound-sync/"))) {
+    violations.push("outbound-sync-files");
+  }
   if (!relativeFiles.some((file) => file.startsWith("support/request-support/"))) {
     violations.push("request-support-files");
   }
@@ -112,6 +123,15 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("listing-composition-buckets");
   }
+  if (
+    relativeFiles.some(
+      (file) =>
+        file.startsWith("features/outbound-sync/") &&
+        !/^features\/outbound-sync\/(?:api|domain|integrations|read-model|tests|ui)\//.test(file),
+    )
+  ) {
+    violations.push("outbound-sync-buckets");
+  }
   const emptyArrayFields = ["allowedContextDependencies", "seedRequirements", "hostPorts"];
   const absentManifestFields = [
     "sourceRuntimeDeployables",
@@ -119,7 +139,6 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     "mcpCapabilities",
     "accountCapabilities",
     "readAfterWriteRouteInventory",
-    "localeCatalogs",
   ];
 
   for (const field of emptyArrayFields) {
@@ -128,14 +147,17 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   for (const field of absentManifestFields) {
     if (field in candidate) violations.push(field);
   }
-  if (JSON.stringify(candidate.slices) !== JSON.stringify(["connections", "publication-port", "listing-composition"])) {
+  if (
+    JSON.stringify(candidate.slices) !==
+    JSON.stringify(["connections", "publication-port", "listing-composition", "outbound-sync"])
+  ) {
     violations.push("slices");
   }
   if (JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support"])) {
     violations.push("allowedSupportDirectories");
   }
   if (candidate.eventSubscriptions?.length !== 4) violations.push("eventSubscriptions");
-  if (candidate.eventReactions?.length !== 4) violations.push("eventReactions");
+  if (candidate.eventReactions?.length !== 5) violations.push("eventReactions");
   if (candidate.deployableContributions?.[0]?.routes?.length !== 4) violations.push("deployableContributions");
   if (candidate.shellContributions?.[0]?.requiredPermissions?.[0] !== "channels.view")
     violations.push("shellContributions");
@@ -175,8 +197,9 @@ describe("channels-context-foundation", () => {
         "channel-listing-desired-state",
         "channel-listing-reconciliation-run",
       ]),
-      slices: ["connections", "publication-port", "listing-composition"],
+      slices: ["connections", "publication-port", "listing-composition", "outbound-sync"],
       allowedSupportDirectories: ["request-support"],
+      publicExports: [".", "./context", "./server", "./routes/*"],
       allowedContextDependencies: [],
       hostPorts: [],
     });
@@ -187,7 +210,7 @@ describe("channels-context-foundation", () => {
       "inventory",
       "channels",
     ]);
-    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63]);
+    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63, 64]);
     expect(manifest.deployableContributions[0].routes.map((route) => route.authorization.requiredPermissions)).toEqual([
       ["channels.view"],
       ["channels.view"],
@@ -204,9 +227,9 @@ describe("channels-context-foundation", () => {
       ownedNouns: ["channel-connection"],
       streamPrefix: "channels.",
       apiBasePath: "/api/channels",
-      slices: ["connections", "publication-port"],
+      slices: ["connections", "publication-port", "outbound-sync"],
       allowedSupportDirectories: [],
-      publicExports: [".", "./context"],
+      publicExports: [".", "./context", "./server", "./routes/*"],
       allowedContextDependencies: [],
       seedRequirements: [],
       hostPorts: [],
@@ -223,7 +246,33 @@ describe("channels-context-foundation", () => {
       apiRuntimeProfiles: ["proof", "public"],
       apiMounts: [{ mountPath: "/api/channels", kind: "primary", requiresAuth: true }],
       workerRuntimeProfiles: ["proof", "public"],
-      deployableContributions: [],
+      deployableContributions: [
+        {
+          deployable: "marketplace-web",
+          routes: [
+            {
+              routeId: "account-channel-connection",
+              routePath: "account/channels/:connectionId",
+              fileExport: "./routes/marketplace/account-channel-connection",
+              routeType: "route",
+              sourceContext: "channels",
+              delivery: "server-only",
+              authorization: { kind: "authenticated", requiredPermissions: ["channels.view"] },
+              canonicalLink: {
+                kind: "not-applicable",
+                reason: "Canonical-link publication is deferred with portable route extraction.",
+              },
+              availability: { web: true, mobile: false },
+              pageComponentExport: "default",
+              unsupportedMobile: {
+                owner: "channels",
+                followUp: "#7539",
+                reason: "Portable connection detail operations have not been extracted.",
+              },
+            },
+          ],
+        },
+      ],
       shellContributions: [],
       mutationConsistencyInventory: [
         {
@@ -258,16 +307,23 @@ describe("channels-context-foundation", () => {
         },
         "publication-port": {
           classification: "slice",
-          purpose: "Own the provider-neutral Channel Publication contract and immutable provider registry.",
+          purpose: "Own the Channels publication-port contract and immutable provider registry.",
           expectedConsumers: ["Internal Channels publication workflows and provider integrations"],
+        },
+        "outbound-sync": {
+          classification: "slice",
+          purpose:
+            "Own Channels outbound-sync operations, execution admission, leases, and connection-scoped activity.",
+          expectedConsumers: ["Internal Channels module composition", "Channel connector and manual claim workflows"],
         },
         routes: {
           classification: "routes",
-          purpose: "Reserve Channels route metadata for future seller browser-route contributions.",
-          expectedConsumers: ["Future generated deployable route adapters"],
+          purpose: "Expose Channels-owned account route modules consumed by generated deployable adapters.",
+          expectedConsumers: ["Generated deployable route adapters"],
         },
       },
       runtimeDeployables: ["platform-worker"],
+      localeCatalogs: ["contracts/localization/locales/en/channels.ts"],
     });
     const packageJson = readJson(packagePath);
     expect(packageJson).toMatchObject({
@@ -289,19 +345,28 @@ describe("channels-context-foundation", () => {
       scripts: {
         test: "vitest run --config ./tests/vitest.config.mjs",
         "test:db":
-          "vitest run --config ./tests/vitest.config.mjs features/connections/tests/channel-connection-setup-activation.db.test.ts features/connections/tests/channel-connection-projection-concurrency.db.test.ts",
+          "vitest run --config ./tests/vitest.config.mjs features/connections/tests/channel-connection-setup-activation.db.test.ts features/connections/tests/channel-connection-projection-concurrency.db.test.ts features/outbound-sync/tests/outbound-claimed-reservation-interleavings.db.test.ts",
         "test:unit":
-          "vitest run --config ./tests/vitest.config.mjs --exclude features/connections/tests/channel-connection-setup-activation.db.test.ts --exclude features/connections/tests/channel-connection-projection-concurrency.db.test.ts",
+          "vitest run --config ./tests/vitest.config.mjs --exclude features/connections/tests/channel-connection-setup-activation.db.test.ts --exclude features/connections/tests/channel-connection-projection-concurrency.db.test.ts --exclude features/outbound-sync/tests/outbound-claimed-reservation-interleavings.db.test.ts",
         "test:watch": "vitest --config ./tests/vitest.config.mjs",
       },
-      exports: { ".": "./index.ts", "./context": "./context.json" },
+      exports: {
+        ".": "./index.ts",
+        "./context": "./context.json",
+        "./server": "./server.ts",
+        "./routes/*": "./routes/*.tsx",
+      },
       types: "./index.ts",
       dependencies: {
         "@chase-sets/bounded-context-module": "workspace:*",
         "@chase-sets/bounded-context-runtime": "workspace:*",
+        "@chase-sets/design-system": "workspace:*",
         "@chase-sets/event-core": "workspace:*",
         "@chase-sets/event-core-postgres": "workspace:*",
+        "@chase-sets/localization": "workspace:*",
+        "@chase-sets/platform-policy": "workspace:*",
         "@chase-sets/platform-runtime": "workspace:*",
+        "@chase-sets/primitives": "workspace:*",
         hono: "^4.12.12",
       },
     });
@@ -316,6 +381,10 @@ describe("channels-context-foundation", () => {
         "features/publication-port/api/registry.ts",
         "features/publication-port/domain/contracts.ts",
         "features/publication-port/domain/validation.ts",
+        "features/outbound-sync/api/runtime.ts",
+        "features/outbound-sync/read-model/schema.ts",
+        "routes/marketplace/account-channel-connection.tsx",
+        "features/outbound-sync/integrations/listing-composition.ts",
         "features/listing-composition/domain/compose.ts",
         "features/listing-composition/api/runtime.ts",
         "features/listing-composition/read-model/schema.ts",
@@ -403,8 +472,8 @@ describe("channels-foundation-no-deployable-registration", () => {
     const manifest = readJson(manifestPath);
     const packageJson = readJson(packagePath);
     writeJson(fixtureManifestPath, manifest);
-    const trackedLocaleFile = "contracts/localization/locales/en/example.ts";
-    writeSource(root, trackedLocaleFile, 'export const example = { "example.key": "Example" } as const;\n');
+    const trackedLocaleFile = "contracts/localization/locales/en/channels.ts";
+    writeSource(root, trackedLocaleFile, 'export const channels = { "channels.example": "Example" } as const;\n');
 
     const common = { rootDir: root, trackedLocaleFiles: [trackedLocaleFile] };
     syncWorkspaceMetadata({ ...common, workspaces: [] });
@@ -423,8 +492,9 @@ describe("channels-foundation-no-deployable-registration", () => {
       expect(candidate[relativePath]).not.toEqual(before[relativePath]);
       expect(candidate[relativePath].toString("utf8")).toContain("@chase-sets/channels");
     }
-    for (const relativePath of [registryPaths[2], registryPaths[4]])
+    for (const relativePath of [registryPaths[2], registryPaths[4]]) {
       expect(candidate[relativePath]).toEqual(before[relativePath]);
+    }
 
     writeJson(fixtureManifestPath, {
       ...manifest,
@@ -480,6 +550,10 @@ describe("channels-glossary-ownership", () => {
     "Channel Sync Run",
     "Channel Sync Error",
     "Channel Inventory Snapshot",
+    "Channel Outbound Operation",
+    "Outbound Operation Lane",
+    "Outbound Operation Attempt",
+    "Claimed Operation Reservation",
   ];
   const stockTerms = [
     "Channel Stock Allocation",
@@ -565,6 +639,7 @@ describe("channels-wake-registry-derivation", () => {
       affectedProjectionNames: [
         "channels:channel-connection-projection",
         "channels:channel-listing-desired-state-reaction",
+        "channels:channel-outbound-operation-enqueue",
         "channels:channel-owned-publication-state",
       ],
       routeDependencyIds: [],
@@ -585,6 +660,7 @@ describe("channels-wake-registry-derivation", () => {
     expect(projectionMutant.affectedProjectionNames).toEqual([
       "channels:channel-connection-projection",
       "channels:channel-listing-desired-state-reaction",
+      "channels:channel-outbound-operation-enqueue",
       "channels:channel-owned-publication-state",
       "neutral-consumer:connection-view",
     ]);
