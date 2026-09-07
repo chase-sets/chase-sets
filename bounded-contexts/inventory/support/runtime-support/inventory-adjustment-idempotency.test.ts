@@ -16,12 +16,10 @@ const baseInput = {
 describe("inventory adjustment idempotency", () => {
   it("keeps legacy adjustment fingerprints byte-identical when sale fields are absent", () => {
     const legacyFingerprint = inventoryAdjustmentCommandFingerprint(baseInput);
-    expect(legacyFingerprint).toBe(
-      "5b7e79c784d1004f25875df18baab87cdf8f6060fe537fa10effd644cfc931bb",
+    expect(legacyFingerprint).toBe("5b7e79c784d1004f25875df18baab87cdf8f6060fe537fa10effd644cfc931bb");
+    expect(inventoryAdjustmentCommandFingerprint({ ...baseInput, acquisitionOccurrence: { kind: "unknown" } })).toBe(
+      legacyFingerprint,
     );
-    expect(
-      inventoryAdjustmentCommandFingerprint({ ...baseInput, acquisitionOccurrence: { kind: "unknown" } }),
-    ).toBe(legacyFingerprint);
     expect(
       inventoryAdjustmentCommandFingerprint({
         ...baseInput,

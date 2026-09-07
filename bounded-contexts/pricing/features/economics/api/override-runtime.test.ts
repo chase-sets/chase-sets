@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { EventStore } from "@chase-sets/event-core/event-store";
+import { createEventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createEconomicsOverrideRuntime } from "./override-runtime";
@@ -124,6 +124,41 @@ describe("Economics override runtime", () => {
         context,
       }),
     ).rejects.toThrow(/version conflict/);
+  });
+
+  it("maps an append race to the bounded Economics version conflict", async () => {
+    const base = memoryEventStore();
+    let raced = false;
+    const eventStore: EventStore = {
+      ...base,
+      appendToStream: async (input) => {
+        if (raced) return base.appendToStream(input);
+        raced = true;
+        await base.appendToStream(input);
+        throw createEventStoreError("concurrency_conflict", "synthetic append race", {
+          expectedVersion: input.expectedVersion,
+          currentVersion: 1,
+        });
+      },
+    };
+    const runtime = createEconomicsOverrideRuntime({
+      eventStore,
+      db: { query: async () => ({ rows: [] }) } as PgQueryable,
+    });
+
+    await expect(
+      runtime.execute({
+        key,
+        command: {
+          type: "SetEconomicsFactOverride",
+          expectedVersion: 0,
+          factName: "turnaroundDays",
+          value: 12,
+          setAt: "2026-09-07T06:01:00Z",
+        },
+        context,
+      }),
+    ).rejects.toMatchObject({ name: "EconomicsOverrideConflictError" });
   });
 
   it("publishes one same-context projector for tombstone persistence", () => {

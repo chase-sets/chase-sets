@@ -8,6 +8,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   decideEconomicsOverride,
+  EconomicsOverrideConflictError,
   evolveEconomicsOverrides,
   initialEconomicsOverridesState,
   type EconomicsOverrideCommand,
@@ -42,7 +43,7 @@ export function createEconomicsOverrideRuntime(
   return {
     execute: async ({ key, command, context }) => {
       const initial = initialEconomicsOverridesState(key);
-      const { commandHandler } = createAggregateCommandHandler({
+      const { commandHandler, repository } = createAggregateCommandHandler({
         eventStore: deps.eventStore,
         codec,
         initialState: () => initial,
@@ -50,13 +51,20 @@ export function createEconomicsOverrideRuntime(
         decide: decideEconomicsOverride,
         commitSourceContextName: "pricing",
       });
-      const result = await commandHandler({
-        streamId: economicsOverrideStreamId(key),
-        command,
-        context,
-        expectedVersion: command.expectedVersion,
-      });
-      return result.state;
+      const streamId = economicsOverrideStreamId(key);
+      try {
+        const result = await commandHandler({
+          streamId,
+          command,
+          context,
+          expectedVersion: command.expectedVersion,
+        });
+        return result.state;
+      } catch (error) {
+        if (!isEventStoreConcurrencyConflict(error)) throw error;
+        const actual = await repository.load(streamId);
+        throw new EconomicsOverrideConflictError(command.expectedVersion, actual.version);
+      }
     },
     loadAt: async (key, effectiveAt) => {
       const cutoff = Date.parse(requireRfc3339Instant(effectiveAt, "effectiveAt"));
@@ -75,6 +83,10 @@ export function createEconomicsOverrideRuntime(
       }),
     ],
   };
+}
+
+function isEventStoreConcurrencyConflict(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict";
 }
 
 export function economicsOverrideStreamId(key: EconomicsOverrideKey): string {
