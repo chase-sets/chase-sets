@@ -42,6 +42,10 @@ describe("collision census sections", () => {
       codes("Collision risk is controller-owned; a collision census does not belong in this brief."),
     ).not.toContain("BRIEF_COLLISION_CENSUS");
   });
+
+  it("keeps a longer fenced block open when a marker has an info string", () => {
+    expect(codes("```text\n```javascript\n# Collision census\n```\n")).toEqual([]);
+  });
 });
 
 describe("don't-rebuild pointers", () => {
@@ -67,6 +71,31 @@ describe("don't-rebuild pointers", () => {
       "BRIEF_DONT_REBUILD_POINTER_FORMAT",
     );
   });
+
+  it("validates complete Markdown list items and ends label-style sections at the next label", () => {
+    expect(codes("### Don't-rebuild pointers\n\n- `scripts/a.mjs`\n  `scripts/b.mjs`")).toContain(
+      "BRIEF_DONT_REBUILD_POINTER_FORMAT",
+    );
+    expect(codes("### Don't-rebuild pointers\n\n- `scripts/a.mjs`\n  because it already exists.")).toContain(
+      "BRIEF_DONT_REBUILD_POINTER_FORMAT",
+    );
+    expect(
+      codes("Don't-rebuild pointers:\n\n- `scripts/a.mjs`\n\nScope:\n\n- Add bounded behavior.\n- Non-goal: no provider changes."),
+    ).toEqual([]);
+  });
+
+  it("accepts bounded root paths and rejects out-of-repository or malformed values", () => {
+    expect(codes("### Don't-rebuild pointers\n\n- `pnpm-lock.yaml`\n- `scripts`\n- `lintBrief#findings()`")).toEqual([]);
+    for (const value of [
+      "../scripts/outside.mjs",
+      "/scripts/absolute.mjs",
+      "C:/scripts/absolute.mjs",
+      "scripts/a.mjs and scripts/b.mjs",
+      "Thing..method",
+    ]) {
+      expect(codes(`### Don't-rebuild pointers\n\n- \`${value}\``)).toContain("BRIEF_DONT_REBUILD_POINTER_FORMAT");
+    }
+  });
 });
 
 describe("salvage wording", () => {
@@ -86,6 +115,24 @@ describe("salvage wording", () => {
       "Salvage: none.",
     ].join("\n\n");
     expect(codes(body)).toEqual([]);
+  });
+
+  it("recognizes bounded affirmative salvage forms without flagging negated policy", () => {
+    for (const body of [
+      "Live draft PR #42 — read-only salvage.",
+      "Draft PR #42: read-only salvage.",
+      "Reviewed draft PR #42 (read-only salvage).",
+    ]) {
+      expect(codes(body)).toContain("BRIEF_LIVE_DRAFT_SALVAGE");
+    }
+    for (const body of [
+      "Branch `feature/old` is salvage.",
+      "Use `feature/old` as a salvage branch.",
+    ]) {
+      expect(codes(body)).toContain("BRIEF_SALVAGE_BRANCH_STALENESS");
+    }
+    expect(codes("Do not use live draft PR #42 as read-only salvage.")).toEqual([]);
+    expect(codes("Do not use branch `feature/old` as salvage.")).toEqual([]);
   });
 });
 

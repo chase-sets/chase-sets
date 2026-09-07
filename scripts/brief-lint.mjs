@@ -6,8 +6,12 @@ import { fileURLToPath } from "node:url";
 export const BRIEF_MAX_BYTES = 12 * 1024;
 export const BRIEF_MAX_DONT_REBUILD_POINTERS = 5;
 
-const POINTER_VALUE =
-  /^(?:(?:\.?\.?\/)?(?:\.github|\.agents|\.claude|bounded-contexts|contracts|deployables|docs|infrastructure|packages|scripts)\/\S+|[A-Za-z_$][\w$]*(?:(?:\.|#|::)[A-Za-z_$][\w$]*)*(?:\(\))?)$/;
+const REPOSITORY_PATH = /^(?!.*\.\.)(?:(?:\.?[A-Za-z0-9][A-Za-z0-9._@-]*)|[A-Za-z0-9][A-Za-z0-9._@-]*)(?:\/(?:\.?[A-Za-z0-9][A-Za-z0-9._@-]*|[A-Za-z0-9][A-Za-z0-9._@-]*))*$/;
+const SYMBOL_POINTER = /^[A-Za-z_$][\w$]*(?:(?:\.|#|::)[A-Za-z_$][\w$]*)*(?:\(\))?$/;
+
+function isPointerValue(value) {
+  return REPOSITORY_PATH.test(value) || SYMBOL_POINTER.test(value);
+}
 
 function normalizeHeading(value) {
   return String(value)
@@ -52,7 +56,12 @@ function scanMarkdown(body) {
     const fenceMatch = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
     if (fenceMatch) {
       const marker = fenceMatch[1];
-      if (fence && marker[0] === fence.character && marker.length >= fence.length) fence = null;
+      const closesFence =
+        fence &&
+        marker[0] === fence.character &&
+        marker.length >= fence.length &&
+        /^[ \t]*$/.test(line.slice(fenceMatch[0].length));
+      if (closesFence) fence = null;
       else if (!fence) fence = { character: marker[0], length: marker.length };
       ignoredLines.add(index);
       continue;
@@ -75,7 +84,7 @@ function scanMarkdown(body) {
     }
 
     const label = standaloneLabel(line);
-    if (label && (isDontRebuildHeading(label) || isCollisionCensusHeading(label))) {
+    if (label) {
       headings.push({ index, level: 7, text: label });
     }
   }
@@ -101,10 +110,16 @@ function pointerFindings(markdown) {
     firstHeadingLine ??= heading.index + 1;
 
     const end = sectionEnd(markdown.headings, headingIndex, markdown.lines.length);
+    let item = null;
     for (let index = heading.index + 1; index < end; index += 1) {
       if (markdown.ignoredLines.has(index)) continue;
-      const item = /^\s{0,3}(?:[-+*]|\d+[.)])\s+(.+?)\s*$/.exec(markdown.lines[index]);
-      if (item) pointersByLine.set(index + 1, item[1]);
+      const itemStart = /^\s{0,3}(?:[-+*]|\d+[.)])\s+(.+?)\s*$/.exec(markdown.lines[index]);
+      if (itemStart) {
+        item = { line: index + 1, value: itemStart[1] };
+        pointersByLine.set(item.line, item);
+      } else if (item && markdown.lines[index].trim()) {
+        item.value += ` ${markdown.lines[index].trim()}`;
+      }
     }
   }
 
@@ -116,9 +131,9 @@ function pointerFindings(markdown) {
     });
   }
 
-  for (const [line, value] of pointersByLine) {
-    const match = /^`([^`]+)`$/.exec(value.trim());
-    if (!match || !POINTER_VALUE.test(match[1])) {
+  for (const [line, item] of pointersByLine) {
+    const match = /^`([^`]+)`$/.exec(item.value.trim());
+    if (!match || !isPointerValue(match[1])) {
       findings.push({
         code: "BRIEF_DONT_REBUILD_POINTER_FORMAT",
         line,
@@ -165,10 +180,13 @@ function salvageFindings(markdown) {
       "i",
     ),
     new RegExp(String.raw`\b${salvageArtifact}\b\s*:\s*(?:${draftPr})\b`, "i"),
+    new RegExp(String.raw`\b(?:${draftPr})\b\s*(?:—|–|-|:)\s*(?:a\s+)?${salvageArtifact}\b`, "i"),
+    new RegExp(String.raw`\b(?:${draftPr})\b\s*\(\s*(?:a\s+)?${salvageArtifact}\s*\)`, "i"),
   ];
 
   for (const segment of proseSegments(markdown)) {
-    if (forbiddenDesignations.some((pattern) => pattern.test(segment.text))) {
+    const isNegated = /\b(?:do\s+not|don't|never)\b/i.test(segment.text);
+    if (!isNegated && forbiddenDesignations.some((pattern) => pattern.test(segment.text))) {
       findings.push({
         code: "BRIEF_LIVE_DRAFT_SALVAGE",
         line: segment.line,
@@ -180,11 +198,13 @@ function salvageFindings(markdown) {
       /^\s*(?:[-+*]\s*)?(?:\*\*|__)?salvage(?:\s+branch)?(?:\*\*|__)?\s*:/i.test(segment.text) ||
       /\b(?:use|treat|designate|mark|preserve)\b[^.!?]{0,100}\bbranch\b[^.!?]{0,50}\bas\s+(?:read[- ]only\s+)?salvage\b/i.test(
         segment.text,
-      );
+      ) ||
+      /\bbranch\b[^.!?]{0,100}\b(?:is|as)\s+(?:a\s+)?(?:read[- ]only\s+)?salvage\b/i.test(segment.text) ||
+      /`[^`]+`[^.!?]{0,100}\bas\s+(?:a\s+)?(?:read[- ]only\s+)?salvage\s+branch\b/i.test(segment.text);
     const emptyDesignation = /\bsalvage(?:\s+branch)?\s*:\s*(?:none|not applicable)\b/i.test(segment.text);
-    if (!designatesBranch || emptyDesignation) continue;
+    if (isNegated || !designatesBranch || emptyDesignation) continue;
 
-    const namesBranch = /\bbranch\b/i.test(segment.text);
+    const namesBranch = /\bbranch\b|`[^`]+`/i.test(segment.text);
     const noPush = /\b(?:no\s+(?:new\s+)?push(?:es)?|without\s+(?:a\s+)?push(?:es)?|not\s+been\s+pushed)\b/i.test(
       segment.text,
     );
