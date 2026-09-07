@@ -382,8 +382,8 @@ function validStoredCommandFacts(payload: InventoryExternalChannelSaleRecordedPa
     return false;
   try {
     const storedCommand = normalizedCommandFromPayload(payload);
-    const normalizedStoredCommand = normalizeExternalChannelSaleCommand(storedCommand);
-    return sameJson(normalizedStoredCommand, storedCommand);
+    normalizeExternalChannelSaleCommand(storedCommand);
+    return storedCommand.soldAt === undefined || isCanonicalUtcInstant(storedCommand.soldAt);
   } catch {
     return false;
   }
