@@ -3,6 +3,7 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import { createTcgplayerMarketCapture, type MarketCapturePassResult } from "./market-capture";
 import type { TcgplayerMarketTransportCapability } from "../integrations/tcgplayer/transport-port";
+import type { TcgplayerMarketCaptureReceiptSinkCapability } from "../integrations/tcgplayer/capture-sanitizer";
 
 const TCGPLAYER_PROVIDER_KEY = "tcgplayer";
 const DEFAULT_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -59,6 +60,7 @@ type PriceSignalRuntimeDeps = Readonly<{
   db: PgQueryable;
   pool?: PgTransactionalPool;
   tcgplayerMarketTransport?: TcgplayerMarketTransportCapability;
+  tcgplayerMarketCaptureReceiptSink?: TcgplayerMarketCaptureReceiptSinkCapability;
 }>;
 
 type ExternalProductReferenceRow = Readonly<{
@@ -78,6 +80,7 @@ export function createPriceSignalRuntime(deps: PriceSignalRuntimeDeps): PriceSig
     ? createTcgplayerMarketCapture({
         pool: deps.pool,
         transport: deps.tcgplayerMarketTransport ?? { kind: "not-mounted" },
+        receiptSink: deps.tcgplayerMarketCaptureReceiptSink ?? { kind: "not-mounted" },
         recordTcgplayerPriceSignal: record,
       })
     : async (): Promise<MarketCapturePassResult> => ({

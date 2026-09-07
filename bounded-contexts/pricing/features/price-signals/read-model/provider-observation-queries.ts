@@ -136,13 +136,29 @@ export async function listProviderListingSnapshots(
   params: Readonly<{ providerKey: string; catalogItemId: string; observedSince: string; observedUntil?: string }>,
 ) {
   const result = await db.query<SnapshotRow>(
-    `SELECT s.provider_variant, s.provider_language, s.provider_condition, s.observed_on::text,
+    `WITH ranked_observed_captures AS (
+       SELECT capture_id,
+              (capture_started_at AT TIME ZONE 'UTC')::date AS observed_on,
+              ROW_NUMBER() OVER (
+                PARTITION BY (capture_started_at AT TIME ZONE 'UTC')::date
+                ORDER BY capture_started_at DESC, capture_id DESC
+              ) AS capture_rank
+       FROM pricing_external_market_captures
+       WHERE provider_key = $1
+         AND catalog_item_id = $2
+         AND listings_status = 'observed'
+         AND (capture_started_at AT TIME ZONE 'UTC')::date >= $3::date
+         AND ($4::date IS NULL OR (capture_started_at AT TIME ZONE 'UTC')::date < $4::date)
+     )
+     SELECT s.provider_variant, s.provider_language, s.provider_condition, s.observed_on::text,
             s.distinct_seller_count, s.cheapest_delivered_amount::text, s.second_cheapest_delivered_amount::text,
             s.last_capture_id, s.last_observed_at::text, c.listings_coverage
      FROM pricing_external_listing_snapshots s
      JOIN pricing_external_market_captures c ON c.capture_id = s.last_capture_id
-     WHERE s.provider_key = $1 AND s.catalog_item_id = $2
-       AND s.observed_on >= $3 AND ($4::date IS NULL OR s.observed_on < $4)
+     JOIN ranked_observed_captures latest
+       ON latest.capture_id = s.last_capture_id
+      AND latest.observed_on = s.observed_on
+      AND latest.capture_rank = 1
      ORDER BY s.observed_on, s.provider_variant, s.provider_language, s.provider_condition`,
     [params.providerKey, params.catalogItemId, params.observedSince, params.observedUntil ?? null],
   );
@@ -172,8 +188,8 @@ export async function listProviderListingAskGroups(
   db: PgQueryable,
   params: Readonly<{ providerKey: string; catalogItemId: string; captureId: string }>,
 ) {
-  const rows = await askRows(db, params);
-  return rows.map((row) => ({
+  const evidence = await askEvidence(db, params);
+  return evidence.rows.map((row) => ({
     captureId: row.capture_id,
     anonymousCaptureSellerOrdinal: row.anonymous_capture_seller_ordinal,
     providerCondition: row.provider_condition,
@@ -186,7 +202,8 @@ export async function listProviderListingAskDepth(
   db: PgQueryable,
   params: Readonly<{ providerKey: string; catalogItemId: string; captureId: string }>,
 ) {
-  const rows = await askRows(db, params);
+  const evidence = await askEvidence(db, params);
+  const rows = evidence.rows;
   const conditionAmounts = new Map<string, number[]>();
   for (const row of rows) {
     conditionAmounts.set(row.provider_condition, [
@@ -203,7 +220,7 @@ export async function listProviderListingAskDepth(
       }));
   return {
     captureId: params.captureId,
-    coverage: rows[0]?.coverage ?? "unknown",
+    coverage: evidence.coverage,
     conditions: [...conditionAmounts.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([providerCondition, amounts]) => ({ providerCondition, points: histogram(amounts) })),
@@ -221,7 +238,8 @@ export async function countProviderCompetingSellersAt(
     providerCondition?: string;
   }>,
 ) {
-  const rows = await askRows(db, params);
+  const evidence = await askEvidence(db, params);
+  const rows = evidence.rows;
   const eligible = rows.filter(
     (row) =>
       (!params.providerCondition || row.provider_condition === params.providerCondition) &&
@@ -229,15 +247,24 @@ export async function countProviderCompetingSellersAt(
   );
   return {
     count: new Set(eligible.map((row) => row.anonymous_capture_seller_ordinal)).size,
-    coverage: rows[0]?.coverage ?? "unknown",
+    coverage: evidence.coverage,
   };
 }
 
-async function askRows(
+type ListingCaptureRow = Readonly<{ listings_coverage: ProviderObservationCoverage | null }>;
+
+async function askEvidence(
   db: PgQueryable,
   params: Readonly<{ providerKey: string; catalogItemId: string; captureId: string }>,
-): Promise<readonly AskRow[]> {
-  const result = await db.query<AskRow>(
+): Promise<Readonly<{ rows: readonly AskRow[]; coverage: ProviderObservationCoverage }>> {
+  const [capture, result] = await Promise.all([
+    db.query<ListingCaptureRow>(
+      `SELECT listings_coverage
+       FROM pricing_external_market_captures
+       WHERE provider_key = $1 AND catalog_item_id = $2 AND capture_id = $3`,
+      [params.providerKey, params.catalogItemId, params.captureId],
+    ),
+    db.query<AskRow>(
     `SELECT d.capture_id, d.anonymous_capture_seller_ordinal, d.provider_condition,
             d.delivered_amount::text, d.coverage
      FROM pricing_external_listing_ask_depth d
@@ -245,8 +272,12 @@ async function askRows(
      WHERE c.provider_key = $1 AND c.catalog_item_id = $2 AND d.capture_id = $3
      ORDER BY d.provider_condition, d.delivered_amount, d.anonymous_capture_seller_ordinal`,
     [params.providerKey, params.catalogItemId, params.captureId],
-  );
-  return result.rows;
+    ),
+  ]);
+  return {
+    rows: result.rows,
+    coverage: capture.rows[0]?.listings_coverage ?? "unknown",
+  };
 }
 
 type CaptureRow = Readonly<{

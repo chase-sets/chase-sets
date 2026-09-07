@@ -16,9 +16,11 @@ import { createPublicMarketPagesRuntime } from "../../features/public-market-pag
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
 import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
 import type { TcgplayerMarketTransportCapability } from "../../features/price-signals/integrations/tcgplayer/transport-port";
+import type { TcgplayerMarketCaptureReceiptSinkCapability } from "../../features/price-signals/integrations/tcgplayer/capture-sanitizer";
 
 export type PricingHostPorts = Readonly<{
   tcgplayerMarketTransport: TcgplayerMarketTransportCapability;
+  tcgplayerMarketCaptureReceiptSink: TcgplayerMarketCaptureReceiptSinkCapability;
 }>;
 
 export type PricingServices = Readonly<{
@@ -46,7 +48,10 @@ export type PricingServices = Readonly<{
 
 export function createPricingServices(
   pool: PgTransactionalPool,
-  ports: PricingHostPorts = { tcgplayerMarketTransport: { kind: "not-mounted" } },
+  ports: PricingHostPorts = {
+    tcgplayerMarketTransport: { kind: "not-mounted" },
+    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+  },
 ): PricingServices {
   const eventStore = createPostgresEventStore({
     pool,
@@ -55,7 +60,12 @@ export function createPricingServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const policies = createPolicyRuntime({ eventStore, db });
-  const priceSignals = createPriceSignalRuntime({ db, pool, tcgplayerMarketTransport: ports.tcgplayerMarketTransport });
+  const priceSignals = createPriceSignalRuntime({
+    db,
+    pool,
+    tcgplayerMarketTransport: ports.tcgplayerMarketTransport,
+    tcgplayerMarketCaptureReceiptSink: ports.tcgplayerMarketCaptureReceiptSink,
+  });
   const recommendations = createPricingRecommendationRuntime({
     eventStore,
     checkpointStore,

@@ -170,6 +170,7 @@ export function decodeLatestSales(value: unknown): DecodedLatestSales {
   for (const item of envelope.data) {
     try {
       const row = exactRecord(item, SALE_KEYS, "sale-item-invalid");
+      text(row.title, "sale-title-invalid", false);
       data.push({
         condition: text(row.condition, "sale-condition-invalid"),
         variant: text(row.variant, "sale-variant-invalid"),
@@ -202,12 +203,34 @@ export function decodeListings(value: unknown): DecodedListings {
   }
   const page = exactRecord(envelope.results[0], LISTINGS_RESULT_KEYS, "listings-result-invalid");
   if (!Array.isArray(page.results)) throw new Error("listings-result-invalid");
+  text(page.resultId, "listings-result-id-invalid", false);
+  decodeAggregations(page.aggregations);
   let rejectedRows = 0;
   const results: DecodedListing[] = [];
   for (const item of page.results) {
     try {
-      const row = exactRecord(item, LISTING_KEYS, "listing-item-invalid");
-      exactRecord(row.customData, ["images", "title", "description", "linkId"], "listing-custom-data-invalid");
+      const row = exactRecord(item, LISTING_KEYS, "listing-item-invalid", ["listedDate", "soldDate"]);
+      bool(row.directProduct, "listing-direct-product-invalid");
+      bool(row.goldSeller, "listing-gold-seller-invalid");
+      integer(row.channelId, "listing-channel-invalid");
+      integer(row.conditionId, "listing-condition-id-invalid");
+      optionalInstant(row.listedDate, "listing-listed-time-invalid");
+      integer(row.directInventory, "listing-direct-inventory-invalid");
+      moneyNumber(row.rankedShippingPrice, "listing-ranked-shipping-invalid");
+      integer(row.productId, "listing-product-id-invalid", true);
+      text(row.languageAbbreviation, "listing-language-abbreviation-invalid", false);
+      bool(row.forwardFreight, "listing-forward-freight-invalid");
+      moneyNumber(row.shippingPrice, "listing-total-shipping-invalid");
+      integer(row.languageId, "listing-language-id-invalid");
+      finiteNumber(row.score, "listing-score-invalid");
+      bool(row.directSeller, "listing-direct-seller-invalid");
+      integer(row.productConditionId, "listing-product-condition-id-invalid");
+      text(row.listingType, "listing-type-invalid", false);
+      finiteNumber(row.sellerRating, "listing-seller-rating-invalid");
+      text(row.sellerSales, "listing-seller-sales-invalid", false);
+      integer(row.quantity, "listing-quantity-invalid");
+      optionalInstant(row.soldDate, "listing-sold-time-invalid");
+      decodeCustomData(row.customData);
       results.push({
         condition: text(row.condition, "listing-condition-invalid"),
         printing: text(row.printing, "listing-printing-invalid"),
@@ -237,20 +260,24 @@ export function decodePriceHistory(value: unknown): DecodedPriceHistory {
       const row = exactRecord(item, HISTORY_RESULT_KEYS, "history-result-invalid");
       exactRecord(row.trendingMarketPricePercentages, [], "history-trending-invalid");
       if (!Array.isArray(row.buckets)) throw new Error("history-buckets-invalid");
+      numericString(row.averageDailyQuantitySold, "history-average-quantity-invalid");
+      numericString(row.averageDailyTransactionCount, "history-average-transactions-invalid");
+      integerString(row.totalQuantitySold, "history-total-quantity-invalid");
+      integerString(row.totalTransactionCount, "history-total-transactions-invalid");
       const buckets: DecodedHistoryBucket[] = [];
       for (const itemBucket of row.buckets) {
         try {
           const bucket = exactRecord(itemBucket, HISTORY_BUCKET_KEYS, "history-bucket-invalid");
           buckets.push({
-            marketPrice: optionalMoneyString(bucket.marketPrice, "history-market-invalid"),
+            marketPrice: moneyStringOrEmpty(bucket.marketPrice, "history-market-invalid"),
             quantitySold: integerString(bucket.quantitySold, "history-quantity-invalid"),
-            lowSalePrice: optionalMoneyString(bucket.lowSalePrice, "history-low-invalid"),
-            lowSalePriceWithShipping: optionalMoneyString(
+            lowSalePrice: moneyStringOrEmpty(bucket.lowSalePrice, "history-low-invalid"),
+            lowSalePriceWithShipping: moneyStringOrEmpty(
               bucket.lowSalePriceWithShipping,
               "history-low-delivered-invalid",
             ),
-            highSalePrice: optionalMoneyString(bucket.highSalePrice, "history-high-invalid"),
-            highSalePriceWithShipping: optionalMoneyString(
+            highSalePrice: moneyStringOrEmpty(bucket.highSalePrice, "history-high-invalid"),
+            highSalePriceWithShipping: moneyStringOrEmpty(
               bucket.highSalePriceWithShipping,
               "history-high-delivered-invalid",
             ),
@@ -275,11 +302,51 @@ export function decodePriceHistory(value: unknown): DecodedPriceHistory {
   return { count: integer(envelope.count, "history-count-invalid"), result, rejectedRows };
 }
 
-function exactRecord(value: unknown, keys: readonly string[], code: string): RecordValue {
+function exactRecord(
+  value: unknown,
+  keys: readonly string[],
+  code: string,
+  optionalKeys: readonly string[] = [],
+): RecordValue {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(code);
   const row = value as Record<string, unknown>;
   if (Object.keys(row).some((key) => !keys.includes(key))) throw new Error(code);
+  if (keys.some((key) => !optionalKeys.includes(key) && !Object.hasOwn(row, key))) throw new Error(code);
   return row;
+}
+
+function decodeAggregations(value: unknown): void {
+  const aggregations = exactRecord(
+    value,
+    ["condition", "quantity", "listingType", "language", "printing"],
+    "listings-aggregations-invalid",
+    ["condition", "quantity", "listingType", "language", "printing"],
+  );
+  for (const key of ["condition", "quantity", "listingType", "language", "printing"] as const) {
+    const entries = aggregations[key];
+    if (entries === undefined) continue;
+    if (!Array.isArray(entries)) throw new Error("listings-aggregations-invalid");
+    for (const entry of entries) {
+      const aggregation = exactRecord(entry, ["value", "count"], "listings-aggregation-invalid");
+      text(aggregation.value, "listings-aggregation-value-invalid", false);
+      integer(aggregation.count, "listings-aggregation-count-invalid");
+    }
+  }
+}
+
+function decodeCustomData(value: unknown): void {
+  const customData = exactRecord(
+    value,
+    ["images", "title", "description", "linkId"],
+    "listing-custom-data-invalid",
+    ["title", "description", "linkId"],
+  );
+  if (!Array.isArray(customData.images) || customData.images.some((image) => typeof image !== "string")) {
+    throw new Error("listing-custom-data-invalid");
+  }
+  for (const key of ["title", "description", "linkId"] as const) {
+    if (customData[key] !== undefined) text(customData[key], `listing-custom-data-${key}-invalid`, false);
+  }
 }
 
 function integer(value: unknown, code: string, positive = false): number {
@@ -310,16 +377,28 @@ function moneyNumber(value: unknown, code: string): number {
   return value;
 }
 
+function finiteNumber(value: unknown, code: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error(code);
+  return value;
+}
+
 function optionalMoneyNumber(value: unknown, code: string): number | null {
   return value === null || value === undefined ? null : moneyNumber(value, code);
 }
 
-function optionalMoneyString(value: unknown, code: string): string | null {
-  if (value === "" || value === null || value === undefined) return null;
+function moneyStringOrEmpty(value: unknown, code: string): string | null {
+  if (value === "") return null;
   if (typeof value !== "string" || !/^\d+(?:\.\d{1,2})?$/.test(value)) throw new Error(code);
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 9_999_999_999.99) return null;
   return parsed.toFixed(2);
+}
+
+function numericString(value: unknown, code: string): string {
+  if (typeof value !== "string" || !/^\d+(?:\.\d+)?$/.test(value) || !Number.isFinite(Number(value))) {
+    throw new Error(code);
+  }
+  return value;
 }
 
 function text(value: unknown, code: string, required = true): string {

@@ -94,7 +94,7 @@ export async function commitProviderObservationCapture(
   providerKey: string,
   work: MarketCaptureWorkItem,
   capture: ProviderObservationCapture,
-): Promise<"committed" | "stale-worker"> {
+): Promise<"committed" | "replayed" | "stale-worker"> {
   return withPgTransaction(pool, async (db) => {
     const cursorResult = await db.query<CursorRow>(
       `SELECT after_external_key, generation
@@ -110,7 +110,8 @@ export async function commitProviderObservationCapture(
       return "stale-worker";
     }
 
-    await insertCaptureHeader(db, capture);
+    const headerDisposition = await insertCaptureHeader(db, capture);
+    if (headerDisposition === "existing") return "replayed";
     for (const row of capture.sales) {
       await db.query(
         `INSERT INTO pricing_external_sale_observations (
@@ -231,27 +232,64 @@ export async function commitProviderObservationCapture(
   });
 }
 
-async function insertCaptureHeader(db: PgQueryable, capture: ProviderObservationCapture): Promise<void> {
+const CAPTURE_HEADER_COLUMNS = [
+  "capture_id",
+  "provider_key",
+  "catalog_item_id",
+  "external_key",
+  "signal_pass_started_at",
+  "signal_policy_revision_id",
+  "products_per_pass",
+  "capture_started_at",
+  "capture_completed_at",
+  "observation_policy_revision_id",
+  "stat_hygiene_policy_revision_id",
+  "captures_per_pass",
+  "currency",
+  "authenticated_request",
+  "recorded_signal_count",
+  "unresolved_signal_count",
+  "outcome_kind",
+  "reason_code",
+  "rejected_row_count",
+  "sales_status",
+  "sales_requested_at",
+  "sales_response_observed_at",
+  "sales_coverage",
+  "sales_pages_fetched",
+  "sales_returned_count",
+  "sales_first_reported_total",
+  "sales_last_reported_total",
+  "sales_last_next_page",
+  "listings_status",
+  "listings_requested_at",
+  "listings_response_observed_at",
+  "listings_coverage",
+  "listings_pages_fetched",
+  "listings_returned_count",
+  "listings_reported_total",
+  "own_seller_exclusion_applied",
+  "history_status",
+  "history_requested_at",
+  "history_response_observed_at",
+  "history_coverage",
+  "history_result_count",
+  "history_bucket_count",
+  "request_posture",
+  "sales_first_result_count",
+  "sales_last_result_count",
+  "sales_http_status_class",
+  "listings_http_status_class",
+  "history_http_status_class",
+  "history_range",
+] as const;
+
+async function insertCaptureHeader(
+  db: PgQueryable,
+  capture: ProviderObservationCapture,
+): Promise<"inserted" | "existing"> {
   const h = capture.header;
-  await db.query(
-    `INSERT INTO pricing_external_market_captures (
-       capture_id, provider_key, catalog_item_id, external_key, signal_pass_started_at,
-       signal_policy_revision_id, products_per_pass, capture_started_at, capture_completed_at,
-       observation_policy_revision_id, stat_hygiene_policy_revision_id, captures_per_pass, currency,
-       authenticated_request, recorded_signal_count, unresolved_signal_count, outcome_kind, reason_code,
-       rejected_row_count, sales_status, sales_requested_at, sales_response_observed_at, sales_coverage,
-       sales_pages_fetched, sales_returned_count, sales_first_reported_total, sales_last_reported_total,
-       sales_last_next_page, listings_status, listings_requested_at, listings_response_observed_at,
-       listings_coverage, listings_pages_fetched, listings_returned_count, listings_reported_total,
-       own_seller_exclusion_applied, history_status, history_requested_at, history_response_observed_at,
-       history_coverage, history_result_count, history_bucket_count
-       , request_posture, sales_first_result_count, sales_last_result_count, sales_http_status_class,
-       listings_http_status_class, history_http_status_class, history_range
-     ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
-       $26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43::jsonb,$44,$45,$46,$47,$48,$49
-     ) ON CONFLICT (capture_id) DO NOTHING`,
-    [
+  const values: readonly unknown[] = [
       h.captureId,
       h.providerKey,
       h.catalogItemId,
@@ -301,8 +339,33 @@ async function insertCaptureHeader(db: PgQueryable, capture: ProviderObservation
       h.listings?.httpStatusClass ?? null,
       h.history?.httpStatusClass ?? null,
       h.requestPosture?.historyRange ?? null,
-    ],
+    ];
+  const placeholders = CAPTURE_HEADER_COLUMNS.map((column, index) =>
+    column === "request_posture" ? `$${index + 1}::jsonb` : `$${index + 1}`,
   );
+  const inserted = await db.query<{ capture_id: string }>(
+    `INSERT INTO pricing_external_market_captures (${CAPTURE_HEADER_COLUMNS.join(", ")})
+     VALUES (${placeholders.join(", ")})
+     ON CONFLICT (capture_id) DO NOTHING
+     RETURNING capture_id`,
+    values,
+  );
+  if (inserted.rows.length > 0) return "inserted";
+
+  const immutablePredicates = CAPTURE_HEADER_COLUMNS.slice(1).map((column, index) =>
+    column === "request_posture"
+      ? `${column} IS NOT DISTINCT FROM $${index + 2}::jsonb`
+      : `${column} IS NOT DISTINCT FROM $${index + 2}`,
+  );
+  const existing = await db.query<{ capture_id: string }>(
+    `SELECT capture_id
+     FROM pricing_external_market_captures
+     WHERE capture_id = $1
+       AND ${immutablePredicates.join("\n       AND ")}`,
+    values,
+  );
+  if (existing.rows.length === 0) throw new Error("capture-immutable-conflict");
+  return "existing";
 }
 
 function externalNumericId(value: string, prefix: string): number | null {

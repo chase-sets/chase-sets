@@ -12,6 +12,7 @@ describe("ruled provider market-capture policy order", () => {
     const run = createTcgplayerMarketCapture({
       pool,
       transport,
+      receiptSink: { kind: "not-mounted" },
       now: clock(),
       resolveSignalPolicy: async () => {
         events.push("signal-policy");
@@ -64,6 +65,7 @@ describe("ruled provider market-capture policy order", () => {
     const run = createTcgplayerMarketCapture({
       pool,
       transport: fakeTransport(events),
+      receiptSink: { kind: "not-mounted" },
       now,
       resolveSignalPolicy: async () => null,
       recordTcgplayerPriceSignal: vi.fn(),
@@ -81,6 +83,7 @@ describe("ruled provider market-capture policy order", () => {
     const run = createTcgplayerMarketCapture({
       pool,
       transport: fakeTransport(events),
+      receiptSink: { kind: "not-mounted" },
       now: clock(),
       resolveSignalPolicy: async () => ({ revisionId: "signal-r1", value: { productsPerPass: 2 } }),
       resolveObservationPolicy: async () => {
@@ -139,6 +142,7 @@ class CapturePool implements PgTransactionalPool {
     }
     if (sql.includes("INSERT INTO pricing_external_market_captures")) {
       this.captureOutcomes.push(String(params[16]));
+      return { rows: [{ capture_id: String(params[0]) } as Row] };
     }
     if (sql.includes("INSERT INTO pricing_external_market_capture_cursors")) {
       this.cursor = { afterExternalKey: String(params[1]), generation: Number(params[2]) };

@@ -371,6 +371,10 @@ function mapListings(
   const sellerOrdinals = new Map<string, number>();
   const cheapestBySellerCondition = new Map<
     string,
+    { ordinal: number; condition: string; amount: number }
+  >();
+  const cheapestBySellerSnapshotGrain = new Map<
+    string,
     { ordinal: number; condition: string; amount: number; variant: string; language: string }
   >();
   for (const listing of input.observation.listings.rows) {
@@ -390,6 +394,15 @@ function mapListings(
         ordinal,
         condition: listing.condition,
         amount: delivered,
+      });
+    }
+    const snapshotKey = [ordinal, listing.printing, listing.language, listing.condition].join("\u001f");
+    const existingSnapshotAsk = cheapestBySellerSnapshotGrain.get(snapshotKey);
+    if (!existingSnapshotAsk || delivered < existingSnapshotAsk.amount) {
+      cheapestBySellerSnapshotGrain.set(snapshotKey, {
+        ordinal,
+        condition: listing.condition,
+        amount: delivered,
         variant: listing.printing,
         language: listing.language,
       });
@@ -397,8 +410,8 @@ function mapListings(
   }
   sellerOrdinals.clear();
 
-  const asks = [...cheapestBySellerCondition.values()];
-  const askDepth = asks
+  const jointAsks = [...cheapestBySellerCondition.values()];
+  const askDepth = jointAsks
     .map((ask) => ({
       captureId,
       anonymousCaptureSellerOrdinal: ask.ordinal,
@@ -413,8 +426,9 @@ function mapListings(
         a.anonymousCaptureSellerOrdinal - b.anonymousCaptureSellerOrdinal,
     );
 
-  const groups = new Map<string, typeof asks>();
-  for (const ask of asks) {
+  const snapshotAsks = [...cheapestBySellerSnapshotGrain.values()];
+  const groups = new Map<string, typeof snapshotAsks>();
+  for (const ask of snapshotAsks) {
     const key = `${ask.variant}\u001f${ask.language}\u001f${ask.condition}`;
     const group = groups.get(key) ?? [];
     group.push(ask);

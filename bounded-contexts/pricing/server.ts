@@ -5,6 +5,11 @@ export type {
   TcgplayerMarketTransport,
   TcgplayerMarketTransportCapability,
 } from "./features/price-signals/integrations/tcgplayer/transport-port";
+export type {
+  TcgplayerMarketCaptureReceiptSink,
+  TcgplayerMarketCaptureReceiptSinkCapability,
+  TcgplayerMarketCaptureReceiptV1,
+} from "./features/price-signals/integrations/tcgplayer/capture-sanitizer";
 /**
  * Platform-wide market analytics reads: imported by the platform-api
  * composition root to build platform-operations' `opsMarketAnalyticsCrossContext`

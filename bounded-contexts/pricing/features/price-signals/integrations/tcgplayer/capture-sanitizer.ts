@@ -1,8 +1,13 @@
 import type { ProviderObservationCapture } from "../../domain/provider-observation-mapper";
+import type { TcgplayerResponseFieldSummaryV1 } from "./response-receipt";
 
 export type TcgplayerMarketCaptureReceiptV1 = Readonly<{
   kind: "tcgplayer-market-capture-v1";
   captureId: string;
+  lifecycle: Readonly<{
+    fieldSummaryCapturedAt: "response-receipt-before-decode";
+    retainedAt: "after-immutable-capture-commit";
+  }>;
   requestPosture: Readonly<{
     authenticated: boolean;
     salesPages: number;
@@ -11,6 +16,7 @@ export type TcgplayerMarketCaptureReceiptV1 = Readonly<{
     historyRange: "annual";
   }>;
   responseSummary: Readonly<{
+    fieldPresenceAndTypes: TcgplayerResponseFieldSummaryV1;
     salesStatus: string;
     listingsStatus: string;
     historyStatus: string;
@@ -27,14 +33,33 @@ export type TcgplayerMarketCaptureReceiptV1 = Readonly<{
   }>;
 }>;
 
-/** Constructed only after privacy reduction; raw response values are unrepresentable. */
+export type TcgplayerMarketCaptureReceiptSink = Readonly<{
+  retain: (receipt: TcgplayerMarketCaptureReceiptV1) => Promise<void>;
+}>;
+
+export type TcgplayerMarketCaptureReceiptSinkCapability =
+  | TcgplayerMarketCaptureReceiptSink
+  | Readonly<{ kind: "not-mounted" }>;
+
+export function isTcgplayerMarketCaptureReceiptSink(
+  capability: TcgplayerMarketCaptureReceiptSinkCapability,
+): capability is TcgplayerMarketCaptureReceiptSink {
+  return !("kind" in capability);
+}
+
+/** Combines pre-decode shape facts with post-reduction counts; raw values are unrepresentable. */
 export function sanitizeTcgplayerMarketCaptureReceipt(
   capture: ProviderObservationCapture,
+  fieldPresenceAndTypes: TcgplayerResponseFieldSummaryV1,
 ): TcgplayerMarketCaptureReceiptV1 {
   const header = capture.header;
   return {
     kind: "tcgplayer-market-capture-v1",
     captureId: header.captureId,
+    lifecycle: {
+      fieldSummaryCapturedAt: "response-receipt-before-decode",
+      retainedAt: "after-immutable-capture-commit",
+    },
     requestPosture: {
       authenticated: header.authenticatedRequest,
       salesPages: header.sales?.pagesFetched ?? 0,
@@ -43,6 +68,7 @@ export function sanitizeTcgplayerMarketCaptureReceipt(
       historyRange: "annual",
     },
     responseSummary: {
+      fieldPresenceAndTypes,
       salesStatus: header.sales?.status ?? "not-requested",
       listingsStatus: header.listings?.status ?? "not-requested",
       historyStatus: header.history?.status ?? "not-requested",

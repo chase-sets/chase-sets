@@ -69,4 +69,209 @@ describe("closed provider response decoders", () => {
     expect(decoded.data).toHaveLength(1);
     expect(decoded.rejectedRows).toBe(1);
   });
+
+  it("requires every sales envelope and item field", () => {
+    for (const field of ["previousPage", "nextPage", "resultCount", "totalResults", "data"] as const) {
+      const envelope = validSalesEnvelope() as Record<string, unknown>;
+      delete envelope[field];
+      expect(() => decodeLatestSales(envelope)).toThrow();
+    }
+    for (const field of Object.keys(validSale())) {
+      const envelope = validSalesEnvelope();
+      delete (envelope.data[0] as Record<string, unknown>)[field];
+      expect(decodeLatestSales(envelope).rejectedRows, `missing sale.${field}`).toBe(1);
+    }
+  });
+
+  it("requires and types every listing envelope, result, item, aggregation, and custom-data field", () => {
+    for (const field of ["errors", "results"] as const) {
+      const envelope = validListingsEnvelope() as Record<string, unknown>;
+      delete envelope[field];
+      expect(() => decodeListings(envelope)).toThrow();
+    }
+    for (const field of ["totalResults", "resultId", "aggregations", "results"] as const) {
+      const envelope = validListingsEnvelope();
+      delete (envelope.results[0] as Record<string, unknown>)[field];
+      expect(() => decodeListings(envelope), `missing listings result.${field}`).toThrow();
+    }
+    for (const field of REQUIRED_LISTING_FIELDS) {
+      const envelope = validListingsEnvelope();
+      delete (envelope.results[0]!.results[0] as Record<string, unknown>)[field];
+      expect(decodeListings(envelope).rejectedRows, `missing listing.${field}`).toBe(1);
+    }
+    for (const field of REQUIRED_LISTING_FIELDS) {
+      const envelope = validListingsEnvelope();
+      (envelope.results[0]!.results[0] as Record<string, unknown>)[field] = null;
+      expect(decodeListings(envelope).rejectedRows, `wrong type listing.${field}`).toBe(1);
+    }
+    expect(decodeListings(validListingsEnvelope()).results).toHaveLength(1);
+    expect(decodeListings(validListingsEnvelope({ omitOptionalDates: true })).results).toHaveLength(1);
+
+    const missingImages = validListingsEnvelope();
+    delete (missingImages.results[0]!.results[0]!.customData as Record<string, unknown>).images;
+    expect(decodeListings(missingImages).rejectedRows).toBe(1);
+    const badAggregation = validListingsEnvelope();
+    badAggregation.results[0]!.aggregations.condition = [{ value: "Near Mint", count: "1" as never }];
+    expect(() => decodeListings(badAggregation)).toThrow("listings-aggregation-count-invalid");
+  });
+
+  it("requires and types every history envelope, result, and bucket field", () => {
+    for (const field of ["count", "result"] as const) {
+      const envelope = validHistoryEnvelope() as Record<string, unknown>;
+      delete envelope[field];
+      expect(() => decodePriceHistory(envelope)).toThrow();
+    }
+    for (const field of Object.keys(validHistoryResult())) {
+      const envelope = validHistoryEnvelope();
+      delete (envelope.result[0] as Record<string, unknown>)[field];
+      expect(decodePriceHistory(envelope).rejectedRows, `missing history result.${field}`).toBe(1);
+    }
+    for (const field of Object.keys(validHistoryBucket())) {
+      const envelope = validHistoryEnvelope();
+      delete (envelope.result[0]!.buckets[0] as Record<string, unknown>)[field];
+      const decoded = decodePriceHistory(envelope);
+      expect(decoded.rejectedRows, `missing history bucket.${field}`).toBe(1);
+      expect(decoded.result[0]?.buckets).toEqual([]);
+    }
+  });
 });
+
+const REQUIRED_LISTING_FIELDS = [
+  "directProduct",
+  "goldSeller",
+  "listingId",
+  "channelId",
+  "conditionId",
+  "verifiedSeller",
+  "directInventory",
+  "rankedShippingPrice",
+  "productId",
+  "printing",
+  "languageAbbreviation",
+  "sellerName",
+  "forwardFreight",
+  "sellerShippingPrice",
+  "language",
+  "shippingPrice",
+  "condition",
+  "languageId",
+  "score",
+  "directSeller",
+  "productConditionId",
+  "sellerId",
+  "listingType",
+  "sellerRating",
+  "sellerSales",
+  "quantity",
+  "sellerKey",
+  "price",
+  "customData",
+] as const;
+
+function validSale() {
+  return {
+    condition: "Near Mint",
+    variant: "Normal",
+    language: "English",
+    quantity: 1,
+    title: "synthetic",
+    listingType: "All",
+    customListingId: "synthetic",
+    purchasePrice: 5,
+    shippingPrice: 0,
+    orderDate: "2026-09-01T00:00:00.000Z",
+  };
+}
+
+function validSalesEnvelope() {
+  return { previousPage: "" as const, nextPage: "" as const, resultCount: 1, totalResults: 1, data: [validSale()] };
+}
+
+function validListingsEnvelope(options: Readonly<{ omitOptionalDates?: boolean }> = {}) {
+  const listing: Record<string, unknown> = {
+    directProduct: false,
+    goldSeller: false,
+    listingId: 1,
+    channelId: 0,
+    conditionId: 1,
+    listedDate: "2026-09-01T00:00:00.000Z",
+    verifiedSeller: true,
+    directInventory: 0,
+    rankedShippingPrice: 0,
+    productId: 7001,
+    printing: "Normal",
+    languageAbbreviation: "EN",
+    sellerName: "synthetic",
+    forwardFreight: false,
+    sellerShippingPrice: 0,
+    language: "English",
+    shippingPrice: 0,
+    condition: "Near Mint",
+    languageId: 1,
+    score: 0,
+    directSeller: false,
+    productConditionId: 1,
+    sellerId: "synthetic",
+    listingType: "standard",
+    sellerRating: 100,
+    sellerSales: "1",
+    quantity: 1,
+    sellerKey: "synthetic",
+    price: 5,
+    customData: { images: [], title: "synthetic", description: "synthetic", linkId: "synthetic" },
+    soldDate: "2026-09-01T00:00:00.000Z",
+  };
+  if (options.omitOptionalDates) {
+    delete listing.listedDate;
+    delete listing.soldDate;
+  }
+  return {
+    errors: [],
+    results: [
+      {
+        totalResults: 1,
+        resultId: "synthetic",
+        aggregations: {
+          condition: [{ value: "Near Mint", count: 1 }],
+          quantity: [{ value: "1", count: 1 }],
+          listingType: [{ value: "standard", count: 1 }],
+          language: [{ value: "English", count: 1 }],
+          printing: [{ value: "Normal", count: 1 }],
+        },
+        results: [listing],
+      },
+    ],
+  };
+}
+
+function validHistoryBucket() {
+  return {
+    marketPrice: "5.00",
+    quantitySold: "1",
+    lowSalePrice: "5.00",
+    lowSalePriceWithShipping: "5.00",
+    highSalePrice: "5.00",
+    highSalePriceWithShipping: "5.00",
+    transactionCount: "1",
+    bucketStartDate: "2026-09-01T00:00:00.000Z",
+  };
+}
+
+function validHistoryResult() {
+  return {
+    skuId: "9001",
+    variant: "Normal",
+    language: "English",
+    condition: "Near Mint",
+    averageDailyQuantitySold: "1",
+    averageDailyTransactionCount: "1",
+    totalQuantitySold: "1",
+    totalTransactionCount: "1",
+    trendingMarketPricePercentages: {},
+    buckets: [validHistoryBucket()],
+  };
+}
+
+function validHistoryEnvelope() {
+  return { count: 1, result: [validHistoryResult()] };
+}

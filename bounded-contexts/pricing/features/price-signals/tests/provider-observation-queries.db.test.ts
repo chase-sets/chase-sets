@@ -47,6 +47,7 @@ describeDb("typed provider observation persistence and frozen queries", () => {
     const run = createTcgplayerMarketCapture({
       pool,
       transport: providerFixtureTransport(),
+      receiptSink: { kind: "not-mounted" },
       now: clock(),
       resolveSignalPolicy: async () => ({ revisionId: "synthetic-signal-r1", value: { productsPerPass: 1 } }),
       resolveObservationPolicy: async () => ({

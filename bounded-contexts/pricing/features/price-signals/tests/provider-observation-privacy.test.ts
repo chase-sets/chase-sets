@@ -3,6 +3,7 @@ import { mapProviderObservationCapture } from "../domain/provider-observation-ma
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../domain/provider-observation-policy";
 import { sanitizeTcgplayerMarketCaptureReceipt } from "../integrations/tcgplayer/capture-sanitizer";
 import type { TcgplayerSecondaryObservation } from "../integrations/tcgplayer/market-client";
+import { emptyTcgplayerResponseFieldSummary } from "../integrations/tcgplayer/response-receipt";
 
 describe("provider observation privacy boundary", () => {
   it("discards external identity before durable construction", () => {
@@ -26,9 +27,10 @@ describe("provider observation privacy boundary", () => {
       unresolvedSignalCount: 0,
       observation,
     });
-    const durable = JSON.stringify({ capture, receipt: sanitizeTcgplayerMarketCaptureReceipt(capture) });
+    const receipt = sanitizeTcgplayerMarketCaptureReceipt(capture, emptyTcgplayerResponseFieldSummary());
+    const durable = JSON.stringify({ capture, receipt });
     expect(durable).not.toContain("external-seller-secret");
-    expect(durable).not.toMatch(
+    expect(JSON.stringify(capture)).not.toMatch(
       /sellerKey|sellerId|sellerName|listingId|customListingId|cookie|authorization|responseBody|exceptionMessage/i,
     );
     expect(capture.askDepth.map((row) => row.anonymousCaptureSellerOrdinal)).toEqual([1, 1]);

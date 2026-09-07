@@ -10,6 +10,12 @@ import {
   type DecodedSale,
 } from "./response-decoders";
 import type { TcgplayerMarketTransport } from "./transport-port";
+import {
+  summarizeHistoryResponseAtReceipt,
+  summarizeListingsResponseAtReceipt,
+  summarizeSalesResponseAtReceipt,
+  type TcgplayerResponseFieldSummaryV1,
+} from "./response-receipt";
 
 export type EndpointStatus = "observed" | "unavailable" | "disabled" | "not-requested";
 export type SalesCoverage = "complete" | "request-cap-truncated" | "page-budget-truncated" | "inconsistent" | "unknown";
@@ -67,6 +73,11 @@ export type TcgplayerSecondaryObservation = Readonly<{
   history: HistoryObservation;
 }>;
 
+export type TcgplayerSecondaryFetch = Readonly<{
+  observation: TcgplayerSecondaryObservation;
+  responseFieldSummary: TcgplayerResponseFieldSummaryV1;
+}>;
+
 export type TcgplayerMarketClient = Readonly<{
   fetchPricePoints: (skuIds: readonly number[]) => Promise<ReadonlyMap<number, DecodedPricePoint>>;
   fetchSecondary: (
@@ -76,7 +87,7 @@ export type TcgplayerMarketClient = Readonly<{
       now: () => string;
       ownSellerKey?: string;
     }>,
-  ) => Promise<TcgplayerSecondaryObservation>;
+  ) => Promise<TcgplayerSecondaryFetch>;
 }>;
 
 export function createTcgplayerMarketClient(transport: TcgplayerMarketTransport): TcgplayerMarketClient {
@@ -99,7 +110,18 @@ export function createTcgplayerMarketClient(transport: TcgplayerMarketTransport)
         fetchListings(transport, input),
         fetchHistory(transport, input),
       ]);
-      return { sales, listings, history };
+      return {
+        observation: {
+          sales: sales.observation,
+          listings: listings.observation,
+          history: history.observation,
+        },
+        responseFieldSummary: {
+          salesPages: sales.responseSummaries,
+          listingPages: listings.responseSummaries,
+          history: history.responseSummary,
+        },
+      };
     },
   };
 }
@@ -107,7 +129,7 @@ export function createTcgplayerMarketClient(transport: TcgplayerMarketTransport)
 async function fetchSales(
   transport: TcgplayerMarketTransport,
   input: Parameters<TcgplayerMarketClient["fetchSecondary"]>[0],
-): Promise<SalesObservation> {
+): Promise<Readonly<{ observation: SalesObservation; responseSummaries: TcgplayerResponseFieldSummaryV1["salesPages"] }>> {
   const requestedAt = input.now();
   const rows: DecodedSale[] = [];
   let rejectedRows = 0;
@@ -117,6 +139,10 @@ async function fetchSales(
   let firstResultCount: number | null = null;
   let lastResultCount: number | null = null;
   let lastNextPage: "Yes" | "" | null = null;
+  let rawReturnedCount = 0;
+  let inconsistent = false;
+  const responseSummaries: Array<TcgplayerResponseFieldSummaryV1["salesPages"][number]> = [];
+  const seenContinuationBodies = new Set<string>();
   try {
     for (let page = 0; page < input.policy.sales.pageBudget && rows.length < input.policy.sales.limit; page += 1) {
       const offset = page * input.policy.sales.pageSize;
@@ -135,9 +161,27 @@ async function fetchSales(
           { signal },
         ),
       );
+      responseSummaries.push(summarizeSalesResponseAtReceipt(raw));
+      const continuationBody = JSON.stringify(raw);
+      if (seenContinuationBodies.has(continuationBody)) inconsistent = true;
+      seenContinuationBodies.add(continuationBody);
       const decoded = decodeLatestSales(raw);
+      const pageRowCount = decoded.data.length + decoded.rejectedRows;
+      const expectedPreviousPage = page === 0 ? "" : "Yes";
+      if (
+        decoded.previousPage !== expectedPreviousPage ||
+        decoded.resultCount !== pageRowCount ||
+        pageRowCount > limit ||
+        decoded.totalResults < offset + pageRowCount ||
+        (decoded.nextPage === "Yes" &&
+          (pageRowCount === 0 || pageRowCount !== limit || offset + pageRowCount >= decoded.totalResults)) ||
+        (decoded.nextPage === "" && offset + pageRowCount !== decoded.totalResults)
+      ) {
+        inconsistent = true;
+      }
       pagesFetched += 1;
       rejectedRows += decoded.rejectedRows;
+      rawReturnedCount += pageRowCount;
       firstReportedTotal ??= decoded.totalResults;
       firstResultCount ??= decoded.resultCount;
       lastReportedTotal = decoded.totalResults;
@@ -148,40 +192,45 @@ async function fetchSales(
     }
     const totalsConsistent = firstReportedTotal === lastReportedTotal;
     const terminal = lastNextPage === "";
-    const coverage: SalesCoverage = !totalsConsistent
+    const coverage: SalesCoverage = inconsistent || !totalsConsistent
       ? "inconsistent"
-      : rows.length >= input.policy.sales.limit && (lastReportedTotal ?? rows.length) > rows.length
+      : rawReturnedCount >= input.policy.sales.limit && (lastReportedTotal ?? rawReturnedCount) > rawReturnedCount
         ? "request-cap-truncated"
         : !terminal && pagesFetched >= input.policy.sales.pageBudget
           ? "page-budget-truncated"
-          : terminal && rejectedRows === 0 && rows.length === lastReportedTotal
+          : terminal && rejectedRows === 0 && rawReturnedCount === lastReportedTotal && rows.length === rawReturnedCount
             ? "complete"
             : "unknown";
     return {
-      status: "observed",
-      requestedAt,
-      responseObservedAt: input.now(),
-      rows,
-      rejectedRows,
-      coverage,
-      pagesFetched,
-      returnedCount: rows.length,
-      firstReportedTotal,
-      lastReportedTotal,
-      firstResultCount,
-      lastResultCount,
-      lastNextPage,
-      httpStatusClass: "none",
+      observation: {
+        status: "observed",
+        requestedAt,
+        responseObservedAt: input.now(),
+        rows,
+        rejectedRows,
+        coverage,
+        pagesFetched,
+        returnedCount: rows.length,
+        firstReportedTotal,
+        lastReportedTotal,
+        firstResultCount,
+        lastResultCount,
+        lastNextPage,
+        httpStatusClass: "none",
+      },
+      responseSummaries,
     };
   } catch (error) {
-    return unavailableSales(requestedAt, statusClass(error));
+    return { observation: unavailableSales(requestedAt, statusClass(error)), responseSummaries };
   }
 }
 
 async function fetchListings(
   transport: TcgplayerMarketTransport,
   input: Parameters<TcgplayerMarketClient["fetchSecondary"]>[0],
-): Promise<ListingsObservation> {
+): Promise<
+  Readonly<{ observation: ListingsObservation; responseSummaries: TcgplayerResponseFieldSummaryV1["listingPages"] }>
+> {
   const requestedAt = input.now();
   const rows: DecodedListing[] = [];
   let rejectedRows = 0;
@@ -189,6 +238,7 @@ async function fetchListings(
   let reportedTotal: number | null = null;
   let ceilingReached = false;
   let inconsistent = false;
+  const responseSummaries: Array<TcgplayerResponseFieldSummaryV1["listingPages"][number]> = [];
   try {
     for (let page = 0; page < input.policy.listings.pageBudget; page += 1) {
       const raw = await timed(input.policy.secondaryTimeoutMs, (signal) =>
@@ -207,6 +257,7 @@ async function fetchListings(
           { signal },
         ),
       );
+      responseSummaries.push(summarizeListingsResponseAtReceipt(raw));
       const decoded = decodeListings(raw);
       pagesFetched += 1;
       rejectedRows += decoded.rejectedRows;
@@ -230,47 +281,58 @@ async function fetchListings(
             ? "page-budget-truncated"
             : "unknown";
     return {
-      status: "observed",
-      requestedAt,
-      responseObservedAt: input.now(),
-      rows,
-      rejectedRows,
-      coverage,
-      pagesFetched,
-      returnedCount: rows.length,
-      reportedTotal,
-      ownSellerExclusionApplied: Boolean(input.ownSellerKey && input.policy.listings.excludeOwnSeller),
-      httpStatusClass: "none",
+      observation: {
+        status: "observed",
+        requestedAt,
+        responseObservedAt: input.now(),
+        rows,
+        rejectedRows,
+        coverage,
+        pagesFetched,
+        returnedCount: rows.length,
+        reportedTotal,
+        ownSellerExclusionApplied: Boolean(input.ownSellerKey && input.policy.listings.excludeOwnSeller),
+        httpStatusClass: "none",
+      },
+      responseSummaries,
     };
   } catch (error) {
-    return unavailableListings(requestedAt, statusClass(error));
+    return { observation: unavailableListings(requestedAt, statusClass(error)), responseSummaries };
   }
 }
 
 async function fetchHistory(
   transport: TcgplayerMarketTransport,
   input: Parameters<TcgplayerMarketClient["fetchSecondary"]>[0],
-): Promise<HistoryObservation> {
+): Promise<Readonly<{
+  observation: HistoryObservation;
+  responseSummary: TcgplayerResponseFieldSummaryV1["history"];
+}>> {
   const requestedAt = input.now();
+  let responseSummary: TcgplayerResponseFieldSummaryV1["history"] = null;
   try {
     const raw = await timed(input.policy.secondaryTimeoutMs, (signal) =>
       transport.infiniteApi.get<unknown>(`/price/history/${input.productId}/detailed`, { range: "annual" }, { signal }),
     );
+    responseSummary = summarizeHistoryResponseAtReceipt(raw);
     const decoded = decodePriceHistory(raw);
     const bucketCount = decoded.result.reduce((sum, row) => sum + row.buckets.length, 0);
     return {
-      status: "observed",
-      requestedAt,
-      responseObservedAt: input.now(),
-      rows: decoded.result,
-      rejectedRows: decoded.rejectedRows,
-      coverage: decoded.count === decoded.result.length && decoded.rejectedRows === 0 ? "observed" : "inconsistent",
-      resultCount: decoded.result.length,
-      bucketCount,
-      httpStatusClass: "none",
+      observation: {
+        status: "observed",
+        requestedAt,
+        responseObservedAt: input.now(),
+        rows: decoded.result,
+        rejectedRows: decoded.rejectedRows,
+        coverage: decoded.count === decoded.result.length && decoded.rejectedRows === 0 ? "observed" : "inconsistent",
+        resultCount: decoded.result.length,
+        bucketCount,
+        httpStatusClass: "none",
+      },
+      responseSummary,
     };
   } catch (error) {
-    return unavailableHistory(requestedAt, statusClass(error));
+    return { observation: unavailableHistory(requestedAt, statusClass(error)), responseSummary };
   }
 }
 

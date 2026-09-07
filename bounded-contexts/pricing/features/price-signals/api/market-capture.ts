@@ -7,8 +7,9 @@ import {
 } from "../domain/provider-observation-policy";
 import { resolvePriceSignalPolicyRevisionAsOf, type PriceSignalPolicyRevision } from "../domain/price-signal-policy";
 import {
+  isTcgplayerMarketCaptureReceiptSink,
   sanitizeTcgplayerMarketCaptureReceipt,
-  type TcgplayerMarketCaptureReceiptV1,
+  type TcgplayerMarketCaptureReceiptSinkCapability,
 } from "../integrations/tcgplayer/capture-sanitizer";
 import { createTcgplayerMarketClient } from "../integrations/tcgplayer/market-client";
 import {
@@ -41,7 +42,7 @@ export type MarketCaptureDeps = Readonly<{
   resolveSignalPolicy?: (instant: string) => Promise<PriceSignalPolicyRevision | null>;
   resolveObservationPolicy?: (instant: string) => Promise<ProviderObservationPolicyRevision | null>;
   resolveStatHygienePolicy?: (instant: string) => Promise<Readonly<{ revisionId: string }> | null>;
-  retainCaptureReceipt?: (receipt: TcgplayerMarketCaptureReceiptV1) => Promise<void>;
+  receiptSink: TcgplayerMarketCaptureReceiptSinkCapability;
 }>;
 
 export function createTcgplayerMarketCapture(deps: MarketCaptureDeps) {
@@ -153,7 +154,7 @@ export function createTcgplayerMarketCapture(deps: MarketCaptureDeps) {
         });
         try {
           const committed = await commitProviderObservationCapture(deps.pool, PROVIDER_KEY, item, capture);
-          if (committed === "stale-worker") break;
+          if (committed !== "committed") break;
           capturesCommitted += 1;
         } catch {
           return {
@@ -179,7 +180,7 @@ export function createTcgplayerMarketCapture(deps: MarketCaptureDeps) {
     const secondary = work.slice(0, observationPolicy!.value.capturesPerPass);
     for (const item of secondary) {
       const counts = perProductCounts.get(item.productExternalKey)!;
-      const observation = await client.fetchSecondary({
+      const fetched = await client.fetchSecondary({
         productId: item.productId,
         policy: observationPolicy!.value,
         now,
@@ -198,11 +199,11 @@ export function createTcgplayerMarketCapture(deps: MarketCaptureDeps) {
         authenticatedRequest: true,
         recordedSignalCount: counts.recorded,
         unresolvedSignalCount: counts.unresolved,
-        observation,
+        observation: fetched.observation,
       });
       try {
         const committed = await commitProviderObservationCapture(deps.pool, PROVIDER_KEY, item, capture);
-        if (committed === "stale-worker") break;
+        if (committed !== "committed") break;
         capturesCommitted += 1;
       } catch {
         return {
@@ -214,7 +215,11 @@ export function createTcgplayerMarketCapture(deps: MarketCaptureDeps) {
           capturesCommitted,
         };
       }
-      await deps.retainCaptureReceipt?.(sanitizeTcgplayerMarketCaptureReceipt(capture));
+      if (isTcgplayerMarketCaptureReceiptSink(deps.receiptSink)) {
+        await deps.receiptSink.retain(
+          sanitizeTcgplayerMarketCaptureReceipt(capture, fetched.responseFieldSummary),
+        );
+      }
     }
     return {
       status: "completed",
