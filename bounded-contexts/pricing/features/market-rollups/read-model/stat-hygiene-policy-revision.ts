@@ -26,6 +26,35 @@ export type MarketStatHygienePolicyRevision = Readonly<{
 type PolicyRevisionRow = Readonly<{ event_id: string; value: unknown }>;
 
 /**
+ * Resolves the immutable revision visible at an exact provider-capture instant.
+ * Unlike daily close resolution this has no compiled fallback: a missing or
+ * malformed revision makes only the post-signal capture arm invalid.
+ */
+export async function resolveMarketStatHygienePolicyRevisionAsOf(
+  db: PgQueryable,
+  instant: string,
+): Promise<MarketStatHygienePolicyRevision | null> {
+  const at = new Date(instant);
+  if (!instant.trim() || !Number.isFinite(at.getTime())) {
+    throw new Error("A finite market stat-hygiene policy instant is required.");
+  }
+  const result = await db.query<PolicyRevisionRow>(
+    `SELECT event_id, value
+     FROM platform_policy_document_history
+     WHERE policy_key = 'pricing.market-stat-hygiene'
+       AND status = 'active'
+       AND effective_from <= $1
+       AND (effective_until IS NULL OR effective_until > $1)
+       AND recorded_at <= $1
+     ORDER BY effective_from DESC, recorded_at DESC, history_id DESC
+     LIMIT 1`,
+    [at.toISOString()],
+  );
+  const revision = result.rows[0];
+  return revision ? decodeStoredRevision(revision) : null;
+}
+
+/**
  * Resolves the immutable revision governing a UTC daily period. A policy
  * revision must both cover the period close and have been recorded before
  * that close, so a later retroactive edit cannot reinterpret an old period

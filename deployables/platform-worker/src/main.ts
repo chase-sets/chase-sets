@@ -11,6 +11,7 @@ import {
   createTcgplayerAutomationCatalogClient,
   createTcgplayerAutomationHttpClients,
 } from "@chase-sets/catalog/server";
+import type { PricingHostPorts } from "@chase-sets/pricing/server";
 import { createSesEmailNotificationAdapter, createSesSendRequest } from "@chase-sets/ses-email";
 import { createLocalEmailCaptureNotificationAdapter } from "@chase-sets/local-email-capture";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
@@ -188,13 +189,17 @@ const postageLabelProvider =
       })
     : createSandboxPostageLabelProvider();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationCatalogClient = config.tcgplayerAutomation
-  ? createTcgplayerAutomationCatalogClient(
-      createTcgplayerAutomationHttpClients(
-        createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
-      ),
+const tcgplayerAutomationHttpClients = config.tcgplayerAutomation
+  ? createTcgplayerAutomationHttpClients(
+      createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
     )
   : undefined;
+const tcgplayerAutomationCatalogClient = tcgplayerAutomationHttpClients
+  ? createTcgplayerAutomationCatalogClient(tcgplayerAutomationHttpClients)
+  : undefined;
+const pricingHostPorts: PricingHostPorts = {
+  tcgplayerMarketTransport: tcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
+};
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
 const commercialTermsResolver = pools["commercial-terms"]
@@ -246,6 +251,7 @@ runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     addressVerificationProvider: postageLabelProvider,
     catalogAssetStorage,
     ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
+    ...pricingHostPorts,
     sourceObservationTelemetry,
     ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
     ...(balanceCreditResolver ? { balanceCreditResolver } : {}),

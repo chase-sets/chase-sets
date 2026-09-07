@@ -27,7 +27,7 @@ import {
 import { pricingFeatureSchemaMigrations, pricingSchemaSql } from "./support/runtime-support/schema";
 import { pricingUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedPricingDatabase } from "./support/runtime-support/seed";
-import type { PricingServices } from "./support/runtime-support/services";
+import type { PricingHostPorts, PricingServices } from "./support/runtime-support/services";
 import { createPricingServices } from "./support/runtime-support/services";
 import { createPricingRecommendationMcpHandlers } from "./features/recommendations/api/mcp";
 import {
@@ -37,11 +37,11 @@ import {
 
 const pricingContextManifest = contextManifest as BcContextManifest;
 
-export const module = defineBoundedContextModule<PricingServices, PgTransactionalPool, void>({
+export const module = defineBoundedContextModule<PricingServices, PgTransactionalPool, PricingHostPorts>({
   manifest: pricingContextManifest,
   schemaSql: pricingSchemaSql,
   schemaMigrations: [...pricingUnloggedProjectionSchemaMigrations, ...pricingFeatureSchemaMigrations],
-  createServices: (pool) => createPricingServices(pool),
+  createServices: (pool, ports) => createPricingServices(pool, ports),
   buildApis: (services) => [
     { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildPricingApi(services) },
   ],

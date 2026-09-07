@@ -15,6 +15,11 @@ import { createRepricingPolicyRuntime } from "../../features/repricing-policies/
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
 import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
+import type { TcgplayerMarketTransportCapability } from "../../features/price-signals/integrations/tcgplayer/transport-port";
+
+export type PricingHostPorts = Readonly<{
+  tcgplayerMarketTransport: TcgplayerMarketTransportCapability;
+}>;
 
 export type PricingServices = Readonly<{
   priceSignals: ReturnType<typeof createPriceSignalRuntime>;
@@ -39,7 +44,10 @@ export type PricingServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createPricingServices(pool: PgTransactionalPool): PricingServices {
+export function createPricingServices(
+  pool: PgTransactionalPool,
+  ports: PricingHostPorts = { tcgplayerMarketTransport: { kind: "not-mounted" } },
+): PricingServices {
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "pricing" }),
@@ -47,7 +55,7 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const policies = createPolicyRuntime({ eventStore, db });
-  const priceSignals = createPriceSignalRuntime({ db });
+  const priceSignals = createPriceSignalRuntime({ db, pool, tcgplayerMarketTransport: ports.tcgplayerMarketTransport });
   const recommendations = createPricingRecommendationRuntime({
     eventStore,
     checkpointStore,

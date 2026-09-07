@@ -4,12 +4,28 @@ import { buildPricingPriceSignalCatalogProjectionHandlers, derivePricingCatalogP
 
 class ProjectionDb implements PgQueryable {
   public readonly references = new Map<string, Record<string, unknown>>();
+  public readonly catalogReferences = new Map<string, Record<string, unknown>>();
 
   async query<Row = Record<string, unknown>>(
     sql: string,
     params?: readonly unknown[],
   ): Promise<{ rows: Row[]; rowCount: number }> {
     const values = params ?? [];
+    if (sql.includes("INSERT INTO pricing_external_catalog_item_reference_inputs")) {
+      this.catalogReferences.set(`${values[0]}:${values[1]}`, {
+        provider_key: values[0],
+        external_key: values[1],
+        catalog_item_id: values[2],
+        updated_at: values[3],
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("DELETE FROM pricing_external_catalog_item_reference_inputs")) {
+      this.catalogReferences.delete(`${values[0]}:${values[1]}`);
+      return { rows: [], rowCount: 1 };
+    }
+
     if (sql.includes("INSERT INTO pricing_external_product_reference_inputs")) {
       this.references.set(`${values[0]}:${values[1]}`, {
         provider_key: values[0],
@@ -76,5 +92,27 @@ describe("pricing TCGplayer Catalog Product reference projection", () => {
     } as never);
 
     expect(db.references.has("tcgplayer:sku:9001001")).toBe(false);
+  });
+
+  it("projects replayable product-scoped external Catalog references", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildPricingPriceSignalCatalogProjectionHandlers(db);
+    const linked = {
+      type: "catalog.catalog-item.external-catalog-item-reference-linked",
+      streamId: "catalog.item-cat_1",
+      streamVersion: 1,
+      data: { providerKey: "tcgplayer", externalKey: "product:7001" },
+      timing: { recordedAt: "2026-09-01T00:00:00.000Z" },
+    } as never;
+    await handlers["catalog.catalog-item.external-catalog-item-reference-linked"]?.(linked);
+    await handlers["catalog.catalog-item.external-catalog-item-reference-linked"]?.(linked);
+    expect(db.catalogReferences.get("tcgplayer:product:7001")).toMatchObject({ catalog_item_id: "cat_1" });
+
+    await handlers["catalog.catalog-item.external-catalog-item-reference-unlinked"]?.({
+      ...linked,
+      type: "catalog.catalog-item.external-catalog-item-reference-unlinked",
+      streamVersion: 2,
+    });
+    expect(db.catalogReferences.has("tcgplayer:product:7001")).toBe(false);
   });
 });

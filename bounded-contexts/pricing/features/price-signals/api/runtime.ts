@@ -1,6 +1,8 @@
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
+import { createTcgplayerMarketCapture, type MarketCapturePassResult } from "./market-capture";
+import type { TcgplayerMarketTransportCapability } from "../integrations/tcgplayer/transport-port";
 
 const TCGPLAYER_PROVIDER_KEY = "tcgplayer";
 const DEFAULT_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -55,6 +57,8 @@ export type TcgplayerPriceSignalRecord = Readonly<{
 
 type PriceSignalRuntimeDeps = Readonly<{
   db: PgQueryable;
+  pool?: PgTransactionalPool;
+  tcgplayerMarketTransport?: TcgplayerMarketTransportCapability;
 }>;
 
 type ExternalProductReferenceRow = Readonly<{
@@ -64,12 +68,29 @@ type ExternalProductReferenceRow = Readonly<{
 
 export type PriceSignalRuntime = Readonly<{
   recordTcgplayerPriceSignal: (input: TcgplayerPriceSignalInput) => Promise<TcgplayerPriceSignalRecordResult>;
+  runTcgplayerMarketCapture: () => Promise<MarketCapturePassResult>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
 export function createPriceSignalRuntime(deps: PriceSignalRuntimeDeps): PriceSignalRuntime {
+  const record = (input: TcgplayerPriceSignalInput) => recordTcgplayerPriceSignal(deps.db, input);
+  const runTcgplayerMarketCapture = deps.pool
+    ? createTcgplayerMarketCapture({
+        pool: deps.pool,
+        transport: deps.tcgplayerMarketTransport ?? { kind: "not-mounted" },
+        recordTcgplayerPriceSignal: record,
+      })
+    : async (): Promise<MarketCapturePassResult> => ({
+        status: "disabled",
+        reason: "transport-not-mounted",
+        signalWorkCount: 0,
+        signalsRecorded: 0,
+        signalsUnresolved: 0,
+        capturesCommitted: 0,
+      });
   return {
-    recordTcgplayerPriceSignal: (input) => recordTcgplayerPriceSignal(deps.db, input),
+    recordTcgplayerPriceSignal: record,
+    runTcgplayerMarketCapture,
     projectors: [],
   };
 }

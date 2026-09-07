@@ -2,6 +2,10 @@ import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { pricingPriceSignalSchemaSql } from "../../features/price-signals/read-model/schema";
+import {
+  pricingProviderObservationsSchemaMigrations,
+  pricingProviderObservationsSchemaSql,
+} from "../../features/price-signals/read-model/provider-observations-schema";
 import { pricingRecommendationSchemaSql } from "../../features/recommendations/read-model/schema";
 import {
   pricingRecommendationSourceSchemaMigrations,
@@ -24,6 +28,7 @@ import {
 } from "../../features/bulk-reprice-ingestion/read-model/schema";
 
 export const pricingFeatureSchemaMigrations = [
+  ...pricingProviderObservationsSchemaMigrations,
   ...pricingMarketTradesSchemaMigrations,
   ...pricingRecommendationSourceSchemaMigrations,
   ...pricingMarketRollupsSchemaMigrations,
@@ -38,6 +43,7 @@ export const pricingSchemaSql = [
   platformPolicySchemaSql,
   pricingRecommendationSourceSchemaSql,
   pricingPriceSignalSchemaSql,
+  pricingProviderObservationsSchemaSql,
   pricingRecommendationSchemaSql,
   pricingMarketTradesSchemaSql,
   pricingMarketRollupsSchemaSql,

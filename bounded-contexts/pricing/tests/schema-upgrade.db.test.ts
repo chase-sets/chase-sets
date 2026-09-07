@@ -109,5 +109,27 @@ describeDb("pricing schema upgrades", () => {
        WHERE migration_id = '20260720_pricing_rollup_rederive_queue_generation'`,
     );
     expect(generationMigration.rows).toEqual([{ applied_count: 1 }]);
+
+    const persistence = await pool.query<{ relname: string; relpersistence: string }>(
+      `SELECT relname, relpersistence
+       FROM pg_class
+       WHERE relname IN (
+         'pricing_external_catalog_item_reference_inputs',
+         'pricing_external_market_captures',
+         'pricing_external_sale_observations',
+         'pricing_external_weekly_sale_buckets',
+         'pricing_external_listing_snapshots',
+         'pricing_external_listing_ask_depth'
+       )
+       ORDER BY relname`,
+    );
+    expect(persistence.rows).toEqual([
+      { relname: "pricing_external_catalog_item_reference_inputs", relpersistence: "u" },
+      { relname: "pricing_external_listing_ask_depth", relpersistence: "p" },
+      { relname: "pricing_external_listing_snapshots", relpersistence: "p" },
+      { relname: "pricing_external_market_captures", relpersistence: "p" },
+      { relname: "pricing_external_sale_observations", relpersistence: "p" },
+      { relname: "pricing_external_weekly_sale_buckets", relpersistence: "p" },
+    ]);
   });
 });

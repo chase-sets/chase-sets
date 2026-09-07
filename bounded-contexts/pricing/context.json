@@ -14,7 +14,13 @@
     "market-state-snapshot",
     "repricing-policy",
     "repricing-policy-assignment",
-    "bulk-reprice-job"
+    "bulk-reprice-job",
+    "market-capture",
+    "provider-sale-observation",
+    "weekly-sale-bucket",
+    "listing-snapshot",
+    "listing-ask-depth",
+    "anonymous-capture-seller-ordinal"
   ],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
@@ -47,7 +53,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "pricing-catalog-input-projection",
-      "subscriptionVersion": 5,
+      "subscriptionVersion": 6,
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.display-identity-resolved",
@@ -56,6 +62,8 @@
         "catalog.catalog-item.archived",
         "catalog.catalog-item.external-product-reference-linked",
         "catalog.catalog-item.external-product-reference-unlinked",
+        "catalog.catalog-item.external-catalog-item-reference-linked",
+        "catalog.catalog-item.external-catalog-item-reference-unlinked",
         "catalog.catalog-item.category-assigned",
         "catalog.catalog-item.category-removed"
       ],
@@ -212,7 +220,11 @@
     {
       "projectionName": "pricing-catalog-input-projection",
       "sourceContextNames": ["catalog"],
-      "ownedTables": ["pricing_catalog_item_inputs", "pricing_external_product_reference_inputs"],
+      "ownedTables": [
+        "pricing_catalog_item_inputs",
+        "pricing_external_product_reference_inputs",
+        "pricing_external_catalog_item_reference_inputs"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -267,7 +279,13 @@
       "resetStrategy": "replay-only"
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "tcgplayerMarketTransport",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Supply Pricing's concrete TCGplayer price-point and market-evidence transport; non-worker hosts mount not-mounted."
+    }
+  ],
   "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
