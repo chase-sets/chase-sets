@@ -546,8 +546,7 @@ export function findContextRootExportViolation(content, contextRoot = "") {
   const moduleDeclarations = [...content.matchAll(/^\s*export\s+const\s+module\b/gm)];
   if (exportStarts !== reexports.length + moduleDeclarations.length) return diagnostic;
 
-  const canonicalManifest =
-    'export { default as contextManifest } from "./context.json" with { type: "json" };';
+  const canonicalManifest = 'export { default as contextManifest } from "./context.json" with { type: "json" };';
   const manifestReexports = reexports.filter((match) =>
     match[1]
       .split(",")

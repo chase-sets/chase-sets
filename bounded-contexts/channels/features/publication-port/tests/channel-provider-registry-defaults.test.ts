@@ -9,8 +9,10 @@ import { channelProviderRegistry, createChannelProviderRegistry } from "../api/r
 import type { ChannelProviderDescriptor, ChannelPublicationCapability } from "../domain/contracts";
 import {
   createFixtureSetup,
+  createDelistInput,
   createInlineDescriptor,
   createPublishInput,
+  createUpdateInput,
   fixtureClaimedIdentity,
   fixtureInlineIdentity,
 } from "./test-support";
@@ -185,6 +187,46 @@ describe("channel-provider-registry-defaults", () => {
     expect(Object.isFrozen(registry.list())).toBe(true);
     expect(Object.isFrozen(resolved)).toBe(true);
     expect(channelProviderRegistry.list()).toEqual([]);
+  });
+
+  it("captures all inline publication methods during registry construction", async () => {
+    const calls: string[] = [];
+    const capability = {
+      execution: "inline" as const,
+      publishListing: async () => {
+        calls.push("original-publish");
+        return { kind: "succeeded" as const, externalListingId: "fixture-external-listing" };
+      },
+      updatePriceQuantity: async () => {
+        calls.push("original-update");
+        return { kind: "succeeded" as const, externalListingId: "fixture-external-listing" };
+      },
+      delistListing: async () => {
+        calls.push("original-delist");
+        return { kind: "succeeded" as const, externalListingId: "fixture-external-listing" };
+      },
+    };
+    const registry = createChannelProviderRegistry([createInlineDescriptor(capability)]);
+    capability.publishListing = async () => {
+      calls.push("mutated-publish");
+      return { kind: "succeeded", externalListingId: "fixture-mutated-listing" };
+    };
+    capability.updatePriceQuantity = async () => {
+      calls.push("mutated-update");
+      return { kind: "succeeded", externalListingId: "fixture-mutated-listing" };
+    };
+    capability.delistListing = async () => {
+      calls.push("mutated-delist");
+      return { kind: "succeeded", externalListingId: "fixture-mutated-listing" };
+    };
+
+    const publication = registry.get(fixtureInlineIdentity)?.publication;
+    if (!publication || publication.execution !== "inline") throw new Error("Expected fixture inline capability.");
+    await publication.publishListing(createPublishInput());
+    await publication.updatePriceQuantity(createUpdateInput());
+    await publication.delistListing(createDelistInput());
+
+    expect(calls).toEqual(["original-publish", "original-update", "original-delist"]);
   });
 
   it("keeps connect, activate, and resume on the actual production-empty setup resolver", async () => {

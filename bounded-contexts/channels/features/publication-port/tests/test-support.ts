@@ -34,7 +34,7 @@ export function createValidDraft(overrides: Partial<ChannelPublicationDraft> = {
   return {
     channelListingId: "fixture-listing-1",
     listingRevision: 0,
-    title: "Fixture listing",
+    title: "fixture-listing",
     description: "",
     categoryKey: "fixture-category",
     conditionKey: "fixture-condition",

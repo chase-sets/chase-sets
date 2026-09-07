@@ -75,24 +75,28 @@ function resolvePublication(value: unknown, label: string): ResolvedChannelPubli
     return Object.freeze({ execution: "claimed" });
   }
   assertInlinePublicationCapability(value, label);
-  const registered = value;
+  const registeredMethods = Object.freeze({
+    publishListing: value.publishListing,
+    updatePriceQuantity: value.updatePriceQuantity,
+    delistListing: value.delistListing,
+  });
   return Object.freeze({
     execution: "inline",
     publishListing: async (input) => {
       assertPublishListingInput(input);
-      const result = await registered.publishListing(input);
+      const result = await registeredMethods.publishListing(input);
       assertChannelPublicationResult(result);
       return result;
     },
     updatePriceQuantity: async (input) => {
       assertUpdatePriceQuantityInput(input);
-      const result = await registered.updatePriceQuantity(input);
+      const result = await registeredMethods.updatePriceQuantity(input);
       assertChannelPublicationResult(result);
       return result;
     },
     delistListing: async (input) => {
       assertDelistListingInput(input);
-      const result = await registered.delistListing(input);
+      const result = await registeredMethods.delistListing(input);
       assertChannelPublicationResult(result);
       return result;
     },
