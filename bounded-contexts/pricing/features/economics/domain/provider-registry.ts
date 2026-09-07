@@ -17,17 +17,11 @@ export function createEconomicsProviderRegistry(): EconomicsProviderRegistry {
       assertProviderIdentity(provider.identity);
       const key = identityKey(provider.identity);
       if (exact.has(key)) throw new Error(`An exact Economics provider is already registered for ${key}.`);
-      if (externalFallback && identityKey(externalFallback.identity) === key) {
-        throw new Error(`The exact provider ${key} must be structurally distinct from the external fallback.`);
-      }
       exact.set(key, guardProvider(provider));
     },
     registerExternalFallback(provider) {
       assertProviderIdentity(provider.identity);
       if (externalFallback) throw new Error("Only one external Economics fallback may be registered.");
-      const key = identityKey(provider.identity);
-      if (exact.has(key))
-        throw new Error(`The external fallback ${key} must be structurally distinct from exact providers.`);
       externalFallback = guardProvider(provider);
     },
     resolve(identity) {

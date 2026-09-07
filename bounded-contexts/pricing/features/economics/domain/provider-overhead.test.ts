@@ -27,7 +27,7 @@ function unavailableProvider(
 describe("Economics provider selection", () => {
   it("prefers exact registration, permits a single fallback, and needs no consumer branch for a second exact provider", async () => {
     const registry = createEconomicsProviderRegistry();
-    const fallback = unavailableProvider({ providerKey: "synthetic-external-fallback", environment: "sandbox" });
+    const fallback = unavailableProvider(nativeIdentity, "provider-unavailable");
     const second = unavailableProvider(
       { providerKey: "synthetic-provider-b", environment: "production" },
       "terms-unavailable",
@@ -42,11 +42,24 @@ describe("Economics provider selection", () => {
     await expect(registry.resolve(second.identity).resolve(request)).resolves.toMatchObject({
       reason: "terms-unavailable",
     });
-    expect(registry.resolve(fallback.identity).identity).toEqual(fallback.identity);
     expect(registry.resolve({ providerKey: "synthetic-provider-c", environment: "sandbox" }).identity).toEqual({
       providerKey: "synthetic-provider-c",
       environment: "sandbox",
     });
+  });
+
+  it("uses the structurally separate fallback slot only for its exact identity", async () => {
+    const registry = createEconomicsProviderRegistry();
+    const fallbackIdentity = { providerKey: "synthetic-external-fallback", environment: "sandbox" } as const;
+    registry.registerExternalFallback(unavailableProvider(fallbackIdentity, "terms-unavailable"));
+
+    await expect(registry.resolve(fallbackIdentity).resolve(request)).resolves.toMatchObject({
+      providerIdentity: fallbackIdentity,
+      reason: "terms-unavailable",
+    });
+    await expect(
+      registry.resolve({ providerKey: "synthetic-provider-c", environment: "sandbox" }).resolve(request),
+    ).resolves.toMatchObject({ reason: "provider-unavailable" });
   });
 
   it("rejects duplicate slots, invalid identities, and a provider result identity mismatch", async () => {
