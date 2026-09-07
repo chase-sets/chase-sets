@@ -294,6 +294,7 @@ export const committedCallers = [
   "packages/design-system/src/__tests__/design-system-components.test.tsx",
   "packages/design-system/src/brand/chase-sets-logo.tsx",
   "scripts/check-design-system-export-coverage.mjs",
+  "scripts/check-structure/brand-foil-sites.mjs",
   "scripts/check-structure/brand-mark-representations.test.mjs",
   "scripts/generate-brand-icons.mjs",
 ];
