@@ -3,7 +3,9 @@
 ## Purpose
 
 Channels owns the seller-facing lifecycle for connecting an Account to a Sales
-Channel. The connection slice keeps setup authority injected and provider-free.
+Channel and the provider-neutral contract for publishing listings through it.
+The connection slice keeps setup authority injected, while the publication
+port currently composes an empty production provider registry.
 
 ## Owns
 
@@ -15,6 +17,8 @@ Channel. The connection slice keeps setup authority injected and provider-free.
 - The `channels.` stream namespace and authenticated `/api/channels/connections`
   API
 - Channel Connection setup, lifecycle, projection, and account-scoped history
+- Channel Publication contracts, provider capability declarations, and the
+  immutable Channel Provider Registry
 
 ## Does Not Own
 
@@ -22,8 +26,9 @@ Channel. The connection slice keeps setup authority injected and provider-free.
 - Inventory quantity, allocation, reservation, or fulfillment rules (Inventory)
 - Listings and offers (Marketplace)
 - Notification delivery channels or preferences (Notifications)
-- Provider integrations, credential custody, OAuth, provider execution, health
-  observations, attention policy, sync, publication, or seller UI
+- Provider integrations, credential custody, OAuth, provider-specific
+  execution, health observations, attention policy, sync orchestration, or
+  seller UI
 
 ## Ubiquitous Language
 

@@ -76,6 +76,9 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   const rootFiles = relativeFiles.filter((file) => !file.includes("/")).sort();
   if (JSON.stringify(rootFiles) !== JSON.stringify([...requiredRootFiles].sort())) violations.push("root-files");
   if (!relativeFiles.some((file) => file.startsWith("features/connections/"))) violations.push("connections-files");
+  if (!relativeFiles.some((file) => file.startsWith("features/publication-port/"))) {
+    violations.push("publication-port-files");
+  }
   if (
     relativeFiles.some(
       (file) =>
@@ -84,6 +87,15 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     )
   ) {
     violations.push("connections-buckets");
+  }
+  if (
+    relativeFiles.some(
+      (file) =>
+        file.startsWith("features/publication-port/") &&
+        !/^features\/publication-port\/(?:api|domain|tests)\//.test(file),
+    )
+  ) {
+    violations.push("publication-port-buckets");
   }
   const emptyArrayFields = [
     "allowedSupportDirectories",
@@ -110,7 +122,9 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   for (const field of absentManifestFields) {
     if (field in candidate) violations.push(field);
   }
-  if (JSON.stringify(candidate.slices) !== JSON.stringify(["connections"])) violations.push("slices");
+  if (JSON.stringify(candidate.slices) !== JSON.stringify(["connections", "publication-port"])) {
+    violations.push("slices");
+  }
   if (JSON.stringify(candidate.apiDeployables) !== JSON.stringify(["platform-api"])) violations.push("apiDeployables");
   if (JSON.stringify(candidate.runtimeDeployables) !== JSON.stringify(["platform-worker"])) {
     violations.push("runtimeDeployables");
@@ -140,7 +154,7 @@ describe("channels-context-foundation", () => {
       ownedNouns: ["channel-connection"],
       streamPrefix: "channels.",
       apiBasePath: "/api/channels",
-      slices: ["connections"],
+      slices: ["connections", "publication-port"],
       allowedSupportDirectories: [],
       publicExports: [".", "./context"],
       allowedContextDependencies: [],
@@ -192,6 +206,11 @@ describe("channels-context-foundation", () => {
           purpose: "Own the connections slice lifecycle, setup authority, HTTP contract, and projection.",
           expectedConsumers: ["Internal Channels module composition"],
         },
+        "publication-port": {
+          classification: "slice",
+          purpose: "Own the provider-neutral Channel Publication contract and immutable provider registry.",
+          expectedConsumers: ["Internal Channels publication workflows and provider integrations"],
+        },
         routes: {
           classification: "routes",
           purpose: "Reserve Channels route metadata for future seller browser-route contributions.",
@@ -233,6 +252,9 @@ describe("channels-context-foundation", () => {
       expect.arrayContaining([
         "features/connections/domain/domain.ts",
         "features/connections/api/route.ts",
+        "features/publication-port/api/registry.ts",
+        "features/publication-port/domain/contracts.ts",
+        "features/publication-port/domain/validation.ts",
         "tests/vitest.config.mjs",
       ]),
     );

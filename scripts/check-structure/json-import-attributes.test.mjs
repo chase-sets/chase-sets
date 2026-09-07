@@ -700,11 +700,11 @@ describe("real repository execution membership", () => {
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(97);
+    expect(result.inventory.declarations).toHaveLength(98);
     expect(result.inventory.partition).toEqual({
       "node-enforced": 41,
       "vite-excluded": 48,
-      "vitest-excluded": 8,
+      "vitest-excluded": 9,
       "manifest-only": 0,
       indeterminate: 0,
     });
@@ -719,7 +719,7 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "0fe8420087bd6e2cd494bc8cc8f38eda9fae159f3ce0cbedab5f75fa0c32223d",
+      "f1265e9fe8b0403b0e69cb963d0bdd9641375bbdfa540ec6acb34c945abdf2f2",
     );
     expect(
       result.inventory.declarations.find(
@@ -772,5 +772,46 @@ describe("findContextRootExportViolation", () => {
         'export { default as contextManifest } from "./context.json" with { type: "json" };\nexport const module = {};\nexport const extra = true;',
       ),
     ).toBe("context root entrypoints must export only contextManifest and module");
+  });
+
+  it("accepts only the closed Channels publication-port root contract", () => {
+    const channelsRoot = [
+      'export { default as contextManifest } from "./context.json" with { type: "json" };',
+      'export { channelProviderRegistry, createChannelProviderRegistry } from "./registry";',
+      "export {",
+      "  channelExecutionModes,",
+      "  channelPublicationRejectionCodes,",
+      "  type ChannelExecutionMode,",
+      "  type ChannelProviderDescriptor,",
+      "  type ChannelProviderIdentity,",
+      "  type ChannelProviderRegistry,",
+      "  type ChannelPublicationAttribute,",
+      "  type ChannelPublicationCapability,",
+      "  type ChannelPublicationDraft,",
+      "  type ChannelPublicationPrice,",
+      "  type ChannelPublicationRejection,",
+      "  type ChannelPublicationRejectionCode,",
+      "  type ChannelPublicationResult,",
+      "  type ChannelPublicationSuccess,",
+      "  type DelistListingInput,",
+      "  type PublishListingInput,",
+      "  type ResolvedChannelProvider,",
+      "  type ResolvedChannelPublication,",
+      "  type UpdatePriceQuantityInput,",
+      '} from "./contracts";',
+      "export const module = {};",
+    ].join("\n");
+    const diagnostic = "context root entrypoint exports must match the approved closed contract";
+
+    expect(findContextRootExportViolation(channelsRoot, "bounded-contexts/channels")).toBeNull();
+    expect(
+      findContextRootExportViolation(
+        channelsRoot.replace("  type UpdatePriceQuantityInput,\n", ""),
+        "bounded-contexts/channels",
+      ),
+    ).toBe(diagnostic);
+    expect(
+      findContextRootExportViolation(`${channelsRoot}\nexport const extra = true;`, "bounded-contexts/channels"),
+    ).toBe(diagnostic);
   });
 });
