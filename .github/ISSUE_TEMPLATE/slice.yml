@@ -10,6 +10,16 @@ body:
         Structure contract: `docs/contributing/backlog-model.md`.
         The dropdowns below are applied as labels automatically — a slice is not
         dispatchable until it has a priority and an owning context.
+
+        A brief:
+
+        - is at most about 12 KB of body; anything larger splits into sub-issues with native sub-issue links;
+        - carries no collision census. Collision is a controller concern, resolved from GitHub native relationships and the board, not restated in prose;
+        - lists at most five don't-rebuild pointers, each a path or symbol, not a narrative;
+        - never designates a live draft PR as read-only salvage. A reviewed draft PR is always the implementation head for its issue; salvage applies only to a branch with no push in seven days;
+        - states acceptance as observable outcomes with the proving check named once, and repeats no policy that the orchestrator or review contract already owns.
+
+        "About 12 KB" means at most 12 × 1024 = 12,288 UTF-8 bytes in the Markdown issue body. Format any don't-rebuild pointers under a `Don't-rebuild pointers` heading with one backticked path or symbol per list item. Run `node ./scripts/brief-lint.mjs <path-to-brief.md>` before registration. These rules apply to new planning and the next planning round, not retroactive rewrites of existing open briefs.
   - type: dropdown
     id: priority
     attributes:

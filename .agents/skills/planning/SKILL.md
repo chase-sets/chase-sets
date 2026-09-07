@@ -36,6 +36,30 @@ Calibration may revise itself mid-flight: when an issue-sized idea grows a secon
 context or a full-path trigger during discovery, escalate the tier — start small,
 escalate the moment scope demands it.
 
+## Bounded brief contract
+
+A brief:
+
+- is at most about 12 KB of body; anything larger splits into sub-issues with native sub-issue links;
+- carries no collision census. Collision is a controller concern, resolved from GitHub native relationships and the board, not restated in prose;
+- lists at most five don't-rebuild pointers, each a path or symbol, not a narrative;
+- never designates a live draft PR as read-only salvage. A reviewed draft PR is always the implementation head for its issue; salvage applies only to a branch with no push in seven days;
+- states acceptance as observable outcomes with the proving check named once, and repeats no policy that the orchestrator or review contract already owns.
+
+For this contract, "about 12 KB" means at most 12 × 1024 = 12,288
+UTF-8 bytes in the Markdown issue body. Put any don't-rebuild pointers under a
+`Don't-rebuild pointers` heading with one backticked path or symbol per list
+item. Before registration, render the prospective issue body to a Markdown
+file and run:
+
+```powershell
+node ./scripts/brief-lint.mjs <path-to-brief.md>
+```
+
+Apply this contract to new planning and to the next planning round for an
+existing issue. Never rewrite, split, or re-register existing open briefs
+solely to adopt it.
+
 ## Pipeline
 
 Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milestone: all.
@@ -123,7 +147,7 @@ contract (`planning-repair/v1`) automatically; solo sessions follow the same
 shape.
 
 Before Stage 1, gather and state: the closed PR with its **exact head and
-branch** (read-only salvage), every blocking finding ID from the reviews that
+branch** (historical evidence), every blocking finding ID from the reviews that
 stopped it, the decision issues that governed it and how each resolved, and
 current `origin/main` — the findings were written against a head that has moved.
 
