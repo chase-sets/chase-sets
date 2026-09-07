@@ -53,6 +53,27 @@ function parseSelectedOptions(value: unknown): PricingSelectedOptionEntry[] {
 
 export function buildPricingPriceSignalCatalogProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
+    "catalog.catalog-item.external-catalog-item-reference-linked": async (event) => {
+      const catalogItemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+      const data = event.data as { providerKey: string; externalKey: string };
+      await db.query(
+        `INSERT INTO pricing_external_catalog_item_reference_inputs (
+           provider_key, external_key, catalog_item_id, updated_at
+         ) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (provider_key, external_key) DO UPDATE SET
+           catalog_item_id = EXCLUDED.catalog_item_id,
+           updated_at = EXCLUDED.updated_at`,
+        [data.providerKey, data.externalKey, catalogItemId, event.timing.recordedAt],
+      );
+    },
+    "catalog.catalog-item.external-catalog-item-reference-unlinked": async (event) => {
+      const data = event.data as { providerKey: string; externalKey: string };
+      await db.query(
+        `DELETE FROM pricing_external_catalog_item_reference_inputs
+         WHERE provider_key = $1 AND external_key = $2`,
+        [data.providerKey, data.externalKey],
+      );
+    },
     "catalog.catalog-item.external-product-reference-linked": async (event) => {
       const catalogItemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const data = event.data as {

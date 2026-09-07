@@ -1,6 +1,7 @@
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
+import type { PricingServices } from "@chase-sets/pricing/server";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createWorkSignalCleanupRunner } from "@chase-sets/platform-runtime/projection-wake-scheduler";
 import { createRetentionSweepRunner } from "@chase-sets/platform-runtime/retention-sweep";
@@ -135,19 +136,8 @@ export function createRegisteredScheduledRunners({
         ) => Promise<{ checked: number; started: number; skipped: number }>;
       }
     | undefined;
-  const pricing = services.pricing as
-    | {
-        marketRollups?: {
-          runDailyRollupCloser?: (params?: { now?: string; trailingWindowDays?: number; limit?: number }) => Promise<{
-            rollupDaysRecomputed: number;
-            marketStateSnapshotsRecomputed: number;
-            productAggregatesRecomputed: number;
-            platformDaysRecomputed: number;
-          }>;
-          getPlatformGmvForMonth?: (params: { yearMonth: string }) => Promise<string>;
-        };
-      }
-    | undefined;
+  const pricingCandidate = services.pricing;
+  const pricing = isPricingServices(pricingCandidate) ? pricingCandidate : undefined;
   const settlement = services.settlement as SettlementServices | undefined;
   const fulfillment = services.fulfillment as
     | {
@@ -402,6 +392,30 @@ export function createRegisteredScheduledRunners({
           return (
             result.rollupDaysRecomputed + result.marketStateSnapshotsRecomputed + result.productAggregatesRecomputed
           );
+        },
+      ),
+    );
+  }
+
+  const runTcgplayerMarketCapture = pricing?.priceSignals.runTcgplayerMarketCapture;
+  if (runTcgplayerMarketCapture && input.marketRollupsCloserIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "pricing.tcgplayer-market-capture",
+        input.marketRollupsCloserIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await runTcgplayerMarketCapture();
+          logger.info("Pricing TCGplayer market capture pass completed.", {
+            type: "pricing.tcgplayer-market-capture",
+            status: result.status,
+            reason: result.reason,
+            signalWorkCount: result.signalWorkCount,
+            signalsRecorded: result.signalsRecorded,
+            signalsUnresolved: result.signalsUnresolved,
+            capturesCommitted: result.capturesCommitted,
+          });
+          return result.signalsRecorded + result.capturesCommitted;
         },
       ),
     );
@@ -973,3 +987,7 @@ const SYSTEM_CONTEXT = {
     forAccountId: "acc_identity_system" as never,
   },
 };
+
+function isPricingServices(value: unknown): value is PricingServices {
+  return typeof value === "object" && value !== null && "priceSignals" in value && "marketRollups" in value;
+}

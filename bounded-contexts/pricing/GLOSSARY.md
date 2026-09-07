@@ -12,6 +12,30 @@ Examples:
 - Accepted offers
 - Completed orders
 
+## Market Capture
+
+A **Market Capture** is one immutable, provider-keyed attempt to record secondary sales, weekly-history, and listing-depth evidence for a mapped Product after every selected Price Signal in the pass has committed. Its header preserves the two policy instants, endpoint presence, coverage, and rejection outcome without retaining a provider response body.
+
+## Provider Sale Observation
+
+A **Provider Sale Observation** is a capture-scoped group of provider-returned sale tuples. Its occurrence count is exact only within that returned capture; overlapping captures consolidate by maximum observed tuple multiplicity and are never added as if the provider supplied stable sale identity.
+
+## Weekly Sale Bucket
+
+A **Weekly Sale Bucket** is a provider-reported SKU history bucket keyed by the provider's UTC bucket start. It retains nullable Product mapping, capture provenance, and a source watermark; it is evidence, not an inferred calendar-completeness claim.
+
+## Listing Snapshot
+
+A **Listing Snapshot** is the latest provider listing summary for one UTC day, Product condition, variant, and language: distinct transient seller groups and the two cheapest delivered asks, with its capture and coverage provenance.
+
+## Listing Ask Depth
+
+**Listing Ask Depth** is the immutable capture-local joint of anonymous seller ordinal, provider condition, and cheapest delivered ask. It supports raw depth and requires consumers to scale asks by condition before deduplicating seller ordinals.
+
+## Anonymous Capture Seller Ordinal
+
+An **Anonymous Capture Seller Ordinal** is a sequential, non-identifying grouping label allocated while reducing one Market Capture. It is derived from no durable hash or stable ordering, is meaningless outside that capture, and must never be joined across captures.
+
 ## Market Price Snapshot
 
 A **Market Price Snapshot** is the recorded fair-value output for a resolved product over a defined time window, tied to the source signals used to calculate it.

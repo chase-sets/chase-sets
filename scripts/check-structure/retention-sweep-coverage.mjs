@@ -37,6 +37,10 @@ export const retentionCoverageExemptions = new Map([
     "Daily market-state history is product data retained forever, like the Trades Tape it derives from (#4303); never age-swept (#4305).",
   ],
   [
+    "pricing_external_listing_snapshots",
+    "Provider listing snapshots are permanent typed market evidence whose immutable capture provenance must remain available to Demand Curve replay; never age-swept (#7704).",
+  ],
+  [
     "platform_operations_gmv_reconciliation_runs",
     "Tape-vs-ledger reconciliation results are a permanent ops audit trail over forever-retained source data; never age-swept.",
   ],

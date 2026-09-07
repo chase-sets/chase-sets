@@ -32,7 +32,7 @@ import {
   resolveCatalogProductSelection,
 } from "@chase-sets/catalog/server";
 import type { SavedListProductCatalog } from "@chase-sets/collections/server";
-import { pricingRealtimeManifest } from "@chase-sets/pricing/server";
+import { pricingRealtimeManifest, type PricingHostPorts } from "@chase-sets/pricing/server";
 import { module as identityModule } from "@chase-sets/identity";
 import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
 import {
@@ -92,6 +92,8 @@ import {
   marketAnalyticsDisplayPolicy,
   marketEstimatePolicy,
   marketStatHygienePolicy,
+  priceSignalPolicy,
+  providerObservationPolicy,
   repricingEnginePolicy,
 } from "@chase-sets/pricing/server";
 import {
@@ -381,6 +383,8 @@ export function createPlatformApiHost(
         marketStatHygienePolicy,
         marketAnalyticsDisplayPolicy,
         marketEstimatePolicy,
+        priceSignalPolicy,
+        providerObservationPolicy,
         repricingEnginePolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
@@ -512,6 +516,10 @@ export function createPlatformApiHost(
 
     return createBatch(params, context);
   };
+  const pricingHostPorts: PricingHostPorts = {
+    tcgplayerMarketTransport: { kind: "not-mounted" },
+    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+  };
 
   runtime = createApiHost(apiContextRegistry, "platform-api", {
     ...options,
@@ -534,6 +542,7 @@ export function createPlatformApiHost(
       draftListingCreator,
       inventoryCleanupAuthority,
       inventorySavedListImportBatchCreator,
+      ...pricingHostPorts,
     },
   });
   return runtime;

@@ -1,5 +1,17 @@
 export { getAccountRecommendation, listAccountRecommendations } from "./features/recommendations/read-model/queries";
 export { createPricingRequestApiClient } from "./support/request-support/api-client";
+export type { PricingHostPorts, PricingServices } from "./support/runtime-support/services";
+export type {
+  TcgplayerMarketTransport,
+  TcgplayerMarketTransportCapability,
+} from "./features/price-signals/integrations/tcgplayer/transport-port";
+export type {
+  TcgplayerMarketCaptureReceiptSink,
+  TcgplayerMarketCaptureReceiptSinkCapability,
+  TcgplayerMarketCaptureReceiptStorage,
+  TcgplayerMarketCaptureReceiptV1,
+} from "./features/price-signals/integrations/tcgplayer/capture-sanitizer";
+export { createObjectStorageTcgplayerMarketCaptureReceiptSink } from "./features/price-signals/integrations/tcgplayer/capture-sanitizer";
 /**
  * Platform-wide market analytics reads: imported by the platform-api
  * composition root to build platform-operations' `opsMarketAnalyticsCrossContext`
@@ -54,4 +66,19 @@ export {
   type MarketEstimatePolicyValue,
 } from "./features/market-estimates/domain/estimate-policy";
 export { repricingEnginePolicy, type RepricingEnginePolicyValue } from "./features/repricing-engine/domain/policy";
+export { priceSignalPolicy, type PriceSignalPolicyValue } from "./features/price-signals/domain/price-signal-policy";
+export {
+  providerObservationPolicy,
+  type ProviderObservationPolicyValue,
+} from "./features/price-signals/domain/provider-observation-policy";
+export { effectiveSaleAmount, effectiveSaleAmountExact } from "./features/price-signals/domain/effective-sale-price";
+export {
+  listProviderSaleEvidence,
+  listProviderWeeklySaleBuckets,
+  listProviderListingSnapshots,
+  listProviderListingAskDepth,
+  countProviderCompetingSellersAt,
+  listProviderListingAskGroups,
+  latestProviderMarketCapture,
+} from "./features/price-signals/read-model/provider-observation-queries";
 export type { ProductMarketStatsSnapshotResponse } from "./features/market-rollups/api/runtime";

@@ -1110,6 +1110,10 @@ importers:
       hono:
         specifier: ^4.12.12
         version: 4.12.18
+    devDependencies:
+      '@chase-sets/catalog':
+        specifier: workspace:*
+        version: link:../catalog
 
   bounded-contexts/public-presence:
     dependencies:

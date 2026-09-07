@@ -511,6 +511,7 @@ const hostedDbAdmissionCorpusSeeds = [
       "@chase-sets/discovery",
       "@chase-sets/inventory",
       "@chase-sets/marketplace-seed-testing",
+      "@chase-sets/pricing",
     ],
     deltaReason: "DB-required footprint executes on the PR fast lane independently of the shared targeted lane",
   },
@@ -1006,15 +1007,18 @@ describe("change-scope", () => {
       "@chase-sets/checkout",
       "@chase-sets/payments",
       "@chase-sets/settlement",
-      "@chase-sets/pricing",
       "@chase-sets/marketplace",
       "@chase-sets/ordering",
     ]) {
       expect(scope.affectedWorkspaces).not.toContain(workspaceName);
     }
-    // Acceptance tests in inventory and discovery mount the catalog module, so
+    // Acceptance tests in inventory, discovery, and pricing mount the catalog module, so
     // their tests rerun without dragging their own dependents along.
-    expect(scope.devDependencyTestAffectedWorkspaces).toEqual(["@chase-sets/discovery", "@chase-sets/inventory"]);
+    expect(scope.devDependencyTestAffectedWorkspaces).toEqual([
+      "@chase-sets/discovery",
+      "@chase-sets/inventory",
+      "@chase-sets/pricing",
+    ]);
     expect(scope.dbTestsRequired).toBe(true);
   });
 
