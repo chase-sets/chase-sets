@@ -1,10 +1,10 @@
 import { describe, expectTypeOf, it } from "vitest";
+import type { ChannelsServices } from "../../connections/domain/contracts";
 import type {
-  ChannelsServices,
   ClaimedOperationOutcome,
   ClaimedOperationReservation,
   ClaimedOutboundOperation,
-} from "../../../server";
+} from "../domain/contracts";
 
 describe("outbound claimed public contract", () => {
   it("exports the exact reservation and producer-sequence member sets for successor callers", () => {
