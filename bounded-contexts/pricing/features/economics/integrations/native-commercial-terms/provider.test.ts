@@ -100,7 +100,11 @@ describe("native Commercial Terms Economics provider", () => {
   it("collapses every Commercial Terms domain failure without exposing its text", async () => {
     const provider = createNativeCommercialTermsEconomicsProvider({
       identity,
-      commercialTermsResolver: { resolveListingTerms: async () => { throw new Error("sensitive database detail"); } },
+      commercialTermsResolver: {
+        resolveListingTerms: async () => {
+          throw new Error("sensitive database detail");
+        },
+      },
       resolvePolicy: async () => resolvedPolicy,
     });
     await expect(provider.resolve(request)).resolves.toEqual({

@@ -1,5 +1,5 @@
 import type { ResolvedEconomicsPolicy } from "./policy";
-import { requirePositiveInteger, requireRfc3339Instant } from "./contracts";
+import { requireCurrency, requirePositiveInteger, requireRfc3339Instant } from "./contracts";
 
 const DAY_MILLISECONDS = 86_400_000;
 
@@ -54,19 +54,22 @@ export type CapitalCycleObservations = Readonly<{
 
 type MutableQuantity<T> = T & { remaining: number };
 
-export function observeCapitalCycle(input: Readonly<{
-  accountId: string;
-  currency: string;
-  effectiveAt: string;
-  acquisitions: readonly AcquisitionLotObservation[];
-  sales: readonly SaleObservation[];
-  policy: ResolvedEconomicsPolicy;
-}>): CapitalCycleObservations {
+export function observeCapitalCycle(
+  input: Readonly<{
+    accountId: string;
+    currency: string;
+    effectiveAt: string;
+    acquisitions: readonly AcquisitionLotObservation[];
+    sales: readonly SaleObservation[];
+    policy: ResolvedEconomicsPolicy;
+  }>,
+): CapitalCycleObservations {
   const effectiveAt = requireRfc3339Instant(input.effectiveAt, "effectiveAt");
+  const currency = requireCurrency(input.currency, "currency");
   const effectiveMillis = Date.parse(effectiveAt);
   const windowStart = effectiveMillis - input.policy.value.observationWindowDays * DAY_MILLISECONDS;
   const acquisitions = eligibleAcquisitions(input.acquisitions, input.accountId, windowStart, effectiveMillis);
-  const sales = eligibleSales(input.sales, input.accountId, input.currency, windowStart, effectiveMillis);
+  const sales = eligibleSales(input.sales, input.accountId, currency, windowStart, effectiveMillis);
 
   const holdSamples = allocateObservedHold(acquisitions, sales);
   const turnaroundSamples = allocateObservedTurnaround(acquisitions, sales);
@@ -101,15 +104,17 @@ function eligibleAcquisitions(
   effectiveAt: number,
 ): readonly MutableQuantity<AcquisitionLotObservation & { acquiredAt: string }>[] {
   return rows
-    .filter((row) => row.accountId === accountId && row.occurrence.kind === "occurred")
+    .filter((row) => row.accountId === accountId)
     .map((row) => {
+      requireIdentity(row.lotId, "Acquisition lotId");
+      requireIdentity(row.inventoryItemId, `Acquisition ${row.lotId} inventoryItemId`);
       requirePositiveInteger(row.quantity, `Acquisition ${row.lotId} quantity`, Number.MAX_SAFE_INTEGER);
-      const acquiredAt = requireRfc3339Instant(
-        row.occurrence.kind === "occurred" ? row.occurrence.occurredAt : "",
-        `Acquisition ${row.lotId} occurredAt`,
-      );
+      assertAcquisitionOccurrence(row.occurrence, row.lotId);
+      if (row.occurrence.kind === "unknown") return null;
+      const acquiredAt = requireRfc3339Instant(row.occurrence.occurredAt, `Acquisition ${row.lotId} occurredAt`);
       return { ...row, acquiredAt, remaining: row.quantity };
     })
+    .filter((row) => row !== null)
     .filter((row) => Date.parse(row.acquiredAt) >= windowStart && Date.parse(row.acquiredAt) <= effectiveAt)
     .sort((left, right) => compareInstantIdentity(left.acquiredAt, left.lotId, right.acquiredAt, right.lotId));
 }
@@ -122,12 +127,17 @@ function eligibleSales(
   effectiveAt: number,
 ): readonly MutableQuantity<SaleObservation>[] {
   return rows
-    .filter((row) => row.accountId === accountId && row.currency === currency && !row.excluded)
+    .filter((row) => row.accountId === accountId)
     .map((row) => {
+      requireIdentity(row.saleId, "Sale saleId");
+      if (row.inventoryItemId !== null) requireIdentity(row.inventoryItemId, `Sale ${row.saleId} inventoryItemId`);
       requirePositiveInteger(row.quantity, `Sale ${row.saleId} quantity`, Number.MAX_SAFE_INTEGER);
       requireRfc3339Instant(row.soldAt, `Sale ${row.saleId} soldAt`);
+      requireCurrency(row.currency, `Sale ${row.saleId} currency`);
+      if (typeof row.excluded !== "boolean") throw new Error(`Sale ${row.saleId} excluded must be boolean.`);
       return { ...row, remaining: row.quantity };
     })
+    .filter((row) => row.currency === currency && !row.excluded)
     .filter((row) => Date.parse(row.soldAt) >= windowStart && Date.parse(row.soldAt) <= effectiveAt)
     .sort((left, right) => compareInstantIdentity(left.soldAt, left.saleId, right.soldAt, right.saleId));
 }
@@ -136,7 +146,7 @@ function allocateObservedHold(
   acquisitions: readonly MutableQuantity<AcquisitionLotObservation & { acquiredAt: string }>[],
   sales: readonly MutableQuantity<SaleObservation>[],
 ): WeightedCycleSample[] {
-  const lotsByItem = new Map<string, MutableQuantity<AcquisitionLotObservation & { acquiredAt: string }>[] >();
+  const lotsByItem = new Map<string, MutableQuantity<AcquisitionLotObservation & { acquiredAt: string }>[]>();
   for (const acquisition of acquisitions) {
     const existing = lotsByItem.get(acquisition.inventoryItemId) ?? [];
     existing.push({ ...acquisition });
@@ -206,7 +216,9 @@ function statistic(
     .reduce((total, sample) => total + sample.quantity, 0);
   const sampleCount = accepted.reduce((total, sample) => total + sample.quantity, 0);
   if (sampleCount < minimumSamples) return { value: null, candidateCount, excludedDurationCount };
-  const sorted = [...accepted].sort((left, right) => left.days - right.days || left.sampleId.localeCompare(right.sampleId));
+  const sorted = [...accepted].sort(
+    (left, right) => left.days - right.days || left.sampleId.localeCompare(right.sampleId),
+  );
   const lowerPosition = Math.floor((sampleCount - 1) / 2);
   const upperPosition = Math.floor(sampleCount / 2);
   const value = (weightedValueAt(sorted, lowerPosition) + weightedValueAt(sorted, upperPosition)) / 2;
@@ -246,4 +258,31 @@ function earlier(left: string, right: string): string {
 
 function compareInstantIdentity(leftAt: string, leftId: string, rightAt: string, rightId: string): number {
   return Date.parse(leftAt) - Date.parse(rightAt) || leftId.localeCompare(rightId);
+}
+
+function assertAcquisitionOccurrence(occurrence: AcquisitionOccurrence, lotId: string): void {
+  if (typeof occurrence !== "object" || occurrence === null || Array.isArray(occurrence)) {
+    throw new Error(`Acquisition ${lotId} occurrence must be an object.`);
+  }
+  const keys = Object.keys(occurrence).sort();
+  if (occurrence.kind === "unknown") {
+    if (keys.length !== 1 || keys[0] !== "kind") {
+      throw new Error(`Acquisition ${lotId} unknown occurrence is not closed.`);
+    }
+    return;
+  }
+  if (occurrence.kind !== "occurred") throw new Error(`Acquisition ${lotId} occurrence kind is unknown.`);
+  if (keys.join("\u0000") !== ["kind", "occurredAt", "source"].join("\u0000")) {
+    throw new Error(`Acquisition ${lotId} occurred occurrence is not closed.`);
+  }
+  requireRfc3339Instant(occurrence.occurredAt, `Acquisition ${lotId} occurredAt`);
+  if (occurrence.source !== "seller-supplied" && occurrence.source !== "import-supplied") {
+    throw new Error(`Acquisition ${lotId} occurrence source is unknown.`);
+  }
+}
+
+function requireIdentity(value: string, name: string): void {
+  if (typeof value !== "string" || value.length === 0 || value.trim() !== value) {
+    throw new Error(`${name} must be non-empty and already trimmed.`);
+  }
 }

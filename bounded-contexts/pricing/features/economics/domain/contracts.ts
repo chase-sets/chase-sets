@@ -6,6 +6,7 @@ import {
   type MoneyAmount,
   type SignedMoneyAmount,
 } from "@chase-sets/primitives/money";
+import { canonicalJson } from "./revision";
 
 export const economicsFactNames = [
   "platformFeeRelativeBps",
@@ -54,6 +55,8 @@ export type ResolveEconomicsRequest = Readonly<{
   quantity: number;
   effectiveAt: string;
 }>;
+
+export type ResolveEconomicsInput = Omit<ResolveEconomicsRequest, "accountId">;
 
 export interface ChannelConnectionIdentityReader {
   resolve(input: Readonly<{ accountId: string; connectionId: string }>): Promise<ResolvedChannelConnection | null>;
@@ -156,10 +159,31 @@ const REQUEST_KEYS = [
   "quantity",
 ] as const;
 
+const REQUEST_INPUT_KEYS = [
+  "catalogItemId",
+  "connectionId",
+  "effectiveAt",
+  "inventoryItemId",
+  "marketUnitPrice",
+  "quantity",
+] as const;
+
 export function parseResolveEconomicsRequest(raw: unknown): ResolveEconomicsRequest {
   const record = requireClosedRecord(raw, REQUEST_KEYS, "Economics request");
   return {
     accountId: requireNonEmptyString(record.accountId, "accountId"),
+    ...parseResolveEconomicsFields(record),
+  };
+}
+
+export function parseResolveEconomicsInput(raw: unknown): ResolveEconomicsInput {
+  return parseResolveEconomicsFields(requireClosedRecord(raw, REQUEST_INPUT_KEYS, "Economics input"));
+}
+
+function parseResolveEconomicsFields(
+  record: Record<(typeof REQUEST_INPUT_KEYS)[number], unknown>,
+): ResolveEconomicsInput {
+  return {
     connectionId: requireNonEmptyString(record.connectionId, "connectionId"),
     catalogItemId: requireNonEmptyString(record.catalogItemId, "catalogItemId"),
     inventoryItemId: requireNonEmptyString(record.inventoryItemId, "inventoryItemId"),
@@ -233,8 +257,9 @@ export function parseFactValue<Name extends EconomicsFactName>(
 
 export function assertProviderIdentity(identity: ChannelProviderIdentity): void {
   const record = requireClosedRecord(identity, ["environment", "providerKey"] as const, "provider identity");
-  if (!/^[a-z][a-z0-9-]{0,63}$/.test(requireNonEmptyString(record.providerKey, "providerKey"))) {
-    throw new EconomicsContractError("providerKey must be lower-kebab and at most 64 characters.");
+  const providerKey = requireNonEmptyString(record.providerKey, "providerKey");
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(providerKey) || [...providerKey].length > 64) {
+    throw new EconomicsContractError("providerKey must be lower-kebab and contain at most 64 Unicode scalars.");
   }
   if (record.environment !== "sandbox" && record.environment !== "production") {
     throw new EconomicsContractError("environment must be sandbox or production.");
@@ -257,26 +282,40 @@ export function assertFactSourceForName(factName: EconomicsFactName, source: Fac
 export function assertEconomicsFacts(facts: EconomicsFacts, currency: string): void {
   requireClosedRecord(facts, economicsFactNames, "Economics facts");
   for (const factName of economicsFactNames) {
-    const fact = requireClosedRecord(
-      facts[factName],
-      ["effectiveValue", "observedAt", "override", "source", "sourceValue"] as const,
-      factName,
-    );
-    parseFactValue(factName, fact.sourceValue, currency);
-    parseFactValue(factName, fact.effectiveValue, currency);
-    assertFactSourceForName(factName, fact.source as FactSource);
-    requireRfc3339Instant(fact.observedAt, `${factName}.observedAt`);
-    if (fact.override !== null) {
-      const override = requireClosedRecord(
-        fact.override,
-        ["revision", "setAt", "value"] as const,
-        `${factName}.override`,
-      );
-      parseFactValue(factName, override.value, currency);
-      requirePositiveInteger(override.revision, `${factName}.override.revision`, Number.MAX_SAFE_INTEGER);
-      requireRfc3339Instant(override.setAt, `${factName}.override.setAt`);
-    }
+    assertEconomicsFact(factName, facts[factName], currency);
   }
+  assertCrossFactSourceBindings(facts);
+}
+
+export function assertSourceEconomics(source: SourceEconomics, currency: string): void {
+  if (source.kind === "unavailable") {
+    requireClosedRecord(source, ["kind", "providerIdentity", "reason"] as const, "unavailable source Economics");
+    assertProviderIdentity(source.providerIdentity);
+    if (source.reason !== "provider-unavailable" && source.reason !== "terms-unavailable") {
+      throw new EconomicsContractError("Unknown source Economics unavailable reason.");
+    }
+    return;
+  }
+  if (source.kind !== "resolved") throw new EconomicsContractError("Unknown source Economics outcome.");
+  requireClosedRecord(source, ["facts", "kind", "providerIdentity"] as const, "resolved source Economics");
+  assertProviderIdentity(source.providerIdentity);
+  const names = [
+    "platformFeeRelativeBps",
+    "platformFeeFixedPerUnitAmount",
+    "platformFeeCapPerUnitAmount",
+    "sellerHandlingRelativeBps",
+    "sellerHandlingFixedPerUnitAmount",
+    "sellerHandlingCapPerUnitAmount",
+    "shippingAllowanceBps",
+  ] as const;
+  requireClosedRecord(source.facts, names, "source Economics facts");
+  for (const name of names) assertEconomicsFact(name, source.facts[name], currency);
+  assertSameSourceBinding(
+    source.facts,
+    ["platformFeeRelativeBps", "platformFeeFixedPerUnitAmount", "platformFeeCapPerUnitAmount", "shippingAllowanceBps"],
+    "Commercial Terms",
+  );
+  assertSamePolicyRevision(source.facts, names.slice(3, 6), "seller handling");
 }
 
 export function requireRfc3339Instant(value: unknown, fieldName: string): string {
@@ -326,7 +365,7 @@ export class EconomicsContractError extends Error {
   }
 }
 
-function requireClosedRecord<const Keys extends readonly string[]>(
+export function requireClosedRecord<const Keys extends readonly string[]>(
   value: unknown,
   keys: Keys,
   fieldName: string,
@@ -345,6 +384,81 @@ function requireClosedRecord<const Keys extends readonly string[]>(
     );
   }
   return record as Record<Keys[number], unknown>;
+}
+
+function assertEconomicsFact<Name extends EconomicsFactName>(factName: Name, raw: unknown, currency: string): void {
+  const fact = requireClosedRecord(
+    raw,
+    ["effectiveValue", "observedAt", "override", "source", "sourceValue"] as const,
+    factName,
+  );
+  const sourceValue = parseFactValue(factName, fact.sourceValue, currency);
+  const effectiveValue = parseFactValue(factName, fact.effectiveValue, currency);
+  assertFactSourceForName(factName, fact.source as FactSource);
+  requireRfc3339Instant(fact.observedAt, `${factName}.observedAt`);
+  if (fact.override === null) {
+    if (!factValuesEqual(sourceValue, effectiveValue)) {
+      throw new EconomicsContractError(`${factName}.effectiveValue must equal sourceValue without an override.`);
+    }
+    return;
+  }
+  const override = requireClosedRecord(fact.override, ["revision", "setAt", "value"] as const, `${factName}.override`);
+  const overrideValue = parseFactValue(factName, override.value, currency);
+  requirePositiveInteger(override.revision, `${factName}.override.revision`, Number.MAX_SAFE_INTEGER);
+  requireRfc3339Instant(override.setAt, `${factName}.override.setAt`);
+  if (!factValuesEqual(overrideValue, effectiveValue)) {
+    throw new EconomicsContractError(`${factName}.effectiveValue must equal its override value.`);
+  }
+}
+
+function assertCrossFactSourceBindings(facts: EconomicsFacts): void {
+  assertSameSourceBinding(
+    facts,
+    ["platformFeeRelativeBps", "platformFeeFixedPerUnitAmount", "platformFeeCapPerUnitAmount", "shippingAllowanceBps"],
+    "Commercial Terms",
+  );
+  assertSamePolicyRevision(facts, economicsFactNames, "Pricing policy");
+  if (
+    facts.costBasisShareOfMarketBps.source.kind === "inventory-observation" &&
+    facts.costBasisCoverageBps.source.kind === "inventory-observation" &&
+    facts.costBasisShareOfMarketBps.source.revision !== facts.costBasisCoverageBps.source.revision
+  ) {
+    throw new EconomicsContractError("Cost-basis facts must carry one Inventory revision.");
+  }
+}
+
+function assertSameSourceBinding(
+  facts: Partial<EconomicsFacts>,
+  names: readonly EconomicsFactName[],
+  label: string,
+): void {
+  const sources = names.map((name) => facts[name]!.source);
+  const first = sources[0]!;
+  for (const source of sources.slice(1)) {
+    if (!factValuesEqual(first, source)) {
+      throw new EconomicsContractError(`${label} facts must carry one source binding.`);
+    }
+  }
+}
+
+function assertSamePolicyRevision(
+  facts: Partial<EconomicsFacts>,
+  names: readonly EconomicsFactName[],
+  label: string,
+): void {
+  const revisions = names
+    .map((name) => facts[name]!.source)
+    .filter((source): source is Extract<FactSource, { policyRevision: string }> => "policyRevision" in source)
+    .map((source) => source.policyRevision);
+  if (new Set(revisions).size > 1) {
+    throw new EconomicsContractError(`${label} facts must carry one policy revision.`);
+  }
+}
+
+function factValuesEqual(left: unknown, right: unknown): boolean {
+  if (typeof left === "number" || typeof right === "number") return Object.is(left, right);
+  if (left === null || right === null) return left === right;
+  return canonicalJson(left) === canonicalJson(right);
 }
 
 function requireNonEmptyString(value: unknown, fieldName: string): string {

@@ -8,6 +8,7 @@ import {
   type MoneyAmount,
   type SignedMoneyAmount,
 } from "@chase-sets/primitives/money";
+import { requireRfc3339Instant } from "./contracts";
 import { canonicalSha256 } from "./revision";
 
 export const ECONOMICS_LAUNCH_POLICY_EFFECTIVE_AT = "2026-09-06T20:28:41Z";
@@ -85,20 +86,13 @@ export function decodeEconomicsPolicyValue(raw: JsonValue): EconomicsPolicyValue
       record.defaultCostBasisShareOfMarketBps,
       "defaultCostBasisShareOfMarketBps",
     ),
-    minimumCostBasisCoverageBps: basisPoints(
-      record.minimumCostBasisCoverageBps,
-      "minimumCostBasisCoverageBps",
-    ),
+    minimumCostBasisCoverageBps: basisPoints(record.minimumCostBasisCoverageBps, "minimumCostBasisCoverageBps"),
     defaultObservedHoldDays: positiveInteger(record.defaultObservedHoldDays, "defaultObservedHoldDays", MAX_DAYS),
     defaultTurnaroundDays: positiveInteger(record.defaultTurnaroundDays, "defaultTurnaroundDays", MAX_DAYS),
     defaultDailyReturnHurdle: finiteNumber(record.defaultDailyReturnHurdle, "defaultDailyReturnHurdle"),
     observationWindowDays,
     minimumHoldSamples: positiveInteger(record.minimumHoldSamples, "minimumHoldSamples", MAX_SAMPLES),
-    minimumTurnaroundSamples: positiveInteger(
-      record.minimumTurnaroundSamples,
-      "minimumTurnaroundSamples",
-      MAX_SAMPLES,
-    ),
+    minimumTurnaroundSamples: positiveInteger(record.minimumTurnaroundSamples, "minimumTurnaroundSamples", MAX_SAMPLES),
     observationStatistic: exactMedian(record.observationStatistic),
     maximumObservationDurationDays,
   };
@@ -124,10 +118,38 @@ export type ResolvedEconomicsPolicy = Readonly<{
 }>;
 
 export function toResolvedEconomicsPolicy(resolved: ResolvedPolicy<EconomicsPolicyValue>): ResolvedEconomicsPolicy {
+  if (resolved.policyKey !== economicsPolicy.policyKey) {
+    throw new Error(`Expected ${economicsPolicy.policyKey}, received ${resolved.policyKey}.`);
+  }
+  if (resolved.source !== "policy" && resolved.source !== "fallback") {
+    throw new Error("Economics policy source must be policy or fallback.");
+  }
   const value = decodeEconomicsPolicyValue(resolved.value as JsonValue);
   const effectiveFrom = resolved.source === "fallback" ? null : resolved.effectiveFrom;
   if (resolved.source === "policy" && effectiveFrom === null) {
     throw new Error("An active Economics policy document must have effectiveFrom.");
+  }
+  if (
+    resolved.source === "fallback" &&
+    (resolved.documentId !== null || resolved.effectiveFrom !== null || resolved.effectiveUntil !== null)
+  ) {
+    throw new Error("The compiled Economics policy fallback cannot carry document validity metadata.");
+  }
+  if (resolved.source === "policy") {
+    if (
+      typeof resolved.documentId !== "string" ||
+      resolved.documentId.length === 0 ||
+      resolved.documentId.trim() !== resolved.documentId
+    ) {
+      throw new Error("An active Economics policy document must have an identity.");
+    }
+    requireRfc3339Instant(effectiveFrom, "effectiveFrom");
+    if (resolved.effectiveUntil !== null) {
+      requireRfc3339Instant(resolved.effectiveUntil, "effectiveUntil");
+      if (Date.parse(resolved.effectiveUntil) <= Date.parse(effectiveFrom)) {
+        throw new Error("Economics policy effectiveUntil must be after effectiveFrom.");
+      }
+    }
   }
   return {
     value,

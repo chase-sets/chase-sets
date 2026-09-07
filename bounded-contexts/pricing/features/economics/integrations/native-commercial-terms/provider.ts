@@ -8,14 +8,17 @@ import type {
   ResolveEconomicsRequest,
   SourceEconomics,
 } from "../../domain/contracts";
+import { assertSourceEconomics } from "../../domain/contracts";
 import type { ResolvedEconomicsPolicy } from "../../domain/policy";
 import { canonicalSha256 } from "../../domain/revision";
 
-export function createNativeCommercialTermsEconomicsProvider(input: Readonly<{
-  identity: ChannelProviderIdentity;
-  commercialTermsResolver: Pick<CommercialTermsResolver, "resolveListingTerms">;
-  resolvePolicy: (effectiveAt: string) => Promise<ResolvedEconomicsPolicy>;
-}>): EconomicsProvider {
+export function createNativeCommercialTermsEconomicsProvider(
+  input: Readonly<{
+    identity: ChannelProviderIdentity;
+    commercialTermsResolver: Pick<CommercialTermsResolver, "resolveListingTerms">;
+    resolvePolicy: (effectiveAt: string) => Promise<ResolvedEconomicsPolicy>;
+  }>,
+): EconomicsProvider {
   return {
     identity: input.identity,
     async resolve(request: ResolveEconomicsRequest): Promise<SourceEconomics> {
@@ -55,15 +58,11 @@ export function createNativeCommercialTermsEconomicsProvider(input: Readonly<{
         observedAt,
       });
 
-      return {
+      const resolved: SourceEconomics = {
         kind: "resolved",
         providerIdentity: input.identity,
         facts: {
-          platformFeeRelativeBps: fact(
-            terms.marketplaceSalesFeePercentageBps,
-            commercialSource,
-            commercialObservedAt,
-          ),
+          platformFeeRelativeBps: fact(terms.marketplaceSalesFeePercentageBps, commercialSource, commercialObservedAt),
           platformFeeFixedPerUnitAmount: fact(
             money(terms.marketplaceSalesFeeFixedAmount),
             commercialSource,
@@ -74,11 +73,7 @@ export function createNativeCommercialTermsEconomicsProvider(input: Readonly<{
             commercialSource,
             commercialObservedAt,
           ),
-          sellerHandlingRelativeBps: fact(
-            policy.value.sellerHandlingRelativeBps,
-            policySource,
-            policy.observedAt,
-          ),
+          sellerHandlingRelativeBps: fact(policy.value.sellerHandlingRelativeBps, policySource, policy.observedAt),
           sellerHandlingFixedPerUnitAmount: fact(
             money(policy.value.sellerHandlingFixedPerUnitAmount),
             policySource,
@@ -91,13 +86,11 @@ export function createNativeCommercialTermsEconomicsProvider(input: Readonly<{
             policySource,
             policy.observedAt,
           ),
-          shippingAllowanceBps: fact(
-            terms.shippingAllowancePercentageBps,
-            commercialSource,
-            commercialObservedAt,
-          ),
+          shippingAllowanceBps: fact(terms.shippingAllowancePercentageBps, commercialSource, commercialObservedAt),
         },
       };
+      assertSourceEconomics(resolved, currency);
+      return resolved;
     },
   };
 }

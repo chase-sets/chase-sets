@@ -1,8 +1,4 @@
-import {
-  centsToMoneyAmount,
-  moneyToCents,
-  type MoneyAmount,
-} from "@chase-sets/primitives/money";
+import { centsToMoneyAmount, moneyToCents, type MoneyAmount } from "@chase-sets/primitives/money";
 import { requireBasisPoints, requirePositiveInteger, type Money } from "./contracts";
 
 export type SellerOverheadTerms = Readonly<{
@@ -65,7 +61,9 @@ function cappedRelativePlusFixed(
   relativeCapCents: bigint | null,
 ): bigint {
   const relativeCents = divideCeil(unitPriceCents * BigInt(relativeBps), 10_000n);
-  return (relativeCapCents === null || relativeCents < relativeCapCents ? relativeCents : relativeCapCents) + fixedCents;
+  return (
+    (relativeCapCents === null || relativeCents < relativeCapCents ? relativeCents : relativeCapCents) + fixedCents
+  );
 }
 
 function divideCeil(numerator: bigint, denominator: bigint): bigint {
@@ -84,4 +82,3 @@ function checkedOptionalMoneyCents(value: Money | null, currency: string, fieldN
 function money(cents: bigint, currency: string): Money {
   return { amount: centsToMoneyAmount(cents) as MoneyAmount, currency };
 }
-

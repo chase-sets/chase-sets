@@ -17,11 +17,13 @@ export class ChannelConnectionNotFoundError extends Error {
   }
 }
 
-export async function resolveSourceEconomics(input: Readonly<{
-  request: ResolveEconomicsRequest;
-  channelConnectionIdentityReader: ChannelConnectionIdentityReader;
-  providerRegistry: EconomicsProviderRegistry;
-}>): Promise<Readonly<{ channel: ResolvedChannelConnection; source: SourceEconomics }>> {
+export async function resolveSourceEconomics(
+  input: Readonly<{
+    request: ResolveEconomicsRequest;
+    channelConnectionIdentityReader: ChannelConnectionIdentityReader;
+    providerRegistry: EconomicsProviderRegistry;
+  }>,
+): Promise<Readonly<{ channel: ResolvedChannelConnection; source: SourceEconomics }>> {
   const request = parseResolveEconomicsRequest(input.request);
   const channel = await input.channelConnectionIdentityReader.resolve({
     accountId: request.accountId,
@@ -35,5 +37,12 @@ export async function resolveSourceEconomics(input: Readonly<{
     providerKey: channel.providerKey,
     environment: channel.environment,
   });
-  return { channel, source: await provider.resolve(request) };
+  const source = await provider.resolve(request);
+  if (
+    source.providerIdentity.providerKey !== channel.providerKey ||
+    source.providerIdentity.environment !== channel.environment
+  ) {
+    throw new Error("Resolved Economics provider does not match the Channel connection.");
+  }
+  return { channel, source };
 }

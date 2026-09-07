@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ECONOMICS_LAUNCH_POLICY_VALUE, decodeEconomicsPolicyValue, economicsPolicy, toResolvedEconomicsPolicy } from "./policy";
+import {
+  ECONOMICS_LAUNCH_POLICY_VALUE,
+  decodeEconomicsPolicyValue,
+  economicsPolicy,
+  toResolvedEconomicsPolicy,
+} from "./policy";
 import { parseResolveEconomicsRequest } from "./contracts";
 
 const request = {
@@ -25,6 +30,7 @@ describe("Economics closed contracts", () => {
     { ...request, effectiveAt: "2026-09-07T01:00:00" },
     { ...request, quantity: 0 },
     { ...request, marketUnitPrice: { amount: "100", currency: "usd" } },
+    { ...request, marketUnitPrice: { amount: "10000000000.00", currency: "usd" } },
     { ...request, marketUnitPrice: { amount: "100.00", currency: "USD" } },
   ])("rejects omitted, forged, aliased, or malformed input %#", (candidate) => {
     expect(() => parseResolveEconomicsRequest(candidate)).toThrow();
@@ -73,5 +79,27 @@ describe("pricing.economics policy", () => {
     expect(laterRead.policyRevision).toBe(first.policyRevision);
     expect(first.observedAt).toBe("2026-09-06T20:28:41Z");
   });
-});
 
+  it("rejects foreign policy identity and invalid document validity metadata", () => {
+    const base = {
+      policyKey: "pricing.economics",
+      value: ECONOMICS_LAUNCH_POLICY_VALUE,
+      source: "policy" as const,
+      documentId: "synthetic-policy-document",
+      effectiveFrom: "2026-09-01T00:00:00Z",
+      effectiveUntil: "2026-10-01T00:00:00Z",
+      resolvedAt: "2026-09-07T06:00:00Z",
+    };
+    expect(() => toResolvedEconomicsPolicy({ ...base, policyKey: "pricing.other" })).toThrow(/Expected/);
+    expect(() => toResolvedEconomicsPolicy({ ...base, effectiveUntil: "2026-08-01T00:00:00Z" })).toThrow(/after/);
+    expect(() =>
+      toResolvedEconomicsPolicy({
+        ...base,
+        source: "fallback",
+        documentId: "synthetic-forged-document",
+        effectiveFrom: null,
+        effectiveUntil: null,
+      }),
+    ).toThrow(/fallback/);
+  });
+});

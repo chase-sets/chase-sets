@@ -17,7 +17,10 @@ const request: ResolveEconomicsRequest = {
 };
 const nativeIdentity = { providerKey: "synthetic-provider-a", environment: "sandbox" } as const;
 
-function unavailableProvider(identity: ChannelProviderIdentity, reason: "provider-unavailable" | "terms-unavailable" = "provider-unavailable"): EconomicsProvider {
+function unavailableProvider(
+  identity: ChannelProviderIdentity,
+  reason: "provider-unavailable" | "terms-unavailable" = "provider-unavailable",
+): EconomicsProvider {
   return { identity, resolve: async () => ({ kind: "unavailable", providerIdentity: identity, reason }) };
 }
 
@@ -25,14 +28,25 @@ describe("Economics provider selection", () => {
   it("prefers exact registration, permits a single fallback, and needs no consumer branch for a second exact provider", async () => {
     const registry = createEconomicsProviderRegistry();
     const fallback = unavailableProvider({ providerKey: "synthetic-external-fallback", environment: "sandbox" });
-    const second = unavailableProvider({ providerKey: "synthetic-provider-b", environment: "production" }, "terms-unavailable");
+    const second = unavailableProvider(
+      { providerKey: "synthetic-provider-b", environment: "production" },
+      "terms-unavailable",
+    );
     registry.registerExternalFallback(fallback);
     registry.registerExact(unavailableProvider(nativeIdentity, "terms-unavailable"));
     registry.registerExact(second);
 
-    await expect(registry.resolve(nativeIdentity).resolve(request)).resolves.toMatchObject({ reason: "terms-unavailable" });
-    await expect(registry.resolve(second.identity).resolve(request)).resolves.toMatchObject({ reason: "terms-unavailable" });
-    expect(registry.resolve({ providerKey: "synthetic-provider-c", environment: "sandbox" }).identity).toEqual(fallback.identity);
+    await expect(registry.resolve(nativeIdentity).resolve(request)).resolves.toMatchObject({
+      reason: "terms-unavailable",
+    });
+    await expect(registry.resolve(second.identity).resolve(request)).resolves.toMatchObject({
+      reason: "terms-unavailable",
+    });
+    expect(registry.resolve(fallback.identity).identity).toEqual(fallback.identity);
+    expect(registry.resolve({ providerKey: "synthetic-provider-c", environment: "sandbox" }).identity).toEqual({
+      providerKey: "synthetic-provider-c",
+      environment: "sandbox",
+    });
   });
 
   it("rejects duplicate slots, invalid identities, and a provider result identity mismatch", async () => {
@@ -40,8 +54,12 @@ describe("Economics provider selection", () => {
     registry.registerExact(unavailableProvider(nativeIdentity));
     expect(() => registry.registerExact(unavailableProvider(nativeIdentity))).toThrow(/already registered/);
     expect(() => registry.registerExact(unavailableProvider({ providerKey: "*", environment: "sandbox" }))).toThrow();
-    registry.registerExternalFallback(unavailableProvider({ providerKey: "synthetic-fallback", environment: "production" }));
-    expect(() => registry.registerExternalFallback(unavailableProvider({ providerKey: "another", environment: "sandbox" }))).toThrow();
+    registry.registerExternalFallback(
+      unavailableProvider({ providerKey: "synthetic-fallback", environment: "production" }),
+    );
+    expect(() =>
+      registry.registerExternalFallback(unavailableProvider({ providerKey: "another", environment: "sandbox" })),
+    ).toThrow();
 
     const badRegistry = createEconomicsProviderRegistry();
     badRegistry.registerExact({
@@ -84,10 +102,14 @@ describe("account-scoped Channel identity", () => {
           : null;
       }),
     };
-    const result = await resolveSourceEconomics({ request, channelConnectionIdentityReader: reader, providerRegistry: registry });
+    const result = await resolveSourceEconomics({
+      request,
+      channelConnectionIdentityReader: reader,
+      providerRegistry: registry,
+    });
     expect(calls).toEqual(["reader", "provider"]);
     expect(result.channel).toEqual({ connectionId: request.connectionId, ...nativeIdentity });
-    expect(reader).toHaveBeenCalledWith({ accountId: request.accountId, connectionId: request.connectionId });
+    expect(reader.resolve).toHaveBeenCalledWith({ accountId: request.accountId, connectionId: request.connectionId });
   });
 
   it.each(["synthetic-foreign-account", "synthetic-owner-account"])(
@@ -96,7 +118,11 @@ describe("account-scoped Channel identity", () => {
       const registry = { registerExact: vi.fn(), registerExternalFallback: vi.fn(), resolve: vi.fn() };
       await expect(
         resolveSourceEconomics({
-          request: { ...request, accountId, connectionId: accountId === request.accountId ? "synthetic-absent-connection" : request.connectionId },
+          request: {
+            ...request,
+            accountId,
+            connectionId: accountId === request.accountId ? "synthetic-absent-connection" : request.connectionId,
+          },
           channelConnectionIdentityReader: { resolve: async () => null },
           providerRegistry: registry,
         }),
@@ -129,5 +155,9 @@ describe("seller overhead", () => {
     const quote = quoteSellerOverhead(money(unitPrice), quantity, terms);
     expect(quote.orderOverheadAmount.amount).toBe(overhead);
     expect(quote.netProceedsAmount.amount).toBe(net);
+  });
+
+  it("rejects an order total outside the shared Money magnitude", () => {
+    expect(() => quoteSellerOverhead(money("9999999999.99"), 2, terms)).toThrow(/Money cents/);
   });
 });

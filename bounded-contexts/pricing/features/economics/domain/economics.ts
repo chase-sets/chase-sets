@@ -9,22 +9,20 @@ import {
 } from "./contracts";
 import type { CapitalCycleObservations } from "./observations";
 import type { CostBasisFacts, CycleFacts } from "./derivation";
-import {
-  applyEconomicsOverrides,
-  economicsOverrideRevisionMaterial,
-  type EconomicsOverridesState,
-} from "./overrides";
+import { applyEconomicsOverrides, economicsOverrideRevisionMaterial, type EconomicsOverridesState } from "./overrides";
 import { canonicalSha256 } from "./revision";
 
-export function buildEconomics(input: Readonly<{
-  request: ResolveEconomicsRequest;
-  channel: ResolvedChannelConnection;
-  sourceEconomics: Extract<SourceEconomics, { kind: "resolved" }>;
-  costBasis: CostBasisFacts;
-  cycle: CycleFacts;
-  observations: CapitalCycleObservations;
-  overrides: EconomicsOverridesState;
-}>): Economics {
+export function buildEconomics(
+  input: Readonly<{
+    request: ResolveEconomicsRequest;
+    channel: ResolvedChannelConnection;
+    sourceEconomics: Extract<SourceEconomics, { kind: "resolved" }>;
+    costBasis: CostBasisFacts;
+    cycle: CycleFacts;
+    observations: CapitalCycleObservations;
+    overrides: EconomicsOverridesState;
+  }>,
+): Economics {
   const request = parseResolveEconomicsRequest(input.request);
   assertSubject(input, request);
   const sourceFacts: EconomicsFacts = {
@@ -36,6 +34,9 @@ export function buildEconomics(input: Readonly<{
     dailyReturnHurdle: input.cycle.dailyReturnHurdle,
   };
   assertEconomicsFacts(sourceFacts, request.marketUnitPrice.currency);
+  for (const fact of Object.values(sourceFacts)) {
+    if (fact.override !== null) throw new Error("Source Economics facts cannot arrive with an override applied.");
+  }
   const facts = applyEconomicsOverrides(sourceFacts, input.overrides);
   assertEconomicsFacts(facts, request.marketUnitPrice.currency);
 
@@ -51,6 +52,8 @@ export function buildEconomics(input: Readonly<{
         catalogItemId: request.catalogItemId,
         inventoryItemId: request.inventoryItemId,
         currency: request.marketUnitPrice.currency,
+        marketUnitPriceAmount: request.marketUnitPrice.amount,
+        quantity: request.quantity,
         effectiveAt: request.effectiveAt,
       },
       providerIdentity: input.sourceEconomics.providerIdentity,
@@ -75,7 +78,8 @@ function assertSubject(
   }>,
   request: ResolveEconomicsRequest,
 ): void {
-  if (input.channel.connectionId !== request.connectionId) throw new Error("Resolved Channel connection does not match request.");
+  if (input.channel.connectionId !== request.connectionId)
+    throw new Error("Resolved Channel connection does not match request.");
   if (
     input.channel.providerKey !== input.sourceEconomics.providerIdentity.providerKey ||
     input.channel.environment !== input.sourceEconomics.providerIdentity.environment
@@ -91,9 +95,7 @@ function assertSubject(
   }
 }
 
-function observationRevisionMaterial(
-  observation: CapitalCycleObservations["observedHold"],
-): unknown {
+function observationRevisionMaterial(observation: CapitalCycleObservations["observedHold"]): unknown {
   return observation === null
     ? null
     : {

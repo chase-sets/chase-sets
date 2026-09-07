@@ -1,7 +1,4 @@
-import {
-  moneyToCents,
-  signedMoneyToCents,
-} from "@chase-sets/primitives/money";
+import { moneyToCents, signedMoneyToCents } from "@chase-sets/primitives/money";
 import {
   requirePositiveInteger,
   requireRfc3339Instant,
@@ -30,32 +27,44 @@ export type CostBasisFacts = Readonly<{
   discount: EconomicsFact<SignedMoney>;
   coveredQuantity: number;
   selectedQuantity: number;
-  coveredCostMinor: number;
+  coveredCostMinor: bigint;
   inventoryWatermark: string;
 }>;
 
-export function deriveCostBasisFacts(input: Readonly<{
-  accountId: string;
-  inventoryItemId: string;
-  marketUnitPrice: Money;
-  quantity: number;
-  effectiveAt: string;
-  inventoryWatermark: string;
-  lots: readonly InventoryCostLot[];
-  policy: ResolvedEconomicsPolicy;
-}>): CostBasisFacts {
+export function deriveCostBasisFacts(
+  input: Readonly<{
+    accountId: string;
+    inventoryItemId: string;
+    marketUnitPrice: Money;
+    quantity: number;
+    effectiveAt: string;
+    inventoryWatermark: string;
+    lots: readonly InventoryCostLot[];
+    policy: ResolvedEconomicsPolicy;
+  }>,
+): CostBasisFacts {
   const quantity = requirePositiveInteger(input.quantity, "quantity", Number.MAX_SAFE_INTEGER);
+  if (input.inventoryWatermark.length === 0 || input.inventoryWatermark.trim() !== input.inventoryWatermark) {
+    throw new Error("inventoryWatermark must be non-empty and already trimmed.");
+  }
   const effectiveMillis = Date.parse(requireRfc3339Instant(input.effectiveAt, "effectiveAt"));
   const eligible = input.lots
     .filter((lot) => lot.accountId === input.accountId && lot.inventoryItemId === input.inventoryItemId)
     .map((lot) => {
       requirePositiveInteger(lot.quantity, `Cost lot ${lot.lotId} quantity`, Number.MAX_SAFE_INTEGER);
       requireRfc3339Instant(lot.observedAt, `Cost lot ${lot.lotId} observedAt`);
-      if (lot.revision.length === 0) throw new Error(`Cost lot ${lot.lotId} revision is required.`);
+      if (lot.lotId.length === 0 || lot.lotId.trim() !== lot.lotId) throw new Error("Cost lot identity is required.");
+      if (lot.revision.length === 0 || lot.revision.trim() !== lot.revision) {
+        throw new Error(`Cost lot ${lot.lotId} revision is required.`);
+      }
+      if (lot.acquisitionCostPerUnit !== null) moneyToCents(lot.acquisitionCostPerUnit.amount);
       return lot;
     })
     .filter((lot) => Date.parse(lot.observedAt) <= effectiveMillis)
-    .sort((left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt) || left.lotId.localeCompare(right.lotId));
+    .sort(
+      (left, right) =>
+        Date.parse(left.observedAt) - Date.parse(right.observedAt) || left.lotId.localeCompare(right.lotId),
+    );
 
   let remaining = quantity;
   let selectedQuantity = 0;
@@ -68,23 +77,30 @@ export function deriveCostBasisFacts(input: Readonly<{
     const selected = Math.min(remaining, lot.quantity);
     remaining -= selected;
     selectedQuantity += selected;
-    oldestObservedAt = oldestObservedAt === null || Date.parse(lot.observedAt) < Date.parse(oldestObservedAt)
-      ? lot.observedAt
-      : oldestObservedAt;
+    oldestObservedAt =
+      oldestObservedAt === null || Date.parse(lot.observedAt) < Date.parse(oldestObservedAt)
+        ? lot.observedAt
+        : oldestObservedAt;
     const cost = lot.acquisitionCostPerUnit;
     const currencyMatches = cost !== null && cost.currency === input.marketUnitPrice.currency;
-    material.push({ lotId: lot.lotId, quantity: selected, cost: currencyMatches ? cost.amount : null, revision: lot.revision });
+    material.push({
+      lotId: lot.lotId,
+      quantity: selected,
+      cost: currencyMatches ? cost.amount : null,
+      revision: lot.revision,
+    });
     if (!currencyMatches) continue;
     coveredQuantity += selected;
     coveredCostCents += moneyToCents(cost.amount) * BigInt(selected);
   }
 
-  const coverageBps = Math.round((coveredQuantity / quantity) * 10_000);
+  const coverageBps = Number((BigInt(coveredQuantity) * 10_000n + BigInt(quantity) / 2n) / BigInt(quantity));
   const marketUnitCents = moneyToCents(input.marketUnitPrice.amount);
   const marketCoveredCents = marketUnitCents * BigInt(coveredQuantity);
-  const observedShareBps = marketCoveredCents > 0n
-    ? Number((coveredCostCents * 10_000n + marketCoveredCents / 2n) / marketCoveredCents)
-    : null;
+  const observedShareBps =
+    marketCoveredCents > 0n
+      ? Number((coveredCostCents * 10_000n + marketCoveredCents / 2n) / marketCoveredCents)
+      : null;
   const shareIsUsable =
     coverageBps >= input.policy.value.minimumCostBasisCoverageBps &&
     observedShareBps !== null &&
@@ -92,9 +108,7 @@ export function deriveCostBasisFacts(input: Readonly<{
     observedShareBps <= 10_000;
   const inventoryRevision = canonicalSha256({ inventoryWatermark: input.inventoryWatermark, material });
   const inventoryObservedAt = oldestObservedAt ?? input.policy.observedAt;
-  const actualOrDefaultShare = shareIsUsable
-    ? observedShareBps
-    : input.policy.value.defaultCostBasisShareOfMarketBps;
+  const actualOrDefaultShare = shareIsUsable ? observedShareBps : input.policy.value.defaultCostBasisShareOfMarketBps;
   const shareSource = shareIsUsable
     ? ({ kind: "inventory-observation", revision: inventoryRevision } as const)
     : ({
@@ -133,7 +147,7 @@ export function deriveCostBasisFacts(input: Readonly<{
     },
     coveredQuantity,
     selectedQuantity,
-    coveredCostMinor: Number(coveredCostCents),
+    coveredCostMinor: coveredCostCents,
     inventoryWatermark: input.inventoryWatermark,
   };
 }
@@ -149,26 +163,31 @@ export type CycleFacts = Readonly<{
   }>;
 }>;
 
-export function deriveCycleFacts(input: Readonly<{
-  marketUnitPrice: Money;
-  quantity: number;
-  netProceedsAmount: Money;
-  costBasisShareOfMarketBps: number;
-  costBasisDiscountPerUnitAmount: SignedMoney;
-  observations: CapitalCycleObservations;
-  policy: ResolvedEconomicsPolicy;
-  upstreamFailure?: "provider-unavailable" | "terms-unavailable" | "cost-basis-unavailable";
-}>): CycleFacts {
+export function deriveCycleFacts(
+  input: Readonly<{
+    marketUnitPrice: Money;
+    quantity: number;
+    netProceedsAmount: Money;
+    costBasisShareOfMarketBps: number;
+    costBasisDiscountPerUnitAmount: SignedMoney;
+    observations: CapitalCycleObservations;
+    policy: ResolvedEconomicsPolicy;
+    upstreamFailure?: "provider-unavailable" | "terms-unavailable" | "cost-basis-unavailable";
+  }>,
+): CycleFacts {
   const quantity = requirePositiveInteger(input.quantity, "quantity", Number.MAX_SAFE_INTEGER);
   assertCurrency(input.netProceedsAmount, input.marketUnitPrice.currency, "netProceedsAmount");
-  assertCurrency(input.costBasisDiscountPerUnitAmount, input.marketUnitPrice.currency, "costBasisDiscountPerUnitAmount");
+  assertCurrency(
+    input.costBasisDiscountPerUnitAmount,
+    input.marketUnitPrice.currency,
+    "costBasisDiscountPerUnitAmount",
+  );
   const turnaround = observedOrDefaultTurnaround(input.observations.observedTurnaround, input.policy);
   const hold = input.observations.observedHold;
   const observedHoldDays = hold?.value ?? null;
   const observedTurnaroundDays = input.observations.observedTurnaround?.value ?? null;
-  const capitalCycleDays = observedHoldDays === null || observedTurnaroundDays === null
-    ? null
-    : observedHoldDays + observedTurnaroundDays;
+  const capitalCycleDays =
+    observedHoldDays === null || observedTurnaroundDays === null ? null : observedHoldDays + observedTurnaroundDays;
 
   const defaultResult = (reason: DefaultReason): CycleFacts => ({
     turnaround,

@@ -13,13 +13,23 @@ export type EconomicsOverrideKey = Readonly<{
   currency: string;
 }>;
 
-export type EconomicsOverrideEntry = Readonly<{
-  factName: EconomicsFactName;
-  value: unknown | null;
-  revision: number;
-  setAt: string | null;
-  clearedAt: string | null;
-}>;
+export type EconomicsOverrideEntry =
+  | Readonly<{
+      kind: "active";
+      factName: EconomicsFactName;
+      value: unknown;
+      revision: number;
+      setAt: string;
+      clearedAt: null;
+    }>
+  | Readonly<{
+      kind: "cleared";
+      factName: EconomicsFactName;
+      value: null;
+      revision: number;
+      setAt: null;
+      clearedAt: string;
+    }>;
 
 export type EconomicsOverridesState = Readonly<{
   key: EconomicsOverrideKey;
@@ -74,7 +84,14 @@ export class EconomicsOverrideConflictError extends Error {
 }
 
 export function initialEconomicsOverridesState(key: EconomicsOverrideKey): EconomicsOverridesState {
-  if (key.accountId.length === 0 || key.connectionId.length === 0) throw new Error("Economics override identity is required.");
+  if (
+    key.accountId.length === 0 ||
+    key.accountId.trim() !== key.accountId ||
+    key.connectionId.length === 0 ||
+    key.connectionId.trim() !== key.connectionId
+  ) {
+    throw new Error("Economics override identity must be non-empty and already trimmed.");
+  }
   return {
     key: { ...key, currency: requireCurrency(key.currency, "currency") },
     version: 0,
@@ -92,6 +109,7 @@ export function decideEconomicsOverride(
   if (command.expectedVersion !== state.version) {
     throw new EconomicsOverrideConflictError(command.expectedVersion, state.version);
   }
+  assertClosedCommand(command);
   switch (command.type) {
     case "SetEconomicsFactOverride": {
       assertFactName(command.factName);
@@ -119,6 +137,7 @@ export function evolveEconomicsOverrides(
     throw new Error(`Economics override event stream has a gap at ${eventToApply.streamVersion}.`);
   }
   const data = eventToApply.data;
+  assertClosedEvent(eventToApply);
   if (
     data.accountId !== state.key.accountId ||
     data.connectionId !== state.key.connectionId ||
@@ -130,31 +149,39 @@ export function evolveEconomicsOverrides(
   const occurredAt = requireRfc3339Instant(data.occurredAt, "occurredAt");
   const isSet = eventToApply.type === "pricing.economics-fact-override-set";
   const value = isSet ? parseFactValue(data.factName, data.value, state.key.currency) : null;
+  const entry: EconomicsOverrideEntry = isSet
+    ? {
+        kind: "active",
+        factName: data.factName,
+        value,
+        revision: eventToApply.streamVersion,
+        setAt: occurredAt,
+        clearedAt: null,
+      }
+    : {
+        kind: "cleared",
+        factName: data.factName,
+        value: null,
+        revision: eventToApply.streamVersion,
+        setAt: null,
+        clearedAt: occurredAt,
+      };
   return {
     ...state,
     version: eventToApply.streamVersion,
     entries: {
       ...state.entries,
-      [data.factName]: {
-        factName: data.factName,
-        value,
-        revision: eventToApply.streamVersion,
-        setAt: isSet ? occurredAt : null,
-        clearedAt: isSet ? null : occurredAt,
-      },
+      [data.factName]: entry,
     },
   };
 }
 
-export function applyEconomicsOverrides(
-  facts: EconomicsFacts,
-  state: EconomicsOverridesState,
-): EconomicsFacts {
+export function applyEconomicsOverrides(facts: EconomicsFacts, state: EconomicsOverridesState): EconomicsFacts {
   const result: Record<string, unknown> = {};
   for (const factName of economicsFactNames) {
     const sourceFact = facts[factName];
     const entry = state.entries[factName];
-    if (!entry || entry.value === null || entry.setAt === null) {
+    if (!entry || entry.kind === "cleared") {
       result[factName] = sourceFact;
       continue;
     }
@@ -176,12 +203,13 @@ export function economicsOverrideRevisionMaterial(state: EconomicsOverridesState
       return entry
         ? {
             factName,
+            kind: entry.kind,
             revision: entry.revision,
             value: entry.value,
             setAt: entry.setAt,
             clearedAt: entry.clearedAt,
           }
-        : { factName, revision: 0, value: null, setAt: null, clearedAt: null };
+        : { factName, kind: "absent", revision: 0, value: null, setAt: null, clearedAt: null };
     }),
   };
 }
@@ -204,4 +232,47 @@ function event(
 
 function assertFactName(value: string): asserts value is EconomicsFactName {
   if (!(economicsFactNames as readonly string[]).includes(value)) throw new Error(`Unknown Economics fact ${value}.`);
+}
+
+function assertClosedCommand(command: EconomicsOverrideCommand): void {
+  const expected =
+    command.type === "SetEconomicsFactOverride"
+      ? ["expectedVersion", "factName", "setAt", "type", "value"]
+      : command.type === "ClearEconomicsFactOverride"
+        ? ["clearedAt", "expectedVersion", "factName", "type"]
+        : command.type === "ClearAllEconomicsFactOverrides"
+          ? ["clearedAt", "expectedVersion", "type"]
+          : null;
+  if (expected === null) throw new Error("Unknown Economics override command.");
+  assertExactKeys(command as unknown as Record<string, unknown>, expected, "Economics override command");
+}
+
+function assertClosedEvent(eventToApply: EconomicsOverrideEvent): void {
+  if (
+    eventToApply.type !== "pricing.economics-fact-override-set" &&
+    eventToApply.type !== "pricing.economics-fact-override-cleared"
+  ) {
+    throw new Error("Unknown Economics override event.");
+  }
+  assertExactKeys(
+    eventToApply as unknown as Record<string, unknown>,
+    ["data", "streamVersion", "type"],
+    "Economics override event",
+  );
+  assertExactKeys(
+    eventToApply.data as unknown as Record<string, unknown>,
+    ["accountId", "connectionId", "currency", "factName", "occurredAt", "value"],
+    "Economics override event data",
+  );
+  if (eventToApply.type === "pricing.economics-fact-override-cleared" && eventToApply.data.value !== null) {
+    throw new Error("A cleared Economics override event must carry a null value.");
+  }
+}
+
+function assertExactKeys(record: Record<string, unknown>, expected: readonly string[], name: string): void {
+  const actual = Object.keys(record).sort();
+  const sortedExpected = [...expected].sort();
+  if (actual.length !== sortedExpected.length || actual.some((key, index) => key !== sortedExpected[index])) {
+    throw new Error(`${name} must contain exactly: ${sortedExpected.join(", ")}.`);
+  }
 }
