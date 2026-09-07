@@ -11,6 +11,21 @@ import type { InventoryHoldCollisionMode, InventoryHoldCollisionPlan } from "../
 import type { GradedCardDetails } from "../domain/domain";
 import type { InventorySelectedOptionEntry } from "../integrations/catalog/versioning";
 
+export type InventoryCreateItemRequest = Readonly<
+  Record<string, unknown> & {
+    /** Seller evidence only. Inventory owns the source label and represents an
+     * omitted value as an explicit unknown occurrence in the emitted event. */
+    acquisitionOccurredAt?: string | null;
+  }
+>;
+
+export type InventoryAdjustItemRequest = Readonly<
+  Record<string, unknown> & {
+    /** Allowed only when quantityDelta is positive. */
+    acquisitionOccurredAt?: string | null;
+  }
+>;
+
 export type InventoryListingStockSnapshot = Readonly<{
   inventoryItemId: string;
   catalogItemId: string;
