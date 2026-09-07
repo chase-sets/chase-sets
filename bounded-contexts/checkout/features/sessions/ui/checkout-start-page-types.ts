@@ -10,6 +10,7 @@ export type CheckoutStartOfferIntentSource = Readonly<{
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
   offerPriceAmount: string;
+  offerPriceCurrencyCode: string;
   quantity: number;
 }>;
 

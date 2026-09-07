@@ -4,7 +4,14 @@ import { buildRiskAlertProjectionHandlers } from "./projection";
 function createDb() {
   const sources: Record<
     string,
-    { kind: string; id: string; accountId: string; occurredAt: string; amountCents: number }
+    {
+      kind: string;
+      id: string;
+      accountId: string;
+      occurredAt: string;
+      amountCents: number;
+      currencyCode: string | null;
+    }
   > = {};
   const alerts = new Map<string, Record<string, unknown>>();
   const accountCreatedAt = new Map<string, string>();
@@ -21,6 +28,7 @@ function createDb() {
           accountId: String(params[2]),
           occurredAt: String(params[3]),
           amountCents: Number(params[4]),
+          currencyCode: params[5] === null ? null : String(params[5]),
         };
         return { rows: [] };
       }
@@ -42,7 +50,7 @@ function createDb() {
               listing_24h_count: String(rows.filter((source) => source.kind === "listing-created").length),
               listing_24h_value_cents: String(
                 rows
-                  .filter((source) => source.kind === "listing-created")
+                  .filter((source) => source.kind === "listing-created" && source.currencyCode === String(params[6]))
                   .reduce((sum, source) => sum + source.amountCents, 0),
               ),
               review_24h_count: String(rows.filter((source) => source.kind === "review-received").length),
@@ -115,7 +123,20 @@ describe("risk alert projection", () => {
       event("identity.account.created", { accountId: "acc_buyer", createdAt: "2026-07-06T00:00:00.000Z" }),
     );
     await handlers["marketplace.listing.created"]!(
-      event("marketplace.listing.created", { listingId: "lst_1", accountId: "acc_seller", priceAmount: "2500.00" }),
+      event("marketplace.listing.created", {
+        listingId: "lst_1",
+        accountId: "acc_seller",
+        priceAmount: "2500.00",
+        priceCurrencyCode: "USD",
+      }),
+    );
+    await handlers["marketplace.listing.created"]!(
+      event("marketplace.listing.created", {
+        listingId: "lst_eur",
+        accountId: "acc_seller",
+        priceAmount: "9000.00",
+        priceCurrencyCode: "EUR",
+      }),
     );
     await handlers["payments.payment-created"]!(
       event("payments.payment-created", {
@@ -146,6 +167,7 @@ describe("risk alert projection", () => {
     });
     expect(db.alerts.get("risk_acc_seller_new-seller-listing-velocity")).toMatchObject({
       alert_kind: "new-seller-listing-velocity",
+      evidence: { listing24hCount: 2, listing24hValueCents: 250_000 },
     });
     expect(db.alerts.get("risk_acc_buyer_young-buyer-spend-velocity")).toMatchObject({
       alert_kind: "young-buyer-spend-velocity",

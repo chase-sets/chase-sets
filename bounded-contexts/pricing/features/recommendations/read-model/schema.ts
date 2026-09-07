@@ -100,29 +100,39 @@ LEFT JOIN (
 ) AS stock_signal
   ON stock_signal.seller_account_id = recommendation.seller_account_id
  AND stock_signal.catalog_catalog_item_id = recommendation.catalog_catalog_item_id
-LEFT JOIN (
+LEFT JOIN LATERAL (
   SELECT
-    catalog_catalog_item_id,
     COUNT(*) FILTER (WHERE status = 'active')::integer AS active_listing_count,
-    MIN(price_amount) FILTER (WHERE status = 'active') AS lowest_listing_price_amount,
+    MIN(price_amount) FILTER (
+      WHERE status = 'active'
+        AND price_currency_code = recommendation.market_currency
+        AND last_stream_version > 0
+    ) AS lowest_listing_price_amount,
     COUNT(*) FILTER (WHERE status = 'submitted')::integer AS active_offer_count,
-    MAX(price_amount) FILTER (WHERE status = 'submitted') AS highest_offer_price_amount
+    MAX(price_amount) FILTER (
+      WHERE status = 'submitted'
+        AND price_currency_code = recommendation.market_currency
+        AND last_stream_version > 0
+    ) AS highest_offer_price_amount
   FROM (
     SELECT
       catalog_catalog_item_id,
       price_amount,
+      price_currency_code,
+      last_stream_version,
       status
     FROM pricing_market_listing_inputs
     UNION ALL
     SELECT
       catalog_catalog_item_id,
       price_amount,
+      price_currency_code,
+      last_stream_version,
       status
     FROM pricing_buyer_offer_inputs
   ) AS market_inputs
-  GROUP BY catalog_catalog_item_id
-) AS market_signal
-  ON market_signal.catalog_catalog_item_id = recommendation.catalog_catalog_item_id
+  WHERE market_inputs.catalog_catalog_item_id = recommendation.catalog_catalog_item_id
+) AS market_signal ON true
 LEFT JOIN (
   SELECT
     seller_account_id,

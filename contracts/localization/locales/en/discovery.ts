@@ -155,6 +155,7 @@ export const discoveryEnglishTranslations = {
     "This item is not available right now.",
   "discovery.features.itemDetail.ui.itemDetailPage.unresolved.content": "Unresolved content",
   "discovery.features.itemDetail.ui.itemDetailPage.unavailable": "Unavailable",
+  "discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable": "Price unavailable",
   "discovery.features.itemDetail.ui.itemDetailPage.view.feedback": "View feedback",
   "discovery.features.itemDetail.ui.itemDetailPage.watch": "Watch",
   "discovery.features.itemDetail.ui.productSelector.any": "Any",

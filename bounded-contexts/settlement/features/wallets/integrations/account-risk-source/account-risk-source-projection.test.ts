@@ -213,6 +213,7 @@ describe("settlement account risk source projection", () => {
           listingId: "lst_1",
           accountId: "acc_seller",
           priceAmount: "2600.00",
+          priceCurrencyCode: "USD",
         },
         "marketplace.listing-lst_1",
       ),
@@ -256,7 +257,17 @@ describe("settlement account risk source projection", () => {
 
     expect(velocitySourceCalls).toContainEqual([
       expect.stringContaining("settlement_account_velocity_sources"),
-      ["listing-created", "lst_1", "acc_seller", "2026-05-01T00:00:00.000Z", 260000, null, "2026-05-01T00:00:00.000Z"],
+      [
+        "listing-created",
+        "lst_1",
+        "acc_seller",
+        "2026-05-01T00:00:00.000Z",
+        260000,
+        "USD",
+        1,
+        null,
+        "2026-05-01T00:00:00.000Z",
+      ],
     ]);
     // Trailing params are the settlement fraud/velocity policy's compiled launch
     // defaults (see ../../domain/fraud-velocity-policy.ts), stamped onto the SQL
@@ -277,6 +288,7 @@ describe("settlement account risk source projection", () => {
       7, // reviewVelocity.maxMedianReviewerAgeDays
       7, // youngBuyerSpendVelocity.newAccountAgeDays
       200_000, // youngBuyerSpendVelocity.minSpendCents
+      "USD", // newSellerListingVelocity.minValueCurrencyCode
     ]);
     expect(velocitySourceCalls).toContainEqual([
       expect.stringContaining("settlement_account_velocity_sources"),
@@ -286,6 +298,8 @@ describe("settlement account risk source projection", () => {
         "acc_buyer",
         "2026-07-07T00:00:00.000Z",
         210000,
+        null,
+        null,
         null,
         "2026-05-01T00:00:00.000Z",
       ],
@@ -298,6 +312,8 @@ describe("settlement account risk source projection", () => {
         "acc_seller",
         "2026-07-07T00:00:00.000Z",
         0,
+        null,
+        null,
         null,
         "2026-05-01T00:00:00.000Z",
       ],

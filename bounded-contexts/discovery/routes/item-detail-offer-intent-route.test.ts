@@ -63,6 +63,7 @@ describe("item detail offer intent route", () => {
     form.set("selectedOptions", "[]");
     form.set("productSummary", "");
     form.set("priceAmount", "350.00");
+    form.set("priceCurrencyCode", "EUR");
     form.set("quantityRequested", "1");
     form.set("shippingName", "Jane Smith");
     form.set("shippingLine1", "100 Market Street");
@@ -89,6 +90,7 @@ describe("item detail offer intent route", () => {
     expect(location).toContain("/checkout/buy/readiness?source=offer-intent");
     expect(location).toContain("catalogItemId=item-1");
     expect(location).toContain("offerPriceAmount=350.00");
+    expect(location).toContain("offerPriceCurrencyCode=EUR");
     expect(location).toContain("quantity=1");
   });
 });

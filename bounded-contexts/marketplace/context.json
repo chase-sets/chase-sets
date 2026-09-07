@@ -349,6 +349,7 @@
     },
     {
       "projectionName": "marketplace-offer-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["marketplace"],
       "ownedTables": [
         "marketplace_offer_pages",
@@ -673,6 +674,10 @@
       },
       {
         "name": "marketplace.submit-offer",
+        "ownerSlice": "offers"
+      },
+      {
+        "name": "marketplace.update-offer-price",
         "ownerSlice": "offers"
       },
       {

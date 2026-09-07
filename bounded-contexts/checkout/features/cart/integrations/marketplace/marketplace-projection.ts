@@ -73,6 +73,7 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
         productId: string;
         productSummary?: string | null;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityCap: number;
         productMeasureSnapshot?: unknown;
         evidenceRequirements?: unknown;
@@ -86,6 +87,8 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
            product_id,
            catalog_catalog_item_id,
            price_amount,
+           price_currency_code,
+           listing_stream_version,
            listing_quantity_cap,
            product_summary,
            product_measure_snapshot,
@@ -94,25 +97,30 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
            inventory_item_id,
            evidence_requirements,
            evidence
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, $11, $12)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, $12, $13, $14)
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              product_id = EXCLUDED.product_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
+             listing_stream_version = EXCLUDED.listing_stream_version,
              listing_quantity_cap = EXCLUDED.listing_quantity_cap,
              product_summary = EXCLUDED.product_summary,
              product_measure_snapshot = EXCLUDED.product_measure_snapshot,
              inventory_item_id = EXCLUDED.inventory_item_id,
              evidence_requirements = EXCLUDED.evidence_requirements,
              evidence = EXCLUDED.evidence,
-             updated_at = EXCLUDED.updated_at`,
+             updated_at = EXCLUDED.updated_at
+         WHERE checkout_marketplace_seller_options.listing_stream_version < EXCLUDED.listing_stream_version`,
         [
           data.listingId,
           data.accountId,
           data.productId,
           data.catalogItemId,
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
+          event.streamVersion,
           data.quantityCap,
           data.productSummary ?? null,
           productMeasureSnapshotFromUnknown(data.productMeasureSnapshot),
@@ -249,14 +257,23 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
       );
     },
     "marketplace.listing.price-updated": async (event) => {
-      const data = event.data as { priceAmount: string };
+      const data = event.data as { priceAmount: string; priceCurrencyCode?: string | null };
 
       await db.query(
         `UPDATE checkout_marketplace_seller_options
          SET price_amount = $2,
-             updated_at = $3
-         WHERE listing_id = $1`,
-        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), data.priceAmount, event.timing.recordedAt],
+             price_currency_code = $3,
+             listing_stream_version = $4,
+             updated_at = $5
+         WHERE listing_id = $1
+           AND listing_stream_version < $4`,
+        [
+          extractIdFromStreamId(event.streamId, "marketplace.listing-"),
+          data.priceAmount,
+          data.priceCurrencyCode ?? null,
+          event.streamVersion,
+          event.timing.recordedAt,
+        ],
       );
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {

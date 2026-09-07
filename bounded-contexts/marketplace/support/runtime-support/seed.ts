@@ -988,6 +988,7 @@ export async function seedMarketplaceDatabase(
         productSummary: offer.productSummary,
         shippingDestinationSnapshot: offer.shippingDestinationSnapshot ?? defaultOfferDestination,
         priceAmount: offer.priceAmount,
+        priceCurrencyCode: "USD",
         quantityRequested: offer.quantityRequested,
       },
       context: createSeedContextFor(buyerAccountId, offer.buyerUserId ?? identitySeedIds.collector.userId),

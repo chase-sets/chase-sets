@@ -3307,6 +3307,7 @@ export const mcpToolCatalog = [
         "itemTitle",
         "shippingDestinationSnapshot",
         "priceAmount",
+        "priceCurrencyCode",
         "quantityRequested",
         "idempotencyKey",
         "confirmationText",
@@ -3408,6 +3409,10 @@ export const mcpToolCatalog = [
         priceAmount: {
           type: "string",
           description: "Offer unit price in decimal currency format.",
+        },
+        priceCurrencyCode: {
+          type: "string",
+          description: "Buyer-authored three-letter ISO-4217 Offer price currency code.",
         },
         quantityRequested: {
           type: "integer",
@@ -4335,6 +4340,7 @@ export const mcpToolCatalog = [
         "itemTitle",
         "shippingDestinationSnapshot",
         "priceAmount",
+        "priceCurrencyCode",
         "quantityRequested",
         "idempotencyKey",
         "confirmationText",
@@ -4435,6 +4441,10 @@ export const mcpToolCatalog = [
         priceAmount: {
           type: "string",
           description: "Offer unit price in decimal currency format.",
+        },
+        priceCurrencyCode: {
+          type: "string",
+          description: "Buyer-authored three-letter ISO-4217 Offer price currency code.",
         },
         quantityRequested: {
           type: "integer",
@@ -4725,6 +4735,99 @@ export const mcpToolCatalog = [
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: ["Use after reading the listing and confirming the current marketplace terms preview."],
+  },
+  {
+    name: "marketplace.update-offer-price",
+    title: "Update Offer Price",
+    description: "Replace a submitted buyer Offer price amount and currency as one pair.",
+    availability: "available",
+    serviceId: "marketplace",
+    risk: "sensitive",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "offerId", "priceAmount", "priceCurrencyCode"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated buyer account scope.",
+        },
+        offerId: {
+          type: "string",
+          description: "Submitted Offer identifier.",
+        },
+        priceAmount: {
+          type: "string",
+          description: "Offer unit price in decimal currency format.",
+        },
+        priceCurrencyCode: {
+          type: "string",
+          description: "Buyer-authored three-letter ISO-4217 Offer price currency code.",
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "id", "offerId", "version", "status", "resourceUri"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated account scope.",
+        },
+        id: {
+          type: "string",
+          description: "Offer identifier.",
+        },
+        offerId: {
+          type: "string",
+          description: "Offer identifier.",
+        },
+        version: {
+          type: "integer",
+          description: "Committed offer stream version.",
+        },
+        status: {
+          type: "string",
+          description: "Lifecycle write result.",
+        },
+        resourceUri: {
+          type: "string",
+          description: "MCP resource URI for the offer.",
+        },
+        catalogItemId: {
+          type: "string",
+          description: "Catalog item used to submit the offer.",
+        },
+        productId: {
+          type: "string",
+          description: "Product targeted by the offer.",
+        },
+        counteredOfferId: {
+          type: "string",
+          description: "Offer being countered when this receipt came from a counter-offer.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["offers.manage"],
+      requiredScopes: ["offers:write"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: true,
+        prompt: "Confirm the exact business action before invoking this tool.",
+        matchInputField: "confirmationText",
+      },
+      idempotencyKey: "required",
+      idempotencyAuthority: "platform",
+      dryRunSupported: true,
+      notes: ["Write through the owning bounded context and emit normal domain events."],
+    },
+    expectedUsage: ["Use only when the buyer explicitly authorizes both members of a submitted Offer price."],
   },
   {
     name: "ordering.get-order",

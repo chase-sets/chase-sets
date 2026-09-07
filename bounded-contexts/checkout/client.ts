@@ -98,6 +98,11 @@ export type AddCheckoutSellListLineRequest = Readonly<{
   buyerAccountId?: string | null;
   buyerDisplayName?: string | null;
   offerPriceAmount?: string | null;
+  offerPriceCurrencyCode?: string | null;
+  offerStreamVersion?: number | null;
+  listingPriceAmount?: string | null;
+  listingPriceCurrencyCode?: string | null;
+  listingStreamVersion?: number | null;
   catalogItemId: string;
   productId: string;
   itemTitle: string;

@@ -1,4 +1,5 @@
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
 export const discoveryGoogleShoppingSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_google_shopping_feed_rows (
   row_id text PRIMARY KEY,
@@ -12,6 +13,9 @@ export const discoveryGoogleShoppingSchemaSql = `CREATE TABLE IF NOT EXISTS disc
   target_country text NOT NULL,
   content_language text NOT NULL,
   feed_label text NOT NULL DEFAULT '',
+  source_price_amount text NULL,
+  source_price_currency_code text NULL,
+  listing_stream_version integer NOT NULL DEFAULT 0,
   payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   payload_hash text NULL,
   eligibility_status text NOT NULL DEFAULT 'excluded',
@@ -45,6 +49,9 @@ ALTER TABLE discovery_google_shopping_feed_rows
   ADD COLUMN IF NOT EXISTS target_country text NOT NULL DEFAULT 'US',
   ADD COLUMN IF NOT EXISTS content_language text NOT NULL DEFAULT 'en',
   ADD COLUMN IF NOT EXISTS feed_label text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS source_price_amount text NULL,
+  ADD COLUMN IF NOT EXISTS source_price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS listing_stream_version integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS payload_hash text NULL,
   ADD COLUMN IF NOT EXISTS eligibility_status text NOT NULL DEFAULT 'excluded',
@@ -138,3 +145,16 @@ ${durableJobSchemaSql({
   eventsTable: "discovery_google_shopping_sync_job_events",
   notifyChannel: "discovery_google_shopping_sync_job_events",
 })}`;
+
+export const discoveryGoogleShoppingSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_discovery_google_shopping_price_currency",
+    description: "Bind Google Shopping rows to the versioned " + "Marketplace Listing price pair.",
+    statements: [
+      `ALTER TABLE discovery_google_shopping_feed_rows
+  ADD COLUMN IF NOT EXISTS source_price_amount text NULL,
+  ADD COLUMN IF NOT EXISTS source_price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS listing_stream_version integer NOT NULL DEFAULT 0`,
+    ],
+  },
+];

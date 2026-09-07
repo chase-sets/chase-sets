@@ -39,6 +39,7 @@ const context = {
 const defaultRule: RepricingRule = {
   conditions: [],
   directive: {
+    currencyCode: "USD",
     anchorChain: [{ source: "lowest-competing-ask" }, { source: "market-estimate" }],
     offset: { mode: "absolute", amount: "-0.01" },
     floor: { mode: "absolute", amount: "5.00" },

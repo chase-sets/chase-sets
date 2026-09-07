@@ -17,6 +17,7 @@ export type RepricingRoundListing = Readonly<{
   grading: "graded" | "raw" | null;
   createdAt: string | null;
   costBasisAmount: string | null;
+  costBasisCurrencyCode: string | null;
   policyId: string;
   policyRevision: string;
   rules: readonly RepricingRule[];
@@ -29,10 +30,11 @@ export type RepricingRoundInputs = Readonly<{
     listingId: string;
     sellerAccountId: string;
     amount: string;
+    currencyCode: string | null;
     pricingMode: "hard" | "derived";
   }>[];
-  marketEstimate: Readonly<{ amount: string; freshUntil: string }> | null;
-  lastSold: Readonly<{ amount: string; soldAt: string }> | null;
+  marketEstimate: Readonly<{ amount: string; currencyCode: string; freshUntil: string }> | null;
+  lastSold: Readonly<{ amount: string; currencyCode: string | null; soldAt: string }> | null;
 }>;
 
 type ListingRow = Readonly<{
@@ -51,6 +53,7 @@ type ListingRow = Readonly<{
   created_at: string | null;
   category_ids: readonly string[] | null;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
   policy_id: string;
   policy_revision: string;
   rules: readonly RepricingRule[] | string;
@@ -79,6 +82,7 @@ export async function loadRepricingRoundInputs(
          listing.created_at::text,
          catalog.category_ids,
          inventory.acquisition_cost_amount::text,
+         inventory.acquisition_cost_currency_code,
          assignment.policy_id,
          policy.updated_at::text AS policy_revision,
          policy.rules,
@@ -104,12 +108,14 @@ export async function loadRepricingRoundInputs(
       listing_id: string;
       seller_account_id: string;
       amount: string;
+      price_currency_code: string | null;
       pricing_mode: "hard" | "derived";
     }>(
       `SELECT
          listing.listing_id,
          listing.seller_account_id,
          listing.price_amount::text AS amount,
+         listing.price_currency_code,
          CASE WHEN assignment.listing_id IS NULL THEN 'hard' ELSE 'derived' END AS pricing_mode
        FROM pricing_market_listing_inputs AS listing
        LEFT JOIN pricing_repricing_policy_assignments AS assignment
@@ -120,15 +126,15 @@ export async function loadRepricingRoundInputs(
        ORDER BY listing.listing_id`,
       [product.catalogItemId, product.productId],
     ),
-    db.query<{ amount: string; fresh_until: string }>(
-      `SELECT amount::text, fresh_until::text
+    db.query<{ amount: string; currency_code: string; fresh_until: string }>(
+      `SELECT amount::text, UPPER(currency_code) AS currency_code, fresh_until::text
        FROM pricing_market_price_estimates
        WHERE catalog_catalog_item_id = $1
          AND product_id = $2`,
       [product.catalogItemId, product.productId],
     ),
-    db.query<{ unit_price_amount: string; sold_at: string }>(
-      `SELECT unit_price_amount::text, sold_at::text
+    db.query<{ unit_price_amount: string; currency_code: string | null; sold_at: string }>(
+      `SELECT unit_price_amount::text, NULL::text AS currency_code, sold_at::text
        FROM pricing_market_trades
        WHERE catalog_catalog_item_id = $1
          AND product_id = $2
@@ -157,6 +163,7 @@ export async function loadRepricingRoundInputs(
       grading: row.grading,
       createdAt: row.created_at,
       costBasisAmount: row.acquisition_cost_amount,
+      costBasisCurrencyCode: row.acquisition_cost_currency_code,
       policyId: row.policy_id,
       policyRevision: row.policy_revision,
       rules: typeof row.rules === "string" ? (JSON.parse(row.rules) as readonly RepricingRule[]) : row.rules,
@@ -166,13 +173,22 @@ export async function loadRepricingRoundInputs(
       listingId: row.listing_id,
       sellerAccountId: row.seller_account_id,
       amount: row.amount,
+      currencyCode: row.price_currency_code,
       pricingMode: row.pricing_mode,
     })),
     marketEstimate: estimateResult.rows[0]
-      ? { amount: estimateResult.rows[0].amount, freshUntil: estimateResult.rows[0].fresh_until }
+      ? {
+          amount: estimateResult.rows[0].amount,
+          currencyCode: estimateResult.rows[0].currency_code,
+          freshUntil: estimateResult.rows[0].fresh_until,
+        }
       : null,
     lastSold: lastSoldResult.rows[0]
-      ? { amount: lastSoldResult.rows[0].unit_price_amount, soldAt: lastSoldResult.rows[0].sold_at }
+      ? {
+          amount: lastSoldResult.rows[0].unit_price_amount,
+          currencyCode: lastSoldResult.rows[0].currency_code,
+          soldAt: lastSoldResult.rows[0].sold_at,
+        }
       : null,
   };
 }

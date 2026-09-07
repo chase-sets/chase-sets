@@ -6,6 +6,7 @@ import {
   parseMoneyCents,
   type MarketplaceOfferAbusePolicy,
 } from "./offer-abuse-policy";
+import { normalizeOfferPriceCurrencyCode } from "./domain";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -40,6 +41,7 @@ export type MarketplaceOfferSellerControlState = Readonly<{
   declinedOfferCount: number;
   lowballDeclineCount: number;
   lastLowballDeclinedAmount: string | null;
+  lastLowballDeclinedCurrencyCode: string | null;
   lowballCooldownUntil: string | null;
 }>;
 
@@ -53,6 +55,7 @@ export const initialMarketplaceOfferSellerControlState: MarketplaceOfferSellerCo
   declinedOfferCount: 0,
   lowballDeclineCount: 0,
   lastLowballDeclinedAmount: null,
+  lastLowballDeclinedCurrencyCode: null,
   lowballCooldownUntil: null,
 };
 
@@ -64,7 +67,9 @@ export type DeclineOfferMatchCommand = Readonly<{
   productId: string;
   offerId: OfferId;
   offerPriceAmount: string;
+  offerPriceCurrencyCode: string;
   listingPriceAmount: string;
+  listingPriceCurrencyCode: string;
   declinedAt: string;
   policy?: MarketplaceOfferAbusePolicy;
 }>;
@@ -102,7 +107,9 @@ export type OfferMatchDeclinedEvent = DomainEvent<
     productId: string;
     offerId: OfferId;
     offerPriceAmount: string;
+    offerPriceCurrencyCode: string;
     listingPriceAmount: string;
+    listingPriceCurrencyCode: string;
     declinedAt: string;
     lowballDeclineCount: number;
     lowballCooldownUntil: string | null;
@@ -148,6 +155,12 @@ export const decideMarketplaceOfferSellerControl: AggregateDecider<
       const policy = command.policy ?? DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY;
       const offerPriceAmount = normalizeMoneyAmount(command.offerPriceAmount);
       const listingPriceAmount = normalizeMoneyAmount(command.listingPriceAmount);
+      const offerPriceCurrencyCode = normalizeOfferPriceCurrencyCode(command.offerPriceCurrencyCode);
+      const listingPriceCurrencyCode = normalizeOfferPriceCurrencyCode(command.listingPriceCurrencyCode);
+      assert(
+        offerPriceCurrencyCode === listingPriceCurrencyCode,
+        "Offer and Listing prices must use the same currency before seller controls compare them.",
+      );
       const isLowball = parseMoneyCents(offerPriceAmount) < parseMoneyCents(listingPriceAmount);
       const nextLowballDeclineCount = isLowball ? state.lowballDeclineCount + 1 : state.lowballDeclineCount;
       return [
@@ -160,7 +173,9 @@ export const decideMarketplaceOfferSellerControl: AggregateDecider<
             productId: normalizeRequiredText(command.productId, "Offer decline must reference a product."),
             offerId: command.offerId,
             offerPriceAmount,
+            offerPriceCurrencyCode,
             listingPriceAmount,
+            listingPriceCurrencyCode,
             declinedAt: normalizeRequiredText(command.declinedAt, "Offer decline must record a timestamp."),
             lowballDeclineCount: nextLowballDeclineCount,
             lowballCooldownUntil:
@@ -220,6 +235,9 @@ export const evolveMarketplaceOfferSellerControl: AggregateEvolver<
       lastLowballDeclinedAmount: event.data.lowballCooldownUntil
         ? event.data.offerPriceAmount
         : state.lastLowballDeclinedAmount,
+      lastLowballDeclinedCurrencyCode: event.data.lowballCooldownUntil
+        ? event.data.offerPriceCurrencyCode
+        : state.lastLowballDeclinedCurrencyCode,
       lowballCooldownUntil: event.data.lowballCooldownUntil ?? state.lowballCooldownUntil,
     };
   }

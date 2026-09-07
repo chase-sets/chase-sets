@@ -28,6 +28,8 @@ export interface CheckoutCartLine {
   selected_listing_seller_display_name: string | null;
   selected_listing_seller_slug: string | null;
   selected_listing_price_amount: string | null;
+  selected_listing_price_currency_code?: string | null;
+  selected_listing_stream_version?: number | null;
   selected_listing_snapshot_source: string | null;
   selected_listing_snapshot_captured_at: string | null;
   seller_preference_id: string | null;
@@ -40,6 +42,8 @@ export interface CheckoutCartLine {
     seller_average_rating?: string | null;
     seller_review_count?: number;
     price_amount: string;
+    price_currency_code?: string | null;
+    listing_stream_version?: number | null;
     available_quantity: number;
     product_summary: string | null;
     product_measure_snapshot: Readonly<Record<string, unknown>> | null;

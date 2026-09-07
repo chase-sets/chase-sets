@@ -492,8 +492,9 @@ export async function submitPurchaseIntentThroughMarketplace(request: Request, s
   }
 
   const offerPriceAmount = line.offerPriceAmount?.trim();
-  if (!offerPriceAmount) {
-    throw new Error("Purchase intent requires an offer price.");
+  const offerPriceCurrencyCode = line.offerPriceCurrencyCode?.trim().toUpperCase();
+  if (!offerPriceAmount || !offerPriceCurrencyCode || !/^[A-Z]{3}$/.test(offerPriceCurrencyCode)) {
+    throw new Error("Purchase intent requires a complete Offer amount and currency.");
   }
 
   const marketplaceApi = createMarketplaceRequestApiClient(request);
@@ -510,6 +511,7 @@ export async function submitPurchaseIntentThroughMarketplace(request: Request, s
       productSummary: line.productSummary,
       shippingDestinationSnapshot: session.shipping_address,
       priceAmount: offerPriceAmount,
+      priceCurrencyCode: offerPriceCurrencyCode,
       quantityRequested: line.quantity,
     })) as { id?: string; offer_id?: string };
 

@@ -153,6 +153,7 @@ export type CheckoutSessionServices = Readonly<{
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       offerPriceAmount: string;
+      offerPriceCurrencyCode: string;
       quantity: number;
       optimizationGoal?: CheckoutOptimizationGoal;
       shippingOption?: string;
@@ -981,6 +982,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
               selectedOptions: descriptor.selection,
               productSummary: params.productSummary,
               offerPriceAmount: params.offerPriceAmount,
+              offerPriceCurrencyCode: params.offerPriceCurrencyCode,
               quantity: params.quantity,
               fulfillmentMode: "optimize",
               lockedListingId: null,

@@ -25,6 +25,7 @@ function searchRow(overrides: Record<string, unknown> = {}) {
     image_fallback: null,
     market_summary: {
       lowest_price_amount: "12.34",
+      lowest_price_currency_code: "EUR",
       active_listing_count: 2,
       total_visible_quantity: 3,
     },
@@ -59,6 +60,8 @@ function detailRow(overrides: Record<string, unknown> = {}) {
         storage_location_name: "A",
         ship_from_code: "AUS",
         price_amount: "12.34",
+        price_currency_code: "EUR",
+        listing_stream_version: 2,
         shipping_allowance_percentage_bps: 0,
         quantity_cap: 3,
         max_units_per_order: null,
@@ -223,7 +226,7 @@ describe("Discovery item MCP handlers", () => {
           id: "cat_1",
           title: "Charizard",
           url: "https://marketplace.example/items/charizard-cat_1",
-          price: { currency: "USD", amount: "12.34", display: "$12.34" },
+          price: { currency: "EUR", amount: "12.34", display: "€12.34" },
           availability: { status: "in_stock", quantity: 3 },
           variants: [
             {

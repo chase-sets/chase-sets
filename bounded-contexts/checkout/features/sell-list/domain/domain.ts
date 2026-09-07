@@ -20,6 +20,11 @@ export type CheckoutSellListLine = Readonly<{
   buyerAccountId: string | null;
   buyerDisplayName: string | null;
   offerPriceAmount: string | null;
+  offerPriceCurrencyCode: string | null;
+  offerStreamVersion: number | null;
+  listingPriceAmount: string | null;
+  listingPriceCurrencyCode: string | null;
+  listingStreamVersion: number | null;
   catalogItemId: string;
   productId: string;
   itemTitle: string;
@@ -46,10 +51,28 @@ export const initialCheckoutSellListState: CheckoutSellListState = {
 };
 
 export type AddSellListLineCommand = Readonly<
-  Omit<CheckoutSellListLine, "lineId"> & {
-    type: "AddSellListLine";
-    lineId: SellListLineId;
-  }
+  Omit<
+    CheckoutSellListLine,
+    | "lineId"
+    | "offerPriceCurrencyCode"
+    | "offerStreamVersion"
+    | "listingPriceAmount"
+    | "listingPriceCurrencyCode"
+    | "listingStreamVersion"
+  > &
+    Partial<
+      Pick<
+        CheckoutSellListLine,
+        | "offerPriceCurrencyCode"
+        | "offerStreamVersion"
+        | "listingPriceAmount"
+        | "listingPriceCurrencyCode"
+        | "listingStreamVersion"
+      >
+    > & {
+      type: "AddSellListLine";
+      lineId: SellListLineId;
+    }
 >;
 
 export type RemoveSellListLineCommand = Readonly<{
@@ -265,6 +288,24 @@ export const decideCheckoutSellList: AggregateDecider<
         lineType === "product" || (Boolean(offerId) && Boolean(listingId)),
         "Selected offer sell-list lines must reference an Offer and exact Listing.",
       );
+      const offerPriceAmount = normalizeOptionalText(command.offerPriceAmount);
+      const offerPriceCurrencyCode = normalizeOptionalText(command.offerPriceCurrencyCode)?.toUpperCase() ?? null;
+      const listingPriceAmount = normalizeOptionalText(command.listingPriceAmount);
+      const listingPriceCurrencyCode = normalizeOptionalText(command.listingPriceCurrencyCode)?.toUpperCase() ?? null;
+      if (lineType === "selected-offer") {
+        assert(
+          offerPriceAmount !== null &&
+            /^[A-Z]{3}$/.test(offerPriceCurrencyCode ?? "") &&
+            Number.isInteger(command.offerStreamVersion) &&
+            Number(command.offerStreamVersion) > 0 &&
+            listingPriceAmount !== null &&
+            /^[A-Z]{3}$/.test(listingPriceCurrencyCode ?? "") &&
+            Number.isInteger(command.listingStreamVersion) &&
+            Number(command.listingStreamVersion) > 0 &&
+            offerPriceCurrencyCode === listingPriceCurrencyCode,
+          "Selected Offer and Listing prices must be complete, versioned, and use the same currency.",
+        );
+      }
 
       return [
         {
@@ -277,7 +318,12 @@ export const decideCheckoutSellList: AggregateDecider<
             listingId,
             buyerAccountId: normalizeOptionalText(command.buyerAccountId),
             buyerDisplayName: normalizeOptionalText(command.buyerDisplayName),
-            offerPriceAmount: normalizeOptionalText(command.offerPriceAmount),
+            offerPriceAmount,
+            offerPriceCurrencyCode,
+            offerStreamVersion: command.offerStreamVersion ?? null,
+            listingPriceAmount,
+            listingPriceCurrencyCode,
+            listingStreamVersion: command.listingStreamVersion ?? null,
             catalogItemId: normalizeRequiredText(
               command.catalogItemId,
               "Sell list lines must reference a catalog item.",

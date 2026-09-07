@@ -145,6 +145,7 @@ async function refreshAccountAlerts(
          COALESCE(SUM(amount_cents) FILTER (
            WHERE source_kind = 'listing-created'
              AND occurred_at >= $2::timestamptz - ($4::text || ' hours')::interval
+             AND amount_currency_code = $7
          ), 0)::bigint AS listing_24h_value_cents,
          COUNT(*) FILTER (
            WHERE source_kind = 'review-received'
@@ -192,6 +193,7 @@ async function refreshAccountAlerts(
       policy.newSellerListingWindowHours,
       policy.reviewWindowHours,
       policy.youngBuyerSpendWindowHours,
+      policy.newSellerListingValueCurrencyCode,
     ],
   );
   const row = result.rows[0];
@@ -292,6 +294,8 @@ async function upsertVelocitySource(
     accountId: string;
     occurredAt: string;
     amountCents?: number;
+    amountCurrencyCode?: string | null;
+    sourceStreamVersion?: number | null;
     reviewerAccountId?: string | null;
     updatedAt: string;
   }>,
@@ -304,29 +308,38 @@ async function upsertVelocitySource(
        account_id,
        occurred_at,
        amount_cents,
+       amount_currency_code,
+       source_stream_version,
        reviewer_account_id,
        reviewer_account_created_at,
        updated_at
      ) VALUES (
-       $1, $2, $3, $4, $5, $6,
-       (SELECT account_created_at FROM platform_operations_risk_alert_account_sources WHERE account_id = $6),
-       $7
+       $1, $2, $3, $4, $5, $6, $7, $8,
+       (SELECT account_created_at FROM platform_operations_risk_alert_account_sources WHERE account_id = $8),
+       $9
      )
      ON CONFLICT (source_kind, source_id, account_id) DO UPDATE SET
        occurred_at = EXCLUDED.occurred_at,
        amount_cents = EXCLUDED.amount_cents,
+       amount_currency_code = EXCLUDED.amount_currency_code,
+       source_stream_version = EXCLUDED.source_stream_version,
        reviewer_account_id = EXCLUDED.reviewer_account_id,
        reviewer_account_created_at = COALESCE(
          EXCLUDED.reviewer_account_created_at,
          platform_operations_risk_alert_velocity_sources.reviewer_account_created_at
        ),
-       updated_at = EXCLUDED.updated_at`,
+       updated_at = EXCLUDED.updated_at
+     WHERE EXCLUDED.source_stream_version IS NULL
+        OR platform_operations_risk_alert_velocity_sources.source_stream_version IS NULL
+        OR platform_operations_risk_alert_velocity_sources.source_stream_version < EXCLUDED.source_stream_version`,
     [
       params.sourceKind,
       params.sourceId,
       params.accountId,
       params.occurredAt,
       params.amountCents ?? 0,
+      params.amountCurrencyCode ?? null,
+      params.sourceStreamVersion ?? null,
       params.reviewerAccountId ?? null,
       params.updatedAt,
     ],
@@ -381,7 +394,16 @@ export function buildMarketplaceRiskAlertProjectionHandlers(
 ): ProjectorHandlerMap {
   return {
     "marketplace.listing.created": async (event) => {
-      const data = event.data as { listingId: string; accountId: string; priceAmount: string };
+      const data = event.data as {
+        listingId: string;
+        accountId: string;
+        priceAmount: string;
+        priceCurrencyCode?: string | null;
+      };
+      const priceCurrencyCode =
+        typeof data.priceCurrencyCode === "string" && /^[A-Z]{3}$/.test(data.priceCurrencyCode.trim().toUpperCase())
+          ? data.priceCurrencyCode.trim().toUpperCase()
+          : null;
       await upsertVelocitySource(
         db,
         {
@@ -390,6 +412,8 @@ export function buildMarketplaceRiskAlertProjectionHandlers(
           accountId: data.accountId,
           occurredAt: event.timing.occurredAt ?? event.timing.recordedAt,
           amountCents: moneyToCents(data.priceAmount),
+          amountCurrencyCode: priceCurrencyCode,
+          sourceStreamVersion: event.streamVersion,
           updatedAt: event.timing.recordedAt,
         },
         deps.policies,

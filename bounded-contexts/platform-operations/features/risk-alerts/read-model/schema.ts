@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const riskAlertsSchemaSql = `
 CREATE TABLE IF NOT EXISTS platform_operations_risk_alert_account_sources (
   account_id text PRIMARY KEY,
@@ -11,6 +13,8 @@ CREATE TABLE IF NOT EXISTS platform_operations_risk_alert_velocity_sources (
   account_id text NOT NULL,
   occurred_at timestamptz NOT NULL,
   amount_cents bigint NOT NULL DEFAULT 0,
+  amount_currency_code text NULL,
+  source_stream_version integer NULL,
   reviewer_account_id text NULL,
   reviewer_account_created_at timestamptz NULL,
   updated_at timestamptz NOT NULL,
@@ -46,3 +50,16 @@ CREATE TABLE IF NOT EXISTS platform_operations_risk_alert_queue_pages (
 CREATE INDEX IF NOT EXISTS platform_operations_risk_alert_queue_status_idx
   ON platform_operations_risk_alert_queue_pages (status, last_triggered_at DESC);
 `;
+
+export const riskAlertsSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_platform_operations_listing_risk_currency",
+    description:
+      "Preserve nullable Listing value currency and Marketplace stream version for independently owned USD risk aggregation.",
+    statements: [
+      `ALTER TABLE platform_operations_risk_alert_velocity_sources
+  ADD COLUMN IF NOT EXISTS amount_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS source_stream_version integer NULL`,
+    ],
+  },
+];

@@ -206,6 +206,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
           optional: true,
           invalidMessage: t("discovery.routes.itemDetail.validation.threshold.invalid"),
         }),
+        thresholdCurrencyCode:
+          String(formData.get("thresholdCurrencyCode") ?? "")
+            .trim()
+            .toUpperCase() || null,
       } as const;
 
       const actor = await resolveActorFromAuthApi({ request });
@@ -238,6 +242,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const offerPriceAmount = normalizeMoneyAmount(formData.get("priceAmount"), {
         invalidMessage: t("discovery.routes.itemDetail.validation.price.required"),
       });
+      const offerPriceCurrencyCode = String(formData.get("priceCurrencyCode") ?? "")
+        .trim()
+        .toUpperCase();
       const quantity = parsePositiveQuantity(formData.get("quantityRequested"));
       const query = new URLSearchParams({
         source: "offer-intent",
@@ -248,6 +255,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         selectedOptions: String(formData.get("selectedOptions") ?? "[]"),
         productSummary: String(formData.get("productSummary") ?? ""),
         offerPriceAmount,
+        offerPriceCurrencyCode,
         quantity: String(quantity),
       });
 

@@ -693,6 +693,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.unmute": "Unmute",
   "marketplace.features.offers.ui.offerMatchListPage.view.listings": "View listings",
   "marketplace.features.offers.ui.offerMatchListPage.your.listing": "Your Listing",
+  "marketplace.features.offers.ui.price.incomplete": "Price incomplete",
   "marketplace.features.offers.ui.priceGap.below.ask": "{amount} below ask",
   "marketplace.features.offers.ui.priceGap.meets.ask": "Meets ask",
   "marketplace.features.offers.ui.priceGap.over.ask": "{amount} over ask",

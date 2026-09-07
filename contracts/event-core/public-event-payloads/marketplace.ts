@@ -38,6 +38,8 @@ export type MarketplaceOfferAcceptedPayload = Readonly<{
   selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
   productSummary: string | null;
   priceAmount: string;
+  /** Absent only when decoding historical amount-only Offer events. */
+  priceCurrencyCode?: string | null;
   marketplaceSalesFeePercentageBps: number;
   marketplaceSalesFeeFixedAmount: string;
   marketplaceSalesFeeCapAmount: string | null;
@@ -95,7 +97,16 @@ export type MarketplaceOfferSubmittedPayload = Readonly<{
   productSummary: string | null;
   shippingDestinationSnapshot: AddressSnapshot;
   priceAmount: string;
+  /** Absent only when decoding historical amount-only Offer events. */
+  priceCurrencyCode?: string | null;
   quantityRequested: number;
+}>;
+
+export type MarketplaceOfferPriceUpdatedPayload = Readonly<{
+  offerId: string;
+  buyerAccountId: AccountId;
+  priceAmount: string;
+  priceCurrencyCode: string;
 }>;
 
 export type MarketplaceListingOfferCommitmentRecordedPayload = Readonly<{
@@ -229,6 +240,7 @@ export type MarketplaceEventPayloads = Readonly<{
   "platform-operations.risk-alert.action-recorded": PlatformOperationsRiskAlertActionRecordedPayload;
   "marketplace.offer.accepted": MarketplaceOfferAcceptedPayload;
   "marketplace.offer.submitted": MarketplaceOfferSubmittedPayload;
+  "marketplace.offer.price-updated": MarketplaceOfferPriceUpdatedPayload;
   "marketplace.listing.offer-commitment-recorded": MarketplaceListingOfferCommitmentRecordedPayload;
   "marketplace.seller-listing-availability.commitment-checked": MarketplaceSellerListingAvailabilityCommitmentCheckedPayload;
   "marketplace.review-scoring.disposition-projected.v1": MarketplaceReviewScoringDispositionProjectedV1Payload;

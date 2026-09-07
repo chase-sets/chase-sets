@@ -43,6 +43,7 @@ describe("marketplace offer domain", () => {
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Form: Raw",
       priceAmount: "350.00",
+      priceCurrencyCode: "USD",
       quantityRequested: 1,
       shippingDestinationSnapshot,
     });
@@ -67,11 +68,85 @@ describe("marketplace offer domain", () => {
       selectedOptions: [],
       productSummary: null,
       priceAmount: "007.50",
+      priceCurrencyCode: "USD",
       quantityRequested: 1,
       shippingDestinationSnapshot,
     });
 
     expect(event?.data.priceAmount).toBe("7.50");
+    expect(event?.data.priceCurrencyCode).toBe("USD");
+  });
+
+  it("treats a currency-only Offer price edit as material and an unchanged normalized pair as a no-op", () => {
+    const submittedState = decideMarketplaceOffer(initialMarketplaceOfferState, {
+      type: "SubmitOffer",
+      offerId: "off_test" as never,
+      buyerAccountId: "acc_buyer" as never,
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::" as never,
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      priceAmount: "10.00",
+      priceCurrencyCode: "usd",
+      quantityRequested: 1,
+      shippingDestinationSnapshot,
+    }).reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);
+
+    expect(
+      decideMarketplaceOffer(submittedState, {
+        type: "UpdateOfferPrice",
+        buyerAccountId: "acc_buyer" as never,
+        priceAmount: "10.0",
+        priceCurrencyCode: "USD",
+      }),
+    ).toEqual([]);
+    expect(
+      decideMarketplaceOffer(submittedState, {
+        type: "UpdateOfferPrice",
+        buyerAccountId: "acc_buyer" as never,
+        priceAmount: "10.00",
+        priceCurrencyCode: "EUR",
+      }),
+    ).toMatchObject([{ type: "marketplace.offer.price-updated", data: { priceCurrencyCode: "EUR" } }]);
+  });
+
+  it("keeps a historical amount-only Offer ineligible for acceptance", () => {
+    const legacyState = evolveMarketplaceOffer(initialMarketplaceOfferState, {
+      type: "marketplace.offer.submitted",
+      data: {
+        offerId: "off_legacy" as never,
+        buyerAccountId: "acc_buyer" as never,
+        catalogItemId: "cat_charizard" as never,
+        productId: "cat_charizard::" as never,
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        shippingDestinationSnapshot,
+        priceAmount: "10.00",
+        quantityRequested: 1,
+      },
+    });
+
+    expect(() =>
+      decideMarketplaceOffer(legacyState, {
+        type: "AcceptOffer",
+        sellerAccountId: "acc_seller" as never,
+        ...listingCommitment,
+        acceptedAt: "2026-03-31T00:00:00.000Z",
+        marketplaceSalesFeePercentageBps: 500,
+        marketplaceSalesFeeFixedAmount: "0.00",
+        marketplaceSalesFeeCapAmount: "25.00",
+        marketplaceSalesFeeUnitAmount: "0.50",
+        sellerNetUnitAmount: "9.50",
+        termsScheduleId: "sch_standard",
+        termsAgreementId: null,
+        termsResolvedAt: "2026-03-31T00:00:00.000Z",
+        feeQuoteFingerprint: "10.00|0.50|9.50|sch_standard|",
+      }),
+    ).toThrow("Offer price is incomplete. The buyer must supply an amount and currency before acceptance.");
   });
 
   it("rejects offer prices above the shared money ceiling", () => {
@@ -87,6 +162,7 @@ describe("marketplace offer domain", () => {
         selectedOptions: [],
         productSummary: null,
         priceAmount: "10000000000.00",
+        priceCurrencyCode: "USD",
         quantityRequested: 1,
         shippingDestinationSnapshot,
       }),
@@ -106,6 +182,7 @@ describe("marketplace offer domain", () => {
         selectedOptions: [],
         productSummary: null,
         priceAmount: "0",
+        priceCurrencyCode: "USD",
         quantityRequested: 1,
         shippingDestinationSnapshot,
       }),
@@ -123,6 +200,7 @@ describe("marketplace offer domain", () => {
         selectedOptions: [],
         productSummary: null,
         priceAmount: "10.00",
+        priceCurrencyCode: "USD",
         quantityRequested: 0,
         shippingDestinationSnapshot,
       }),
@@ -141,6 +219,7 @@ describe("marketplace offer domain", () => {
       selectedOptions: [],
       productSummary: null,
       priceAmount: "10.00",
+      priceCurrencyCode: "USD",
       quantityRequested: 1,
       shippingDestinationSnapshot,
     }).reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);
@@ -157,6 +236,7 @@ describe("marketplace offer domain", () => {
         selectedOptions: [],
         productSummary: null,
         priceAmount: "10.00",
+        priceCurrencyCode: "USD",
         quantityRequested: 1,
         shippingDestinationSnapshot,
       }),
@@ -177,6 +257,7 @@ describe("marketplace offer domain", () => {
         selectedOptions: [],
         productSummary: null,
         priceAmount: "10.00",
+        priceCurrencyCode: "USD",
         quantityRequested: 1,
         shippingDestinationSnapshot,
       }),
@@ -195,6 +276,7 @@ describe("marketplace offer domain", () => {
       selectedOptions: [],
       productSummary: null,
       priceAmount: "10.00",
+      priceCurrencyCode: "USD",
       quantityRequested: 1,
       shippingDestinationSnapshot,
     }).reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);
@@ -235,6 +317,7 @@ describe("marketplace offer domain", () => {
       selectedOptions: [],
       productSummary: null,
       priceAmount: "10.00",
+      priceCurrencyCode: "USD",
       quantityRequested: 1,
       shippingDestinationSnapshot,
     }).reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);

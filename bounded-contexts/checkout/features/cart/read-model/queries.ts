@@ -26,6 +26,8 @@ export type CheckoutCartLineRow = Readonly<{
   selected_listing_seller_display_name: string | null;
   selected_listing_seller_slug: string | null;
   selected_listing_price_amount: string | null;
+  selected_listing_price_currency_code?: string | null;
+  selected_listing_stream_version?: number | null;
   selected_listing_snapshot_source: string | null;
   selected_listing_snapshot_captured_at: string | null;
   seller_preference_id: string | null;
@@ -43,6 +45,8 @@ export type CheckoutCartSellerOptionRow = Readonly<{
   seller_average_rating: string | null;
   seller_review_count: number;
   price_amount: string;
+  price_currency_code?: string | null;
+  listing_stream_version?: number | null;
   available_quantity: number;
   product_summary: string | null;
   product_measure_snapshot: Readonly<Record<string, unknown>> | null;
@@ -76,6 +80,8 @@ type CartLinePageRow = Readonly<{
   selected_listing_seller_display_name: string | null;
   selected_listing_seller_slug: string | null;
   selected_listing_price_amount: string | null;
+  selected_listing_price_currency_code: string | null;
+  selected_listing_stream_version: number | null;
   selected_listing_snapshot_source: string | null;
   selected_listing_snapshot_captured_at: string | null;
   seller_preference_id: string | null;
@@ -93,9 +99,21 @@ function mapSellerOption(value: unknown): CheckoutCartSellerOptionRow | null {
   const source = value as Record<string, unknown>;
   const listingId = String(source.listing_id ?? "").trim();
   const priceAmount = String(source.price_amount ?? "").trim();
+  const priceCurrencyCode = String(source.price_currency_code ?? "")
+    .trim()
+    .toUpperCase();
+  const listingStreamVersion = Number(source.listing_stream_version ?? 0);
   const availableQuantity = Number(source.available_quantity ?? 0);
 
-  if (!listingId || !priceAmount || !Number.isFinite(availableQuantity) || availableQuantity <= 0) {
+  if (
+    !listingId ||
+    !priceAmount ||
+    !/^[A-Z]{3}$/.test(priceCurrencyCode) ||
+    !Number.isInteger(listingStreamVersion) ||
+    listingStreamVersion <= 0 ||
+    !Number.isFinite(availableQuantity) ||
+    availableQuantity <= 0
+  ) {
     return null;
   }
 
@@ -119,6 +137,8 @@ function mapSellerOption(value: unknown): CheckoutCartSellerOptionRow | null {
         : String(source.seller_average_rating).trim() || null,
     seller_review_count: Number.isFinite(Number(source.seller_review_count)) ? Number(source.seller_review_count) : 0,
     price_amount: priceAmount,
+    price_currency_code: priceCurrencyCode,
+    listing_stream_version: listingStreamVersion,
     available_quantity: availableQuantity,
     product_summary:
       source.product_summary === null || source.product_summary === undefined
@@ -150,6 +170,8 @@ function mapCartLineRow(row: CartLinePageRow): CheckoutCartLineRow {
     selected_listing_seller_display_name: mapNullableText(row.selected_listing_seller_display_name),
     selected_listing_seller_slug: mapNullableText(row.selected_listing_seller_slug),
     selected_listing_price_amount: mapNullableText(row.selected_listing_price_amount),
+    selected_listing_price_currency_code: mapNullableText(row.selected_listing_price_currency_code),
+    selected_listing_stream_version: row.selected_listing_stream_version,
     selected_listing_snapshot_source: mapNullableText(row.selected_listing_snapshot_source),
     selected_listing_snapshot_captured_at: mapNullableText(row.selected_listing_snapshot_captured_at),
     selected_options: Array.isArray(row.selected_options) ? (row.selected_options as VersionSelectedOptionEntry[]) : [],
@@ -334,6 +356,8 @@ async function resolveCartLines(
        line.selected_listing_seller_display_name,
        line.selected_listing_seller_slug,
        line.selected_listing_price_amount::text AS selected_listing_price_amount,
+       line.selected_listing_price_currency_code,
+       line.selected_listing_stream_version,
        line.selected_listing_snapshot_source,
        line.selected_listing_snapshot_captured_at::text AS selected_listing_snapshot_captured_at,
        line.seller_preference_id,
@@ -353,6 +377,8 @@ async function resolveCartLines(
              'seller_average_rating', COALESCE(seller.average_rating, o.seller_average_rating)::text,
              'seller_review_count', COALESCE(seller.rating_count, o.seller_review_count, 0),
              'price_amount', o.price_amount::text,
+             'price_currency_code', o.price_currency_code,
+             'listing_stream_version', o.listing_stream_version,
              'available_quantity', LEAST(
                o.listing_quantity_cap,
                GREATEST(
@@ -376,6 +402,8 @@ async function resolveCartLines(
            option.seller_average_rating,
            option.seller_review_count,
            option.price_amount,
+           option.price_currency_code,
+           option.listing_stream_version,
            option.listing_quantity_cap,
            option.supply_total_quantity,
            option.active_held_quantity,
@@ -384,6 +412,8 @@ async function resolveCartLines(
          FROM checkout_marketplace_seller_options option
          WHERE option.product_id = line.product_id
            AND option.status = 'active'
+           AND option.price_currency_code IS NOT NULL
+           AND option.listing_stream_version > 0
            -- At-capacity sellers (m127 #4883) drop out of both the
            -- alternative-listing candidates and, for a locked line, the
            -- readiness re-check (selectedCartReadinessListing looks the

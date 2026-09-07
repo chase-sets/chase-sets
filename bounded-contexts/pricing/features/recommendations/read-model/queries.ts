@@ -213,8 +213,10 @@ export type AccountRecommendationSignalExplanation = Readonly<{
   market: Readonly<{
     activeListingCount: number;
     lowestListingPriceAmount: number | null;
+    lowestListingPriceCurrencyCode: string | null;
     activeOfferCount: number;
     highestOfferPriceAmount: number | null;
+    highestOfferPriceCurrencyCode: string | null;
   }>;
   orders: Readonly<{
     committedOrderQuantity: number;
@@ -251,6 +253,7 @@ export async function recommendAccountPrice(
        market_signal_type,
        market_observed_at,
        current_price_amount,
+       current_price_currency_code,
        recommended_list_amount,
        recommendation_reason,
        quantity_cap,
@@ -311,20 +314,40 @@ export async function explainAccountPricingSignals(
     db.query<{
       active_listing_count: number;
       lowest_listing_price_amount: string | null;
+      lowest_listing_price_currency_code: string | null;
       active_offer_count: number;
       highest_offer_price_amount: string | null;
+      highest_offer_price_currency_code: string | null;
     }>(
       `SELECT
          COUNT(*) FILTER (WHERE source = 'listing' AND status = 'active')::integer AS active_listing_count,
-         MIN(price_amount) FILTER (WHERE source = 'listing' AND status = 'active')::text AS lowest_listing_price_amount,
+         CASE WHEN COUNT(DISTINCT price_currency_code) FILTER (
+           WHERE source = 'listing' AND status = 'active' AND price_currency_code IS NOT NULL AND last_stream_version > 0
+         ) = 1 THEN MIN(price_amount) FILTER (
+           WHERE source = 'listing' AND status = 'active' AND price_currency_code IS NOT NULL AND last_stream_version > 0
+         )::text ELSE NULL END AS lowest_listing_price_amount,
+         CASE WHEN COUNT(DISTINCT price_currency_code) FILTER (
+           WHERE source = 'listing' AND status = 'active' AND price_currency_code IS NOT NULL AND last_stream_version > 0
+         ) = 1 THEN MIN(price_currency_code) FILTER (
+           WHERE source = 'listing' AND status = 'active' AND price_currency_code IS NOT NULL AND last_stream_version > 0
+         ) ELSE NULL END AS lowest_listing_price_currency_code,
          COUNT(*) FILTER (WHERE source = 'offer' AND status = 'submitted')::integer AS active_offer_count,
-         MAX(price_amount) FILTER (WHERE source = 'offer' AND status = 'submitted')::text AS highest_offer_price_amount
+         CASE WHEN COUNT(DISTINCT price_currency_code) FILTER (
+           WHERE source = 'offer' AND status = 'submitted' AND price_currency_code IS NOT NULL AND last_stream_version > 0
+         ) = 1 THEN MAX(price_amount) FILTER (
+           WHERE source = 'offer' AND status = 'submitted' AND price_currency_code IS NOT NULL AND last_stream_version > 0
+         )::text ELSE NULL END AS highest_offer_price_amount,
+         CASE WHEN COUNT(DISTINCT price_currency_code) FILTER (
+           WHERE source = 'offer' AND status = 'submitted' AND price_currency_code IS NOT NULL AND last_stream_version > 0
+         ) = 1 THEN MIN(price_currency_code) FILTER (
+           WHERE source = 'offer' AND status = 'submitted' AND price_currency_code IS NOT NULL AND last_stream_version > 0
+         ) ELSE NULL END AS highest_offer_price_currency_code
        FROM (
-         SELECT 'listing' AS source, status, price_amount, product_id
+         SELECT 'listing' AS source, status, price_amount, price_currency_code, last_stream_version, product_id
          FROM pricing_market_listing_inputs
          WHERE catalog_catalog_item_id = $1
          UNION ALL
-         SELECT 'offer' AS source, status, price_amount, product_id
+         SELECT 'offer' AS source, status, price_amount, price_currency_code, last_stream_version, product_id
          FROM pricing_buyer_offer_inputs
          WHERE catalog_catalog_item_id = $1
        ) AS market_inputs
@@ -358,8 +381,10 @@ export async function explainAccountPricingSignals(
   const market = marketResult.rows[0] ?? {
     active_listing_count: 0,
     lowest_listing_price_amount: null,
+    lowest_listing_price_currency_code: null,
     active_offer_count: 0,
     highest_offer_price_amount: null,
+    highest_offer_price_currency_code: null,
   };
   const orders = orderResult.rows[0] ?? { committed_order_quantity: 0 };
   const fulfillment = fulfillmentResult.rows[0] ?? { delivered_quantity: 0, returned_quantity: 0 };
@@ -380,9 +405,11 @@ export async function explainAccountPricingSignals(
       activeListingCount: Number(market.active_listing_count),
       lowestListingPriceAmount:
         market.lowest_listing_price_amount === null ? null : Number(market.lowest_listing_price_amount),
+      lowestListingPriceCurrencyCode: market.lowest_listing_price_currency_code,
       activeOfferCount: Number(market.active_offer_count),
       highestOfferPriceAmount:
         market.highest_offer_price_amount === null ? null : Number(market.highest_offer_price_amount),
+      highestOfferPriceCurrencyCode: market.highest_offer_price_currency_code,
     },
     orders: {
       committedOrderQuantity: Number(orders.committed_order_quantity),

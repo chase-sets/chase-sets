@@ -53,6 +53,9 @@ export function CheckoutStartSourceFields({
       {"offerPriceAmount" in source ? (
         <HiddenInput type="hidden" name="offerPriceAmount" value={source.offerPriceAmount} />
       ) : null}
+      {"offerPriceCurrencyCode" in source ? (
+        <HiddenInput type="hidden" name="offerPriceCurrencyCode" value={source.offerPriceCurrencyCode} />
+      ) : null}
       {"priceAmount" in source ? (
         <HiddenInput type="hidden" name="priceAmount" value={source.priceAmount ?? ""} />
       ) : null}
@@ -79,7 +82,7 @@ export function CheckoutStartSourceSummary({ source }: { source: CheckoutStartSo
       }
       price={
         source.type === "offer-intent"
-          ? formatMoney(source.offerPriceAmount, "USD")
+          ? formatMoney(source.offerPriceAmount, source.offerPriceCurrencyCode)
           : source.priceAmount
             ? formatMoney(source.priceAmount, "USD")
             : t("checkout.routes.checkoutStart.price.confirmed.before.payment")
@@ -158,7 +161,7 @@ export function CheckoutStartSummary({
                   label: t("checkout.routes.checkoutStart.price"),
                   value:
                     source.type === "offer-intent"
-                      ? formatMoney(source.offerPriceAmount, "USD")
+                      ? formatMoney(source.offerPriceAmount, source.offerPriceCurrencyCode)
                       : source.priceAmount
                         ? formatMoney(source.priceAmount, "USD")
                         : t("checkout.routes.checkoutStart.price.confirmed.before.payment"),

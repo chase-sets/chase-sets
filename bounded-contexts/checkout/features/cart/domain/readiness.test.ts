@@ -40,6 +40,8 @@ const readyLine: CartReadinessLine = {
       seller_account_id: "acc_seller",
       seller_display_name: "Card Vault",
       price_amount: "25.00",
+      price_currency_code: "USD",
+      listing_stream_version: 7,
       available_quantity: 1,
       product_summary: "Raw",
       product_measure_snapshot: rawProductMeasureSnapshot,
@@ -71,8 +73,8 @@ describe("cart readiness snapshots", () => {
       ],
     });
     expect(snapshot.snapshotId).toMatch(/^cr_/);
-    expect(snapshot.sourceRevision).toBe("cr_vqnd8s");
-    expect(snapshot.snapshotId).toBe("cr_13oh49v");
+    expect(snapshot.sourceRevision).toBe("cr_1hluq9i");
+    expect(snapshot.snapshotId).toBe("cr_17ujccm");
     expect(snapshot.fulfillmentGroups[0]?.groupId).toMatch(/^cfg_/);
     expect(snapshot.fulfillmentGroups[0]?.supportReference).toMatch(/^CSG-/);
     expect(cartReadinessLineHasFulfillment(readyLine)).toBe(true);

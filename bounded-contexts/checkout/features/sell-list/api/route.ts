@@ -73,6 +73,26 @@ function parseSellListLineBody(body: Record<string, unknown>) {
       body.buyerDisplayName === null || body.buyerDisplayName === undefined ? null : String(body.buyerDisplayName),
     offerPriceAmount:
       body.offerPriceAmount === null || body.offerPriceAmount === undefined ? null : String(body.offerPriceAmount),
+    offerPriceCurrencyCode:
+      body.offerPriceCurrencyCode === null || body.offerPriceCurrencyCode === undefined
+        ? null
+        : String(body.offerPriceCurrencyCode),
+    offerStreamVersion:
+      body.offerStreamVersion === null || body.offerStreamVersion === undefined
+        ? null
+        : Number(body.offerStreamVersion),
+    listingPriceAmount:
+      body.listingPriceAmount === null || body.listingPriceAmount === undefined
+        ? null
+        : String(body.listingPriceAmount),
+    listingPriceCurrencyCode:
+      body.listingPriceCurrencyCode === null || body.listingPriceCurrencyCode === undefined
+        ? null
+        : String(body.listingPriceCurrencyCode),
+    listingStreamVersion:
+      body.listingStreamVersion === null || body.listingStreamVersion === undefined
+        ? null
+        : Number(body.listingStreamVersion),
     catalogItemId: String(body.catalogItemId ?? ""),
     productId: String(body.productId ?? ""),
     itemTitle: String(body.itemTitle ?? ""),

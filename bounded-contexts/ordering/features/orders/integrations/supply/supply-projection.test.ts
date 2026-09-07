@@ -20,6 +20,8 @@ type ListingInputRow = {
   ship_from_code: string | null;
   ship_from_address: string;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -50,6 +52,8 @@ type AcceptedOfferInputRow = {
   selected_options: string;
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string | null;
+  offer_stream_version: number;
   marketplace_sales_fee_percentage_bps: number;
   marketplace_sales_fee_fixed_amount: string;
   marketplace_sales_fee_cap_amount: string | null;
@@ -100,21 +104,23 @@ class ProjectionDb implements PgQueryable {
         ship_from_code: values[12] === null ? null : String(values[12]),
         ship_from_address: String(values[13]),
         price_amount: String(values[14]),
-        marketplace_sales_fee_unit_amount: String(values[15]),
-        seller_net_unit_amount: String(values[16]),
-        shipping_allowance_percentage_bps: Number(values[17]),
-        terms_schedule_id: values[18] === null ? null : String(values[18]),
-        terms_agreement_id: values[19] === null ? null : String(values[19]),
-        terms_resolved_at: values[20] === null ? null : String(values[20]),
-        fee_locks: String(values[21]),
-        quantity_cap: Number(values[22]),
-        max_units_per_order: values[23] === null ? null : Number(values[23]),
-        max_units_per_day: values[24] === null ? null : Number(values[24]),
-        max_units_per_customer_account: values[25] === null ? null : Number(values[25]),
+        price_currency_code: values[15] === null ? null : String(values[15]),
+        listing_stream_version: Number(values[16]),
+        marketplace_sales_fee_unit_amount: String(values[17]),
+        seller_net_unit_amount: String(values[18]),
+        shipping_allowance_percentage_bps: Number(values[19]),
+        terms_schedule_id: values[20] === null ? null : String(values[20]),
+        terms_agreement_id: values[21] === null ? null : String(values[21]),
+        terms_resolved_at: values[22] === null ? null : String(values[22]),
+        fee_locks: String(values[23]),
+        quantity_cap: Number(values[24]),
+        max_units_per_order: values[25] === null ? null : Number(values[25]),
+        max_units_per_day: values[26] === null ? null : Number(values[26]),
+        max_units_per_customer_account: values[27] === null ? null : Number(values[27]),
         seller_listing_availability_status:
           existing?.seller_listing_availability_status ?? this.sellerAvailability.get(String(values[1])) ?? "available",
         status: "draft",
-        updated_at: String(values[26]),
+        updated_at: String(values[28]),
       });
       return { rows: [], rowCount: 1 };
     }
@@ -143,29 +149,31 @@ class ProjectionDb implements PgQueryable {
         selected_options: String(values[10]),
         product_summary: values[11] === null ? null : String(values[11]),
         price_amount: String(values[12]),
-        marketplace_sales_fee_percentage_bps: Number(values[13]),
-        marketplace_sales_fee_fixed_amount: String(values[14]),
-        marketplace_sales_fee_cap_amount: values[15] === null ? null : String(values[15]),
-        marketplace_sales_fee_unit_amount: String(values[16]),
-        seller_net_unit_amount: String(values[17]),
-        shipping_allowance_percentage_bps: Number(values[18]),
-        terms_schedule_id: values[19] === null ? null : String(values[19]),
-        terms_agreement_id: values[20] === null ? null : String(values[20]),
-        terms_resolved_at: String(values[21]),
-        fee_quote_fingerprint: String(values[22]),
-        listing_evidence_policy_id: values[23] === null ? null : String(values[23]),
-        listing_evidence_policy_version: values[24] === null ? null : Number(values[24]),
-        listing_evidence_policy_hash: String(values[25]),
-        listing_evidence_snapshot: String(values[26]),
-        quantity_requested: Number(values[27]),
-        shipping_destination_snapshot: String(values[28]),
-        accepted_at: String(values[29]),
-        acceptance_batch_id: values[30] === null ? null : String(values[30]),
-        acceptance_batch_size: values[31] === null ? null : Number(values[31]),
-        updated_at: String(values[32]),
+        price_currency_code: values[13] === null ? null : String(values[13]),
+        offer_stream_version: Number(values[14]),
+        marketplace_sales_fee_percentage_bps: Number(values[15]),
+        marketplace_sales_fee_fixed_amount: String(values[16]),
+        marketplace_sales_fee_cap_amount: values[17] === null ? null : String(values[17]),
+        marketplace_sales_fee_unit_amount: String(values[18]),
+        seller_net_unit_amount: String(values[19]),
+        shipping_allowance_percentage_bps: Number(values[20]),
+        terms_schedule_id: values[21] === null ? null : String(values[21]),
+        terms_agreement_id: values[22] === null ? null : String(values[22]),
+        terms_resolved_at: String(values[23]),
+        fee_quote_fingerprint: String(values[24]),
+        listing_evidence_policy_id: values[25] === null ? null : String(values[25]),
+        listing_evidence_policy_version: values[26] === null ? null : Number(values[26]),
+        listing_evidence_policy_hash: String(values[27]),
+        listing_evidence_snapshot: String(values[28]),
+        quantity_requested: Number(values[29]),
+        shipping_destination_snapshot: String(values[30]),
+        accepted_at: String(values[31]),
+        acceptance_batch_id: values[32] === null ? null : String(values[32]),
+        acceptance_batch_size: values[33] === null ? null : Number(values[33]),
+        updated_at: String(values[34]),
       };
       this.acceptedOffers.set(row.offer_id, row);
-      return { rows: [], rowCount: 1 };
+      return { rows: [{ offer_id: row.offer_id }] as Row[], rowCount: 1 };
     }
 
     if (sql.includes("UPDATE ordering_market_listing_inputs AS listing")) {
@@ -222,6 +230,7 @@ function createdEvent(overrides: Partial<Record<string, unknown>> = {}) {
       country: "US",
     },
     priceAmount: "120.00",
+    priceCurrencyCode: "EUR",
     marketplaceSalesFeeUnitAmount: "6.00",
     sellerNetUnitAmount: "114.00",
     shippingAllowancePercentageBps: 500,
@@ -265,6 +274,7 @@ function offerAcceptedEvent(overrides: Partial<Record<string, unknown>> = {}) {
       email: "buyer@example.test",
     },
     priceAmount: "120.00",
+    priceCurrencyCode: "USD",
     quantityRequested: 1,
     acceptedAt: "2026-05-09T00:02:00.000Z",
     marketplaceSalesFeePercentageBps: 500,
@@ -383,6 +393,7 @@ describe("ordering marketplace supply projection", () => {
       listing_id: "lst_1",
       inventory_item_id: "inv_1",
       price_amount: "120.00",
+      price_currency_code: "USD",
       quantity_requested: 1,
       terms_schedule_id: "terms_standard",
       listing_evidence_policy_hash: "sha256:policy",

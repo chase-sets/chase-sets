@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS checkout_cart_line_pages (
   selected_listing_seller_display_name text NULL,
   selected_listing_seller_slug text NULL,
   selected_listing_price_amount numeric(12, 2) NULL,
+  selected_listing_price_currency_code text NULL,
+  selected_listing_stream_version integer NULL,
   selected_listing_snapshot_source text NULL,
   selected_listing_snapshot_captured_at timestamptz NULL,
   seller_preference_id text NULL,
@@ -69,6 +71,8 @@ ALTER TABLE checkout_cart_line_pages
   ADD COLUMN IF NOT EXISTS selected_listing_seller_display_name text NULL,
   ADD COLUMN IF NOT EXISTS selected_listing_seller_slug text NULL,
   ADD COLUMN IF NOT EXISTS selected_listing_price_amount numeric(12, 2) NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_stream_version integer NULL,
   ADD COLUMN IF NOT EXISTS selected_listing_snapshot_source text NULL,
   ADD COLUMN IF NOT EXISTS selected_listing_snapshot_captured_at timestamptz NULL;
 
@@ -89,6 +93,15 @@ ${checkoutCartClaimsAccountIndexSql}
 // here because a long-lived database applies this while serving traffic, while
 // the fresh-boot copy runs against a table that does not exist yet.
 export const checkoutCartSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_checkout_selected_listing_price_currency",
+    description: "Carry selected Marketplace Listing amount/currency/source-version snapshots atomically.",
+    statements: [
+      `ALTER TABLE checkout_cart_line_pages
+  ADD COLUMN IF NOT EXISTS selected_listing_price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_stream_version integer NULL`,
+    ],
+  },
   {
     migrationId: "20260903_checkout_cart_claims",
     description: "Create the logged Cart Claim ownership alias table and its Account lookup index.",

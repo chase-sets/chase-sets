@@ -180,6 +180,7 @@ describe("MCP service catalog", () => {
       "marketplace.publish-listing",
       "marketplace.submit-offer",
       "marketplace.unpublish-listing",
+      "marketplace.update-offer-price",
       "marketplace.update-listing-price",
       "ordering.get-order",
       "ordering.list-orders",
@@ -472,6 +473,7 @@ describe("MCP service catalog", () => {
     }
     for (const toolName of [
       "marketplace.submit-offer",
+      "marketplace.update-offer-price",
       "marketplace.counter-offer",
       "marketplace.accept-offer",
       "marketplace.decline-offer",

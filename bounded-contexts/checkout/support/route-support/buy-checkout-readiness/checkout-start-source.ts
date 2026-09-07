@@ -75,6 +75,8 @@ export function sourceFromUrl(url: URL): CheckoutStartSource | null {
       selectedOptions: parseSelectedOptions(url.searchParams.get("selectedOptions")),
       productSummary: url.searchParams.get("productSummary") || null,
       offerPriceAmount: url.searchParams.get("offerPriceAmount") ?? url.searchParams.get("priceAmount") ?? "",
+      offerPriceCurrencyCode:
+        url.searchParams.get("offerPriceCurrencyCode") ?? url.searchParams.get("priceCurrencyCode") ?? "",
       quantity: parseQuantity(url.searchParams.get("quantity") ?? url.searchParams.get("quantityRequested")),
     };
   }
@@ -112,6 +114,7 @@ function sourceFromForm(formData: FormData): CheckoutStartSource {
       selectedOptions: parseSelectedOptions(String(formData.get("selectedOptions") ?? "[]")),
       productSummary: String(formData.get("productSummary") ?? "") || null,
       offerPriceAmount: String(formData.get("offerPriceAmount") ?? formData.get("priceAmount") ?? ""),
+      offerPriceCurrencyCode: String(formData.get("offerPriceCurrencyCode") ?? formData.get("priceCurrencyCode") ?? ""),
       quantity: parseQuantity(formData.get("quantity") ?? formData.get("quantityRequested")),
     };
   }

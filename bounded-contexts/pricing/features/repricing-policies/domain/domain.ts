@@ -30,6 +30,12 @@ function normalizeMoneyAmount(value: string, fieldName: string): string {
   return normalized;
 }
 
+function normalizeCurrencyCode(value: string | null | undefined): string {
+  const normalized = value?.trim().toUpperCase() ?? "";
+  assert(/^[A-Z]{3}$/.test(normalized), "Rule currency code must be a three-letter code.");
+  return normalized;
+}
+
 function normalizePercentMagnitude(value: number, fieldName: string, options: Readonly<{ min?: number }> = {}): number {
   assert(Number.isFinite(value), `${fieldName} must be a finite number.`);
   const min = options.min ?? -REPRICING_POLICY_PERCENT_MAGNITUDE_CAP;
@@ -151,6 +157,8 @@ export type RepricingRuleCondition =
   | Readonly<{ type: "schedule-window"; daysOfWeek: readonly number[]; startTime: string; endTime: string }>;
 
 export type RepricingRuleDirective = Readonly<{
+  /** Governs every absolute amount in this directive; historical missing values fail closed during evaluation. */
+  currencyCode?: string | null;
   anchorChain: readonly RepricingAnchor[];
   offset: RepricingOffset;
   floor: RepricingFloor;
@@ -350,6 +358,7 @@ function normalizeDirective(directive: RepricingRuleDirective): RepricingRuleDir
   }
 
   return {
+    currencyCode: normalizeCurrencyCode(directive.currencyCode),
     anchorChain: normalizeAnchorChain(directive.anchorChain),
     offset: normalizeOffset(directive.offset),
     floor,

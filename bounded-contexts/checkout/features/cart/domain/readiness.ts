@@ -7,6 +7,8 @@ export type CartReadinessSellerOption = Readonly<{
   seller_account_id?: string | null;
   seller_display_name: string | null;
   price_amount: string;
+  price_currency_code?: string | null;
+  listing_stream_version?: number | null;
   available_quantity: number;
   product_summary: string | null;
   product_measure_snapshot: Readonly<Record<string, unknown>> | null;
@@ -39,7 +41,7 @@ export type CartReadinessOptimizationDecision = "none" | "accepted" | "declined"
 
 export type CartReadinessMoney = Readonly<{
   amount: string;
-  currency: "USD";
+  currency: string;
 }>;
 
 export type CartReadinessFulfillmentGroup = Readonly<{
@@ -92,7 +94,7 @@ export type CartReadinessSnapshot = Readonly<{
     proposedListingId: string | null;
     currentListingId: string | null;
     savingsAmount: string | null;
-    currency: "USD";
+    currency: string | null;
   }>;
   fulfillmentGroups: readonly CartReadinessFulfillmentGroup[];
   customerSafeFacts: readonly string[];
@@ -149,7 +151,13 @@ function optionHasProductMeasure(option: CartReadinessSellerOption) {
 }
 
 function optionHasPricedAvailability(option: CartReadinessSellerOption) {
-  return option.available_quantity > 0 && moneyValue(option.price_amount) !== null;
+  return (
+    option.available_quantity > 0 &&
+    moneyValue(option.price_amount) !== null &&
+    /^[A-Z]{3}$/.test(option.price_currency_code ?? "") &&
+    Number.isInteger(option.listing_stream_version) &&
+    Number(option.listing_stream_version) > 0
+  );
 }
 
 function optionHasAvailablePricedQuantity(option: CartReadinessSellerOption, quantity: number) {
@@ -188,15 +196,18 @@ export function selectedCartReadinessListing(line: CartReadinessLine) {
 }
 
 export function lowestCartReadinessListing(line: CartReadinessLine) {
+  const eligible = line.seller_options.filter((option) => optionCanFulfill(option, line.quantity));
+  const currencies = new Set(eligible.map((option) => option.price_currency_code));
+  if (currencies.size !== 1) {
+    return null;
+  }
   return (
-    line.seller_options
-      .filter((option) => optionCanFulfill(option, line.quantity))
-      .sort(
-        (left, right) =>
-          (moneyValue(left.price_amount) ?? Number.POSITIVE_INFINITY) -
-            (moneyValue(right.price_amount) ?? Number.POSITIVE_INFINITY) ||
-          left.listing_id.localeCompare(right.listing_id),
-      )[0] ?? null
+    eligible.sort(
+      (left, right) =>
+        (moneyValue(left.price_amount) ?? Number.POSITIVE_INFINITY) -
+          (moneyValue(right.price_amount) ?? Number.POSITIVE_INFINITY) ||
+        left.listing_id.localeCompare(right.listing_id),
+    )[0] ?? null
   );
 }
 
@@ -320,7 +331,8 @@ function findOptimizationProposal(lines: readonly CartReadinessLine[]) {
       !proposed ||
       current.listing_id === proposed.listing_id ||
       currentPrice === null ||
-      proposedPrice === null
+      proposedPrice === null ||
+      current.price_currency_code !== proposed.price_currency_code
     ) {
       continue;
     }
@@ -440,6 +452,8 @@ function legacySourceRevisionFor(lines: readonly CartReadinessLine[]) {
         sellerAccountId: option.seller_account_id ?? null,
         sellerDisplayName: option.seller_display_name,
         priceAmount: option.price_amount,
+        priceCurrencyCode: option.price_currency_code,
+        listingStreamVersion: option.listing_stream_version,
         availableQuantity: option.available_quantity,
         productMeasureSnapshot: option.product_measure_snapshot,
       })),
@@ -455,6 +469,8 @@ function normalizedUnionSellerOptions(options: readonly CartReadinessSellerOptio
       sellerAccountId: option.seller_account_id ?? null,
       sellerDisplayName: option.seller_display_name,
       priceAmount: option.price_amount,
+      priceCurrencyCode: option.price_currency_code,
+      listingStreamVersion: option.listing_stream_version,
       availableQuantity: option.available_quantity,
       productMeasureSnapshot: option.product_measure_snapshot,
     }))
@@ -570,7 +586,7 @@ export function createCartReadinessSnapshot(
       proposedListingId: optimizationProposal?.proposed.listing_id ?? null,
       currentListingId: optimizationProposal?.current.listing_id ?? null,
       savingsAmount: optimizationProposal ? formatAmount(optimizationProposal.savings) : null,
-      currency: "USD",
+      currency: optimizationProposal?.current.price_currency_code ?? null,
     },
     fulfillmentGroups,
     customerSafeFacts: [
@@ -580,7 +596,9 @@ export function createCartReadinessSnapshot(
           ? "No cart items are ready for checkout."
           : "Some cart items need attention before checkout.",
       ...(optimizationProposal
-        ? [`Save $${formatAmount(optimizationProposal.savings)} by changing fulfillment before checkout.`]
+        ? [
+            `Save ${optimizationProposal.current.price_currency_code} ${formatAmount(optimizationProposal.savings)} by changing fulfillment before checkout.`,
+          ]
         : []),
     ],
   };

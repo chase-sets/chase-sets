@@ -674,6 +674,11 @@ function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): AddCheckoutS
     buyerAccountId: offer.buyer_account_id,
     buyerDisplayName: offer.buyer_display_name,
     offerPriceAmount: offer.price_amount,
+    offerPriceCurrencyCode: offer.price_currency_code,
+    offerStreamVersion: offer.offer_stream_version,
+    listingPriceAmount: offer.listing_price_amount,
+    listingPriceCurrencyCode: offer.listing_price_currency_code,
+    listingStreamVersion: offer.listing_stream_version,
     catalogItemId: offer.catalog_catalog_item_id,
     productId: offer.product_id,
     itemTitle: offer.item_title,
@@ -693,8 +698,28 @@ function selectedOfferLineFromPostedSnapshot(formData: FormData): AddCheckoutSel
   const productId = limitedFormValue(formData, "productId", 240);
   const itemTitle = limitedFormValue(formData, "itemTitle", 240);
   const offerPriceAmount = limitedFormValue(formData, "offerPriceAmount", 40);
+  const offerPriceCurrencyCode = limitedFormValue(formData, "offerPriceCurrencyCode", 3).toUpperCase();
+  const offerStreamVersion = Number(limitedFormValue(formData, "offerStreamVersion", 20));
+  const listingPriceAmount = limitedFormValue(formData, "listingPriceAmount", 40);
+  const listingPriceCurrencyCode = limitedFormValue(formData, "listingPriceCurrencyCode", 3).toUpperCase();
+  const listingStreamVersion = Number(limitedFormValue(formData, "listingStreamVersion", 20));
 
-  if (!offerId || !listingId || !catalogItemId || !productId || !itemTitle || !offerPriceAmount) {
+  if (
+    !offerId ||
+    !listingId ||
+    !catalogItemId ||
+    !productId ||
+    !itemTitle ||
+    !offerPriceAmount ||
+    !/^[A-Z]{3}$/.test(offerPriceCurrencyCode) ||
+    !Number.isInteger(offerStreamVersion) ||
+    offerStreamVersion <= 0 ||
+    !listingPriceAmount ||
+    !/^[A-Z]{3}$/.test(listingPriceCurrencyCode) ||
+    !Number.isInteger(listingStreamVersion) ||
+    listingStreamVersion <= 0 ||
+    offerPriceCurrencyCode !== listingPriceCurrencyCode
+  ) {
     throw new Error(t("checkout.routes.accountSellList.sell.list.request.failed"));
   }
 
@@ -705,6 +730,11 @@ function selectedOfferLineFromPostedSnapshot(formData: FormData): AddCheckoutSel
     buyerAccountId: null,
     buyerDisplayName: limitedFormValue(formData, "buyerDisplayName", 160) || null,
     offerPriceAmount,
+    offerPriceCurrencyCode,
+    offerStreamVersion,
+    listingPriceAmount,
+    listingPriceCurrencyCode,
+    listingStreamVersion,
     catalogItemId,
     productId,
     itemTitle,

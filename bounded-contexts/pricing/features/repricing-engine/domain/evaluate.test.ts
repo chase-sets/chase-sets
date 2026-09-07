@@ -7,6 +7,7 @@ import {
 } from "./evaluate";
 
 const directive: RepricingRuleDirective = {
+  currencyCode: "USD",
   anchorChain: [{ source: "lowest-competing-ask" }, { source: "market-estimate" }],
   offset: { mode: "absolute", amount: "-0.01" },
   floor: { mode: "absolute", amount: "5.00" },
@@ -22,11 +23,14 @@ function listing(overrides: Partial<RepricingListingEvaluationInput> = {}): Repr
     listingId: "lst_policy",
     sellerAccountId: "acc_policy",
     currentPriceAmount: "10.00",
+    currentPriceCurrencyCode: "USD",
+    currentPriceSourceVersion: 1,
     quantityCap: 2,
     categoryIds: ["cat_cards"],
     grading: "raw",
     createdAt: "2026-07-01T00:00:00.000Z",
     costBasisAmount: null,
+    costBasisCurrencyCode: null,
     rules: [{ conditions: [], directive }],
     ...overrides,
   };
@@ -38,19 +42,143 @@ function snapshot(overrides: Partial<RepricingMarketInputSnapshot> = {}): Repric
     productId: "cat_1::",
     capturedAt: "2026-07-17T12:00:00.000Z",
     hardAskOutlierPriceRatio: 10,
-    marketEstimate: { amount: "12.00", freshUntil: "2026-07-18T00:00:00.000Z" },
-    lastSold: { amount: "11.00", freshUntil: "2026-08-01T00:00:00.000Z" },
+    marketEstimate: { amount: "12.00", currencyCode: "USD", freshUntil: "2026-07-18T00:00:00.000Z" },
+    lastSold: { amount: "11.00", currencyCode: "USD", freshUntil: "2026-08-01T00:00:00.000Z" },
     competingAsks: [
-      { listingId: "lst_policy", sellerAccountId: "acc_policy", amount: "10.00", pricingMode: "derived" },
-      { listingId: "lst_same_account", sellerAccountId: "acc_policy", amount: "8.00", pricingMode: "hard" },
-      { listingId: "lst_derived", sellerAccountId: "acc_other", amount: "7.00", pricingMode: "derived" },
-      { listingId: "lst_hard", sellerAccountId: "acc_other", amount: "11.00", pricingMode: "hard" },
+      {
+        listingId: "lst_policy",
+        sellerAccountId: "acc_policy",
+        amount: "10.00",
+        currencyCode: "USD",
+        pricingMode: "derived",
+      },
+      {
+        listingId: "lst_same_account",
+        sellerAccountId: "acc_policy",
+        amount: "8.00",
+        currencyCode: "USD",
+        pricingMode: "hard",
+      },
+      {
+        listingId: "lst_derived",
+        sellerAccountId: "acc_other",
+        amount: "7.00",
+        currencyCode: "USD",
+        pricingMode: "derived",
+      },
+      {
+        listingId: "lst_hard",
+        sellerAccountId: "acc_other",
+        amount: "11.00",
+        currencyCode: "USD",
+        pricingMode: "hard",
+      },
     ],
     ...overrides,
   };
 }
 
 describe("repricing product-round evaluation", () => {
+  it("returns named no-reprice for an undenominated current Listing price", () => {
+    const result = evaluateRepricingListing(listing({ currentPriceCurrencyCode: null }), snapshot());
+
+    expect(result).toMatchObject({
+      action: "no-reprice",
+      targetPriceAmount: null,
+      skipReason: "currency-input-incomplete-or-mismatched",
+    });
+  });
+
+  it("returns named no-reprice instead of falling through a mismatched estimate", () => {
+    const result = evaluateRepricingListing(
+      listing({
+        rules: [
+          {
+            conditions: [],
+            directive: { ...directive, currencyCode: "EUR", anchorChain: [{ source: "market-estimate" }] },
+          },
+        ],
+        currentPriceCurrencyCode: "EUR",
+      }),
+      snapshot({
+        marketEstimate: { amount: "12.00", currencyCode: "USD", freshUntil: "2026-07-18T00:00:00.000Z" },
+        competingAsks: [],
+      }),
+    );
+
+    expect(result.action).toBe("no-reprice");
+    expect(result.exhaustedAnchors).toEqual([{ source: "market-estimate", state: "currency-mismatch" }]);
+  });
+
+  it("does not drop a mismatched preferred estimate when a later competitor anchor is valid", () => {
+    const result = evaluateRepricingListing(
+      listing({
+        currentPriceCurrencyCode: "EUR",
+        rules: [
+          {
+            conditions: [],
+            directive: {
+              ...directive,
+              currencyCode: "EUR",
+              anchorChain: [{ source: "market-estimate" }, { source: "lowest-competing-ask" }],
+            },
+          },
+        ],
+      }),
+      snapshot({
+        marketEstimate: { amount: "12.00", currencyCode: "USD", freshUntil: "2026-07-18T00:00:00.000Z" },
+        competingAsks: [
+          {
+            listingId: "lst_eur",
+            sellerAccountId: "acc_other",
+            amount: "11.00",
+            currencyCode: "EUR",
+            pricingMode: "hard",
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      action: "no-reprice",
+      targetPriceAmount: null,
+      skipReason: "currency-input-incomplete-or-mismatched",
+    });
+  });
+
+  it("keeps percentage-only movement relative within the Listing currency", () => {
+    const result = evaluateRepricingListing(
+      listing({
+        currentPriceCurrencyCode: "EUR",
+        rules: [
+          {
+            conditions: [],
+            directive: {
+              ...directive,
+              currencyCode: "EUR",
+              offset: { mode: "percent", percent: -10 },
+              tolerance: { mode: "percent", percent: 1 },
+            },
+          },
+        ],
+      }),
+      snapshot({
+        marketEstimate: null,
+        competingAsks: [
+          {
+            listingId: "lst_eur",
+            sellerAccountId: "acc_other",
+            amount: "20.00",
+            currencyCode: "EUR",
+            pricingMode: "hard",
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({ action: "update-price", targetPriceAmount: "18.00" });
+  });
+
   it("anchors only on another account's hard ask and applies the directive offset", () => {
     const result = evaluateRepricingListing(listing(), snapshot());
 
@@ -77,7 +205,7 @@ describe("repricing product-round evaluation", () => {
     const result = evaluateRepricingListing(
       listing({ rules }),
       snapshot({
-        marketEstimate: { amount: "12.00", freshUntil: "2026-07-16T00:00:00.000Z" },
+        marketEstimate: { amount: "12.00", currencyCode: "USD", freshUntil: "2026-07-16T00:00:00.000Z" },
         competingAsks: [],
       }),
     );
@@ -94,7 +222,15 @@ describe("repricing product-round evaluation", () => {
     const result = evaluateRepricingListing(
       listing(),
       snapshot({
-        competingAsks: [{ listingId: "lst_hard", sellerAccountId: "acc_other", amount: "10.20", pricingMode: "hard" }],
+        competingAsks: [
+          {
+            listingId: "lst_hard",
+            sellerAccountId: "acc_other",
+            amount: "10.20",
+            currencyCode: "USD",
+            pricingMode: "hard",
+          },
+        ],
       }),
     );
 
@@ -119,8 +255,13 @@ describe("repricing product-round evaluation", () => {
       },
     ];
     const result = evaluateRepricingListing(
-      listing({ currentPriceAmount: "20.00", costBasisAmount: "12.00", rules }),
-      snapshot({ marketEstimate: { amount: "20.00", freshUntil: "2026-07-18T00:00:00.000Z" } }),
+      listing({
+        currentPriceAmount: "20.00",
+        costBasisAmount: "12.00",
+        costBasisCurrencyCode: "USD",
+        rules,
+      }),
+      snapshot({ marketEstimate: { amount: "20.00", currencyCode: "USD", freshUntil: "2026-07-18T00:00:00.000Z" } }),
     );
 
     expect(result.targetPriceAmount).toBe("15.00");
@@ -128,6 +269,19 @@ describe("repricing product-round evaluation", () => {
     expect(result.clamps.maxMove).toBe(true);
     expect(result.flags).toEqual(["ceiling-binding", "max-move-binding"]);
   });
+
+  it.each([null, "EUR"])(
+    "returns no-reprice for an acquisition-cost amount with %s currency instead of dropping it to the fallback floor",
+    (costBasisCurrencyCode) => {
+      const result = evaluateRepricingListing(listing({ costBasisAmount: "12.00", costBasisCurrencyCode }), snapshot());
+
+      expect(result).toMatchObject({
+        action: "no-reprice",
+        targetPriceAmount: null,
+        skipReason: "currency-input-incomplete-or-mismatched",
+      });
+    },
+  );
 
   it("keeps a floor terminal when max-move would otherwise leave the range", () => {
     const result = evaluateRepricingListing(
@@ -146,7 +300,7 @@ describe("repricing product-round evaluation", () => {
           },
         ],
       }),
-      snapshot({ marketEstimate: { amount: "1.00", freshUntil: "2026-07-18T00:00:00.000Z" } }),
+      snapshot({ marketEstimate: { amount: "1.00", currencyCode: "USD", freshUntil: "2026-07-18T00:00:00.000Z" } }),
     );
 
     expect(result.targetPriceAmount).toBe("15.00");
@@ -170,7 +324,7 @@ describe("repricing product-round evaluation", () => {
           },
         ],
       }),
-      snapshot({ marketEstimate: { amount: "100.00", freshUntil: "2026-07-18T00:00:00.000Z" } }),
+      snapshot({ marketEstimate: { amount: "100.00", currencyCode: "USD", freshUntil: "2026-07-18T00:00:00.000Z" } }),
     );
 
     expect(result.targetPriceAmount).toBe("60.00");
@@ -181,10 +335,22 @@ describe("repricing product-round evaluation", () => {
     const result = evaluateRepricingListing(
       listing(),
       snapshot({
-        marketEstimate: { amount: "100.00", freshUntil: "2026-07-18T00:00:00.000Z" },
+        marketEstimate: { amount: "100.00", currencyCode: "USD", freshUntil: "2026-07-18T00:00:00.000Z" },
         competingAsks: [
-          { listingId: "lst_real", sellerAccountId: "acc_real", amount: "99.00", pricingMode: "hard" },
-          { listingId: "lst_absurd", sellerAccountId: "acc_absurd", amount: "0.01", pricingMode: "hard" },
+          {
+            listingId: "lst_real",
+            sellerAccountId: "acc_real",
+            amount: "99.00",
+            currencyCode: "USD",
+            pricingMode: "hard",
+          },
+          {
+            listingId: "lst_absurd",
+            sellerAccountId: "acc_absurd",
+            amount: "0.01",
+            currencyCode: "USD",
+            pricingMode: "hard",
+          },
         ],
       }),
     );
@@ -198,7 +364,7 @@ describe("repricing product-round evaluation", () => {
       listing({ rules: [{ conditions: [], directive: { ...directive, anchorChain: [{ source: "last-sold" }] } }] }),
       snapshot({
         competingAsks: [],
-        lastSold: { amount: "11.00", freshUntil: "2026-07-17T11:59:59.999Z" },
+        lastSold: { amount: "11.00", currencyCode: "USD", freshUntil: "2026-07-17T11:59:59.999Z" },
       }),
     );
 
@@ -243,6 +409,7 @@ describe("repricing product-round evaluation", () => {
           listingId: `lst_${index}`,
           sellerAccountId: `acc_${index}`,
           amount,
+          currencyCode: "USD",
           pricingMode: "hard" as const,
         })),
       }),

@@ -610,6 +610,15 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    async updateSubmittedOfferPrice(id: string, body: Record<string, unknown>) {
+      return parseJsonResponse(
+        await client.account.offers.submitted[":id"].price.$patch({
+          param: { id },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async listOfferMatches(query = ""): Promise<ListResponse<OfferMatchListItem>> {
       return parseJsonResponse(
         await client.account.offers.matches.$get({

@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS checkout_marketplace_seller_options (
   product_id text NOT NULL,
   catalog_catalog_item_id text NOT NULL,
   price_amount numeric(12, 2) NOT NULL,
+  price_currency_code text NULL,
+  listing_stream_version integer NOT NULL DEFAULT 0,
   listing_quantity_cap integer NOT NULL,
   product_summary text NULL,
   product_measure_snapshot jsonb NULL,
@@ -62,6 +64,15 @@ CREATE TABLE IF NOT EXISTS checkout_marketplace_seller_availability (
 `;
 
 export const checkoutMarketplaceSellerOptionsSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_checkout_marketplace_listing_price_currency",
+    description: "Store Marketplace Listing prices as nullable version-fenced amount/currency pairs.",
+    statements: [
+      `ALTER TABLE checkout_marketplace_seller_options
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS listing_stream_version integer NOT NULL DEFAULT 0`,
+    ],
+  },
   {
     migrationId: "20260714_checkout_seller_options_listing_evidence",
     description: "Mirror Marketplace listing evidence into Checkout seller options for local Sell List review.",

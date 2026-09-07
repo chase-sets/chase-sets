@@ -340,6 +340,7 @@ describe("item detail buy now checkout actions", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("priceAmount", "350.00");
+    form.set("priceCurrencyCode", "EUR");
     form.set("quantityRequested", "1");
     form.set("shippingName", "Jane Smith");
     form.set("shippingLine1", "100 Market Street");
@@ -374,6 +375,7 @@ describe("item detail buy now checkout actions", () => {
     );
     expect(redirectUrl.searchParams.get("productSummary")).toBe("Raw");
     expect(redirectUrl.searchParams.get("offerPriceAmount")).toBe("350.00");
+    expect(redirectUrl.searchParams.get("offerPriceCurrencyCode")).toBe("EUR");
     expect(redirectUrl.searchParams.get("quantity")).toBe("1");
   });
 
@@ -402,6 +404,7 @@ describe("item detail buy now checkout actions", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("priceAmount", "350");
+    form.set("priceCurrencyCode", "EUR");
     form.set("quantityRequested", "2");
 
     const response = (await action({

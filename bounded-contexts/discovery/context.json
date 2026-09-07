@@ -284,7 +284,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "discovery-market-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "subscriptionName": "discovery.marketplace-market-projection",
       "filterToEventTypes": true,
       "eventTypes": [
@@ -299,6 +299,7 @@
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled",
         "marketplace.offer.submitted",
+        "marketplace.offer.price-updated",
         "marketplace.offer.accepted",
         "marketplace.review.submitted",
         "marketplace.review.updated",
@@ -330,7 +331,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "discovery-product-alert-notification-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "subscriptionName": "discovery.marketplace-product-alert-notifications",
       "eventTypes": [
         "marketplace.listing.created",
@@ -341,6 +342,7 @@
         "marketplace.listing.auto-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.offer.submitted",
+        "marketplace.offer.price-updated",
         "marketplace.offer.accepted"
       ],
       "order": 35,

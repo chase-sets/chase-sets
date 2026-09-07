@@ -49,6 +49,8 @@ export type MarketplaceSupplyCandidate = Readonly<{
   shipFromCode: string | null;
   shipFromAddress: AddressSnapshot;
   priceAmount: string;
+  priceCurrencyCode: string;
+  listingStreamVersion: number;
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   shippingAllowancePercentageBps: number;

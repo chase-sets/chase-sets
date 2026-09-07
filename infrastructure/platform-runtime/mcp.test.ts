@@ -333,6 +333,7 @@ describe("MCP runtime routes", () => {
       "marketplace.list-reviews",
       "marketplace.publish-listing",
       "marketplace.submit-offer",
+      "marketplace.update-offer-price",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
       "ordering.get-order",

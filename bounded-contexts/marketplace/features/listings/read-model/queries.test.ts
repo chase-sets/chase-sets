@@ -160,6 +160,7 @@ describe("marketplace listing read-model queries", () => {
 
     expect(result).toEqual({
       lowest_price_amount: "21.50",
+      lowest_price_currency_code: null,
       active_listing_count: 1,
       total_visible_quantity: 2,
     });

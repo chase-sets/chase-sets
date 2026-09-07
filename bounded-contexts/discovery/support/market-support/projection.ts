@@ -66,6 +66,8 @@ const MARKET_LISTING_CREATED_COLUMNS = [
   "storage_location_name",
   "ship_from_code",
   "price_amount",
+  "price_currency_code",
+  "listing_stream_version",
   "shipping_allowance_percentage_bps",
   "quantity_cap",
   "max_units_per_order",
@@ -93,6 +95,8 @@ const MARKET_LISTING_CREATED_UPDATE_COLUMNS = [
   "storage_location_name",
   "ship_from_code",
   "price_amount",
+  "price_currency_code",
+  "listing_stream_version",
   "shipping_allowance_percentage_bps",
   "quantity_cap",
   "max_units_per_order",
@@ -112,6 +116,8 @@ const OFFER_DEMAND_MATCH_CREATED_COLUMNS = [
   "selected_options",
   "product_summary",
   "price_amount",
+  "price_currency_code",
+  "offer_stream_version",
   "quantity_requested",
   "status",
   "accepted_seller_account_id",
@@ -128,6 +134,8 @@ const OFFER_DEMAND_MATCH_UPDATE_COLUMNS = [
   "selected_options",
   "product_summary",
   "price_amount",
+  "price_currency_code",
+  "offer_stream_version",
   "quantity_requested",
   "status",
   "accepted_seller_account_id",
@@ -225,6 +233,8 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     storage_location_name: string | null;
     ship_from_code: string | null;
     price_amount: string;
+    price_currency_code: string | null;
+    listing_stream_version: number;
     shipping_allowance_percentage_bps: number;
     quantity_cap: number;
     max_units_per_order: number | null;
@@ -287,6 +297,8 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
     selected_options: unknown;
     product_summary: string | null;
     price_amount: string;
+    price_currency_code: string | null;
+    offer_stream_version: number;
     quantity_requested: number;
     status: string;
     accepted_seller_account_id: string | null;
@@ -319,12 +331,14 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
 async function loadRealtimeMarketSummary(db: PgQueryable, catalogItemId: string) {
   const result = await db.query<{
     lowest_price_amount: string | null;
+    lowest_price_currency_code: string | null;
     active_listing_count: number;
     total_visible_quantity: number;
   }>(
     `WITH startable_listing AS (
        SELECT
          discovery_market_listings.price_amount,
+         discovery_market_listings.price_currency_code,
          LEAST(
            discovery_market_listings.quantity_cap,
            GREATEST(
@@ -338,11 +352,20 @@ async function loadRealtimeMarketSummary(db: PgQueryable, catalogItemId: string)
          ON account.account_id = discovery_market_listings.account_id
        WHERE catalog_catalog_item_id = $1
          AND discovery_market_listings.status = 'active'
+         AND discovery_market_listings.price_currency_code ~ '^[A-Z]{3}$'
+         AND discovery_market_listings.listing_stream_version > 0
          AND account.seller_listing_availability_status = 'available'
          AND discovery_market_listings.product_measure_snapshot IS NOT NULL
      )
      SELECT
-       MIN(price_amount::numeric)::text AS lowest_price_amount,
+       CASE
+         WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_amount::numeric)::text
+         ELSE NULL
+       END AS lowest_price_amount,
+       CASE
+         WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_currency_code)
+         ELSE NULL
+       END AS lowest_price_currency_code,
        COUNT(*)::integer AS active_listing_count,
        COALESCE(SUM(visible_quantity), 0)::integer AS total_visible_quantity
      FROM startable_listing
@@ -355,6 +378,7 @@ async function loadRealtimeMarketSummary(db: PgQueryable, catalogItemId: string)
     ? row
     : {
         lowest_price_amount: null,
+        lowest_price_currency_code: null,
         active_listing_count: 0,
         total_visible_quantity: 0,
       };
@@ -721,6 +745,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         storageLocationName: string | null;
         shipFromCode: string | null;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         shippingAllowancePercentageBps?: number;
         quantityCap: number;
         purchaseLimits?: {
@@ -772,6 +797,8 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           storage_location_name: data.storageLocationName,
           ship_from_code: data.shipFromCode,
           price_amount: data.priceAmount,
+          price_currency_code: data.priceCurrencyCode ?? null,
+          listing_stream_version: event.streamVersion,
           shipping_allowance_percentage_bps: data.shippingAllowancePercentageBps ?? 500,
           quantity_cap: data.quantityCap,
           max_units_per_order: data.purchaseLimits?.maxUnitsPerOrder ?? null,
@@ -784,6 +811,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           updated_at: event.timing.recordedAt,
         },
         casts: { selected_options: "jsonb", product_measure_snapshot: "jsonb", graded_card: "jsonb" },
+        updateOnlyWhenExistingColumnLessThan: "listing_stream_version",
       });
       await recomputeDiscoveryMarketListingSupply(db, data.inventoryItemId);
       await rememberSlugRedirect(db, {
@@ -1102,12 +1130,17 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await db.query(
         `UPDATE discovery_market_listings
          SET price_amount = $2,
-             shipping_allowance_percentage_bps = COALESCE($3, shipping_allowance_percentage_bps),
-             updated_at = $4
-         WHERE listing_id = $1`,
+             price_currency_code = $3,
+             listing_stream_version = $4,
+             shipping_allowance_percentage_bps = COALESCE($5, shipping_allowance_percentage_bps),
+             updated_at = $6
+         WHERE listing_id = $1
+           AND listing_stream_version < $4`,
         [
           listingId,
           (event.data as { priceAmount: string }).priceAmount,
+          (event.data as { priceCurrencyCode?: string | null }).priceCurrencyCode ?? null,
+          event.streamVersion,
           (event.data as { shippingAllowancePercentageBps?: number }).shippingAllowancePercentageBps ?? null,
           event.timing.recordedAt,
         ],
@@ -1297,6 +1330,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         selectedOptions: unknown;
         productSummary: string | null;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityRequested: number;
       };
 
@@ -1315,6 +1349,8 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           selected_options: Array.isArray(data.selectedOptions) ? data.selectedOptions : [],
           product_summary: data.productSummary,
           price_amount: data.priceAmount,
+          price_currency_code: data.priceCurrencyCode ?? null,
+          offer_stream_version: event.streamVersion,
           quantity_requested: data.quantityRequested,
           status: "submitted",
           accepted_seller_account_id: null,
@@ -1323,7 +1359,24 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           updated_at: event.timing.recordedAt,
         },
         casts: { selected_options: "jsonb" },
+        updateOnlyWhenExistingColumnLessThan: "offer_stream_version",
       });
+      await emitOfferPatch(db, event, data.offerId);
+    },
+    "marketplace.offer.price-updated": async (event) => {
+      const data = event.data as { offerId: string; priceAmount: string; priceCurrencyCode: string };
+      const projected = await db.query<{ offer_id: string }>(
+        `UPDATE discovery_offer_demand_matches
+         SET price_amount = $2,
+             price_currency_code = $3,
+             offer_stream_version = $4,
+             updated_at = $5
+         WHERE offer_id = $1
+           AND offer_stream_version < $4
+         RETURNING offer_id`,
+        [data.offerId, data.priceAmount, data.priceCurrencyCode, event.streamVersion, event.timing.recordedAt],
+      );
+      if (projected.rows.length === 0) return;
       await emitOfferPatch(db, event, data.offerId);
     },
     "marketplace.offer.accepted": async (event) => {
@@ -1333,17 +1386,19 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         acceptedAt: string;
       };
 
-      await updateRow(db, {
-        table: OFFER_DEMAND_MATCHES_TABLE,
-        setColumns: ["status", "accepted_seller_account_id", "accepted_at", "updated_at"],
-        values: {
-          status: "accepted",
-          accepted_seller_account_id: data.sellerAccountId,
-          accepted_at: data.acceptedAt,
-          updated_at: data.acceptedAt,
-        },
-        where: { columns: ["offer_id"], values: { offer_id: data.offerId } },
-      });
+      const projected = await db.query<{ offer_id: string }>(
+        `UPDATE discovery_offer_demand_matches
+         SET status = 'accepted',
+             accepted_seller_account_id = $2,
+             accepted_at = $3,
+             updated_at = $3,
+             offer_stream_version = $4
+         WHERE offer_id = $1
+           AND offer_stream_version < $4
+         RETURNING offer_id`,
+        [data.offerId, data.sellerAccountId, data.acceptedAt, event.streamVersion],
+      );
+      if (projected.rows.length === 0) return;
       await db.query(
         `DELETE FROM discovery_item_detail_sell_list_lines
          WHERE seller_account_id = $1

@@ -13,6 +13,7 @@ describe("Product Alert domain", () => {
       selectedOptions: [{ dimensionId: " condition ", optionId: " nm " }],
       productSummary: "Near Mint",
       thresholdAmount: "12",
+      thresholdCurrencyCode: "eur",
     });
 
     expect(events).toEqual([
@@ -23,6 +24,7 @@ describe("Product Alert domain", () => {
           marketSide: "listing",
           selectedOptions: [{ dimensionId: "condition", optionId: "nm" }],
           thresholdAmount: "12.00",
+          thresholdCurrencyCode: "EUR",
         }),
       },
     ]);

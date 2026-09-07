@@ -13,6 +13,8 @@ export type MarketplaceOfferListRow = Readonly<{
   product_summary: string | null;
   shipping_destination_snapshot: AddressSnapshot;
   price_amount: string;
+  price_currency_code: string | null;
+  last_stream_version: number;
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
@@ -31,6 +33,8 @@ export type OfferMatchRow = MarketplaceOfferListRow &
   Readonly<{
     listing_id: string;
     listing_price_amount: string;
+    listing_price_currency_code: string;
+    listing_stream_version: number;
     listing_quantity_cap: number;
     listing_visible_quantity: number;
     offer_price_gap_amount: string;
@@ -64,6 +68,8 @@ type MarketplaceOfferPageRow = Readonly<{
   product_summary: string | null;
   shipping_destination_snapshot: unknown;
   price_amount: string;
+  price_currency_code: string | null;
+  last_stream_version: number;
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
@@ -110,6 +116,11 @@ const sellerVisibilitySql = `
       WHERE listing.account_id = $1
         AND listing.status = 'active'
         AND listing.product_id = offer.product_id
+        AND listing.price_currency_code IS NOT NULL
+        AND offer.price_currency_code IS NOT NULL
+        AND listing.price_currency_code = offer.price_currency_code
+        AND listing.last_stream_version > 0
+        AND offer.last_stream_version > 0
     )
   )
   OR (
@@ -124,6 +135,8 @@ function sellerBestListingJoinSql(sellerAccountSql: string) {
     SELECT
       listing.listing_id,
       listing.price_amount AS listing_price_amount,
+      listing.price_currency_code AS listing_price_currency_code,
+      listing.last_stream_version AS listing_stream_version,
       listing.quantity_cap AS listing_quantity_cap,
       LEAST(
         listing.quantity_cap,
@@ -144,6 +157,11 @@ function sellerBestListingJoinSql(sellerAccountSql: string) {
     WHERE listing.account_id = ${sellerAccountSql}
       AND listing.status = 'active'
       AND listing.product_id = offer.product_id
+      AND listing.price_currency_code IS NOT NULL
+      AND offer.price_currency_code IS NOT NULL
+      AND listing.price_currency_code = offer.price_currency_code
+      AND listing.last_stream_version > 0
+      AND offer.last_stream_version > 0
     ORDER BY
       CASE
         WHEN listing.price_amount > 0 THEN offer.price_amount / listing.price_amount
@@ -162,6 +180,8 @@ function sellerExactListingJoinSql(sellerAccountSql: string, listingIdSql: strin
     SELECT
       listing.listing_id,
       listing.price_amount AS listing_price_amount,
+      listing.price_currency_code AS listing_price_currency_code,
+      listing.last_stream_version AS listing_stream_version,
       listing.quantity_cap AS listing_quantity_cap,
       LEAST(
         listing.quantity_cap,
@@ -183,6 +203,11 @@ function sellerExactListingJoinSql(sellerAccountSql: string, listingIdSql: strin
       AND listing.listing_id = ${listingIdSql}
       AND listing.status = 'active'
       AND listing.product_id = offer.product_id
+      AND listing.price_currency_code IS NOT NULL
+      AND offer.price_currency_code IS NOT NULL
+      AND listing.price_currency_code = offer.price_currency_code
+      AND listing.last_stream_version > 0
+      AND offer.last_stream_version > 0
     LIMIT 1
   ) AS matched_listing ON TRUE`;
 }
@@ -210,6 +235,7 @@ function sellerOfferControlsWhereSql(sellerAccountSql: string) {
         seller_offer_control.lowball_cooldown_until IS NULL
         OR seller_offer_control.lowball_cooldown_until <= now()
         OR seller_offer_control.last_lowball_declined_amount IS NULL
+        OR seller_offer_control.last_lowball_declined_currency_code IS DISTINCT FROM offer.price_currency_code
         OR offer.price_amount >= seller_offer_control.last_lowball_declined_amount
       )`;
 }
@@ -222,6 +248,8 @@ function sellerOfferSelectSql(sellerAccountSql: string) {
   COALESCE(buyer.rating_count_as_buyer, 0)::integer AS buyer_review_count,
   matched_listing.listing_id,
   matched_listing.listing_price_amount::text AS listing_price_amount,
+  matched_listing.listing_price_currency_code,
+  matched_listing.listing_stream_version,
   matched_listing.listing_quantity_cap,
   matched_listing.listing_visible_quantity,
   matched_listing.listing_visible_quantity AS seller_available_quantity,
@@ -240,6 +268,7 @@ function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
       AND seller_offer.seller_listing_availability_status = 'available'
       AND seller_offer.seller_available_quantity >= seller_offer.quantity_requested) DESC,
     seller_offer.offer_to_listing_price_bps DESC,
+    seller_offer.price_currency_code ASC,
     seller_offer.price_amount::numeric DESC,
     seller_offer.quantity_requested DESC,
     ${tieBreakerSql}`;
@@ -248,6 +277,8 @@ function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
 type OfferMatchPageRow = MarketplaceOfferPageRow & {
   listing_id: string;
   listing_price_amount: string;
+  listing_price_currency_code: string;
+  listing_stream_version: number;
   listing_quantity_cap: number;
   listing_visible_quantity: number;
   offer_price_gap_amount: string;
@@ -270,6 +301,8 @@ function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
     ...offer,
     listing_id: row.listing_id,
     listing_price_amount: row.listing_price_amount,
+    listing_price_currency_code: row.listing_price_currency_code,
+    listing_stream_version: row.listing_stream_version,
     listing_quantity_cap: row.listing_quantity_cap,
     listing_visible_quantity: row.listing_visible_quantity,
     offer_price_gap_amount: row.offer_price_gap_amount,

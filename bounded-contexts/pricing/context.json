@@ -89,7 +89,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "pricing-market-input-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -98,6 +98,7 @@
         "marketplace.listing.paused",
         "marketplace.listing.withdrawn",
         "marketplace.offer.submitted",
+        "marketplace.offer.price-updated",
         "marketplace.offer.accepted"
       ],
       "order": 30,

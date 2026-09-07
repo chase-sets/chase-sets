@@ -668,6 +668,7 @@ describe("item detail buy now validation and watch intents", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Form: Raw");
     form.set("thresholdAmount", "20");
+    form.set("thresholdCurrencyCode", "EUR");
 
     const result = (await action({
       request: new Request("http://localhost/items/cat_charizard?market=watch", {
@@ -694,6 +695,7 @@ describe("item detail buy now validation and watch intents", () => {
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Form: Raw",
       thresholdAmount: "20.00",
+      thresholdCurrencyCode: "EUR",
     });
     expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
     expect(mockCreateProductAlert).not.toHaveBeenCalled();

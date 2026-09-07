@@ -275,12 +275,23 @@ describe("pricing marketplace source projection", () => {
         productId: "prod_1",
         totalQuantity: 3,
         acquisitionCostAmount: "6.50",
+        acquisitionCostCurrencyCode: "USD",
       },
       timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
     } as never);
 
     expect(calls[0]?.sql).toContain("acquisition_cost_amount");
-    expect(calls[0]?.params).toEqual(["inv_1", "acc_1", "cat_1", "prod_1", 3, "6.50", "2026-05-09T00:00:00.000Z", 1]);
+    expect(calls[0]?.params).toEqual([
+      "inv_1",
+      "acc_1",
+      "cat_1",
+      "prod_1",
+      3,
+      "6.50",
+      "USD",
+      "2026-05-09T00:00:00.000Z",
+      1,
+    ]);
   });
 
   it("stores a null acquisition cost basis when the inventory item omits it", async () => {
@@ -306,6 +317,16 @@ describe("pricing marketplace source projection", () => {
       timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
     } as never);
 
-    expect(calls[0]?.params).toEqual(["inv_2", "acc_1", "cat_1", "prod_1", 3, null, "2026-05-09T00:00:00.000Z", 1]);
+    expect(calls[0]?.params).toEqual([
+      "inv_2",
+      "acc_1",
+      "cat_1",
+      "prod_1",
+      3,
+      null,
+      null,
+      "2026-05-09T00:00:00.000Z",
+      1,
+    ]);
   });
 });

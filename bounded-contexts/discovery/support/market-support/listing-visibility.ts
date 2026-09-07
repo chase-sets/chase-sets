@@ -10,6 +10,8 @@ export function buyerVisibleListingQuantitySql(listingAlias: string): string {
 
 export function buyerVisibleListingPredicateSql(listingAlias: string, accountAlias: string): string {
   return `${listingAlias}.status = 'active'
+           AND ${listingAlias}.price_currency_code IS NOT NULL
+           AND ${listingAlias}.listing_stream_version > 0
            AND ${accountAlias}.seller_listing_availability_status = 'available'
            AND ${listingAlias}.product_measure_snapshot IS NOT NULL
            AND ${buyerVisibleListingQuantitySql(listingAlias)} > 0`;

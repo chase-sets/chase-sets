@@ -112,6 +112,7 @@ const submitArgs = {
     country: "US",
   },
   priceAmount: "20.00",
+  priceCurrencyCode: "USD",
   quantityRequested: 1,
   offerIdOverride: "off_natural_1",
 };

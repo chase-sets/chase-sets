@@ -32,12 +32,16 @@ CREATE TABLE IF NOT EXISTS pricing_inventory_item_inputs (
   product_id text NOT NULL,
   total_quantity integer NOT NULL CHECK (total_quantity >= 0),
   acquisition_cost_amount numeric(12, 2) NULL,
+  acquisition_cost_currency_code text NULL,
   updated_at timestamptz NOT NULL,
   last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
 );
 
 ALTER TABLE pricing_inventory_item_inputs
   ADD COLUMN IF NOT EXISTS acquisition_cost_amount numeric(12, 2) NULL;
+
+ALTER TABLE pricing_inventory_item_inputs
+  ADD COLUMN IF NOT EXISTS acquisition_cost_currency_code text NULL;
 
 CREATE TABLE IF NOT EXISTS pricing_inventory_hold_inputs (
   hold_id text PRIMARY KEY,
@@ -63,6 +67,7 @@ CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   price_amount numeric(12, 2) NOT NULL,
+  price_currency_code text NULL,
   price_currency_code text NULL,
   quantity_cap integer NOT NULL CHECK (quantity_cap >= 0),
   status text NOT NULL,
@@ -158,6 +163,17 @@ CREATE INDEX IF NOT EXISTS pricing_fulfillment_signal_lines_lookup_idx
 `;
 
 export const pricingRecommendationSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_pricing_recommendation_source_money_currencies",
+    description:
+      "Carry nullable acquisition-cost and buyer-offer currencies so legacy amount-only facts remain ineligible for repricing arithmetic.",
+    statements: [
+      `ALTER TABLE pricing_inventory_item_inputs
+  ADD COLUMN IF NOT EXISTS acquisition_cost_currency_code text NULL`,
+      `ALTER TABLE pricing_buyer_offer_inputs
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL`,
+    ],
+  },
   {
     migrationId: "20260907_pricing_market_listing_input_price_currency",
     description:

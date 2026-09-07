@@ -49,15 +49,22 @@ export function isLowestPriceListing(
   listing: DiscoveryMarketListing,
   listings: readonly DiscoveryMarketListing[],
 ): boolean {
+  if (!listing.price_currency_code) return false;
   const listingPrice = toPriceNumber(listing.price_amount);
-  const lowestPrice = toPriceNumber(getLowestPrice(listings) ?? "");
+  const lowestPrice = toPriceNumber(
+    getLowestPrice(listings.filter((candidate) => candidate.price_currency_code === listing.price_currency_code)) ?? "",
+  );
 
   return listingPrice !== null && lowestPrice !== null && listingPrice === lowestPrice;
 }
 
 export function isBestOffer(offer: DiscoveryOffer, offers: readonly DiscoveryOffer[]): boolean {
+  if (!offer.price_currency_code) return false;
   const offerPrice = toPriceNumber(offer.price_amount);
-  const highestPrice = toPriceNumber(getHighestOfferPrice(offers) ?? "");
+  const highestPrice = toPriceNumber(
+    getHighestOfferPrice(offers.filter((candidate) => candidate.price_currency_code === offer.price_currency_code)) ??
+      "",
+  );
 
   return offerPrice !== null && highestPrice !== null && offerPrice === highestPrice;
 }
@@ -144,6 +151,13 @@ export function getInitialSelections(
 }
 
 export function getLowestPrice(listings: readonly DiscoveryMarketListing[]): string | null {
+  if (
+    listings.length === 0 ||
+    listings.some((listing) => !listing.price_currency_code) ||
+    new Set(listings.map((listing) => listing.price_currency_code)).size !== 1
+  ) {
+    return null;
+  }
   return listings.reduce<string | null>((lowest, listing) => {
     if (lowest === null) {
       return listing.price_amount;
@@ -154,6 +168,13 @@ export function getLowestPrice(listings: readonly DiscoveryMarketListing[]): str
 }
 
 export function getHighestOfferPrice(offers: readonly DiscoveryOffer[]): string | null {
+  if (
+    offers.length === 0 ||
+    offers.some((offer) => !offer.price_currency_code) ||
+    new Set(offers.map((offer) => offer.price_currency_code)).size !== 1
+  ) {
+    return null;
+  }
   return offers.reduce<string | null>((highest, offer) => {
     if (highest === null) {
       return offer.price_amount;
@@ -190,6 +211,10 @@ function comparePriceValues(left: string, right: string, direction: "asc" | "des
 
 export function sortListingsByBuyerPrice(listings: readonly DiscoveryMarketListing[]): DiscoveryMarketListing[] {
   return [...listings].sort((left, right) => {
+    const currencyDelta = (left.price_currency_code ?? "").localeCompare(right.price_currency_code ?? "");
+    if (currencyDelta !== 0) {
+      return currencyDelta;
+    }
     const priceDelta = comparePriceValues(left.price_amount, right.price_amount, "asc");
     if (priceDelta !== 0) {
       return priceDelta;
@@ -204,6 +229,10 @@ export function sortListingsByBuyerPrice(listings: readonly DiscoveryMarketListi
 
 export function sortOffersBySellerPrice(offers: readonly DiscoveryOffer[]): DiscoveryOffer[] {
   return [...offers].sort((left, right) => {
+    const currencyDelta = (left.price_currency_code ?? "").localeCompare(right.price_currency_code ?? "");
+    if (currencyDelta !== 0) {
+      return currencyDelta;
+    }
     const priceDelta = comparePriceValues(left.price_amount, right.price_amount, "desc");
     if (priceDelta !== 0) {
       return priceDelta;
@@ -241,6 +270,11 @@ export function sortAccountOfferMatchesForReview(
     const fulfillableDelta = Number(right.can_fulfill) - Number(left.can_fulfill);
     if (fulfillableDelta !== 0) {
       return fulfillableDelta;
+    }
+
+    const currencyDelta = left.price_currency_code.localeCompare(right.price_currency_code);
+    if (currencyDelta !== 0) {
+      return currencyDelta;
     }
 
     const priceDelta = Number.parseFloat(right.price_amount) - Number.parseFloat(left.price_amount);

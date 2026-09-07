@@ -252,6 +252,7 @@ export interface DiscoveryItemDetail {
 
 export interface DiscoveryMarketSummary {
   lowest_price_amount: string | null;
+  lowest_price_currency_code?: string | null;
   active_listing_count: number;
   total_visible_quantity: number;
 }
@@ -292,6 +293,8 @@ export interface DiscoveryMarketListing {
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number;
   shipping_allowance_percentage_bps: number;
   quantity_cap: number;
   max_units_per_order?: number | null;
@@ -418,6 +421,11 @@ export interface DiscoveryAccountOfferMatch {
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string;
+  offer_stream_version: number;
+  listing_price_amount: string;
+  listing_price_currency_code: string;
+  listing_stream_version: number;
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
@@ -443,6 +451,8 @@ export interface DiscoveryOffer {
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string | null;
+  offer_stream_version: number;
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;

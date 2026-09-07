@@ -638,6 +638,7 @@ function evaluateRound(
       lastSold: round.lastSold
         ? {
             amount: round.lastSold.amount,
+            currencyCode: round.lastSold.currencyCode,
             freshUntil: new Date(
               Date.parse(round.lastSold.soldAt) + policy.lastSoldFreshForDays * 24 * 60 * 60 * 1_000,
             ).toISOString(),
@@ -650,11 +651,14 @@ function evaluateRound(
         listingId: listing.listingId,
         sellerAccountId: listing.sellerAccountId,
         currentPriceAmount: listing.priceAmount,
+        currentPriceCurrencyCode: listing.priceCurrencyCode,
+        currentPriceSourceVersion: listing.listingVersion,
         quantityCap: listing.quantityCap,
         categoryIds: listing.categoryIds,
         grading: listing.grading,
         createdAt: listing.createdAt,
         costBasisAmount: listing.costBasisAmount,
+        costBasisCurrencyCode: listing.costBasisCurrencyCode,
         rules: listing.rules,
       },
       snapshot,

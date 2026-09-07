@@ -199,6 +199,9 @@ export function buildPublicListingProductJsonLd(input: {
     !input.canonicalUrl ||
     !isProductionMarketplaceUrl(input.canonicalUrl) ||
     payload.link !== input.canonicalUrl ||
+    !input.listing.price_currency_code ||
+    payload.priceAmount !== input.listing.price_amount ||
+    payload.currencyCode !== input.listing.price_currency_code ||
     !isValidGoogleShoppingPayloadForJsonLd(payload)
   ) {
     return null;
@@ -306,7 +309,11 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
       ? `${titleForListing(data.listing)} | Marketplace`
       : t("discovery.routes.publicListing.listing.not.found.marketplace"),
     description: data?.listing
-      ? `${formatMoney(data.listing.price_amount)} from ${data.listing.seller_display_name ?? t("discovery.routes.publicListing.a.marketplace.seller")}.`
+      ? `${
+          data.listing.price_currency_code
+            ? formatMoney(data.listing.price_amount, data.listing.price_currency_code)
+            : t("discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable")
+        } from ${data.listing.seller_display_name ?? t("discovery.routes.publicListing.a.marketplace.seller")}.`
       : t("discovery.routes.publicListing.this.marketplace.listing.is.not.available"),
     type: "product",
   }),
@@ -390,8 +397,10 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
             <Badge tone="neutral">{t("discovery.routes.publicListing.standard")}</Badge>
           )}
           <Text tone="secondary">
-            {formatMoney(listing.price_amount)} from{" "}
-            {listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
+            {listing.price_currency_code
+              ? formatMoney(listing.price_amount, listing.price_currency_code)
+              : t("discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable")}{" "}
+            from {listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
           </Text>
           {unbuyableMessage ? (
             <Banner tone="warning" title={unbuyableMessage.title} description={unbuyableMessage.description} />
@@ -402,7 +411,11 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
           <Stack gap={4}>
             <ListingPurchasePanel
               title={t("discovery.routes.publicListing.ready.to.buy.this.listing")}
-              price={formatMoney(listing.price_amount)}
+              price={
+                listing.price_currency_code
+                  ? formatMoney(listing.price_amount, listing.price_currency_code)
+                  : t("discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable")
+              }
               seller={listing.seller_display_name ?? t("discovery.routes.publicListing.seller")}
               trust={
                 listing.status === "active" && canPurchase
