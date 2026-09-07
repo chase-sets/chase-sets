@@ -164,6 +164,36 @@ const retiredIntegrationSurfaceImportPattern = /["']@chase-sets\/[^/"'\s]+\/inte
 const forbiddenRootSurfaceReexports =
   /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|seed-support(?:\/[^"']+)?)["']/;
 const boundedContextSurfaceFiles = new Set(["client.ts", "server.ts", "web.ts"]);
+const contextRootExportContracts = new Map([
+  [
+    "bounded-contexts/channels",
+    new Set([
+      "contextManifest",
+      "module",
+      "channelExecutionModes",
+      "ChannelExecutionMode",
+      "channelPublicationRejectionCodes",
+      "ChannelPublicationRejectionCode",
+      "ChannelProviderIdentity",
+      "ChannelPublicationPrice",
+      "ChannelPublicationAttribute",
+      "ChannelPublicationDraft",
+      "PublishListingInput",
+      "UpdatePriceQuantityInput",
+      "DelistListingInput",
+      "ChannelPublicationSuccess",
+      "ChannelPublicationRejection",
+      "ChannelPublicationResult",
+      "ChannelPublicationCapability",
+      "ChannelProviderDescriptor",
+      "ResolvedChannelPublication",
+      "ResolvedChannelProvider",
+      "ChannelProviderRegistry",
+      "createChannelProviderRegistry",
+      "channelProviderRegistry",
+    ]),
+  ],
+]);
 const canonicalBoundedContextRootFiles = new Set([
   "README.md",
   "GLOSSARY.md",
@@ -505,15 +535,45 @@ function stripContextManifestSurfaceExport(content) {
     .trim();
 }
 
-export function findContextRootExportViolation(content) {
-  const exportStatements = [...content.matchAll(/^\s*export\b.*$/gm)].map((match) => match[0].trim());
-  const invalidExports = exportStatements.filter(
-    (statement) =>
-      statement !== 'export { default as contextManifest } from "./context.json" with { type: "json" };' &&
-      !statement.startsWith("export const module"),
-  );
+export function findContextRootExportViolation(content, contextRoot = "") {
+  const diagnostic = contextRootExportContracts.has(contextRoot)
+    ? "context root entrypoint exports must match the approved closed contract"
+    : "context root entrypoints must export only contextManifest and module";
+  const exportStarts = [...content.matchAll(/^\s*export\b/gm)].length;
+  const reexports = [
+    ...content.matchAll(/^\s*export\s*\{([\s\S]*?)\}\s*from\s*["'][^"']+["'](?:\s+with\s*\{[^}]+\})?;\s*$/gm),
+  ];
+  const moduleDeclarations = [...content.matchAll(/^\s*export\s+const\s+module\b/gm)];
+  if (exportStarts !== reexports.length + moduleDeclarations.length) return diagnostic;
 
-  return invalidExports.length > 0 ? "context root entrypoints must export only contextManifest and module" : null;
+  const canonicalManifest =
+    'export { default as contextManifest } from "./context.json" with { type: "json" };';
+  const manifestReexports = reexports.filter((match) =>
+    match[1]
+      .split(",")
+      .map((member) => member.trim())
+      .includes("default as contextManifest"),
+  );
+  if (manifestReexports.some((match) => match[0].trim() !== canonicalManifest)) return diagnostic;
+
+  const exportedNames = new Set(moduleDeclarations.map(() => "module"));
+  for (const match of reexports) {
+    for (const rawMember of match[1].split(",")) {
+      const member = rawMember.trim().replace(/^type\s+/, "");
+      if (!member) continue;
+      exportedNames.add(member.split(/\s+as\s+/).at(-1));
+    }
+  }
+
+  const contract = contextRootExportContracts.get(contextRoot);
+  if (contract) {
+    if (exportedNames.size !== contract.size || [...contract].some((name) => !exportedNames.has(name))) {
+      return diagnostic;
+    }
+    return null;
+  }
+
+  return [...exportedNames].some((name) => name !== "contextManifest" && name !== "module") ? diagnostic : null;
 }
 
 function extractExportedValueNames(content) {
@@ -1399,7 +1459,7 @@ export async function runStructureCheck(options = {}) {
   const contextManifests = await loadContextManifests();
   for (const context of contextManifests.values()) {
     const indexPath = path.join(repoRoot, context.root, "index.ts");
-    const violation = findContextRootExportViolation(await readFile(indexPath, "utf8"));
+    const violation = findContextRootExportViolation(await readFile(indexPath, "utf8"), context.root);
     if (violation) {
       addPathViolation(`${context.root}/index.ts`, violation);
     }

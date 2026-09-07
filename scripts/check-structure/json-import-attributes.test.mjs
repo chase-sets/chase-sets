@@ -773,4 +773,45 @@ describe("findContextRootExportViolation", () => {
       ),
     ).toBe("context root entrypoints must export only contextManifest and module");
   });
+
+  it("accepts only the closed Channels publication-port root contract", () => {
+    const channelsRoot = [
+      'export { default as contextManifest } from "./context.json" with { type: "json" };',
+      'export { channelProviderRegistry, createChannelProviderRegistry } from "./registry";',
+      "export {",
+      "  channelExecutionModes,",
+      "  channelPublicationRejectionCodes,",
+      "  type ChannelExecutionMode,",
+      "  type ChannelProviderDescriptor,",
+      "  type ChannelProviderIdentity,",
+      "  type ChannelProviderRegistry,",
+      "  type ChannelPublicationAttribute,",
+      "  type ChannelPublicationCapability,",
+      "  type ChannelPublicationDraft,",
+      "  type ChannelPublicationPrice,",
+      "  type ChannelPublicationRejection,",
+      "  type ChannelPublicationRejectionCode,",
+      "  type ChannelPublicationResult,",
+      "  type ChannelPublicationSuccess,",
+      "  type DelistListingInput,",
+      "  type PublishListingInput,",
+      "  type ResolvedChannelProvider,",
+      "  type ResolvedChannelPublication,",
+      "  type UpdatePriceQuantityInput,",
+      '} from "./contracts";',
+      "export const module = {};",
+    ].join("\n");
+    const diagnostic = "context root entrypoint exports must match the approved closed contract";
+
+    expect(findContextRootExportViolation(channelsRoot, "bounded-contexts/channels")).toBeNull();
+    expect(
+      findContextRootExportViolation(
+        channelsRoot.replace("  type UpdatePriceQuantityInput,\n", ""),
+        "bounded-contexts/channels",
+      ),
+    ).toBe(diagnostic);
+    expect(
+      findContextRootExportViolation(`${channelsRoot}\nexport const extra = true;`, "bounded-contexts/channels"),
+    ).toBe(diagnostic);
+  });
 });
