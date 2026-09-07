@@ -11,6 +11,8 @@ describe("Pricing market-capture worker wiring", () => {
     expect(main).toContain("tcgplayerMarketTransport: tcgplayerAutomationHttpClients");
     expect(main).not.toMatch(/tcgplayerMarketTransport[^\n]+\bas\b/);
     expect(runners).toContain("pricing?.priceSignals.runTcgplayerMarketCapture");
-    expect(runners).not.toMatch(/services\.pricing\s+as\s+/);
+    expect(runners).toContain("const pricingCandidate = services.pricing;");
+    expect(runners).toContain("const pricing = isPricingServices(pricingCandidate) ? pricingCandidate : undefined;");
+    expect(runners).not.toContain("const pricing = services.pricing as PricingServices");
   });
 });

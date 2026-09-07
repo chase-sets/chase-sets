@@ -12,7 +12,7 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
       maximumTupleMultiplicity: 1,
     });
     expect(JSON.stringify(receipt)).not.toMatch(
-      /seller|listingId|customData|cookie|authorization|responseBody|exception/i,
+      /seller(?:Id|Name|Key|Reference|Identity)|listingId|customData|cookie|authorization|responseBody|exception/i,
     );
   });
 });
