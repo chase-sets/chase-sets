@@ -3509,7 +3509,15 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "inventoryItemId", "priceAmount", "quantityCap", "idempotencyKey", "confirmationText"],
+      required: [
+        "accountId",
+        "inventoryItemId",
+        "priceAmount",
+        "priceCurrencyCode",
+        "quantityCap",
+        "idempotencyKey",
+        "confirmationText",
+      ],
       properties: {
         accountId: {
           type: "string",
@@ -3522,6 +3530,10 @@ export const mcpToolCatalog = [
         priceAmount: {
           type: "string",
           description: "Listing unit price in decimal currency format.",
+        },
+        priceCurrencyCode: {
+          type: "string",
+          description: "Seller-authored three-letter ISO-4217 listing price currency code.",
         },
         quantityCap: {
           type: "integer",
@@ -4618,7 +4630,7 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "listingId", "priceAmount", "idempotencyKey", "confirmationText"],
+      required: ["accountId", "listingId", "priceAmount", "priceCurrencyCode", "idempotencyKey", "confirmationText"],
       properties: {
         accountId: {
           type: "string",
@@ -4631,6 +4643,10 @@ export const mcpToolCatalog = [
         priceAmount: {
           type: "string",
           description: "New listing unit price in decimal currency format.",
+        },
+        priceCurrencyCode: {
+          type: "string",
+          description: "Seller-authored three-letter ISO-4217 listing price currency code.",
         },
         feeQuoteFingerprint: {
           type: "string",

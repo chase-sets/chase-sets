@@ -1,3 +1,4 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 
@@ -37,9 +38,6 @@ ALTER TABLE pricing_recommendation_pages
   ADD COLUMN IF NOT EXISTS quantity_cap integer NULL,
   ADD COLUMN IF NOT EXISTS applied_listing_id text NULL,
   ADD COLUMN IF NOT EXISTS last_error text NULL;
-
-CREATE INDEX IF NOT EXISTS pricing_recommendation_pages_action_idx
-  ON pricing_recommendation_pages (seller_account_id, status, action_type, updated_at DESC);
 
 CREATE OR REPLACE VIEW pricing_recommendation_feed AS
 SELECT
@@ -183,3 +181,14 @@ ${durableJobWorkUnitSchemaSql({
   workUnitsTable: "pricing_recommendation_work_units",
 })}
 `;
+
+export const pricingRecommendationSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_pricing_recommendation_action_index_ledger",
+    description: "Create the recommendation action index after its legacy-added columns are present.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_recommendation_pages_action_idx
+  ON pricing_recommendation_pages (seller_account_id, status, action_type, updated_at DESC)`,
+    ],
+  },
+];
