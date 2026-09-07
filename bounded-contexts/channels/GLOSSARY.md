@@ -44,6 +44,18 @@ A **Channel Mapping** is the account-owned configuration that maps channel field
 
 A **Channel Listing Link** is the association between a Chase Sets Listing or Inventory Item and an external channel listing.
 
+## Channel Publication
+
+**Channel Publication** is sending a Channel Listing Link's current state to a Sales Channel.
+
+## Channel Provider Registry
+
+The **Channel Provider Registry** is the account-independent, immutable table of provider descriptors keyed by provider and environment.
+
+## Channel Provider Descriptor
+
+A **Channel Provider Descriptor** declares one provider's identity, setup requirements, and optional publication capability.
+
 ## Channel Sync
 
 **Channel Sync** is the Channels workflow that reconciles Inventory stock facts with an external Sales Channel.

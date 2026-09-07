@@ -4,7 +4,7 @@
   "ownedNouns": ["channel-connection"],
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
-  "slices": ["connections"],
+  "slices": ["connections", "publication-port"],
   "allowedSupportDirectories": [],
   "publicExports": [".", "./context"],
   "allowedContextDependencies": [],
@@ -59,6 +59,11 @@
       "classification": "slice",
       "purpose": "Own the connections slice lifecycle, setup authority, HTTP contract, and projection.",
       "expectedConsumers": ["Internal Channels module composition"]
+    },
+    "publication-port": {
+      "classification": "slice",
+      "purpose": "Own the provider-neutral Channel Publication contract and immutable provider registry.",
+      "expectedConsumers": ["Internal Channels publication workflows and provider integrations"]
     },
     "routes": {
       "classification": "routes",
