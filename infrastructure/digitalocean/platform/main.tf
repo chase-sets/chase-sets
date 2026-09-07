@@ -220,6 +220,14 @@ resource "digitalocean_database_user" "contexts" {
   for_each   = local.managed_context_database_users
   cluster_id = digitalocean_database_cluster.postgres[0].id
   name       = each.value
+
+  # The DigitalOcean provider (2.85) emits an empty user_settings update for a
+  # user whose settings block is unmanaged, and the API rejects it with 400
+  # "request is missing the following required fields: user_settings"
+  # (#7715, Deploy Staging run 34076978160). Settings are not managed here.
+  lifecycle {
+    ignore_changes = [settings]
+  }
 }
 
 # Dedicated least-privilege relay listener users (#1243): one per wave-1
@@ -230,6 +238,11 @@ resource "digitalocean_database_user" "wake_listeners" {
   for_each   = local.wake_listener_database_users
   cluster_id = digitalocean_database_cluster.postgres[0].id
   name       = each.value
+
+  # Same unmanaged-settings provider defect as `contexts` above (#7715).
+  lifecycle {
+    ignore_changes = [settings]
+  }
 }
 
 resource "digitalocean_database_connection_pool" "contexts" {
