@@ -108,6 +108,12 @@ export const inventoryItemSchemaMigrations: readonly BcSchemaMigration[] = [
   SET claim_generation = 'legacy:' || idempotency_key || ':' || created_at::text
   WHERE claim_generation IS NULL`,
       `ALTER TABLE inventory_item_adjustment_idempotency
+  ADD CONSTRAINT inventory_item_adjustment_idempotency_claim_generation_not_null
+  CHECK (claim_generation IS NOT NULL) NOT VALID`,
+      `ALTER TABLE inventory_item_adjustment_idempotency
+  VALIDATE CONSTRAINT inventory_item_adjustment_idempotency_claim_generation_not_null`,
+      `SET LOCAL lock_timeout = '5s'`,
+      `ALTER TABLE inventory_item_adjustment_idempotency
   ALTER COLUMN claim_generation SET NOT NULL`,
     ],
   },

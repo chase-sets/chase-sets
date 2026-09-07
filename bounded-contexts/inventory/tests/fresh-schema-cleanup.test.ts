@@ -23,6 +23,11 @@ describe("fresh inventory schemas", () => {
     expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS channel text");
     expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS result_collision jsonb");
     expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS claim_generation text");
+    expect(migrationSql).toContain("CHECK (claim_generation IS NOT NULL) NOT VALID");
+    expect(migrationSql).toContain(
+      "VALIDATE CONSTRAINT inventory_item_adjustment_idempotency_claim_generation_not_null",
+    );
+    expect(migrationSql).toContain("SET LOCAL lock_timeout = '5s'");
     expect(migrationSql).toContain("ALTER COLUMN claim_generation SET NOT NULL");
   });
 });
