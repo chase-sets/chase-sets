@@ -8,11 +8,36 @@ export const publicationContractsPath = "bounded-contexts/channels/features/publ
 
 export const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
 
-export function readImplementationBaseFile(relativePath: string): string {
-  return execFileSync("git", ["show", `${implementationBase}:${relativePath}`], {
+export function deriveImplementationBaseRootExports(): Readonly<{
+  provenance: "git-object" | "immutable-golden";
+  revision: string;
+  path: string;
+  blobSha: string;
+  exports: readonly string[];
+}> {
+  const golden = JSON.parse(
+    readFileSync(path.join(import.meta.dirname, "implementation-base-root-exports.json"), "utf8"),
+  ) as Readonly<{ revision: string; path: string; blobSha: string; exports: readonly string[] }>;
+  let source: string;
+  try {
+    source = execFileSync("git", ["show", `${golden.revision}:${golden.path}`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch {
+    return { provenance: "immutable-golden", ...golden };
+  }
+  const blobSha = execFileSync("git", ["hash-object", "--stdin"], {
     cwd: repoRoot,
     encoding: "utf8",
-  });
+    input: source,
+  }).trim();
+  const exports = collectRootExports(source);
+  if (blobSha !== golden.blobSha || JSON.stringify(exports) !== JSON.stringify(golden.exports)) {
+    throw new Error("The implementation-base root export golden does not match its authoritative Git object.");
+  }
+  return { provenance: "git-object", ...golden };
 }
 
 export function collectRootExports(source: string): string[] {
@@ -33,11 +58,10 @@ export function collectRootExports(source: string): string[] {
 }
 
 export function collectRootExportViolations(
-  baseSource: string,
+  baseline: readonly string[],
   candidateSource: string,
   sliceAdditions: readonly string[],
 ): string[] {
-  const baseline = collectRootExports(baseSource);
   const candidate = new Set(collectRootExports(candidateSource));
   const additions = new Set(sliceAdditions);
   const violations: string[] = [];

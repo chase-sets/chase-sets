@@ -178,6 +178,7 @@ describe("channel-publication-dto-boundaries", () => {
     expectInvalid(() =>
       assertPublishListingInput(
         createPublishInput({
+          // @ts-expect-error synthetic recursive-closure mutant
           draft: { ...createValidDraft(), extra: true },
         }),
       ),
@@ -185,6 +186,7 @@ describe("channel-publication-dto-boundaries", () => {
     expectInvalid(() =>
       assertPublishListingInput(
         createPublishInput({
+          // @ts-expect-error synthetic recursive-closure mutant
           draft: createValidDraft({ price: { amountMinor: 1, currency: "USD", extra: true } }),
         }),
       ),
@@ -192,6 +194,7 @@ describe("channel-publication-dto-boundaries", () => {
     expectInvalid(() =>
       assertPublishListingInput(
         createPublishInput({
+          // @ts-expect-error synthetic recursive-closure mutant
           draft: createValidDraft({ attributes: [{ key: "fixture-key", value: "fixture-value", extra: true }] }),
         }),
       ),

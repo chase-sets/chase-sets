@@ -19,7 +19,7 @@ import {
   channelsIndexPath,
   collectRootExportViolations,
   collectRootExports,
-  readImplementationBaseFile,
+  deriveImplementationBaseRootExports,
   repoRoot,
 } from "./source-evidence";
 
@@ -49,48 +49,49 @@ const sliceAdditions = [
 
 describe("channel-publication-port-contract", () => {
   it("derives the implementation-base root baseline and preserves it plus exactly the 21-name delta", () => {
-    const baseSource = readImplementationBaseFile(channelsIndexPath);
     const candidateSource = readFileSync(path.join(repoRoot, channelsIndexPath), "utf8");
-    const derivedBaseline = collectRootExports(baseSource);
+    const derivation = deriveImplementationBaseRootExports();
+    const derivedBaseline = derivation.exports;
 
-    expect({ implementationBase: "d0abeb97b46e8aafc16628e24e0cf6e56b41b01b", derivedBaseline }).toEqual({
+    expect({ implementationBase: derivation.revision, blobSha: derivation.blobSha, derivedBaseline }).toEqual({
       implementationBase: "d0abeb97b46e8aafc16628e24e0cf6e56b41b01b",
+      blobSha: "4d4cb0a0f2453fc64804d9bee1de9487dc7f65ce",
       derivedBaseline: ["contextManifest", "module"],
     });
-    expect(collectRootExportViolations(baseSource, candidateSource, sliceAdditions)).toEqual([]);
+    expect(collectRootExportViolations(derivedBaseline, candidateSource, sliceAdditions)).toEqual([]);
     expect(collectRootExports(candidateSource)).toHaveLength(derivedBaseline.length + sliceAdditions.length);
 
     expect(
       collectRootExportViolations(
-        baseSource,
+        derivedBaseline,
         candidateSource.replace("export const module", "const module"),
         sliceAdditions,
       ),
     ).toContain("dropped-baseline:module");
     expect(
       collectRootExportViolations(
-        baseSource,
+        derivedBaseline,
         candidateSource.replace("  type UpdatePriceQuantityInput,\n", ""),
         sliceAdditions,
       ),
     ).toContain("missing-addition:UpdatePriceQuantityInput");
     expect(
       collectRootExportViolations(
-        baseSource,
+        derivedBaseline,
         `${candidateSource}\nexport const undeclaredFixture = true;\n`,
         sliceAdditions,
       ),
     ).toContain("undeclared-addition:undeclaredFixture");
     expect(
       collectRootExportViolations(
-        baseSource,
+        derivedBaseline,
         `${candidateSource}\nexport { assertPublishListingInput } from "./features/publication-port/domain/validation";\n`,
         sliceAdditions,
       ),
     ).toContain("exported-validator:assertPublishListingInput");
     expect(
       collectRootExportViolations(
-        baseSource,
+        derivedBaseline,
         `${candidateSource}\nexport { productionChannelProviderDescriptors } from "./features/publication-port/api/registry";\n`,
         sliceAdditions,
       ),

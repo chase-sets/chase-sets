@@ -26,8 +26,8 @@ export function createChannelProviderRegistry(
   for (const [index, descriptor] of descriptors.entries()) {
     const label = `provider descriptors[${index}]`;
     assertClosedRecord(descriptor, ["identity", "setup", "publication"], label);
-    assertChannelProviderIdentity(descriptor.identity, `${label}.identity`);
-    assertSetupDeclaration(descriptor.setup, descriptor.identity);
+    validateAt(`${label}.identity`, () => assertChannelProviderIdentity(descriptor.identity, `${label}.identity`));
+    validateAt(`${label}.setup`, () => assertSetupDeclaration(descriptor.setup, descriptor.identity));
     const key = identityKey(descriptor.identity);
     if (providers.has(key)) invalid(`${label}.identity duplicates a registered provider identity.`);
 
@@ -44,7 +44,7 @@ export function createChannelProviderRegistry(
       .map(({ identity }) => identity)
       .sort(
         (left, right) =>
-          left.providerKey.localeCompare(right.providerKey) || left.environment.localeCompare(right.environment),
+          compareText(left.providerKey, right.providerKey) || compareText(left.environment, right.environment),
       ),
   );
   const get = (identity: ChannelProviderIdentity): ResolvedChannelProvider | null => {
@@ -128,6 +128,21 @@ function freezeSetup(setup: ChannelConnectionSetupDeclaration): ChannelConnectio
 
 function identityKey(identity: ChannelProviderIdentity): string {
   return `${identity.providerKey}\u0000${identity.environment}`;
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function validateAt(path: string, validate: () => void): void {
+  try {
+    validate();
+  } catch (error) {
+    if (error instanceof ChannelConnectionError && error.code === "invalid-input") {
+      invalid(`${path}: ${error.message}`);
+    }
+    throw error;
+  }
 }
 
 function invalid(message: string): never {

@@ -140,7 +140,7 @@ describe("channel-provider-registry-defaults", () => {
   it("does not inspect or invoke adapters during construction and propagates their thrown identity unchanged", async () => {
     let calls = 0;
     const failure = new Error("fixture adapter failure");
-    async function throwsUnchanged() {
+    async function throwsUnchanged(): Promise<never> {
       calls += 1;
       throw failure;
     }

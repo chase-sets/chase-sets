@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createChannelProviderRegistry } from "../api/registry";
-import type { ChannelPublicationCapability, ChannelPublicationResult } from "../domain/contracts";
+import type {
+  ChannelPublicationCapability,
+  ChannelPublicationResult,
+  DelistListingInput,
+  PublishListingInput,
+  UpdatePriceQuantityInput,
+} from "../domain/contracts";
 import { collectPublicationCallerEvidence, listTrackedProductionSources, type SourceFileMap } from "./source-evidence";
 import {
   createDelistInput,
@@ -57,15 +63,15 @@ describe("channel-publication-invocation-boundary", () => {
 
   it("wraps each distinct registered method with a different resolved function identity", async () => {
     const adapterCalls: string[] = [];
-    async function rawPublish(): Promise<ChannelPublicationResult> {
+    async function rawPublish(_input: PublishListingInput): Promise<ChannelPublicationResult> {
       adapterCalls.push("publish");
       return { kind: "succeeded", externalListingId: "fixture-external-listing" };
     }
-    async function rawUpdate(): Promise<ChannelPublicationResult> {
+    async function rawUpdate(_input: UpdatePriceQuantityInput): Promise<ChannelPublicationResult> {
       adapterCalls.push("update");
       return { kind: "succeeded", externalListingId: "fixture-external-listing" };
     }
-    async function rawDelist(): Promise<ChannelPublicationResult> {
+    async function rawDelist(_input: DelistListingInput): Promise<ChannelPublicationResult> {
       adapterCalls.push("delist");
       return { kind: "succeeded", externalListingId: "fixture-external-listing" };
     }
