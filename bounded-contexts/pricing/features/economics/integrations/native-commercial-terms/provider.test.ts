@@ -111,6 +111,7 @@ describe("native Commercial Terms Economics provider", () => {
       kind: "unavailable",
       providerIdentity: identity,
       reason: "terms-unavailable",
+      policy: resolvedPolicy,
     });
   });
 });

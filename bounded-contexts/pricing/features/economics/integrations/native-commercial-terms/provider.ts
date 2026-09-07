@@ -31,7 +31,7 @@ export function createNativeCommercialTermsEconomicsProvider(
           effectiveAt: request.effectiveAt,
         });
       } catch {
-        return { kind: "unavailable", providerIdentity: input.identity, reason: "terms-unavailable" };
+        return { kind: "unavailable", providerIdentity: input.identity, reason: "terms-unavailable", policy };
       }
 
       const currency = request.marketUnitPrice.currency;
@@ -61,6 +61,7 @@ export function createNativeCommercialTermsEconomicsProvider(
       const resolved: SourceEconomics = {
         kind: "resolved",
         providerIdentity: input.identity,
+        policy,
         facts: {
           platformFeeRelativeBps: fact(terms.marketplaceSalesFeePercentageBps, commercialSource, commercialObservedAt),
           platformFeeFixedPerUnitAmount: fact(

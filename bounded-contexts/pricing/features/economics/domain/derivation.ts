@@ -39,6 +39,7 @@ export function deriveCostBasisFacts(
     quantity: number;
     effectiveAt: string;
     inventoryWatermark: string;
+    inventoryObservedAt: string;
     lots: readonly InventoryCostLot[];
     policy: ResolvedEconomicsPolicy;
   }>,
@@ -48,6 +49,10 @@ export function deriveCostBasisFacts(
     throw new Error("inventoryWatermark must be non-empty and already trimmed.");
   }
   const effectiveMillis = Date.parse(requireRfc3339Instant(input.effectiveAt, "effectiveAt"));
+  const projectionObservedAt = requireRfc3339Instant(input.inventoryObservedAt, "inventoryObservedAt");
+  if (Date.parse(projectionObservedAt) > effectiveMillis) {
+    throw new Error("inventoryObservedAt cannot be later than effectiveAt.");
+  }
   const eligible = input.lots
     .filter((lot) => lot.accountId === input.accountId && lot.inventoryItemId === input.inventoryItemId)
     .map((lot) => {
@@ -106,8 +111,12 @@ export function deriveCostBasisFacts(
     observedShareBps !== null &&
     observedShareBps >= 0 &&
     observedShareBps <= 10_000;
-  const inventoryRevision = canonicalSha256({ inventoryWatermark: input.inventoryWatermark, material });
-  const inventoryObservedAt = oldestObservedAt ?? input.policy.observedAt;
+  const inventoryRevision = canonicalSha256({
+    inventoryWatermark: input.inventoryWatermark,
+    inventoryObservedAt: projectionObservedAt,
+    material,
+  });
+  const inventoryObservedAt = oldestObservedAt ?? projectionObservedAt;
   const actualOrDefaultShare = shareIsUsable ? observedShareBps : input.policy.value.defaultCostBasisShareOfMarketBps;
   const shareSource = shareIsUsable
     ? ({ kind: "inventory-observation", revision: inventoryRevision } as const)
@@ -232,6 +241,36 @@ export function deriveCycleFacts(
       observedAt,
     },
     diagnostics: { observedHoldDays, capitalCycleDays, hurdleStatus: "derived", hurdleReason: null },
+  };
+}
+
+export function deriveUnavailableCycleFacts(
+  input: Readonly<{
+    observations: CapitalCycleObservations;
+    policy: ResolvedEconomicsPolicy;
+    reason: "provider-unavailable" | "terms-unavailable" | "cost-basis-unavailable";
+  }>,
+): CycleFacts {
+  const turnaround = observedOrDefaultTurnaround(input.observations.observedTurnaround, input.policy);
+  const observedHoldDays = input.observations.observedHold?.value ?? null;
+  const observedTurnaroundDays = input.observations.observedTurnaround?.value ?? null;
+  const capitalCycleDays =
+    observedHoldDays === null || observedTurnaroundDays === null ? null : observedHoldDays + observedTurnaroundDays;
+  return {
+    turnaround,
+    dailyReturnHurdle: {
+      sourceValue: input.policy.value.defaultDailyReturnHurdle,
+      source: { kind: "policy-default", policyRevision: input.policy.policyRevision, reason: input.reason },
+      effectiveValue: input.policy.value.defaultDailyReturnHurdle,
+      override: null,
+      observedAt: input.policy.observedAt,
+    },
+    diagnostics: {
+      observedHoldDays,
+      capitalCycleDays,
+      hurdleStatus: "defaulted",
+      hurdleReason: input.reason,
+    },
   };
 }
 

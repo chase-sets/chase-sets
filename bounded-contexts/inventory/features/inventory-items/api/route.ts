@@ -15,6 +15,12 @@ import { InventoryDomainError } from "../../../support/runtime-support/common";
 import type { InventoryOfflineSaleRequest, InventoryOfflineSaleResult } from "./contracts";
 import { parseGradedCardShape } from "./graded-card-shape";
 
+function sellerSuppliedAcquisitionOccurrence(value: unknown) {
+  if (value === undefined || value === null || value === "") return { kind: "unknown" as const };
+  if (typeof value !== "string") throw new InventoryDomainError("acquisitionOccurredAt must be a string instant.");
+  return { kind: "occurred" as const, occurredAt: value, source: "seller-supplied" as const };
+}
+
 function parseSelectedOptions(value: unknown) {
   return Array.isArray(value)
     ? value
@@ -155,6 +161,7 @@ export function inventoryItemRoutes(
           String(body.acquisitionCostAmount).trim() === ""
             ? null
             : String(body.acquisitionCostAmount),
+        acquisitionOccurrence: sellerSuppliedAcquisitionOccurrence(body.acquisitionOccurredAt),
       },
       c.get("context"),
     );
@@ -166,6 +173,17 @@ export function inventoryItemRoutes(
     const actor = c.get("actor");
     const body = await c.req.json();
     const quantityDelta = Number(body.quantityDelta ?? 0);
+    if (quantityDelta < 0 && body.acquisitionOccurredAt !== undefined) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("inventory.features.inventoryItems.api.route.request.failed"),
+          },
+        },
+        400,
+      );
+    }
     const collisionMode = body.collisionMode ?? "protect-orders";
     const suppliedReasonCode = body.reasonCode;
     if (
@@ -281,6 +299,7 @@ export function inventoryItemRoutes(
                 reason: String(body.reason ?? ""),
                 ...(reasonCode !== undefined ? { reasonCode } : {}),
                 ...(note !== undefined ? { note } : {}),
+                acquisitionOccurrence: sellerSuppliedAcquisitionOccurrence(body.acquisitionOccurredAt),
               },
               c.get("context"),
             );

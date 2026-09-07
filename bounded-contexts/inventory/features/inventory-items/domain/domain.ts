@@ -2,6 +2,7 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import type {
   InventoryAdjustmentReason,
   InventoryAdjustmentSourceRef,
+  AcquisitionOccurrence,
   InventoryItemOfflineSaleRecordedPayload,
   InventoryOfflineSaleChannel,
 } from "@chase-sets/event-core/public-event-payloads";
@@ -70,6 +71,8 @@ export type CreateInventoryItemCommand = Readonly<{
   storageLocationId: string;
   totalQuantity: number;
   acquisitionCostAmount?: string | null;
+  acquisitionOccurrence: AcquisitionOccurrence;
+  commandOccurredAt: string;
 }>;
 
 export type AdjustInventoryItemQuantityCommand = Readonly<{
@@ -81,6 +84,8 @@ export type AdjustInventoryItemQuantityCommand = Readonly<{
   reasonCode?: InventoryAdjustmentReason;
   note?: string | null;
   sourceRef?: InventoryAdjustmentSourceRef;
+  acquisitionOccurrence?: AcquisitionOccurrence;
+  commandOccurredAt?: string;
 }>;
 
 export type RecordOfflineSaleCommand = Readonly<{
@@ -126,6 +131,7 @@ export type InventoryItemCreatedEvent = DomainEvent<
     storageLocationId: string;
     totalQuantity: number;
     acquisitionCostAmount: string | null;
+    acquisitionOccurrence?: AcquisitionOccurrence;
     csatOutcomeFact?: JsonObject;
   }>
 >;
@@ -139,6 +145,7 @@ export type InventoryItemAdjustedEvent = DomainEvent<
     reasonCode?: InventoryAdjustmentReason;
     note?: string | null;
     sourceRef?: InventoryAdjustmentSourceRef;
+    acquisitionOccurrence?: AcquisitionOccurrence;
     csatOutcomeFact?: JsonObject;
   }>
 >;
@@ -172,6 +179,10 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
     case "CreateInventoryItem":
       assert(state.id === null, "Inventory item has already been created.");
       ensurePositiveInteger(command.totalQuantity, "Inventory items require a positive total quantity.");
+      const createAcquisitionOccurrence = normalizeAcquisitionOccurrence(
+        command.acquisitionOccurrence,
+        command.commandOccurredAt,
+      );
       return [
         {
           type: "inventory.item.created",
@@ -188,6 +199,7 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             storageLocationId: normalizeLabel(command.storageLocationId),
             totalQuantity: command.totalQuantity,
             acquisitionCostAmount: command.acquisitionCostAmount ?? null,
+            acquisitionOccurrence: createAcquisitionOccurrence,
             ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
         },
@@ -207,6 +219,14 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
         state.totalQuantity + command.quantityDelta >= command.heldQuantity,
         `${command.heldQuantity} units are committed to open orders.`,
       );
+      const adjustmentAcquisitionOccurrence =
+        command.quantityDelta > 0
+          ? normalizeAcquisitionOccurrence(command.acquisitionOccurrence, command.commandOccurredAt)
+          : undefined;
+      assert(
+        command.quantityDelta > 0 || command.acquisitionOccurrence === undefined,
+        "Stock reductions cannot claim an acquisition occurrence.",
+      );
       return [
         {
           type: "inventory.item.adjusted",
@@ -217,6 +237,7 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             ...(command.reasonCode !== undefined ? { reasonCode: command.reasonCode } : {}),
             ...(command.note !== undefined ? { note: normalizeOptionalText(command.note) } : {}),
             sourceRef: command.sourceRef ?? null,
+            ...(adjustmentAcquisitionOccurrence ? { acquisitionOccurrence: adjustmentAcquisitionOccurrence } : {}),
             ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
         },
@@ -342,6 +363,44 @@ function requireCreatedInventoryItem(state: InventoryItemState) {
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeAcquisitionOccurrence(
+  occurrence: AcquisitionOccurrence | undefined,
+  commandOccurredAt: string | undefined,
+): AcquisitionOccurrence {
+  assert(occurrence !== undefined, "Positive inventory quantities require an explicit acquisition occurrence.");
+  const commandAt = parseOccurrenceInstant(commandOccurredAt, "Inventory command occurrence");
+  const keys = Object.keys(occurrence).sort();
+  if (occurrence.kind === "unknown") {
+    assert(keys.length === 1 && keys[0] === "kind", "Unknown acquisition occurrence must contain only kind.");
+    return { kind: "unknown" };
+  }
+  assert(occurrence.kind === "occurred", "Acquisition occurrence kind is not supported.");
+  assert(
+    keys.join("\u0000") === ["kind", "occurredAt", "source"].join("\u0000"),
+    "Occurred acquisition occurrence must contain exactly kind, occurredAt, and source.",
+  );
+  assert(
+    occurrence.source === "seller-supplied" || occurrence.source === "import-supplied",
+    "Acquisition occurrence source is not supported.",
+  );
+  const occurredAt = parseOccurrenceInstant(occurrence.occurredAt, "Acquisition occurrence");
+  assert(
+    Date.parse(occurredAt) <= Date.parse(commandAt),
+    "Acquisition occurrence cannot be later than the Inventory command occurrence.",
+  );
+  return { kind: "occurred", occurredAt, source: occurrence.source };
+}
+
+function parseOccurrenceInstant(value: unknown, name: string): string {
+  assert(
+    typeof value === "string" &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+      Number.isFinite(Date.parse(value)),
+    `${name} must be a timezone-bearing RFC3339 instant.`,
+  );
+  return value;
 }
 
 function normalizeGradedCardDetails(details: GradedCardDetails | null): GradedCardDetails | null {

@@ -3,6 +3,7 @@ import {
   ECONOMICS_LAUNCH_POLICY_VALUE,
   decodeEconomicsPolicyValue,
   economicsPolicy,
+  parseResolvedEconomicsPolicy,
   toResolvedEconomicsPolicy,
 } from "./policy";
 import { parseResolveEconomicsRequest } from "./contracts";
@@ -78,6 +79,11 @@ describe("pricing.economics policy", () => {
     });
     expect(laterRead.policyRevision).toBe(first.policyRevision);
     expect(first.observedAt).toBe("2026-09-06T20:28:41Z");
+    expect(parseResolvedEconomicsPolicy(first)).toEqual(first);
+    expect(() => parseResolvedEconomicsPolicy({ ...first, policyRevision: "sha256:forged" })).toThrow(/does not match/);
+    expect(() => parseResolvedEconomicsPolicy({ ...first, value: { ...first.value, surprise: true } })).toThrow(
+      /exactly/,
+    );
   });
 
   it("rejects foreign policy identity and invalid document validity metadata", () => {

@@ -136,6 +136,7 @@ export function toResolvedEconomicsPolicy(resolved: ResolvedPolicy<EconomicsPoli
     throw new Error("The compiled Economics policy fallback cannot carry document validity metadata.");
   }
   if (resolved.source === "policy") {
+    const activeEffectiveFrom = effectiveFrom;
     if (
       typeof resolved.documentId !== "string" ||
       resolved.documentId.length === 0 ||
@@ -143,15 +144,18 @@ export function toResolvedEconomicsPolicy(resolved: ResolvedPolicy<EconomicsPoli
     ) {
       throw new Error("An active Economics policy document must have an identity.");
     }
-    requireRfc3339Instant(effectiveFrom, "effectiveFrom");
+    if (activeEffectiveFrom === null) {
+      throw new Error("An active Economics policy document must have effectiveFrom.");
+    }
+    requireRfc3339Instant(activeEffectiveFrom, "effectiveFrom");
     if (resolved.effectiveUntil !== null) {
       requireRfc3339Instant(resolved.effectiveUntil, "effectiveUntil");
-      if (Date.parse(resolved.effectiveUntil) <= Date.parse(effectiveFrom)) {
+      if (Date.parse(resolved.effectiveUntil) <= Date.parse(activeEffectiveFrom)) {
         throw new Error("Economics policy effectiveUntil must be after effectiveFrom.");
       }
     }
   }
-  return {
+  return parseResolvedEconomicsPolicy({
     value,
     policyRevision: canonicalSha256({
       policyKey: economicsPolicy.policyKey,
@@ -166,6 +170,68 @@ export function toResolvedEconomicsPolicy(resolved: ResolvedPolicy<EconomicsPoli
     documentId: resolved.documentId,
     effectiveFrom,
     effectiveUntil: resolved.effectiveUntil,
+  });
+}
+
+/** Revalidates provider-returned policy material before any dynamic value is
+ * formatted or used. Presence alone is not authority: every field, document
+ * posture, revision, and observed instant must reconcile. */
+export function parseResolvedEconomicsPolicy(raw: unknown): ResolvedEconomicsPolicy {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error("Resolved Economics policy must be an object.");
+  }
+  const record = raw as Record<string, unknown>;
+  assertExactKeys(
+    record,
+    ["documentId", "effectiveFrom", "effectiveUntil", "observedAt", "policyRevision", "source", "value"],
+    "Resolved Economics policy",
+  );
+  const value = decodeEconomicsPolicyValue(record.value as JsonValue);
+  if (record.source !== "policy" && record.source !== "fallback") {
+    throw new Error("Resolved Economics policy source must be policy or fallback.");
+  }
+  const source = record.source;
+  const documentId = record.documentId;
+  const effectiveFrom = record.effectiveFrom;
+  const effectiveUntil = record.effectiveUntil;
+  if (source === "fallback") {
+    if (documentId !== null || effectiveFrom !== null || effectiveUntil !== null) {
+      throw new Error("Resolved Economics fallback cannot carry document validity metadata.");
+    }
+  } else {
+    if (typeof documentId !== "string" || documentId.length === 0 || documentId.trim() !== documentId) {
+      throw new Error("Resolved Economics policy document identity is invalid.");
+    }
+    requireRfc3339Instant(effectiveFrom, "effectiveFrom");
+    if (effectiveUntil !== null) {
+      requireRfc3339Instant(effectiveUntil, "effectiveUntil");
+      if (Date.parse(effectiveUntil as string) <= Date.parse(effectiveFrom as string)) {
+        throw new Error("Resolved Economics policy effectiveUntil must be after effectiveFrom.");
+      }
+    }
+  }
+  const observedAt = requireRfc3339Instant(record.observedAt, "observedAt");
+  const expectedObservedAt = source === "fallback" ? ECONOMICS_LAUNCH_POLICY_EFFECTIVE_AT : (effectiveFrom as string);
+  if (observedAt !== expectedObservedAt) throw new Error("Resolved Economics policy observedAt is not authoritative.");
+  const expectedRevision = canonicalSha256({
+    policyKey: economicsPolicy.policyKey,
+    source,
+    documentId,
+    effectiveFrom,
+    effectiveUntil,
+    decodedValue: value,
+  });
+  if (record.policyRevision !== expectedRevision) {
+    throw new Error("Resolved Economics policy revision does not match its material value.");
+  }
+  return {
+    value,
+    policyRevision: expectedRevision,
+    observedAt,
+    source,
+    documentId: documentId as string | null,
+    effectiveFrom: effectiveFrom as string | null,
+    effectiveUntil: effectiveUntil as string | null,
   };
 }
 

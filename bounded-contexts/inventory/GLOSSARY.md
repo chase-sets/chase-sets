@@ -2,6 +2,10 @@
 
 This glossary defines the canonical terminology for the Inventory bounded context.
 
+## Acquisition Occurrence
+
+An **Acquisition Occurrence** is Inventory-owned evidence of when a positive quantity actually entered a seller's stock and capital cycle. It is either a timezone-bearing seller/import-supplied occurrence or explicitly unknown. Event recording, upload, import commit, and item creation times never substitute for an unknown acquisition occurrence.
+
 ## Inventory Item
 
 An **Inventory Item** is a seller's stock for one specific product and storage location.

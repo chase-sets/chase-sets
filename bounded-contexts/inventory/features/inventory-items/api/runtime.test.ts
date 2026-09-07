@@ -161,6 +161,8 @@ describe("inventory item runtime", () => {
       streamId: "inventory.item-inv_1",
       command: {
         type: "CreateInventoryItem",
+        acquisitionOccurrence: { kind: "unknown" },
+        commandOccurredAt: "2026-09-07T06:00:00Z",
         itemId: "inv_1" as never,
         accountId: "acc_seller" as never,
         catalogItemId: "cat_1",
@@ -393,6 +395,8 @@ describe("inventory item runtime", () => {
       streamId: "inventory.item-inv_1",
       command: {
         type: "CreateInventoryItem",
+        acquisitionOccurrence: { kind: "unknown" },
+        commandOccurredAt: "2026-09-07T06:00:00Z",
         itemId: "inv_1" as never,
         accountId: "acc_seller" as never,
         catalogItemId: "cat_1",

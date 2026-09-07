@@ -7,6 +7,7 @@ import {
   type SignedMoneyAmount,
 } from "@chase-sets/primitives/money";
 import { canonicalJson } from "./revision";
+import type { ResolvedEconomicsPolicy } from "./policy";
 
 export const economicsFactNames = [
   "platformFeeRelativeBps",
@@ -114,6 +115,14 @@ export type Economics = Readonly<{
     capitalCycleDays: number | null;
     hurdleStatus: "derived" | "defaulted";
     hurdleReason: DefaultReason | null;
+    inventoryWatermark: string;
+    pricingWatermark: string;
+    generatedAt: string;
+    inventoryObservedAt: string;
+    pricingObservedAt: string;
+    generatedAgeSeconds: number;
+    inventorySourceAgeSeconds: number;
+    pricingSourceAgeSeconds: number;
   }>;
 }>;
 
@@ -121,6 +130,7 @@ export type SourceEconomics =
   | Readonly<{
       kind: "resolved";
       providerIdentity: ChannelProviderIdentity;
+      policy: ResolvedEconomicsPolicy;
       facts: Pick<
         EconomicsFacts,
         | "platformFeeRelativeBps"
@@ -136,6 +146,7 @@ export type SourceEconomics =
       kind: "unavailable";
       providerIdentity: ChannelProviderIdentity;
       reason: "provider-unavailable" | "terms-unavailable";
+      policy?: ResolvedEconomicsPolicy;
     }>;
 
 export interface EconomicsProvider {
@@ -289,7 +300,13 @@ export function assertEconomicsFacts(facts: EconomicsFacts, currency: string): v
 
 export function assertSourceEconomics(source: SourceEconomics, currency: string): void {
   if (source.kind === "unavailable") {
-    requireClosedRecord(source, ["kind", "providerIdentity", "reason"] as const, "unavailable source Economics");
+    requireClosedRecord(
+      source,
+      source.policy === undefined
+        ? (["kind", "providerIdentity", "reason"] as const)
+        : (["kind", "policy", "providerIdentity", "reason"] as const),
+      "unavailable source Economics",
+    );
     assertProviderIdentity(source.providerIdentity);
     if (source.reason !== "provider-unavailable" && source.reason !== "terms-unavailable") {
       throw new EconomicsContractError("Unknown source Economics unavailable reason.");
@@ -297,7 +314,7 @@ export function assertSourceEconomics(source: SourceEconomics, currency: string)
     return;
   }
   if (source.kind !== "resolved") throw new EconomicsContractError("Unknown source Economics outcome.");
-  requireClosedRecord(source, ["facts", "kind", "providerIdentity"] as const, "resolved source Economics");
+  requireClosedRecord(source, ["facts", "kind", "policy", "providerIdentity"] as const, "resolved source Economics");
   assertProviderIdentity(source.providerIdentity);
   const names = [
     "platformFeeRelativeBps",

@@ -299,6 +299,7 @@ describe("cost basis", () => {
       quantity: 4,
       effectiveAt: "2026-01-10T00:00:00Z",
       inventoryWatermark: "inventory:42",
+      inventoryObservedAt: "2026-01-09T00:00:00Z",
       policy: policy({ minimumCostBasisCoverageBps: 5_000 }),
       lots: [
         {
@@ -334,6 +335,7 @@ describe("cost basis", () => {
       quantity: 1,
       effectiveAt: "2026-01-10T00:00:00Z",
       inventoryWatermark: "inventory:43",
+      inventoryObservedAt: "2026-01-09T00:00:00Z",
       policy: policy(),
       lots: [
         {

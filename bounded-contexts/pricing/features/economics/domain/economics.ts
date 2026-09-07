@@ -1,6 +1,7 @@
 import {
   assertEconomicsFacts,
   parseResolveEconomicsRequest,
+  requireRfc3339Instant,
   type Economics,
   type EconomicsFacts,
   type ResolveEconomicsRequest,
@@ -21,6 +22,9 @@ export function buildEconomics(
     cycle: CycleFacts;
     observations: CapitalCycleObservations;
     overrides: EconomicsOverridesState;
+    pricingWatermark: string;
+    inventoryObservedAt: string;
+    pricingObservedAt: string;
   }>,
 ): Economics {
   const request = parseResolveEconomicsRequest(input.request);
@@ -59,6 +63,12 @@ export function buildEconomics(
       providerIdentity: input.sourceEconomics.providerIdentity,
       sourceFacts,
       inventoryWatermark: input.costBasis.inventoryWatermark,
+      pricingWatermark: requireWatermark(input.pricingWatermark, "pricingWatermark"),
+      inventoryObservedAt: requireObservationAt(input.inventoryObservedAt, request.effectiveAt, "inventoryObservedAt"),
+      pricingObservedAt: requireObservationAt(input.pricingObservedAt, request.effectiveAt, "pricingObservedAt"),
+      generatedAgeSeconds: 0,
+      inventorySourceAgeSeconds: ageSeconds(input.inventoryObservedAt, request.effectiveAt),
+      pricingSourceAgeSeconds: ageSeconds(input.pricingObservedAt, request.effectiveAt),
       observations: {
         hold: observationRevisionMaterial(input.observations.observedHold),
         turnaround: observationRevisionMaterial(input.observations.observedTurnaround),
@@ -66,8 +76,33 @@ export function buildEconomics(
       overrides: economicsOverrideRevisionMaterial(input.overrides),
     }),
     facts,
-    diagnostics: input.cycle.diagnostics,
+    diagnostics: {
+      ...input.cycle.diagnostics,
+      inventoryWatermark: input.costBasis.inventoryWatermark,
+      pricingWatermark: requireWatermark(input.pricingWatermark, "pricingWatermark"),
+      generatedAt: request.effectiveAt,
+      inventoryObservedAt: requireObservationAt(input.inventoryObservedAt, request.effectiveAt, "inventoryObservedAt"),
+      pricingObservedAt: requireObservationAt(input.pricingObservedAt, request.effectiveAt, "pricingObservedAt"),
+      generatedAgeSeconds: 0,
+      inventorySourceAgeSeconds: ageSeconds(input.inventoryObservedAt, request.effectiveAt),
+      pricingSourceAgeSeconds: ageSeconds(input.pricingObservedAt, request.effectiveAt),
+    },
   };
+}
+
+function requireWatermark(value: string, name: string): string {
+  if (value.length === 0 || value.trim() !== value) throw new Error(`${name} must be non-empty and already trimmed.`);
+  return value;
+}
+
+function requireObservationAt(value: string, effectiveAt: string, name: string): string {
+  const observedAt = requireRfc3339Instant(value, name);
+  if (Date.parse(observedAt) > Date.parse(effectiveAt)) throw new Error(`${name} cannot be later than effectiveAt.`);
+  return observedAt;
+}
+
+function ageSeconds(observedAt: string, effectiveAt: string): number {
+  return (Date.parse(effectiveAt) - Date.parse(observedAt)) / 1_000;
 }
 
 function assertSubject(

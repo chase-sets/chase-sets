@@ -304,6 +304,41 @@ describe("inventory item MCP handlers", () => {
     expect(vi.mocked(fakeServices.adjustItem).mock.calls[1]?.[0]).not.toHaveProperty("note");
   });
 
+  it("maps MCP acquisition time to seller provenance and rejects it on reductions", async () => {
+    const fakeServices = services();
+    const collisions = collisionServices();
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations(), collisions);
+    const acquiredAt = "2026-09-01T05:00:00-05:00";
+    await handlers.toolHandlers["inventory.adjust-item"]?.(
+      mcpRequest({
+        accountId: "acc_1",
+        inventoryItemId: "inv_1",
+        quantityDelta: 1,
+        reason: "Intake",
+        acquisitionOccurredAt: acquiredAt,
+        acquisitionSource: "forged",
+      }),
+    );
+    expect(fakeServices.adjustItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        acquisitionOccurrence: { kind: "occurred", occurredAt: acquiredAt, source: "seller-supplied" },
+      }),
+      expect.anything(),
+    );
+    await expect(
+      handlers.toolHandlers["inventory.adjust-item"]?.(
+        mcpRequest({
+          accountId: "acc_1",
+          inventoryItemId: "inv_1",
+          quantityDelta: -1,
+          reason: "Reduction",
+          acquisitionOccurredAt: acquiredAt,
+        }),
+      ),
+    ).rejects.toThrow(/reductions cannot claim/);
+    expect(collisions.reduceItem).not.toHaveBeenCalled();
+  });
+
   it("derives sold-offline for honor offline and rejects conflicting or unknown codes", async () => {
     const fakeServices = services();
     const collisions = collisionServices();

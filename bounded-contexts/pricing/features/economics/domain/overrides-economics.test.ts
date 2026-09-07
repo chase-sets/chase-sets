@@ -16,6 +16,7 @@ import {
   evolveEconomicsOverrides,
   initialEconomicsOverridesState,
 } from "./overrides";
+import { ECONOMICS_LAUNCH_POLICY_VALUE } from "./policy";
 
 const policyRevision = "sha256:synthetic-policy-revision";
 const commercialSource = {
@@ -105,6 +106,15 @@ function build(
     sourceEconomics: {
       kind: "resolved",
       providerIdentity: { providerKey: "synthetic-provider-a", environment: "sandbox" },
+      policy: {
+        value: ECONOMICS_LAUNCH_POLICY_VALUE,
+        policyRevision,
+        observedAt,
+        source: "fallback",
+        documentId: null,
+        effectiveFrom: null,
+        effectiveUntil: null,
+      },
       facts: {
         platformFeeRelativeBps: facts.platformFeeRelativeBps,
         platformFeeFixedPerUnitAmount: facts.platformFeeFixedPerUnitAmount,
@@ -136,6 +146,9 @@ function build(
     },
     observations,
     overrides,
+    pricingWatermark: "synthetic-pricing-watermark",
+    inventoryObservedAt: "2026-09-07T05:58:00Z",
+    pricingObservedAt: "2026-09-07T05:59:00Z",
   });
 }
 
@@ -340,7 +353,7 @@ describe("Economics overrides and revision", () => {
     expect(Object.values(state.entries).every((entry) => entry?.kind === "cleared")).toBe(true);
   });
 
-  it("rejects optimistic conflicts and cannot resurrect a tombstone from stale delivery", () => {
+  it("rejects optimistic conflicts and evolves a clear into a tombstone", () => {
     const initial = initialEconomicsOverridesState({
       accountId: "synthetic-owner-account",
       connectionId: "synthetic-connection-1",
@@ -362,6 +375,14 @@ describe("Economics overrides and revision", () => {
         clearedAt: "2026-09-07T06:02:00Z",
       }),
     ).toThrow(/version conflict/);
+    expect(() =>
+      decideEconomicsOverride(active, {
+        type: "ClearEconomicsFactOverride",
+        expectedVersion: 1,
+        factName: "turnaroundDays",
+        clearedAt: "2026-09-07T06:00:00Z",
+      }),
+    ).toThrow(/cannot move backward/);
     const [clear] = decideEconomicsOverride(active, {
       type: "ClearEconomicsFactOverride",
       expectedVersion: 1,
@@ -369,7 +390,6 @@ describe("Economics overrides and revision", () => {
       clearedAt: "2026-09-07T06:02:00Z",
     });
     const cleared = evolveEconomicsOverrides(active, clear!);
-    expect(evolveEconomicsOverrides(cleared, set!)).toBe(cleared);
     expect(cleared.entries.turnaroundDays?.kind).toBe("cleared");
   });
 
@@ -382,7 +402,6 @@ describe("Economics overrides and revision", () => {
     expect(() =>
       evolveEconomicsOverrides(initial, {
         type: "pricing.economics-fact-override-near-miss",
-        streamVersion: 1,
         data: {
           accountId: "synthetic-owner-account",
           connectionId: "synthetic-connection-1",

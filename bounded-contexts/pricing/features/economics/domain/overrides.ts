@@ -1,9 +1,13 @@
+import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { JsonValue } from "@chase-sets/primitives/json";
 import {
   economicsFactNames,
   parseFactValue,
   requireCurrency,
   requireRfc3339Instant,
   type EconomicsFactName,
+  type EconomicsFact,
+  type EconomicsFactValueMap,
   type EconomicsFacts,
 } from "./contracts";
 
@@ -34,6 +38,7 @@ export type EconomicsOverrideEntry =
 export type EconomicsOverridesState = Readonly<{
   key: EconomicsOverrideKey;
   version: number;
+  lastChangedAt: string | null;
   entries: Readonly<Partial<Record<EconomicsFactName, EconomicsOverrideEntry>>>;
 }>;
 
@@ -65,16 +70,16 @@ export type EconomicsOverrideCommand =
 
 export type EconomicsOverrideEvent = Readonly<{
   type: "pricing.economics-fact-override-set" | "pricing.economics-fact-override-cleared";
-  streamVersion: number;
   data: Readonly<{
     accountId: string;
     connectionId: string;
     currency: string;
     factName: EconomicsFactName;
-    value: unknown | null;
+    value: JsonValue;
     occurredAt: string;
   }>;
-}>;
+}> &
+  DomainEvent;
 
 export class EconomicsOverrideConflictError extends Error {
   public constructor(expected: number, actual: number) {
@@ -95,11 +100,16 @@ export function initialEconomicsOverridesState(key: EconomicsOverrideKey): Econo
   return {
     key: { ...key, currency: requireCurrency(key.currency, "currency") },
     version: 0,
+    lastChangedAt: null,
     entries: {},
   };
 }
 
-export function decideEconomicsOverride(
+export const decideEconomicsOverride: AggregateDecider<
+  EconomicsOverridesState,
+  EconomicsOverrideCommand,
+  EconomicsOverrideEvent
+> = function decideEconomicsOverride(
   state: EconomicsOverridesState,
   command: EconomicsOverrideCommand,
 ): readonly EconomicsOverrideEvent[] {
@@ -109,72 +119,75 @@ export function decideEconomicsOverride(
   if (command.expectedVersion !== state.version) {
     throw new EconomicsOverrideConflictError(command.expectedVersion, state.version);
   }
+  const commandAt = requireRfc3339Instant(
+    command.type === "SetEconomicsFactOverride" ? command.setAt : command.clearedAt,
+    "Economics override occurrence",
+  );
+  if (state.lastChangedAt !== null && Date.parse(commandAt) < Date.parse(state.lastChangedAt)) {
+    throw new Error("Economics override occurrence cannot move backward within its event stream.");
+  }
   assertClosedCommand(command);
   switch (command.type) {
     case "SetEconomicsFactOverride": {
       assertFactName(command.factName);
       const value = parseFactValue(command.factName, command.value, state.key.currency);
-      return [event(state, command.factName, value, command.setAt, state.version + 1, "set")];
+      return [event(state, command.factName, value as JsonValue, command.setAt, "set")];
     }
     case "ClearEconomicsFactOverride":
       assertFactName(command.factName);
-      return [event(state, command.factName, null, command.clearedAt, state.version + 1, "cleared")];
+      return [event(state, command.factName, null, command.clearedAt, "cleared")];
     case "ClearAllEconomicsFactOverrides":
-      return economicsFactNames.map((factName, index) =>
-        event(state, factName, null, command.clearedAt, state.version + index + 1, "cleared"),
-      );
+      return economicsFactNames.map((factName) => event(state, factName, null, command.clearedAt, "cleared"));
     default:
       throw new Error("Unknown Economics override command.");
   }
-}
+};
 
-export function evolveEconomicsOverrides(
-  state: EconomicsOverridesState,
-  eventToApply: EconomicsOverrideEvent,
-): EconomicsOverridesState {
-  if (eventToApply.streamVersion <= state.version) return state;
-  if (eventToApply.streamVersion !== state.version + 1) {
-    throw new Error(`Economics override event stream has a gap at ${eventToApply.streamVersion}.`);
-  }
-  const data = eventToApply.data;
-  assertClosedEvent(eventToApply);
-  if (
-    data.accountId !== state.key.accountId ||
-    data.connectionId !== state.key.connectionId ||
-    data.currency !== state.key.currency
-  ) {
-    throw new Error("Economics override event belongs to another aggregate.");
-  }
-  assertFactName(data.factName);
-  const occurredAt = requireRfc3339Instant(data.occurredAt, "occurredAt");
-  const isSet = eventToApply.type === "pricing.economics-fact-override-set";
-  const value = isSet ? parseFactValue(data.factName, data.value, state.key.currency) : null;
-  const entry: EconomicsOverrideEntry = isSet
-    ? {
-        kind: "active",
-        factName: data.factName,
-        value,
-        revision: eventToApply.streamVersion,
-        setAt: occurredAt,
-        clearedAt: null,
-      }
-    : {
-        kind: "cleared",
-        factName: data.factName,
-        value: null,
-        revision: eventToApply.streamVersion,
-        setAt: null,
-        clearedAt: occurredAt,
-      };
-  return {
-    ...state,
-    version: eventToApply.streamVersion,
-    entries: {
-      ...state.entries,
-      [data.factName]: entry,
-    },
+export const evolveEconomicsOverrides: AggregateEvolver<EconomicsOverridesState, EconomicsOverrideEvent> =
+  function evolveEconomicsOverrides(
+    state: EconomicsOverridesState,
+    eventToApply: EconomicsOverrideEvent,
+  ): EconomicsOverridesState {
+    const data = eventToApply.data;
+    assertClosedEvent(eventToApply);
+    if (
+      data.accountId !== state.key.accountId ||
+      data.connectionId !== state.key.connectionId ||
+      data.currency !== state.key.currency
+    ) {
+      throw new Error("Economics override event belongs to another aggregate.");
+    }
+    assertFactName(data.factName);
+    const occurredAt = requireRfc3339Instant(data.occurredAt, "occurredAt");
+    const isSet = eventToApply.type === "pricing.economics-fact-override-set";
+    const value = isSet ? parseFactValue(data.factName, data.value, state.key.currency) : null;
+    const entry: EconomicsOverrideEntry = isSet
+      ? {
+          kind: "active",
+          factName: data.factName,
+          value,
+          revision: state.version + 1,
+          setAt: occurredAt,
+          clearedAt: null,
+        }
+      : {
+          kind: "cleared",
+          factName: data.factName,
+          value: null,
+          revision: state.version + 1,
+          setAt: null,
+          clearedAt: occurredAt,
+        };
+    return {
+      ...state,
+      version: state.version + 1,
+      lastChangedAt: occurredAt,
+      entries: {
+        ...state.entries,
+        [data.factName]: entry,
+      },
+    };
   };
-}
 
 export function applyEconomicsOverrides(facts: EconomicsFacts, state: EconomicsOverridesState): EconomicsFacts {
   const result: Record<string, unknown> = {};
@@ -193,6 +206,21 @@ export function applyEconomicsOverrides(facts: EconomicsFacts, state: EconomicsO
     };
   }
   return result as EconomicsFacts;
+}
+
+export function applyEconomicsOverrideToFact<Name extends EconomicsFactName>(
+  factName: Name,
+  fact: EconomicsFact<EconomicsFactValueMap[Name]>,
+  state: EconomicsOverridesState,
+): EconomicsFact<EconomicsFactValueMap[Name]> {
+  const entry = state.entries[factName];
+  if (!entry || entry.kind === "cleared") return fact;
+  const value = parseFactValue(factName, entry.value, state.key.currency);
+  return {
+    ...fact,
+    effectiveValue: value,
+    override: { value, revision: entry.revision, setAt: entry.setAt },
+  };
 }
 
 export function economicsOverrideRevisionMaterial(state: EconomicsOverridesState): unknown {
@@ -219,14 +247,12 @@ function event(
   factName: EconomicsFactName,
   value: unknown | null,
   occurredAt: string,
-  streamVersion: number,
   kind: "set" | "cleared",
 ): EconomicsOverrideEvent {
   requireRfc3339Instant(occurredAt, "occurredAt");
   return {
     type: kind === "set" ? "pricing.economics-fact-override-set" : "pricing.economics-fact-override-cleared",
-    streamVersion,
-    data: { ...state.key, factName, value, occurredAt },
+    data: { ...state.key, factName, value: value as JsonValue, occurredAt },
   };
 }
 
@@ -254,11 +280,7 @@ function assertClosedEvent(eventToApply: EconomicsOverrideEvent): void {
   ) {
     throw new Error("Unknown Economics override event.");
   }
-  assertExactKeys(
-    eventToApply as unknown as Record<string, unknown>,
-    ["data", "streamVersion", "type"],
-    "Economics override event",
-  );
+  assertExactKeys(eventToApply as unknown as Record<string, unknown>, ["data", "type"], "Economics override event");
   assertExactKeys(
     eventToApply.data as unknown as Record<string, unknown>,
     ["accountId", "connectionId", "currency", "factName", "occurredAt", "value"],

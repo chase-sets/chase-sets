@@ -1,11 +1,8 @@
+import type { AcquisitionOccurrence } from "@chase-sets/event-core/public-event-payloads";
 import type { ResolvedEconomicsPolicy } from "./policy";
 import { requireCurrency, requirePositiveInteger, requireRfc3339Instant } from "./contracts";
 
 const DAY_MILLISECONDS = 86_400_000;
-
-export type AcquisitionOccurrence =
-  | Readonly<{ kind: "occurred"; occurredAt: string; source: "seller-supplied" | "import-supplied" }>
-  | Readonly<{ kind: "unknown" }>;
 
 export type AcquisitionLotObservation = Readonly<{
   accountId: string;

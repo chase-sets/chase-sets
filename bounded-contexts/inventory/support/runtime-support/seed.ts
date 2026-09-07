@@ -34,6 +34,7 @@ import { createInventoryServices } from "./services";
 import { sendSeedCommand } from "../seed-support/context";
 
 const DEMO_RELEASED_AT = "2026-03-31T00:00:00.000Z";
+const DEMO_INVENTORY_COMMAND_OCCURRED_AT = "2026-04-01T00:00:00.000Z";
 
 type StorageLocationSeed = Readonly<{
   storageLocationId: SeedStorageLocationId;
@@ -767,6 +768,8 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
         storageLocationId: item.storageLocationId,
         totalQuantity: item.totalQuantity,
         acquisitionCostAmount: item.acquisitionCostAmount,
+        acquisitionOccurrence: { kind: "unknown" },
+        commandOccurredAt: DEMO_INVENTORY_COMMAND_OCCURRED_AT,
       });
     }
 
@@ -777,6 +780,12 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
         heldQuantity: adjustment.heldQuantity,
         reason: adjustment.reason,
         reasonCode: adjustment.reasonCode,
+        ...(adjustment.quantityDelta > 0
+          ? {
+              acquisitionOccurrence: { kind: "unknown" as const },
+              commandOccurredAt: DEMO_INVENTORY_COMMAND_OCCURRED_AT,
+            }
+          : {}),
       });
     }
 
