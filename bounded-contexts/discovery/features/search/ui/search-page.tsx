@@ -106,9 +106,7 @@ type PriceAndStockFiltersProps = Readonly<{
 function formatPrice(item: DiscoverySearchItem): string | undefined {
   const lowestPrice = item.market_summary?.lowest_price_amount;
 
-  return lowestPrice
-    ? t("discovery.features.search.ui.searchPage.from.price", { price: formatMoney(lowestPrice) })
-    : undefined;
+  return lowestPrice ? formatMoney(lowestPrice) : undefined;
 }
 
 function formatSearchResultMetadata(item: DiscoverySearchItem): string | undefined {
@@ -1131,6 +1129,14 @@ export function SearchPage({
                       savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
                       watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
                       price={hasActiveListings ? formatPrice(item) : undefined}
+                      pricePresentation={
+                        hasActiveListings
+                          ? {
+                              state: "indicative",
+                              prefix: t("discovery.features.search.ui.searchPage.from"),
+                            }
+                          : undefined
+                      }
                       subtitle={formatSearchIdentityLine(item)}
                       badges={
                         displayBadges.length > 0 ? (

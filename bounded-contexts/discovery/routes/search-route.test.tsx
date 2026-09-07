@@ -771,7 +771,11 @@ describe("marketplace search route", () => {
 
     act(() => subscriptionOptions?.onPatch(patch));
 
-    await waitFor(() => expect(screen.getByText("From $7.00")).toBeTruthy());
+    await waitFor(() => {
+      const priceValue = screen.getByText("$7.00");
+      expect(priceValue.parentElement).toBeTruthy();
+      expect(priceValue.parentElement?.textContent).toBe("From $7.00");
+    });
   });
 
   it("revalidates the current route when the realtime stream requires a full sync", () => {

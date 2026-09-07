@@ -4,7 +4,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.home.ui.homeMerchandising.featured.categories": "Featured categories",
   "discovery.features.home.ui.homeMerchandising.featured.categories.description":
     "Explore popular parts of the marketplace.",
-  "discovery.features.home.ui.homeMerchandising.from.price": "From {price}",
+  "discovery.features.home.ui.homeMerchandising.from": "From",
   "discovery.features.home.ui.homeMerchandising.item.count": "{count} items",
   "discovery.features.home.ui.homeMerchandising.new.arrivals": "New arrivals",
   "discovery.features.home.ui.homeMerchandising.new.arrivals.description": "See the latest items added to the catalog.",
@@ -645,7 +645,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.itemDetail.ui.itemDetailPage.option.summary": "{count} from {price}",
   "discovery.features.itemDetail.ui.itemDetailPage.seller.count.plural": "{count} sellers",
   "discovery.features.itemDetail.ui.itemDetailPage.seller.count.singular": "{count} seller",
-  "discovery.features.search.ui.searchPage.from.price": "From {price}",
+  "discovery.features.search.ui.searchPage.from": "From",
   "discovery.features.search.ui.searchPage.listing.meta": "{listingCount} {listingLabel} • {visibleQuantity} available",
   "discovery.features.search.ui.searchPage.listing.plural": "listings",
   "discovery.features.search.ui.searchPage.listing.singular": "listing",

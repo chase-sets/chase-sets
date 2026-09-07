@@ -407,13 +407,20 @@ describe("SearchPage", () => {
     expect(screen.getByText("No catalog items are available yet.")).toBeTruthy();
   });
 
-  it("formats search-card prices with the discovery money formatter", () => {
+  it("keeps the localized Search price phrase while separating its Sans prefix from the mono value", () => {
     renderSearchPage({
       committedSearch: "bulbasaur",
       data: { ...searchResponse, items: [japaneseSearchResult] },
     });
 
-    expect(screen.getByText("From $10.00")).toBeTruthy();
+    const prefix = document.querySelector("[data-listing-card-price-prefix]");
+    const value = document.querySelector("[data-listing-card-price-value]");
+
+    expect(prefix?.textContent).toBe("From");
+    expect(prefix?.getAttribute("class")).toBeNull();
+    expect(value?.textContent).toBe("$10.00");
+    expect(value?.className).toBe("font-mono tabular-nums");
+    expect(value?.parentElement?.textContent).toBe("From $10.00");
   });
 
   it("uses Product Asset Set search variants before compatibility image URLs", () => {
@@ -606,7 +613,7 @@ describe("SearchPage", () => {
       categories: [],
     });
 
-    expect(screen.getByText("From $10.00")).toBeTruthy();
+    expect(document.querySelector("[data-listing-card-price-value]")?.parentElement?.textContent).toBe("From $10.00");
   });
 
   it("labels semantic zero-result recovery as closest matches", () => {
@@ -694,7 +701,7 @@ describe("SearchPage", () => {
     const activeDetailLink = screen.getByRole("link", { name: "View details for Bulbasaur — Japanese Base Set" });
     expect(activeDetailLink.getAttribute("href")).toBe("/items/bulbasaur-cat_bulbasaur");
     expect(activeDetailLink.getAttribute("href")).not.toContain("market=");
-    expect(screen.getByText("From $10.00")).toBeTruthy();
+    expect(document.querySelector("[data-listing-card-price-value]")?.parentElement?.textContent).toBe("From $10.00");
     expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
       "/items/bulbasaur-cat_bulbasaur?market=buy",
     );
@@ -710,7 +717,8 @@ describe("SearchPage", () => {
     });
     expect(inactiveDetailLink.getAttribute("href")).toBe("/items/abra-standard-cat_abra_standard");
     expect(inactiveDetailLink.getAttribute("href")).not.toContain("market=");
-    expect(screen.queryByText(/^From \$/)).toBeNull();
+    expect(document.querySelector("[data-listing-card-price-prefix]")).toBeNull();
+    expect(document.querySelector("[data-listing-card-price-value]")).toBeNull();
     expect(screen.getByRole("link", { name: "Add product to Sell List" }).getAttribute("href")).toBe(
       "/items/abra-standard-cat_abra_standard?market=sell",
     );

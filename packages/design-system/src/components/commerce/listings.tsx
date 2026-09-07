@@ -41,6 +41,7 @@ export interface ListingCardProps {
   imageFallbackMode?: "permanent" | "loading-only";
   showMediaPlaceholder?: boolean;
   price?: ReactNode;
+  pricePresentation?: Readonly<{ state: "exact" } | { state: "indicative"; prefix: ReactNode }>;
   priceDetail?: ReactNode;
   priceExplanation?: ReactNode;
   rating?: number;
@@ -101,6 +102,7 @@ export function ListingCard({
   imageFallbackMode = "permanent",
   showMediaPlaceholder = true,
   price,
+  pricePresentation,
   priceDetail,
   priceExplanation,
   rating,
@@ -336,11 +338,18 @@ export function ListingCard({
               {hasPrice ? (
                 <div
                   className={cx(
-                    "font-bold tabular-nums text-foreground",
+                    "font-bold text-foreground",
                     isSearchResultLayout ? "text-lg leading-6" : "text-xl leading-7",
                   )}
                 >
-                  {price}
+                  {pricePresentation?.state === "indicative" ? (
+                    <>
+                      <span data-listing-card-price-prefix="">{pricePresentation.prefix}</span>{" "}
+                    </>
+                  ) : null}
+                  <span data-listing-card-price-value="" className="font-mono tabular-nums">
+                    {price}
+                  </span>
                 </div>
               ) : null}
               {priceDetail ? <div className="text-xs leading-4 text-tertiary">{priceDetail}</div> : null}

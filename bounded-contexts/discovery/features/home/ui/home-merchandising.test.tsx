@@ -73,6 +73,27 @@ describe("HomeMerchandising", () => {
     expect(screen.getByRole("heading", { name: "New arrivals" })).toBeTruthy();
   });
 
+  it("keeps the localized Home price phrase while separating its Sans prefix from the mono value", () => {
+    const pricedArrival: DiscoverySearchItem = {
+      ...newArrival,
+      market_summary: {
+        lowest_price_amount: "17.95",
+        active_listing_count: 1,
+        total_visible_quantity: 1,
+      },
+    };
+
+    const { container } = render(<HomeMerchandising featuredCategories={[]} newArrivals={[pricedArrival]} />);
+    const prefix = container.querySelector("[data-listing-card-price-prefix]");
+    const value = container.querySelector("[data-listing-card-price-value]");
+
+    expect(prefix?.textContent).toBe("From");
+    expect(prefix?.getAttribute("class")).toBeNull();
+    expect(value?.textContent).toBe("$17.95");
+    expect(value?.className).toBe("font-mono tabular-nums");
+    expect(value?.parentElement?.textContent).toBe("From $17.95");
+  });
+
   it("renders no competing empty state when the catalog has no merchandising data", () => {
     const { container } = render(<HomeMerchandising featuredCategories={[]} newArrivals={[]} />);
 
