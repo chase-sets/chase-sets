@@ -31,22 +31,22 @@ function createPlatformOperationsServiceProxy(includeRiskAlerts: boolean) {
 }
 
 describe("platform API route collision assembly", () => {
-  it("boots all contexts with all 30 API entries using the exact closed keyed shape", () => {
+  it("boots all contexts with all 31 API entries using the exact closed keyed shape", () => {
     const runtime = createRouteInventoryRuntime();
     const rawEntries = runtime.mountedContexts.flatMap((entry) =>
       Reflect.apply(entry.module.buildApis, entry.module, [entry.services]),
     );
 
-    expect(rawEntries).toHaveLength(30);
+    expect(rawEntries).toHaveLength(31);
     for (const apiEntry of rawEntries) {
       expect(Reflect.ownKeys(apiEntry)).toEqual(["mountPath", "contextMountOrdinal", "router"]);
     }
 
     const mounts = Reflect.apply(resolveApiHostMounts, undefined, [runtime]);
     const report = assertApiRouteTableHasNoCollisions(mounts);
-    expect(report).toEqual({ scanned: 30, total: 30, routeCount: 767, duplicateGroups: [] });
+    expect(report).toEqual({ scanned: 31, total: 31, routeCount: 773, duplicateGroups: [] });
     console.info(
-      `route-collision-census candidate entryShape=keyed rows=${rawEntries.length}/30 scanned=${report.scanned}/${report.total} routes=${report.routeCount} groups=${report.duplicateGroups.length}`,
+      `route-collision-census candidate entryShape=keyed rows=${rawEntries.length}/31 scanned=${report.scanned}/${report.total} routes=${report.routeCount} groups=${report.duplicateGroups.length}`,
     );
 
     const app = Reflect.apply(buildPlatformApiApp, undefined, [runtime]);

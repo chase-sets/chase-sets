@@ -3,12 +3,26 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "chaseSets": {
+    "testProfile": "db"
+  },
   "scripts": {
+    "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/connections/tests/channel-connection-setup-activation.db.test.ts features/connections/tests/channel-connection-projection-concurrency.db.test.ts",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/connections/tests/channel-connection-setup-activation.db.test.ts --exclude features/connections/tests/channel-connection-projection-concurrency.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {
     ".": "./index.ts",
     "./context": "./context.json"
   },
-  "types": "./index.ts"
+  "types": "./index.ts",
+  "dependencies": {
+    "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/bounded-context-runtime": "workspace:*",
+    "@chase-sets/event-core": "workspace:*",
+    "@chase-sets/event-core-postgres": "workspace:*",
+    "@chase-sets/platform-runtime": "workspace:*",
+    "hono": "^4.12.12"
+  }
 }

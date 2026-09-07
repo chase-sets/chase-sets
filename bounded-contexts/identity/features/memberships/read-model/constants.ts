@@ -68,6 +68,8 @@ export const ROLE_PERMISSIONS = {
     "accounts.view",
     "catalog.manage",
     "catalog.view",
+    "channels.manage",
+    "channels.view",
     "commercial-terms.manage",
     "commercial-terms.view",
     "fulfillment.manage",
@@ -102,6 +104,8 @@ export const ROLE_PERMISSIONS = {
   ],
   manager: [
     "accounts.view",
+    "channels.manage",
+    "channels.view",
     "catalog.manage",
     "catalog.view",
     "commercial-terms.manage",
@@ -136,6 +140,7 @@ export const ROLE_PERMISSIONS = {
   ],
   fulfillment: [
     "accounts.view",
+    "channels.view",
     "fulfillment.manage",
     "fulfillment.view",
     "memberships.view",
@@ -153,6 +158,7 @@ export const ROLE_PERMISSIONS = {
   ],
   viewer: [
     "accounts.view",
+    "channels.view",
     "fulfillment.view",
     "memberships.view",
     "inventory.view",

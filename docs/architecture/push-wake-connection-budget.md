@@ -47,12 +47,12 @@ DOKS staging uses the generated Helm baseline plus `infrastructure/helm/platform
 
 | Demand | Math | Backends |
 | --- | --- | --- |
-| PgBouncer server-side allocation | Active context pools, including `collections` and `customer-feedback`; client count does not increase this cap | 39 |
+| PgBouncer server-side allocation | Active context pools, including `channels`, `collections`, and `customer-feedback`; client count does not increase this cap | 40 |
 | Relay listeners | 7 direct-listened source contexts × 1 active relay | 7 |
 | API waiter listeners | 4 waiter contexts × 1 API component × 2 replicas | 8 |
 | Bootstrap (transient hook) | one direct/session bootstrap pool | 4 |
-| **Steady-state total** | 39 + 7 + 8 + 4 | **58 ≤ 94** (headroom 36) |
-| **Deploy overlap** | 39 + (2 relays × 7) + (4 waiter contexts × 2 API generations × 2 replicas) + 4 | **73 ≤ 94** (headroom 21; 2 below the 75 backend tier-upgrade trigger) |
+| **Steady-state total** | 40 + 7 + 8 + 4 | **59 ≤ 94** (headroom 35) |
+| **Deploy overlap** | 40 + (2 relays × 7) + (4 waiter contexts × 2 API generations × 2 replicas) + 4 | **74 ≤ 94** (headroom 20; 1 below the 75 backend tier-upgrade trigger) |
 
 DOKS PgBouncer clients, listed separately from cluster backends: steady state is API `6 × 2 = 12` plus worker `12 × 1 = 12`, or **24** client connections; rolling overlap is API `6 × 3 = 18` plus worker `12 × 2 = 24`, or **42**. Raising `DATABASE_POOL_MAX` or adding a DOKS API/worker replica increases this client-side demand but adds zero cluster backends while the existing server pool sizes stay fixed.
 
@@ -62,20 +62,20 @@ The live DOKS steady and rolling envelopes are the only runtime-compute envelope
 
 #4655 converged production query traffic onto managed transaction pools, so production now uses the same PgBouncer server-side allocation branch as staging: app pool maxima are client-side only, and the summed production pool sizes are the cluster-backend footprint of pooled query traffic. Waiter and relay listener URLs stay direct. The budget still budgets the relay as enabled even though `WORKER_PROJECTION_WAKE_RELAY_ENABLED` is currently `false` in production, so flipping the proof, public, or relay switches can never violate the budget after the fact.
 
-Production PgBouncer server-side allocation (`production_context_database_connection_pool_size_overrides`, all other active contexts size 1): auth 2 + catalog 4 + checkout 2 + control 3 + discovery 2 + identity 2 + marketplace 3 + public-presence 2 = 20 over the eight overridden contexts, plus 12 remaining active platform contexts at 1 = **32**.
+Production PgBouncer server-side allocation (`production_context_database_connection_pool_size_overrides`, all other active contexts size 1): auth 2 + catalog 4 + checkout 2 + control 3 + discovery 2 + identity 2 + marketplace 3 + public-presence 2 = 20 over the eight overridden contexts, plus 13 remaining active platform contexts at 1 = **33**.
 
 | Demand | Math | Backends |
 | --- | --- | --- |
-| PgBouncer server-side allocation | 8 overridden contexts (20) + 12 contexts at 1 | 32 |
+| PgBouncer server-side allocation | 8 overridden contexts (20) + 13 contexts at 1 | 33 |
 | Relay listeners (budgeted worst case, relay currently killed) | 7 direct-listened source contexts × 1 | 7 |
 | API waiter listeners | 4 waiter contexts × 1 API replica | 4 |
 | Bootstrap/maintenance reservation (transient PRE_DEPLOY + direct grant/admin) | one bootstrap pool | 4 |
-| **Steady-state total** | 32 + 7 + 4 + 4 | **47 ≤ 94** (headroom 47) |
-| **Deploy overlap** | 32 + 2 × 7 + 2 × 4 + 4 (old and new relay/API generations may briefly both hold direct listeners; PgBouncer backends do not grow with client count) | **58 ≤ 94** (headroom 36) |
+| **Steady-state total** | 33 + 7 + 4 + 4 | **48 ≤ 94** (headroom 46) |
+| **Deploy overlap** | 33 + 2 × 7 + 2 × 4 + 4 (old and new relay/API generations may briefly both hold direct listeners; PgBouncer backends do not grow with client count) | **59 ≤ 94** (headroom 35) |
 
 Client-side PgBouncer connections (not cluster backends, listed for completeness): platform-api 6 × 1 replica = 6; platform-worker 8 × 1 replica = 8. Production worker `DATABASE_POOL_MAX` is `8` (1 projection + 1 operations + 1 job + 1 inventory-import + 1 dispatch + 1 scheduled + 2 wake = 8 runner slots). Because production query traffic is pooled, changing the worker pool max or replica count adds zero cluster backends; server-side pool sizing remains the controlling budget. The session-scoped DOKS schema bootstrap runs on direct URLs and adds no steady-state pooled query load.
 
-The rolling-deploy overlap envelope (58) is deliberately pessimistic (both deployment generations' direct relay and waiter listeners held at once), but PgBouncer's server-side allocation is client-count-independent. On the current `db-s-2vcpu-4gb` production tier the tier-upgrade trigger is `75` backends (`floor(94 × 0.80)`), leaving 17 backends before the trigger. Each additional direct-listened source context costs 2 overlap backends.
+The rolling-deploy overlap envelope (59) is deliberately pessimistic (both deployment generations' direct relay and waiter listeners held at once), but PgBouncer's server-side allocation is client-count-independent. On the current `db-s-2vcpu-4gb` production tier the tier-upgrade trigger is `75` backends (`floor(94 × 0.80)`), leaving 16 backends before the trigger. Each additional direct-listened source context costs 2 overlap backends.
 
 ### Capacity Evidence Output
 
@@ -97,8 +97,8 @@ Previews no longer create DigitalOcean managed Postgres clusters or managed PgBo
 
 Each additional direct LISTEN source context costs 1 steady-state backend and 2 overlap backends in production. Against the current worst-case envelopes:
 
-- The live staging envelope is 58/94 steady and 73/94 during a pessimistic DOKS rollout (headroom 36 and 21 respectively; 2 overlap backends remain before the 75 trigger).
-- Production overlap demand is 58/94 (headroom 36 to the hard limit, 17 to the 75 trigger). The current wave-2 direct-listener proposal adds 6 overlap backends to 64/94 and fits under both the hard tier limit and trigger.
+- The live staging envelope is 59/94 steady and 74/94 during a pessimistic DOKS rollout (headroom 35 and 20 respectively; 1 overlap backend remains before the 75 trigger).
+- Production overlap demand is 59/94 (headroom 35 to the hard limit, 16 to the 75 trigger). The current wave-2 direct-listener proposal adds 6 overlap backends to 65/94 and fits under both the hard tier limit and trigger.
 - The runtime registry currently has ten staging-enabled relay contexts (`catalog`, wave 1, `identity`, `inventory`, `platform-operations`, `public-presence`, `settlement`), while Terraform provisions direct listener URLs for wave 1 plus `identity`, `inventory`, and `public-presence`. Missing direct listener URLs are an intentional catch-up-only posture, not notification-latency proof for those contexts. Moving active catch-up-only registry sources to direct LISTEN in production would add overlap backends and fits only when the checked-in capacity evidence remains under the tier trigger; enablement still needs issue-specific latency and convergence evidence.
 - Composite wake origins add query/notify load, and API-owned durable/realtime waiters now add the `api_waiter_listener_demand` direct-connection envelope above. Their throughput and latency budgets are still owned by durable wake-store capacity evidence (#1246) and composite phase evidence (#1248/#1249); their connection budget is owned here.
 

@@ -40,10 +40,10 @@ describe("platform Kubernetes secret", () => {
     expect(collectPlatformSecretKeys(sampleValues)).toEqual(["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"]);
   });
 
-  it("preserves the canonical 52-key managed database URL inventory", () => {
+  it("preserves the canonical 54-key managed database URL inventory", () => {
     const urlKeys = collectPlatformSecretKeys(buildPlatformHelmValues()).filter(isDatabaseSecretKey);
-    expect(urlKeys).toHaveLength(52);
-    expect(new Set(urlKeys).size).toBe(52);
+    expect(urlKeys).toHaveLength(54);
+    expect(new Set(urlKeys).size).toBe(54);
   });
 
   it("derives the collector token without changing the application OTLP header contract", () => {

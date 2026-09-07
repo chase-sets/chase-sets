@@ -44,6 +44,7 @@
     { "workspace": "@chase-sets/auth", "script": "test:unit", "estimatedDurationSeconds": 60 },
     { "workspace": "@chase-sets/bounded-context-runtime", "script": "test:unit", "estimatedDurationSeconds": 11 },
     { "workspace": "@chase-sets/catalog", "script": "test:unit", "estimatedDurationSeconds": 289 },
+    { "workspace": "@chase-sets/channels", "script": "test:unit", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/checkout", "script": "test:unit", "estimatedDurationSeconds": 99 },
     { "workspace": "@chase-sets/collections", "script": "test:unit", "estimatedDurationSeconds": 19 },
     { "workspace": "@chase-sets/customer-feedback", "script": "test:unit", "estimatedDurationSeconds": 14 },

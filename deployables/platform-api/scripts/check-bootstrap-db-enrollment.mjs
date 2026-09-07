@@ -141,7 +141,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "derives the exact active and source-only seed universe for every host profile",
         referenceDurationMs: 348,
-        identity: "12b7b08e0c1a6bb1",
+        identity: "d81e26884f288aba",
       }),
       Object.freeze({
         name: "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",

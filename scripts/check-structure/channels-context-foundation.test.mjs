@@ -22,14 +22,7 @@ const registryPaths = [
   "deployables/marketplace/app/generated/web-context-registry.ts",
   "deployables/public-web/app/generated/web-context-registry.ts",
 ];
-const requiredFiles = [
-  "GLOSSARY.md",
-  "README.md",
-  "context.json",
-  "index.ts",
-  "package.json",
-  "tests/vitest.config.mjs",
-];
+const requiredRootFiles = ["api.ts", "GLOSSARY.md", "README.md", "context.json", "index.ts", "package.json"];
 const requiredReadmeSections = [
   "## Purpose",
   "## Owns",
@@ -78,32 +71,35 @@ function readRegistryBytes(root) {
   );
 }
 
-function collectFoundationSurfaceViolations(candidate, relativeFiles) {
+function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   const violations = [];
-  if (JSON.stringify(relativeFiles) !== JSON.stringify(requiredFiles)) violations.push("files");
+  const rootFiles = relativeFiles.filter((file) => !file.includes("/")).sort();
+  if (JSON.stringify(rootFiles) !== JSON.stringify([...requiredRootFiles].sort())) violations.push("root-files");
+  if (!relativeFiles.some((file) => file.startsWith("features/connections/"))) violations.push("connections-files");
+  if (
+    relativeFiles.some(
+      (file) =>
+        file.startsWith("features/connections/") &&
+        !/^features\/connections\/(?:api|domain|integrations|read-model|tests|ui)\//.test(file),
+    )
+  ) {
+    violations.push("connections-buckets");
+  }
   const emptyArrayFields = [
-    "slices",
     "allowedSupportDirectories",
     "allowedContextDependencies",
     "seedRequirements",
     "hostPorts",
-    "apiDeployables",
-    "apiRuntimeProfiles",
-    "apiMounts",
-    "workerRuntimeProfiles",
     "deployableContributions",
     "shellContributions",
   ];
   const absentManifestFields = [
-    "runtimeDeployables",
     "sourceRuntimeDeployables",
     "sourceRuntimeProfiles",
     "eventSubscriptions",
     "eventReactions",
-    "projectionGroups",
     "mcpCapabilities",
     "accountCapabilities",
-    "mutationConsistencyInventory",
     "readAfterWriteRouteInventory",
     "localeCatalogs",
   ];
@@ -114,9 +110,19 @@ function collectFoundationSurfaceViolations(candidate, relativeFiles) {
   for (const field of absentManifestFields) {
     if (field in candidate) violations.push(field);
   }
-  for (const relativeFile of relativeFiles) {
-    if (/^(?:deployables|features|routes|support)\//.test(relativeFile)) violations.push(`file:${relativeFile}`);
-    if (/^(?:api|client|ids|server|web)\.(?:ts|tsx)$/.test(relativeFile)) violations.push(`file:${relativeFile}`);
+  if (JSON.stringify(candidate.slices) !== JSON.stringify(["connections"])) violations.push("slices");
+  if (JSON.stringify(candidate.apiDeployables) !== JSON.stringify(["platform-api"])) violations.push("apiDeployables");
+  if (JSON.stringify(candidate.runtimeDeployables) !== JSON.stringify(["platform-worker"])) {
+    violations.push("runtimeDeployables");
+  }
+  if (JSON.stringify(candidate.apiRuntimeProfiles) !== JSON.stringify(["proof", "public"])) {
+    violations.push("apiRuntimeProfiles");
+  }
+  if (JSON.stringify(candidate.workerRuntimeProfiles) !== JSON.stringify(["proof", "public"])) {
+    violations.push("workerRuntimeProfiles");
+  }
+  if (candidate.apiRuntimeProfiles?.includes("landing") || candidate.workerRuntimeProfiles?.includes("landing")) {
+    violations.push("landing");
   }
 
   return violations.sort();
@@ -127,48 +133,109 @@ afterEach(() => {
 });
 
 describe("channels-context-foundation", () => {
-  it("declares the exact behavior-free context, package, root export, README contract, and required files", () => {
+  it("supersedes the foundation with the exact connection slice, module, finite tests, and README contract", () => {
     expect(readJson(manifestPath)).toEqual({
       contextName: "channels",
       packageName: "@chase-sets/channels",
-      ownedNouns: [],
+      ownedNouns: ["channel-connection"],
       streamPrefix: "channels.",
       apiBasePath: "/api/channels",
-      slices: [],
+      slices: ["connections"],
       allowedSupportDirectories: [],
       publicExports: [".", "./context"],
       allowedContextDependencies: [],
       seedRequirements: [],
       hostPorts: [],
-      apiDeployables: [],
-      apiRuntimeProfiles: [],
-      apiMounts: [],
-      workerRuntimeProfiles: [],
+      projectionGroups: [
+        {
+          projectionName: "channel-connection-projection",
+          sourceContextNames: ["channels"],
+          ownedTables: ["channel_connections"],
+          requiredDuringBootstrap: false,
+          resetStrategy: "truncate-owned-tables",
+        },
+      ],
+      apiDeployables: ["platform-api"],
+      apiRuntimeProfiles: ["proof", "public"],
+      apiMounts: [{ mountPath: "/api/channels", kind: "primary", requiresAuth: true }],
+      workerRuntimeProfiles: ["proof", "public"],
       deployableContributions: [],
       shellContributions: [],
+      mutationConsistencyInventory: [
+        {
+          id: "channels.connection-command-snapshots",
+          owner: "channels",
+          risk: "important",
+          strategy: "snapshot-return",
+          surfaces: [
+            "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/pause",
+            "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/resume",
+            "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/disconnect",
+          ],
+          visibleDestination: {
+            description:
+              "Each public Channel Connection mutation returns the committed aggregate snapshot without waiting for or rereading the asynchronous projection.",
+          },
+          proof: {
+            authoritativeResponse:
+              "The route maps CommandExecutionResult.state directly to the closed public DTO for writes and accepted no-ops.",
+            tests: [
+              "bounded-contexts/channels/features/connections/tests/channel-connection-http-contract.test.ts",
+              "bounded-contexts/channels/features/connections/tests/channel-connection-command-snapshot-responses.test.ts",
+            ],
+          },
+        },
+      ],
       directoryIntent: {
+        connections: {
+          classification: "slice",
+          purpose: "Own the connections slice lifecycle, setup authority, HTTP contract, and projection.",
+          expectedConsumers: ["Internal Channels module composition"],
+        },
         routes: {
           classification: "routes",
-          purpose: "Reserve Channels route metadata until behavior-backed Channels routes exist.",
-          expectedConsumers: ["Future behavior-backed Channels route contributions"],
+          purpose: "Reserve Channels route metadata for future seller browser-route contributions.",
+          expectedConsumers: ["Future generated deployable route adapters"],
         },
       },
+      runtimeDeployables: ["platform-worker"],
     });
     expect(readJson(packagePath)).toEqual({
       name: "@chase-sets/channels",
       version: "0.1.0",
       private: true,
       type: "module",
-      scripts: { "test:watch": "vitest --config ./tests/vitest.config.mjs" },
+      chaseSets: { testProfile: "db" },
+      scripts: {
+        test: "vitest run --config ./tests/vitest.config.mjs",
+        "test:db":
+          "vitest run --config ./tests/vitest.config.mjs features/connections/tests/channel-connection-setup-activation.db.test.ts features/connections/tests/channel-connection-projection-concurrency.db.test.ts",
+        "test:unit":
+          "vitest run --config ./tests/vitest.config.mjs --exclude features/connections/tests/channel-connection-setup-activation.db.test.ts --exclude features/connections/tests/channel-connection-projection-concurrency.db.test.ts",
+        "test:watch": "vitest --config ./tests/vitest.config.mjs",
+      },
       exports: { ".": "./index.ts", "./context": "./context.json" },
       types: "./index.ts",
+      dependencies: {
+        "@chase-sets/bounded-context-module": "workspace:*",
+        "@chase-sets/bounded-context-runtime": "workspace:*",
+        "@chase-sets/event-core": "workspace:*",
+        "@chase-sets/event-core-postgres": "workspace:*",
+        "@chase-sets/platform-runtime": "workspace:*",
+        hono: "^4.12.12",
+      },
     });
-    expect(readFileSync(path.join(channelsRoot, "index.ts"), "utf8").trim()).toBe(
-      'export { default as contextManifest } from "./context.json" with { type: "json" };',
-    );
+    expect(readFileSync(path.join(channelsRoot, "index.ts"), "utf8")).toContain("export const module =");
 
     const files = listFiles(channelsRoot);
-    expect(files).toEqual(requiredFiles);
+    expect(files.filter((file) => !file.includes("/")).sort()).toEqual([...requiredRootFiles].sort());
+    expect(files).toEqual(
+      expect.arrayContaining([
+        "features/connections/domain/domain.ts",
+        "features/connections/api/route.ts",
+        "tests/vitest.config.mjs",
+      ]),
+    );
 
     const readme = readFileSync(path.join(channelsRoot, "README.md"), "utf8");
     const sectionOffsets = requiredReadmeSections.map((section) => readme.indexOf(section));
@@ -217,7 +284,7 @@ describe("channels glossary alias evidence", () => {
           manifest: {
             contextName: "channels",
             packageName: "@chase-sets/channels",
-            ownedNouns: [],
+            ownedNouns: ["channel-connection"],
             events: ["channels.connection.connected"],
           },
           packageName: "@chase-sets/channels",
@@ -239,7 +306,7 @@ describe("channels glossary alias evidence", () => {
 });
 
 describe("channels-foundation-no-deployable-registration", () => {
-  it("keeps all five generated registries byte-identical and proves the API-host mutant would register", () => {
+  it("registers Channels only in the API and worker registries and kills the behavior-free mutant", () => {
     const root = createTempRepo("channels-metadata-");
     writeJson(path.join(root, "tsconfig.base.json"), { compilerOptions: { paths: {} } });
     const fixtureManifestPath = path.join(root, "bounded-contexts/channels/context.json");
@@ -262,30 +329,36 @@ describe("channels-foundation-no-deployable-registration", () => {
     syncWorkspaceMetadata({ ...common, workspaces: [channelsWorkspace] });
     const candidate = readRegistryBytes(root);
 
-    for (const relativePath of registryPaths) expect(candidate[relativePath]).toEqual(before[relativePath]);
+    for (const relativePath of registryPaths.slice(0, 2)) {
+      expect(candidate[relativePath]).not.toEqual(before[relativePath]);
+      expect(candidate[relativePath].toString("utf8")).toContain("@chase-sets/channels");
+    }
+    for (const relativePath of registryPaths.slice(2)) expect(candidate[relativePath]).toEqual(before[relativePath]);
 
-    writeJson(fixtureManifestPath, { ...manifest, apiDeployables: ["platform-api"] });
+    writeJson(fixtureManifestPath, {
+      ...manifest,
+      apiDeployables: [],
+      apiRuntimeProfiles: [],
+      runtimeDeployables: [],
+      workerRuntimeProfiles: [],
+    });
     syncWorkspaceMetadata({ ...common, workspaces: [channelsWorkspace] });
     const mutant = readRegistryBytes(root);
-    expect(mutant[registryPaths[0]]).not.toEqual(candidate[registryPaths[0]]);
-    expect(mutant[registryPaths[0]].toString("utf8")).toContain("@chase-sets/channels");
-    for (const relativePath of registryPaths.slice(1)) {
-      expect(mutant[relativePath]).toEqual(candidate[relativePath]);
-    }
+    for (const relativePath of registryPaths) expect(mutant[relativePath]).toEqual(before[relativePath]);
   });
 });
 
 describe("channels-foundation-surface-fence", () => {
-  it("accepts the behavior-free source shape and rejects the API-deployable mutant", () => {
+  it("accepts the connection slice while freezing unused foundation fields and excluding landing", () => {
     const manifest = readJson(manifestPath);
     const files = listFiles(channelsRoot);
-    expect(collectFoundationSurfaceViolations(manifest, files)).toEqual([]);
+    expect(collectChannelsSurfaceViolations(manifest, files)).toEqual([]);
 
-    const apiDeployableMutant = { ...manifest, apiDeployables: ["platform-api"] };
-    expect(collectFoundationSurfaceViolations(apiDeployableMutant, files)).toEqual(["apiDeployables"]);
-    expect(collectFoundationSurfaceViolations(manifest, [...files, "schema.ts"].sort())).toEqual(["files"]);
+    const landingMutant = { ...manifest, apiRuntimeProfiles: ["proof", "public", "landing"] };
+    expect(collectChannelsSurfaceViolations(landingMutant, files)).toEqual(["apiRuntimeProfiles", "landing"]);
+    expect(collectChannelsSurfaceViolations(manifest, [...files, "schema.ts"].sort())).toEqual(["root-files"]);
     expect(
-      collectFoundationSurfaceViolations({ ...manifest, sourceRuntimeProfiles: ["neutral-profile"] }, files),
+      collectChannelsSurfaceViolations({ ...manifest, sourceRuntimeProfiles: ["neutral-profile"] }, files),
     ).toEqual(["sourceRuntimeProfiles"]);
   });
 });
@@ -389,7 +462,10 @@ describe("channels-wake-registry-derivation", () => {
       enablement: { eventStoreWakeNotifications: false, relayFanOut: false },
       ...derive(manifests),
     });
-    expect(derive(manifests)).toEqual({ affectedProjectionNames: [], routeDependencyIds: [] });
+    expect(derive(manifests)).toEqual({
+      affectedProjectionNames: ["channels:channel-connection-projection"],
+      routeDependencyIds: [],
+    });
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
       entryCount: manifests.length,
       activeEntryCount: 11,
@@ -403,7 +479,10 @@ describe("channels-wake-registry-derivation", () => {
         projectionGroups: [{ projectionName: "connection-view", sourceContextNames: ["channels"] }],
       },
     ]);
-    expect(projectionMutant.affectedProjectionNames).toEqual(["neutral-consumer:connection-view"]);
+    expect(projectionMutant.affectedProjectionNames).toEqual([
+      "channels:channel-connection-projection",
+      "neutral-consumer:connection-view",
+    ]);
     expect(projectionMutant.affectedProjectionNames).not.toEqual(entry.affectedProjectionNames);
     const routeMutant = derive(
       manifests.map((manifest) =>
