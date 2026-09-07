@@ -247,6 +247,7 @@ describe("MCP service catalog", () => {
       enum: ["sold-offline", "damaged", "lost", "found", "correction", "intake", "return-restocked"],
     });
     expect(schema?.properties.note).toMatchObject({ type: "string" });
+    expect(schema?.properties.acquisitionOccurredAt).toMatchObject({ type: "string" });
 
     const required = {
       accountId: "acc_1",
@@ -257,6 +258,7 @@ describe("MCP service catalog", () => {
       confirmationText: "Confirm adjustment",
     };
     expect(validateObject(required, schema!)).toEqual([]);
+    expect(validateObject({ ...required, acquisitionOccurredAt: "2026-09-07T05:00:00Z" }, schema!)).toEqual([]);
     expect(validateObject({ ...required, reasonCode: "correction", note: "Counted twice" }, schema!)).toEqual([]);
     expect(validateObject({ ...required, reasonCode: "other" }, schema!)).toContain(
       "reasonCode expected one of sold-offline, damaged, lost, found, correction, intake, return-restocked but received other.",
