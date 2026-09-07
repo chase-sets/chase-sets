@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 export const BRIEF_MAX_BYTES = 12 * 1024;
 export const BRIEF_MAX_DONT_REBUILD_POINTERS = 5;
 
-const REPOSITORY_PATH = /^(?!.*\.\.)(?:(?:\.?[A-Za-z0-9][A-Za-z0-9._@-]*)|[A-Za-z0-9][A-Za-z0-9._@-]*)(?:\/(?:\.?[A-Za-z0-9][A-Za-z0-9._@-]*|[A-Za-z0-9][A-Za-z0-9._@-]*))*$/;
+const REPOSITORY_PATH =
+  /^(?!.*\.\.)(?:(?:\.?[A-Za-z0-9][A-Za-z0-9._@-]*)|[A-Za-z0-9][A-Za-z0-9._@-]*)(?:\/(?:\.?[A-Za-z0-9][A-Za-z0-9._@-]*|[A-Za-z0-9][A-Za-z0-9._@-]*))*$/;
 const SYMBOL_POINTER = /^[A-Za-z_$][\w$]*(?:(?:\.|#|::)[A-Za-z_$][\w$]*)*(?:\(\))?$/;
 
 function isPointerValue(value) {

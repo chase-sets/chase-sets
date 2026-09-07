@@ -80,12 +80,16 @@ describe("don't-rebuild pointers", () => {
       "BRIEF_DONT_REBUILD_POINTER_FORMAT",
     );
     expect(
-      codes("Don't-rebuild pointers:\n\n- `scripts/a.mjs`\n\nScope:\n\n- Add bounded behavior.\n- Non-goal: no provider changes."),
+      codes(
+        "Don't-rebuild pointers:\n\n- `scripts/a.mjs`\n\nScope:\n\n- Add bounded behavior.\n- Non-goal: no provider changes.",
+      ),
     ).toEqual([]);
   });
 
   it("accepts bounded root paths and rejects out-of-repository or malformed values", () => {
-    expect(codes("### Don't-rebuild pointers\n\n- `pnpm-lock.yaml`\n- `scripts`\n- `lintBrief#findings()`")).toEqual([]);
+    expect(codes("### Don't-rebuild pointers\n\n- `pnpm-lock.yaml`\n- `scripts`\n- `lintBrief#findings()`")).toEqual(
+      [],
+    );
     for (const value of [
       "../scripts/outside.mjs",
       "/scripts/absolute.mjs",
@@ -125,10 +129,7 @@ describe("salvage wording", () => {
     ]) {
       expect(codes(body)).toContain("BRIEF_LIVE_DRAFT_SALVAGE");
     }
-    for (const body of [
-      "Branch `feature/old` is salvage.",
-      "Use `feature/old` as a salvage branch.",
-    ]) {
+    for (const body of ["Branch `feature/old` is salvage.", "Use `feature/old` as a salvage branch."]) {
       expect(codes(body)).toContain("BRIEF_SALVAGE_BRANCH_STALENESS");
     }
     expect(codes("Do not use live draft PR #42 as read-only salvage.")).toEqual([]);
