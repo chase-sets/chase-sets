@@ -17,7 +17,7 @@ import {
 import { recordCartReadinessObservability } from "./cart-readiness-observability";
 import { parseCartReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutCartServices } from "./runtime";
-import { normalizePresentedAnonymousCartId } from "./contracts";
+import { normalizePresentedAnonymousCartId, toPublicCheckoutCartLines } from "./contracts";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const MAX_ANONYMOUS_CART_LINES = 50;
@@ -188,9 +188,9 @@ export function createAccountCartRoutes(
       return access.response;
     }
 
-    const items = await services.listCartLines(access.actor.accountId);
+    const items = await services.listAuthorizedCartLines({ accountId: access.actor.accountId });
     return c.json({
-      items,
+      items: toPublicCheckoutCartLines(items),
       count: countCartItems(items),
     });
   });
@@ -453,8 +453,11 @@ export function createGuestCartRoutes(
       return c.json({ items: [], count: 0 });
     }
 
-    const items = await services.listCartLines(ownerId);
-    return c.json({ items, count: countCartItems(items) });
+    // A claimed key resolves to zero readable lines, so a refusal returns the
+    // byte-identical empty payload a request with no key already returns.
+    // Nothing in the response distinguishes claimed, foreign, or absent.
+    const items = await services.listAuthorizedCartLines({ accountId: ownerId });
+    return c.json({ items: toPublicCheckoutCartLines(items), count: countCartItems(items) });
   });
 
   app.post("/cart/readiness", async (c) => {

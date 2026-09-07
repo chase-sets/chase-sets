@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  checkoutCartSourceStanding,
   decideCheckoutCart,
+  decideCheckoutCartReadAuthority,
+  decideCheckoutCartReadAuthorityFromState,
   evolveCheckoutCart,
   initialCheckoutCartState,
   type CheckoutCartCommand,
+  type CheckoutCartEvent,
+  type CheckoutCartSourceStanding,
   type CheckoutCartState,
 } from "./domain";
 
@@ -665,5 +670,128 @@ describe("claimed cart write authorization", () => {
         }),
       ).toThrow("Cart line not found.");
     }
+  });
+});
+
+describe("checkout cart post-claim read authority", () => {
+  const SOURCE = "anon_synthetic_claimed";
+  const OWNER = "acc_synthetic_owner";
+  const OTHER = "acc_synthetic_other";
+
+  /**
+   * Builds real aggregate state by folding real events, so the standing under
+   * test is the one a runtime replay would actually produce -- not a
+   * hand-written state object that could drift from the evolver.
+   */
+  function cartState(events: readonly CheckoutCartEvent[]): CheckoutCartState {
+    return events.reduce(evolveCheckoutCart, initialCheckoutCartState);
+  }
+
+  const lineAdded = decideCheckoutCart(initialCheckoutCartState, {
+    type: "AddCartLine",
+    buyerAccountId: SOURCE as never,
+    lineId: "cli_1" as never,
+    catalogItemId: "cat_1",
+    productId: "cat_1::" as never,
+    itemTitle: "Charizard",
+    itemSubtitle: null,
+    itemImageUrl: null,
+    selectedOptions: [],
+    productSummary: null,
+    quantity: 1,
+  });
+  const claimed = decideCheckoutCart(cartState(lineAdded), {
+    type: "ClaimCart",
+    sourceOwnerKey: SOURCE,
+    accountId: OWNER as never,
+  });
+
+  it("accepts an unclaimed source by possession", () => {
+    const state = cartState(lineAdded);
+
+    expect(checkoutCartSourceStanding(state, SOURCE)).toEqual({ kind: "unclaimed" });
+    expect(decideCheckoutCartReadAuthorityFromState(state, SOURCE)).toEqual({
+      status: "accepted",
+      acceptedVia: "possession",
+    });
+    // Possession of an unclaimed key is the only authority it needs, so an
+    // Account presenting the same unclaimed key is accepted the same way.
+    expect(decideCheckoutCartReadAuthorityFromState(state, OTHER)).toEqual({
+      status: "accepted",
+      acceptedVia: "possession",
+    });
+  });
+
+  it("accepts the claimant Account and refuses everyone else once the cart is claimed", () => {
+    const state = cartState([...lineAdded, ...claimed]);
+
+    expect(checkoutCartSourceStanding(state, OWNER)).toEqual({ kind: "claimed-by-actor" });
+    expect(decideCheckoutCartReadAuthorityFromState(state, OWNER)).toEqual({
+      status: "accepted",
+      acceptedVia: "account",
+    });
+
+    // Possession stops being a capability the moment the claim event lands:
+    // the key holder itself is now just another stranger.
+    for (const actor of [OTHER, SOURCE]) {
+      expect(checkoutCartSourceStanding(state, actor)).toEqual({ kind: "claimed-by-other" });
+      expect(decideCheckoutCartReadAuthorityFromState(state, actor)).toEqual({ status: "refused" });
+    }
+  });
+
+  it("decides only from claim state, never from the retained anonymous buyer identity", () => {
+    const state = cartState([...lineAdded, ...claimed]);
+
+    // Claiming deliberately leaves `buyerAccountId` on the anonymous source, so
+    // a decision that consulted it would readmit the very key the claim closed.
+    expect(state.buyerAccountId).toBe(SOURCE);
+    expect(state.claimedByAccountId).toBe(OWNER);
+    expect(decideCheckoutCartReadAuthorityFromState(state, SOURCE)).toEqual({ status: "refused" });
+  });
+
+  it("reports an unreadable source as indeterminate, distinctly from a decided refusal", () => {
+    expect(decideCheckoutCartReadAuthority({ kind: "undecidable" })).toEqual({ status: "indeterminate" });
+    expect(decideCheckoutCartReadAuthority({ kind: "claimed-by-other" })).toEqual({ status: "refused" });
+    expect(decideCheckoutCartReadAuthority({ kind: "undecidable" })).not.toEqual({ status: "refused" });
+  });
+
+  it("exposes acceptedVia only on accepted results", () => {
+    const standings = [
+      { kind: "unclaimed" },
+      { kind: "claimed-by-actor" },
+      { kind: "claimed-by-other" },
+      { kind: "undecidable" },
+    ] as const satisfies readonly CheckoutCartSourceStanding[];
+    const results = standings.map(decideCheckoutCartReadAuthority);
+
+    expect(results.map((result) => result.status)).toEqual(["accepted", "accepted", "refused", "indeterminate"]);
+    for (const result of results) {
+      expect(Object.hasOwn(result, "acceptedVia")).toBe(result.status === "accepted");
+    }
+    expect(results.map((result) => ("acceptedVia" in result ? result.acceptedVia : null))).toEqual([
+      "possession",
+      "account",
+      null,
+      null,
+    ]);
+  });
+
+  it("goes red against a bypass that treats an undecided or foreign source as unclaimed", () => {
+    const state = cartState([...lineAdded, ...claimed]);
+    // The two omissions this guard exists to prevent, written out: a generic
+    // catch that degrades an unreadable stream into "nobody claimed it", and an
+    // alias-style check that admits any key whose stream simply exists.
+    const bypassIndeterminate = (standing: CheckoutCartSourceStanding) =>
+      standing.kind === "undecidable"
+        ? ({ status: "accepted", acceptedVia: "possession" } as const)
+        : decideCheckoutCartReadAuthority(standing);
+    const bypassClaimCheck = (_state: CheckoutCartState, _actingOwnerKey: string) =>
+      ({ status: "accepted", acceptedVia: "possession" }) as const;
+
+    expect(bypassIndeterminate({ kind: "undecidable" })).not.toEqual(
+      decideCheckoutCartReadAuthority({ kind: "undecidable" }),
+    );
+    expect(bypassClaimCheck(state, OTHER)).not.toEqual(decideCheckoutCartReadAuthorityFromState(state, OTHER));
+    expect(decideCheckoutCartReadAuthorityFromState(state, OTHER)).toEqual({ status: "refused" });
   });
 });

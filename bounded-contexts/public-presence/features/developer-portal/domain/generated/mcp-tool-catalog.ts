@@ -400,15 +400,11 @@ export const mcpToolCatalog = [
             type: "object",
             description: "Checkout cart line.",
             additionalProperties: true,
-            required: ["line_id", "buyer_account_id", "quantity"],
+            required: ["line_id", "quantity"],
             properties: {
               line_id: {
                 type: "string",
                 description: "Checkout cart line identifier.",
-              },
-              buyer_account_id: {
-                type: "string",
-                description: "Account that owns the cart line.",
               },
               catalog_item_id: {
                 type: "string",

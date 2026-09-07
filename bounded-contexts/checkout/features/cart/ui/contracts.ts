@@ -1,5 +1,12 @@
+/**
+ * The public Cart line every HTTP, MCP, client, and UI consumer sees.
+ *
+ * `buyer_account_id` is deliberately absent. It is internal source provenance
+ * that tells Cart and Checkout Session which stream a union-sourced line came
+ * from; publishing it would hand any reader the retained anonymous key -- or
+ * the claimant Account -- behind a line they can already see.
+ */
 export interface CheckoutCartLine {
-  buyer_account_id: string;
   line_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
