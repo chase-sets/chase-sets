@@ -90,36 +90,8 @@ CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_account_idx
 CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_product_idx
   ON discovery_google_shopping_feed_rows (catalog_catalog_item_id, product_id);
 
-CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_eligibility_idx
-  ON discovery_google_shopping_feed_rows (eligibility_status, updated_at);
-
-CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_image_eligibility_idx
-  ON discovery_google_shopping_feed_rows (image_eligibility_status, updated_at);
-
-CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_pending_sync_idx
-  ON discovery_google_shopping_feed_rows (sync_status, updated_at)
-  WHERE eligibility_status = 'eligible'
-    AND tombstone_status = 'live'
-    AND (payload_hash IS DISTINCT FROM last_submitted_payload_hash);
-
-CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_stale_refresh_idx
-  ON discovery_google_shopping_feed_rows (last_submitted_at)
-  WHERE eligibility_status = 'eligible'
-    AND tombstone_status = 'live';
-
-CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_tombstone_idx
-  ON discovery_google_shopping_feed_rows (tombstone_status, updated_at)
-  WHERE tombstone_status <> 'live';
-
 CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_full_sync_scan_idx
   ON discovery_google_shopping_feed_rows (row_id ASC);
-
-CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_sync_error_idx
-  ON discovery_google_shopping_feed_rows (last_sync_attempted_at DESC)
-  WHERE sync_status = 'failed';
-
-CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_diagnostics_idx
-  ON discovery_google_shopping_feed_rows (diagnostic_status, last_diagnostic_at DESC);
 
 CREATE TABLE IF NOT EXISTS discovery_google_shopping_incremental_sync_requests (
   listing_id text PRIMARY KEY,
@@ -137,9 +109,6 @@ ALTER TABLE discovery_google_shopping_incremental_sync_requests
   ADD COLUMN IF NOT EXISTS last_job_id text NULL,
   ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 
-CREATE INDEX IF NOT EXISTS discovery_google_shopping_incremental_sync_requests_due_idx
-  ON discovery_google_shopping_incremental_sync_requests (not_before, requested_at);
-
 ${durableJobSchemaSql({
   jobsTable: "discovery_google_shopping_sync_jobs",
   eventsTable: "discovery_google_shopping_sync_job_events",
@@ -155,6 +124,36 @@ export const discoveryGoogleShoppingSchemaMigrations: readonly BcSchemaMigration
   ADD COLUMN IF NOT EXISTS source_price_amount text NULL,
   ADD COLUMN IF NOT EXISTS source_price_currency_code text NULL,
   ADD COLUMN IF NOT EXISTS listing_stream_version integer NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    migrationId: "20260907_discovery_google_shopping_operational_indexes",
+    description:
+      "Create Google Shopping operational indexes " + "over migration-added columns through the owning ledger.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_google_shopping_feed_rows_eligibility_idx
+  ON discovery_google_shopping_feed_rows (eligibility_status, updated_at)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_google_shopping_feed_rows_image_eligibility_idx
+  ON discovery_google_shopping_feed_rows (image_eligibility_status, updated_at)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_google_shopping_feed_rows_pending_sync_idx
+  ON discovery_google_shopping_feed_rows (sync_status, updated_at)
+  WHERE eligibility_status = 'eligible'
+    AND tombstone_status = 'live'
+    AND (payload_hash IS DISTINCT FROM last_submitted_payload_hash)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_google_shopping_feed_rows_stale_refresh_idx
+  ON discovery_google_shopping_feed_rows (last_submitted_at)
+  WHERE eligibility_status = 'eligible'
+    AND tombstone_status = 'live'`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_google_shopping_feed_rows_tombstone_idx
+  ON discovery_google_shopping_feed_rows (tombstone_status, updated_at)
+  WHERE tombstone_status <> 'live'`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_google_shopping_feed_rows_sync_error_idx
+  ON discovery_google_shopping_feed_rows (last_sync_attempted_at DESC)
+  WHERE sync_status = 'failed'`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_google_shopping_feed_rows_diagnostics_idx
+  ON discovery_google_shopping_feed_rows (diagnostic_status, last_diagnostic_at DESC)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_google_shopping_incremental_sync_requests_due_idx
+  ON discovery_google_shopping_incremental_sync_requests (not_before, requested_at)`,
     ],
   },
 ];

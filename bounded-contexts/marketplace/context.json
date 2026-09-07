@@ -1256,13 +1256,14 @@
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/matches/:id/decline",
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/matches/:id/mute-buyer",
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/mutes/:listingId/:buyerAccountId/unmute",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:PATCH /offers/submitted/:id/price",
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted"
       ],
       "visibleDestination": {
         "description": "Offer API commands return command-owned id/version/status snapshots; submitted-offer, accepted-offer, declined-offer, and muted-buyer browser destinations use the receipt for fresh offer reads."
       },
       "proof": {
-        "authoritativeResponse": "SubmitOffer returns id/version/status=submitted, AcceptOffer returns id/version/status=accepted, DeclineOfferMatch returns id/version/status=declined, and MuteBuyerOffers returns id/version/status=muted directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
+        "authoritativeResponse": "SubmitOffer and UpdateOfferPrice return id/version/status=submitted, AcceptOffer returns id/version/status=accepted, DeclineOfferMatch returns id/version/status=declined, and MuteBuyerOffers returns id/version/status=muted directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
         "tests": [
           "bounded-contexts/marketplace/features/offers/api/route.test.ts",
           "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",

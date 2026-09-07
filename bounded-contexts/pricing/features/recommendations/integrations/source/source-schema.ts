@@ -166,7 +166,7 @@ export const pricingRecommendationSourceSchemaMigrations: readonly BcSchemaMigra
   {
     migrationId: "20260907_pricing_recommendation_source_money_currencies",
     description:
-      "Carry nullable acquisition-cost and buyer-offer currencies so legacy amount-only facts remain ineligible for repricing arithmetic.",
+      "Carry nullable acquisition-cost and Offer currencies so legacy amount-only facts remain ineligible for repricing arithmetic.",
     statements: [
       `ALTER TABLE pricing_inventory_item_inputs
   ADD COLUMN IF NOT EXISTS acquisition_cost_currency_code text NULL`,
