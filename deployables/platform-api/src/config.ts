@@ -35,6 +35,7 @@ import {
   type PlatformPoolConfig,
   type PlatformPostageConfig,
   type PlatformStripeConnectAccountsApi,
+  type PlatformStripeEffectiveMode,
   type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
 import {
@@ -66,6 +67,18 @@ import { apiContextRegistry } from "./generated/api-context-registry";
 export type PlatformApiPaymentProcessorConfig = PlatformPaymentProcessorConfig;
 
 export type PlatformApiMoneyMovementConfig = PlatformMoneyMovementConfig;
+
+/**
+ * The immutable provider observation retained once by the serving loader. Every member is transported
+ * from the shared Stripe provider load or from the already-resolved deployment environment; nothing
+ * here reclassifies a key or rereads the environment.
+ */
+export type PlatformApiProviderModeObservation = Readonly<{
+  mode: PlatformStripeEffectiveMode;
+  paymentProcessorKind: PlatformApiPaymentProcessorConfig["kind"];
+  moneyMovementKind: PlatformApiMoneyMovementConfig["kind"];
+  deploymentEnvironment: DeploymentEnvironment;
+}>;
 
 export type PlatformApiPostageConfig = PlatformPostageConfig<true>;
 
@@ -321,6 +334,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
     discoverySearchEmbeddings: PlatformApiDiscoverySearchEmbeddingConfig;
     stripeGoLive: StripeGoLiveCheckReport;
+    providerModeObservation: PlatformApiProviderModeObservation;
     ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
     ucpAp2Verifier?: Readonly<{
       endpoint: string;
@@ -856,9 +870,23 @@ export function loadConfig(): PlatformApiConfig {
           kind: "noop" as const,
         };
 
+  // The deployment environment is resolved once by the base load and is never absent there. The
+  // refusal records that unreachability instead of defaulting the observation to a value the
+  // configuration never produced.
+  const observedDeploymentEnvironment = baseConfig.deploymentEnvironment;
+  if (!observedDeploymentEnvironment) {
+    throw new Error("The deployment environment must resolve before the provider mode observation is retained.");
+  }
+
   return {
     ...baseConfig,
     moneyMovement: stripeProvider.moneyMovement,
+    providerModeObservation: {
+      mode: stripeProvider.effectiveMode,
+      paymentProcessorKind: stripeProvider.paymentProcessor.kind,
+      moneyMovementKind: stripeProvider.moneyMovement.kind,
+      deploymentEnvironment: observedDeploymentEnvironment,
+    },
     mobileMessaging,
     postage,
     stripeGoLive: {

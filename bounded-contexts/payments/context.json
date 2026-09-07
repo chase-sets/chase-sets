@@ -196,6 +196,11 @@
       "purpose": "Record support-safe Stripe webhook failure classes, retry decisions, and provider event references."
     },
     {
+      "portName": "providerModeObservation",
+      "providedBy": "platform-api",
+      "purpose": "Report the locally configured payment provider mode observation loaded once by the API host."
+    },
+    {
       "portName": "balanceCreditResolver",
       "providedBy": "settlement",
       "purpose": "Apply available settlement wallet balance as checkout credit without Payments querying Settlement storage."
@@ -244,6 +249,7 @@
       "requiresAuth": false
     }
   ],
+  "anonymousRoutes": [{ "routePath": "/api/marketplace/payment-provider-mode", "methods": ["GET"] }],
   "mcpCapabilities": {
     "tools": [
       { "name": "payments.start-payment-method-setup", "ownerSlice": "payments" },
