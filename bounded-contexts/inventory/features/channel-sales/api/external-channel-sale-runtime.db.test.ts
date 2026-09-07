@@ -416,24 +416,24 @@ describeDb("external-channel-sale real event-store authority", () => {
   });
 
   it("accepts 128-scalar event references and rejects either reference at 129", async () => {
-    const reference = (marker: string, length: number) => `evt_${marker.repeat(length - 4)}`;
+    const reference = (marker: string, length: number) => `evt_${marker}${"x".repeat(length - 4 - marker.length)}`;
     const cases = [
       {
         line: "max-128-event-references",
-        saleEventId: reference("s", 128),
-        inventoryAdjustmentEventId: reference("a", 128),
+        saleEventId: reference("sale-128", 128),
+        inventoryAdjustmentEventId: reference("adjustment-128", 128),
         accepted: true,
       },
       {
         line: "max-129-sale-event-reference",
-        saleEventId: reference("s", 129),
-        inventoryAdjustmentEventId: reference("a", 128),
+        saleEventId: reference("sale-129", 129),
+        inventoryAdjustmentEventId: reference("adjustment-sale-control", 128),
         accepted: false,
       },
       {
         line: "max-129-adjustment-event-reference",
-        saleEventId: reference("s", 128),
-        inventoryAdjustmentEventId: reference("a", 129),
+        saleEventId: reference("sale-adjustment-control", 128),
+        inventoryAdjustmentEventId: reference("adjustment-129", 129),
         accepted: false,
       },
     ] as const;
