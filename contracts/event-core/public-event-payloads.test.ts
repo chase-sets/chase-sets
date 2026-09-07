@@ -453,7 +453,7 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(30);
+    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(31);
   });
 
   it("preserves the historical optionality of the unversioned dispatch fact", () => {
