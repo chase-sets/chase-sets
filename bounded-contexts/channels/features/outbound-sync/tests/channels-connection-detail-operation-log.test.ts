@@ -30,8 +30,12 @@ describe("channels-connection-detail-operation-log", () => {
       log: { items: [], completeness: { kind: "complete", total: 0 } },
       summary: { completeness: { kind: "complete", total: 0 } },
     });
-    expect(readLog).toHaveBeenCalledWith(expect.objectContaining({ accountId: "acc-owner", connectionId: "connection-a" }));
-    expect(readSummary).toHaveBeenCalledWith(expect.objectContaining({ accountId: "acc-owner", connectionId: "connection-a" }));
+    expect(readLog).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: "acc-owner", connectionId: "connection-a" }),
+    );
+    expect(readSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: "acc-owner", connectionId: "connection-a" }),
+    );
   });
 
   it("makes a foreign connection byte-identical to missing and performs no operation read", async () => {

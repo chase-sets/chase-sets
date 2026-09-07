@@ -12,6 +12,7 @@ import {
   type OutboundOperationBudget,
   type OutboundOperationBudgetPolicyValue,
 } from "../domain/policy";
+import { resolveInlineRejectionDisposition } from "../domain/rejection";
 import {
   OutboundSyncError,
   type ClaimedOperationClaimant,
@@ -138,7 +139,10 @@ export function createOutboundSyncRuntime(
       }
       for (const outcome of input.outcomes) assertClaimedOperationOutcome(outcome);
       if (input.runSettlement) {
-        throw new OutboundSyncError("run-settlement-unavailable", "The canonical #7029 run settlement is not installed.");
+        throw new OutboundSyncError(
+          "run-settlement-unavailable",
+          "The canonical #7029 run settlement is not installed.",
+        );
       }
       await withPgTransaction(dependencies.db, async (db) => {
         const members = await db.query<OperationRow>(
@@ -162,13 +166,20 @@ export function createOutboundSyncRuntime(
             row.attempt_id !== report.attemptId ||
             Number(row.claim_generation) !== report.claimGeneration ||
             Number(row.source_desired_state_sequence) !== report.desiredStateSequence
-          ) membershipMismatch();
+          )
+            membershipMismatch();
           if (Date.parse(timestamp(row.claimed_until)!) <= Date.parse(currentInstant)) {
             throw new OutboundSyncError("reservation-expired");
           }
         }
         for (const row of members.rows) {
-          await settleClaimedMember(dependencies, db, mapOutboundOperationRow(row), reports.get(row.operation_id)!, currentInstant);
+          await settleClaimedMember(
+            dependencies,
+            db,
+            mapOutboundOperationRow(row),
+            reports.get(row.operation_id)!,
+            currentInstant,
+          );
         }
       });
     },
@@ -221,7 +232,12 @@ export function createOutboundSyncRuntime(
       channelListingId: string;
       expectedRevision: number;
     }): Promise<OutboundOperationLane> => {
-      if (!input.connectionId || !input.channelListingId || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 1) {
+      if (
+        !input.connectionId ||
+        !input.channelListingId ||
+        !Number.isSafeInteger(input.expectedRevision) ||
+        input.expectedRevision < 1
+      ) {
         throw new OutboundSyncError("invalid-input");
       }
       const result = await dependencies.db.query<LaneRow>(
@@ -303,7 +319,9 @@ async function claimNextInline(
       const rateState = await lockRateState(db, admission.providerIdentity, resolved.budget, claimedAt);
       const effectiveMax = Math.max(
         1,
-        Math.floor(resolved.budget.maxRequestsPerWindow / (resolved.incidentMultiplier * Number(rateState.adaptive_divisor))),
+        Math.floor(
+          resolved.budget.maxRequestsPerWindow / (resolved.incidentMultiplier * Number(rateState.adaptive_divisor)),
+        ),
       );
       const throttledUntil = timestamp(rateState.throttled_until);
       if (throttledUntil && Date.parse(throttledUntil) > Date.parse(claimedAt)) continue;
@@ -396,12 +414,9 @@ async function settleInlineOperation(
 ): Promise<void> {
   await withPgTransaction(dependencies.db, async (db) => {
     const locked = await lockOperationAttempt(db, operation);
-    if (result.kind === "rejected" && (result.code === "rate-limited" || result.code === "provider-unavailable")) {
-      if (locked.attemptCount >= budget.maxAttempts) {
-        const linkState = await dependencies.recordOutcome!(db, locked, result);
-        await terminalize(db, locked, "failed", "attempts-exhausted", result.code, linkState, terminalAt, true);
-      } else {
-        const delay = Math.min(budget.maxBackoffMs, budget.baseBackoffMs * 2 ** Math.min(locked.attemptCount, 10));
+    if (result.kind === "rejected") {
+      const disposition = resolveInlineRejectionDisposition(result.code, locked.attemptCount, budget);
+      if (disposition.kind === "retry") {
         const updated = await db.query(
           `UPDATE channel_outbound_operations
            SET status = 'pending', revision = revision + 1, attempt_id = NULL, claimant_kind = NULL,
@@ -415,13 +430,19 @@ async function settleInlineOperation(
             locked.attemptId,
             locked.claimGeneration,
             result.code,
-            new Date(Date.parse(terminalAt) + delay).toISOString(),
+            new Date(Date.parse(terminalAt) + disposition.delayMs).toISOString(),
           ],
         );
         if (Number(updated.rowCount ?? 0) !== 1) throw new OutboundSyncError("stale-fence");
+        await recordRateResult(db, locked, result, budget, terminalAt);
+        return;
       }
-      await recordRateResult(db, locked, result, budget, terminalAt);
-      return;
+      if (disposition.reason === "attempts-exhausted") {
+        const linkState = await dependencies.recordOutcome!(db, locked, result);
+        await terminalize(db, locked, "failed", "attempts-exhausted", result.code, linkState, terminalAt, true);
+        await recordRateResult(db, locked, result, budget, terminalAt);
+        return;
+      }
     }
     const linkState = await dependencies.recordOutcome!(db, locked, result);
     if (result.kind === "succeeded") {
@@ -463,7 +484,13 @@ async function settleClaimedMember(
         `DELETE FROM channel_outbound_operations
          WHERE operation_id = $1 AND status = 'in-flight' AND revision = $2
            AND attempt_id = $3 AND claim_generation = $4 AND source_desired_state_sequence = $5`,
-        [operation.operationId, operation.revision, operation.attemptId, operation.claimGeneration, operation.sourceDesiredStateSequence],
+        [
+          operation.operationId,
+          operation.revision,
+          operation.attemptId,
+          operation.claimGeneration,
+          operation.sourceDesiredStateSequence,
+        ],
       );
       if (Number(removed.rowCount ?? 0) !== 1) throw new OutboundSyncError("stale-fence");
       return;
@@ -475,7 +502,14 @@ async function settleClaimedMember(
            terminal_reason = NULL, last_rejection_code = NULL
        WHERE operation_id = $1 AND status = 'in-flight' AND revision = $2
          AND attempt_id = $3 AND claim_generation = $4 AND source_desired_state_sequence = $5`,
-      [operation.operationId, operation.revision, operation.attemptId, operation.claimGeneration, operation.sourceDesiredStateSequence, terminalAt],
+      [
+        operation.operationId,
+        operation.revision,
+        operation.attemptId,
+        operation.claimGeneration,
+        operation.sourceDesiredStateSequence,
+        terminalAt,
+      ],
     );
     if (Number(result.rowCount ?? 0) !== 1) throw new OutboundSyncError("stale-fence");
     return;
@@ -488,7 +522,16 @@ async function settleClaimedMember(
         : { kind: "outcome-unknown" as const };
   const linkState = await dependencies.recordOutcome!(db, operation, outcome);
   if (report.outcome.kind === "applied") {
-    await terminalize(db, operation, "succeeded", null, null, linkState, terminalAt, linkState === "link-write-refused");
+    await terminalize(
+      db,
+      operation,
+      "succeeded",
+      null,
+      null,
+      linkState,
+      terminalAt,
+      linkState === "link-write-refused",
+    );
   } else {
     const reason = report.outcome.kind === "rejected" ? report.outcome.code : "outcome-unknown";
     await terminalize(
@@ -504,7 +547,10 @@ async function settleClaimedMember(
   }
 }
 
-async function lockOperationAttempt(db: PgQueryable, expected: OutboundOperationRecord): Promise<OutboundOperationRecord> {
+async function lockOperationAttempt(
+  db: PgQueryable,
+  expected: OutboundOperationRecord,
+): Promise<OutboundOperationRecord> {
   const result = await db.query<OperationRow>(
     `SELECT ${outboundOperationSqlColumns} FROM channel_outbound_operations
      WHERE operation_id = $1 AND status = 'in-flight' AND revision = $2
@@ -531,7 +577,17 @@ async function terminalize(
          last_rejection_code = $7, link_write_state = $8, terminal_at = $9, claimed_until = NULL
      WHERE operation_id = $1 AND status = 'in-flight' AND revision = $2
        AND attempt_id = $3 AND claim_generation = $4`,
-    [operation.operationId, operation.revision, operation.attemptId, operation.claimGeneration, status, terminalReason, rejectionCode, linkWriteState, terminalAt],
+    [
+      operation.operationId,
+      operation.revision,
+      operation.attemptId,
+      operation.claimGeneration,
+      status,
+      terminalReason,
+      rejectionCode,
+      linkWriteState,
+      terminalAt,
+    ],
   );
   if (Number(result.rowCount ?? 0) !== 1) throw new OutboundSyncError("stale-fence");
   if (block) await blockLane(db, operation, terminalReason ?? linkWriteState, terminalAt);
@@ -571,12 +627,13 @@ async function recordRateResult(
   const connection = await readConnection(db, operation.connectionId);
   if (!connection) throw new OutboundSyncError("connection-not-found");
   if (result.kind === "rejected" && result.code === "rate-limited") {
+    const throttledUntil = new Date(Date.parse(at) + budget.baseBackoffMs).toISOString();
     await db.query(
       `UPDATE channel_provider_rate_state
        SET adaptive_divisor = LEAST(64, adaptive_divisor * 2), throttled_until = $3,
-           consecutive_successes = 0, last_rate_limit_at = $3, revision = revision + 1
+           consecutive_successes = 0, last_rate_limit_at = $4, revision = revision + 1
        WHERE provider_key = $1 AND environment = $2`,
-      [connection.providerKey, connection.environment, at],
+      [connection.providerKey, connection.environment, throttledUntil, at],
     );
   } else if (result.kind === "succeeded") {
     await db.query(
@@ -597,9 +654,18 @@ async function readConnection(db: PgQueryable, connectionId: string): Promise<Ou
     provider_key: string;
     environment: "sandbox" | "production";
     status: OutboundConnection["status"];
-  }>("SELECT connection_id, provider_key, environment, status FROM channel_connections WHERE connection_id = $1", [connectionId]);
+  }>("SELECT connection_id, provider_key, environment, status FROM channel_connections WHERE connection_id = $1", [
+    connectionId,
+  ]);
   const row = result.rows[0];
-  return row ? { connectionId: row.connection_id, providerKey: row.provider_key, environment: row.environment, status: row.status } : null;
+  return row
+    ? {
+        connectionId: row.connection_id,
+        providerKey: row.provider_key,
+        environment: row.environment,
+        status: row.status,
+      }
+    : null;
 }
 
 async function readOperationLog(
@@ -637,11 +703,18 @@ async function readOperationLog(
   return {
     items: page,
     ...(next
-      ? { nextCursor: encodeCursor({ connectionId: input.connectionId, enqueuedAt: timestamp(next.enqueued_at)!, operationId: next.operation_id }) }
+      ? {
+          nextCursor: encodeCursor({
+            connectionId: input.connectionId,
+            enqueuedAt: timestamp(next.enqueued_at)!,
+            operationId: next.operation_id,
+          }),
+        }
       : {}),
-    completeness: Number.isSafeInteger(totalCount) && totalCount >= page.length
-      ? { kind: "complete", total: totalCount }
-      : { kind: "bounded-incomplete", reason: "authoritative-total-unavailable" },
+    completeness:
+      Number.isSafeInteger(totalCount) && totalCount >= page.length
+        ? { kind: "complete", total: totalCount }
+        : { kind: "bounded-incomplete", reason: "authoritative-total-unavailable" },
   };
 }
 
@@ -649,7 +722,13 @@ async function readOperationSummary(
   db: PgQueryable,
   input: { accountId: string; connectionId: string; window: { from: string; to: string } },
 ): Promise<OutboundOperationSummary> {
-  if (!input.accountId || !input.connectionId || !instant(input.window.from) || !instant(input.window.to) || Date.parse(input.window.from) >= Date.parse(input.window.to)) {
+  if (
+    !input.accountId ||
+    !input.connectionId ||
+    !instant(input.window.from) ||
+    !instant(input.window.to) ||
+    Date.parse(input.window.from) >= Date.parse(input.window.to)
+  ) {
     throw new OutboundSyncError("invalid-input");
   }
   const result = await db.query<SummaryRow>(
@@ -683,7 +762,9 @@ async function readOperationSummary(
   if (!row) return emptySummary();
   const total = Number(row.total);
   return {
-    completeness: Number.isSafeInteger(total) ? { kind: "complete", total } : { kind: "bounded-incomplete", reason: "authoritative-total-unavailable" },
+    completeness: Number.isSafeInteger(total)
+      ? { kind: "complete", total }
+      : { kind: "bounded-incomplete", reason: "authoritative-total-unavailable" },
     succeeded: Number(row.succeeded),
     failed: Number(row.failed),
     pending: Number(row.pending),
@@ -718,7 +799,10 @@ function toLogItem(row: OperationRow): OutboundOperationLogItem {
 }
 
 function qualifiedOperationColumns(): string {
-  return outboundOperationSqlColumns.split(",").map((column) => `operation.${column.trim()}`).join(", ");
+  return outboundOperationSqlColumns
+    .split(",")
+    .map((column) => `operation.${column.trim()}`)
+    .join(", ");
 }
 
 function membershipMismatch(): never {
@@ -743,9 +827,13 @@ function decodeCursor(value: string, connectionId: string): { enqueuedAt: string
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
     if (
       Object.keys(parsed).sort().join(",") !== "connectionId,enqueuedAt,operationId,version" ||
-      parsed.version !== "channels-outbound-log/v1" || parsed.connectionId !== connectionId ||
-      typeof parsed.operationId !== "string" || typeof parsed.enqueuedAt !== "string" || !instant(parsed.enqueuedAt)
-    ) throw new Error();
+      parsed.version !== "channels-outbound-log/v1" ||
+      parsed.connectionId !== connectionId ||
+      typeof parsed.operationId !== "string" ||
+      typeof parsed.enqueuedAt !== "string" ||
+      !instant(parsed.enqueuedAt)
+    )
+      throw new Error();
     return { enqueuedAt: parsed.enqueuedAt, operationId: parsed.operationId };
   } catch {
     throw new OutboundSyncError("invalid-input", "invalid-page");
@@ -762,7 +850,12 @@ function nullableNumber(value: number | string | null): number | null {
 
 function emptySummary(): OutboundOperationSummary {
   return {
-    completeness: { kind: "complete", total: 0 }, succeeded: 0, failed: 0, pending: 0, inFlight: 0, blocked: 0,
+    completeness: { kind: "complete", total: 0 },
+    succeeded: 0,
+    failed: 0,
+    pending: 0,
+    inFlight: 0,
+    blocked: 0,
     inlineEventToProviderAckMs: { p50: null, p95: null, p99: null },
     claimedEventToProviderAckMs: { p50: null, p95: null, p99: null },
   };

@@ -950,6 +950,10 @@
           "value": "1"
         },
         {
+          "name": "CHANNELS_OUTBOUND_OPERATION_LANE_COUNT",
+          "value": "1"
+        },
+        {
           "name": "CATALOG_INTEGRATION_ACTIVATION_MODE",
           "value": "open"
         },

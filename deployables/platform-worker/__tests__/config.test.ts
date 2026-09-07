@@ -110,6 +110,7 @@ const envNames = [
   "WORKER_WAKE_STATEMENT_TIMEOUT_MS",
   "WORKER_WAKE_DISABLED_PROJECTIONS",
   "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT",
+  "CHANNELS_OUTBOUND_OPERATION_LANE_COUNT",
   "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
   "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
   "CATALOG_AUTHORING_BULK_JOB_LANE_COUNT",
@@ -586,6 +587,7 @@ describe("platform worker config", () => {
       jobMaxConcurrentRunners: 1,
       dispatchMaxConcurrentRunners: 1,
       scheduledMaxConcurrentRunners: 1,
+      channelsOutboundOperationLaneCount: 1,
       sourceObservationBulkJobLaneCount: 1,
       sourceObservationBulkJobWorkflowMaxActiveClaims: 1,
       sourceObservationBulkJobMaxActiveClaimsPerJob: 1,
@@ -622,6 +624,7 @@ describe("platform worker config", () => {
     process.env.WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS = "2";
     process.env.WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS = "2";
     process.env.SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT = "4";
+    process.env.CHANNELS_OUTBOUND_OPERATION_LANE_COUNT = "3";
     process.env.SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "4";
     process.env.SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "2";
     process.env.CATALOG_AUTHORING_BULK_JOB_LANE_COUNT = "3";
@@ -653,6 +656,7 @@ describe("platform worker config", () => {
       dispatchMaxConcurrentRunners: 2,
       scheduledMaxConcurrentRunners: 2,
       sourceObservationBulkJobLaneCount: 4,
+      channelsOutboundOperationLaneCount: 3,
       sourceObservationBulkJobWorkflowMaxActiveClaims: 4,
       sourceObservationBulkJobMaxActiveClaimsPerJob: 2,
       catalogAuthoringBulkJobLaneCount: 3,

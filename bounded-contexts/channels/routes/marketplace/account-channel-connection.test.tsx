@@ -27,9 +27,7 @@ describe("Channels account connection route contribution", () => {
     const fetch = vi.fn(async () => new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetch);
     const request = new Request("http://localhost/account/channels/connection-a");
-    await expect(loader({ request, params: { connectionId: "connection-a" }, context: {} })).rejects.toMatchObject({
-      status: 302,
-    });
+    await expect(loader(loaderArgs(request))).rejects.toMatchObject({ status: 302 });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -40,7 +38,7 @@ describe("Channels account connection route contribution", () => {
       .mockRejectedValueOnce(new Error("synthetic channels read failure"));
     vi.stubGlobal("fetch", fetch);
     const request = new Request("http://localhost/account/channels/connection-a");
-    await expect(loader({ request, params: { connectionId: "connection-a" }, context: {} })).resolves.toEqual({
+    await expect(loader(loaderArgs(request))).resolves.toEqual({
       kind: "read-error",
       page: 1,
       nextCursor: null,
@@ -58,5 +56,15 @@ function actor() {
     membershipId: "membership-a",
     roleKey: "owner",
     permissions: ["channels.view"],
+  };
+}
+
+function loaderArgs(request: Request) {
+  return {
+    request,
+    params: { connectionId: "connection-a" },
+    context: {},
+    url: new URL(request.url),
+    pattern: "/account/channels/:connectionId",
   };
 }

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { withPgTransaction, type PgQueryable } from "@chase-sets/event-core-postgres";
+import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { resolveConnectionExecutionAdmission } from "../domain/admission";
 import {
   OutboundSyncError,
@@ -10,11 +11,7 @@ import {
   type OutboundOperationRecord,
   type OutboundSyncRuntimeDependencies,
 } from "../domain/contracts";
-import {
-  assertEnqueueOutboundOperation,
-  assertOutboundClaimLeaseMs,
-  payloadDigest,
-} from "../domain/validation";
+import { assertEnqueueOutboundOperation, assertOutboundClaimLeaseMs, payloadDigest } from "../domain/validation";
 
 type OperationRow = Readonly<{
   operation_id: string;
@@ -93,7 +90,15 @@ export function createOutboundOperationStore(
            ON CONFLICT (connection_id, channel_listing_id) DO NOTHING`,
           [input.connectionId, input.channelListingId],
         );
-        const current = await db.query<Pick<OperationRow, "operation_id" | "status" | "revision" | "source_desired_state_sequence">>(
+        await db.query(
+          `SELECT revision FROM channel_outbound_lanes
+           WHERE connection_id = $1 AND channel_listing_id = $2
+           FOR UPDATE`,
+          [input.connectionId, input.channelListingId],
+        );
+        const current = await db.query<
+          Pick<OperationRow, "operation_id" | "status" | "revision" | "source_desired_state_sequence">
+        >(
           `SELECT operation_id, status, revision, source_desired_state_sequence
            FROM channel_outbound_operations
            WHERE connection_id = $1 AND channel_listing_id = $2
@@ -101,24 +106,43 @@ export function createOutboundOperationStore(
            FOR UPDATE`,
           [input.connectionId, input.channelListingId],
         );
-        if (current.rows.some((row) => Number(row.source_desired_state_sequence) >= input.desiredStateSequence)) return null;
+        if (current.rows.some((row) => Number(row.source_desired_state_sequence) >= input.desiredStateSequence))
+          return null;
         const pending = current.rows.find((row) => row.status === "pending");
-        const values = operationValues(operationId, input, digest, now());
+        const enqueuedAt = now();
+        const values = operationValues(operationId, input, digest, enqueuedAt);
         const result = pending
           ? await db.query<OperationRow>(
               `UPDATE channel_outbound_operations
-               SET operation_id = $1, listing_id = $4, operation_kind = $5, listing_revision = $6,
-                   source_desired_state_sequence = $7, payload = $8::jsonb, payload_digest = $9,
+               SET operation_id = $1, listing_id = $2, operation_kind = $3, listing_revision = $4,
+                   source_desired_state_sequence = $5, payload = $6::jsonb, payload_digest = $7,
                    revision = revision + 1, attempt_id = NULL, claimant_kind = NULL,
                    claim_owner_id = NULL, reservation_id = NULL, claimed_until = NULL,
-                   next_attempt_at = $10, last_rejection_code = NULL, terminal_reason = NULL,
-                   link_write_state = 'pending', source_event_id = $11, source_stream_id = $12,
-                   source_stream_version = $13, source_global_position = $14,
-                   source_desired_state_hash = $15, source_occurred_at = $16, enqueued_at = $10,
+                   next_attempt_at = $8, last_rejection_code = NULL, terminal_reason = NULL,
+                   link_write_state = 'pending', source_event_id = $9, source_stream_id = $10,
+                   source_stream_version = $11, source_global_position = $12,
+                   source_desired_state_hash = $13, source_occurred_at = $14, enqueued_at = $8,
                    first_claimed_at = NULL, terminal_at = NULL
-               WHERE operation_id = $17 AND status = 'pending' AND revision = $18
+               WHERE operation_id = $15 AND status = 'pending' AND revision = $16
                RETURNING ${operationColumns}`,
-              [...values, pending.operation_id, pending.revision],
+              [
+                operationId,
+                input.listingId,
+                input.operationKind,
+                input.listingRevision,
+                input.desiredStateSequence,
+                JSON.stringify(input.payload),
+                digest,
+                enqueuedAt,
+                input.envelope.sourceEventId,
+                input.envelope.sourceStreamId,
+                input.envelope.sourceStreamVersion,
+                input.envelope.sourceGlobalPosition,
+                input.desiredStateHash,
+                input.envelope.sourceOccurredAt,
+                pending.operation_id,
+                pending.revision,
+              ],
             )
           : await db.query<OperationRow>(
               `INSERT INTO channel_outbound_operations (
@@ -237,7 +261,11 @@ export function createOutboundOperationStore(
   };
 }
 
-async function readConnection(db: PgQueryable, connectionId: string, lock: boolean): Promise<OutboundConnection | null> {
+async function readConnection(
+  db: PgQueryable,
+  connectionId: string,
+  lock: boolean,
+): Promise<OutboundConnection | null> {
   const result = await db.query<ConnectionRow>(
     `SELECT connection_id, provider_key, environment, status
      FROM channel_connections
@@ -246,7 +274,12 @@ async function readConnection(db: PgQueryable, connectionId: string, lock: boole
   );
   const row = result.rows[0];
   return row
-    ? { connectionId: row.connection_id, providerKey: row.provider_key, environment: row.environment, status: row.status }
+    ? {
+        connectionId: row.connection_id,
+        providerKey: row.provider_key,
+        environment: row.environment,
+        status: row.status,
+      }
     : null;
 }
 
@@ -265,7 +298,7 @@ function operationValues(operationId: string, input: EnqueueOutboundOperation, d
     input.envelope.sourceEventId,
     input.envelope.sourceStreamId,
     input.envelope.sourceStreamVersion,
-    input.envelope.sourceGlobalPosition.toString(),
+    input.envelope.sourceGlobalPosition,
     input.desiredStateHash,
     input.envelope.sourceOccurredAt,
   ] as const;
@@ -305,7 +338,7 @@ export function mapOperation(row: OperationRow): OutboundOperationRecord {
     sourceEventId: row.source_event_id,
     sourceStreamId: row.source_stream_id,
     sourceStreamVersion: Number(row.source_stream_version),
-    sourceGlobalPosition: BigInt(row.source_global_position),
+    sourceGlobalPosition: parseGlobalPosition(String(row.source_global_position)),
     sourceDesiredStateHash: row.source_desired_state_hash,
     sourceOccurredAt: timestamp(row.source_occurred_at)!,
     enqueuedAt: timestamp(row.enqueued_at)!,

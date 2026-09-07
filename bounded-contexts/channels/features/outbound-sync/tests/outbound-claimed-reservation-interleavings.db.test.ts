@@ -8,6 +8,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { module as channelsModule } from "../../../index";
 import { createChannelProviderRegistry } from "../../publication-port/api/registry";
 import type { ChannelProviderDescriptor } from "../../publication-port/domain/contracts";
@@ -47,7 +48,11 @@ describeDb("outbound-claimed-reservation-interleavings", () => {
 
     const beforeClaim = await rows(pools.channels, "listing-a");
     expect(beforeClaim).toHaveLength(1);
-    expect(beforeClaim[0]).toMatchObject({ source_desired_state_sequence: "2", listing_revision: "7", status: "pending" });
+    expect(beforeClaim[0]).toMatchObject({
+      source_desired_state_sequence: "2",
+      listing_revision: "7",
+      status: "pending",
+    });
 
     const reservation = await runtime.reserveClaimedOutboundOperations({
       registry: claimedRegistry,
@@ -100,6 +105,29 @@ describeDb("outbound-claimed-reservation-interleavings", () => {
       leaseMs: 60_000,
     });
     expect(next!.operations.map((operation) => operation.desiredStateSequence)).toEqual([3]);
+  });
+
+  it("serializes concurrent same-lane desires and leaves the highest producer sequence", async () => {
+    const runtime = createOutboundSyncRuntime(
+      { db: pools.channels, recordOutcome: async () => "applied" },
+      { assertDelistDirective: () => undefined },
+    );
+    const [lower, higher] = await Promise.all([
+      runtime.enqueueDesiredState(desiredState("listing-race", 1, 7, "event-race-q1")),
+      runtime.enqueueDesiredState(desiredState("listing-race", 2, 7, "event-race-q2")),
+    ]);
+    expect([lower, higher].filter(Boolean)).not.toHaveLength(0);
+    const finalRows = await rows(pools.channels, "listing-race");
+    expect(finalRows).toHaveLength(1);
+    expect(finalRows[0]).toMatchObject({
+      source_desired_state_sequence: "2",
+      listing_revision: "7",
+      status: "pending",
+    });
+
+    const beforeReplay = JSON.stringify(finalRows);
+    expect(await runtime.enqueueDesiredState(desiredState("listing-race", 2, 7, "event-race-q2"))).toBeNull();
+    expect(JSON.stringify(await rows(pools.channels, "listing-race"))).toBe(beforeReplay);
   });
 
   it("reserves concurrent lanes disjointly and refuses a partial acknowledgement without writing", async () => {
@@ -173,7 +201,9 @@ describeDb("outbound-claimed-reservation-interleavings", () => {
       channel_listing_id: string;
       blocked_operation_id: string | null;
       revision: string;
-    }>("SELECT channel_listing_id, blocked_operation_id, revision::text FROM channel_outbound_lanes ORDER BY channel_listing_id");
+    }>(
+      "SELECT channel_listing_id, blocked_operation_id, revision::text FROM channel_outbound_lanes ORDER BY channel_listing_id",
+    );
     expect(lanes.rows.filter((lane) => lane.blocked_operation_id)).toHaveLength(1);
 
     await runtime.enqueueDesiredState(desiredState(unknown!.listingId, 2, 7, "event-newer"));
@@ -243,15 +273,19 @@ function desiredState(listingId: string, desiredStateSequence: number, listingRe
       sourceEventId,
       sourceStreamId: `channels.channel-listing-${channelListingId}`,
       sourceStreamVersion: desiredStateSequence,
-      sourceGlobalPosition: BigInt(desiredStateSequence),
+      sourceGlobalPosition: parseGlobalPosition(String(desiredStateSequence)),
       sourceOccurredAt: "2026-09-07T18:59:00.000Z",
     },
   };
 }
 
 function memberOutcome(
-  operation: NonNullable<Awaited<ReturnType<ReturnType<typeof createOutboundSyncRuntime>["reserveClaimedOutboundOperations"]>>>["operations"][number],
-  outcome: Parameters<ReturnType<typeof createOutboundSyncRuntime>["reportClaimedOperationOutcomes"]>[0]["outcomes"][number]["outcome"],
+  operation: NonNullable<
+    Awaited<ReturnType<ReturnType<typeof createOutboundSyncRuntime>["reserveClaimedOutboundOperations"]>>
+  >["operations"][number],
+  outcome: Parameters<
+    ReturnType<typeof createOutboundSyncRuntime>["reportClaimedOperationOutcomes"]
+  >[0]["outcomes"][number]["outcome"],
 ) {
   return {
     operationId: operation.operationId,

@@ -10,11 +10,7 @@ import {
   type DataColumn,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
-import type {
-  OutboundOperationLogItem,
-  OutboundOperationLogPage,
-  OutboundOperationSummary,
-} from "../domain/contracts";
+import type { OutboundOperationLogItem, OutboundOperationLogPage, OutboundOperationSummary } from "../domain/contracts";
 
 export type OutboundOperationLogPanelProps = Readonly<{
   state:
@@ -84,7 +80,9 @@ export function OutboundOperationLogPanel({ state, page, onPageChange }: Outboun
       title={t("channels.outboundSync.operationLog.title")}
       description={t("channels.outboundSync.operationLog.description")}
       headingLevel={2}
-      status={<Badge tone={state.summary.failed > 0 || state.summary.blocked > 0 ? "warning" : "success"}>{total}</Badge>}
+      status={
+        <Badge tone={state.summary.failed > 0 || state.summary.blocked > 0 ? "warning" : "success"}>{total}</Badge>
+      }
       data-channels-outbound-operation-log="true"
     >
       <MetricStrip
@@ -95,7 +93,8 @@ export function OutboundOperationLogPanel({ state, page, onPageChange }: Outboun
           { label: t("channels.outboundSync.operationLog.metric.blocked"), value: String(state.summary.blocked) },
         ]}
       />
-      {state.log.completeness.kind === "bounded-incomplete" || state.summary.completeness.kind === "bounded-incomplete" ? (
+      {state.log.completeness.kind === "bounded-incomplete" ||
+      state.summary.completeness.kind === "bounded-incomplete" ? (
         <OperationalStatusBanner
           tone="warning"
           title={t("channels.outboundSync.operationLog.incomplete.title")}

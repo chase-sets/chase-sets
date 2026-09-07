@@ -222,6 +222,7 @@ describe("render platform Helm values", () => {
     expect(totalRunnerConcurrency).toBeLessThanOrEqual(poolMax);
     expect(envValue("WORKER_WAKE_MAX_CONCURRENT_RUNNERS")).toBe("2");
     expect(envValue("WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT")).toBe("1");
+    expect(envValue("CHANNELS_OUTBOUND_OPERATION_LANE_COUNT")).toBe("1");
     // #4762 widens projection concurrency for the DOKS staging overlay only;
     // the base/preview worker keeps the conservative single projection slot.
     expect(envValue("WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS")).toBe("1");
@@ -785,7 +786,7 @@ describe("render platform Helm values", () => {
       marketplace: 13,
       "platform-api": 100,
       "platform-bootstrap": 57,
-      "platform-worker": 120,
+      "platform-worker": 121,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");

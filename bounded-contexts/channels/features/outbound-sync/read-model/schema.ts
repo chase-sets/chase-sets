@@ -98,6 +98,11 @@ export const outboundSyncSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260907_channels_outbound_sync",
     description: "Create durable latest-state outbound operations, lane isolation, and provider rate state.",
-    statements: [createOutboundOperationsTable, createProviderRateStateTable, createOutboundLanesTable, ...createOutboundIndexes],
+    statements: [
+      createOutboundOperationsTable,
+      createProviderRateStateTable,
+      createOutboundLanesTable,
+      ...createOutboundIndexes,
+    ],
   },
 ];

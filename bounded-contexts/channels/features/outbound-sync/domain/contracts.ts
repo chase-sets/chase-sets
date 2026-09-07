@@ -1,4 +1,5 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { GlobalPosition } from "@chase-sets/event-core/storage";
 import type {
   ChannelProviderIdentity,
   ChannelProviderRegistry,
@@ -24,7 +25,7 @@ export type OutboundDesiredStateEnvelope = Readonly<{
   sourceEventId: string;
   sourceStreamId: string;
   sourceStreamVersion: number;
-  sourceGlobalPosition: bigint;
+  sourceGlobalPosition: GlobalPosition;
   sourceOccurredAt: string;
 }>;
 
@@ -66,7 +67,7 @@ export type OutboundOperationRecord = Readonly<{
   sourceEventId: string;
   sourceStreamId: string;
   sourceStreamVersion: number;
-  sourceGlobalPosition: bigint;
+  sourceGlobalPosition: GlobalPosition;
   sourceDesiredStateHash: string;
   sourceOccurredAt: string;
   enqueuedAt: string;
@@ -135,7 +136,10 @@ export type ConnectionExecutionAdmission =
   | Readonly<{
       kind: "inline";
       providerIdentity: ChannelProviderIdentity;
-      publication: Extract<NonNullable<ReturnType<ChannelProviderRegistry["get"]>>["publication"], { execution: "inline" }>;
+      publication: Extract<
+        NonNullable<ReturnType<ChannelProviderRegistry["get"]>>["publication"],
+        { execution: "inline" }
+      >;
     }>
   | Readonly<{ kind: "indeterminate" }>;
 
@@ -167,11 +171,15 @@ export type OutboundOperationLogItem = Readonly<{
 export type OutboundOperationLogPage = Readonly<{
   items: readonly OutboundOperationLogItem[];
   nextCursor?: string;
-  completeness: Readonly<{ kind: "complete"; total: number }> | Readonly<{ kind: "bounded-incomplete"; reason: string }>;
+  completeness:
+    | Readonly<{ kind: "complete"; total: number }>
+    | Readonly<{ kind: "bounded-incomplete"; reason: string }>;
 }>;
 
 export type OutboundOperationSummary = Readonly<{
-  completeness: Readonly<{ kind: "complete"; total: number }> | Readonly<{ kind: "bounded-incomplete"; reason: string }>;
+  completeness:
+    | Readonly<{ kind: "complete"; total: number }>
+    | Readonly<{ kind: "bounded-incomplete"; reason: string }>;
   succeeded: number;
   failed: number;
   pending: number;
@@ -183,36 +191,48 @@ export type OutboundOperationSummary = Readonly<{
 
 export interface OutboundSyncServices {
   enqueueDesiredState(input: EnqueueOutboundOperation): Promise<OutboundOperationRecord | null>;
-  reserveClaimedOutboundOperations(input: Readonly<{
-    registry: ChannelProviderRegistry;
-    connectionId: string;
-    claimant: ClaimedOperationClaimant;
-    maxOperations: number;
-    leaseMs: number;
-  }>): Promise<ClaimedOperationReservation | null>;
-  reportClaimedOperationOutcomes(input: Readonly<{
-    reservationId: string;
-    claimant: ClaimedOperationClaimant;
-    outcomes: readonly ClaimedOperationOutcome[];
-    runSettlement?: Readonly<{ runId: string; expectedRunRevision: number }>;
-  }>): Promise<void>;
-  clearOutboundOperationLane(input: Readonly<{
-    connectionId: string;
-    channelListingId: string;
-    expectedRevision: number;
-  }>): Promise<OutboundOperationLane>;
-  readOutboundOperationLog(input: Readonly<{
-    accountId: string;
-    connectionId: string;
-    cursor?: string;
-    limit?: number;
-  }>): Promise<OutboundOperationLogPage>;
-  readOutboundOperationSummary(input: Readonly<{
-    accountId: string;
-    connectionId: string;
-    window: Readonly<{ from: string; to: string }>;
-  }>): Promise<OutboundOperationSummary>;
-  processNextInlineOperation(input: Readonly<{ registry: ChannelProviderRegistry; claimOwnerId: string }>): Promise<number>;
+  reserveClaimedOutboundOperations(
+    input: Readonly<{
+      registry: ChannelProviderRegistry;
+      connectionId: string;
+      claimant: ClaimedOperationClaimant;
+      maxOperations: number;
+      leaseMs: number;
+    }>,
+  ): Promise<ClaimedOperationReservation | null>;
+  reportClaimedOperationOutcomes(
+    input: Readonly<{
+      reservationId: string;
+      claimant: ClaimedOperationClaimant;
+      outcomes: readonly ClaimedOperationOutcome[];
+      runSettlement?: Readonly<{ runId: string; expectedRunRevision: number }>;
+    }>,
+  ): Promise<void>;
+  clearOutboundOperationLane(
+    input: Readonly<{
+      connectionId: string;
+      channelListingId: string;
+      expectedRevision: number;
+    }>,
+  ): Promise<OutboundOperationLane>;
+  readOutboundOperationLog(
+    input: Readonly<{
+      accountId: string;
+      connectionId: string;
+      cursor?: string;
+      limit?: number;
+    }>,
+  ): Promise<OutboundOperationLogPage>;
+  readOutboundOperationSummary(
+    input: Readonly<{
+      accountId: string;
+      connectionId: string;
+      window: Readonly<{ from: string; to: string }>;
+    }>,
+  ): Promise<OutboundOperationSummary>;
+  processNextInlineOperation(
+    input: Readonly<{ registry: ChannelProviderRegistry; claimOwnerId: string }>,
+  ): Promise<number>;
   recoverExpiredClaimedOperations(): Promise<number>;
 }
 

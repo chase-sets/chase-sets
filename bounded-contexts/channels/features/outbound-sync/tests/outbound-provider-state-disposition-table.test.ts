@@ -21,7 +21,10 @@ describe("outbound-provider-state-disposition-table", () => {
     ).toEqual({ kind: "blocked", reason: "provider-publication-unregistered" });
 
     const claimed = createChannelProviderRegistry([{ identity, setup, publication: { execution: "claimed" } }]);
-    expect(resolveConnectionExecutionAdmission(claimed, connection)).toEqual({ kind: "claimed", providerIdentity: identity });
+    expect(resolveConnectionExecutionAdmission(claimed, connection)).toEqual({
+      kind: "claimed",
+      providerIdentity: identity,
+    });
 
     const publishListing = vi.fn();
     const updatePriceQuantity = vi.fn();

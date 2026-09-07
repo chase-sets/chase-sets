@@ -62,7 +62,12 @@ export function decodeOutboundOperationBudgetPolicy(raw: JsonValue): OutboundOpe
     );
     const decoded: Record<string, number | boolean> = {};
     if (override.maxRequestsPerWindow !== undefined)
-      decoded.maxRequestsPerWindow = integer(override.maxRequestsPerWindow, 1, 1_000_000, `${identity}.maxRequestsPerWindow`);
+      decoded.maxRequestsPerWindow = integer(
+        override.maxRequestsPerWindow,
+        1,
+        1_000_000,
+        `${identity}.maxRequestsPerWindow`,
+      );
     if (override.windowMs !== undefined)
       decoded.windowMs = integer(override.windowMs, 1_000, 86_400_000, `${identity}.windowMs`);
     if (override.maxInFlightPerConnection !== undefined)
@@ -110,7 +115,11 @@ export function resolveOutboundOperationBudget(
     baseBackoffMs: override?.baseBackoffMs ?? compiled.baseBackoffMs,
     maxBackoffMs: override?.maxBackoffMs ?? compiled.maxBackoffMs,
   };
-  return Object.freeze({ disabled: override?.disabled ?? false, budget: Object.freeze(budget), incidentMultiplier: value.incidentMultiplier });
+  return Object.freeze({
+    disabled: override?.disabled ?? false,
+    budget: Object.freeze(budget),
+    incidentMultiplier: value.incidentMultiplier,
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

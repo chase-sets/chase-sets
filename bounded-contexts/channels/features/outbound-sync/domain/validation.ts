@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
-import { assertChannelPublicationDraft, assertChannelPublicationResult } from "../../publication-port/domain/validation";
-import { channelPublicationRejectionCodes, type ChannelPublicationResult } from "../../publication-port/domain/contracts";
+import {
+  assertChannelPublicationDraft,
+  assertChannelPublicationResult,
+} from "../../publication-port/domain/validation";
+import {
+  channelPublicationRejectionCodes,
+  type ChannelPublicationResult,
+} from "../../publication-port/domain/contracts";
 import {
   OutboundSyncError,
   outboundClaimantKinds,
@@ -15,7 +21,11 @@ export const OUTBOUND_CLAIM_LEASE_MIN_MS = 60_000;
 export const OUTBOUND_CLAIM_LEASE_MAX_MS = 7_200_000;
 
 export function assertOutboundClaimLeaseMs(value: unknown): asserts value is number {
-  if (!Number.isSafeInteger(value) || Number(value) < OUTBOUND_CLAIM_LEASE_MIN_MS || Number(value) > OUTBOUND_CLAIM_LEASE_MAX_MS) {
+  if (
+    !Number.isSafeInteger(value) ||
+    Number(value) < OUTBOUND_CLAIM_LEASE_MIN_MS ||
+    Number(value) > OUTBOUND_CLAIM_LEASE_MAX_MS
+  ) {
     invalid(`leaseMs must be an integer from ${OUTBOUND_CLAIM_LEASE_MIN_MS} to ${OUTBOUND_CLAIM_LEASE_MAX_MS}.`);
   }
 }
@@ -24,17 +34,21 @@ export function assertEnqueueOutboundOperation(
   value: unknown,
   assertDelistDirective: (value: unknown) => void,
 ): asserts value is EnqueueOutboundOperation {
-  const input = closed(value, [
-    "connectionId",
-    "channelListingId",
-    "listingId",
-    "operationKind",
-    "listingRevision",
-    "desiredStateSequence",
-    "desiredStateHash",
-    "payload",
-    "envelope",
-  ], "outbound desired state");
+  const input = closed(
+    value,
+    [
+      "connectionId",
+      "channelListingId",
+      "listingId",
+      "operationKind",
+      "listingRevision",
+      "desiredStateSequence",
+      "desiredStateHash",
+      "payload",
+      "envelope",
+    ],
+    "outbound desired state",
+  );
   opaque(input.connectionId, "connectionId");
   opaque(input.channelListingId, "channelListingId");
   opaque(input.listingId, "listingId");
@@ -42,12 +56,32 @@ export function assertEnqueueOutboundOperation(
   safePositive(input.listingRevision, "listingRevision");
   safePositive(input.desiredStateSequence, "desiredStateSequence");
   digest(input.desiredStateHash, "desiredStateHash");
-  assertOutboundOperationPayload(input.payload, input.operationKind as EnqueueOutboundOperation["operationKind"], assertDelistDirective);
-  const envelope = closed(input.envelope, ["sourceEventId", "sourceStreamId", "sourceStreamVersion", "sourceGlobalPosition", "sourceOccurredAt"], "envelope");
+  assertOutboundOperationPayload(
+    input.payload,
+    input.operationKind as EnqueueOutboundOperation["operationKind"],
+    assertDelistDirective,
+  );
+  if (
+    input.payload.kind === "draft" &&
+    (input.payload.draft.channelListingId !== input.channelListingId ||
+      input.payload.draft.listingRevision !== input.listingRevision)
+  ) {
+    invalid("draft identity must equal the desired-state identity.");
+  }
+  const envelope = closed(
+    input.envelope,
+    ["sourceEventId", "sourceStreamId", "sourceStreamVersion", "sourceGlobalPosition", "sourceOccurredAt"],
+    "envelope",
+  );
   opaque(envelope.sourceEventId, "sourceEventId");
   opaque(envelope.sourceStreamId, "sourceStreamId");
   safePositive(envelope.sourceStreamVersion, "sourceStreamVersion");
-  if (typeof envelope.sourceGlobalPosition !== "bigint" || envelope.sourceGlobalPosition < 0n) invalid("sourceGlobalPosition is invalid.");
+  if (envelope.sourceStreamVersion !== input.desiredStateSequence) {
+    invalid("desiredStateSequence must equal the producer event stream version.");
+  }
+  if (typeof envelope.sourceGlobalPosition !== "string" || !/^(0|[1-9]\d*)$/.test(envelope.sourceGlobalPosition)) {
+    invalid("sourceGlobalPosition is invalid.");
+  }
   instant(envelope.sourceOccurredAt, "sourceOccurredAt");
 }
 
@@ -75,7 +109,11 @@ export function assertClaimedOperationClaimant(value: unknown): asserts value is
 }
 
 export function assertClaimedOperationOutcome(value: unknown): asserts value is ClaimedOperationOutcome {
-  const report = closed(value, ["operationId", "attemptId", "claimGeneration", "desiredStateSequence", "outcome"], "claimed outcome");
+  const report = closed(
+    value,
+    ["operationId", "attemptId", "claimGeneration", "desiredStateSequence", "outcome"],
+    "claimed outcome",
+  );
   opaque(report.operationId, "operationId");
   opaque(report.attemptId, "attemptId");
   safePositive(report.claimGeneration, "claimGeneration");
@@ -85,7 +123,8 @@ export function assertClaimedOperationOutcome(value: unknown): asserts value is 
     case "applied":
       closed(outcome, ["kind", "result"], "outcome");
       assertChannelPublicationResult(outcome.result);
-      if ((outcome.result as ChannelPublicationResult).kind !== "succeeded") invalid("applied requires a successful result.");
+      if ((outcome.result as ChannelPublicationResult).kind !== "succeeded")
+        invalid("applied requires a successful result.");
       return;
     case "rejected":
       closed(outcome, ["kind", "code"], "outcome");
@@ -96,7 +135,8 @@ export function assertClaimedOperationOutcome(value: unknown): asserts value is 
       return;
     case "abandoned":
       closed(outcome, ["kind", "reason"], "outcome");
-      if (!['released', 'superseded-basis', 'claimant-cancelled'].includes(String(outcome.reason))) invalid("abandonment reason is invalid.");
+      if (!["released", "superseded-basis", "claimant-cancelled"].includes(String(outcome.reason)))
+        invalid("abandonment reason is invalid.");
       return;
     default:
       invalid("outcome kind is invalid.");
@@ -131,7 +171,8 @@ function closed(value: unknown, keys: readonly string[], label: string): Record<
 }
 
 function opaque(value: unknown, label: string): asserts value is string {
-  if (typeof value !== "string" || value.length < 1 || value.length > 512 || !scalar(value)) invalid(`${label} is invalid.`);
+  if (typeof value !== "string" || value.length < 1 || value.length > 512 || !scalar(value))
+    invalid(`${label} is invalid.`);
 }
 
 function safePositive(value: unknown, label: string): asserts value is number {
@@ -139,11 +180,13 @@ function safePositive(value: unknown, label: string): asserts value is number {
 }
 
 function digest(value: unknown, label: string): asserts value is string {
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) invalid(`${label} must be a lowercase SHA-256 digest.`);
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value))
+    invalid(`${label} must be a lowercase SHA-256 digest.`);
 }
 
 function instant(value: unknown, label: string): asserts value is string {
-  if (typeof value !== "string" || !/(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) invalid(`${label} must be an RFC 3339 timezone-bearing instant.`);
+  if (typeof value !== "string" || !/(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value)))
+    invalid(`${label} must be an RFC 3339 timezone-bearing instant.`);
 }
 
 function scalar(value: string): boolean {
