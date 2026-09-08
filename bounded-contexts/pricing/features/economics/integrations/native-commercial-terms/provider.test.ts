@@ -82,18 +82,18 @@ describe("native Commercial Terms Economics provider", () => {
   });
 
   it("changes the Commercial Terms revision when a published value changes but not when resolvedAt changes", async () => {
-    const run = async (overrides: Record<string, unknown>) => {
+    const run = async (overrides: Record<string, unknown>, effectiveAt = request.effectiveAt) => {
       const provider = createNativeCommercialTermsEconomicsProvider({
         identity,
-        commercialTermsResolver: { resolveListingTerms: async () => terms(overrides) },
+        commercialTermsResolver: { resolveListingTerms: async () => terms({ ...overrides, resolvedAt: effectiveAt }) },
         resolvePolicy: async () => resolvedPolicy,
       });
-      const result = await provider.resolve(request);
+      const result = await provider.resolve({ ...request, effectiveAt });
       if (result.kind !== "resolved") throw new Error("Expected resolved source Economics.");
       return result.facts.platformFeeRelativeBps.source;
     };
     const baseline = await run({});
-    expect(await run({ resolvedAt: "2026-09-08T06:00:00Z" })).toEqual(baseline);
+    expect(await run({}, "2026-09-08T06:00:00Z")).toEqual(baseline);
     expect(await run({ marketplaceSalesFeePercentageBps: 501 })).not.toEqual(baseline);
   });
 

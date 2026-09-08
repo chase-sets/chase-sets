@@ -95,7 +95,7 @@ describe("Economics evidence queries", () => {
         inventoryItemId: request.inventoryItemId,
         lotId: "evt_acquisition_known",
         quantity: 2,
-        occurrence: { kind: "occurred", occurredAt: "2026-09-01T10:00:00Z", source: "seller-supplied" },
+        occurrence: { kind: "occurred", occurredAt: "2026-09-01T10:00:00.000Z", source: "seller-supplied" },
       },
       {
         accountId: request.accountId,
@@ -111,7 +111,7 @@ describe("Economics evidence queries", () => {
         inventoryItemId: request.inventoryItemId,
         saleId: "synthetic-order:synthetic-line",
         quantity: 1,
-        soldAt: "2026-09-05T10:00:00Z",
+        soldAt: "2026-09-05T10:00:00.000Z",
         currency: "usd",
         excluded: false,
       },
@@ -122,12 +122,12 @@ describe("Economics evidence queries", () => {
       lotId: `${request.inventoryItemId}:v4`,
       quantity: 2,
       acquisitionCostPerUnit: { amount: "71.70", currency: "usd" },
-      observedAt: "2026-09-01T11:00:00Z",
+      observedAt: "2026-09-01T11:00:00.000Z",
     });
     expect(snapshot.inventoryWatermark).toBe(`${economicsInventoryCheckpointKey}@41`);
     expect(snapshot.pricingWatermark).toBe(`${economicsSalesCheckpointKey}@52`);
-    expect(snapshot.inventoryObservedAt).toBe("2026-09-07T11:58:00Z");
-    expect(snapshot.pricingObservedAt).toBe("2026-09-07T11:59:00Z");
+    expect(snapshot.inventoryObservedAt).toBe("2026-09-07T11:58:00.000Z");
+    expect(snapshot.pricingObservedAt).toBe("2026-09-07T11:59:00.000Z");
   });
 
   it("qualifies every shared SQL column and applies the one evaluation instant to every authority", async () => {
