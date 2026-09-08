@@ -1,7 +1,10 @@
-import { cleanup, fireEvent, render as renderWithoutRouter, type RenderOptions } from "@testing-library/react";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { act, cleanup, fireEvent, render as renderWithoutRouter, type RenderOptions } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import ts from "@chase-sets/typescript-compiler-api";
 import { PublicPresenceHomePage } from "./public-pages";
 import { publicPresenceT as t } from "./public-presence-translator";
 
@@ -794,5 +797,157 @@ describe("public waitlist form migration smoke", () => {
     const bodyCells = Array.from(feeComparisonSection?.querySelectorAll("tbody tr:first-child td") ?? []);
     expect(bodyCells[0]?.className).toContain("max-w-11");
     expect(bodyCells[1]?.className).not.toContain("max-w-11");
+  });
+
+  it("carries exactly one gold-foil word in the hero, byte-equal to the shipped locale title, per variant", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container: v1 } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+    expect(v1.querySelectorAll(".ds-brand-foil-text")).toHaveLength(1);
+    const v1Heading = v1.querySelector("h1");
+    expect(v1Heading?.textContent).toBe(t("publicPresence.home.title"));
+    expect(v1Heading?.className).toContain("font-display");
+    expect(v1Heading?.querySelector(".ds-brand-foil-text")?.textContent).toBe("marketplace");
+
+    const { container: v2 } = render(
+      <PublicPresenceHomePage actionData={null} source={{ ...source, pagePath: "/?intent=buy" }} />,
+    );
+    expect(v2.querySelectorAll(".ds-brand-foil-text")).toHaveLength(1);
+    const v2Heading = v2.querySelector("h1");
+    expect(v2Heading?.textContent).toBe(t("publicPresence.home.buyerHero.title"));
+    expect(v2Heading?.className).toContain("font-display");
+    expect(v2Heading?.querySelector(".ds-brand-foil-text")?.textContent).toBe("cards");
+  });
+
+  it("renders the mobile sticky waitlist bar only once the hero form leaves view", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    // The page also mounts a section-view-tracking observer, so instances are
+    // keyed by their actually-observed target rather than call order.
+    const instances: { callback: IntersectionObserverCallback; observed: Element[] }[] = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      vi.fn(function IntersectionObserverStub(callback: IntersectionObserverCallback) {
+        const observed: Element[] = [];
+        instances.push({ callback, observed });
+        return {
+          observe: (element: Element) => observed.push(element),
+          disconnect: vi.fn(),
+          unobserve: vi.fn(),
+        };
+      }),
+    );
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const heroForm = document.getElementById("waitlist-form")!;
+    const stickyBarInstance = instances.find((instance) => instance.observed.includes(heroForm));
+    if (!stickyBarInstance) {
+      throw new Error("Expected an IntersectionObserver instance observing the hero form.");
+    }
+
+    expect(container.textContent).not.toContain(t("publicPresence.home.stickyCta.label"));
+
+    act(() => {
+      stickyBarInstance.callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+    });
+    expect(container.textContent).not.toContain(t("publicPresence.home.stickyCta.label"));
+
+    act(() => {
+      stickyBarInstance.callback([{ isIntersecting: false } as IntersectionObserverEntry], {} as IntersectionObserver);
+    });
+    expect(document.body.textContent).toContain(t("publicPresence.home.stickyCta.label"));
+
+    const stickyCta = document.body.querySelector<HTMLAnchorElement>('.fixed a[href="/#waitlist-form-final"]');
+    if (!stickyCta) {
+      throw new Error("Expected the sticky bar's CTA to render once visible.");
+    }
+    fireEvent.click(stickyCta);
+    expect(window.dataLayer).toContainEqual(
+      expect.objectContaining({ event: "cta_clicked", section: "mobile_sticky", target: "waitlist_form_final" }),
+    );
+  });
+});
+
+function repositoryRoot(): string {
+  let candidate = process.cwd();
+  while (!existsSync(join(candidate, "pnpm-workspace.yaml"))) {
+    const parent = dirname(candidate);
+    if (parent === candidate) {
+      throw new Error(`Could not locate the repository root from ${process.cwd()}`);
+    }
+    candidate = parent;
+  }
+  return candidate;
+}
+
+describe("landing surface-diet census (AC5)", () => {
+  const publicPagesSource = readFileSync(
+    join(repositoryRoot(), "bounded-contexts", "public-presence", "features", "waitlist", "ui", "public-pages.tsx"),
+    "utf8",
+  );
+
+  function surfaceElements(source: string) {
+    const sourceFile = ts.createSourceFile("public-pages.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const results: { elevation: string | null; elevatedBoolean: boolean }[] = [];
+    function attributeValue(attributes: ts.JsxAttributes, name: string) {
+      return attributes.properties.find(
+        (attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(sourceFile) === name,
+      );
+    }
+    function visit(node: ts.Node) {
+      const isSurface =
+        (ts.isJsxSelfClosingElement(node) && node.tagName.getText(sourceFile) === "Surface") ||
+        (ts.isJsxOpeningElement(node) && node.tagName.getText(sourceFile) === "Surface");
+      if (isSurface) {
+        const attributes = (node as ts.JsxSelfClosingElement | ts.JsxOpeningElement).attributes;
+        const elevationAttribute = attributeValue(attributes, "elevation");
+        const elevatedAttribute = attributeValue(attributes, "elevated");
+        let elevation: string | null = null;
+        if (
+          elevationAttribute &&
+          ts.isJsxAttribute(elevationAttribute) &&
+          elevationAttribute.initializer &&
+          ts.isStringLiteral(elevationAttribute.initializer)
+        ) {
+          elevation = elevationAttribute.initializer.text;
+        }
+        results.push({ elevation, elevatedBoolean: Boolean(elevatedAttribute) });
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(sourceFile);
+    return results;
+  }
+
+  it("gives every landing Surface root an explicit elevation intent, leaving exactly one legacy elevated boolean", () => {
+    const surfaces = surfaceElements(publicPagesSource);
+    // 2 shell roots (nav/footer, neither prop) + 11 landing roots (explicit
+    // elevation) + 1 PublicInfoPage root (legacy elevated boolean) = 14,
+    // matching the source-derived census.
+    expect(surfaces).toHaveLength(14);
+
+    const explicitElevation = surfaces.filter((surface) => surface.elevation !== null);
+    const legacyElevated = surfaces.filter((surface) => surface.elevation === null && surface.elevatedBoolean);
+    const untouchedShellRoots = surfaces.filter((surface) => surface.elevation === null && !surface.elevatedBoolean);
+
+    expect(explicitElevation).toHaveLength(11);
+    expect(legacyElevated).toHaveLength(1);
+    expect(untouchedShellRoots).toHaveLength(2);
+
+    expect(explicitElevation.filter((surface) => surface.elevation === "elevated")).toHaveLength(2);
+    expect(explicitElevation.filter((surface) => surface.elevation === "tinted")).toHaveLength(9);
   });
 });

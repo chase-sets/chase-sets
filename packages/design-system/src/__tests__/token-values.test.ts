@@ -9,7 +9,7 @@ import {
   stylesheetStructure,
 } from "./token-contract";
 
-const structureDigest = "fdb5595d992040e071cb8a6b19e25c79bc2eac333a624615e3355181ba07fcd5";
+const structureDigest = "fb2b325a760302c0a1c8bc55d30daafb865e108c72b4512700b75f66417bf2ea";
 
 function assertDeclarationInventory(css: string) {
   const blocks = declarations(css).filter((block) => block.entries.length > 0);

@@ -1233,7 +1233,10 @@ const ancestryFamilies = [
   ["standalone-style-gate", 4, ["svg.style.container"]],
 ];
 const nonAstRules = [
-  [0, [...stopIds("light"), ...stopIds("dark"), ...stopIds("alias.0"), ...stopIds("alias.1")]],
+  [
+    0,
+    [...stopIds("light"), ...stopIds("dark"), ...stopIds("alias.0"), ...stopIds("alias.1"), "brandFoilText.gradient"],
+  ],
   ...[3, 4].map((index) => [index, ["brand-law", ...stopIds("root.light"), ...stopIds("root.dark")]]),
   [10, ["brand-foil-paragraph"]],
 ];
@@ -1428,8 +1431,8 @@ describe("finite compiler ancestry matrix", () => {
         });
       }
     for (const [index, ids] of nonAstRules) expectedRules[index].push(...ids);
-    expect(expectedRules.flat()).toHaveLength(79);
-    expect(nonAstRules.flatMap(([, ids]) => ids)).toHaveLength(27);
+    expect(expectedRules.flat()).toHaveLength(80);
+    expect(nonAstRules.flatMap(([, ids]) => ids)).toHaveLength(28);
     expect(ancestryFamilies.flatMap(([, , ids]) => ids).filter((id) => id.endsWith(".container"))).toHaveLength(3);
     for (const [index, entry] of brandFoilRegistry.entries()) {
       const rules = entry.validate(clean.carriers.find((row) => row.path === entry.path).source);

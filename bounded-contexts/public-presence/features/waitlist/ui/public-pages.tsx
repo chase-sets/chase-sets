@@ -3,6 +3,7 @@ import {
   Form,
   Banner,
   Badge,
+  BrandFoilText,
   BrandLink,
   Button,
   Checkbox,
@@ -356,6 +357,23 @@ function usePromoBarMessages() {
   return messages;
 }
 
+// The one gold-foil word this page carries (epic #6026): splits the shipped
+// locale title around its treated subject noun so BrandFoilText wraps only
+// that word, never the whole heading.
+function heroTitleContent(title: string, treatedWord: string): ReactNode {
+  const index = title.indexOf(treatedWord);
+  if (index === -1) {
+    throw new Error(`Expected treated word "${treatedWord}" in hero title "${title}".`);
+  }
+  return (
+    <>
+      {title.slice(0, index)}
+      <BrandFoilText>{treatedWord}</BrandFoilText>
+      {title.slice(index + treatedWord.length)}
+    </>
+  );
+}
+
 function useWaitlistCounterDisplay() {
   const [displayCount, setDisplayCount] = useState<number | null>(null);
 
@@ -569,8 +587,8 @@ export function PublicPresenceHomePage({
             }
             title={
               landingExperimentVariant === landingExperimentVariants.sellerFirstV2
-                ? t("publicPresence.home.buyerHero.title")
-                : t("publicPresence.home.title")
+                ? heroTitleContent(t("publicPresence.home.buyerHero.title"), "cards")
+                : heroTitleContent(t("publicPresence.home.title"), "marketplace")
             }
             description={
               landingExperimentVariant === landingExperimentVariants.sellerFirstV2
@@ -710,7 +728,7 @@ function OpenOffersSection() {
       description={t("publicPresence.home.openOffers.description")}
     >
       <Grid columns={{ base: 1, lg: 2 }} gap={4}>
-        <Surface tone="subtle" elevated>
+        <Surface tone="subtle" elevation="tinted">
           <Stack gap={3}>
             <BadgeRow>
               <Badge tone="warning">{t("publicPresence.home.openOffers.before.badge")}</Badge>
@@ -727,7 +745,7 @@ function OpenOffersSection() {
             />
           </Stack>
         </Surface>
-        <Surface tone="subtle" elevated>
+        <Surface tone="subtle" elevation="tinted">
           <Stack gap={3}>
             <BadgeRow>
               <Badge tone="success">{t("publicPresence.home.openOffers.after.badge")}</Badge>
@@ -756,7 +774,7 @@ function OpenOffersSection() {
           "publicPresence.home.openOffers.step.accept",
           "publicPresence.home.openOffers.step.checkout",
         ].map((key, index) => (
-          <Surface key={key} elevated>
+          <Surface key={key} elevation="elevated">
             <Stack gap={2}>
               <Badge tone="neutral">{index + 1}</Badge>
               <Text tone="secondary">{t(key)}</Text>
@@ -825,7 +843,7 @@ function SellerToolsSection() {
           <Surface
             key={card.title}
             tone="subtle"
-            elevated
+            elevation="tinted"
             data-seller-tools-capability={card.capability}
             data-seller-tools-status={card.status}
           >
@@ -845,7 +863,7 @@ function SellerToolsSection() {
           </Surface>
         ))}
       </Grid>
-      <Surface tone="subtle">
+      <Surface tone="subtle" elevation="tinted">
         <Inline gap={3} align="center">
           <ToneIcon name="rocket" tone="success" size="md" label={t("publicPresence.home.sellerTools.cta.title")} />
           <Stack gap={1}>
@@ -991,7 +1009,7 @@ function FoundersOfferSection() {
       title={t("publicPresence.home.foundersOffer.title")}
       description={t("publicPresence.home.foundersOffer.description")}
     >
-      <Surface tone="subtle" elevated>
+      <Surface tone="subtle" elevation="tinted">
         <Stack gap={3}>
           <BadgeRow>
             <Badge tone="trust">{t("publicPresence.home.foundersOffer.badge")}</Badge>
@@ -1044,7 +1062,7 @@ function LaunchTimelineSection() {
     >
       <Grid columns={{ base: 1, md: 3 }} gap={4}>
         {steps.map((step) => (
-          <Surface key={step.key} tone="subtle" elevated>
+          <Surface key={step.key} tone="subtle" elevation="tinted">
             <Stack gap={3}>
               <BadgeRow>
                 <Badge tone={step.badgeTone}>
@@ -1179,7 +1197,7 @@ function ProductSignalPreview({ checkoutFeePreview }: { checkoutFeePreview: Chec
               {t("publicPresence.preview.total.protectionLink")}
             </LinkText>
           </Text>
-          <Surface tone="subtle">
+          <Surface tone="subtle" elevation="tinted">
             <Stack gap={4}>
               <Heading level={3}>{t("publicPresence.preview.trust.title")}</Heading>
               {[
@@ -1219,7 +1237,7 @@ function FounderStorySection({ discordInviteUrl }: { discordInviteUrl?: string |
       title={t("publicPresence.home.founderStory.title")}
       description={t("publicPresence.home.founderStory.description")}
     >
-      <Surface tone="subtle" elevated>
+      <Surface tone="subtle" elevation="tinted">
         <Stack gap={3}>
           <BadgeRow>
             <Badge tone="trust">{t("publicPresence.home.founderStory.badge")}</Badge>
@@ -1423,7 +1441,7 @@ function WaitlistSignupPanel({
   }
 
   const panel = (
-    <Surface id={panelId} elevated glow padding={isHero ? 2 : 4}>
+    <Surface id={panelId} elevation="elevated" glow padding={isHero ? 2 : 4}>
       <Stack gap={isHero ? 2 : 4}>
         {isHero ? (
           <Stack gap={1}>
@@ -1642,7 +1660,7 @@ function FaqPreview({ checkoutFeePreview }: { checkoutFeePreview: CheckoutFeePre
       </Inline>
       <Grid columns={{ base: 1, md: 2 }} gap={4}>
         {previewQuestions.map(([question, answer]) => (
-          <Surface key={question} tone="subtle">
+          <Surface key={question} tone="subtle" elevation="tinted">
             <Stack gap={2}>
               <Heading level={3}>{t(question)}</Heading>
               {/* Launch-timeline and checkout-fee values interpolate here;
