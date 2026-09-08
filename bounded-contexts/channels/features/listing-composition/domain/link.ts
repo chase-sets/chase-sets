@@ -1,4 +1,5 @@
 import type { AggregateEvolver } from "@chase-sets/event-core";
+import { canonicalJson } from "./canonical";
 import type {
   ChannelCommandRefusal,
   ChannelListingCompositionResult,
@@ -9,6 +10,7 @@ import type {
   ChannelPublicationBlockingReason,
   ChannelPublicationOutcome,
 } from "./contracts";
+import { channelPublicationListingBlockingReasons } from "./contracts";
 
 export type ChannelDesiredStateRecord = Readonly<{
   sequence: number;
@@ -77,6 +79,16 @@ export function decideChannelListingComposition(
   if (input.result.kind === "blocked") {
     if (
       state.exists &&
+      state.publishState === "delisted" &&
+      input.result.reasons.length > 0 &&
+      input.result.reasons.every((reason) =>
+        channelPublicationListingBlockingReasons.some((listingReason) => listingReason === reason),
+      )
+    ) {
+      return { kind: "unchanged" };
+    }
+    if (
+      state.exists &&
       state.publishState === "blocked" &&
       equalReasons(state.blockingReasonCodes, input.result.reasons)
     ) {
@@ -99,10 +111,20 @@ export function decideChannelListingComposition(
   if (
     state.exists &&
     state.lastDesiredStateHash === input.result.desiredStateHash &&
-    state.lastDesiredIntent === input.result.intent &&
-    state.publishState === "pending"
+    state.lastDesiredIntent === input.result.intent
   )
     return { kind: "unchanged" };
+  if (state.exists && state.publishState === "published" && input.result.intent !== "delist") {
+    const currentDesired = state.desiredStates.find(
+      (candidate) => candidate.sequence === state.lastDesiredStateSequence,
+    );
+    if (
+      currentDesired?.payload.intent !== "delist" &&
+      canonicalJson(currentDesired?.payload.draft) === canonicalJson(input.result.draft)
+    ) {
+      return { kind: "unchanged" };
+    }
+  }
 
   const common = {
     connectionId: input.connectionId,
@@ -147,6 +169,9 @@ export function decideChannelListingPublicationOutcome(
   }>,
 ): PublicationOutcomeDecision {
   if (!state.exists) return { kind: "refused", code: "unknown-link" };
+  if (input.connectionId !== state.connectionId || input.channelListingId !== state.channelListingId) {
+    return { kind: "refused", code: "desired-state-mismatch" };
+  }
   const desired = state.desiredStates.find(
     (candidate) =>
       candidate.sequence === input.reportedDesiredStateSequence &&

@@ -21,6 +21,27 @@ describe("channel-subscription-order-fence", () => {
     );
     expect(reactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63]);
   });
+
+  it("enumerates every producer event once and reacts only after the owning projection", () => {
+    const subscriptions = contextManifest.eventSubscriptions;
+    const reactions = contextManifest.eventReactions;
+    expect(subscriptions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 8, 14]);
+    expect(reactions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 8, 11]);
+    expect(subscriptions.every((entry) => entry.subscriptionVersion === 1 && entry.filterToEventTypes)).toBe(true);
+    expect(reactions.every((entry) => entry.subscriptionVersion === 1 && entry.filterToEventTypes)).toBe(true);
+    for (let index = 0; index < 3; index += 1) {
+      expect(reactions[index]!.eventTypes).toEqual(subscriptions[index]!.eventTypes);
+    }
+    const channelListingOutcomeEvents = [
+      "channels.channel-listing.desired-state-changed",
+      "channels.channel-listing.publication-blocked",
+      "channels.channel-listing.publication-recorded",
+    ];
+    expect(reactions[3]!.eventTypes).toEqual(
+      subscriptions[3]!.eventTypes.filter((eventType) => !channelListingOutcomeEvents.includes(eventType)),
+    );
+    expect(new Set(subscriptions.flatMap((entry) => entry.eventTypes)).size).toBe(37);
+  });
 });
 
 describe("channel-listing-composition-draft-import", () => {

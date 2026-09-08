@@ -134,7 +134,7 @@ export function buildChannelListingStateProjectionHandlers(db: PgQueryable): Pro
         await db.query(
           `UPDATE channels_channel_listing_links SET
              external_listing_id=COALESCE(external_listing_id,$3),external_offer_id=COALESCE(external_offer_id,$4),
-             provider_revision=COALESCE(provider_revision,$5),operation_bindings=operation_bindings || jsonb_build_object($2,$6::jsonb),
+             provider_revision=COALESCE(provider_revision,$5),operation_bindings=operation_bindings || jsonb_build_object($2::text,$6::jsonb),
              updated_at=$7,last_stream_version=$8
            WHERE channel_listing_id=$1 AND last_stream_version < $8`,
           [
@@ -161,7 +161,7 @@ export function buildChannelListingStateProjectionHandlers(db: PgQueryable): Pro
              last_pushed_quantity=CASE WHEN last_desired_intent='delist' THEN 0 ELSE (last_desired_payload->'draft'->>'quantity')::integer END,
              publish_state=CASE WHEN last_desired_intent='delist' THEN 'delisted' ELSE 'published' END,
              blocking_reason_codes='[]'::jsonb,failure_reason=NULL,
-             operation_bindings=operation_bindings || jsonb_build_object($2,$6::jsonb),updated_at=$7,last_stream_version=$8
+             operation_bindings=operation_bindings || jsonb_build_object($2::text,$6::jsonb),updated_at=$7,last_stream_version=$8
            WHERE channel_listing_id=$1 AND last_stream_version < $8`,
           [
             data.channelListingId,
@@ -178,7 +178,7 @@ export function buildChannelListingStateProjectionHandlers(db: PgQueryable): Pro
       }
       await db.query(
         `UPDATE channels_channel_listing_links SET publish_state='failed',blocking_reason_codes='[]'::jsonb,
-           failure_reason=$3,operation_bindings=operation_bindings || jsonb_build_object($2,$4::jsonb),
+           failure_reason=$3,operation_bindings=operation_bindings || jsonb_build_object($2::text,$4::jsonb),
            updated_at=$5,last_stream_version=$6
          WHERE channel_listing_id=$1 AND last_stream_version < $6`,
         [
