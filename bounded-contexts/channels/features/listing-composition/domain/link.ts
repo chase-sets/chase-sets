@@ -111,7 +111,8 @@ export function decideChannelListingComposition(
   if (
     state.exists &&
     state.lastDesiredStateHash === input.result.desiredStateHash &&
-    state.lastDesiredIntent === input.result.intent
+    state.lastDesiredIntent === input.result.intent &&
+    (state.publishState === "pending" || state.publishState === "failed")
   )
     return { kind: "unchanged" };
   if (state.exists && state.publishState === "published" && input.result.intent !== "delist") {

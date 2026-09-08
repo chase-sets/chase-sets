@@ -91,6 +91,36 @@ describe("channel-listing-link-transition-matrix", () => {
     expect(state).toMatchObject({ publishState: "published", lastPushedQuantity: 3, blockingReasonCodes: [] });
   });
 
+  it("re-enqueues an identical prior desire when a blocked Link becomes publishable", () => {
+    let state = desiredState();
+    state = evolveChannelListing(state, {
+      type: "channels.channel-listing.publication-blocked",
+      data: {
+        connectionId: state.connectionId,
+        channelListingId: state.channelListingId,
+        listingId: state.listingId,
+        listingRevision: 7,
+        reasons: ["seller-unavailable"],
+      },
+    });
+    const result = composeChannelListingPublication(listingInput({ link: { kind: "existing", state } }));
+    expect(result).toMatchObject({
+      kind: "publishable",
+      intent: "publish",
+      desiredStateHash: state.lastDesiredStateHash,
+    });
+    expect(
+      decideChannelListingComposition(state, {
+        connectionId: state.connectionId,
+        channelListingId: state.channelListingId,
+        listingId: state.listingId,
+        listingRevision: 7,
+        nextStreamVersion: 3,
+        result,
+      }),
+    ).toMatchObject({ kind: "append", event: { data: { desiredStateSequence: 3 } } });
+  });
+
   it("refuses operation rebound, tuple mismatch and conflicting identity without mutation", () => {
     let state = desiredState();
     const success = decideChannelListingPublicationOutcome(
@@ -229,11 +259,7 @@ describe("channel-listing-link-transition-matrix", () => {
   });
 
   it("never emits a delist when any required last-pushed value is null", () => {
-    for (const field of [
-      "lastPushedPriceAmountMinor",
-      "lastPushedPriceCurrency",
-      "lastPushedQuantity",
-    ] as const) {
+    for (const field of ["lastPushedPriceAmountMinor", "lastPushedPriceCurrency", "lastPushedQuantity"] as const) {
       const input = listingInput({
         link: { kind: "existing", state: publishedLink({ [field]: null }) },
       });
