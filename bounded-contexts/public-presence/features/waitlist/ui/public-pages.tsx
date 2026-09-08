@@ -357,9 +357,9 @@ function usePromoBarMessages() {
   return messages;
 }
 
-// The one gold-foil word this page carries (epic #6026): splits the shipped
-// locale title around its treated subject noun so BrandFoilText wraps only
-// that word, never the whole heading.
+// The one gold-foil word this page carries under the ratified foil law:
+// splits the shipped locale title around its treated subject noun so
+// BrandFoilText wraps only that word, never the whole heading.
 function heroTitleContent(title: string, treatedWord: string): ReactNode {
   const index = title.indexOf(treatedWord);
   if (index === -1) {
