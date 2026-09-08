@@ -27,6 +27,7 @@ import {
   formatMoney,
   formatOfferCount,
   formatSellerCount,
+  getCommonPriceCurrencyCode,
   getHighestOfferPrice,
   type MarketBookTab,
   type MarketIntent,
@@ -190,7 +191,7 @@ export function buildItemDetailPageView({
     );
   const marketSummaryPrice =
     marketIntent === "sell"
-      ? formatMoney(getHighestOfferPrice(matchingOffers))
+      ? formatMoney(getHighestOfferPrice(matchingOffers), getCommonPriceCurrencyCode(matchingOffers))
       : selectedMarketSummary.lowest_price_currency_code
         ? formatMoney(selectedMarketSummary.lowest_price_amount, selectedMarketSummary.lowest_price_currency_code)
         : t("discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable");

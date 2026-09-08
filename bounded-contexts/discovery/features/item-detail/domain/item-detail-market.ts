@@ -151,11 +151,7 @@ export function getInitialSelections(
 }
 
 export function getLowestPrice(listings: readonly DiscoveryMarketListing[]): string | null {
-  if (
-    listings.length === 0 ||
-    listings.some((listing) => !listing.price_currency_code) ||
-    new Set(listings.map((listing) => listing.price_currency_code)).size !== 1
-  ) {
+  if (!getCommonPriceCurrencyCode(listings)) {
     return null;
   }
   return listings.reduce<string | null>((lowest, listing) => {
@@ -168,11 +164,7 @@ export function getLowestPrice(listings: readonly DiscoveryMarketListing[]): str
 }
 
 export function getHighestOfferPrice(offers: readonly DiscoveryOffer[]): string | null {
-  if (
-    offers.length === 0 ||
-    offers.some((offer) => !offer.price_currency_code) ||
-    new Set(offers.map((offer) => offer.price_currency_code)).size !== 1
-  ) {
+  if (!getCommonPriceCurrencyCode(offers)) {
     return null;
   }
   return offers.reduce<string | null>((highest, offer) => {
@@ -182,6 +174,18 @@ export function getHighestOfferPrice(offers: readonly DiscoveryOffer[]): string 
 
     return Number.parseFloat(offer.price_amount) > Number.parseFloat(highest) ? offer.price_amount : highest;
   }, null);
+}
+
+export function getCommonPriceCurrencyCode(entries: readonly { price_currency_code: string | null }[]): string | null {
+  if (
+    entries.length === 0 ||
+    entries.some((entry) => !entry.price_currency_code) ||
+    new Set(entries.map((entry) => entry.price_currency_code)).size !== 1
+  ) {
+    return null;
+  }
+
+  return entries[0]?.price_currency_code ?? null;
 }
 
 function toPriceNumber(value: string): number | null {
@@ -338,6 +342,7 @@ export function buildProductOptionSummaries({
                         getHighestOfferPrice(
                           matchingOption.filter((entry): entry is DiscoveryOffer => "quantity_requested" in entry),
                         ),
+                        getCommonPriceCurrencyCode(matchingOption),
                       ),
                     })
                   : t("discovery.features.itemDetail.ui.itemDetailPage.option.summary", {
@@ -346,6 +351,7 @@ export function buildProductOptionSummaries({
                         getLowestPrice(
                           matchingOption.filter((entry): entry is DiscoveryMarketListing => "listing_id" in entry),
                         ),
+                        getCommonPriceCurrencyCode(matchingOption),
                       ),
                     })
                 : t("discovery.features.itemDetail.ui.itemDetailPage.none"),
