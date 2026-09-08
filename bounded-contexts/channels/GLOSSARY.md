@@ -48,6 +48,30 @@ A **Channel Listing Link** is the association between a Chase Sets Listing or In
 
 **Channel Publication** is sending a Channel Listing Link's current state to a Sales Channel.
 
+## Channel Publication Facts
+
+**Channel Publication Facts** are Channels-owned projections of authoritative Marketplace, Catalog, Inventory, and Channels streams used to compose publication without request-time cross-context reads.
+
+## Channel Composition Profile
+
+A **Channel Composition Profile** declares which provider-neutral publication draft dimensions Chase Sets supplies for one provider and environment, with explicit bounds and derivation evidence.
+
+## Channel Publication Settings
+
+**Channel Publication Settings** are the account-owned title, description, category, and listing-exclusion choices for one Channel Connection.
+
+## Channel Publication Eligibility
+
+**Channel Publication Eligibility** is the complete fail-closed decision that a Channel Listing Link can publish, update, or delist from current facts, settings, mappings, references, and profile.
+
+## Channel Listing Desired State
+
+**Channel Listing Desired State** is the closed, versioned publish, update, or delist intent composed for one Channel Listing Link.
+
+## Channel Listing Reconciliation Run
+
+A **Channel Listing Reconciliation Run** durably pages every listing affected by a multi-row fact or configuration change and records complete or failed settlement.
+
 ## Channel Provider Registry
 
 The **Channel Provider Registry** is the account-independent, immutable table of provider descriptors keyed by provider and environment.

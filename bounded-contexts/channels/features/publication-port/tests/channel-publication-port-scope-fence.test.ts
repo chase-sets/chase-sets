@@ -10,11 +10,15 @@ describe("channel-publication-port-scope-fence", () => {
     const sliceRoot = path.resolve(import.meta.dirname, "..");
     const relativeFiles = listFiles(sliceRoot);
     expect([...new Set(relativeFiles.map((file) => file.split("/")[0]))].sort()).toEqual(["api", "domain", "tests"]);
-    expect(manifest.slices).toEqual(["connections", "publication-port"]);
+    expect(manifest.slices).toEqual(["connections", "publication-port", "listing-composition"]);
     expect(manifest.hostPorts).toEqual([]);
-    expect(manifest.allowedSupportDirectories).toEqual([]);
-    expect(manifest.publicExports).toEqual([".", "./context"]);
-    expect(packageJson.exports).toEqual({ ".": "./index.ts", "./context": "./context.json" });
+    expect(manifest.allowedSupportDirectories).toEqual(["request-support"]);
+    expect(manifest.publicExports).toEqual([".", "./context", "./routes/*"]);
+    expect(packageJson.exports).toEqual({
+      ".": "./index.ts",
+      "./context": "./context.json",
+      "./routes/*": "./routes/*.tsx",
+    });
 
     const contracts = readFileSync(path.join(sliceRoot, "domain/contracts.ts"), "utf8");
     const registry = readFileSync(path.join(sliceRoot, "api/registry.ts"), "utf8");

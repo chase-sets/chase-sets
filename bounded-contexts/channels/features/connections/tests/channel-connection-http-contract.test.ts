@@ -4,6 +4,7 @@ import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
 import { channelConnectionRoutes } from "../api/route";
 import type { ChannelConnectionServices, ChannelConnectionState, PublicChannelConnection } from "../domain/contracts";
 import { testContext } from "./test-support";
+import { createUnavailableListingCompositionServices } from "../../listing-composition/tests/service-stub";
 
 const dto: PublicChannelConnection = {
   connectionId: "connection_1",
@@ -75,7 +76,14 @@ function createApp(services: ChannelConnectionServices, permissions = ["channels
     c.set("context", testContext);
     await next();
   });
-  app.route("/api/channels", buildChannelsApi({ connections: services, projectors: [] }));
+  app.route(
+    "/api/channels",
+    buildChannelsApi({
+      connections: services,
+      listingComposition: createUnavailableListingCompositionServices(),
+      projectors: [],
+    }),
+  );
   return app;
 }
 

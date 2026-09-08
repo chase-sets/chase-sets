@@ -79,6 +79,12 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (!relativeFiles.some((file) => file.startsWith("features/publication-port/"))) {
     violations.push("publication-port-files");
   }
+  if (!relativeFiles.some((file) => file.startsWith("features/listing-composition/"))) {
+    violations.push("listing-composition-files");
+  }
+  if (!relativeFiles.some((file) => file.startsWith("support/request-support/"))) {
+    violations.push("request-support-files");
+  }
   if (
     relativeFiles.some(
       (file) =>
@@ -97,19 +103,19 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("publication-port-buckets");
   }
-  const emptyArrayFields = [
-    "allowedSupportDirectories",
-    "allowedContextDependencies",
-    "seedRequirements",
-    "hostPorts",
-    "deployableContributions",
-    "shellContributions",
-  ];
+  if (
+    relativeFiles.some(
+      (file) =>
+        file.startsWith("features/listing-composition/") &&
+        !/^features\/listing-composition\/(?:api|domain|integrations|read-model|tests|ui)\//.test(file),
+    )
+  ) {
+    violations.push("listing-composition-buckets");
+  }
+  const emptyArrayFields = ["allowedContextDependencies", "seedRequirements", "hostPorts"];
   const absentManifestFields = [
     "sourceRuntimeDeployables",
     "sourceRuntimeProfiles",
-    "eventSubscriptions",
-    "eventReactions",
     "mcpCapabilities",
     "accountCapabilities",
     "readAfterWriteRouteInventory",
@@ -122,9 +128,17 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   for (const field of absentManifestFields) {
     if (field in candidate) violations.push(field);
   }
-  if (JSON.stringify(candidate.slices) !== JSON.stringify(["connections", "publication-port"])) {
+  if (JSON.stringify(candidate.slices) !== JSON.stringify(["connections", "publication-port", "listing-composition"])) {
     violations.push("slices");
   }
+  if (JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support"])) {
+    violations.push("allowedSupportDirectories");
+  }
+  if (candidate.eventSubscriptions?.length !== 4) violations.push("eventSubscriptions");
+  if (candidate.eventReactions?.length !== 4) violations.push("eventReactions");
+  if (candidate.deployableContributions?.[0]?.routes?.length !== 2) violations.push("deployableContributions");
+  if (candidate.shellContributions?.[0]?.requiredPermissions?.[0] !== "channels.view")
+    violations.push("shellContributions");
   if (JSON.stringify(candidate.apiDeployables) !== JSON.stringify(["platform-api"])) violations.push("apiDeployables");
   if (JSON.stringify(candidate.runtimeDeployables) !== JSON.stringify(["platform-worker"])) {
     violations.push("runtimeDeployables");
@@ -148,7 +162,41 @@ afterEach(() => {
 
 describe("channels-context-foundation", () => {
   it("supersedes the foundation with the exact connection slice, module, finite tests, and README contract", () => {
-    expect(readJson(manifestPath)).toEqual({
+    const manifest = readJson(manifestPath);
+    expect(manifest).toMatchObject({
+      contextName: "channels",
+      packageName: "@chase-sets/channels",
+      ownedNouns: expect.arrayContaining([
+        "channel-connection",
+        "channel-publication-facts",
+        "channel-composition-profile",
+        "channel-publication-settings",
+        "channel-publication-eligibility",
+        "channel-listing-desired-state",
+        "channel-listing-reconciliation-run",
+      ]),
+      slices: ["connections", "publication-port", "listing-composition"],
+      allowedSupportDirectories: ["request-support"],
+      allowedContextDependencies: [],
+      hostPorts: [],
+    });
+    expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([10, 20, 30, 40]);
+    expect(manifest.eventSubscriptions.map((entry) => entry.sourceContextName)).toEqual([
+      "marketplace",
+      "catalog",
+      "inventory",
+      "channels",
+    ]);
+    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63]);
+    expect(manifest.deployableContributions[0].routes.map((route) => route.authorization.requiredPermissions)).toEqual([
+      ["channels.view"],
+      ["channels.view"],
+    ]);
+    expect(manifest.shellContributions[0]).toMatchObject({
+      key: "channels-publication",
+      requiredPermissions: ["channels.view"],
+    });
+    expect(manifest).not.toEqual({
       contextName: "channels",
       packageName: "@chase-sets/channels",
       ownedNouns: ["channel-connection"],
@@ -219,7 +267,18 @@ describe("channels-context-foundation", () => {
       },
       runtimeDeployables: ["platform-worker"],
     });
-    expect(readJson(packagePath)).toEqual({
+    const packageJson = readJson(packagePath);
+    expect(packageJson).toMatchObject({
+      name: "@chase-sets/channels",
+      chaseSets: { testProfile: "db" },
+      dependencies: {
+        "@chase-sets/design-system": "workspace:*",
+        "@chase-sets/http": "workspace:*",
+        "@chase-sets/localization": "workspace:*",
+        "@chase-sets/primitives": "workspace:*",
+      },
+    });
+    expect(packageJson).not.toEqual({
       name: "@chase-sets/channels",
       version: "0.1.0",
       private: true,
@@ -255,6 +314,11 @@ describe("channels-context-foundation", () => {
         "features/publication-port/api/registry.ts",
         "features/publication-port/domain/contracts.ts",
         "features/publication-port/domain/validation.ts",
+        "features/listing-composition/domain/compose.ts",
+        "features/listing-composition/api/runtime.ts",
+        "features/listing-composition/read-model/schema.ts",
+        "routes/marketplace/account-channels-publication.tsx",
+        "support/request-support/api-client.ts",
         "tests/vitest.config.mjs",
       ]),
     );
@@ -271,7 +335,9 @@ describe("channels glossary alias evidence", () => {
   it("passes synthetic channels.connection.connected coverage and kills the alias-removed mutant", () => {
     const root = createTempRepo("channels-glossary-");
     const liveBaseline = readJson(baselinePath);
-    const channelsAliases = liveBaseline.aliases.filter((entry) => entry.contextName === "channels");
+    const channelsAliases = liveBaseline.aliases.filter(
+      (entry) => entry.contextName === "channels" && entry.noun === "connection",
+    );
     expect(channelsAliases).toEqual([
       {
         contextName: "channels",
@@ -328,7 +394,7 @@ describe("channels glossary alias evidence", () => {
 });
 
 describe("channels-foundation-no-deployable-registration", () => {
-  it("registers Channels only in the API and worker registries and kills the behavior-free mutant", () => {
+  it("registers Channels in API, worker, and contributed marketplace-web registries and kills the behavior-free mutant", () => {
     const root = createTempRepo("channels-metadata-");
     writeJson(path.join(root, "tsconfig.base.json"), { compilerOptions: { paths: {} } });
     const fixtureManifestPath = path.join(root, "bounded-contexts/channels/context.json");
@@ -351,11 +417,12 @@ describe("channels-foundation-no-deployable-registration", () => {
     syncWorkspaceMetadata({ ...common, workspaces: [channelsWorkspace] });
     const candidate = readRegistryBytes(root);
 
-    for (const relativePath of registryPaths.slice(0, 2)) {
+    for (const relativePath of [registryPaths[0], registryPaths[1], registryPaths[3]]) {
       expect(candidate[relativePath]).not.toEqual(before[relativePath]);
       expect(candidate[relativePath].toString("utf8")).toContain("@chase-sets/channels");
     }
-    for (const relativePath of registryPaths.slice(2)) expect(candidate[relativePath]).toEqual(before[relativePath]);
+    for (const relativePath of [registryPaths[2], registryPaths[4]])
+      expect(candidate[relativePath]).toEqual(before[relativePath]);
 
     writeJson(fixtureManifestPath, {
       ...manifest,
@@ -363,6 +430,8 @@ describe("channels-foundation-no-deployable-registration", () => {
       apiRuntimeProfiles: [],
       runtimeDeployables: [],
       workerRuntimeProfiles: [],
+      deployableContributions: [],
+      shellContributions: [],
     });
     syncWorkspaceMetadata({ ...common, workspaces: [channelsWorkspace] });
     const mutant = readRegistryBytes(root);
@@ -371,7 +440,7 @@ describe("channels-foundation-no-deployable-registration", () => {
 });
 
 describe("channels-foundation-surface-fence", () => {
-  it("accepts the connection slice while freezing unused foundation fields and excluding landing", () => {
+  it("accepts the desired-state slice while freezing forbidden context dependencies and excluding landing", () => {
     const manifest = readJson(manifestPath);
     const files = listFiles(channelsRoot);
     expect(collectChannelsSurfaceViolations(manifest, files)).toEqual([]);
@@ -399,6 +468,12 @@ describe("channels-glossary-ownership", () => {
   ];
   const syncTerms = [
     "Channel Listing Link",
+    "Channel Publication Facts",
+    "Channel Composition Profile",
+    "Channel Publication Settings",
+    "Channel Publication Eligibility",
+    "Channel Listing Desired State",
+    "Channel Listing Reconciliation Run",
     "Channel Sync",
     "Channel Sync Run",
     "Channel Sync Error",
@@ -485,7 +560,11 @@ describe("channels-wake-registry-derivation", () => {
       ...derive(manifests),
     });
     expect(derive(manifests)).toEqual({
-      affectedProjectionNames: ["channels:channel-connection-projection"],
+      affectedProjectionNames: [
+        "channels:channel-connection-projection",
+        "channels:channel-listing-desired-state-reaction",
+        "channels:channel-owned-publication-state",
+      ],
       routeDependencyIds: [],
     });
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
@@ -503,6 +582,8 @@ describe("channels-wake-registry-derivation", () => {
     ]);
     expect(projectionMutant.affectedProjectionNames).toEqual([
       "channels:channel-connection-projection",
+      "channels:channel-listing-desired-state-reaction",
+      "channels:channel-owned-publication-state",
       "neutral-consumer:connection-view",
     ]);
     expect(projectionMutant.affectedProjectionNames).not.toEqual(entry.affectedProjectionNames);

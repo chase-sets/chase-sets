@@ -225,18 +225,39 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
+      '@chase-sets/design-system':
+        specifier: workspace:*
+        version: link:../../packages/design-system
       '@chase-sets/event-core':
         specifier: workspace:*
         version: link:../../contracts/event-core
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/http':
+        specifier: workspace:*
+        version: link:../../contracts/http
+      '@chase-sets/localization':
+        specifier: workspace:*
+        version: link:../../contracts/localization
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
       hono:
         specifier: ^4.12.12
         version: 4.12.18
+      react:
+        specifier: ^19.2.4
+        version: 19.2.6
+      react-dom:
+        specifier: ^19.2.4
+        version: 19.2.6(react@19.2.6)
+      react-router:
+        specifier: ^7.14.0
+        version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
 
   bounded-contexts/checkout:
     dependencies:

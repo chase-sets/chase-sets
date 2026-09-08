@@ -1,15 +1,190 @@
 {
   "contextName": "channels",
   "packageName": "@chase-sets/channels",
-  "ownedNouns": ["channel-connection"],
+  "ownedNouns": [
+    "channel-connection",
+    "channel-publication-facts",
+    "channel-composition-profile",
+    "channel-publication-settings",
+    "channel-publication-eligibility",
+    "channel-listing-desired-state",
+    "channel-listing-reconciliation-run"
+  ],
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
-  "slices": ["connections", "publication-port"],
-  "allowedSupportDirectories": [],
-  "publicExports": [".", "./context"],
+  "slices": ["connections", "publication-port", "listing-composition"],
+  "allowedSupportDirectories": ["request-support"],
+  "publicExports": [".", "./context", "./routes/*"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "channel-marketplace-publication-facts",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.auto-unlisted",
+        "marketplace.listing.withdrawn",
+        "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-listing-availability.disabled"
+      ],
+      "order": 10,
+      "projectionHandlerSetNames": ["channel-marketplace-publication-facts"]
+    },
+    {
+      "sourceContextName": "catalog",
+      "projectionName": "channel-catalog-publication-facts",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed",
+        "catalog.catalog-item.external-product-reference-linked",
+        "catalog.catalog-item.external-product-reference-unlinked",
+        "catalog.catalog-item.external-catalog-item-reference-linked",
+        "catalog.catalog-item.external-catalog-item-reference-unlinked"
+      ],
+      "order": 20,
+      "projectionHandlerSetNames": ["channel-catalog-publication-facts"]
+    },
+    {
+      "sourceContextName": "inventory",
+      "projectionName": "channel-inventory-publication-facts",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "inventory.item.created",
+        "inventory.item.adjusted",
+        "inventory.hold.placed",
+        "inventory.hold.converted",
+        "inventory.hold.extended",
+        "inventory.hold.released",
+        "inventory.hold.expired",
+        "inventory.hold.consumed"
+      ],
+      "order": 30,
+      "projectionHandlerSetNames": ["channel-inventory-publication-facts"]
+    },
+    {
+      "sourceContextName": "channels",
+      "projectionName": "channel-owned-publication-state",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "channels.connection.connected",
+        "channels.connection.activated",
+        "channels.connection.paused",
+        "channels.connection.resumed",
+        "channels.connection.disconnected",
+        "channels.channel-publication-configuration.settings-replaced",
+        "channels.channel-publication-configuration.mapping-candidate-recorded",
+        "channels.channel-publication-configuration.mapping-review-decided",
+        "channels.channel-listing.desired-state-changed",
+        "channels.channel-listing.publication-blocked",
+        "channels.channel-listing.publication-recorded",
+        "channels.channel-listing-reconciliation.run-enqueued",
+        "channels.channel-listing-reconciliation.chunk-drained",
+        "channels.channel-listing-reconciliation.run-settled"
+      ],
+      "order": 40,
+      "projectionHandlerSetNames": ["channel-connection-publication-facts", "channel-listing-state-projection"]
+    }
+  ],
+  "eventReactions": [
+    {
+      "sourceContextName": "marketplace",
+      "reactionName": "channel-listing-desired-state-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.auto-unlisted",
+        "marketplace.listing.withdrawn",
+        "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-listing-availability.disabled"
+      ],
+      "order": 60,
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "catalog",
+      "reactionName": "channel-listing-desired-state-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed",
+        "catalog.catalog-item.external-product-reference-linked",
+        "catalog.catalog-item.external-product-reference-unlinked",
+        "catalog.catalog-item.external-catalog-item-reference-linked",
+        "catalog.catalog-item.external-catalog-item-reference-unlinked"
+      ],
+      "order": 61,
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "inventory",
+      "reactionName": "channel-listing-desired-state-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "inventory.item.created",
+        "inventory.item.adjusted",
+        "inventory.hold.placed",
+        "inventory.hold.converted",
+        "inventory.hold.extended",
+        "inventory.hold.released",
+        "inventory.hold.expired",
+        "inventory.hold.consumed"
+      ],
+      "order": 62,
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "channels",
+      "reactionName": "channel-listing-desired-state-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "channels.connection.connected",
+        "channels.connection.activated",
+        "channels.connection.paused",
+        "channels.connection.resumed",
+        "channels.connection.disconnected",
+        "channels.channel-publication-configuration.settings-replaced",
+        "channels.channel-publication-configuration.mapping-candidate-recorded",
+        "channels.channel-publication-configuration.mapping-review-decided",
+        "channels.channel-listing-reconciliation.run-enqueued",
+        "channels.channel-listing-reconciliation.chunk-drained",
+        "channels.channel-listing-reconciliation.run-settled"
+      ],
+      "order": 63,
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    }
+  ],
   "projectionGroups": [
     {
       "projectionName": "channel-connection-projection",
@@ -17,6 +192,53 @@
       "ownedTables": ["channel_connections"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "channel-marketplace-publication-facts",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["channels_listing_publication_facts", "channels_seller_availability_facts"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-catalog-publication-facts",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": [
+        "channels_catalog_item_category_facts",
+        "channels_external_product_reference_facts",
+        "channels_external_catalog_item_reference_facts"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-inventory-publication-facts",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["channels_inventory_item_facts", "channels_inventory_hold_facts"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-owned-publication-state",
+      "sourceContextNames": ["channels"],
+      "ownedTables": [
+        "channels_connection_facts",
+        "channels_connection_publication_settings",
+        "channels_channel_mappings",
+        "channels_channel_listing_links",
+        "channels_listing_reconciliation_runs"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-listing-desired-state-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["marketplace", "catalog", "inventory", "channels"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -29,8 +251,61 @@
     }
   ],
   "workerRuntimeProfiles": ["proof", "public"],
-  "deployableContributions": [],
-  "shellContributions": [],
+  "deployableContributions": [
+    {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "channels-publication",
+          "routePath": "account/channels/publication",
+          "fileExport": "./routes/marketplace/account-channels-publication",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "server-only",
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account publication settings are private." },
+          "availability": { "web": true, "mobile": false },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this account route."
+          }
+        },
+        {
+          "routeId": "channels-publication-connection",
+          "routePath": "account/channels/publication/:connectionId",
+          "fileExport": "./routes/marketplace/account-channels-publication-connection",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "server-only",
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account publication settings are private." },
+          "availability": { "web": true, "mobile": false },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this account route."
+          }
+        }
+      ]
+    }
+  ],
+  "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "placements": ["top-nav", "bottom-nav"],
+      "key": "channels-publication",
+      "label": "Channels",
+      "icon": "store",
+      "href": "/account/channels/publication",
+      "order": 150,
+      "visibility": "signed-in",
+      "requiredPermissions": ["channels.view"]
+    }
+  ],
   "mutationConsistencyInventory": [
     {
       "id": "channels.connection-command-snapshots",
@@ -52,6 +327,31 @@
           "bounded-contexts/channels/features/connections/tests/channel-connection-command-snapshot-responses.test.ts"
         ]
       }
+    },
+    {
+      "id": "channels.publication-configuration-optimistic-correction",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "optimistic-with-correction",
+      "surfaces": [
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H2b969724e1a0#1",
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:PUT H7bd6e2a2b805#1",
+        "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:POST /:connectionId/mappings/:dimension/:sourceKey/decision",
+        "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:PUT /:connectionId/settings",
+        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Ha94213ead578#1",
+        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Ha98ce7edb16e#1",
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channels-publication-connection.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Publication settings and mapping forms retain submitted values while the real data-router revalidates; a changed configuration stream version remounts the form from authoritative loader data, while conflicts and command errors remain visible."
+      },
+      "proof": {
+        "correction": "Both forms are keyed by configurationStreamVersion. The route action returns conflicts and command failures directly; successful actions invoke normal React Router loader revalidation, and a newer version replaces the optimistic form with the account-scoped API result.",
+        "tests": [
+          "bounded-contexts/channels/features/listing-composition/tests/channel-publication-settings-route.test.tsx",
+          "bounded-contexts/channels/features/listing-composition/tests/channel-mapping-review-route.test.ts"
+        ]
+      }
     }
   ],
   "directoryIntent": {
@@ -62,8 +362,19 @@
     },
     "publication-port": {
       "classification": "slice",
-      "purpose": "Own the provider-neutral Channel Publication contract and immutable provider registry.",
+      "purpose": "Own the publication-port provider-neutral Channel Publication contract and immutable provider registry.",
       "expectedConsumers": ["Internal Channels publication workflows and provider integrations"]
+    },
+    "listing-composition": {
+      "classification": "slice",
+      "purpose": "Own the listing-composition Channel Publication Facts, configuration, eligibility, desired state, Links, and reconciliation runs.",
+      "expectedConsumers": ["Channels account publication routes and registered channel publication consumers"]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Compose authenticated Channels publication requests for marketplace-web routes.",
+      "expectedConsumers": ["Channels account publication route adapters"],
+      "crossCuttingRuntimeComposition": true
     },
     "routes": {
       "classification": "routes",

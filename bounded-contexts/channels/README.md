@@ -5,7 +5,8 @@
 Channels owns the seller-facing lifecycle for connecting an Account to a Sales
 Channel and the provider-neutral contract for publishing listings through it.
 The connection slice keeps setup authority injected, while the publication
-port currently composes an empty production provider registry.
+port and listing-composition slice project authoritative facts into one closed,
+provider-neutral desired state. Production composition profiles remain empty.
 
 ## Owns
 
@@ -19,6 +20,8 @@ port currently composes an empty production provider registry.
 - Channel Connection setup, lifecycle, projection, and account-scoped history
 - Channel Publication contracts, provider capability declarations, and the
   immutable Channel Provider Registry
+- Channel Publication Facts, Profiles, Settings, Eligibility, Desired State,
+  Links, and durable Reconciliation Runs
 
 ## Does Not Own
 
@@ -39,6 +42,11 @@ Channels terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 `ChannelConnection` is event sourced and moves through `pending-setup`,
 `active`, `paused`, and terminal `disconnected` states.
 
+`ChannelPublicationConfiguration`, `ChannelListingLink`, and
+`ChannelListingReconciliationRun` are event sourced. A Link composes one
+material desired-state event at a time; reconciliation runs page multi-listing
+changes durably and settle only after an independent affected-count check.
+
 ## Incoming Dependencies
 
 Injected setup, credential, policy, and storage-location authority resolvers.
@@ -50,6 +58,15 @@ Injected setup, credential, policy, and storage-location authority resolvers.
 - `channels.connection.paused`
 - `channels.connection.resumed`
 - `channels.connection.disconnected`
+- `channels.channel-publication-configuration.settings-replaced`
+- `channels.channel-publication-configuration.mapping-candidate-recorded`
+- `channels.channel-publication-configuration.mapping-review-decided`
+- `channels.channel-listing.desired-state-changed`
+- `channels.channel-listing.publication-blocked`
+- `channels.channel-listing.publication-recorded`
+- `channels.channel-listing-reconciliation.run-enqueued`
+- `channels.channel-listing-reconciliation.chunk-drained`
+- `channels.channel-listing-reconciliation.run-settled`
 
 ## Invariants
 
@@ -59,6 +76,10 @@ Injected setup, credential, policy, and storage-location authority resolvers.
 3. Inventory remains the source of stock truth; Channels owns only the
    channel-facing connection and synchronization language moved here.
 4. Identity remains the source of Account capability and standing truth.
+5. Marketplace Listing is the only source of the amount/currency price pair;
+   incomplete historical pairs block and are never assigned a default.
+6. Desired-state sequence, Marketplace listing revision, desired-state hash,
+   publication operation ID, and consumer payload digest are distinct identities.
 
 ## Tests
 
