@@ -492,19 +492,15 @@ function normalizeSplitGroupHandoff(
   const coveredLineIds: string[] = [];
   const expectedLineIds = lines.map((line) => line.cartLineId).filter((lineId): lineId is string => Boolean(lineId));
   assert(expectedLineIds.length === lines.length, "Cart checkout lines must keep their source line references.");
-  for (const line of lines) {
-    assert(
-      Boolean(line.listingId) && line.listingId === line.lockedListingId,
-      "Cart checkout lines must name their selected listings.",
-    );
-  }
-
+  assert(
+    lines.every((line) => line.listingId && line.listingId === line.lockedListingId),
+    "Cart lines require selected Listings.",
+  );
   for (const group of groups) {
     assert(group.groupId.trim(), "Cart readiness split groups must have stable ids.");
     assert(!groupIds.has(group.groupId), "Cart readiness split groups must have unique ids.");
     groupIds.add(group.groupId);
-    assert(group.lineIds.length > 0, "Cart readiness split groups must include checkout lines.");
-    assert(group.listingIds.length > 0, "Cart readiness split groups must name selected listings.");
+    assert(group.lineIds.length > 0 && group.listingIds.length > 0, "Cart groups require lines and selected Listings.");
     coveredLineIds.push(...group.lineIds);
 
     const groupLines = lines.filter((line) => line.cartLineId && group.lineIds.includes(line.cartLineId));

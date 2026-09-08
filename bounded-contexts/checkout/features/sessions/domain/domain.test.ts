@@ -322,7 +322,7 @@ describe("checkout session domain", () => {
         ],
         createdAt: "2026-04-29T00:00:00.000Z",
       }),
-    ).toThrow("Cart checkout lines must name their selected listings.");
+    ).toThrow("Cart lines require selected Listings.");
   });
 
   it("rejects cart sessions when a fulfillment group omits its selected Listing", () => {
@@ -343,7 +343,7 @@ describe("checkout session domain", () => {
         lines: [line],
         createdAt: "2026-04-29T00:00:00.000Z",
       }),
-    ).toThrow("Cart readiness split groups must name selected listings.");
+    ).toThrow("Cart groups require lines and selected Listings.");
   });
 
   it("does not create split group handoff facts for non-cart source intents", () => {
