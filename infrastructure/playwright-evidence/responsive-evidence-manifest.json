@@ -2024,7 +2024,7 @@
         {
           "identity": "workbench-cta-visible",
           "scope": "target",
-          "selector": "a[href='/platform/projections'].bg-accent",
+          "selector": "button[type='submit'].bg-accent",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -2067,7 +2067,7 @@
         {
           "identity": "workbench-cta-visible",
           "scope": "target",
-          "selector": "a[href='/platform/projections'].bg-accent",
+          "selector": "button[type='submit'].bg-accent",
           "property": "visible",
           "assertion": {
             "equals": true

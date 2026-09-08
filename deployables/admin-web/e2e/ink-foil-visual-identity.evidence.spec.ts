@@ -33,14 +33,13 @@ async function assertAdminWorkbench(page: Page, mode: "light" | "dark") {
   await expect(row.locator("td").first()).not.toHaveText("");
   await row.scrollIntoViewIfNeeded();
   await expect(row).toBeInViewport();
-  const cta = page.getByRole("link", { name: "Back to projection operations", exact: true });
+  const cta = page.getByRole("button", { name: "Apply filters", exact: true });
   await expect(cta).toBeVisible();
   await cta.scrollIntoViewIfNeeded();
   await expect(cta).toBeInViewport();
 
-  const observed = await page.evaluate(() => {
+  const observed = await cta.evaluate((action) => {
     const heading = document.querySelector("h1")!;
-    const action = document.querySelector("main a[href='/platform/projections'].bg-accent")!;
     return {
       background: getComputedStyle(document.body).backgroundColor,
       foreground: getComputedStyle(heading).color,
