@@ -31,6 +31,8 @@ export type DiscoveryPublicListingRow = Readonly<{
   storage_location_name: string | null;
   ship_from_code: string | null;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number;
   shipping_allowance_percentage_bps: number;
   quantity_cap: number;
   max_units_per_order: number | null;
@@ -312,7 +314,7 @@ export async function getDiscoveryPublicAccountBySlug(
        SELECT *
        FROM startable_listing
        WHERE visible_quantity > 0
-       ORDER BY updated_at DESC, price_amount::numeric ASC, listing_id ASC`,
+       ORDER BY updated_at DESC, price_currency_code ASC NULLS LAST, price_amount::numeric ASC, listing_id ASC`,
       [account.account_id],
     ),
     db.query<{ count: string }>(

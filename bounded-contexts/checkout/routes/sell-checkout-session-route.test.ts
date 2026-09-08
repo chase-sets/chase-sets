@@ -757,7 +757,12 @@ describe("checkout web routes: sell checkout session", () => {
             quantity: 1,
             selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
             productOfferTargets: [],
-            fallbackListing: { inventoryItemId: "inv_extra", priceAmount: "40.00", quantityCap: 1 },
+            fallbackListing: {
+              inventoryItemId: "inv_extra",
+              priceAmount: "40.00",
+              priceCurrencyCode: "USD",
+              quantityCap: 1,
+            },
             skippedReasons: [],
           },
         ],
@@ -839,7 +844,12 @@ describe("checkout web routes: sell checkout session", () => {
                 quantity: 1,
                 selectedOffer: null,
                 productOfferTargets: [],
-                fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+                fallbackListing: {
+                  inventoryItemId: "inv_1",
+                  priceAmount: "12.00",
+                  priceCurrencyCode: "USD",
+                  quantityCap: 1,
+                },
                 skippedReasons: [],
               },
             ],
@@ -855,6 +865,7 @@ describe("checkout web routes: sell checkout session", () => {
     expect(mockCreateListing).toHaveBeenCalledWith({
       inventoryItemId: "inv_1",
       priceAmount: "12.00",
+      priceCurrencyCode: "USD",
       quantityCap: 1,
       listingIdOverride: "lst_slc_chk_sell_1_sll_product",
     });
@@ -1045,7 +1056,12 @@ describe("checkout web routes: sell checkout session", () => {
                 quantity: 1,
               },
             ],
-            fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+            fallbackListing: {
+              inventoryItemId: "inv_1",
+              priceAmount: "12.00",
+              priceCurrencyCode: "USD",
+              quantityCap: 1,
+            },
             skippedReasons: [],
           },
         ],
@@ -1073,6 +1089,7 @@ describe("checkout web routes: sell checkout session", () => {
     expect(mockCreateListing).toHaveBeenCalledWith({
       inventoryItemId: "inv_1",
       priceAmount: "12.00",
+      priceCurrencyCode: "USD",
       quantityCap: 1,
       listingIdOverride: "lst_slc_chk_sell_1_sll_product",
     });

@@ -335,6 +335,7 @@ describe("MCP runtime routes", () => {
       "marketplace.submit-offer",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
+      "marketplace.update-offer-price",
       "ordering.get-order",
       "ordering.list-orders",
       "payments.confirm-payment-method-setup",

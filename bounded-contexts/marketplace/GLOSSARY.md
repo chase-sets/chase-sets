@@ -16,6 +16,10 @@ Notes:
 - Listings reference one `CatalogItemId`, one `ProductId`, and one normalized selection snapshot.
 - Listings reference inventory availability but do not own stock truth.
 
+## Listing Price
+
+A **Listing Price** is the seller-authored pair of a normalized decimal amount and an uppercase three-letter ISO-4217 currency code. Marketplace records both members together at one Listing stream version. A historical amount without currency is an incomplete Listing Price and is never assigned a default or inferred denomination.
+
 ## Listing Evidence
 
 **Listing Evidence** is the typed, policy-classified evidence collection attached to a Listing. Its current entries are seller-supplied images.

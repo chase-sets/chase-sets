@@ -12,6 +12,9 @@ export type {
   TcgplayerMarketCaptureReceiptV1,
 } from "./features/price-signals/integrations/tcgplayer/capture-sanitizer";
 export { createObjectStorageTcgplayerMarketCaptureReceiptSink } from "./features/price-signals/integrations/tcgplayer/capture-sanitizer";
+export type { PricingRecommendationServices } from "./features/recommendations/api/runtime";
+export type { RepricingEngineServices } from "./features/repricing-engine/api/runtime";
+export type { BulkRepriceIngestionServices } from "./features/bulk-reprice-ingestion/api/runtime";
 /**
  * Platform-wide market analytics reads: imported by the platform-api
  * composition root to build platform-operations' `opsMarketAnalyticsCrossContext`

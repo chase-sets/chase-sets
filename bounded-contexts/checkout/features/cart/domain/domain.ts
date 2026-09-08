@@ -39,6 +39,8 @@ export type CheckoutSelectedListingSnapshot = Readonly<{
   sellerDisplayName: string | null;
   sellerSlug: string | null;
   priceAmount: string | null;
+  priceCurrencyCode: string | null;
+  listingStreamVersion: number | null;
   source: string;
 }>;
 
@@ -48,6 +50,8 @@ export type CheckoutSelectedListingSnapshotInput = Readonly<{
   sellerDisplayName?: string | null;
   sellerSlug?: string | null;
   priceAmount?: string | null;
+  priceCurrencyCode?: string | null;
+  listingStreamVersion?: number | null;
   source?: string | null;
 }>;
 
@@ -404,12 +408,28 @@ function normalizeSelectedListingSnapshot(
     "Selected listing snapshot must match the locked listing.",
   );
 
+  const priceAmount = normalizeOptionalPriceAmount(value.priceAmount);
+  const rawCurrency = normalizeOptionalText(value.priceCurrencyCode);
+  const priceCurrencyCode = rawCurrency?.toUpperCase() ?? null;
+  assert(
+    (priceAmount === null) === (priceCurrencyCode === null),
+    "Selected listing price must include both amount and currency.",
+  );
+  assert(priceCurrencyCode === null || /^[A-Z]{3}$/.test(priceCurrencyCode), "Selected listing currency is invalid.");
+  const listingStreamVersion = value.listingStreamVersion ?? null;
+  assert(
+    priceAmount === null || (Number.isInteger(listingStreamVersion) && Number(listingStreamVersion) > 0),
+    "Selected listing price must include its source stream version.",
+  );
+
   return {
     listingId,
     sellerAccountId: normalizeOptionalText(value.sellerAccountId),
     sellerDisplayName: normalizeOptionalText(value.sellerDisplayName),
     sellerSlug: normalizeOptionalText(value.sellerSlug),
-    priceAmount: normalizeOptionalPriceAmount(value.priceAmount),
+    priceAmount,
+    priceCurrencyCode,
+    listingStreamVersion,
     source: normalizeRequiredText(
       value.source ?? "checkout-cart-request",
       "Selected listing snapshot source is required.",

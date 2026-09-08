@@ -18,6 +18,7 @@ function fold(state: RepricingPolicyState, events: readonly RepricingPolicyEvent
 const defaultRule: RepricingRule = {
   conditions: [],
   directive: {
+    currencyCode: "USD",
     anchorChain: [{ source: "market-estimate" }],
     offset: { mode: "percent", percent: -2 },
     floor: { mode: "absolute", amount: "5.00" },
@@ -32,6 +33,7 @@ const defaultRule: RepricingRule = {
 const gradedRule: RepricingRule = {
   conditions: [{ type: "item-grading", grading: "graded" }],
   directive: {
+    currencyCode: "USD",
     anchorChain: [{ source: "lowest-competing-ask" }, { source: "market-estimate" }],
     offset: { mode: "absolute", amount: "-1.00" },
     floor: { mode: "cost-basis-plus-margin", marginPercent: 20, absoluteFallbackAmount: "10.00" },

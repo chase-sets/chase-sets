@@ -33,6 +33,7 @@ type AnonymousProductAlertIntentRow = {
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   threshold_amount: string | null;
+  threshold_currency_code: string | null;
   status: "active" | "claimed" | "expired";
   claimed_account_id: string | null;
   claimed_alert_id: string | null;
@@ -49,6 +50,8 @@ function createAnonymousProductAlertIntentDb() {
     JSON.stringify(row.selected_options) === String(value);
   const thresholdAmountMatch = (row: AnonymousProductAlertIntentRow, value: unknown) =>
     row.threshold_amount === (value === null ? null : String(value));
+  const thresholdCurrencyMatch = (row: AnonymousProductAlertIntentRow, value: unknown) =>
+    row.threshold_currency_code === (value === null ? null : String(value));
   const isActive = (row: AnonymousProductAlertIntentRow) =>
     row.status === "active" && new Date(row.expires_at).getTime() > Date.now();
 
@@ -76,7 +79,8 @@ function createAnonymousProductAlertIntentDb() {
                 row.catalog_catalog_item_id === params[2] &&
                 row.product_id === params[3] &&
                 selectedOptionsMatch(row, params[4]) &&
-                thresholdAmountMatch(row, params[5]),
+                thresholdAmountMatch(row, params[5]) &&
+                thresholdCurrencyMatch(row, params[6]),
             )
             .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
             .slice(0, 1),
@@ -104,7 +108,8 @@ function createAnonymousProductAlertIntentDb() {
           selected_options: JSON.parse(String(params[6])) as AnonymousProductAlertIntentRow["selected_options"],
           product_summary: params[7] === null ? null : String(params[7]),
           threshold_amount: params[8] === null ? null : String(params[8]),
-          expires_at: String(params[9]),
+          threshold_currency_code: params[9] === null ? null : String(params[9]),
+          expires_at: String(params[10]),
           status: "active",
           claimed_account_id: null,
           claimed_alert_id: null,
@@ -209,6 +214,7 @@ describe("product alert runtime anonymous intents", () => {
         ],
         productSummary: "Raw",
         thresholdAmount: "20",
+        thresholdCurrencyCode: "EUR",
       });
 
       vi.setSystemTime(new Date("2026-06-10T13:00:00.000Z"));
@@ -224,6 +230,7 @@ describe("product alert runtime anonymous intents", () => {
         ],
         productSummary: "Raw updated",
         thresholdAmount: "20.00",
+        thresholdCurrencyCode: "EUR",
       });
 
       expect(second.intent_id).toBe(first.intent_id);
@@ -348,6 +355,7 @@ describe("product alert runtime anonymous intents", () => {
         selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
         productSummary: "Raw",
         thresholdAmount: "350.00",
+        thresholdCurrencyCode: "USD",
       });
 
       vi.setSystemTime(new Date("2026-07-10T12:00:00.001Z"));

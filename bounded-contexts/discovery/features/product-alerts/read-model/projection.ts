@@ -13,6 +13,7 @@ const PRODUCT_ALERT_PAGE_INSERT_COLUMNS = [
   "selected_options",
   "product_summary",
   "threshold_amount",
+  "threshold_currency_code",
   "status",
   "created_at",
   "updated_at",
@@ -25,6 +26,7 @@ const PRODUCT_ALERT_PAGE_UPDATE_COLUMNS = [
   "selected_options",
   "product_summary",
   "threshold_amount",
+  "threshold_currency_code",
   "status",
   "updated_at",
 ] as const;
@@ -41,6 +43,7 @@ export function buildProductAlertPageProjectionHandlers(db: PgQueryable): Projec
         selectedOptions: unknown;
         productSummary: string | null;
         thresholdAmount: string | null;
+        thresholdCurrencyCode?: string | null;
       };
 
       await upsertRow(db, {
@@ -57,6 +60,7 @@ export function buildProductAlertPageProjectionHandlers(db: PgQueryable): Projec
           selected_options: Array.isArray(data.selectedOptions) ? data.selectedOptions : [],
           product_summary: data.productSummary,
           threshold_amount: data.thresholdAmount,
+          threshold_currency_code: data.thresholdCurrencyCode ?? null,
           status: "active",
           created_at: event.timing.recordedAt,
           updated_at: event.timing.recordedAt,

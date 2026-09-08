@@ -19,6 +19,7 @@ export type NativeInventoryExportRow = Readonly<{
   acquisition_cost_amount: string | null;
   seller_sku?: string | null;
   listing_price_amount?: string | null;
+  listing_price_currency_code?: string | null;
   listing_quantity_cap?: number | null;
   row_note?: string | null;
 }>;
@@ -32,6 +33,7 @@ export const nativeInventoryImportCsvTemplateHeaders = [
   "acquisitionCostAmount",
   "sellerSku",
   "listingPriceAmount",
+  "listingPriceCurrencyCode",
   "listingQuantityCap",
   "rowNote",
 ] as const;
@@ -45,6 +47,7 @@ export function buildNativeInventoryImportCsvTemplate(
     "1",
     "Raw",
     "Near Mint",
+    "",
     "",
     "",
     "",
@@ -65,6 +68,7 @@ export function buildNativeInventoryExportCsv(rows: readonly NativeInventoryExpo
     "acquisitionCostAmount",
     "sellerSku",
     "listingPriceAmount",
+    "listingPriceCurrencyCode",
     "listingQuantityCap",
     "rowNote",
   ];
@@ -79,6 +83,7 @@ export function buildNativeInventoryExportCsv(rows: readonly NativeInventoryExpo
       row.acquisition_cost_amount ?? "",
       row.seller_sku ?? "",
       row.listing_price_amount ?? "",
+      row.listing_price_currency_code ?? "",
       row.listing_quantity_cap == null ? "" : String(row.listing_quantity_cap),
       row.row_note ?? "",
     ];

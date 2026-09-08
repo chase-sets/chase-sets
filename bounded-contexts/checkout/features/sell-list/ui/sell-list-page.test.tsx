@@ -631,6 +631,9 @@ describe("checkout sell list page", () => {
       (document.querySelector('select[name="inventoryItemId:sll_product"]') as HTMLSelectElement | null)?.value,
     ).toBe("inv_charizard");
     expect((screen.getByRole("spinbutton", { name: "Listing price" }) as HTMLInputElement).required).toBe(true);
+    const currencyInput = screen.getByRole("textbox", { name: "Listing price currency code" }) as HTMLInputElement;
+    expect(currencyInput.required).toBe(true);
+    expect(currencyInput.value).toBe("");
     expect(screen.getByRole("button", { name: "Continue to seller checkout" }).hasAttribute("disabled")).toBe(false);
   });
 

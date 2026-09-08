@@ -225,7 +225,14 @@ export function useItemDetailPageModel({
   const sellerCount = new Set(visibleListings.map((listing) => listing.account_id)).size;
   const buyerCount = new Set(matchingOffers.map((offer) => offer.buyer_account_id)).size;
   const selectedMarketSummary = {
-    lowest_price_amount: getLowestPrice(visibleListings),
+    lowest_price_amount:
+      new Set(visibleListings.map((listing) => listing.price_currency_code)).size === 1
+        ? getLowestPrice(visibleListings)
+        : null,
+    lowest_price_currency_code:
+      new Set(visibleListings.map((listing) => listing.price_currency_code)).size === 1
+        ? (visibleListings[0]?.price_currency_code ?? null)
+        : null,
     active_listing_count: visibleListings.length,
     total_visible_quantity: visibleListings.reduce((sum, listing) => sum + getListingAvailableQuantity(listing), 0),
   };

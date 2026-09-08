@@ -28,6 +28,8 @@ export type MarketplaceListingListRow = Readonly<{
   ship_from_code: string | null;
   ship_from_address: AddressSnapshot;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number | null;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -68,6 +70,7 @@ export type MarketplaceListingFeeLockReportRow = Readonly<{
   product_summary: string | null;
   status: string;
   price_amount: string;
+  price_currency_code: string | null;
   quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
@@ -86,6 +89,7 @@ export type MarketplaceListingFeeLockReportRow = Readonly<{
 
 export type MarketplaceMarketSummaryRow = Readonly<{
   lowest_price_amount: string | null;
+  lowest_price_currency_code: string | null;
   active_listing_count: number;
   total_visible_quantity: number;
 }>;
@@ -135,6 +139,8 @@ type MarketplaceListingPageRow = Readonly<{
   ship_from_code: string | null;
   ship_from_address: unknown;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number | null;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -183,6 +189,8 @@ const listingPageColumnSelectSql = `
        listing.ship_from_code,
        listing.ship_from_address,
        listing.price_amount,
+       listing.price_currency_code,
+       listing.listing_stream_version,
        listing.marketplace_sales_fee_unit_amount,
        listing.seller_net_unit_amount,
        listing.shipping_allowance_percentage_bps,
@@ -864,6 +872,7 @@ export async function listSellerListingFeeLockReport(
          product_summary,
          status,
          price_amount,
+         price_currency_code,
          quantity_cap,
          max_units_per_order,
          max_units_per_day,
@@ -982,11 +991,15 @@ export async function getMarketSummaryForItem(
 ): Promise<MarketplaceMarketSummaryRow> {
   const result = await db.query<{
     lowest_price_amount: string | null;
+    lowest_price_currency_code: string | null;
     active_listing_count: string;
     total_visible_quantity: string;
   }>(
     `SELECT
-       MIN(price_amount)::text AS lowest_price_amount,
+       CASE WHEN COUNT(DISTINCT price_currency_code) = 1
+         THEN MIN(price_amount)::text ELSE NULL END AS lowest_price_amount,
+       CASE WHEN COUNT(DISTINCT price_currency_code) = 1
+         THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code,
        COUNT(*)::text AS active_listing_count,
        COALESCE(SUM(
          LEAST(
@@ -1002,12 +1015,15 @@ export async function getMarketSummaryForItem(
        ON availability.account_id = listing.account_id
      WHERE listing.product_id = $1
        AND listing.status = 'active'
+       AND listing.price_currency_code IS NOT NULL
+       AND listing.listing_stream_version > 0
        AND COALESCE(availability.status, 'available') = 'available'`,
     [productId],
   );
 
   return {
     lowest_price_amount: result.rows[0]?.lowest_price_amount ?? null,
+    lowest_price_currency_code: result.rows[0]?.lowest_price_currency_code ?? null,
     active_listing_count: Number(result.rows[0]?.active_listing_count ?? 0),
     total_visible_quantity: Number(result.rows[0]?.total_visible_quantity ?? 0),
   };
@@ -1046,12 +1062,14 @@ ${listingPageColumnSelectSql},
        ON availability.account_id = listing.account_id
      WHERE listing.product_id = $1
        AND listing.status = 'active'
+       AND listing.price_currency_code IS NOT NULL
+       AND listing.listing_stream_version > 0
        AND COALESCE(availability.status, 'available') = 'available'
        AND LEAST(
          listing.quantity_cap,
          GREATEST(item.total_quantity - COALESCE(active_holds.held_quantity, 0), 0)
        ) > 0
-     ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC
+     ORDER BY listing.price_currency_code ASC, listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC
      LIMIT $2 OFFSET $3`,
     [productId, limit, offset],
   );

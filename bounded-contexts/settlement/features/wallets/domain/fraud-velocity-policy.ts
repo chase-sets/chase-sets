@@ -45,6 +45,7 @@ export type SettlementFraudVelocityPolicyValue = Readonly<{
     newAccountAgeDays: number;
     windowHours: number;
     minValueCents: number;
+    minValueCurrencyCode: string;
   }>;
   /** Review velocity: review count in `windowHours` against a young median reviewer age that flags a review-farm pattern. */
   reviewVelocity: Readonly<{
@@ -64,7 +65,12 @@ export type SettlementFraudVelocityPolicyValue = Readonly<{
 export const SETTLEMENT_FRAUD_VELOCITY_LAUNCH_POLICY_VALUE: SettlementFraudVelocityPolicyValue = {
   chargebackVelocity: { lookbackDays: 30, minCount: 2, minRateBps: 200 },
   chargebackReportingWindowDays: 7,
-  newSellerListingVelocity: { newAccountAgeDays: 30, windowHours: 24, minValueCents: 250_000 },
+  newSellerListingVelocity: {
+    newAccountAgeDays: 30,
+    windowHours: 24,
+    minValueCents: 250_000,
+    minValueCurrencyCode: "USD",
+  },
   reviewVelocity: { windowHours: 24, minCount: 5, maxMedianReviewerAgeDays: 7 },
   youngBuyerSpendVelocity: { newAccountAgeDays: 7, windowHours: 24, minSpendCents: 200_000 },
 };
@@ -88,11 +94,26 @@ function normalizeIntegerField(value: unknown, fieldName: string, min: number, m
   return numeric;
 }
 
+function normalizeCurrencyCode(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || !/^[A-Z]{3}$/.test(value.trim().toUpperCase())) {
+    throw new SettlementDomainError(`${fieldName} must be a three-letter ISO-4217 code.`);
+  }
+  return value.trim().toUpperCase();
+}
+
+function assertExactKeys(record: Record<string, unknown>, allowed: readonly string[], fieldName: string): void {
+  const unexpected = Object.keys(record).find((key) => !allowed.includes(key));
+  if (unexpected) {
+    throw new SettlementDomainError(`${fieldName} contains unexpected field '${unexpected}'.`);
+  }
+}
+
 function decodeChargebackVelocity(raw: unknown): SettlementFraudVelocityPolicyValue["chargebackVelocity"] {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new SettlementDomainError("Fraud/velocity policy 'chargebackVelocity' must be an object.");
   }
   const record = raw as Record<string, unknown>;
+  assertExactKeys(record, ["lookbackDays", "minCount", "minRateBps"], "Chargeback velocity policy");
   return {
     lookbackDays: normalizeIntegerField(
       record.lookbackDays,
@@ -115,6 +136,11 @@ function decodeNewSellerListingVelocity(raw: unknown): SettlementFraudVelocityPo
     throw new SettlementDomainError("Fraud/velocity policy 'newSellerListingVelocity' must be an object.");
   }
   const record = raw as Record<string, unknown>;
+  assertExactKeys(
+    record,
+    ["newAccountAgeDays", "windowHours", "minValueCents", "minValueCurrencyCode"],
+    "New-seller listing velocity policy",
+  );
   return {
     newAccountAgeDays: normalizeIntegerField(
       record.newAccountAgeDays,
@@ -134,6 +160,10 @@ function decodeNewSellerListingVelocity(raw: unknown): SettlementFraudVelocityPo
       MIN_CENTS,
       MAX_CENTS,
     ),
+    minValueCurrencyCode: normalizeCurrencyCode(
+      record.minValueCurrencyCode,
+      "New-seller listing velocity minimum value currency",
+    ),
   };
 }
 
@@ -142,6 +172,7 @@ function decodeReviewVelocity(raw: unknown): SettlementFraudVelocityPolicyValue[
     throw new SettlementDomainError("Fraud/velocity policy 'reviewVelocity' must be an object.");
   }
   const record = raw as Record<string, unknown>;
+  assertExactKeys(record, ["windowHours", "minCount", "maxMedianReviewerAgeDays"], "Review velocity policy");
   return {
     windowHours: normalizeIntegerField(
       record.windowHours,
@@ -164,6 +195,7 @@ function decodeYoungBuyerSpendVelocity(raw: unknown): SettlementFraudVelocityPol
     throw new SettlementDomainError("Fraud/velocity policy 'youngBuyerSpendVelocity' must be an object.");
   }
   const record = raw as Record<string, unknown>;
+  assertExactKeys(record, ["newAccountAgeDays", "windowHours", "minSpendCents"], "Young-buyer spend velocity policy");
   return {
     newAccountAgeDays: normalizeIntegerField(
       record.newAccountAgeDays,
@@ -191,6 +223,17 @@ export function decodeSettlementFraudVelocityPolicyValue(raw: JsonValue): Settle
     throw new SettlementDomainError("Fraud/velocity policy value must be an object.");
   }
   const record = raw as Record<string, unknown>;
+  assertExactKeys(
+    record,
+    [
+      "chargebackVelocity",
+      "chargebackReportingWindowDays",
+      "newSellerListingVelocity",
+      "reviewVelocity",
+      "youngBuyerSpendVelocity",
+    ],
+    "Fraud/velocity policy",
+  );
 
   return {
     chargebackVelocity: decodeChargebackVelocity(record.chargebackVelocity),
@@ -211,7 +254,7 @@ export const settlementFraudVelocityPolicy: PolicyDefinition<SettlementFraudVelo
   contextName: "settlement",
   schemaSummary:
     "{ chargebackVelocity: { lookbackDays, minCount, minRateBps }, chargebackReportingWindowDays, " +
-    "newSellerListingVelocity: { newAccountAgeDays, windowHours, minValueCents }, " +
+    "newSellerListingVelocity: { newAccountAgeDays, windowHours, minValueCents, minValueCurrencyCode }, " +
     "reviewVelocity: { windowHours, minCount, maxMedianReviewerAgeDays }, " +
     "youngBuyerSpendVelocity: { newAccountAgeDays, windowHours, minSpendCents } }",
   defaultValue: SETTLEMENT_FRAUD_VELOCITY_LAUNCH_POLICY_VALUE,

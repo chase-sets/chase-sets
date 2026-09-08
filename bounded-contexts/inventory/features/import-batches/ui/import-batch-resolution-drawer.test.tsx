@@ -67,6 +67,7 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
     acquisition_cost_amount: null,
     seller_sku: "SKU-1",
     listing_price_amount: null,
+    listing_price_currency_code: null,
     listing_quantity_cap: null,
     row_note: null,
     validation_errors: ["Seller SKU 'box-a-101' is not mapped for this account."],

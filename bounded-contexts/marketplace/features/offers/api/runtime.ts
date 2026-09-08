@@ -29,6 +29,7 @@ import {
   decideMarketplaceOffer,
   evolveMarketplaceOffer,
   initialMarketplaceOfferState,
+  normalizeOfferPriceCurrencyCode,
   type MarketplaceOfferCommand,
   type MarketplaceOfferEvent,
   type MarketplaceOfferState,
@@ -120,7 +121,17 @@ export type MarketplaceOfferServices = Readonly<{
       productSummary: string | null;
       shippingDestinationSnapshot: AddressSnapshot;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityRequested: number;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ offerId: OfferId; version: number }>;
+  updateOfferPrice: (
+    params: Readonly<{
+      offerId: OfferId;
+      buyerAccountId: AccountId;
+      priceAmount: string;
+      priceCurrencyCode: string;
     }>,
     context: EventStoreContext,
   ) => Promise<{ offerId: OfferId; version: number }>;
@@ -246,6 +257,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     buyerAccountId: AccountId,
     productId: string,
     offerPriceAmount: string,
+    offerPriceCurrencyCode: string,
     policy: MarketplaceOfferAbusePolicy,
   ) {
     const now = new Date();
@@ -261,6 +273,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       listing_id: string;
       seller_account_id: string;
       listing_price_amount: string;
+      listing_price_currency_code: string | null;
       buyer_listing_daily_offer_count: string;
       muted_at: string | null;
       lowball_cooldown_until: string | null;
@@ -270,6 +283,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
          listing.listing_id,
          listing.account_id AS seller_account_id,
          listing.price_amount::text AS listing_price_amount,
+         listing.price_currency_code AS listing_price_currency_code,
          (
            SELECT COUNT(DISTINCT offer_scope.offer_id)::text
            FROM (
@@ -296,7 +310,11 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
          ) AS buyer_listing_daily_offer_count,
          control.muted_at::text,
          control.lowball_cooldown_until::text,
-         control.last_lowball_declined_amount::text
+         CASE
+           WHEN control.last_lowball_declined_currency_code = $4
+             THEN control.last_lowball_declined_amount::text
+           ELSE NULL
+         END AS last_lowball_declined_amount
        FROM marketplace_listing_pages AS listing
        LEFT JOIN marketplace_offer_seller_controls AS control
          ON control.seller_account_id = listing.account_id
@@ -306,7 +324,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
          AND listing.status = 'active'
          AND listing.account_id <> $1
        ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
-      [buyerAccountId, productId, dailyWindowStart],
+      [buyerAccountId, productId, dailyWindowStart, offerPriceCurrencyCode.trim().toUpperCase()],
     );
 
     assertOfferSubmissionAllowed({
@@ -314,11 +332,13 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       now,
       buyerDailySubmissionCount: Number(buyerCountResult.rows[0]?.count ?? 0),
       offerPriceAmount,
+      offerPriceCurrencyCode,
       listingGuards: listingsResult.rows.map(
         (row): MarketplaceOfferListingSubmissionGuard => ({
           listingId: row.listing_id,
           sellerAccountId: row.seller_account_id,
           listingPriceAmount: row.listing_price_amount,
+          listingPriceCurrencyCode: row.listing_price_currency_code,
           buyerListingDailyOfferCount: Number(row.buyer_listing_daily_offer_count),
           mutedAt: row.muted_at,
           lowballCooldownUntil: row.lowball_cooldown_until,
@@ -353,6 +373,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     commandHandler,
     sellerControlCommandHandler,
     submitOffer: async (params, context) => {
+      const priceCurrencyCode = normalizeOfferPriceCurrencyCode(params.priceCurrencyCode);
       const catalogItem = await getCatalogItemSnapshot(params.catalogItemId);
       if (!catalogItem) {
         throw new Error("Catalog item not found.");
@@ -382,6 +403,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         params.buyerAccountId,
         catalogVersion.productId,
         params.priceAmount,
+        priceCurrencyCode,
         offerAbusePolicy(),
       );
 
@@ -401,12 +423,26 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
           productSummary: params.productSummary,
           shippingDestinationSnapshot: params.shippingDestinationSnapshot,
           priceAmount: params.priceAmount,
+          priceCurrencyCode,
           quantityRequested: params.quantityRequested,
         },
         context,
       });
 
       return { offerId, version: result.version };
+    },
+    updateOfferPrice: async (params, context) => {
+      const result = await commandHandler({
+        streamId: `marketplace.offer-${params.offerId}`,
+        command: {
+          type: "UpdateOfferPrice",
+          buyerAccountId: params.buyerAccountId,
+          priceAmount: params.priceAmount,
+          priceCurrencyCode: params.priceCurrencyCode,
+        },
+        context,
+      });
+      return { offerId: params.offerId, version: result.version };
     },
     declineOfferMatch: async (params, context) => {
       const offer = await getOfferMatch(deps.db, params.offerId, params.sellerAccountId);
@@ -423,7 +459,9 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
           productId: offer.product_id,
           offerId: params.offerId,
           offerPriceAmount: offer.price_amount,
+          offerPriceCurrencyCode: offer.price_currency_code!,
           listingPriceAmount: offer.listing_price_amount,
+          listingPriceCurrencyCode: offer.listing_price_currency_code,
           declinedAt: new Date().toISOString(),
           policy: offerAbusePolicy(),
         },
@@ -524,6 +562,9 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         !exactListing.productId ||
         !exactListing.catalogItemId ||
         !exactListing.priceAmount ||
+        !exactListing.priceCurrencyCode ||
+        !current.state.priceCurrencyCode ||
+        exactListing.priceCurrencyCode !== current.state.priceCurrencyCode ||
         exactListing.productId !== current.state.productId ||
         exactListing.catalogItemId !== current.state.catalogItemId
       ) {

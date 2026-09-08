@@ -6,19 +6,20 @@ import type {
 } from "../../repricing-policies/domain/domain";
 import { resolveRepricingFloorAmount } from "../../repricing-policies/domain/floor-resolution";
 
-export type RepricingInputState = "present" | "stale" | "absent";
+export type RepricingInputState = "present" | "stale" | "absent" | "currency-incomplete" | "currency-mismatch";
 
 export type RepricingMarketInputSnapshot = Readonly<{
   catalogItemId: string;
   productId: string;
   capturedAt: string;
   hardAskOutlierPriceRatio: number;
-  marketEstimate: Readonly<{ amount: string; freshUntil: string }> | null;
-  lastSold: Readonly<{ amount: string; freshUntil: string }> | null;
+  marketEstimate: Readonly<{ amount: string; currencyCode?: string | null; freshUntil: string }> | null;
+  lastSold: Readonly<{ amount: string; currencyCode?: string | null; freshUntil: string }> | null;
   competingAsks: readonly Readonly<{
     listingId: string;
     sellerAccountId: string;
     amount: string;
+    currencyCode?: string | null;
     pricingMode: "hard" | "derived";
   }>[];
 }>;
@@ -27,11 +28,14 @@ export type RepricingListingEvaluationInput = Readonly<{
   listingId: string;
   sellerAccountId: string;
   currentPriceAmount: string;
+  currentPriceCurrencyCode?: string | null;
+  currentPriceSourceVersion?: number | null;
   quantityCap: number;
   categoryIds: readonly string[];
   grading: "graded" | "raw" | null;
   createdAt: string | null;
   costBasisAmount: string | null;
+  costBasisCurrencyCode?: string | null;
   rules: readonly RepricingRule[];
 }>;
 
@@ -58,13 +62,14 @@ export type RepricingListingEvaluation = Readonly<{
   clamps: RepricingClampTrace;
   tolerance: RepricingRuleDirective["tolerance"];
   flags: readonly ("floor-binding" | "ceiling-binding" | "max-move-binding")[];
-  action: "update-price" | "hold" | "pause" | "notify-only";
+  action: "update-price" | "hold" | "pause" | "notify-only" | "no-reprice";
   skipReason:
     | "within-tolerance"
     | "anchor-chain-exhausted"
     | "terminal-hold"
     | "terminal-pause"
     | "terminal-notify-only"
+    | "currency-input-incomplete-or-mismatched"
     | null;
 }>;
 
@@ -78,14 +83,37 @@ export function evaluateRepricingListing(
   listing: RepricingListingEvaluationInput,
   snapshot: RepricingMarketInputSnapshot,
 ): RepricingListingEvaluation {
+  const listingCurrencyCode = listing.currentPriceCurrencyCode?.trim().toUpperCase() ?? null;
+  const costBasisCurrencyCode = listing.costBasisCurrencyCode?.trim().toUpperCase() ?? null;
+  const ruleCurrencyCodes = listing.rules.map((rule) => rule.directive.currencyCode?.trim().toUpperCase() ?? null);
+  if (
+    !listingCurrencyCode ||
+    !/^[A-Z]{3}$/.test(listingCurrencyCode) ||
+    !listing.currentPriceSourceVersion ||
+    ruleCurrencyCodes.some((currencyCode) => currencyCode === null || currencyCode !== listingCurrencyCode) ||
+    (listing.costBasisAmount === null) !== (costBasisCurrencyCode === null) ||
+    (listing.costBasisAmount !== null && costBasisCurrencyCode !== listingCurrencyCode)
+  ) {
+    return noReprice(listing, 0, listing.rules[0]?.directive);
+  }
+  const compatibleListing = {
+    ...listing,
+    currentPriceCurrencyCode: listingCurrencyCode,
+    costBasisCurrencyCode,
+  };
   const competingHardAsks = filterCompetingHardAskOutliers(
     snapshot.competingAsks.filter(
-      (ask) => ask.pricingMode === "hard" && ask.sellerAccountId !== listing.sellerAccountId,
+      (ask) =>
+        ask.pricingMode === "hard" &&
+        ask.sellerAccountId !== listing.sellerAccountId &&
+        ask.currencyCode === listingCurrencyCode,
     ),
-    snapshot,
+    snapshot.marketEstimate?.currencyCode === listingCurrencyCode ? snapshot : { ...snapshot, marketEstimate: null },
   );
   const ruleIndex = listing.rules.findIndex((rule) =>
-    rule.conditions.every((condition) => conditionMatches(condition, listing, competingHardAsks.length, snapshot)),
+    rule.conditions.every((condition) =>
+      conditionMatches(condition, compatibleListing, competingHardAsks.length, snapshot),
+    ),
   );
   const matchedRuleIndex = ruleIndex >= 0 ? ruleIndex : listing.rules.length - 1;
   const rule = listing.rules[matchedRuleIndex];
@@ -93,19 +121,53 @@ export function evaluateRepricingListing(
     throw new Error("Repricing policy must include an unconditional default rule.");
   }
 
-  const resolved = resolveAnchor(rule.directive, snapshot, competingHardAsks);
+  const resolved = resolveAnchor(
+    rule.directive,
+    snapshot,
+    competingHardAsks,
+    listingCurrencyCode,
+    listing.sellerAccountId,
+  );
+  if (
+    resolved.exhaustedAnchors.some(
+      (anchor) => anchor.state === "currency-incomplete" || anchor.state === "currency-mismatch",
+    )
+  ) {
+    return noReprice(compatibleListing, matchedRuleIndex, rule.directive, resolved.exhaustedAnchors);
+  }
   if (!resolved.anchor) {
-    return evaluateTerminal(listing, matchedRuleIndex, rule.directive, resolved.exhaustedAnchors);
+    return evaluateTerminal(compatibleListing, matchedRuleIndex, rule.directive, resolved.exhaustedAnchors);
   }
 
   return evaluateTarget(
-    listing,
+    compatibleListing,
     matchedRuleIndex,
     rule.directive,
     resolved.anchor.amount,
     resolved.anchor,
     resolved.exhaustedAnchors,
   );
+}
+
+function noReprice(
+  listing: RepricingListingEvaluationInput,
+  ruleIndex: number,
+  directive: RepricingRuleDirective | undefined,
+  exhaustedAnchors: RepricingListingEvaluation["exhaustedAnchors"] = [],
+): RepricingListingEvaluation {
+  return {
+    listingId: listing.listingId,
+    currentPriceAmount: listing.currentPriceAmount,
+    targetPriceAmount: null,
+    ruleIndex,
+    anchor: null,
+    exhaustedAnchors,
+    clamps: { floor: false, ceiling: false, maxMove: false },
+    tolerance: directive?.tolerance ?? { mode: "percent", percent: 0 },
+    flags: [],
+    action: "no-reprice",
+    skipReason: "currency-input-incomplete-or-mismatched",
+  };
 }
 
 function conditionMatches(
@@ -149,6 +211,8 @@ function resolveAnchor(
   directive: RepricingRuleDirective,
   snapshot: RepricingMarketInputSnapshot,
   hardAsks: readonly RepricingMarketInputSnapshot["competingAsks"][number][],
+  targetCurrencyCode: string,
+  sellerAccountId: string,
 ): Readonly<{
   anchor: RepricingAnchorTrace | null;
   exhaustedAnchors: readonly Readonly<{ source: string; state: RepricingInputState }>[];
@@ -162,9 +226,13 @@ function resolveAnchor(
         const state: RepricingInputState =
           estimate === null
             ? "absent"
-            : Date.parse(estimate.freshUntil) < Date.parse(snapshot.capturedAt)
-              ? "stale"
-              : "present";
+            : !estimate.currencyCode
+              ? "currency-incomplete"
+              : estimate.currencyCode !== targetCurrencyCode
+                ? "currency-mismatch"
+                : Date.parse(estimate.freshUntil) < Date.parse(snapshot.capturedAt)
+                  ? "stale"
+                  : "present";
         if (state === "present") {
           return {
             anchor: {
@@ -196,7 +264,10 @@ function resolveAnchor(
             exhaustedAnchors,
           };
         }
-        exhaustedAnchors.push({ source: candidate.source, state: "absent" });
+        exhaustedAnchors.push({
+          source: candidate.source,
+          state: incompatibleAskState(snapshot.competingAsks, targetCurrencyCode, sellerAccountId),
+        });
         break;
       }
       case "comp-percentile": {
@@ -216,7 +287,10 @@ function resolveAnchor(
             exhaustedAnchors,
           };
         }
-        exhaustedAnchors.push({ source: candidate.source, state: "absent" });
+        exhaustedAnchors.push({
+          source: candidate.source,
+          state: incompatibleAskState(snapshot.competingAsks, targetCurrencyCode, sellerAccountId),
+        });
         break;
       }
       case "last-sold": {
@@ -224,9 +298,13 @@ function resolveAnchor(
         const state: RepricingInputState =
           lastSold === null
             ? "absent"
-            : Date.parse(lastSold.freshUntil) < Date.parse(snapshot.capturedAt)
-              ? "stale"
-              : "present";
+            : !lastSold.currencyCode
+              ? "currency-incomplete"
+              : lastSold.currencyCode !== targetCurrencyCode
+                ? "currency-mismatch"
+                : Date.parse(lastSold.freshUntil) < Date.parse(snapshot.capturedAt)
+                  ? "stale"
+                  : "present";
         if (state === "present") {
           return {
             anchor: {
@@ -245,6 +323,17 @@ function resolveAnchor(
   }
 
   return { anchor: null, exhaustedAnchors };
+}
+
+function incompatibleAskState(
+  asks: RepricingMarketInputSnapshot["competingAsks"],
+  targetCurrencyCode: string,
+  sellerAccountId: string,
+): RepricingInputState {
+  const candidates = asks.filter((ask) => ask.pricingMode === "hard" && ask.sellerAccountId !== sellerAccountId);
+  if (candidates.length === 0) return "absent";
+  if (candidates.some((ask) => !ask.currencyCode)) return "currency-incomplete";
+  return candidates.some((ask) => ask.currencyCode !== targetCurrencyCode) ? "currency-mismatch" : "absent";
 }
 
 function evaluateTerminal(
@@ -272,7 +361,10 @@ function evaluateTerminal(
         listing,
         ruleIndex,
         directive,
-        resolveRepricingFloorAmount(directive.floor, listing.costBasisAmount),
+        resolveRepricingFloorAmount(
+          directive.floor,
+          listing.costBasisCurrencyCode === listing.currentPriceCurrencyCode ? listing.costBasisAmount : null,
+        ),
         null,
         exhaustedAnchors,
       );
@@ -298,7 +390,12 @@ function evaluateTarget(
   let target = applyOffset(anchorCents, directive);
   target = applyRounding(target, directive);
 
-  const floor = moneyToCents(resolveRepricingFloorAmount(directive.floor, listing.costBasisAmount));
+  const floor = moneyToCents(
+    resolveRepricingFloorAmount(
+      directive.floor,
+      listing.costBasisCurrencyCode === listing.currentPriceCurrencyCode ? listing.costBasisAmount : null,
+    ),
+  );
   const ceiling = resolveCeiling(anchorCents, directive);
   const clamps = { floor: false, ceiling: false, maxMove: false };
 

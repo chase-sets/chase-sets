@@ -120,6 +120,8 @@ function activeListing(overrides: Record<string, unknown> = {}) {
     status: "active",
     product_id: "cat_charizard::form:raw",
     price_amount: "380.00",
+    price_currency_code: "EUR",
+    listing_stream_version: 11,
     seller_display_name: "Fresh Seller",
     quantity_cap: 3,
     visible_quantity: 3,
@@ -340,6 +342,7 @@ describe("item detail buy now checkout actions", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("priceAmount", "350.00");
+    form.set("priceCurrencyCode", "EUR");
     form.set("quantityRequested", "1");
     form.set("shippingName", "Jane Smith");
     form.set("shippingLine1", "100 Market Street");
@@ -374,6 +377,7 @@ describe("item detail buy now checkout actions", () => {
     );
     expect(redirectUrl.searchParams.get("productSummary")).toBe("Raw");
     expect(redirectUrl.searchParams.get("offerPriceAmount")).toBe("350.00");
+    expect(redirectUrl.searchParams.get("offerPriceCurrencyCode")).toBe("EUR");
     expect(redirectUrl.searchParams.get("quantity")).toBe("1");
   });
 
@@ -402,6 +406,7 @@ describe("item detail buy now checkout actions", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Raw");
     form.set("priceAmount", "350");
+    form.set("priceCurrencyCode", "EUR");
     form.set("quantityRequested", "2");
 
     const response = (await action({
@@ -635,7 +640,7 @@ describe("item detail buy now checkout actions", () => {
     expect(readPostWriteHandoff(viewCartUrl)).toBeNull();
   });
 
-  it("adds an explicitly selected listing to the account Buy Cart as a locked-listing line", async () => {
+  it("adds an explicitly selected listing from the fresh authoritative row to the account Buy Cart", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       permissions: [],
@@ -652,6 +657,8 @@ describe("item detail buy now checkout actions", () => {
             product_id: "cat_charizard::form:raw",
             status: "active",
             price_amount: "380.00",
+            price_currency_code: "EUR",
+            listing_stream_version: 11,
             seller_display_name: "Card Vault",
             seller_slug: "card-vault",
             quantity_cap: 2,
@@ -674,6 +681,9 @@ describe("item detail buy now checkout actions", () => {
     form.set("productSummary", "Raw");
     form.set("quantity", "2");
     form.set("sellerPreferenceId", "lst_charizard");
+    form.set("priceAmount", "0.01");
+    form.set("priceCurrencyCode", "USD");
+    form.set("listingStreamVersion", "0");
 
     const response = (await action({
       request: new Request("http://localhost/items/cat_charizard", {
@@ -697,6 +707,8 @@ describe("item detail buy now checkout actions", () => {
           sellerDisplayName: "Card Vault",
           sellerSlug: "card-vault",
           priceAmount: "380.00",
+          priceCurrencyCode: "EUR",
+          listingStreamVersion: 11,
           source: "discovery.item-detail.add-to-cart",
         },
         quantity: 2,
@@ -721,6 +733,8 @@ describe("item detail buy now checkout actions", () => {
             product_id: "cat_charizard::form:raw",
             status: "active",
             price_amount: "380.00",
+            price_currency_code: "EUR",
+            listing_stream_version: 11,
             seller_display_name: "Card Vault",
             seller_slug: "card-vault",
             quantity_cap: 2,
@@ -769,6 +783,8 @@ describe("item detail buy now checkout actions", () => {
           sellerDisplayName: "Card Vault",
           sellerSlug: "card-vault",
           priceAmount: "380.00",
+          priceCurrencyCode: "EUR",
+          listingStreamVersion: 11,
           source: "discovery.item-detail.add-to-cart",
         },
         quantity: 2,
@@ -1188,6 +1204,7 @@ describe("item detail buy now checkout actions", () => {
     expect(redirectUrl.searchParams.get("productSummary")).toBe("Raw");
     expect(redirectUrl.searchParams.get("quantity")).toBe("2");
     expect(redirectUrl.searchParams.get("priceAmount")).toBe("380.00");
+    expect(redirectUrl.searchParams.get("priceCurrencyCode")).toBe("EUR");
     expect(redirectUrl.searchParams.get("sellerName")).toBe("Fresh Seller");
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
@@ -1204,6 +1221,7 @@ describe("item detail buy now checkout actions", () => {
             listing_id: "lst_charizard",
             status: "active",
             price_amount: "380.00",
+            price_currency_code: "EUR",
             seller_display_name: "Fresh Seller",
             quantity_cap: 2,
             visible_quantity: 2,
@@ -1226,6 +1244,7 @@ describe("item detail buy now checkout actions", () => {
     form.set("quantity", "1");
     form.set("lockedListingId", "lst_charizard");
     form.set("priceAmount", "1.00");
+    form.set("priceCurrencyCode", "USD");
     form.set("sellerName", "Tampered Seller");
     form.set("availability", "999 available");
 
@@ -1245,6 +1264,7 @@ describe("item detail buy now checkout actions", () => {
     expect(redirectUrl.searchParams.get("fulfillmentMode")).toBe("locked-listing");
     expect(redirectUrl.searchParams.get("lockedListingId")).toBe("lst_charizard");
     expect(redirectUrl.searchParams.get("priceAmount")).toBe("380.00");
+    expect(redirectUrl.searchParams.get("priceCurrencyCode")).toBe("EUR");
     expect(redirectUrl.searchParams.get("sellerName")).toBe("Fresh Seller");
     expect(redirectUrl.searchParams.get("availability")).toBe("Raw - 2 available");
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();

@@ -304,6 +304,7 @@ describe("marketplace listing create route", () => {
     form.set("intent", "create-and-publish-listing");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");
+    form.set("priceCurrencyCode", "USD");
     form.set("quantityCap", "1");
 
     const result = await listingsNewAction({
@@ -373,6 +374,7 @@ describe("marketplace listing create route", () => {
       intent: "create-and-publish-listing",
       inventoryItemId: "inv_1",
       priceAmount: "24.99",
+      priceCurrencyCode: "USD",
       quantityCap: "1",
     });
 
@@ -419,6 +421,7 @@ describe("marketplace listing create route", () => {
     form.set("intent", "create-listing");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");
+    form.set("priceCurrencyCode", "USD");
     form.set("quantityCap", "1");
 
     const result = await listingsNewAction({
@@ -493,6 +496,7 @@ describe("marketplace listing create route", () => {
     form.set("intent", "create-listing");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");
+    form.set("priceCurrencyCode", "USD");
     form.set("quantityCap", "1");
 
     const result = await listingsNewAction({
@@ -558,6 +562,7 @@ describe("marketplace listing create route", () => {
     form.set("intent", "create-listing");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");
+    form.set("priceCurrencyCode", "USD");
     form.set("quantityCap", "1");
 
     const result = await listingsNewAction({

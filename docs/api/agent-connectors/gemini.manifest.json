@@ -60,6 +60,7 @@
     "marketplace.list-reviews",
     "marketplace.submit-offer",
     "marketplace.counter-offer",
+    "marketplace.update-offer-price",
     "marketplace.create-listing",
     "marketplace.update-listing-price",
     "marketplace.publish-listing",

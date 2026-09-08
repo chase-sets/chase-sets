@@ -1,4 +1,5 @@
 import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
+import type { MarketplaceServices } from "@chase-sets/marketplace/server";
 import {
   acceptRepresentativeOffers,
   ensureRepresentativeInventoryStock,
@@ -17,7 +18,6 @@ import {
   type MarketplaceRepresentativeOfferResult,
   type RepresentativeInventoryServices,
   type RepresentativeInventoryStockResult,
-  type RepresentativeMarketplaceServices,
 } from "@chase-sets/catalog-seed";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { beforeAll, expect, it } from "vitest";
@@ -627,8 +627,8 @@ function getInventoryServices(services: Readonly<Record<string, unknown>>): Repr
   return services.inventory as RepresentativeInventoryServices;
 }
 
-function getMarketplaceServices(services: Readonly<Record<string, unknown>>): RepresentativeMarketplaceServices {
-  return services.marketplace as RepresentativeMarketplaceServices;
+function getMarketplaceServices(services: Readonly<Record<string, unknown>>): MarketplaceServices {
+  return services.marketplace as MarketplaceServices;
 }
 
 function representativeSelectedOptions() {

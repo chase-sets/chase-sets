@@ -23,6 +23,8 @@ const acceptedOfferMatch = {
     country: "US",
   },
   price_amount: "350.00",
+  price_currency_code: "USD",
+  last_stream_version: 2,
   quantity_requested: 1,
   status: "submitted",
   accepted_seller_account_id: null,
@@ -31,6 +33,8 @@ const acceptedOfferMatch = {
   updated_at: "2026-03-31T00:00:00.000Z",
   listing_id: "lst_1",
   listing_price_amount: "375.00",
+  listing_price_currency_code: "USD",
+  listing_stream_version: 3,
   listing_quantity_cap: 1,
   listing_visible_quantity: 1,
   offer_price_gap_amount: "25.00",
@@ -80,6 +84,7 @@ async function seedActiveListing(eventStore: EventStore, context: AppendToStream
           shipFromCode: "CHI",
           shipFromAddress: null,
           priceAmount: "375.00",
+          priceCurrencyCode: "USD",
           marketplaceSalesFeeUnitAmount: "18.75",
           sellerNetUnitAmount: "356.25",
           shippingAllowancePercentageBps: 500,
@@ -129,6 +134,8 @@ describe("marketplace offer runtime", () => {
       listing_id: "lst_1",
       seller_account_id: "acc_seller",
       listing_price_amount: "100.00",
+      listing_price_currency_code: "USD",
+      listing_stream_version: 3,
       buyer_listing_daily_offer_count: "0",
       muted_at: null,
       lowball_cooldown_until: null,
@@ -149,6 +156,7 @@ describe("marketplace offer runtime", () => {
         productSummary: null,
         shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
         priceAmount,
+        priceCurrencyCode: "USD",
         quantityRequested: 1,
       },
       {
@@ -189,6 +197,29 @@ describe("marketplace offer runtime", () => {
     await expect(submitOfferWithDb(db)).rejects.toMatchObject({
       code: "offer_listing_submission_cap_reached",
     } satisfies Partial<MarketplaceOfferAbuseControlError>);
+  });
+
+  it("preserves per-listing caps before filtering monetary comparisons by currency", async () => {
+    const db = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [activeCatalogItem()] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ count: "0" }] })
+        .mockResolvedValueOnce({
+          rows: [
+            activeListingGuard({
+              listing_price_currency_code: "EUR",
+              buyer_listing_daily_offer_count: "3",
+            }),
+          ],
+        }),
+    };
+
+    await expect(submitOfferWithDb(db)).rejects.toMatchObject({
+      code: "offer_listing_submission_cap_reached",
+    } satisfies Partial<MarketplaceOfferAbuseControlError>);
+    expect(db.query.mock.calls[3]?.[0]).not.toContain("listing.price_currency_code = $4");
   });
 
   it("rejects offer submissions below the listing-relative price floor", async () => {
@@ -368,6 +399,7 @@ describe("marketplace offer runtime", () => {
         productSummary: null,
         shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
         priceAmount: "350.00",
+        priceCurrencyCode: "USD",
         quantityRequested: 1,
       },
       context,
@@ -416,6 +448,7 @@ describe("marketplace offer runtime", () => {
         productSummary: null,
         shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
         priceAmount: "350.00",
+        priceCurrencyCode: "USD",
         quantityRequested: 1,
       },
       context: {
@@ -479,6 +512,7 @@ describe("marketplace offer runtime", () => {
         productSummary: null,
         shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
         priceAmount: "350.00",
+        priceCurrencyCode: "USD",
         quantityRequested: 1,
       },
       context,
@@ -538,6 +572,7 @@ describe("marketplace offer runtime", () => {
           productSummary: null,
           shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
           priceAmount: "350.00",
+          priceCurrencyCode: "USD",
           quantityRequested: 1,
         },
         {} as never,
@@ -593,6 +628,7 @@ describe("marketplace offer runtime", () => {
         productSummary: null,
         shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
         priceAmount: "350.00",
+        priceCurrencyCode: "USD",
         quantityRequested: 1,
       },
       context,
@@ -694,6 +730,7 @@ describe("marketplace offer runtime", () => {
         productSummary: null,
         shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
         priceAmount: "350.00",
+        priceCurrencyCode: "USD",
         quantityRequested: 1,
       },
       context,

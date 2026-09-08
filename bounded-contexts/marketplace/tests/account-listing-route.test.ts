@@ -384,6 +384,7 @@ describe("marketplace listing detail route", () => {
     const form = new URLSearchParams();
     form.set("intent", "update-price");
     form.set("priceAmount", "20.00");
+    form.set("priceCurrencyCode", "USD");
     form.set("feeQuoteFingerprint", "stale-fingerprint");
 
     const result = await listingAction({
@@ -398,6 +399,7 @@ describe("marketplace listing detail route", () => {
 
     expect(result).toMatchObject({
       priceDraftAmount: "20.00",
+      priceDraftCurrencyCode: "USD",
       pricePreview: currentQuote,
       error: "Fee quote is stale. Refresh the fee preview before continuing.",
     });
@@ -461,6 +463,7 @@ describe("marketplace listing detail route", () => {
     const form = new URLSearchParams();
     form.set("intent", "update-price");
     form.set("priceAmount", "20.00");
+    form.set("priceCurrencyCode", "USD");
     form.set("feeQuoteFingerprint", "current-fingerprint");
 
     const result = await listingAction({

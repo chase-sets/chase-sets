@@ -30,6 +30,7 @@ import type {
   InventoryItemOfflineSaleRecordedPayload,
   MarketplaceEventPayloads,
   MarketplaceListingCreatedPayload,
+  MarketplaceListingPriceUpdatedPayload,
   MarketplaceSalesFeeLineSnapshotPayload,
   OrderingOrderCancelledPayload,
   OrderingOrderCreatedPayload,
@@ -253,6 +254,10 @@ const aggregateTypeIdentity = {
     ChaseSetsEventPayloads["marketplace.listing.created"],
     MarketplaceListingCreatedPayload
   >,
+  "marketplace.listing.price-updated": true satisfies IsExactly<
+    ChaseSetsEventPayloads["marketplace.listing.price-updated"],
+    MarketplaceListingPriceUpdatedPayload
+  >,
   "marketplace.listing.published": true satisfies IsExactly<
     ChaseSetsEventPayloads["marketplace.listing.published"],
     EmptyEventPayload
@@ -320,6 +325,25 @@ const aggregateTypeIdentity = {
   "experience.platform-feedback.submitted": true satisfies IsExactly<
     ChaseSetsEventPayloads["experience.platform-feedback.submitted"],
     PlatformFeedbackSubmittedPayload
+  >,
+} as const;
+
+const marketplaceListingPriceCurrencyContract = {
+  createdCurrentCurrency: true satisfies IsExactly<
+    NonNullable<MarketplaceListingCreatedPayload["priceCurrencyCode"]>,
+    string
+  >,
+  createdLegacyCurrency: true satisfies IsExactly<
+    MarketplaceListingCreatedPayload["priceCurrencyCode"],
+    string | null | undefined
+  >,
+  updatedCurrentCurrency: true satisfies IsExactly<
+    NonNullable<MarketplaceListingPriceUpdatedPayload["priceCurrencyCode"]>,
+    string
+  >,
+  updatedLegacyCurrency: true satisfies IsExactly<
+    MarketplaceListingPriceUpdatedPayload["priceCurrencyCode"],
+    string | null | undefined
   >,
 } as const;
 
@@ -429,7 +453,7 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(30);
+    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(31);
   });
 
   it("preserves the historical optionality of the unversioned dispatch fact", () => {

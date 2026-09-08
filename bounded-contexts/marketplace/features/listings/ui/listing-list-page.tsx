@@ -45,12 +45,12 @@ import { TimeAwayCapacityCard } from "./time-away-capacity-card";
 
 const SELLER_LISTING_STATUS_FILTERS = ["all", "draft", "active", "paused", "withdrawn"] as const;
 
-function formatMoney(amount: string | null) {
-  if (!amount) {
+function formatMoney(amount: string | null, currencyCode: string | null) {
+  if (!amount || !currencyCode) {
     return t("marketplace.features.listings.ui.listingListPage.not.set");
   }
 
-  return formatMoneyDisplay(amount, "USD");
+  return formatMoneyDisplay(amount, currencyCode);
 }
 
 function statusTone(status: string) {
@@ -73,10 +73,10 @@ function renderFeeSummary(listing: MarketplaceListingListItem) {
 
   const segments = [
     t("marketplace.features.listings.ui.listingListPage.marketplace.fee.summary", {
-      amount: formatMoney(listing.marketplace_sales_fee_unit_amount),
+      amount: formatMoney(listing.marketplace_sales_fee_unit_amount, listing.price_currency_code),
     }),
     t("marketplace.features.listings.ui.listingListPage.net.summary", {
-      amount: formatMoney(listing.seller_net_unit_amount),
+      amount: formatMoney(listing.seller_net_unit_amount, listing.price_currency_code),
     }),
     t("marketplace.features.listings.ui.listingListPage.buyer.shipping.credit.summary", {
       percentage: formatBpsPercent(listing.shipping_allowance_percentage_bps),
@@ -424,7 +424,11 @@ export function MarketplaceListingListPage({
                     header: t("marketplace.features.listings.ui.listingListPage.price.2"),
                     cell: (row) => (
                       <Stack gap={1}>
-                        <Text weight="semibold">{formatMoney(row.price_amount)}</Text>
+                        <Text weight="semibold">
+                          {row.price_currency_code
+                            ? formatMoney(row.price_amount, row.price_currency_code)
+                            : t("marketplace.features.listings.ui.listingListPage.price.incomplete")}
+                        </Text>
                         <Text size="sm" tone="secondary">
                           {renderFeeSummary(row)}
                         </Text>
@@ -539,10 +543,10 @@ export function MarketplaceListingListPage({
                 header: t("marketplace.features.listings.ui.listingListPage.locked.fee"),
                 cell: (row) => (
                   <Stack gap={1}>
-                    <Text>{formatMoney(row.marketplace_sales_fee_unit_amount)}</Text>
+                    <Text>{formatMoney(row.marketplace_sales_fee_unit_amount, row.price_currency_code)}</Text>
                     <Text size="sm" tone="secondary">
                       {t("marketplace.features.listings.ui.listingListPage.seller.net.report", {
-                        amount: formatMoney(row.seller_net_unit_amount),
+                        amount: formatMoney(row.seller_net_unit_amount, row.price_currency_code),
                       })}
                     </Text>
                   </Stack>

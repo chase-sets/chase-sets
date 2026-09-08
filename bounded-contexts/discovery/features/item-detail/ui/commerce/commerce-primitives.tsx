@@ -128,10 +128,10 @@ export function parseMoneyAmount(value: string | null | undefined): number | nul
   return Number.isFinite(amount) ? amount : null;
 }
 
-export function formatMoneyAmount(value: string | number | null | undefined) {
+export function formatMoneyAmount(value: string | number | null | undefined, currencyCode = "USD") {
   const amount = typeof value === "number" ? value : parseMoneyAmount(value);
 
-  return amount === null ? t("discovery.routes.itemDetail.unavailable") : formatMoney(amount.toFixed(2), "USD");
+  return amount === null ? t("discovery.routes.itemDetail.unavailable") : formatMoney(amount.toFixed(2), currencyCode);
 }
 
 export function multiplyMoneyAmount(value: string, quantity: number) {

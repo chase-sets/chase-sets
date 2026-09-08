@@ -61,7 +61,11 @@ export function MarketplaceSubmittedOfferDetailPage({
         <Stack gap={4}>
           <OfferCard
             title={offer.item_title}
-            amount={formatMoney(offer.price_amount, "USD")}
+            amount={
+              offer.price_currency_code
+                ? formatMoney(offer.price_amount, offer.price_currency_code)
+                : t("marketplace.features.offers.ui.price.incomplete")
+            }
             status={<Badge tone={statusTone(offer.status)}>{offer.status}</Badge>}
             details={
               <Stack gap={2}>
@@ -94,14 +98,20 @@ export function MarketplaceSubmittedOfferDetailPage({
             lines={[
               {
                 label: t("marketplace.features.offers.ui.submittedOfferDetailPage.offer.price"),
-                value: formatMoney(offer.price_amount, "USD"),
+                value: offer.price_currency_code
+                  ? formatMoney(offer.price_amount, offer.price_currency_code)
+                  : t("marketplace.features.offers.ui.price.incomplete"),
               },
               {
                 label: t("marketplace.features.offers.ui.submittedOfferDetailPage.quantity.requested"),
                 value: offer.quantity_requested,
               },
             ]}
-            total={formatMoney(offer.price_amount, "USD")}
+            total={
+              offer.price_currency_code
+                ? formatMoney(offer.price_amount, offer.price_currency_code)
+                : t("marketplace.features.offers.ui.price.incomplete")
+            }
             totalLabel={t("marketplace.features.offers.ui.submittedOfferDetailPage.offer.price")}
           />
 

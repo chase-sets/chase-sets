@@ -286,6 +286,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.importBatches.ui.importBatchPage.items.created": "Items created",
   "inventory.features.importBatches.ui.importBatchPage.latest.batch": "Latest batch",
   "inventory.features.importBatches.ui.importBatchPage.listing.draft": "Listing draft",
+  "inventory.features.importBatches.ui.importBatchPage.listing.price.incomplete": "Incomplete listing price",
   "inventory.features.importBatches.ui.importBatchPage.listings": "Listings",
   "inventory.features.importBatches.ui.importBatchPage.mode": "Mode",
   "inventory.features.importBatches.ui.importBatchPage.needs.row.fixes": "Needs row fixes",

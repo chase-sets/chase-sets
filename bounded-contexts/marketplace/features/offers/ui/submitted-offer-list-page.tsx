@@ -67,7 +67,11 @@ export function MarketplaceSubmittedOfferListPage({
                 <OfferCard
                   key={offer.offer_id}
                   title={offer.item_title}
-                  amount={formatMoney(offer.price_amount, "USD")}
+                  amount={
+                    offer.price_currency_code
+                      ? formatMoney(offer.price_amount, offer.price_currency_code)
+                      : t("marketplace.features.offers.ui.price.incomplete")
+                  }
                   status={<Badge tone={statusTone(offer.status)}>{offer.status}</Badge>}
                   details={
                     <Stack gap={2}>

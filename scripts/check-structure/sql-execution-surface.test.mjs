@@ -320,7 +320,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
         "resolveProjectionDb(context, db)",
       ],
       ["bounded-contexts/catalog/features/categories/read-model/queries.ts", 82, "db"],
-      ["bounded-contexts/discovery/features/search/read-model/market-signals.ts", 70, "db"],
+      ["bounded-contexts/discovery/features/search/read-model/market-signals.ts", 84, "db"],
       [fixtureFile, 29, "db"],
       [fixtureFile, 33, "db"],
       [fixtureFile, 37, "db"],

@@ -41,6 +41,7 @@ export type CheckoutSessionLine = Readonly<{
   selectedOptions: VersionSelectedOptionEntry[];
   productSummary: string | null;
   offerPriceAmount?: string | null;
+  offerPriceCurrencyCode?: string | null;
   quantity: number;
   fulfillmentMode?: "optimize" | "locked-listing";
   lockedListingId?: string | null;
@@ -386,6 +387,16 @@ export type CheckoutSessionEvent =
 function normalizeLine(line: CheckoutSessionLine): CheckoutSessionLine {
   const lockedListingId = normalizeOptionalText(line.lockedListingId ?? line.listingId);
   const fulfillmentMode = line.fulfillmentMode === "locked-listing" || lockedListingId ? "locked-listing" : "optimize";
+  const offerPriceAmount = normalizeOptionalText(line.offerPriceAmount);
+  const offerPriceCurrencyCode = normalizeOptionalText(line.offerPriceCurrencyCode)?.toUpperCase() ?? null;
+  assert(
+    (offerPriceAmount === null) === (offerPriceCurrencyCode === null),
+    "Checkout Offer price must include both amount and currency.",
+  );
+  assert(
+    offerPriceCurrencyCode === null || /^[A-Z]{3}$/.test(offerPriceCurrencyCode),
+    "Checkout Offer price currency must be a three-letter ISO-4217 code.",
+  );
   return {
     listingId: lockedListingId,
     cartLineId: normalizeOptionalText(line.cartLineId),
@@ -395,7 +406,8 @@ function normalizeLine(line: CheckoutSessionLine): CheckoutSessionLine {
     itemSubtitle: normalizeOptionalText(line.itemSubtitle),
     selectedOptions: normalizeVersionSelection(line.selectedOptions),
     productSummary: normalizeOptionalText(line.productSummary),
-    offerPriceAmount: normalizeOptionalText(line.offerPriceAmount),
+    offerPriceAmount,
+    offerPriceCurrencyCode,
     quantity: ensurePositiveInteger(line.quantity, "Checkout quantity must be a positive whole number."),
     fulfillmentMode,
     lockedListingId,
@@ -480,12 +492,15 @@ function normalizeSplitGroupHandoff(
   const coveredLineIds: string[] = [];
   const expectedLineIds = lines.map((line) => line.cartLineId).filter((lineId): lineId is string => Boolean(lineId));
   assert(expectedLineIds.length === lines.length, "Cart checkout lines must keep their source line references.");
-
+  assert(
+    lines.every((line) => line.listingId && line.listingId === line.lockedListingId),
+    "Cart lines require selected Listings.",
+  );
   for (const group of groups) {
     assert(group.groupId.trim(), "Cart readiness split groups must have stable ids.");
     assert(!groupIds.has(group.groupId), "Cart readiness split groups must have unique ids.");
     groupIds.add(group.groupId);
-    assert(group.lineIds.length > 0, "Cart readiness split groups must include checkout lines.");
+    assert(group.lineIds.length > 0 && group.listingIds.length > 0, "Cart groups require lines and selected Listings.");
     coveredLineIds.push(...group.lineIds);
 
     const groupLines = lines.filter((line) => line.cartLineId && group.lineIds.includes(line.cartLineId));
@@ -672,6 +687,12 @@ export const decideCheckoutSession: AggregateDecider<
       assert(state.sessionId === null, "Checkout session has already started.");
       const lines = command.lines.map(normalizeLine);
       assert(lines.length > 0, "Checkout session must include at least one line.");
+      if (command.sourceType === "offer-intent") {
+        assert(
+          lines.length === 1 && lines[0]?.offerPriceAmount && lines[0]?.offerPriceCurrencyCode,
+          "Purchase intent requires one complete buyer-authored Offer price.",
+        );
+      }
       const cartReadinessSnapshot = normalizeCartReadinessSnapshot(command.sourceType, command.cartReadinessSnapshot);
       const presentedAnonymousCartId =
         command.sourceType === "cart" ? normalizeOptionalText(command.presentedAnonymousCartId) : null;

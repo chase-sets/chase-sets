@@ -551,6 +551,7 @@ describe("checkout web routes: checkout start", () => {
         selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
         productSummary: "Raw",
         priceAmount: null,
+        priceCurrencyCode: null,
         sellerName: null,
         availability: null,
         fulfillment: null,
@@ -780,7 +781,7 @@ describe("checkout web routes: checkout start", () => {
 
     const response = (await checkoutStartAction({
       request: new Request(
-        "http://localhost/checkout/buy/readiness?source=offer-intent&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&itemSubtitle=Base+Set&selectedOptions=%5B%7B%22dimensionId%22%3A%22condition%22%2C%22optionId%22%3A%22raw%22%7D%5D&productSummary=Raw&offerPriceAmount=350.00&quantity=2",
+        "http://localhost/checkout/buy/readiness?source=offer-intent&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&itemSubtitle=Base+Set&selectedOptions=%5B%7B%22dimensionId%22%3A%22condition%22%2C%22optionId%22%3A%22raw%22%7D%5D&productSummary=Raw&offerPriceAmount=350.00&offerPriceCurrencyCode=EUR&quantity=2",
         {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -803,6 +804,7 @@ describe("checkout web routes: checkout start", () => {
         selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
         productSummary: "Raw",
         offerPriceAmount: "350.00",
+        offerPriceCurrencyCode: "EUR",
         quantity: 2,
       },
     });

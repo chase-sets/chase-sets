@@ -43,6 +43,7 @@ export type DiscoveryItemDetailRow = Readonly<{
   product_schema: unknown;
   market_summary: Readonly<{
     lowest_price_amount: string | null;
+    lowest_price_currency_code?: string | null;
     active_listing_count: number;
     total_visible_quantity: number;
   }> | null;
@@ -62,6 +63,8 @@ export type DiscoveryItemDetailRow = Readonly<{
     storage_location_name: string | null;
     ship_from_code: string | null;
     price_amount: string;
+    price_currency_code: string | null;
+    listing_stream_version: number;
     shipping_allowance_percentage_bps: number;
     quantity_cap: number;
     max_units_per_order: number | null;
@@ -92,6 +95,8 @@ export type DiscoveryItemDetailRow = Readonly<{
     selected_options: readonly { dimensionId: string; optionId: string }[];
     product_summary: string | null;
     price_amount: string;
+    price_currency_code: string | null;
+    offer_stream_version: number;
     quantity_requested: number;
     status: string;
     accepted_seller_account_id: string | null;
@@ -345,12 +350,14 @@ export async function getDiscoveryItemDetail(
 
   const summaryResult = await db.query<{
     lowest_price_amount: string | null;
+    lowest_price_currency_code: string | null;
     active_listing_count: number;
     total_visible_quantity: number;
   }>(
     `WITH startable_listing AS (
        SELECT
          listing.price_amount,
+         listing.price_currency_code,
          ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
        FROM discovery_market_listings AS listing
        INNER JOIN discovery_market_accounts AS account
@@ -359,7 +366,10 @@ export async function getDiscoveryItemDetail(
          AND ${buyerVisibleListingPredicateSql("listing", "account")}
      )
      SELECT
-       MIN(price_amount::numeric)::text AS lowest_price_amount,
+       CASE WHEN COUNT(DISTINCT price_currency_code) = 1
+         THEN MIN(price_amount::numeric)::text ELSE NULL END AS lowest_price_amount,
+       CASE WHEN COUNT(DISTINCT price_currency_code) = 1
+         THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code,
        COUNT(*)::integer AS active_listing_count,
        COALESCE(SUM(visible_quantity), 0)::integer AS total_visible_quantity
      FROM startable_listing
@@ -392,6 +402,8 @@ export async function getDiscoveryItemDetail(
          listing.storage_location_name,
          listing.ship_from_code,
          listing.price_amount,
+         listing.price_currency_code,
+         listing.listing_stream_version,
          listing.shipping_allowance_percentage_bps,
          listing.quantity_cap,
          listing.max_units_per_order,
@@ -430,6 +442,8 @@ export async function getDiscoveryItemDetail(
        storage_location_name,
        ship_from_code,
        price_amount,
+       price_currency_code,
+       listing_stream_version,
        shipping_allowance_percentage_bps,
        quantity_cap,
        max_units_per_order,
@@ -447,7 +461,7 @@ export async function getDiscoveryItemDetail(
        updated_at
      FROM startable_listing
      WHERE visible_quantity > 0
-     ORDER BY price_amount::numeric ASC, updated_at DESC, listing_id ASC
+     ORDER BY price_currency_code ASC, price_amount::numeric ASC, updated_at DESC, listing_id ASC
      LIMIT ${ITEM_DETAIL_PUBLIC_MARKET_ROW_LIMIT}`,
     [item.catalog_item_id],
   );
@@ -467,6 +481,8 @@ export async function getDiscoveryItemDetail(
        offer.selected_options,
        offer.product_summary,
        offer.price_amount,
+       offer.price_currency_code,
+       offer.offer_stream_version,
        offer.quantity_requested,
        offer.status,
        offer.accepted_seller_account_id,
@@ -482,7 +498,10 @@ export async function getDiscoveryItemDetail(
        ON account.account_id = offer.buyer_account_id
      WHERE offer.catalog_catalog_item_id = $1
        AND offer.status = 'submitted'
+       AND offer.price_currency_code IS NOT NULL
+       AND offer.offer_stream_version > 0
      ORDER BY
+       offer.price_currency_code ASC,
        offer.price_amount::numeric DESC,
        offer.quantity_requested DESC,
        offer.created_at ASC,
@@ -496,6 +515,7 @@ export async function getDiscoveryItemDetail(
     summaryRow && summaryRow.active_listing_count > 0
       ? {
           lowest_price_amount: summaryRow.lowest_price_amount,
+          lowest_price_currency_code: summaryRow.lowest_price_currency_code,
           active_listing_count: summaryRow.active_listing_count,
           total_visible_quantity: summaryRow.total_visible_quantity,
         }
@@ -549,6 +569,9 @@ export async function getDiscoveryItemDetailSellerOverlay(
        SELECT
          offer.offer_id,
          listing.listing_id,
+         listing.price_amount AS listing_price_amount,
+         listing.price_currency_code AS listing_price_currency_code,
+         listing.listing_stream_version AS listing_stream_version,
          ${buyerVisibleListingQuantitySql("listing")} AS seller_available_quantity
        FROM discovery_offer_demand_matches AS offer
        INNER JOIN LATERAL (
@@ -559,6 +582,8 @@ export async function getDiscoveryItemDetailSellerOverlay(
          WHERE listing.account_id = $1
            AND listing.catalog_catalog_item_id = $2
            AND listing.product_id = offer.product_id
+           AND offer.price_currency_code IS NOT NULL
+           AND listing.price_currency_code = offer.price_currency_code
            AND ${buyerVisibleListingPredicateSql("listing", "seller")}
          ORDER BY
            listing.price_amount::numeric ASC,
@@ -580,6 +605,11 @@ export async function getDiscoveryItemDetailSellerOverlay(
        offer.selected_options,
        offer.product_summary,
        offer.price_amount,
+       offer.price_currency_code,
+       offer.offer_stream_version,
+       seller_listing.listing_price_amount,
+       seller_listing.listing_price_currency_code,
+       seller_listing.listing_stream_version,
        offer.quantity_requested,
        offer.status,
        offer.accepted_seller_account_id,
@@ -604,6 +634,7 @@ export async function getDiscoveryItemDetailSellerOverlay(
      LEFT JOIN discovery_market_accounts AS buyer
        ON buyer.account_id = offer.buyer_account_id
      ORDER BY
+       offer.price_currency_code ASC,
        offer.price_amount::numeric DESC,
        offer.quantity_requested DESC,
        offer.created_at ASC,

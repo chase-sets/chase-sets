@@ -333,6 +333,7 @@ export function mapGoogleShoppingProductAttributes(
 export function mapGoogleShoppingOfferAttributes(input: GoogleShoppingOfferFactsInput): GoogleShoppingOfferAttributes {
   const reasons: GoogleShoppingExclusionReason[] = [];
   const priceAmount = normalizePositiveMoneyAmount(input.priceAmount);
+  const currencyCode = normalizeCurrencyCode(input.currencyCode);
   const quantityCap = input.quantityCap ?? null;
   const link = trimToNull(input.canonicalUrl);
 
@@ -351,7 +352,7 @@ export function mapGoogleShoppingOfferAttributes(input: GoogleShoppingOfferFacts
   if (!link) {
     reasons.push("missing-link");
   }
-  if (!priceAmount) {
+  if (!priceAmount || !currencyCode) {
     reasons.push("missing-price");
   }
   if (!input.crawlable || !link) {
@@ -363,7 +364,7 @@ export function mapGoogleShoppingOfferAttributes(input: GoogleShoppingOfferFacts
     externalSellerId: buildGoogleShoppingExternalSellerId(input.accountId),
     link,
     priceAmount,
-    currencyCode: trimToNull(input.currencyCode) ?? "USD",
+    currencyCode: currencyCode ?? "",
     availability: reasons.includes("sold-out") ? "out of stock" : "in stock",
     exclusionReasons: uniqueReasons(reasons),
   };
@@ -375,16 +376,17 @@ export function mapGoogleShoppingPolicyAttributes(
 ): GoogleShoppingPolicyAttributes {
   const reasons: GoogleShoppingExclusionReason[] = [];
   const returnPolicyUrl = trimToNull(returns.policyUrl);
+  const shippingCurrencyCode = normalizeCurrencyCode(shipping.currencyCode);
   const shippingPayload =
     shipping.ready && trimToNull(shipping.country)
       ? {
           country: shipping.country.trim(),
           ...(trimToNull(shipping.service) ? { service: shipping.service!.trim() } : {}),
-          ...(normalizePositiveMoneyAmount(shipping.priceAmount)
+          ...(normalizePositiveMoneyAmount(shipping.priceAmount) && shippingCurrencyCode
             ? {
                 price: {
                   amount: normalizePositiveMoneyAmount(shipping.priceAmount)!,
-                  currencyCode: trimToNull(shipping.currencyCode) ?? "USD",
+                  currencyCode: shippingCurrencyCode,
                 },
               }
             : {}),
@@ -686,6 +688,11 @@ function compactPayload(payload: GoogleShoppingPayloadInput): GoogleShoppingPayl
 function trimToNull(value: string | null | undefined) {
   const trimmed = value?.trim() ?? "";
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeCurrencyCode(value: string | null | undefined) {
+  const normalized = trimToNull(value)?.toUpperCase() ?? null;
+  return normalized && /^[A-Z]{3}$/.test(normalized) ? normalized : null;
 }
 
 function normalizeToken(value: string) {

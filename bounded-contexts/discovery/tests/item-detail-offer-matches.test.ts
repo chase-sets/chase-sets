@@ -130,6 +130,7 @@ describe("item detail offer matches", () => {
           selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
           productSummary: "Raw",
           priceAmount: "350.00",
+          priceCurrencyCode: "EUR",
           quantityRequested: 1,
         },
         "2026-04-28T00:00:00.000Z",
@@ -158,6 +159,8 @@ describe("item detail offer matches", () => {
       JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
       "Raw",
       "350.00",
+      "EUR",
+      1,
       1,
       "submitted",
       null,
@@ -168,13 +171,7 @@ describe("item detail offer matches", () => {
     const acceptedOfferUpdate = calls.find(
       (call) => call.sql.includes("UPDATE discovery_offer_demand_matches") && call.sql.includes("accepted_at"),
     );
-    expect(acceptedOfferUpdate?.params).toEqual([
-      "accepted",
-      "seller_1",
-      "2026-04-28T01:00:00.000Z",
-      "2026-04-28T01:00:00.000Z",
-      "offer_charizard",
-    ]);
+    expect(acceptedOfferUpdate?.params).toEqual(["offer_charizard", "seller_1", "2026-04-28T01:00:00.000Z", 1]);
   });
 
   it("projects checkout-start availability evidence into public market listings", async () => {

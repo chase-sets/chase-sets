@@ -19,6 +19,8 @@ type AcceptedOfferParams = Readonly<{
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSummary: string | null;
   priceAmount: string;
+  priceCurrencyCode: string;
+  offerStreamVersion: number;
   marketplaceSalesFeePercentageBps: number;
   marketplaceSalesFeeFixedAmount: string;
   marketplaceSalesFeeCapAmount: string | null;
@@ -114,6 +116,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         shipFromCode: string | null;
         shipFromAddress: unknown;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         shippingAllowancePercentageBps?: number;
@@ -146,6 +149,8 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            ship_from_code,
            ship_from_address,
            price_amount,
+           price_currency_code,
+           listing_stream_version,
            marketplace_sales_fee_unit_amount,
            seller_net_unit_amount,
            shipping_allowance_percentage_bps,
@@ -161,7 +166,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            status,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, COALESCE((SELECT status FROM ordering_seller_listing_availability_inputs WHERE account_id = $2), 'available'), 'draft', $27
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, COALESCE((SELECT status FROM ordering_seller_listing_availability_inputs WHERE account_id = $2), 'available'), 'draft', $29
          )
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
@@ -178,6 +183,8 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              ship_from_code = EXCLUDED.ship_from_code,
              ship_from_address = EXCLUDED.ship_from_address,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
+             listing_stream_version = EXCLUDED.listing_stream_version,
              marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
              seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
              shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
@@ -191,7 +198,8 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              max_units_per_customer_account = EXCLUDED.max_units_per_customer_account,
              seller_listing_availability_status = ordering_market_listing_inputs.seller_listing_availability_status,
              status = EXCLUDED.status,
-             updated_at = EXCLUDED.updated_at`,
+             updated_at = EXCLUDED.updated_at
+         WHERE ordering_market_listing_inputs.listing_stream_version < EXCLUDED.listing_stream_version`,
         [
           data.listingId,
           data.accountId,
@@ -210,6 +218,8 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           data.shipFromCode,
           JSON.stringify(data.shipFromAddress),
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
+          event.streamVersion,
           data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
           data.shippingAllowancePercentageBps ?? 500,
@@ -252,6 +262,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
     "marketplace.listing.price-updated": async (event) => {
       const data = event.data as {
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         marketplaceSalesFeeUnitAmount: string;
         sellerNetUnitAmount: string;
         shippingAllowancePercentageBps?: number;
@@ -264,18 +275,23 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
       await db.query(
         `UPDATE ordering_market_listing_inputs
          SET price_amount = $2,
-             marketplace_sales_fee_unit_amount = $3,
-             seller_net_unit_amount = $4,
-             shipping_allowance_percentage_bps = $5,
-             terms_schedule_id = $6,
-             terms_agreement_id = $7,
-              terms_resolved_at = $8,
-              fee_locks = $9,
-              updated_at = $10
-         WHERE listing_id = $1`,
+             price_currency_code = $3,
+             listing_stream_version = $4,
+             marketplace_sales_fee_unit_amount = $5,
+             seller_net_unit_amount = $6,
+             shipping_allowance_percentage_bps = $7,
+             terms_schedule_id = $8,
+             terms_agreement_id = $9,
+              terms_resolved_at = $10,
+              fee_locks = $11,
+              updated_at = $12
+         WHERE listing_id = $1
+           AND listing_stream_version < $4`,
         [
           event.streamId.replace("marketplace.listing-", ""),
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
+          event.streamVersion,
           data.marketplaceSalesFeeUnitAmount,
           data.sellerNetUnitAmount,
           data.shippingAllowancePercentageBps ?? 500,
@@ -437,7 +453,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
     "marketplace.offer.accepted": async (event) => {
       const data = event.data;
 
-      await db.query(
+      const projected = await db.query<{ offer_id: string }>(
         `INSERT INTO ordering_offer_acceptance_inputs (
            offer_id,
            buyer_account_id,
@@ -452,6 +468,8 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            selected_options,
            product_summary,
            price_amount,
+           price_currency_code,
+           offer_stream_version,
            marketplace_sales_fee_percentage_bps,
            marketplace_sales_fee_fixed_amount,
            marketplace_sales_fee_cap_amount,
@@ -473,7 +491,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
            acceptance_batch_size,
            updated_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35
          )
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -488,6 +506,8 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              selected_options = EXCLUDED.selected_options,
              product_summary = EXCLUDED.product_summary,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
+             offer_stream_version = EXCLUDED.offer_stream_version,
              marketplace_sales_fee_percentage_bps = EXCLUDED.marketplace_sales_fee_percentage_bps,
              marketplace_sales_fee_fixed_amount = EXCLUDED.marketplace_sales_fee_fixed_amount,
              marketplace_sales_fee_cap_amount = EXCLUDED.marketplace_sales_fee_cap_amount,
@@ -507,7 +527,9 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
              accepted_at = EXCLUDED.accepted_at,
              acceptance_batch_id = EXCLUDED.acceptance_batch_id,
              acceptance_batch_size = EXCLUDED.acceptance_batch_size,
-             updated_at = EXCLUDED.updated_at`,
+             updated_at = EXCLUDED.updated_at
+         WHERE ordering_offer_acceptance_inputs.offer_stream_version < EXCLUDED.offer_stream_version
+         RETURNING offer_id`,
         [
           data.offerId,
           data.buyerAccountId,
@@ -522,6 +544,8 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.productSummary,
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
+          event.streamVersion,
           data.marketplaceSalesFeePercentageBps ?? 0,
           data.marketplaceSalesFeeFixedAmount ?? data.marketplaceSalesFeeUnitAmount,
           data.marketplaceSalesFeeCapAmount ?? null,
@@ -545,18 +569,22 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         ],
       );
 
-      await options.onOfferAccepted?.({
-        ...data,
-        marketplaceSalesFeePercentageBps: data.marketplaceSalesFeePercentageBps ?? 0,
-        marketplaceSalesFeeFixedAmount: data.marketplaceSalesFeeFixedAmount ?? data.marketplaceSalesFeeUnitAmount,
-        marketplaceSalesFeeCapAmount: data.marketplaceSalesFeeCapAmount ?? null,
-        listingEvidenceSnapshot: data.listingEvidenceSnapshot ?? null,
-        context: {
-          tenantId: event.tenantId,
-          audit: event.audit,
-          trace: event.trace,
-        } as EventStoreContext,
-      });
+      if (projected.rows.length > 0 && data.priceCurrencyCode === "USD") {
+        await options.onOfferAccepted?.({
+          ...data,
+          priceCurrencyCode: data.priceCurrencyCode,
+          offerStreamVersion: event.streamVersion,
+          marketplaceSalesFeePercentageBps: data.marketplaceSalesFeePercentageBps ?? 0,
+          marketplaceSalesFeeFixedAmount: data.marketplaceSalesFeeFixedAmount ?? data.marketplaceSalesFeeUnitAmount,
+          marketplaceSalesFeeCapAmount: data.marketplaceSalesFeeCapAmount ?? null,
+          listingEvidenceSnapshot: data.listingEvidenceSnapshot ?? null,
+          context: {
+            tenantId: event.tenantId,
+            audit: event.audit,
+            trace: event.trace,
+          } as EventStoreContext,
+        });
+      }
     },
     "marketplace.seller-order-capacity.set": async (event) => {
       const data = event.data;

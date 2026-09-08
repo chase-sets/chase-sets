@@ -46,7 +46,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "checkout-marketplace-listing-options-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.listing.created",
@@ -99,9 +99,9 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "checkout.sell-list-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "filterToEventTypes": true,
-      "eventTypes": ["marketplace.offer.submitted", "marketplace.offer.accepted"],
+      "eventTypes": ["marketplace.offer.submitted", "marketplace.offer.price-updated", "marketplace.offer.accepted"],
       "order": 23,
       "projectionHandlerSetNames": ["checkout.sell-list-projection"]
     },

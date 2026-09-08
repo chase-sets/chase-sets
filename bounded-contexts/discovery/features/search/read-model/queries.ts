@@ -119,6 +119,7 @@ export type DiscoverySearchItemRow = Readonly<{
   image_fallback: unknown;
   market_summary: Readonly<{
     lowest_price_amount: string | null;
+    lowest_price_currency_code?: string | null;
     active_listing_count: number;
     total_visible_quantity: number;
   }> | null;
@@ -130,6 +131,7 @@ export type DiscoverySearchItemRow = Readonly<{
 type BaseDiscoverySearchItemRow = Omit<DiscoverySearchItemRow, "market_summary">;
 type SearchIndexItemRow = BaseDiscoverySearchItemRow & {
   lowest_price_amount: string | null;
+  lowest_price_currency_code: string | null;
   visible_quantity: number | null;
 };
 
@@ -141,6 +143,7 @@ async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly str
   const result = await db.query<{
     catalog_catalog_item_id: string;
     lowest_price_amount: string | null;
+    lowest_price_currency_code: string | null;
     active_listing_count: number;
     total_visible_quantity: number;
   }>(
@@ -148,6 +151,7 @@ async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly str
        SELECT
          listing.catalog_catalog_item_id,
          listing.price_amount,
+         listing.price_currency_code,
          ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
        FROM discovery_market_listings AS listing
        INNER JOIN discovery_market_accounts AS account
@@ -157,7 +161,10 @@ async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly str
      )
      SELECT
        catalog_catalog_item_id,
-       MIN(price_amount::numeric)::text AS lowest_price_amount,
+       CASE WHEN COUNT(DISTINCT price_currency_code) = 1
+         THEN MIN(price_amount::numeric)::text ELSE NULL END AS lowest_price_amount,
+       CASE WHEN COUNT(DISTINCT price_currency_code) = 1
+         THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code,
        COUNT(*)::integer AS active_listing_count,
        COALESCE(SUM(visible_quantity), 0)::integer AS total_visible_quantity
      FROM startable_listing
@@ -171,6 +178,7 @@ async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly str
       row.catalog_catalog_item_id,
       {
         lowest_price_amount: row.lowest_price_amount,
+        lowest_price_currency_code: row.lowest_price_currency_code,
         active_listing_count: row.active_listing_count,
         total_visible_quantity: row.total_visible_quantity,
       },
@@ -642,7 +650,7 @@ export async function searchDiscoveryItems(
           values.slice(0, values.length - (cursorCondition ? cursorValueCount(params.sort, hasSearch, cursor) : 0)),
         )
       : Promise.resolve({ rows: [] });
-  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, display_badges, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, lowest_price_amount::text AS lowest_price_amount, visible_quantity, updated_at${selectRank}${selectBaseMatch}
+  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, display_badges, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, lowest_price_amount::text AS lowest_price_amount, lowest_price_currency_code, visible_quantity, updated_at${selectRank}${selectBaseMatch}
     FROM discovery_search_items ${whereWithCursor}
     ORDER BY ${orderBy}
     ${listLimitSql}`;
@@ -667,10 +675,17 @@ export async function searchDiscoveryItems(
   const category_counts = loadFacets ? await loadSearchCategoryCounts(db, params) : [];
 
   return {
-    items: rows.map(({ lowest_price_amount: _lowestPriceAmount, visible_quantity: _visibleQuantity, ...row }) => ({
-      ...row,
-      market_summary: marketSummaries.get(row.catalog_item_id) ?? null,
-    })),
+    items: rows.map(
+      ({
+        lowest_price_amount: _lowestPriceAmount,
+        lowest_price_currency_code: _lowestPriceCurrencyCode,
+        visible_quantity: _visibleQuantity,
+        ...row
+      }) => ({
+        ...row,
+        market_summary: marketSummaries.get(row.catalog_item_id) ?? null,
+      }),
+    ),
     facets,
     category_counts,
     total: countResult.rows[0]?.count ? Number.parseInt(countResult.rows[0].count, 10) : null,

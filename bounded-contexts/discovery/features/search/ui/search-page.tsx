@@ -105,8 +105,11 @@ type PriceAndStockFiltersProps = Readonly<{
 
 function formatPrice(item: DiscoverySearchItem): string | undefined {
   const lowestPrice = item.market_summary?.lowest_price_amount;
+  const lowestPriceCurrencyCode = item.market_summary?.lowest_price_currency_code;
 
-  return lowestPrice ? formatMoney(lowestPrice) : undefined;
+  return lowestPrice !== null && lowestPrice !== undefined && lowestPriceCurrencyCode
+    ? formatMoney(lowestPrice, lowestPriceCurrencyCode)
+    : undefined;
 }
 
 function formatSearchResultMetadata(item: DiscoverySearchItem): string | undefined {

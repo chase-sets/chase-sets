@@ -110,6 +110,7 @@ function searchDataWithResults(search = "", language = "") {
           image_urls: [],
           market_summary: {
             lowest_price_amount: "12.00",
+            lowest_price_currency_code: "USD",
             active_listing_count: 2,
             total_visible_quantity: 3,
           },
@@ -148,6 +149,7 @@ function searchDataWithMarketOnlyResult(search = "") {
         ...item,
         market_summary: {
           lowest_price_amount: null,
+          lowest_price_currency_code: null,
           active_listing_count: 0,
           total_visible_quantity: 0,
         },
@@ -762,6 +764,7 @@ describe("marketplace search route", () => {
           id: "cat_raichu",
           value: {
             lowest_price_amount: "7.00",
+            lowest_price_currency_code: "USD",
             active_listing_count: 4,
             total_visible_quantity: 4,
           },

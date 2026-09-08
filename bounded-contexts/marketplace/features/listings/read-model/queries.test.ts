@@ -160,10 +160,13 @@ describe("marketplace listing read-model queries", () => {
 
     expect(result).toEqual({
       lowest_price_amount: "21.50",
+      lowest_price_currency_code: null,
       active_listing_count: 1,
       total_visible_quantity: 2,
     });
     expect(calls[0]?.params).toEqual(["cat_air_balloon::form:raw|condition:damaged"]);
+    expect(calls[0]?.sql).toContain("listing.listing_stream_version > 0");
+    expect(calls[0]?.sql).not.toContain("listing.last_stream_version");
     expectCorrelatedActiveHoldLookup(calls);
   });
 
@@ -200,6 +203,8 @@ describe("marketplace listing read-model queries", () => {
     ]);
     expect(calls[0]?.sql).not.toContain("listing.*");
     expect(calls[0]?.sql).toContain("listing.listing_id");
+    expect(calls[0]?.sql).toContain("listing.listing_stream_version > 0");
+    expect(calls[0]?.sql).not.toContain("listing.last_stream_version");
     expect(calls[0]?.sql).toContain("LIMIT $2 OFFSET $3");
     expectCorrelatedActiveHoldLookup(calls);
   });

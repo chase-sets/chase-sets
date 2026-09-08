@@ -54,6 +54,7 @@ describe("public listing checkout start", () => {
       productSummary: "Near Mint",
       quantity: "1",
       priceAmount: "42.00",
+      priceCurrencyCode: "EUR",
       sellerName: "Card Vault",
     });
 
@@ -86,6 +87,8 @@ function publicListing(): DiscoveryPublicListing {
     storage_location_name: null,
     ship_from_code: "US",
     price_amount: "42.00",
+    price_currency_code: "EUR",
+    listing_stream_version: 3,
     shipping_allowance_percentage_bps: 500,
     quantity_cap: 1,
     max_units_per_order: null,

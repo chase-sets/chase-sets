@@ -88,6 +88,11 @@ function parseSelectedListingSnapshot(value: unknown) {
     sellerDisplayName: optionalBodyString(source.sellerDisplayName),
     sellerSlug: optionalBodyString(source.sellerSlug),
     priceAmount: optionalBodyString(source.priceAmount),
+    priceCurrencyCode: optionalBodyString(source.priceCurrencyCode),
+    listingStreamVersion:
+      source.listingStreamVersion === null || source.listingStreamVersion === undefined
+        ? null
+        : Number(source.listingStreamVersion),
     source: optionalBodyString(source.source),
   };
 }

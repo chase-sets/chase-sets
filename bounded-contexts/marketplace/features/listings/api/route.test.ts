@@ -69,6 +69,7 @@ function createServices(): MarketplaceListingServices {
         selected_options: params.selectedOptions,
         product_summary: params.productSummary ?? null,
         price_amount: params.priceAmount,
+        price_currency_code: params.priceCurrencyCode,
         quantity_cap: params.quantityCap,
         max_units_per_order: params.purchaseLimits?.maxUnitsPerOrder ?? null,
         max_units_per_day: params.purchaseLimits?.maxUnitsPerDay ?? null,
@@ -92,6 +93,7 @@ function createServices(): MarketplaceListingServices {
         selected_options: [{ dimensionId: "form", optionId: "raw" }],
         product_summary: "Form: Raw",
         price_amount: "20.00",
+        price_currency_code: "USD",
         quantity_cap: 1,
         max_units_per_order: null,
         max_units_per_day: null,
@@ -110,6 +112,7 @@ function createServices(): MarketplaceListingServices {
         event_type: "marketplace.listing.published",
         stream_version: 2,
         price_amount: null,
+        price_currency_code: null,
         quantity_cap: null,
         marketplace_sales_fee_unit_amount: "1.00",
         seller_net_unit_amount: "19.00",
@@ -279,6 +282,7 @@ function createServices(): MarketplaceListingServices {
     replaceListingPhoto: vi.fn(async () => ({ listingId: "lst_1", version: 5 })),
     removeListingPhoto: vi.fn(async () => ({ listingId: "lst_1", version: 6 })),
     reorderListingPhotos: vi.fn(async () => ({ listingId: "lst_1", version: 7 })),
+    updateListingPrice: vi.fn(async () => ({ listingId: "lst_1", version: 2 })),
     applyBulkListingPriceUpdates: vi.fn(async (params: { updates: readonly { listingId: string }[] }) =>
       params.updates.map((update) => ({ listingId: update.listingId, outcome: "applied" as const, version: 2 })),
     ),
@@ -484,6 +488,7 @@ describe("marketplace listing routes", () => {
           selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
           productSummary: "Form: Raw",
           priceAmount: "20.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
         }),
       }),
@@ -505,6 +510,7 @@ describe("marketplace listing routes", () => {
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Form: Raw",
       priceAmount: "20.00",
+      priceCurrencyCode: "USD",
       quantityCap: 1,
       purchaseLimits: {
         maxUnitsPerOrder: null,
@@ -538,6 +544,7 @@ describe("marketplace listing routes", () => {
             selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
             productSummary: "Form: Raw",
             priceAmount: "20.00",
+            priceCurrencyCode: "USD",
             quantityCap: 1,
           }),
         }),
@@ -624,6 +631,7 @@ describe("marketplace listing routes", () => {
         body: JSON.stringify({
           inventoryItemId: "inv_1",
           priceAmount: "12.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_checkout_fallback",
         }),
@@ -645,6 +653,80 @@ describe("marketplace listing routes", () => {
     );
   });
 
+  it("requires and forwards seller-authored currency for multipart listing creation", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+    const form = new FormData();
+    form.set("inventoryItemId", "inv_1");
+    form.set("priceAmount", "12.00");
+    form.set("priceCurrencyCode", " eur ");
+    form.set("quantityCap", "1");
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", { method: "POST", body: form }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.createListing).toHaveBeenCalledWith(
+      expect.objectContaining({ priceAmount: "12.00", priceCurrencyCode: " eur " }),
+      expect.any(Object),
+    );
+
+    const missingCurrency = new FormData();
+    missingCurrency.set("inventoryItemId", "inv_1");
+    missingCurrency.set("priceAmount", "12.00");
+    missingCurrency.set("quantityCap", "1");
+    const rejected = await app.fetch(
+      new Request("http://marketplace.test/account/listings", { method: "POST", body: missingCurrency }),
+    );
+    expect(rejected.status).toBe(400);
+  });
+
+  it("rejects incomplete, malformed, and recursively open price authoring requests", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor, services });
+    const base = { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 };
+
+    for (const body of [
+      base,
+      { ...base, priceCurrencyCode: "US" },
+      { ...base, priceCurrencyCode: "USD", guessedCurrency: "EUR" },
+      { ...base, priceCurrencyCode: "USD", purchaseLimits: { maxUnitsPerOrder: 1, guessed: 2 } },
+    ]) {
+      const response = await app.fetch(
+        new Request("http://marketplace.test/account/listings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+      expect(response.status).toBe(400);
+    }
+
+    const updateResponse = await app.fetch(
+      new Request("http://marketplace.test/account/listings/lst_1/price", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priceAmount: "12.00", priceCurrencyCode: "USD", guessedCurrency: "EUR" }),
+      }),
+    );
+    const bulkResponse = await app.fetch(
+      new Request("http://marketplace.test/account/listings/prices/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          updates: [{ listingId: "lst_1", priceAmount: "12.00", priceCurrencyCode: "USD", guessed: "EUR" }],
+        }),
+      }),
+    );
+
+    expect(updateResponse.status).toBe(400);
+    expect(bulkResponse.status).toBe(400);
+    expect(services.createListing).not.toHaveBeenCalled();
+    expect(services.updateListingPrice).not.toHaveBeenCalled();
+    expect(services.applyBulkListingPriceUpdates).not.toHaveBeenCalled();
+  });
+
   it("returns not found without a fee fingerprint when a deterministic listing is not owned", async () => {
     const services = createServices();
     vi.mocked(services.createListing).mockRejectedValueOnce(new Error("Listing not found."));
@@ -657,6 +739,7 @@ describe("marketplace listing routes", () => {
         body: JSON.stringify({
           inventoryItemId: "inv_1",
           priceAmount: "12.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_existing",
         }),
@@ -716,6 +799,7 @@ describe("marketplace listing routes", () => {
         body: JSON.stringify({
           inventoryItemId: "inv_missing_from_marketplace",
           priceAmount: "12.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
         }),
       }),
@@ -743,6 +827,7 @@ describe("marketplace listing routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           priceAmount: "12.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           inventorySnapshot: {
             ...validInventorySnapshot,
@@ -792,6 +877,7 @@ describe("marketplace listing routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           priceAmount: "12.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           inventorySnapshot: {
             ...validInventorySnapshot,
@@ -822,6 +908,7 @@ describe("marketplace listing routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           priceAmount: "12.00",
+          priceCurrencyCode: "USD",
           quantityCap: 1,
           inventorySnapshot: {
             ...validInventorySnapshot,
@@ -1012,8 +1099,13 @@ describe("marketplace listing routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           updates: [
-            { listingId: "lst_1", priceAmount: "21.00" },
-            { listingId: "lst_2", priceAmount: "22.00", feeQuoteFingerprint: "some-fingerprint" },
+            { listingId: "lst_1", priceAmount: "21.00", priceCurrencyCode: "USD" },
+            {
+              listingId: "lst_2",
+              priceAmount: "22.00",
+              priceCurrencyCode: "EUR",
+              feeQuoteFingerprint: "some-fingerprint",
+            },
             { listingId: "" },
           ],
         }),
@@ -1035,8 +1127,13 @@ describe("marketplace listing routes", () => {
       {
         accountId: "acc_seller",
         updates: [
-          { listingId: "lst_1", priceAmount: "21.00", feeQuoteFingerprint: null },
-          { listingId: "lst_2", priceAmount: "22.00", feeQuoteFingerprint: "some-fingerprint" },
+          { listingId: "lst_1", priceAmount: "21.00", priceCurrencyCode: "USD", feeQuoteFingerprint: null },
+          {
+            listingId: "lst_2",
+            priceAmount: "22.00",
+            priceCurrencyCode: "EUR",
+            feeQuoteFingerprint: "some-fingerprint",
+          },
         ],
       },
       expect.objectContaining({

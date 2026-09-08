@@ -317,6 +317,7 @@ describe("representative commerce state seed helpers", () => {
         catalogItemId: "cat_real_1",
         productId: "cat_real_1::",
         itemTitle: "Real Imported Card",
+        priceCurrencyCode: "USD",
         quantityRequested: 1,
       }),
     ]);

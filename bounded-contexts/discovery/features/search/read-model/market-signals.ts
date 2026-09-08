@@ -9,10 +9,14 @@ export type SearchIndexMarketSignalTable = "discovery_search_items" | "discovery
 const refreshOneMarketSignalSql: Readonly<Record<SearchIndexMarketSignalTable, string>> = {
   discovery_search_items: `UPDATE discovery_search_items AS item
      SET lowest_price_amount = market.lowest_price_amount,
+         lowest_price_currency_code = market.lowest_price_currency_code,
          visible_quantity = market.visible_quantity
      FROM (
        SELECT
-         MIN(listing.price_amount::numeric) AS lowest_price_amount,
+         CASE WHEN COUNT(DISTINCT listing.price_currency_code) = 1
+           THEN MIN(listing.price_amount::numeric) ELSE NULL END AS lowest_price_amount,
+         CASE WHEN COUNT(DISTINCT listing.price_currency_code) = 1
+           THEN MIN(listing.price_currency_code) ELSE NULL END AS lowest_price_currency_code,
          SUM(${buyerVisibleListingQuantitySql("listing")})::integer AS visible_quantity
        FROM discovery_market_listings AS listing
        INNER JOIN discovery_market_accounts AS account
@@ -23,10 +27,14 @@ const refreshOneMarketSignalSql: Readonly<Record<SearchIndexMarketSignalTable, s
      WHERE item.catalog_item_id = $1`,
   discovery_search_items_rebuild: `UPDATE discovery_search_items_rebuild AS item
      SET lowest_price_amount = market.lowest_price_amount,
+         lowest_price_currency_code = market.lowest_price_currency_code,
          visible_quantity = market.visible_quantity
      FROM (
        SELECT
-         MIN(listing.price_amount::numeric) AS lowest_price_amount,
+         CASE WHEN COUNT(DISTINCT listing.price_currency_code) = 1
+           THEN MIN(listing.price_amount::numeric) ELSE NULL END AS lowest_price_amount,
+         CASE WHEN COUNT(DISTINCT listing.price_currency_code) = 1
+           THEN MIN(listing.price_currency_code) ELSE NULL END AS lowest_price_currency_code,
          SUM(${buyerVisibleListingQuantitySql("listing")})::integer AS visible_quantity
        FROM discovery_market_listings AS listing
        INNER JOIN discovery_market_accounts AS account
@@ -39,9 +47,12 @@ const refreshOneMarketSignalSql: Readonly<Record<SearchIndexMarketSignalTable, s
 
 const refreshAllMarketSignalsSql: Readonly<Record<SearchIndexMarketSignalTable, string>> = {
   discovery_search_items: `UPDATE discovery_search_items AS item
-     SET (lowest_price_amount, visible_quantity) = (
+     SET (lowest_price_amount, lowest_price_currency_code, visible_quantity) = (
        SELECT
-         MIN(listing.price_amount::numeric) AS lowest_price_amount,
+         CASE WHEN COUNT(DISTINCT listing.price_currency_code) = 1
+           THEN MIN(listing.price_amount::numeric) ELSE NULL END AS lowest_price_amount,
+         CASE WHEN COUNT(DISTINCT listing.price_currency_code) = 1
+           THEN MIN(listing.price_currency_code) ELSE NULL END AS lowest_price_currency_code,
          SUM(${buyerVisibleListingQuantitySql("listing")})::integer AS visible_quantity
        FROM discovery_market_listings AS listing
        INNER JOIN discovery_market_accounts AS account
@@ -50,9 +61,12 @@ const refreshAllMarketSignalsSql: Readonly<Record<SearchIndexMarketSignalTable, 
          AND ${buyerVisibleListingPredicateSql("listing", "account")}
      )`,
   discovery_search_items_rebuild: `UPDATE discovery_search_items_rebuild AS item
-     SET (lowest_price_amount, visible_quantity) = (
+     SET (lowest_price_amount, lowest_price_currency_code, visible_quantity) = (
        SELECT
-         MIN(listing.price_amount::numeric) AS lowest_price_amount,
+         CASE WHEN COUNT(DISTINCT listing.price_currency_code) = 1
+           THEN MIN(listing.price_amount::numeric) ELSE NULL END AS lowest_price_amount,
+         CASE WHEN COUNT(DISTINCT listing.price_currency_code) = 1
+           THEN MIN(listing.price_currency_code) ELSE NULL END AS lowest_price_currency_code,
          SUM(${buyerVisibleListingQuantitySql("listing")})::integer AS visible_quantity
        FROM discovery_market_listings AS listing
        INNER JOIN discovery_market_accounts AS account

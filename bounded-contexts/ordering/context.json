@@ -29,7 +29,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "ordering-marketplace-supply-input-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.listing.created",
@@ -184,7 +184,7 @@
     {
       "sourceContextName": "marketplace",
       "reactionName": "ordering-marketplace-offer-acceptance",
-      "subscriptionVersion": 3,
+      "subscriptionVersion": 4,
       "filterToEventTypes": true,
       "eventTypes": ["marketplace.offer.accepted"],
       "order": 50,

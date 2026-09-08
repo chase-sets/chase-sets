@@ -114,7 +114,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "risk-alert-queue-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "subscriptionName": "platform-operations.risk-alert-queue-projection",
       "sourceContextMount": "when-mounted",
       "eventTypes": ["marketplace.listing.created", "marketplace.review.submitted"],

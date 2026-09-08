@@ -1481,6 +1481,7 @@ describe("marketplace search", () => {
       storageLocationName: "Test location",
       shipFromCode: "US-IL",
       priceAmount: "10.00",
+      priceCurrencyCode: "USD",
       quantityCap: 4,
     });
     expect(await signals()).toEqual({ lowest_price_amount: null, visible_quantity: null });
@@ -1490,6 +1491,7 @@ describe("marketplace search", () => {
 
     await project("marketplace.listing.price-updated", "marketplace.listing-lst_market_signal_1", 3, {
       priceAmount: "12.00",
+      priceCurrencyCode: "USD",
     });
     expect(await signals()).toEqual({ lowest_price_amount: "12.00", visible_quantity: 4 });
 
@@ -1537,9 +1539,38 @@ describe("marketplace search", () => {
       storageLocationName: "Test location",
       shipFromCode: "US-IL",
       priceAmount: "20.00",
+      priceCurrencyCode: "USD",
       quantityCap: 2,
     });
     await project("marketplace.listing.published", "marketplace.listing-lst_market_signal_2", 2, {});
+    expect(await signals()).toEqual({ lowest_price_amount: "12.00", visible_quantity: 6 });
+
+    await project("inventory.item.created", "inventory.item-inv_market_signal_legacy", 1, {
+      itemId: "inv_market_signal_legacy",
+      accountId: "acc_market_signal",
+      catalogItemId: "cat_market_signal",
+      productId: "prd_market_signal_legacy",
+      selectedOptions: [],
+      storageLocationId: "loc_market_signal",
+      totalQuantity: 7,
+    });
+    await project("marketplace.listing.created", "marketplace.listing-lst_market_signal_legacy", 1, {
+      listingId: "lst_market_signal_legacy",
+      accountId: "acc_market_signal",
+      inventoryItemId: "inv_market_signal_legacy",
+      catalogItemId: "cat_market_signal",
+      productId: "prd_market_signal_legacy",
+      itemTitle: "Legacy amount-only Market Signal Item",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      productMeasureSnapshot: { quantity: 1, unit: "item" },
+      storageLocationName: "Test location",
+      shipFromCode: "US-IL",
+      priceAmount: "1.00",
+      quantityCap: 7,
+    });
+    await project("marketplace.listing.published", "marketplace.listing-lst_market_signal_legacy", 2, {});
     expect(await signals()).toEqual({ lowest_price_amount: "12.00", visible_quantity: 6 });
 
     await project(

@@ -659,6 +659,11 @@ async function createOfferIntent(
     readNullableString(source.offerPriceAmount ?? source.offer_price_amount) ??
     readMoneyMajorUnits(readObject(source.offerPrice ?? source.offer_price)) ??
     "";
+  const offerMoney = readObject(source.offerPrice ?? source.offer_price);
+  const offerPriceCurrencyCode =
+    readString(source.offerPriceCurrencyCode ?? source.offer_price_currency_code) ??
+    readString(offerMoney?.currency ?? offerMoney?.currencyCode ?? offerMoney?.currency_code) ??
+    "";
 
   // Purchase-intent offers are non-binding bids that move no money on their own; the spending
   // mandate is enforced at the payment completion path where a PaymentIntent is created.
@@ -672,6 +677,7 @@ async function createOfferIntent(
       selectedOptions: readSelectedOptions(item.selectedOptions ?? item.selected_options),
       productSummary: readNullableString(item.productSummary ?? item.product_summary),
       offerPriceAmount,
+      offerPriceCurrencyCode,
       quantity: readQuantity(item.quantity),
       shippingOption: readShippingOption(body),
       optimizationGoal: readOptimizationGoal(body),

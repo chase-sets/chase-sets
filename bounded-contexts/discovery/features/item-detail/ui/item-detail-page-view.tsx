@@ -27,6 +27,7 @@ import {
   formatMoney,
   formatOfferCount,
   formatSellerCount,
+  getCommonPriceCurrencyCode,
   getHighestOfferPrice,
   type MarketBookTab,
   type MarketIntent,
@@ -102,6 +103,7 @@ export type ItemDetailPageViewArgs = {
   sellerCount: number;
   selectedMarketSummary: {
     lowest_price_amount: string | null;
+    lowest_price_currency_code: string | null;
     active_listing_count: number;
     total_visible_quantity: number;
   };
@@ -189,11 +191,15 @@ export function buildItemDetailPageView({
     );
   const marketSummaryPrice =
     marketIntent === "sell"
-      ? formatMoney(getHighestOfferPrice(matchingOffers))
-      : formatMoney(selectedMarketSummary.lowest_price_amount);
+      ? formatMoney(getHighestOfferPrice(matchingOffers), getCommonPriceCurrencyCode(matchingOffers))
+      : selectedMarketSummary.lowest_price_currency_code
+        ? formatMoney(selectedMarketSummary.lowest_price_amount, selectedMarketSummary.lowest_price_currency_code)
+        : t("discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable");
   const mobileCommerceSummary = (
     <Text element="div" weight="semibold">
-      {marketIntent === "buy" && selectedListing ? formatMoney(selectedListing.price_amount) : marketSummaryPrice}
+      {marketIntent === "buy" && selectedListing
+        ? formatMoney(selectedListing.price_amount, selectedListing.price_currency_code!)
+        : marketSummaryPrice}
     </Text>
   );
   const marketSummaryFacts =

@@ -137,6 +137,7 @@ describe("marketplace listing MCP handlers", () => {
         accountId: "acc_1",
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
+        priceCurrencyCode: "USD",
         quantityCap: 2,
         purchaseLimits: { maxUnitsPerOrder: 1 },
       },
@@ -159,6 +160,7 @@ describe("marketplace listing MCP handlers", () => {
         accountId: "acc_1" as AccountId,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
+        priceCurrencyCode: "USD",
         quantityCap: 2,
         purchaseLimits: {
           maxUnitsPerOrder: 1,
@@ -186,6 +188,7 @@ describe("marketplace listing MCP handlers", () => {
         accountId: "acc_1",
         listingId: "lst_1",
         priceAmount: "24.00",
+        priceCurrencyCode: "EUR",
         feeQuoteFingerprint: "24.00|1.20|22.80|cts_default|",
       },
       request: new Request("https://api.test/mcp"),
@@ -198,12 +201,44 @@ describe("marketplace listing MCP handlers", () => {
         accountId: "acc_1",
         listingId: "lst_1",
         priceAmount: "24.00",
+        priceCurrencyCode: "EUR",
         feeQuoteFingerprint: "24.00|1.20|22.80|cts_default|",
       },
       expect.objectContaining({
         audit: expect.objectContaining({ performedByUserId: "usr_1", forAccountId: "acc_1" }),
       }),
     );
+  });
+
+  it("rejects incomplete, malformed, and open price authoring arguments at the MCP boundary", async () => {
+    const fakeServices = services();
+    const handlers = createMarketplaceListingMcpHandlers(fakeServices);
+    const create = handlers.toolHandlers["marketplace.create-listing"]!;
+    const baseArguments = {
+      accountId: "acc_1",
+      inventoryItemId: "inv_1",
+      priceAmount: "20.00",
+      quantityCap: 1,
+    };
+
+    for (const argumentsValue of [
+      baseArguments,
+      { ...baseArguments, priceCurrencyCode: "US" },
+      { ...baseArguments, priceCurrencyCode: "USD", guessedCurrency: "EUR" },
+      { ...baseArguments, priceCurrencyCode: "USD", purchaseLimits: { maxUnitsPerOrder: 1, guessed: 2 } },
+    ]) {
+      await expect(
+        create({
+          actor,
+          tool: null as never,
+          arguments: argumentsValue,
+          request: new Request("https://api.test/mcp"),
+          protocol: legacyMcpProtocol,
+        }),
+      ).rejects.toThrow();
+    }
+
+    expect(fakeServices.createListing).not.toHaveBeenCalled();
   });
 
   it("publishes and unpublishes listings through transport-agnostic handlers", async () => {

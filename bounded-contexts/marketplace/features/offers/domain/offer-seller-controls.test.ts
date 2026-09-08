@@ -18,7 +18,9 @@ const baseDecline = {
   listingId: "lst_1",
   productId: "cat_1::",
   offerPriceAmount: "40.00",
+  offerPriceCurrencyCode: "USD",
   listingPriceAmount: "100.00",
+  listingPriceCurrencyCode: "USD",
   declinedAt: "2026-07-05T12:00:00.000Z",
   policy,
 };

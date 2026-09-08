@@ -870,6 +870,8 @@ const readyCartLine: CheckoutCartLineRow = {
       seller_average_rating: null,
       seller_review_count: 0,
       price_amount: "25.00",
+      price_currency_code: "USD",
+      listing_stream_version: 7,
       available_quantity: 1,
       product_summary: null,
       product_measure_snapshot: productMeasureSnapshot,
