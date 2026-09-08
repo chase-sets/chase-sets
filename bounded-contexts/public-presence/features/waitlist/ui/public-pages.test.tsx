@@ -1015,8 +1015,7 @@ describe("public waitlist form migration smoke", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn(
-          async () =>
-            new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+          async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
         ),
       );
       window.dataLayer = [];
