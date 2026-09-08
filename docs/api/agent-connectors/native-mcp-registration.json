@@ -1641,6 +1641,10 @@
             "type": "string",
             "description": "Optional operator note for the stock adjustment."
           },
+          "acquisitionOccurredAt": {
+            "type": "string",
+            "description": "Optional timezone-bearing acquisition occurrence for positive stock intake. Omit when unknown; forbidden for reductions."
+          },
           "idempotencyKey": {
             "type": "string",
             "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
