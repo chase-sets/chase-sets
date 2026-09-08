@@ -1286,9 +1286,10 @@ describe("inventory import batch runtime", () => {
         accountId: "acc_1" as AccountId,
         sourceKey: "tcgplayer-csv",
         defaultStorageLocationId: "loc_active",
-        csvText: ["Product ID,Quantity,Acquired At,Condition", "12345,2,2026-05-01T12:30:00-05:00,Near Mint"].join(
-          "\n",
-        ),
+        csvText: [
+          "Product ID,Quantity,Acquired At,Condition,TCG Marketplace Price",
+          "12345,2,2026-05-01T12:30:00-05:00,Near Mint,10.00",
+        ].join("\n"),
       },
       context,
     );
