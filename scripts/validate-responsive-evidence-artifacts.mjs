@@ -355,6 +355,9 @@ function validateProducerIdentity(producer, gitIdentity) {
   ) {
     violations.push("responsive evidence git.checkoutParents is invalid.");
   }
+  if (typeof gitIdentity?.shallow !== "boolean") {
+    violations.push("responsive evidence git.shallow must be boolean.");
+  }
   if (producer?.checkoutSha !== gitIdentity?.checkoutCommit) {
     violations.push("responsive evidence producer checkout SHA does not match the observed checkout commit.");
   }
@@ -362,11 +365,15 @@ function validateProducerIdentity(producer, gitIdentity) {
     violations.push("responsive evidence producer source head does not match the observed source head.");
   }
   if (producer?.eventName === "pull_request") {
-    if (!gitIdentity?.checkoutParents?.includes(producer.sourceHeadSha)) {
-      violations.push("pull-request evidence checkout does not contain the declared source head parent.");
-    }
-    if (!producer.baseSha || !gitIdentity?.checkoutParents?.includes(producer.baseSha)) {
-      violations.push("pull-request evidence checkout does not contain the declared base parent.");
+    const eventParentsObserved =
+      gitIdentity?.checkoutParents?.includes(producer.sourceHeadSha) &&
+      producer.baseSha &&
+      gitIdentity.checkoutParents.includes(producer.baseSha);
+    const parentsHiddenByShallowCheckout = gitIdentity?.shallow === true && gitIdentity.checkoutParents.length === 0;
+    if (!eventParentsObserved && !parentsHiddenByShallowCheckout) {
+      violations.push(
+        "pull-request evidence checkout neither exposes the declared head/base parents nor records an exact shallow checkout boundary.",
+      );
     }
   }
   return violations;
@@ -412,6 +419,7 @@ function observeGitIdentity(repoRoot, sourceHead) {
     checkoutCommit: git("rev-parse", "HEAD"),
     checkoutTree: git("show", "-s", "--format=%T", "HEAD"),
     checkoutParents: git("show", "-s", "--format=%P", "HEAD").split(/\s+/).filter(Boolean),
+    shallow: git("rev-parse", "--is-shallow-repository") === "true",
     sourceHead,
     sourceHeadTree: sourceTree.status === 0 ? sourceTree.stdout.trim() : null,
   };

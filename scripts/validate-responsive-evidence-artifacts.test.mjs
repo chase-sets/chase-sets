@@ -168,6 +168,7 @@ describe("responsive evidence artifact validation", () => {
   it.each([
     ["failed producer", { outcome: "failure" }, syntheticGitIdentity(), "producer outcome"],
     ["wrong producer head", {}, { ...syntheticGitIdentity(), sourceHead: "4".repeat(40) }, "source head"],
+    ["non-shallow checkout without parents", {}, { ...syntheticGitIdentity(), checkoutParents: [] }, "neither exposes"],
   ])("publishes nothing for a %s", async (_name, producerPatch, gitIdentity, violation) => {
     const root = await fixture();
 
@@ -204,6 +205,23 @@ describe("responsive evidence artifact validation", () => {
     });
 
     expect(result).toMatchObject({ publish: true, violations: [] });
+  });
+
+  it("records an exact shallow checkout boundary when Git cannot expose merge parents", async () => {
+    const root = await fixture();
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer: successfulProducer(),
+      producerLogPath: await producerLog(root),
+      gitIdentity: { ...syntheticGitIdentity(), checkoutParents: [], shallow: true, sourceHeadTree: null },
+    });
+
+    expect(result).toMatchObject({ publish: true, violations: [] });
+    expect(
+      JSON.parse(await readFile(path.join(root, "artifacts/hosted-responsive-evidence/provenance.json"), "utf8")),
+    ).toMatchObject({ git: { checkoutParents: [], shallow: true, sourceHeadTree: null } });
   });
 });
 
@@ -311,6 +329,7 @@ function syntheticGitIdentity() {
     checkoutCommit: "1".repeat(40),
     checkoutTree: "5".repeat(40),
     checkoutParents: ["3".repeat(40), "2".repeat(40)],
+    shallow: false,
     sourceHead: "2".repeat(40),
     sourceHeadTree: "6".repeat(40),
   };
