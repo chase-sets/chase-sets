@@ -489,10 +489,10 @@
     --control-md-height: 2.25rem;
     --control-lg-height: 2.75rem;
     --control-sm-px: 0.625rem;
-    --control-md-px: 1rem;
+    --control-md-px: 0.75rem;
     --control-lg-px: 1rem;
     --control-sm-py: 0.25rem;
-    --control-md-py: 0.625rem;
+    --control-md-py: 0.375rem;
     --control-lg-py: 0.625rem;
     --control-sm-icon-size: 1.5rem;
     --control-md-icon-size: 1.75rem;
