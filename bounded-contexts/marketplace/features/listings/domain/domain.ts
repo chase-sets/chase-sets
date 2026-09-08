@@ -48,6 +48,17 @@ function normalizeMoneyAmount(
   return centsToMoneyAmount(cents);
 }
 
+/**
+ * Marketplace Listing owns the seller-authored denomination of its asking
+ * price. The generic contract is the ISO-4217 code shape; allowed currencies
+ * for a publication destination remain a downstream policy concern.
+ */
+export function normalizeListingPriceCurrencyCode(value: string): string {
+  const normalized = value.trim().toUpperCase();
+  assert(/^[A-Z]{3}$/.test(normalized), "Price currency code must be a three-letter ISO-4217 code.");
+  return normalized;
+}
+
 function normalizePercentageBps(value: number, fieldName: string): number {
   assert(Number.isInteger(value), `${fieldName} must be a whole number of basis points.`);
   assert(value >= 0, `${fieldName} must be zero or greater.`);
@@ -324,6 +335,7 @@ export type MarketplaceListingState = Readonly<{
   shipFromCode: string | null;
   shipFromAddress: AddressSnapshot | null;
   priceAmount: string | null;
+  priceCurrencyCode: string | null;
   marketplaceSalesFeeUnitAmount: string | null;
   sellerNetUnitAmount: string | null;
   shippingAllowancePercentageBps: number;
@@ -357,6 +369,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   shipFromCode: null,
   shipFromAddress: null,
   priceAmount: null,
+  priceCurrencyCode: null,
   marketplaceSalesFeeUnitAmount: null,
   sellerNetUnitAmount: null,
   shippingAllowancePercentageBps: 500,
@@ -395,6 +408,7 @@ export type CreateListingCommand = Readonly<{
   shipFromCode: string | null;
   shipFromAddress: AddressSnapshot;
   priceAmount: string;
+  priceCurrencyCode: string;
   feeLock: MarketplaceListingFeeLock;
   quantityCap: number;
   purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
@@ -405,6 +419,7 @@ export type CreateListingCommand = Readonly<{
 export type UpdateListingPriceCommand = Readonly<{
   type: "UpdateListingPrice";
   priceAmount: string;
+  priceCurrencyCode: string;
   feeLocks: readonly MarketplaceListingFeeLock[];
   minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
   changeSource?: "repricing-engine";
@@ -515,6 +530,8 @@ export type ListingCreatedEvent = DomainEvent<
     shipFromCode: string | null;
     shipFromAddress: AddressSnapshot;
     priceAmount: string;
+    /** Missing only on historical amount-only events. */
+    priceCurrencyCode?: string | null;
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     shippingAllowancePercentageBps: number;
@@ -534,6 +551,8 @@ export type ListingPriceUpdatedEvent = DomainEvent<
   "marketplace.listing.price-updated",
   Readonly<{
     priceAmount: string;
+    /** Missing only on historical amount-only events. */
+    priceCurrencyCode?: string | null;
     marketplaceSalesFeeUnitAmount: string;
     sellerNetUnitAmount: string;
     shippingAllowancePercentageBps: number;
@@ -688,6 +707,7 @@ export const decideMarketplaceListing: AggregateDecider<
             shipFromCode: command.shipFromCode?.trim() ?? null,
             shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
             priceAmount: normalizeMoneyAmount(command.priceAmount),
+            priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
             ...feeLockProjectionFields([feeLock]),
             quantityCap,
             purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, quantityCap),
@@ -705,11 +725,14 @@ export const decideMarketplaceListing: AggregateDecider<
       assert(totalFeeLockedUnits(feeLocks) === state.quantityCap, "Price edit fee locks must cover listed quantity.");
       const data = {
         priceAmount: normalizeMoneyAmount(command.priceAmount),
+        priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
         ...feeLockProjectionFields(feeLocks),
         ...(command.changeSource ? { changeSource: command.changeSource } : {}),
       };
 
+      const currencyUnchanged = state.priceCurrencyCode === data.priceCurrencyCode;
       if (
+        currencyUnchanged &&
         command.minimumChange &&
         isWithinMinimumListingPriceChange(state.priceAmount, data.priceAmount, command.minimumChange)
       ) {
@@ -718,6 +741,7 @@ export const decideMarketplaceListing: AggregateDecider<
 
       if (
         isMoneyAmountUnchanged(state.priceAmount, data.priceAmount) &&
+        currencyUnchanged &&
         areFeeLockQuotesUnchanged(state.feeLocks, feeLocks)
       ) {
         return [];
@@ -854,6 +878,10 @@ export const decideMarketplaceListing: AggregateDecider<
         return [];
       }
       assert(state.status !== "active", "Listing is already active.");
+      assert(
+        state.priceAmount !== null && state.priceCurrencyCode !== null,
+        "Listing price is incomplete. Supply an amount and currency before publication.",
+      );
       assert(state.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
       assert(state.evidenceRequirements, "Listing evidence requirements are unavailable.");
       assert(
@@ -925,6 +953,7 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         shipFromCode: event.data.shipFromCode,
         shipFromAddress: event.data.shipFromAddress,
         priceAmount: event.data.priceAmount,
+        priceCurrencyCode: event.data.priceCurrencyCode ?? null,
         marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount: event.data.sellerNetUnitAmount,
         shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
@@ -944,6 +973,7 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
       return {
         ...state,
         priceAmount: event.data.priceAmount,
+        priceCurrencyCode: event.data.priceCurrencyCode ?? null,
         marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
         sellerNetUnitAmount: event.data.sellerNetUnitAmount,
         shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,

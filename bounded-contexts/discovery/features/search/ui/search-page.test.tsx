@@ -69,6 +69,7 @@ const japaneseSearchResult: DiscoverySearchItem = {
   image_fallback: null,
   market_summary: {
     lowest_price_amount: "10.00",
+    lowest_price_currency_code: "USD",
     active_listing_count: 1,
     total_visible_quantity: 2,
   },

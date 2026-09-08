@@ -38,6 +38,7 @@ export type MarketplaceOfferListingSubmissionGuard = Readonly<{
   listingId: string;
   sellerAccountId: string;
   listingPriceAmount: string;
+  listingPriceCurrencyCode: string | null;
   buyerListingDailyOfferCount: number;
   mutedAt: string | null;
   lowballCooldownUntil: string | null;
@@ -49,6 +50,7 @@ export type MarketplaceOfferSubmissionGuardInput = Readonly<{
   now: Date;
   buyerDailySubmissionCount: number;
   offerPriceAmount: string;
+  offerPriceCurrencyCode: string;
   listingGuards: readonly MarketplaceOfferListingSubmissionGuard[];
 }>;
 
@@ -132,11 +134,18 @@ export function assertOfferSubmissionAllowed(input: MarketplaceOfferSubmissionGu
     );
   }
 
-  const floorBlockedListings = unmutedListings.filter(
+  const comparableListings = unmutedListings.filter(
+    (listing) => listing.listingPriceCurrencyCode === input.offerPriceCurrencyCode,
+  );
+  if (comparableListings.length === 0) {
+    return;
+  }
+
+  const floorBlockedListings = comparableListings.filter(
     (listing) =>
       !offerMeetsListingFloor(input.offerPriceAmount, listing.listingPriceAmount, policy.minimumOfferToListingPriceBps),
   );
-  if (floorBlockedListings.length === unmutedListings.length) {
+  if (floorBlockedListings.length === comparableListings.length) {
     const minimumFloor = floorBlockedListings.reduce<bigint | null>((current, listing) => {
       const cents = parseMoneyCents(
         requiredOfferFloorAmount(listing.listingPriceAmount, policy.minimumOfferToListingPriceBps),
@@ -145,16 +154,17 @@ export function assertOfferSubmissionAllowed(input: MarketplaceOfferSubmissionGu
     }, null);
     throw new MarketplaceOfferAbuseControlError(
       "offer_price_floor_not_met",
-      `Offer must be at least $${formatMoneyCents(minimumFloor ?? 0n)} for current listings.`,
+      `Offer must be at least ${formatMoneyCents(minimumFloor ?? 0n)} ${input.offerPriceCurrencyCode} for current listings.`,
       {
         policyVersion: policy.policyVersion,
         minimumOfferAmount: formatMoneyCents(minimumFloor ?? 0n),
+        minimumOfferCurrencyCode: input.offerPriceCurrencyCode,
         minimumOfferToListingPriceBps: policy.minimumOfferToListingPriceBps,
       },
     );
   }
 
-  const cooldownBlockedListings = unmutedListings.filter(
+  const cooldownBlockedListings = comparableListings.filter(
     (listing) =>
       activeCooldown(input.now, listing.lowballCooldownUntil) &&
       listing.lastLowballDeclinedAmount !== null &&

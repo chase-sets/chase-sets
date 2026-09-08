@@ -246,6 +246,146 @@
     },
     {
       "kind": "claim",
+      "id": "population-bulk-positive",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "records every row in a high-cardinality population @marketplace-browse",
+      "route": {
+        "name": "high-cardinality populated target fixture",
+        "path": "/responsive-evidence/population-bulk-positive"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:population-bulk-positive:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "population-bulk-positive",
+        "selector": "[data-evidence-target='population-bulk-positive']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "population-bulk-positive-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "equals": 820,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "population-bulk-positive"
+    },
+    {
+      "kind": "negative-control",
+      "id": "population-bulk-hidden-late",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when a late population row is hidden @marketplace-browse",
+      "route": {
+        "name": "high-cardinality late hidden population fixture",
+        "path": "/responsive-evidence/population-bulk-hidden-late"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:population-bulk-hidden-late:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "population-bulk-hidden-late",
+        "selector": "[data-evidence-target='population-bulk-hidden-late']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "population-bulk-hidden-late-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "equals": 820,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "population-bulk-hidden-late"
+    },
+    {
+      "kind": "negative-control",
+      "id": "population-bulk-zero-layout-late",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when a late population row has zero layout @marketplace-browse",
+      "route": {
+        "name": "high-cardinality late zero-layout population fixture",
+        "path": "/responsive-evidence/population-bulk-zero-layout-late"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:population-bulk-zero-layout-late:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "population-bulk-zero-layout-late",
+        "selector": "[data-evidence-target='population-bulk-zero-layout-late']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "population-bulk-zero-layout-late-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "equals": 820,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "population-bulk-zero-layout-late"
+    },
+    {
+      "kind": "negative-control",
+      "id": "population-bulk-absent",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when a high-cardinality fixture has no matching population @marketplace-browse",
+      "route": {
+        "name": "high-cardinality absent population fixture",
+        "path": "/responsive-evidence/population-bulk-absent"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:population-bulk-absent:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "population-bulk-absent",
+        "selector": "[data-evidence-target='population-bulk-absent']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "population-bulk-absent-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "equals": 820,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "population-bulk-absent"
+    },
+    {
+      "kind": "claim",
       "id": "fixture-scope-cards-mobile",
       "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "records exact mobile card evidence at 390px @marketplace-browse",
@@ -1663,18 +1803,27 @@
         "height": 844
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-item-purchase",
+        "selector": "main",
+        "populatedSelector": "button.bg-accent:visible:enabled"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "button.bg-accent:visible:enabled >> nth=0",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1697,18 +1846,27 @@
         "height": 900
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-item-purchase",
+        "selector": "main",
+        "populatedSelector": "button.bg-accent:visible:enabled"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "button.bg-accent:visible:enabled >> nth=0",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1731,18 +1889,27 @@
         "height": 844
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-search-results",
+        "selector": "main",
+        "populatedSelector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp'])"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp']) a.bg-accent",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1765,18 +1932,27 @@
         "height": 900
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-search-results",
+        "selector": "main",
+        "populatedSelector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp'])"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp']) a.bg-accent",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1799,18 +1975,27 @@
         "height": 800
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-item-purchase",
+        "selector": "main",
+        "populatedSelector": "button.bg-accent:visible:enabled"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "button.bg-accent:visible:enabled >> nth=0",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1833,18 +2018,27 @@
         "height": 1180
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-item-purchase",
+        "selector": "main",
+        "populatedSelector": "button.bg-accent:visible:enabled"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "button.bg-accent:visible:enabled >> nth=0",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1935,6 +2129,135 @@
         }
       ],
       "artifact": "item-detail-product-options-desktop-768"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-admin-workbench-light",
+      "file": "deployables/admin-web/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records populated admin workbench light @admin-platform",
+      "route": {
+        "name": "populated projection workbench",
+        "path": "/platform/projections/reference"
+      },
+      "fixture": {
+        "identity": "browser-e2e:projection-groups:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "populated-admin-projection-workbench-light",
+        "selector": "main",
+        "populatedSelector": "tbody tr:has(a:has-text('Details'))"
+      },
+      "measurements": [
+        {
+          "identity": "workbench-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "workbench-cta-visible",
+          "scope": "target",
+          "selector": "button[type='submit'].bg-accent",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        }
+      ],
+      "artifact": "ink-foil-admin-workbench-light"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-admin-workbench-dark",
+      "file": "deployables/admin-web/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records populated admin workbench dark @admin-platform",
+      "route": {
+        "name": "populated projection workbench",
+        "path": "/platform/projections/reference"
+      },
+      "fixture": {
+        "identity": "browser-e2e:projection-groups:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "populated-admin-projection-workbench-dark",
+        "selector": "main",
+        "populatedSelector": "tbody tr:has(a:has-text('Details'))"
+      },
+      "measurements": [
+        {
+          "identity": "workbench-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "workbench-cta-visible",
+          "scope": "target",
+          "selector": "button[type='submit'].bg-accent",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        }
+      ],
+      "artifact": "ink-foil-admin-workbench-dark"
+    },
+    {
+      "kind": "negative-control",
+      "id": "ink-foil-search-empty-control",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records search Ink & Foil evidence at 1280x900 light @marketplace-browse",
+      "route": {
+        "name": "marketplace search",
+        "path": "/search"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "empty-search-results-control",
+        "selector": "main",
+        "populatedSelector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp'])"
+      },
+      "measurements": [
+        {
+          "identity": "brand-link-width",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp']) a.bg-accent",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        }
+      ],
+      "artifact": "ink-foil-search-empty-control"
     }
   ]
 }

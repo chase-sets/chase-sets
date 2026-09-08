@@ -42,6 +42,8 @@ export type RiskAlertThresholdPolicyValue = Readonly<{
   newSellerListingWindowHours: number;
   /** Listing value (cents) in the window that flags new-seller-listing-velocity. */
   newSellerListingValue24hCents: number;
+  /** ISO-4217 denomination for the listing-value threshold. */
+  newSellerListingValueCurrencyCode: string;
   /** Window (hours) review count and median reviewer age are measured over. */
   reviewWindowHours: number;
   /** Review count in the window that, combined with a young median reviewer age, flags review-velocity. */
@@ -64,6 +66,7 @@ export const RISK_ALERT_THRESHOLD_LAUNCH_POLICY_VALUE: RiskAlertThresholdPolicyV
   newSellerAgeDays: 30,
   newSellerListingWindowHours: 24,
   newSellerListingValue24hCents: 250_000,
+  newSellerListingValueCurrencyCode: "USD",
   reviewWindowHours: 24,
   review24hCount: 5,
   medianReviewerAgeDays: 7,
@@ -91,11 +94,40 @@ function normalizeIntegerField(value: unknown, fieldName: string, min: number, m
   return numeric;
 }
 
+function normalizeCurrencyCode(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || !/^[A-Z]{3}$/.test(value.trim().toUpperCase())) {
+    throw new RiskAlertPolicyDomainError(`${fieldName} must be a three-letter ISO-4217 code.`);
+  }
+  return value.trim().toUpperCase();
+}
+
+function assertExactKeys(record: Record<string, unknown>, allowed: readonly string[]): void {
+  const unexpected = Object.keys(record).find((key) => !allowed.includes(key));
+  if (unexpected) {
+    throw new RiskAlertPolicyDomainError(`Risk-alert threshold policy contains unexpected field '${unexpected}'.`);
+  }
+}
+
 export function decodeRiskAlertThresholdPolicyValue(raw: JsonValue): RiskAlertThresholdPolicyValue {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new RiskAlertPolicyDomainError("Risk-alert threshold policy value must be an object.");
   }
   const record = raw as Record<string, unknown>;
+  assertExactKeys(record, [
+    "chargebackLookbackDays",
+    "chargebackMinCount",
+    "chargebackMinRateBps",
+    "newSellerAgeDays",
+    "newSellerListingWindowHours",
+    "newSellerListingValue24hCents",
+    "newSellerListingValueCurrencyCode",
+    "reviewWindowHours",
+    "review24hCount",
+    "medianReviewerAgeDays",
+    "youngBuyerAgeDays",
+    "youngBuyerSpendWindowHours",
+    "youngBuyerSpend24hCents",
+  ]);
 
   return {
     chargebackLookbackDays: normalizeIntegerField(
@@ -133,6 +165,10 @@ export function decodeRiskAlertThresholdPolicyValue(raw: JsonValue): RiskAlertTh
       "New-seller listing minimum value (cents)",
       MIN_CENTS,
       MAX_CENTS,
+    ),
+    newSellerListingValueCurrencyCode: normalizeCurrencyCode(
+      record.newSellerListingValueCurrencyCode,
+      "New-seller listing minimum value currency",
     ),
     reviewWindowHours: normalizeIntegerField(
       record.reviewWindowHours,
@@ -173,7 +209,7 @@ export const riskAlertThresholdPolicy: PolicyDefinition<RiskAlertThresholdPolicy
   contextName: "platform-operations",
   schemaSummary:
     "{ chargebackLookbackDays, chargebackMinCount, chargebackMinRateBps, newSellerAgeDays, " +
-    "newSellerListingWindowHours, newSellerListingValue24hCents, reviewWindowHours, review24hCount, " +
+    "newSellerListingWindowHours, newSellerListingValue24hCents, newSellerListingValueCurrencyCode, reviewWindowHours, review24hCount, " +
     "medianReviewerAgeDays, youngBuyerAgeDays, youngBuyerSpendWindowHours, youngBuyerSpend24hCents }",
   defaultValue: RISK_ALERT_THRESHOLD_LAUNCH_POLICY_VALUE,
   decodeValue: decodeRiskAlertThresholdPolicyValue,

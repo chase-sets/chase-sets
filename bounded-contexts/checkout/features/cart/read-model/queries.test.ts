@@ -20,6 +20,8 @@ type CartLinePage = Readonly<{
   selected_listing_seller_display_name: string | null;
   selected_listing_seller_slug: string | null;
   selected_listing_price_amount: string | null;
+  selected_listing_price_currency_code: string | null;
+  selected_listing_stream_version: number | null;
   selected_listing_snapshot_source: string | null;
   selected_listing_snapshot_captured_at: string | null;
   availability_state: string;
@@ -31,6 +33,8 @@ type SellerOption = Readonly<{
   seller_account_id: string | null;
   product_id: string;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number;
   listing_quantity_cap: number;
   supply_total_quantity: number | null;
   active_held_quantity: number | null;
@@ -209,6 +213,8 @@ class CartReadModelDb implements PgQueryable {
               seller_average_rating: account?.average_rating ?? option.seller_average_rating,
               seller_review_count: account?.review_count ?? option.seller_review_count ?? 0,
               price_amount: option.price_amount,
+              price_currency_code: option.price_currency_code,
+              listing_stream_version: option.listing_stream_version,
               available_quantity: holdsAccurateAvailableQuantity(option),
               product_summary: option.product_summary,
               product_measure_snapshot: option.product_measure_snapshot,
@@ -232,6 +238,8 @@ function line(overrides: Partial<CartLinePage> = {}): CartLinePage {
     selected_listing_seller_display_name: null,
     selected_listing_seller_slug: null,
     selected_listing_price_amount: null,
+    selected_listing_price_currency_code: null,
+    selected_listing_stream_version: null,
     selected_listing_snapshot_source: null,
     selected_listing_snapshot_captured_at: null,
     availability_state: "available",
@@ -264,6 +272,8 @@ function option(overrides: Partial<SellerOption> = {}): SellerOption {
     seller_account_id: null,
     product_id: "prd_1",
     price_amount: "25.00",
+    price_currency_code: "USD",
+    listing_stream_version: 7,
     listing_quantity_cap: 3,
     // Ample supply with no holds by default so the quantity cap is the binding
     // constraint; individual cases override supply/holds to exercise the formula.

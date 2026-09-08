@@ -1,9 +1,10 @@
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockUseLoaderData, mockUseLocation } = vi.hoisted(() => ({
+const { mockUseLoaderData, mockUseLocation, mockUseRouteError } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseLocation: vi.fn(),
+  mockUseRouteError: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -18,10 +19,11 @@ vi.mock("react-router", async () => {
     ScrollRestoration: () => null,
     useLoaderData: mockUseLoaderData,
     useLocation: mockUseLocation,
+    useRouteError: mockUseRouteError,
   };
 });
 
-import { Layout } from "./root";
+import { ErrorBoundary, Layout } from "./root";
 
 describe("public-web root layout", () => {
   beforeEach(() => {
@@ -40,6 +42,13 @@ describe("public-web root layout", () => {
       </Layout>,
     );
 
-    expect(html).toContain('name="theme-color" content="#020617"');
+    expect(html).toContain('name="theme-color" content="#0e0c15"');
+    expect(html.match(/name="theme-color"/g)).toHaveLength(1);
+  });
+  it("emits exactly one candidate theme meta on the error document", () => {
+    mockUseRouteError.mockReturnValue(new Error("Unavailable"));
+    const html = renderToString(<ErrorBoundary />);
+    expect(html.match(/name="theme-color"/g)).toHaveLength(1);
+    expect(html).toContain('name="theme-color" content="#0e0c15"');
   });
 });

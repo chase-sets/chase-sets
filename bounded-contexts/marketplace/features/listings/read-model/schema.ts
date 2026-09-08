@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   ship_from_code text NULL,
   ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
   price_amount numeric(12,2) NOT NULL,
+  price_currency_code text NULL,
+  listing_stream_version integer NULL,
   marketplace_sales_fee_unit_amount numeric(12,2) NOT NULL,
   seller_net_unit_amount numeric(12,2) NOT NULL,
   shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
@@ -68,6 +70,7 @@ CREATE TABLE IF NOT EXISTS marketplace_anonymous_listing_draft_intents (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   price_amount numeric(12,2) NOT NULL,
+  price_currency_code text NOT NULL,
   quantity_cap integer NOT NULL CHECK (quantity_cap > 0),
   max_units_per_order integer NULL CHECK (max_units_per_order IS NULL OR max_units_per_order > 0),
   max_units_per_day integer NULL CHECK (max_units_per_day IS NULL OR max_units_per_day > 0),
@@ -133,6 +136,19 @@ CREATE TABLE IF NOT EXISTS marketplace_seller_order_capacity_pages (
 `;
 
 export const marketplaceListingSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_marketplace_listing_price_currency",
+    description:
+      "Add nullable Marketplace listing price-currency provenance for legacy listing history and claimed anonymous drafts without inferring or backfilling a denomination.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `ALTER TABLE marketplace_listing_pages
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS listing_stream_version integer NULL`,
+      `ALTER TABLE marketplace_anonymous_listing_draft_intents
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL`,
+    ],
+  },
   {
     migrationId: "20260713_marketplace_listing_evidence_requirements_and_container",
     description:

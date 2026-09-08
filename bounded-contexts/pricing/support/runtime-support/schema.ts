@@ -6,7 +6,10 @@ import {
   pricingProviderObservationsSchemaMigrations,
   pricingProviderObservationsSchemaSql,
 } from "../../features/price-signals/read-model/provider-observations-schema";
-import { pricingRecommendationSchemaSql } from "../../features/recommendations/read-model/schema";
+import {
+  pricingRecommendationSchemaMigrations,
+  pricingRecommendationSchemaSql,
+} from "../../features/recommendations/read-model/schema";
 import {
   pricingRecommendationSourceSchemaMigrations,
   pricingRecommendationSourceSchemaSql,
@@ -31,6 +34,7 @@ export const pricingFeatureSchemaMigrations = [
   ...pricingProviderObservationsSchemaMigrations,
   ...pricingMarketTradesSchemaMigrations,
   ...pricingRecommendationSourceSchemaMigrations,
+  ...pricingRecommendationSchemaMigrations,
   ...pricingMarketRollupsSchemaMigrations,
   ...pricingBulkRepriceIngestionSchemaMigrations,
 ];

@@ -181,6 +181,7 @@ describe("MCP service catalog", () => {
       "marketplace.submit-offer",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
+      "marketplace.update-offer-price",
       "ordering.get-order",
       "ordering.list-orders",
       "payments.confirm-payment-method-setup",
@@ -261,6 +262,67 @@ describe("MCP service catalog", () => {
       "reasonCode expected one of sold-offline, damaged, lost, found, correction, intake, return-restocked but received other.",
     );
     expect(validateObject({ ...required, unexpected: true }, schema!)).toContain("unexpected is not allowed.");
+  });
+
+  it("requires the complete price pair in closed Marketplace listing write schemas", () => {
+    const createSchema = findMcpTool("marketplace.create-listing")?.inputSchema;
+    const updateSchema = findMcpTool("marketplace.update-listing-price")?.inputSchema;
+
+    expect(createSchema?.additionalProperties).toBe(false);
+    expect(createSchema?.required).toContain("priceAmount");
+    expect(createSchema?.required).toContain("priceCurrencyCode");
+    expect(createSchema?.properties.purchaseLimits).toMatchObject({ additionalProperties: false });
+    expect(updateSchema?.additionalProperties).toBe(false);
+    expect(updateSchema?.required).toContain("priceAmount");
+    expect(updateSchema?.required).toContain("priceCurrencyCode");
+  });
+
+  it("carries selected Listing currency and source version through both closed Checkout write schemas", () => {
+    const inputs = {
+      "checkout.add-cart-line": {
+        accountId: "acc_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::form:raw",
+        itemTitle: "Charizard",
+        quantity: 1,
+        idempotencyKey: "idem_add",
+        confirmationText: "Add Cart Line.",
+      },
+      "checkout.update-cart-line": {
+        accountId: "acc_1",
+        cartLineId: "cli_1",
+        idempotencyKey: "idem_update",
+        confirmationText: "Update Cart Line.",
+      },
+    } as const;
+
+    for (const [toolName, requiredInput] of Object.entries(inputs)) {
+      const schema = findMcpTool(toolName)?.inputSchema;
+      const selectedListingSnapshot = schema?.properties.selectedListingSnapshot;
+      expect(selectedListingSnapshot).toMatchObject({
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          priceAmount: { type: "string" },
+          priceCurrencyCode: { type: "string" },
+          listingStreamVersion: { type: "integer" },
+        },
+      });
+
+      const completeSnapshot = {
+        listingId: "lst_1",
+        priceAmount: "20.00",
+        priceCurrencyCode: "EUR",
+        listingStreamVersion: 11,
+      };
+      expect(validateObject({ ...requiredInput, selectedListingSnapshot: completeSnapshot }, schema!)).toEqual([]);
+      expect(
+        validateObject(
+          { ...requiredInput, selectedListingSnapshot: { ...completeSnapshot, inferredCurrency: "USD" } },
+          schema!,
+        ),
+      ).toContain("inferredCurrency is not allowed.");
+    }
   });
 
   it("publishes output schemas for available MCP handler outputs", () => {
@@ -459,6 +521,7 @@ describe("MCP service catalog", () => {
     }
     for (const toolName of [
       "marketplace.submit-offer",
+      "marketplace.update-offer-price",
       "marketplace.counter-offer",
       "marketplace.accept-offer",
       "marketplace.decline-offer",

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { coerceLocalizedTextMap } from "@chase-sets/localization";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId, ListingId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, ListingId, OfferId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 
 const DEFAULT_CANDIDATE_LIMIT = 50;
@@ -150,6 +150,7 @@ export type RepresentativeMarketplaceServices = Readonly<{
         accountId: AccountId;
         inventoryItemId: string;
         priceAmount: string;
+        priceCurrencyCode: string;
         quantityCap: number;
         listingIdOverride?: ListingId;
         listingPhotoUploads?: readonly RepresentativeListingPhotoUpload[] | null;
@@ -164,7 +165,7 @@ export type RepresentativeMarketplaceServices = Readonly<{
   offers: Readonly<{
     submitOffer: (
       params: Readonly<{
-        offerId: string;
+        offerId: OfferId;
         buyerAccountId: AccountId;
         catalogItemId: string;
         productId: string;
@@ -174,16 +175,17 @@ export type RepresentativeMarketplaceServices = Readonly<{
         productSummary: string | null;
         shippingDestinationSnapshot: AddressSnapshot;
         priceAmount: string;
+        priceCurrencyCode: string;
         quantityRequested: number;
       }>,
       context: EventStoreContext,
     ) => Promise<Readonly<{ offerId: string; version: number }>>;
     previewOfferAcceptanceTerms: (
-      params: Readonly<{ offerId: string; sellerAccountId: AccountId; listingId: string }>,
+      params: Readonly<{ offerId: OfferId; sellerAccountId: AccountId; listingId: string }>,
     ) => Promise<Readonly<{ fee_quote_fingerprint: string }>>;
     acceptOffer: (
       params: Readonly<{
-        offerId: string;
+        offerId: OfferId;
         sellerAccountId: AccountId;
         listingId: string;
         feeQuoteFingerprint: string;
@@ -862,6 +864,7 @@ export async function publishRepresentativeListings(
         accountId: stock.accountId as AccountId,
         inventoryItemId: stock.inventoryItemId,
         priceAmount: representativePrice(index),
+        priceCurrencyCode: "USD",
         quantityCap: Math.max(1, Math.min(stock.totalQuantity, index % 2 === 0 ? 2 : 4)),
         listingIdOverride: listingId as ListingId,
         // A retained draft already carries its creation photo evidence;
@@ -935,6 +938,7 @@ export async function submitRepresentativeOffers(
         productSummary: summarizeRepresentativeSelectedOptions(catalogItem.product_schema, product.selection),
         shippingDestinationSnapshot: representativeBuyerShippingAddress(index),
         priceAmount: representativeOfferPrice(index),
+        priceCurrencyCode: "USD",
         quantityRequested: index % 2 === 0 ? 1 : Math.min(3, Math.max(1, stock.totalQuantity)),
       },
       representativeSeedContext,
@@ -966,7 +970,7 @@ export async function acceptRepresentativeOffers(
     services.db,
     plannedOffers.map((planned) => planned.offerId),
   );
-  const plannedOfferIds = new Set(plannedOffers.map((planned) => planned.offerId));
+  const plannedOfferIds = new Set<string>(plannedOffers.map((planned) => planned.offerId));
   const retainedAcceptedOfferIds = [...offerStatusById.entries()]
     .filter(([, status]) => status === "accepted")
     .map(([offerId]) => offerId);
@@ -1488,7 +1492,7 @@ function representativeBuyerShippingAddress(index: number): AddressSnapshot {
   };
 }
 
-function createRepresentativeOfferId(stock: MarketplaceRepresentativeInventoryStock, buyerAccountId: string): string {
+function createRepresentativeOfferId(stock: MarketplaceRepresentativeInventoryStock, buyerAccountId: string): OfferId {
   const hash = createHash("sha256")
     .update(`${buyerAccountId}:${stock.catalogItemId}:${JSON.stringify(stock.selectedOptions)}`)
     .digest("hex")

@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const marketplaceOfferSchemaSql = `
 CREATE TABLE IF NOT EXISTS marketplace_offer_pages (
   offer_id text PRIMARY KEY,
@@ -10,6 +12,8 @@ CREATE TABLE IF NOT EXISTS marketplace_offer_pages (
   product_summary text NULL,
   shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   price_amount numeric(12,2) NOT NULL,
+  price_currency_code text NULL,
+  last_stream_version integer NOT NULL DEFAULT 0,
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   status text NOT NULL DEFAULT 'submitted',
   accepted_seller_account_id text NULL,
@@ -52,6 +56,7 @@ CREATE TABLE IF NOT EXISTS marketplace_offer_seller_controls (
   declined_offer_count integer NOT NULL DEFAULT 0,
   lowball_decline_count integer NOT NULL DEFAULT 0,
   last_lowball_declined_amount numeric(12,2) NULL,
+  last_lowball_declined_currency_code text NULL,
   lowball_cooldown_until timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (seller_account_id, buyer_account_id, listing_id)
@@ -67,7 +72,9 @@ CREATE TABLE IF NOT EXISTS marketplace_offer_seller_declines (
   product_id text NOT NULL,
   offer_id text NOT NULL,
   offer_price_amount numeric(12,2) NOT NULL,
+  offer_price_currency_code text NULL,
   listing_price_amount numeric(12,2) NOT NULL,
+  listing_price_currency_code text NULL,
   declined_at timestamptz NOT NULL,
   lowball_cooldown_until timestamptz NULL,
   PRIMARY KEY (seller_account_id, listing_id, offer_id)
@@ -76,3 +83,20 @@ CREATE TABLE IF NOT EXISTS marketplace_offer_seller_declines (
 CREATE INDEX IF NOT EXISTS marketplace_offer_seller_declines_buyer_listing_idx
   ON marketplace_offer_seller_declines (buyer_account_id, listing_id, declined_at DESC);
 `;
+
+export const marketplaceOfferSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_marketplace_offer_price_currency",
+    description: "Carry nullable Offer money pairs and keep historical amount-only Offers ineligible.",
+    statements: [
+      `ALTER TABLE marketplace_offer_pages
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS last_stream_version integer NOT NULL DEFAULT 0`,
+      `ALTER TABLE marketplace_offer_seller_controls
+  ADD COLUMN IF NOT EXISTS last_lowball_declined_currency_code text NULL`,
+      `ALTER TABLE marketplace_offer_seller_declines
+  ADD COLUMN IF NOT EXISTS offer_price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS listing_price_currency_code text NULL`,
+    ],
+  },
+];

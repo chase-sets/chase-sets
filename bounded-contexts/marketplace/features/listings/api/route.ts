@@ -72,6 +72,29 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("marketplace.features.listings.api.route.request.failed");
 }
 
+function assertClosedObject(value: Record<string, unknown>, allowedKeys: readonly string[], label: string) {
+  const unknownKey = Object.keys(value).find((key) => !allowedKeys.includes(key));
+  if (unknownKey) {
+    throw new Error(`${label} contains unknown field '${unknownKey}'.`);
+  }
+}
+
+function assertClosedPurchaseLimits(body: Record<string, unknown>) {
+  if (body.purchaseLimits && typeof body.purchaseLimits === "object" && !Array.isArray(body.purchaseLimits)) {
+    assertClosedObject(
+      body.purchaseLimits as Record<string, unknown>,
+      ["maxUnitsPerOrder", "maxUnitsPerDay", "maxUnitsPerCustomerAccount"],
+      "Listing purchase limits",
+    );
+  }
+}
+
+function assertPriceCurrencyInput(value: unknown) {
+  if (typeof value !== "string" || !/^[A-Za-z]{3}$/.test(value.trim())) {
+    throw new Error("Price currency code must be a three-letter ISO-4217 code.");
+  }
+}
+
 function rateLimitedResponse(message: string, retryAfterSeconds: number) {
   return {
     body: {
@@ -159,6 +182,14 @@ function parseOptionalString(value: unknown) {
 }
 
 function parseSelectedOptions(value: unknown) {
+  if (Array.isArray(value)) {
+    for (const option of value) {
+      if (option && typeof option === "object" && !Array.isArray(option)) {
+        assertClosedObject(option as Record<string, unknown>, ["dimensionId", "optionId"], "Selected option");
+      }
+    }
+  }
+
   return Array.isArray(value)
     ? value
         .map((entry) =>
@@ -183,6 +214,46 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
   }
 
   const source = snapshot as Record<string, unknown>;
+  assertClosedObject(
+    source,
+    [
+      "inventoryItemId",
+      "catalogItemId",
+      "productId",
+      "selectedOptions",
+      "gradedCard",
+      "storageLocationId",
+      "storageLocationName",
+      "shipFromCode",
+      "shipFromAddress",
+      "totalQuantity",
+      "availableQuantity",
+      "acquisitionCostAmount",
+    ],
+    "Inventory snapshot",
+  );
+  if (source.shipFromAddress && typeof source.shipFromAddress === "object" && !Array.isArray(source.shipFromAddress)) {
+    assertClosedObject(
+      source.shipFromAddress as Record<string, unknown>,
+      ["name", "company", "line1", "line2", "city", "state", "postalCode", "country", "phone", "email"],
+      "Ship-from address snapshot",
+    );
+  }
+  if (source.gradedCard && typeof source.gradedCard === "object" && !Array.isArray(source.gradedCard)) {
+    const gradedCard = source.gradedCard as Record<string, unknown>;
+    assertClosedObject(
+      gradedCard,
+      ["gradingCompany", "grade", "certificationNumber", "population", "conditionDescriptors"],
+      "Graded card snapshot",
+    );
+    if (gradedCard.population && typeof gradedCard.population === "object" && !Array.isArray(gradedCard.population)) {
+      assertClosedObject(
+        gradedCard.population as Record<string, unknown>,
+        ["populationAtGrade", "populationHigher", "source", "asOf"],
+        "Graded card population snapshot",
+      );
+    }
+  }
   const shipFromAddress = parseShipFromAddressSnapshot(source.shipFromAddress);
 
   if (!shipFromAddress) {
@@ -206,6 +277,37 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
 }
 
 function parseAnonymousListingDraftBody(body: Record<string, unknown>) {
+  assertClosedObject(
+    body,
+    [
+      "sourcePath",
+      "source_path",
+      "catalogItemId",
+      "catalog_item_id",
+      "productId",
+      "product_id",
+      "selectedOptions",
+      "selected_options",
+      "productSummary",
+      "product_summary",
+      "priceAmount",
+      "price_amount",
+      "priceCurrencyCode",
+      "price_currency_code",
+      "quantityCap",
+      "quantity_cap",
+      "purchaseLimits",
+      "maxUnitsPerOrder",
+      "max_units_per_order",
+      "maxUnitsPerDay",
+      "max_units_per_day",
+      "maxUnitsPerCustomerAccount",
+      "max_units_per_customer_account",
+    ],
+    "Anonymous listing draft",
+  );
+  assertClosedPurchaseLimits(body);
+  assertPriceCurrencyInput(body.priceCurrencyCode ?? body.price_currency_code);
   const productSummary = body.productSummary ?? body.product_summary;
 
   return {
@@ -215,12 +317,14 @@ function parseAnonymousListingDraftBody(body: Record<string, unknown>) {
     selectedOptions: parseSelectedOptions(body.selectedOptions ?? body.selected_options),
     productSummary: productSummary === null || productSummary === undefined ? null : String(productSummary),
     priceAmount: String(body.priceAmount ?? body.price_amount ?? ""),
+    priceCurrencyCode: String(body.priceCurrencyCode ?? body.price_currency_code ?? ""),
     quantityCap: Number(body.quantityCap ?? body.quantity_cap ?? 0),
     purchaseLimits: parsePurchaseLimits(body),
   };
 }
 
 function parseBulkListingPriceUpdates(body: Record<string, unknown>): MarketplaceBulkListingPriceUpdateInput[] {
+  assertClosedObject(body, ["updates"], "Bulk listing price update request");
   const rawUpdates = Array.isArray(body.updates) ? body.updates : [];
 
   return rawUpdates.flatMap((entry): MarketplaceBulkListingPriceUpdateInput[] => {
@@ -228,18 +332,35 @@ function parseBulkListingPriceUpdates(body: Record<string, unknown>): Marketplac
       return [];
     }
     const record = entry as Record<string, unknown>;
+    assertClosedObject(
+      record,
+      [
+        "listingId",
+        "listing_id",
+        "priceAmount",
+        "price_amount",
+        "priceCurrencyCode",
+        "price_currency_code",
+        "feeQuoteFingerprint",
+        "fee_quote_fingerprint",
+      ],
+      "Bulk listing price update",
+    );
     const listingId = String(record.listingId ?? record.listing_id ?? "").trim();
     const priceAmount = String(record.priceAmount ?? record.price_amount ?? "");
+    const priceCurrencyCode = String(record.priceCurrencyCode ?? record.price_currency_code ?? "");
     const rawFingerprint = record.feeQuoteFingerprint ?? record.fee_quote_fingerprint;
 
     if (!listingId) {
       return [];
     }
+    assertPriceCurrencyInput(priceCurrencyCode);
 
     return [
       {
         listingId,
         priceAmount,
+        priceCurrencyCode,
         feeQuoteFingerprint: typeof rawFingerprint === "string" ? rawFingerprint : null,
       },
     ];
@@ -837,22 +958,58 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       );
     }
 
-    const formData = isMultipartRequest(c) ? await c.req.formData() : null;
-    const body = formData
-      ? {
-          inventoryItemId: formValue(formData, "inventoryItemId"),
-          priceAmount: formValue(formData, "priceAmount"),
-          quantityCap: formValue(formData, "quantityCap"),
-          maxUnitsPerOrder: formValue(formData, "maxUnitsPerOrder"),
-          maxUnitsPerDay: formValue(formData, "maxUnitsPerDay"),
-          maxUnitsPerCustomerAccount: formValue(formData, "maxUnitsPerCustomerAccount"),
-          inventorySnapshot: formValue(formData, "inventorySnapshot"),
-          listingIdOverride: formValue(formData, "listingIdOverride"),
-        }
-      : await c.req.json();
-    const listingPhotoUploads = formData ? await parseListingPhotoUploads(formData) : [];
-
     try {
+      const formData = isMultipartRequest(c) ? await c.req.formData() : null;
+      if (formData) {
+        const allowedFormKeys = new Set([
+          "inventoryItemId",
+          "priceAmount",
+          "priceCurrencyCode",
+          "quantityCap",
+          "maxUnitsPerOrder",
+          "maxUnitsPerDay",
+          "maxUnitsPerCustomerAccount",
+          "inventorySnapshot",
+          "listingIdOverride",
+          "evidence",
+          "listingPhotoAltText",
+        ]);
+        const unknownKey = [...formData.keys()].find((key) => !allowedFormKeys.has(key));
+        if (unknownKey) throw new Error(`Listing create contains unknown field '${unknownKey}'.`);
+      }
+      const body = formData
+        ? {
+            inventoryItemId: formValue(formData, "inventoryItemId"),
+            priceAmount: formValue(formData, "priceAmount"),
+            priceCurrencyCode: formValue(formData, "priceCurrencyCode"),
+            quantityCap: formValue(formData, "quantityCap"),
+            maxUnitsPerOrder: formValue(formData, "maxUnitsPerOrder"),
+            maxUnitsPerDay: formValue(formData, "maxUnitsPerDay"),
+            maxUnitsPerCustomerAccount: formValue(formData, "maxUnitsPerCustomerAccount"),
+            inventorySnapshot: formValue(formData, "inventorySnapshot"),
+            listingIdOverride: formValue(formData, "listingIdOverride"),
+          }
+        : await c.req.json();
+      const listingPhotoUploads = formData ? await parseListingPhotoUploads(formData) : [];
+
+      assertClosedObject(
+        body,
+        [
+          "inventoryItemId",
+          "priceAmount",
+          "priceCurrencyCode",
+          "quantityCap",
+          "maxUnitsPerOrder",
+          "maxUnitsPerDay",
+          "maxUnitsPerCustomerAccount",
+          "purchaseLimits",
+          "inventorySnapshot",
+          "listingIdOverride",
+        ],
+        "Listing create",
+      );
+      assertClosedPurchaseLimits(body);
+      assertPriceCurrencyInput(body.priceCurrencyCode);
       const inventorySnapshot = parseInventorySnapshot(body);
       const result = inventorySnapshot
         ? await services.createListingFromInventorySnapshot(
@@ -860,6 +1017,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
               accountId: access.actor.accountId,
               ...inventorySnapshot,
               priceAmount: String(body.priceAmount ?? ""),
+              priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
               listingPhotoUploads,
@@ -872,6 +1030,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
               accountId: access.actor.accountId as AccountId,
               inventoryItemId: parseTypedIdBoundary(body.inventoryItemId, "inv", "inventoryItemId"),
               priceAmount: String(body.priceAmount ?? ""),
+              priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
               listingPhotoUploads,
@@ -1109,11 +1268,14 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
     const body = await c.req.json();
 
     try {
+      assertClosedObject(body, ["priceAmount", "priceCurrencyCode", "feeQuoteFingerprint"], "Listing price update");
+      assertPriceCurrencyInput(body.priceCurrencyCode);
       const result = await services.updateListingPrice(
         {
           accountId: access.actor.accountId,
           listingId: c.req.param("id"),
           priceAmount: String(body.priceAmount ?? ""),
+          priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
           feeQuoteFingerprint: typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
         },
         context,

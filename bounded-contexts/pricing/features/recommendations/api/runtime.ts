@@ -69,13 +69,16 @@ export type PricingMarketplaceListingOutcome = Readonly<{
  */
 export type PricingMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
-    body: Readonly<{ updates: readonly Readonly<{ listingId: string; priceAmount: string }>[] }>,
+    body: Readonly<{
+      updates: readonly Readonly<{ listingId: string; priceAmount: string; priceCurrencyCode: string }>[];
+    }>,
     options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<Readonly<{ items: readonly PricingMarketplaceListingOutcome[] }>>;
   createListing: (
     body: Readonly<{
       inventoryItemId: string;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       listingIdOverride?: string;
     }>,
@@ -83,7 +86,7 @@ export type PricingMarketplaceListingGateway = Readonly<{
   ) => Promise<{ id?: string; listing_id?: string }>;
 }>;
 
-type RefreshCandidate = Readonly<{
+export type RefreshCandidate = Readonly<{
   actionType: "active-listing-price-update" | "draft-listing-price-update" | "draft-listing-create";
   sellerAccountId: string;
   catalogItemId: string;
@@ -91,10 +94,15 @@ type RefreshCandidate = Readonly<{
   listingId: string | null;
   inventoryItemId: string | null;
   currentPriceAmount: string | null;
+  currentPriceCurrencyCode: string | null;
+  currentPriceSourceVersion: number | null;
   quantityCap: number | null;
   marketEstimateAmount: string | null;
+  marketEstimateCurrencyCode: string | null;
   competitorPriceAmount: string | null;
+  competitorPriceCurrencyCode: string | null;
   offerPriceAmount: string | null;
+  offerPriceCurrencyCode: string | null;
 }>;
 
 export type PricingRecommendationJobAction = "refresh" | "apply" | "dismiss";
@@ -114,6 +122,7 @@ export type PricingRecommendationJobProgress = Readonly<{
 
 export type PricingRecommendationJobResult = Readonly<{
   proposedCount?: number;
+  noRecommendationCount?: number;
   appliedCount?: number;
   failedCount?: number;
   dismissedCount?: number;
@@ -183,37 +192,83 @@ function recommendationIdFor(candidate: RefreshCandidate) {
   ].join("_");
 }
 
-function recommendedAmount(candidate: RefreshCandidate) {
-  const estimate = moneyNumber(candidate.marketEstimateAmount);
-  const competitor = moneyNumber(candidate.competitorPriceAmount);
-  const offer = moneyNumber(candidate.offerPriceAmount);
-  if (estimate !== null) {
+export function recommendedAmount(candidate: RefreshCandidate):
+  | Readonly<{
+      kind: "recommendation";
+      marketPriceAmount: number;
+      marketSignalType: PricingMarketSignalType;
+      currencyCode: string;
+      recommendedListAmount: number;
+      reason: string;
+    }>
+  | Readonly<{ kind: "no-recommendation"; reason: "currency-input-incomplete-or-mismatched" | "no-anchor" }> {
+  const targetCurrencyCode =
+    candidate.currentPriceAmount === null
+      ? (candidate.marketEstimateCurrencyCode ??
+        candidate.competitorPriceCurrencyCode ??
+        candidate.offerPriceCurrencyCode)
+      : candidate.currentPriceCurrencyCode;
+  if (
+    (candidate.currentPriceAmount === null) !== (candidate.currentPriceCurrencyCode === null) ||
+    (targetCurrencyCode !== null && !/^[A-Z]{3}$/.test(targetCurrencyCode)) ||
+    (candidate.currentPriceAmount !== null && (!targetCurrencyCode || !candidate.currentPriceSourceVersion))
+  ) {
+    return { kind: "no-recommendation", reason: "currency-input-incomplete-or-mismatched" };
+  }
+  const anchors = [
+    [candidate.marketEstimateAmount, candidate.marketEstimateCurrencyCode],
+    [candidate.competitorPriceAmount, candidate.competitorPriceCurrencyCode],
+    [candidate.offerPriceAmount, candidate.offerPriceCurrencyCode],
+  ] as const;
+  if (
+    anchors.some(
+      ([amount, currencyCode]) =>
+        (amount === null) !== (currencyCode === null) ||
+        (amount !== null && targetCurrencyCode !== null && currencyCode !== targetCurrencyCode),
+    )
+  ) {
+    return { kind: "no-recommendation", reason: "currency-input-incomplete-or-mismatched" };
+  }
+  const compatible = (amount: string | null, currencyCode: string | null) =>
+    amount !== null && currencyCode !== null && (targetCurrencyCode === null || currencyCode === targetCurrencyCode)
+      ? moneyNumber(amount)
+      : null;
+  const estimate = compatible(candidate.marketEstimateAmount, candidate.marketEstimateCurrencyCode);
+  const competitor = compatible(candidate.competitorPriceAmount, candidate.competitorPriceCurrencyCode);
+  const offer = compatible(candidate.offerPriceAmount, candidate.offerPriceCurrencyCode);
+  if (estimate !== null && candidate.marketEstimateCurrencyCode) {
     // A fresh estimate anchors the recommendation even when a competitor is
     // cheaper; competition is the fallback only when no current estimate exists.
     return {
+      kind: "recommendation",
       marketPriceAmount: estimate,
       marketSignalType: "market-estimate" as PricingMarketSignalType,
+      currencyCode: candidate.marketEstimateCurrencyCode,
       recommendedListAmount: Math.max(0.01, Number((estimate - 0.01).toFixed(2))),
       reason: "Priced one cent below the fresh Market Price estimate.",
     };
   }
-  if (competitor !== null) {
+  if (competitor !== null && candidate.competitorPriceCurrencyCode) {
     return {
+      kind: "recommendation",
       marketPriceAmount: competitor,
       marketSignalType: "competition" as PricingMarketSignalType,
+      currencyCode: candidate.competitorPriceCurrencyCode,
       recommendedListAmount: Math.max(0.01, Number((competitor - 0.01).toFixed(2))),
       reason: "Priced one cent below the lowest competing active listing.",
     };
   }
-  if (offer !== null) {
+  if (offer !== null && candidate.offerPriceCurrencyCode) {
     return {
+      kind: "recommendation",
       marketPriceAmount: offer,
       marketSignalType: "offer" as PricingMarketSignalType,
+      currencyCode: candidate.offerPriceCurrencyCode,
       recommendedListAmount: offer,
       reason: "Matched to the highest submitted buyer offer.",
     };
   }
-  return null;
+  return { kind: "no-recommendation", reason: "no-anchor" };
 }
 
 async function listRefreshCandidates(db: PgQueryable, accountId: string): Promise<RefreshCandidate[]> {
@@ -225,10 +280,15 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
     listing_id: string;
     inventory_item_id: string | null;
     current_price_amount: string;
+    current_price_currency_code: string | null;
+    current_price_source_version: number;
     quantity_cap: number;
     market_estimate_amount: string | null;
+    market_estimate_currency_code: string | null;
     competitor_price_amount: string | null;
+    competitor_price_currency_code: string | null;
     offer_price_amount: string | null;
+    offer_price_currency_code: string | null;
   }>(
     `SELECT
        CASE
@@ -241,30 +301,42 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
        listing.listing_id,
        listing.inventory_item_id,
        listing.price_amount::text AS current_price_amount,
+       listing.price_currency_code AS current_price_currency_code,
+       listing.last_stream_version AS current_price_source_version,
        listing.quantity_cap,
        estimate.amount::text AS market_estimate_amount,
-       (
-         SELECT MIN(other.price_amount)::text
+       UPPER(estimate.currency_code) AS market_estimate_currency_code,
+       competitor.amount AS competitor_price_amount,
+       CASE WHEN competitor.amount IS NULL THEN NULL ELSE listing.price_currency_code END AS competitor_price_currency_code,
+       offer.amount AS offer_price_amount,
+       CASE WHEN offer.amount IS NULL THEN NULL ELSE listing.price_currency_code END AS offer_price_currency_code
+     FROM pricing_market_listing_inputs AS listing
+     LEFT JOIN pricing_market_price_estimates AS estimate
+       ON estimate.catalog_catalog_item_id = listing.catalog_catalog_item_id
+      AND estimate.product_id = listing.product_id
+      AND UPPER(estimate.currency_code) = listing.price_currency_code
+      -- Mirror contracts/market-estimate-display classifyMarketEstimateForDisplay:
+      -- fresh_until >= asOf is current.
+      AND estimate.fresh_until >= CURRENT_TIMESTAMP
+     LEFT JOIN LATERAL (
+         SELECT MIN(other.price_amount)::text AS amount
          FROM pricing_market_listing_inputs AS other
          WHERE other.catalog_catalog_item_id = listing.catalog_catalog_item_id
            AND other.product_id = listing.product_id
            AND other.status = 'active'
            AND other.seller_account_id <> listing.seller_account_id
-       ) AS competitor_price_amount,
-       (
-         SELECT MAX(offer.price_amount)::text
-         FROM pricing_buyer_offer_inputs AS offer
-         WHERE offer.catalog_catalog_item_id = listing.catalog_catalog_item_id
-           AND offer.product_id = listing.product_id
-           AND offer.status = 'submitted'
-       ) AS offer_price_amount
-     FROM pricing_market_listing_inputs AS listing
-     LEFT JOIN pricing_market_price_estimates AS estimate
-       ON estimate.catalog_catalog_item_id = listing.catalog_catalog_item_id
-      AND estimate.product_id = listing.product_id
-      -- Mirror contracts/market-estimate-display classifyMarketEstimateForDisplay:
-      -- fresh_until >= asOf is current.
-      AND estimate.fresh_until >= CURRENT_TIMESTAMP
+           AND other.price_currency_code = listing.price_currency_code
+           AND other.last_stream_version > 0
+     ) AS competitor ON true
+     LEFT JOIN LATERAL (
+         SELECT MAX(candidate.price_amount)::text AS amount
+         FROM pricing_buyer_offer_inputs AS candidate
+         WHERE candidate.catalog_catalog_item_id = listing.catalog_catalog_item_id
+           AND candidate.product_id = listing.product_id
+           AND candidate.status = 'submitted'
+           AND candidate.price_currency_code = listing.price_currency_code
+           AND candidate.last_stream_version > 0
+     ) AS offer ON true
      WHERE listing.seller_account_id = $1
        AND listing.status IN ('active', 'draft')`,
     [accountId],
@@ -277,8 +349,11 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
     inventory_item_id: string;
     available_quantity: number;
     market_estimate_amount: string | null;
+    market_estimate_currency_code: string | null;
     competitor_price_amount: string | null;
+    competitor_price_currency_code: string | null;
     offer_price_amount: string | null;
+    offer_price_currency_code: string | null;
   }>(
     `SELECT
        item.seller_account_id,
@@ -292,21 +367,11 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
          0
        )::integer AS available_quantity,
        estimate.amount::text AS market_estimate_amount,
-       (
-         SELECT MIN(other.price_amount)::text
-         FROM pricing_market_listing_inputs AS other
-         WHERE other.catalog_catalog_item_id = item.catalog_catalog_item_id
-           AND other.product_id = item.product_id
-           AND other.status = 'active'
-           AND other.seller_account_id <> item.seller_account_id
-       ) AS competitor_price_amount,
-       (
-         SELECT MAX(offer.price_amount)::text
-         FROM pricing_buyer_offer_inputs AS offer
-         WHERE offer.catalog_catalog_item_id = item.catalog_catalog_item_id
-           AND offer.product_id = item.product_id
-           AND offer.status = 'submitted'
-       ) AS offer_price_amount
+       UPPER(estimate.currency_code) AS market_estimate_currency_code,
+       competitor.amount AS competitor_price_amount,
+       competitor.currency_code AS competitor_price_currency_code,
+       offer.amount AS offer_price_amount,
+       offer.currency_code AS offer_price_currency_code
      FROM pricing_inventory_item_inputs AS item
      LEFT JOIN pricing_market_price_estimates AS estimate
        ON estimate.catalog_catalog_item_id = item.catalog_catalog_item_id
@@ -314,6 +379,29 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
       -- Mirror contracts/market-estimate-display classifyMarketEstimateForDisplay:
       -- fresh_until >= asOf is current.
       AND estimate.fresh_until >= CURRENT_TIMESTAMP
+     LEFT JOIN LATERAL (
+         SELECT MIN(other.price_amount)::text AS amount,
+                MIN(other.price_currency_code) AS currency_code
+         FROM pricing_market_listing_inputs AS other
+         WHERE other.catalog_catalog_item_id = item.catalog_catalog_item_id
+           AND other.product_id = item.product_id
+           AND other.status = 'active'
+           AND other.seller_account_id <> item.seller_account_id
+           AND other.price_currency_code IS NOT NULL
+           AND other.last_stream_version > 0
+         HAVING COUNT(DISTINCT other.price_currency_code) = 1
+     ) AS competitor ON true
+     LEFT JOIN LATERAL (
+         SELECT MAX(candidate.price_amount)::text AS amount,
+                MIN(candidate.price_currency_code) AS currency_code
+         FROM pricing_buyer_offer_inputs AS candidate
+         WHERE candidate.catalog_catalog_item_id = item.catalog_catalog_item_id
+           AND candidate.product_id = item.product_id
+           AND candidate.status = 'submitted'
+           AND candidate.price_currency_code IS NOT NULL
+           AND candidate.last_stream_version > 0
+         HAVING COUNT(DISTINCT candidate.price_currency_code) = 1
+     ) AS offer ON true
      LEFT JOIN (
        SELECT item_id, SUM(quantity)::integer AS held_quantity
        FROM pricing_inventory_hold_inputs
@@ -340,10 +428,15 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
       listingId: row.listing_id,
       inventoryItemId: row.inventory_item_id,
       currentPriceAmount: row.current_price_amount,
+      currentPriceCurrencyCode: row.current_price_currency_code,
+      currentPriceSourceVersion: row.current_price_source_version,
       quantityCap: row.quantity_cap,
       marketEstimateAmount: row.market_estimate_amount,
+      marketEstimateCurrencyCode: row.market_estimate_currency_code,
       competitorPriceAmount: row.competitor_price_amount,
+      competitorPriceCurrencyCode: row.competitor_price_currency_code,
       offerPriceAmount: row.offer_price_amount,
+      offerPriceCurrencyCode: row.offer_price_currency_code,
     })),
     ...inventoryResult.rows
       .filter((row) => row.available_quantity > 0)
@@ -355,10 +448,15 @@ async function listRefreshCandidates(db: PgQueryable, accountId: string): Promis
         listingId: null,
         inventoryItemId: row.inventory_item_id,
         currentPriceAmount: null,
+        currentPriceCurrencyCode: null,
+        currentPriceSourceVersion: null,
         quantityCap: row.available_quantity,
         marketEstimateAmount: row.market_estimate_amount,
+        marketEstimateCurrencyCode: row.market_estimate_currency_code,
         competitorPriceAmount: row.competitor_price_amount,
+        competitorPriceCurrencyCode: row.competitor_price_currency_code,
         offerPriceAmount: row.offer_price_amount,
+        offerPriceCurrencyCode: row.offer_price_currency_code,
       })),
   ];
 }
@@ -407,7 +505,7 @@ export type PricingRecommendationServices = Readonly<{
     params: Readonly<{ accountId: string }>,
     context: EventStoreContext,
     jobContext?: DurableJobExecutionContext<PricingRecommendationJobProgress, PricingRecommendationJobResult>,
-  ) => Promise<{ proposedCount: number }>;
+  ) => Promise<{ proposedCount: number; noRecommendationCount: number }>;
   applyRecommendations: (
     params: Readonly<{
       accountId: string;
@@ -502,17 +600,19 @@ export function createPricingRecommendationRuntime(
     const progressCheckpoint = jobContext ? createPricingJobProgressCheckpoint(jobContext) : null;
     const observedAt = new Date().toISOString();
     let proposedCount = 0;
+    let noRecommendationCount = 0;
     let completed = 0;
 
     for (const candidate of candidates) {
       jobContext?.throwIfCancelled();
       const recommendation = recommendedAmount(candidate);
       const currentPriceAmount = moneyNumber(candidate.currentPriceAmount);
-      if (!recommendation) {
+      if (recommendation.kind === "no-recommendation") {
+        noRecommendationCount += 1;
         completed += 1;
         await progressCheckpoint?.checkpoint(
           pricingJobProgress("processing", completed, candidates.length, "Checked recommendation candidate."),
-          { proposedCount },
+          { proposedCount, noRecommendationCount },
         );
         continue;
       }
@@ -520,7 +620,7 @@ export function createPricingRecommendationRuntime(
         completed += 1;
         await progressCheckpoint?.checkpoint(
           pricingJobProgress("processing", completed, candidates.length, "Checked recommendation candidate."),
-          { proposedCount },
+          { proposedCount, noRecommendationCount },
         );
         continue;
       }
@@ -538,7 +638,7 @@ export function createPricingRecommendationRuntime(
             listingId: candidate.listingId,
             inventoryItemId: candidate.inventoryItemId,
             marketPriceAmount: recommendation.marketPriceAmount,
-            marketCurrency: "USD",
+            marketCurrency: recommendation.currencyCode,
             marketSignalType: recommendation.marketSignalType,
             currentPriceAmount,
             recommendedListAmount: recommendation.recommendedListAmount,
@@ -553,11 +653,11 @@ export function createPricingRecommendationRuntime(
       completed += 1;
       await progressCheckpoint?.checkpoint(
         pricingJobProgress("processing", completed, candidates.length, "Proposed recommendation."),
-        { proposedCount },
+        { proposedCount, noRecommendationCount },
       );
     }
 
-    return { proposedCount };
+    return { proposedCount, noRecommendationCount };
   };
 
   const applyRecommendations: PricingRecommendationServices["applyRecommendations"] = async (
@@ -586,7 +686,12 @@ export function createPricingRecommendationRuntime(
       string,
       Readonly<{ status: "applied"; appliedListingId: string }> | Readonly<{ status: "failed"; errorMessage: string }>
     >();
-    const bulkUpdates: Readonly<{ recommendationId: string; listingId: string; priceAmount: string }>[] = [];
+    const bulkUpdates: Readonly<{
+      recommendationId: string;
+      listingId: string;
+      priceAmount: string;
+      priceCurrencyCode: string;
+    }>[] = [];
 
     for (const row of selectedRows) {
       if (row.action_type !== "active-listing-price-update" && row.action_type !== "draft-listing-price-update") {
@@ -606,10 +711,18 @@ export function createPricingRecommendationRuntime(
         });
         continue;
       }
+      if (!row.current_price_currency_code) {
+        priceUpdateOutcomeByRecommendationId.set(row.recommendation_id, {
+          status: "failed",
+          errorMessage: "Listing price is incomplete. A seller-authored currency is required.",
+        });
+        continue;
+      }
       bulkUpdates.push({
         recommendationId: row.recommendation_id,
         listingId: row.listing_id,
         priceAmount: moneyString(Number(row.recommended_list_amount)),
+        priceCurrencyCode: row.current_price_currency_code,
       });
     }
 
@@ -617,7 +730,13 @@ export function createPricingRecommendationRuntime(
       jobContext?.throwIfCancelled();
       const bulkResult = await runPricingJobSideEffect(jobContext, (signal) =>
         params.marketplaceListings.applyBulkListingPriceUpdates(
-          { updates: bulkUpdates.map(({ listingId, priceAmount }) => ({ listingId, priceAmount })) },
+          {
+            updates: bulkUpdates.map(({ listingId, priceAmount, priceCurrencyCode }) => ({
+              listingId,
+              priceAmount,
+              priceCurrencyCode,
+            })),
+          },
           { signal },
         ),
       );
@@ -669,6 +788,7 @@ export function createPricingRecommendationRuntime(
               {
                 inventoryItemId,
                 priceAmount: price,
+                priceCurrencyCode: row.market_currency,
                 quantityCap,
                 listingIdOverride: listingIdForPricingRecommendation(row.recommendation_id),
               },
@@ -887,7 +1007,10 @@ export function createPricingRecommendationRuntime(
                   claimed.eventContext!,
                   jobContext,
                 );
-                return { proposedCount: refreshed.proposedCount };
+                return {
+                  proposedCount: refreshed.proposedCount,
+                  noRecommendationCount: refreshed.noRecommendationCount,
+                };
               })()
             : claimed.payload.action === "apply"
               ? await applyRecommendations(

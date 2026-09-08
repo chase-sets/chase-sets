@@ -136,6 +136,8 @@ CREATE TABLE IF NOT EXISTS discovery_market_listings (
   storage_location_name text NULL,
   ship_from_code text NULL,
   price_amount text NOT NULL,
+  price_currency_code text NULL,
+  listing_stream_version integer NOT NULL DEFAULT 0,
   shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   quantity_cap integer NOT NULL DEFAULT 0,
   max_units_per_order integer NULL,
@@ -247,6 +249,8 @@ CREATE TABLE IF NOT EXISTS discovery_offer_demand_matches (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   price_amount text NOT NULL,
+  price_currency_code text NULL,
+  offer_stream_version integer NOT NULL DEFAULT 0,
   quantity_requested integer NOT NULL DEFAULT 0,
   status text NOT NULL DEFAULT 'submitted',
   accepted_seller_account_id text NULL,
@@ -286,6 +290,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_sell_list_lines_offer_un
   WHERE offer_id IS NOT NULL;`;
 
 export const discoveryMarketSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_discovery_market_price_currency",
+    description: "Store Marketplace Listing and Offer prices as version-fenced nullable currency pairs.",
+    statements: [
+      `ALTER TABLE discovery_market_listings
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS listing_stream_version integer NOT NULL DEFAULT 0`,
+      `ALTER TABLE discovery_offer_demand_matches
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS offer_stream_version integer NOT NULL DEFAULT 0`,
+    ],
+  },
   {
     migrationId: "20260715_discovery_market_review_scoring",
     description: "Persist canonical scoring disposition in Discovery reputation inputs.",

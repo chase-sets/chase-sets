@@ -1,4 +1,6 @@
 export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
+export type { MarketplaceListingServices } from "./features/listings/api/runtime";
+export type { MarketplaceServices } from "./support/runtime-support/services";
 export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
 export type {
   MarketplaceListingInventoryItemOption,

@@ -95,6 +95,7 @@ export async function upsertRow<
     conflictColumns: TConflictColumns;
     values: ProjectionRowValues<TInsertColumns>;
     updateColumns?: TUpdateColumns;
+    updateOnlyWhenExistingColumnLessThan?: TInsertColumns[number];
     casts?: ProjectionValueCasts<TInsertColumns>;
     returning?: TReturningColumns;
   }>,
@@ -112,13 +113,21 @@ export async function upsertRow<
   const placeholders = insertColumns.map((column, index) => parameterExpression(index + 1, casts[column]));
   const conflict = conflictColumns.join(", ");
   const returning = returningClause(input.returning ?? []);
+  const updateGuardColumn = input.updateOnlyWhenExistingColumnLessThan
+    ? sqlIdentifier(input.updateOnlyWhenExistingColumnLessThan)
+    : null;
   const conflictAction =
     updateColumns.length === 0
       ? "DO NOTHING"
-      : `DO UPDATE SET ${updateColumns.map((column) => `${column} = EXCLUDED.${column}`).join(", ")}`;
+      : `DO UPDATE SET ${updateColumns.map((column) => `${column} = EXCLUDED.${column}`).join(", ")}${
+          updateGuardColumn ? ` WHERE ${table}.${updateGuardColumn} < EXCLUDED.${updateGuardColumn}` : ""
+        }`;
 
   ensureColumnsBelongToInsert(updateColumns, insertColumns, "updateColumns");
   ensureColumnsBelongToInsert(conflictColumns, insertColumns, "conflictColumns");
+  if (updateGuardColumn) {
+    ensureColumnsBelongToInsert([updateGuardColumn], insertColumns, "updateOnlyWhenExistingColumnLessThan");
+  }
 
   return db.query<ProjectionReturningRow<TReturningColumns>>(
     `INSERT INTO ${table} (${insertColumns.join(", ")}) VALUES (${placeholders.join(", ")}) ON CONFLICT (${conflict}) ${conflictAction}${returning}`,

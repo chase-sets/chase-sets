@@ -31,6 +31,7 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
             image_fallback: null,
             market_summary: {
               lowest_price_amount: "12.34",
+              lowest_price_currency_code: "EUR",
               active_listing_count: 2,
               total_visible_quantity: 3,
             },
@@ -102,7 +103,7 @@ describe("Discovery UCP catalog handlers", () => {
           title: "Charizard",
           url: "https://marketplace.example/items/charizard-cat_1",
           image_urls: ["https://images.example/charizard.jpg"],
-          price: { currency: "USD", amount: "1234" },
+          price: { currency: "EUR", amount: "1234" },
           availability: {
             status: "available",
             quantity: 3,
@@ -112,7 +113,7 @@ describe("Discovery UCP catalog handlers", () => {
               catalog_item_id: "cat_1",
               blueprint_id: "blueprint_card",
               primary_image_url: "https://images.example/charizard.jpg",
-              price_display: "$12.34",
+              price_display: "€12.34",
               availability_display: "3 available",
               marketplace: {
                 active_listing_count: 2,

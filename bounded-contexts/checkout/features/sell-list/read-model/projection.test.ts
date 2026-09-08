@@ -34,7 +34,7 @@ class SellListProjectionDb implements PgQueryable {
         line_id: String(values[1]),
         line_type: String(values[2]),
         offer_id: values[3] === null ? null : String(values[3]),
-        quantity: Number(values[14]),
+        quantity: Number(values[19]),
       };
       if (sql.includes("ON CONFLICT (seller_account_id, offer_id)") && row.offer_id) {
         const existing = [...this.lines.values()].find(
@@ -77,7 +77,7 @@ class SellListProjectionDb implements PgQueryable {
     }
 
     if (sql.includes("INSERT INTO checkout_sell_offer_pages") || sql.includes("UPDATE checkout_sell_offer_pages")) {
-      return { rows: [], rowCount: 1 };
+      return { rows: [{ offer_id: String(values[0]) }] as Row[], rowCount: 1 };
     }
 
     if (sql.includes("UPDATE checkout_sell_list_line_pages") && sql.includes("SET quantity")) {
@@ -195,6 +195,11 @@ function lineAddedEvent(
     buyerAccountId: null,
     buyerDisplayName: null,
     offerPriceAmount: null,
+    offerPriceCurrencyCode: null,
+    offerStreamVersion: null,
+    listingPriceAmount: null,
+    listingPriceCurrencyCode: null,
+    listingStreamVersion: null,
     catalogItemId: "cat_1",
     productId: "cat_1::condition:raw",
     itemTitle: "Charizard",

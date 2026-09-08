@@ -27,6 +27,7 @@ export type ProductAlertState = Readonly<{
   selectedOptions: readonly ProductAlertSelectedOption[];
   productSummary: string | null;
   thresholdAmount: string | null;
+  thresholdCurrencyCode: string | null;
   status: ProductAlertStatus | null;
 }>;
 
@@ -39,6 +40,7 @@ export const initialProductAlertState: ProductAlertState = {
   selectedOptions: [],
   productSummary: null,
   thresholdAmount: null,
+  thresholdCurrencyCode: null,
   status: null,
 };
 
@@ -52,6 +54,7 @@ export type CreateProductAlertCommand = Readonly<{
   selectedOptions: readonly ProductAlertSelectedOption[];
   productSummary?: string | null;
   thresholdAmount?: string | null;
+  thresholdCurrencyCode?: string | null;
 }>;
 
 export type PauseProductAlertCommand = Readonly<{ type: "PauseProductAlert" }>;
@@ -75,6 +78,8 @@ export type ProductAlertCreatedEvent = DomainEvent<
     selectedOptions: ProductAlertSelectedOption[];
     productSummary: string | null;
     thresholdAmount: string | null;
+    /** Missing only for historical amount-only Product Alert thresholds. */
+    thresholdCurrencyCode?: string | null;
   }>
 >;
 
@@ -97,6 +102,16 @@ export const decideProductAlert: AggregateDecider<ProductAlertState, ProductAler
   switch (command.type) {
     case "CreateProductAlert":
       assert(state.alertId === null, "Product Alert already exists.");
+      const thresholdAmount = normalizeOptionalMoney(command.thresholdAmount);
+      const thresholdCurrencyCode = normalizeOptionalText(command.thresholdCurrencyCode)?.toUpperCase() ?? null;
+      assert(
+        (thresholdAmount === null) === (thresholdCurrencyCode === null),
+        "Product Alert threshold must include both amount and currency.",
+      );
+      assert(
+        thresholdCurrencyCode === null || /^[A-Z]{3}$/.test(thresholdCurrencyCode),
+        "Product Alert threshold currency must be a three-letter ISO-4217 code.",
+      );
       return [
         {
           type: "discovery.product-alert.created",
@@ -108,7 +123,8 @@ export const decideProductAlert: AggregateDecider<ProductAlertState, ProductAler
             productId: normalizeRequiredText(command.productId, "Product Alert requires a Product."),
             selectedOptions: normalizeSelectedOptions(command.selectedOptions),
             productSummary: normalizeOptionalText(command.productSummary),
-            thresholdAmount: normalizeOptionalMoney(command.thresholdAmount),
+            thresholdAmount,
+            thresholdCurrencyCode,
           },
         },
       ];
@@ -147,6 +163,7 @@ export const evolveProductAlert: AggregateEvolver<ProductAlertState, ProductAler
         selectedOptions: event.data.selectedOptions,
         productSummary: event.data.productSummary,
         thresholdAmount: event.data.thresholdAmount,
+        thresholdCurrencyCode: event.data.thresholdCurrencyCode ?? null,
         status: "active",
       };
     case "discovery.product-alert.paused":

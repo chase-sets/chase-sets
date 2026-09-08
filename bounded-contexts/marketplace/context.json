@@ -349,6 +349,7 @@
     },
     {
       "projectionName": "marketplace-offer-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["marketplace"],
       "ownedTables": [
         "marketplace_offer_pages",
@@ -673,6 +674,10 @@
       },
       {
         "name": "marketplace.submit-offer",
+        "ownerSlice": "offers"
+      },
+      {
+        "name": "marketplace.update-offer-price",
         "ownerSlice": "offers"
       },
       {
@@ -1127,10 +1132,10 @@
         "api-client:bounded-contexts/marketplace/client.ts:POST H5299f933f64b#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST Hc5a69ee641c4#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H59449737c72f#1",
-        "api-client:bounded-contexts/marketplace/client.ts:POST H717d12dd6ee0#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST Ha89eae8adbd2#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H89eae60aa986#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H9128ca46a67f#1",
-        "api-client:bounded-contexts/marketplace/client.ts:POST H94718dd21134#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST Hd04fea5e8409#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H98464d79b40c#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H9b81d7eb5cbd#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H55d128bee0de#1",
@@ -1251,13 +1256,14 @@
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/matches/:id/decline",
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/matches/:id/mute-buyer",
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/mutes/:listingId/:buyerAccountId/unmute",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:PATCH /offers/submitted/:id/price",
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted"
       ],
       "visibleDestination": {
         "description": "Offer API commands return command-owned id/version/status snapshots; submitted-offer, accepted-offer, declined-offer, and muted-buyer browser destinations use the receipt for fresh offer reads."
       },
       "proof": {
-        "authoritativeResponse": "SubmitOffer returns id/version/status=submitted, AcceptOffer returns id/version/status=accepted, DeclineOfferMatch returns id/version/status=declined, and MuteBuyerOffers returns id/version/status=muted directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
+        "authoritativeResponse": "SubmitOffer and UpdateOfferPrice return id/version/status=submitted, AcceptOffer returns id/version/status=accepted, DeclineOfferMatch returns id/version/status=declined, and MuteBuyerOffers returns id/version/status=muted directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
         "tests": [
           "bounded-contexts/marketplace/features/offers/api/route.test.ts",
           "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",

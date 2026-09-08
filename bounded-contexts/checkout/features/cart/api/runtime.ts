@@ -695,6 +695,8 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
                     sellerDisplayName: line.selected_listing_seller_display_name,
                     sellerSlug: line.selected_listing_seller_slug,
                     priceAmount: line.selected_listing_price_amount,
+                    priceCurrencyCode: line.selected_listing_price_currency_code,
+                    listingStreamVersion: line.selected_listing_stream_version,
                     source: line.selected_listing_snapshot_source,
                   }
                 : null,

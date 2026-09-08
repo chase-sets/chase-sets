@@ -22,12 +22,25 @@ function rejectDryRun(args: Readonly<Record<string, unknown>>) {
   }
 }
 
+function rejectUnknownArguments(args: Readonly<Record<string, unknown>>, allowedKeys: readonly string[]) {
+  const unknownKey = Object.keys(args).find((key) => !allowedKeys.includes(key));
+  if (unknownKey) throw new Error(`Unknown Marketplace listing argument '${unknownKey}'.`);
+}
+
 function readRequiredString(args: Readonly<Record<string, unknown>>, key: string) {
   const value = readMcpStringArgument(args, key);
   if (!value) {
     throw new Error(`${key} is required.`);
   }
 
+  return value;
+}
+
+function readRequiredPriceCurrencyCode(args: Readonly<Record<string, unknown>>) {
+  const value = readRequiredString(args, "priceCurrencyCode");
+  if (!/^[A-Za-z]{3}$/.test(value.trim())) {
+    throw new Error("priceCurrencyCode must be a three-letter ISO-4217 code.");
+  }
   return value;
 }
 
@@ -91,6 +104,7 @@ function readPurchaseLimits(args: Readonly<Record<string, unknown>>): Partial<Ma
   }
 
   const limits = raw as Readonly<Record<string, unknown>>;
+  rejectUnknownArguments(limits, ["maxUnitsPerOrder", "maxUnitsPerDay", "maxUnitsPerCustomerAccount"]);
   return {
     maxUnitsPerOrder: readOptionalPositiveInteger(limits.maxUnitsPerOrder, "purchaseLimits.maxUnitsPerOrder"),
     maxUnitsPerDay: readOptionalPositiveInteger(limits.maxUnitsPerDay, "purchaseLimits.maxUnitsPerDay"),
@@ -191,6 +205,18 @@ export function createMarketplaceListingMcpHandlers(
   };
 
   const createListing: McpToolHandler = async ({ actor, arguments: args }) => {
+    rejectUnknownArguments(args, [
+      "accountId",
+      "inventoryItemId",
+      "priceAmount",
+      "priceCurrencyCode",
+      "quantityCap",
+      "purchaseLimits",
+      "listingIdOverride",
+      "idempotencyKey",
+      "confirmationText",
+      "dryRun",
+    ]);
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
@@ -199,6 +225,7 @@ export function createMarketplaceListingMcpHandlers(
         accountId: scopedActor.accountId as AccountId,
         inventoryItemId: readMcpTypedIdArgument(args, "inventoryItemId", "inv"),
         priceAmount: readRequiredString(args, "priceAmount"),
+        priceCurrencyCode: readRequiredPriceCurrencyCode(args),
         quantityCap: readPositiveInteger(args, "quantityCap"),
         purchaseLimits: readPurchaseLimits(args),
         listingIdOverride: readOptionalMcpTypedIdArgument(args, "listingIdOverride", "lst") ?? undefined,
@@ -213,6 +240,16 @@ export function createMarketplaceListingMcpHandlers(
   };
 
   const updateListingPrice: McpToolHandler = async ({ actor, arguments: args }) => {
+    rejectUnknownArguments(args, [
+      "accountId",
+      "listingId",
+      "priceAmount",
+      "priceCurrencyCode",
+      "feeQuoteFingerprint",
+      "idempotencyKey",
+      "confirmationText",
+      "dryRun",
+    ]);
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
@@ -221,6 +258,7 @@ export function createMarketplaceListingMcpHandlers(
         accountId: scopedActor.accountId,
         listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
         priceAmount: readRequiredString(args, "priceAmount"),
+        priceCurrencyCode: readRequiredPriceCurrencyCode(args),
         feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
       },
       createActorEventStoreContext(scopedActor),

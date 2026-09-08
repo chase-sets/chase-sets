@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createPricingRecommendationRuntime, type PricingMarketplaceListingGateway } from "./runtime";
+import {
+  createPricingRecommendationRuntime,
+  recommendedAmount,
+  type PricingMarketplaceListingGateway,
+  type RefreshCandidate,
+} from "./runtime";
 import type { AccountRecommendationListItem } from "../read-model/queries";
 
 const context: EventStoreContext = {
@@ -102,6 +107,7 @@ const proposedRecommendation = {
   market_signal_type: "competition",
   market_observed_at: "2026-05-09T00:00:00.000Z",
   current_price_amount: 20,
+  current_price_currency_code: "USD",
   recommended_list_amount: 17.99,
   recommendation_reason: "Priced one cent below the lowest competing active listing.",
   quantity_cap: 1,
@@ -148,6 +154,56 @@ async function seedRecommendation(
 }
 
 describe("pricing recommendation runtime", () => {
+  const recommendationCandidate = (overrides: Partial<RefreshCandidate> = {}): RefreshCandidate => ({
+    actionType: "active-listing-price-update",
+    sellerAccountId: "acc_1",
+    catalogItemId: "cat_1",
+    productId: "prod_1",
+    listingId: "lst_1",
+    inventoryItemId: "inv_1",
+    currentPriceAmount: "20.00",
+    currentPriceCurrencyCode: "EUR",
+    currentPriceSourceVersion: 4,
+    quantityCap: 1,
+    marketEstimateAmount: null,
+    marketEstimateCurrencyCode: null,
+    competitorPriceAmount: null,
+    competitorPriceCurrencyCode: null,
+    offerPriceAmount: null,
+    offerPriceCurrencyCode: null,
+    ...overrides,
+  });
+
+  it("returns named no-recommendation for incomplete and cross-currency anchors", () => {
+    expect(
+      recommendedAmount(
+        recommendationCandidate({ competitorPriceAmount: "18.00", competitorPriceCurrencyCode: "USD" }),
+      ),
+    ).toEqual({ kind: "no-recommendation", reason: "currency-input-incomplete-or-mismatched" });
+    expect(
+      recommendedAmount(recommendationCandidate({ offerPriceAmount: "19.00", offerPriceCurrencyCode: null })),
+    ).toEqual({ kind: "no-recommendation", reason: "currency-input-incomplete-or-mismatched" });
+    expect(
+      recommendedAmount(
+        recommendationCandidate({
+          marketEstimateAmount: "21.00",
+          marketEstimateCurrencyCode: "USD",
+          competitorPriceAmount: "18.00",
+          competitorPriceCurrencyCode: "EUR",
+        }),
+      ),
+    ).toEqual({ kind: "no-recommendation", reason: "currency-input-incomplete-or-mismatched" });
+    expect(
+      recommendedAmount(recommendationCandidate({ currentPriceAmount: null, currentPriceCurrencyCode: "EUR" })),
+    ).toEqual({ kind: "no-recommendation", reason: "currency-input-incomplete-or-mismatched" });
+  });
+
+  it("preserves an authoritative EUR Offer anchor", () => {
+    expect(
+      recommendedAmount(recommendationCandidate({ offerPriceAmount: "19.00", offerPriceCurrencyCode: "EUR" })),
+    ).toMatchObject({ kind: "recommendation", currencyCode: "EUR", recommendedListAmount: 19 });
+  });
+
   it("treats an estimate fresh through its exact fresh-until boundary", async () => {
     const queries: string[] = [];
     const { services } = createRuntime(queryStub({}, queries));
@@ -157,6 +213,40 @@ describe("pricing recommendation runtime", () => {
     const estimateQueries = queries.filter((sql) => sql.includes("pricing_market_price_estimates AS estimate"));
     expect(estimateQueries).toHaveLength(2);
     expect(estimateQueries.every((sql) => sql.includes("estimate.fresh_until >= CURRENT_TIMESTAMP"))).toBe(true);
+  });
+
+  it("returns exact EUR and legacy null current-price currencies from the paginated production SELECT", async () => {
+    const queries: string[] = [];
+    const db: PgQueryable = {
+      query: async <T>(sql: string) => {
+        queries.push(sql);
+        return {
+          rows: [
+            { ...proposedRecommendation, current_price_currency_code: "EUR", total_count: 2 },
+            {
+              ...proposedRecommendation,
+              recommendation_id: "rec_legacy",
+              current_price_currency_code: null,
+              total_count: 2,
+            },
+          ] as T[],
+        };
+      },
+    };
+    const { services } = createRuntime(db);
+
+    const result = await services.recommendAccountPrice({
+      accountId: "acc_1",
+      catalogItemId: "cat_1",
+      limit: 2,
+      offset: 1,
+    });
+
+    expect(result.items.map((item) => item.current_price_currency_code)).toEqual(["EUR", null]);
+    expect(result.total).toBe(2);
+    expect(queries[0]).toContain("current_price_currency_code");
+    expect(queries[0]).toContain("LIMIT $3 OFFSET $4");
+    expect(queries[0]).toContain("status IN ('proposed', 'failed')");
   });
 
   it("refreshes active listing and draft create proposals from projected signals", async () => {
@@ -171,10 +261,15 @@ describe("pricing recommendation runtime", () => {
             listing_id: "lst_1",
             inventory_item_id: "inv_1",
             current_price_amount: "20.00",
+            current_price_currency_code: "EUR",
+            current_price_source_version: 4,
             quantity_cap: 1,
             market_estimate_amount: "19.50",
+            market_estimate_currency_code: "EUR",
             competitor_price_amount: "18.00",
+            competitor_price_currency_code: "EUR",
             offer_price_amount: null,
+            offer_price_currency_code: null,
           },
           {
             action_type: "draft-listing-price-update",
@@ -184,10 +279,15 @@ describe("pricing recommendation runtime", () => {
             listing_id: "lst_skip",
             inventory_item_id: "inv_skip",
             current_price_amount: "11.99",
+            current_price_currency_code: "USD",
+            current_price_source_version: 2,
             quantity_cap: 1,
             market_estimate_amount: null,
+            market_estimate_currency_code: null,
             competitor_price_amount: "12.00",
+            competitor_price_currency_code: "USD",
             offer_price_amount: null,
+            offer_price_currency_code: null,
           },
         ],
         inventory: [
@@ -198,8 +298,11 @@ describe("pricing recommendation runtime", () => {
             inventory_item_id: "inv_2",
             available_quantity: 3,
             market_estimate_amount: null,
+            market_estimate_currency_code: null,
             competitor_price_amount: null,
+            competitor_price_currency_code: null,
             offer_price_amount: "5.00",
+            offer_price_currency_code: "EUR",
           },
           {
             seller_account_id: "acc_1",
@@ -208,8 +311,11 @@ describe("pricing recommendation runtime", () => {
             inventory_item_id: "inv_no_signal",
             available_quantity: 2,
             market_estimate_amount: null,
+            market_estimate_currency_code: null,
             competitor_price_amount: null,
+            competitor_price_currency_code: null,
             offer_price_amount: null,
+            offer_price_currency_code: null,
           },
         ],
       }),
@@ -227,12 +333,14 @@ describe("pricing recommendation runtime", () => {
       marketPriceAmount: 19.5,
       recommendedListAmount: 19.49,
       marketSignalType: "market-estimate",
+      marketCurrency: "EUR",
     });
     expect(events[1]?.payload).toMatchObject({
       actionType: "draft-listing-create",
       recommendedListAmount: 5,
       quantityCap: 3,
       marketSignalType: "offer",
+      marketCurrency: "EUR",
     });
   });
 
@@ -248,11 +356,16 @@ describe("pricing recommendation runtime", () => {
             listing_id: "lst_1",
             inventory_item_id: "inv_1",
             current_price_amount: "20.00",
+            current_price_currency_code: "USD",
+            current_price_source_version: 3,
             quantity_cap: 1,
             // The query returns null for both no row and a row past fresh_until.
             market_estimate_amount: null,
+            market_estimate_currency_code: null,
             competitor_price_amount: "18.00",
+            competitor_price_currency_code: "USD",
             offer_price_amount: "25.00",
+            offer_price_currency_code: "USD",
           },
         ],
       }),
@@ -296,7 +409,7 @@ describe("pricing recommendation runtime", () => {
     // previewListingTerms + updateListingPrice pair per listing.
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledTimes(1);
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
-      { updates: [{ listingId: "lst_1", priceAmount: "17.99" }] },
+      { updates: [{ listingId: "lst_1", priceAmount: "17.99", priceCurrencyCode: "USD" }] },
       expect.any(Object),
     );
     expect(events.at(-1)?.eventType).toBe("pricing.recommendation.applied");
@@ -340,8 +453,8 @@ describe("pricing recommendation runtime", () => {
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
       {
         updates: [
-          { listingId: "lst_1", priceAmount: "17.99" },
-          { listingId: "lst_2", priceAmount: "24.99" },
+          { listingId: "lst_1", priceAmount: "17.99", priceCurrencyCode: "USD" },
+          { listingId: "lst_2", priceAmount: "24.99", priceCurrencyCode: "USD" },
         ],
       },
       expect.any(Object),
@@ -396,6 +509,7 @@ describe("pricing recommendation runtime", () => {
       {
         inventoryItemId: "inv_2",
         priceAmount: "5.00",
+        priceCurrencyCode: "USD",
         quantityCap: 3,
         listingIdOverride: "lst_pricing_rec_create",
       },
@@ -435,6 +549,34 @@ describe("pricing recommendation runtime", () => {
     expect(events.at(-1)?.eventType).toBe("pricing.recommendation.failed");
     expect(events.at(-1)?.payload).toMatchObject({
       errorMessage: "Fee quote changed.",
+    });
+  });
+
+  it("refuses to reprice a legacy amount-only listing instead of choosing a currency", async () => {
+    const incompleteRecommendation = {
+      ...proposedRecommendation,
+      current_price_currency_code: null,
+    } satisfies AccountRecommendationListItem;
+    const gateway: PricingMarketplaceListingGateway = {
+      applyBulkListingPriceUpdates: vi.fn(async () => ({ items: [] })),
+      createListing: vi.fn(async () => ({ id: "lst_created" })),
+    };
+    const { services, events } = createRuntime(queryStub({ recommendations: [incompleteRecommendation] }));
+    await seedRecommendation(services, incompleteRecommendation);
+
+    const result = await services.applyRecommendations(
+      {
+        accountId: "acc_1",
+        recommendationIds: ["rec_active"],
+        marketplaceListings: gateway,
+      },
+      context,
+    );
+
+    expect(result).toEqual({ appliedCount: 0, failedCount: 1 });
+    expect(gateway.applyBulkListingPriceUpdates).not.toHaveBeenCalled();
+    expect(events.at(-1)?.payload).toMatchObject({
+      errorMessage: "Listing price is incomplete. A seller-authored currency is required.",
     });
   });
 

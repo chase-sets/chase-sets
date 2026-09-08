@@ -93,6 +93,8 @@ function accountFixture(overrides: Partial<DiscoveryPublicAccount> = {}): Discov
         storage_location_name: null,
         ship_from_code: "STL",
         price_amount: "12.00",
+        price_currency_code: "EUR",
+        listing_stream_version: 3,
         shipping_allowance_percentage_bps: 500,
         quantity_cap: 5,
         max_units_per_order: null,

@@ -228,12 +228,59 @@ async function requireExactVisibleTarget(target: Locator, claim: ResponsiveEvide
 
 async function requirePopulatedTarget(target: Locator, claim: ResponsiveEvidenceClaim) {
   const populated = target.locator(claim.target.populatedSelector);
-  const count = await populated.count();
-  if (count === 0) fail(claim, "target-population-empty");
-  for (let index = 0; index < count; index += 1) {
-    const item = populated.nth(index);
-    if (!(await item.isVisible())) fail(claim, `target-population-hidden(index=${index})`);
-    const box = await item.boundingBox();
+  const observation = await populated.evaluateAll((elements) => {
+    const isVisibleTextNode = (node: Text) => {
+      const range = node.ownerDocument.createRange();
+      range.selectNode(node);
+      const rect = range.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+    const isVisible = (element: Element): boolean => {
+      const style = getComputedStyle(element);
+      if (style.display === "contents") {
+        for (const child of element.childNodes) {
+          if (child instanceof Element && isVisible(child)) return true;
+          if (child instanceof Text && isVisibleTextNode(child)) return true;
+        }
+        return false;
+      }
+      if (typeof element.checkVisibility === "function") {
+        if (!element.checkVisibility()) return false;
+      } else {
+        const detailsOrSummary = element.closest("details,summary");
+        if (
+          detailsOrSummary !== element &&
+          detailsOrSummary?.nodeName === "DETAILS" &&
+          !(detailsOrSummary as HTMLDetailsElement).open
+        ) {
+          return false;
+        }
+      }
+      if (style.visibility !== "visible") return false;
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+    const rows = elements.map((element) => {
+      const visible = isVisible(element);
+      const box = visible ? element.getBoundingClientRect() : null;
+      return {
+        visible,
+        layout: box ? { width: box.width, height: box.height } : null,
+      };
+    });
+    return { matchedCount: elements.length, rows };
+  });
+  if (observation.matchedCount === 0) fail(claim, "target-population-empty");
+  if (observation.rows.length !== observation.matchedCount) {
+    fail(
+      claim,
+      `target-population-observation-count-mismatch(expected=${observation.matchedCount}, actual=${observation.rows.length})`,
+    );
+  }
+  for (let index = 0; index < observation.rows.length; index += 1) {
+    const item = observation.rows[index]!;
+    if (!item.visible) fail(claim, `target-population-hidden(index=${index})`);
+    const box = item.layout;
     if (!box || box.width <= 0 || box.height <= 0) {
       fail(claim, `target-population-has-no-observable-layout(index=${index})`);
     }

@@ -47,6 +47,7 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
     acquisition_cost_amount: "1.00",
     seller_sku: "SKU-1",
     listing_price_amount: "5.00",
+    listing_price_currency_code: "USD",
     listing_quantity_cap: 2,
     row_note: null,
     validation_errors: [],

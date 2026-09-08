@@ -130,7 +130,7 @@ export function MarketplaceOfferMatchDetailPage({
                   <Badge tone={offer.can_fulfill ? "success" : "warning"}>{fulfillmentLabel}</Badge>
                 </Inline>
                 <Text size="lg" weight="semibold">
-                  {formatMoney(offer.price_amount, "USD")}
+                  {formatMoney(offer.price_amount, offer.price_currency_code!)}
                 </Text>
                 <Text tone="secondary">
                   {t("marketplace.features.offers.ui.offerMatchDetailPage.offer.is.percentage.of.ask", {
@@ -161,7 +161,7 @@ export function MarketplaceOfferMatchDetailPage({
                   },
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.listing.price"),
-                    value: formatMoney(offer.listing_price_amount, "USD"),
+                    value: formatMoney(offer.listing_price_amount, offer.listing_price_currency_code),
                   },
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.offer.vs.ask"),
@@ -197,11 +197,11 @@ export function MarketplaceOfferMatchDetailPage({
               lines={[
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.offer.price"),
-                  value: formatMoney(offer.price_amount, "USD"),
+                  value: formatMoney(offer.price_amount, offer.price_currency_code!),
                 },
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.listing.price"),
-                  value: formatMoney(offer.listing_price_amount, "USD"),
+                  value: formatMoney(offer.listing_price_amount, offer.listing_price_currency_code),
                 },
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.marketplace.fee"),
@@ -287,7 +287,7 @@ export function MarketplaceOfferMatchDetailPage({
 
       {acceptOfferAction ? (
         <StickyCtaBar
-          price={formatMoney(offer.price_amount, "USD")}
+          price={formatMoney(offer.price_amount, offer.price_currency_code!)}
           context={
             offer.can_fulfill
               ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")

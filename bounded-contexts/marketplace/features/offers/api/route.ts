@@ -146,7 +146,10 @@ function offerAbuseControlMessage(error: MarketplaceOfferAbuseControlError) {
       });
     case "offer_price_floor_not_met":
       return t("marketplace.features.offers.api.route.offer.price.floor.not.met", {
-        amount: formatMoney(String(error.details.minimumOfferAmount ?? "0.00"), "USD"),
+        amount: formatMoney(
+          String(error.details.minimumOfferAmount ?? "0.00"),
+          String(error.details.minimumOfferCurrencyCode ?? ""),
+        ),
       });
     case "offer_lowball_cooldown":
       return t("marketplace.features.offers.api.route.offer.lowball.cooldown");
@@ -320,12 +323,47 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
             body.productSummary === null || body.productSummary === undefined ? null : String(body.productSummary),
           shippingDestinationSnapshot: parseShippingDestination(body.shippingDestinationSnapshot),
           priceAmount: String(body.priceAmount ?? ""),
+          priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
           quantityRequested: Number(body.quantityRequested ?? 0),
         },
         context,
       );
 
       return c.json({ id: result.offerId, version: result.version, status: "submitted" }, 201);
+    } catch (error) {
+      return validationError(c, error);
+    }
+  });
+
+  app.patch("/offers/submitted/:id/price", async (c) => {
+    const access = requireSignedInAccount(c);
+    if (access.response) {
+      return access.response;
+    }
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.required"),
+          },
+        },
+        401,
+      );
+    }
+    const body = await c.req.json();
+    try {
+      const result = await services.updateOfferPrice(
+        {
+          offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
+          buyerAccountId: access.actor.accountId as AccountId,
+          priceAmount: String(body.priceAmount ?? ""),
+          priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
+        },
+        context,
+      );
+      return c.json({ id: result.offerId, version: result.version, status: "submitted" });
     } catch (error) {
       return validationError(c, error);
     }

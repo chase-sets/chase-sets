@@ -141,7 +141,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "settlement-account-risk-source-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "subscriptionName": "settlement.marketplace-review-account-risk-source-projection",
       "eventTypes": [
         "marketplace.listing.created",
@@ -231,7 +231,7 @@
     },
     {
       "projectionName": "settlement-account-risk-source-projection",
-      "projectionRevision": 2,
+      "projectionRevision": 3,
       "sourceContextNames": ["identity", "marketplace", "payments"],
       "ownedTables": [
         "settlement_account_risk_sources",

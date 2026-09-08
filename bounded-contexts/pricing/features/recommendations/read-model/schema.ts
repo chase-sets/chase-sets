@@ -1,3 +1,4 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 
@@ -38,9 +39,6 @@ ALTER TABLE pricing_recommendation_pages
   ADD COLUMN IF NOT EXISTS applied_listing_id text NULL,
   ADD COLUMN IF NOT EXISTS last_error text NULL;
 
-CREATE INDEX IF NOT EXISTS pricing_recommendation_pages_action_idx
-  ON pricing_recommendation_pages (seller_account_id, status, action_type, updated_at DESC);
-
 CREATE OR REPLACE VIEW pricing_recommendation_feed AS
 SELECT
   recommendation.recommendation_id,
@@ -59,6 +57,7 @@ SELECT
   recommendation.market_signal_type,
   recommendation.market_observed_at,
   recommendation.current_price_amount,
+  listing_input.price_currency_code AS current_price_currency_code,
   recommendation.recommended_list_amount,
   recommendation.recommendation_reason,
   recommendation.quantity_cap,
@@ -78,6 +77,8 @@ SELECT
 FROM pricing_recommendation_pages AS recommendation
 LEFT JOIN pricing_catalog_item_inputs AS catalog_input
   ON catalog_input.catalog_item_id = recommendation.catalog_catalog_item_id
+LEFT JOIN pricing_market_listing_inputs AS listing_input
+  ON listing_input.listing_id = recommendation.listing_id
 LEFT JOIN (
   SELECT
     item_input.seller_account_id,
@@ -99,29 +100,39 @@ LEFT JOIN (
 ) AS stock_signal
   ON stock_signal.seller_account_id = recommendation.seller_account_id
  AND stock_signal.catalog_catalog_item_id = recommendation.catalog_catalog_item_id
-LEFT JOIN (
+LEFT JOIN LATERAL (
   SELECT
-    catalog_catalog_item_id,
     COUNT(*) FILTER (WHERE status = 'active')::integer AS active_listing_count,
-    MIN(price_amount) FILTER (WHERE status = 'active') AS lowest_listing_price_amount,
+    MIN(price_amount) FILTER (
+      WHERE status = 'active'
+        AND price_currency_code = recommendation.market_currency
+        AND last_stream_version > 0
+    ) AS lowest_listing_price_amount,
     COUNT(*) FILTER (WHERE status = 'submitted')::integer AS active_offer_count,
-    MAX(price_amount) FILTER (WHERE status = 'submitted') AS highest_offer_price_amount
+    MAX(price_amount) FILTER (
+      WHERE status = 'submitted'
+        AND price_currency_code = recommendation.market_currency
+        AND last_stream_version > 0
+    ) AS highest_offer_price_amount
   FROM (
     SELECT
       catalog_catalog_item_id,
       price_amount,
+      price_currency_code,
+      last_stream_version,
       status
     FROM pricing_market_listing_inputs
     UNION ALL
     SELECT
       catalog_catalog_item_id,
       price_amount,
+      price_currency_code,
+      last_stream_version,
       status
     FROM pricing_buyer_offer_inputs
   ) AS market_inputs
-  GROUP BY catalog_catalog_item_id
-) AS market_signal
-  ON market_signal.catalog_catalog_item_id = recommendation.catalog_catalog_item_id
+  WHERE market_inputs.catalog_catalog_item_id = recommendation.catalog_catalog_item_id
+) AS market_signal ON true
 LEFT JOIN (
   SELECT
     seller_account_id,
@@ -180,3 +191,14 @@ ${durableJobWorkUnitSchemaSql({
   workUnitsTable: "pricing_recommendation_work_units",
 })}
 `;
+
+export const pricingRecommendationSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_pricing_recommendation_action_index_ledger",
+    description: "Create the recommendation action index after its legacy-added columns are present.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_recommendation_pages_action_idx
+  ON pricing_recommendation_pages (seller_account_id, status, action_type, updated_at DESC)`,
+    ],
+  },
+];

@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS discovery_search_items (
   embedded_text_hash text NULL,
   embedding_updated_at timestamptz NULL,
   lowest_price_amount numeric NULL,
+  lowest_price_currency_code text NULL,
   visible_quantity integer NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -205,6 +206,7 @@ ALTER TABLE discovery_search_items
 
 ALTER TABLE discovery_search_items
   ADD COLUMN IF NOT EXISTS lowest_price_amount numeric NULL,
+  ADD COLUMN IF NOT EXISTS lowest_price_currency_code text NULL,
   ADD COLUMN IF NOT EXISTS visible_quantity integer NULL;
 
 -- Structured set-code + collector-number natural key, denormalized from the
@@ -263,6 +265,14 @@ CREATE INDEX IF NOT EXISTS discovery_search_product_contents_search_text_simple_
   ON discovery_search_product_contents USING gin (search_text_simple);`;
 
 export const discoverySearchSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_discovery_search_price_currency",
+    description: "Retain the authoritative currency for single-currency search price summaries.",
+    statements: [
+      `ALTER TABLE discovery_search_items
+  ADD COLUMN IF NOT EXISTS lowest_price_currency_code text NULL`,
+    ],
+  },
   {
     migrationId: "20260703_discovery_search_keyset_indexes",
     description: "Create Discovery search composite indexes for status-filtered keyset sorts.",

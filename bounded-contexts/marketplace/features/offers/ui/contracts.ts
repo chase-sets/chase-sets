@@ -8,6 +8,8 @@ export interface MarketplaceOffer {
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string | null;
+  last_stream_version: number;
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
@@ -25,6 +27,8 @@ export interface PublicOfferDetail extends MarketplaceOffer {}
 export interface OfferMatchListItem extends MarketplaceOffer {
   listing_id: string;
   listing_price_amount: string;
+  listing_price_currency_code: string;
+  listing_stream_version: number;
   listing_quantity_cap: number;
   listing_visible_quantity: number;
   offer_price_gap_amount: string;

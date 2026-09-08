@@ -75,6 +75,8 @@ export function sourceFromUrl(url: URL): CheckoutStartSource | null {
       selectedOptions: parseSelectedOptions(url.searchParams.get("selectedOptions")),
       productSummary: url.searchParams.get("productSummary") || null,
       offerPriceAmount: url.searchParams.get("offerPriceAmount") ?? url.searchParams.get("priceAmount") ?? "",
+      offerPriceCurrencyCode:
+        url.searchParams.get("offerPriceCurrencyCode") ?? url.searchParams.get("priceCurrencyCode") ?? "",
       quantity: parseQuantity(url.searchParams.get("quantity") ?? url.searchParams.get("quantityRequested")),
     };
   }
@@ -95,6 +97,7 @@ export function sourceFromUrl(url: URL): CheckoutStartSource | null {
     productSummary: url.searchParams.get("productSummary") || null,
     quantity: parseQuantity(url.searchParams.get("quantity")),
     priceAmount: url.searchParams.get("priceAmount") || null,
+    priceCurrencyCode: url.searchParams.get("priceCurrencyCode") || null,
     sellerName: url.searchParams.get("sellerName") || null,
     availability: url.searchParams.get("availability") || null,
     fulfillment: url.searchParams.get("fulfillment") || null,
@@ -112,6 +115,7 @@ function sourceFromForm(formData: FormData): CheckoutStartSource {
       selectedOptions: parseSelectedOptions(String(formData.get("selectedOptions") ?? "[]")),
       productSummary: String(formData.get("productSummary") ?? "") || null,
       offerPriceAmount: String(formData.get("offerPriceAmount") ?? formData.get("priceAmount") ?? ""),
+      offerPriceCurrencyCode: String(formData.get("offerPriceCurrencyCode") ?? formData.get("priceCurrencyCode") ?? ""),
       quantity: parseQuantity(formData.get("quantity") ?? formData.get("quantityRequested")),
     };
   }
@@ -130,6 +134,7 @@ function sourceFromForm(formData: FormData): CheckoutStartSource {
     productSummary: String(formData.get("productSummary") ?? "") || null,
     quantity: parseQuantity(formData.get("quantity")),
     priceAmount: String(formData.get("priceAmount") ?? "") || null,
+    priceCurrencyCode: String(formData.get("priceCurrencyCode") ?? "") || null,
     sellerName: String(formData.get("sellerName") ?? "") || null,
     availability: String(formData.get("availability") ?? "") || null,
     fulfillment: String(formData.get("fulfillment") ?? "") || null,

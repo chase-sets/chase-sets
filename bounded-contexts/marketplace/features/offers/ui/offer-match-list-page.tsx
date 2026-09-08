@@ -143,7 +143,9 @@ export function MarketplaceOfferMatchListPage({
               header: t("marketplace.features.offers.ui.offerMatchListPage.your.listing"),
               cell: (row) => (
                 <Stack gap={1}>
-                  <Text weight="semibold">{formatMoney(row.listing_price_amount, "USD")}</Text>
+                  <Text weight="semibold">
+                    {formatMoney(row.listing_price_amount, row.listing_price_currency_code)}
+                  </Text>
                   <Text size="sm" tone="secondary">
                     {t("marketplace.features.offers.ui.offerMatchListPage.listing.quantity", {
                       visible: row.listing_visible_quantity,
@@ -158,7 +160,7 @@ export function MarketplaceOfferMatchListPage({
               header: t("marketplace.features.offers.ui.offerMatchListPage.best.offer"),
               cell: (row) => (
                 <Stack gap={1}>
-                  <Text weight="semibold">{formatMoney(row.price_amount, "USD")}</Text>
+                  <Text weight="semibold">{formatMoney(row.price_amount, row.price_currency_code!)}</Text>
                   <AccountReputationSummary
                     accountName={row.buyer_display_name ?? row.buyer_account_id}
                     averageRating={row.buyer_average_rating}

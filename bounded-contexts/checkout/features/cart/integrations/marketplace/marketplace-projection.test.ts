@@ -10,6 +10,8 @@ type SellerOptionRow = {
   product_id: string;
   catalog_catalog_item_id: string;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number;
   listing_quantity_cap: number;
   product_summary: string | null;
   product_measure_snapshot: string | null;
@@ -43,15 +45,17 @@ class ProjectionDb implements PgQueryable {
         product_id: String(values[2]),
         catalog_catalog_item_id: String(values[3]),
         price_amount: String(values[4]),
-        listing_quantity_cap: Number(values[5]),
-        product_summary: values[6] === null ? null : String(values[6]),
-        product_measure_snapshot: values[7] === null ? null : String(values[7]),
+        price_currency_code: values[5] === null ? null : String(values[5]),
+        listing_stream_version: Number(values[6]),
+        listing_quantity_cap: Number(values[7]),
+        product_summary: values[8] === null ? null : String(values[8]),
+        product_measure_snapshot: values[9] === null ? null : String(values[9]),
         status: existing?.status ?? "draft",
-        updated_at: String(values[8]),
-        inventory_item_id: values[9] === null ? null : String(values[9]),
+        updated_at: String(values[10]),
+        inventory_item_id: values[11] === null ? null : String(values[11]),
         at_capacity: existing?.at_capacity ?? false,
-        evidence_requirements: values[10] === null ? null : JSON.parse(String(values[10])),
-        evidence: JSON.parse(String(values[11])) as Record<string, unknown>[],
+        evidence_requirements: values[12] === null ? null : JSON.parse(String(values[12])),
+        evidence: JSON.parse(String(values[13])) as Record<string, unknown>[],
       });
       return { rows: [], rowCount: 1 };
     }
@@ -60,7 +64,9 @@ class ProjectionDb implements PgQueryable {
       const row = this.options.get(String(values[0]));
       if (row) {
         row.price_amount = String(values[1]);
-        row.updated_at = String(values[2]);
+        row.price_currency_code = values[2] === null ? null : String(values[2]);
+        row.listing_stream_version = Number(values[3]);
+        row.updated_at = String(values[4]);
       }
       return { rows: [], rowCount: row ? 1 : 0 };
     }

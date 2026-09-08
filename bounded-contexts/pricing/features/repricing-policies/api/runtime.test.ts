@@ -59,6 +59,7 @@ function createRuntime(db: PgQueryable = queryStub()) {
 const rule = {
   conditions: [],
   directive: {
+    currencyCode: "USD",
     anchorChain: [{ source: "market-estimate" as const }],
     offset: { mode: "percent" as const, percent: -1 },
     floor: { mode: "absolute" as const, amount: "5.00" },

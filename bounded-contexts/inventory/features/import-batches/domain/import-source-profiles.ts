@@ -63,6 +63,11 @@ const listingQuantityCap = {
   transform: "positive-integer-or-empty",
 } as const satisfies InventoryImportValueMapping;
 
+const listingPriceCurrencyCode = {
+  targetKey: "listingPriceCurrencyCode",
+  headers: ["listingPriceCurrencyCode", "Currency Code", "Currency"],
+} as const satisfies InventoryImportValueMapping;
+
 export const inventoryImportSourceProfiles = [
   {
     sourceKey: "native-csv",
@@ -125,6 +130,7 @@ export const inventoryImportSourceProfiles = [
         headers: ["TCG Marketplace Price", "Marketplace Price", "My Price", "Price", "Listing Price", "TCG Low Price"],
         transform: "decimal",
       },
+      listingPriceCurrencyCode,
       {
         targetKey: "sellerSku",
         headers: ["Seller SKU", "SellerSku", "Custom SKU"],
@@ -186,6 +192,7 @@ export const inventoryImportSourceProfiles = [
         headers: ["Current price", "Current Price", "Price", "Start price"],
         transform: "decimal",
       },
+      listingPriceCurrencyCode,
       listingQuantityCap,
       { targetKey: "sourcePriceAmount", copyFrom: "listingPriceAmount" },
       { targetKey: "sourceQuantity", copyFrom: "totalQuantity" },
@@ -226,6 +233,7 @@ export const inventoryImportSourceProfiles = [
         transform: "integer",
       },
       { targetKey: "listingPriceAmount", headers: ["Variant Price", "Price"], transform: "decimal" },
+      listingPriceCurrencyCode,
       listingQuantityCap,
       { targetKey: "sourcePriceAmount", copyFrom: "listingPriceAmount" },
       { targetKey: "sourceQuantity", copyFrom: "totalQuantity" },
@@ -276,6 +284,7 @@ export const inventoryImportSourceProfiles = [
         headers: ["Price", "Buy It Now Price", "Listing Price"],
         transform: "decimal",
       },
+      listingPriceCurrencyCode,
       listingQuantityCap,
       { targetKey: "sourcePriceAmount", copyFrom: "listingPriceAmount" },
       { targetKey: "sourceQuantity", copyFrom: "totalQuantity" },
@@ -322,6 +331,7 @@ export const inventoryImportSourceProfiles = [
       { targetKey: "condition", headers: ["Condition"] },
       { targetKey: "totalQuantity", headers: ["Quantity", "Qty", "Available"], transform: "integer" },
       { targetKey: "listingPriceAmount", headers: ["Price", "Selling Price", "Listing Price"], transform: "decimal" },
+      listingPriceCurrencyCode,
       listingQuantityCap,
       { targetKey: "sourcePriceAmount", copyFrom: "listingPriceAmount" },
       { targetKey: "sourceQuantity", copyFrom: "totalQuantity" },

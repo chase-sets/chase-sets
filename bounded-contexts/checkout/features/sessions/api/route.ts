@@ -479,6 +479,7 @@ type CheckoutEntryIdempotencySource =
       productId: string;
       selectedOptions: ReturnType<typeof parseSelectedOptions>;
       offerPriceAmount: string;
+      offerPriceCurrencyCode: string;
       quantity: number;
     }>;
 
@@ -686,6 +687,7 @@ export function createAccountCheckoutSessionRoutes(
         const catalogItemId = String(source.catalogItemId ?? "");
         const productId = String(source.productId ?? "");
         const offerPriceAmount = String(source.offerPriceAmount ?? source.priceAmount ?? "");
+        const offerPriceCurrencyCode = String(source.offerPriceCurrencyCode ?? source.priceCurrencyCode ?? "");
         const quantity = Number(source.quantity ?? source.quantityRequested ?? 0);
         const result = await services.createOfferIntent(
           {
@@ -701,6 +703,7 @@ export function createAccountCheckoutSessionRoutes(
                 ? null
                 : String(source.productSummary),
             offerPriceAmount,
+            offerPriceCurrencyCode,
             quantity,
             optimizationGoal,
             shippingOption,
@@ -713,6 +716,7 @@ export function createAccountCheckoutSessionRoutes(
                 productId,
                 selectedOptions,
                 offerPriceAmount,
+                offerPriceCurrencyCode,
                 quantity,
               },
               shippingOption,

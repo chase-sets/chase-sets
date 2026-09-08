@@ -949,6 +949,11 @@ describe("checkout web routes: account sell list", () => {
     form.set("buyerDisplayName", "Collector123");
     form.set("buyerAccountId", "acc_buyer_private");
     form.set("offerPriceAmount", "40.00");
+    form.set("offerPriceCurrencyCode", "EUR");
+    form.set("offerStreamVersion", "3");
+    form.set("listingPriceAmount", "45.00");
+    form.set("listingPriceCurrencyCode", "EUR");
+    form.set("listingStreamVersion", "7");
     form.set("catalogItemId", "cat_mewtwo");
     form.set("productId", "cat_mewtwo::raw:nm");
     form.set("itemTitle", "Mewtwo");
@@ -975,6 +980,11 @@ describe("checkout web routes: account sell list", () => {
       buyerAccountId: null,
       buyerDisplayName: "Collector123",
       offerPriceAmount: "40.00",
+      offerPriceCurrencyCode: "EUR",
+      offerStreamVersion: 3,
+      listingPriceAmount: "45.00",
+      listingPriceCurrencyCode: "EUR",
+      listingStreamVersion: 7,
       catalogItemId: "cat_mewtwo",
       productId: "cat_mewtwo::raw:nm",
       itemTitle: "Mewtwo",
@@ -1218,6 +1228,7 @@ describe("checkout web routes: account sell list", () => {
     form.set("fallbackMode:sll_product", "create-listing");
     form.set("inventoryItemId:sll_product", "inv_1");
     form.set("priceAmount:sll_product", "12.00");
+    form.set("priceCurrencyCode:sll_product", "USD");
     form.set("quantityCap:sll_product", "1");
 
     const response = (await accountSellListAction({
@@ -1244,7 +1255,12 @@ describe("checkout web routes: account sell list", () => {
       expect.objectContaining({
         lineId: "sll_product",
         productOfferTargets: [],
-        fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+        fallbackListing: {
+          inventoryItemId: "inv_1",
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+        },
       }),
     );
     expectNoSellerCommitSideEffects();
@@ -1384,6 +1400,7 @@ describe("checkout web routes: account sell list", () => {
     form.set("fallbackMode:sll_product", "create-listing");
     form.set("inventoryItemId:sll_product", "inv_1");
     form.set("priceAmount:sll_product", "12.00");
+    form.set("priceCurrencyCode:sll_product", "USD");
     form.set("quantityCap:sll_product", "1");
 
     const response = (await accountSellListAction({
@@ -1412,7 +1429,12 @@ describe("checkout web routes: account sell list", () => {
             quantity: 1,
           },
         ],
-        fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+        fallbackListing: {
+          inventoryItemId: "inv_1",
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+        },
       }),
     );
     expectNoSellerCommitSideEffects();

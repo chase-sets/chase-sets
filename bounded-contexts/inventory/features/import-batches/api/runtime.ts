@@ -79,6 +79,7 @@ export type InventoryDraftListingCreator = (
     totalQuantity: number;
     acquisitionCostAmount: string | null;
     priceAmount: string;
+    priceCurrencyCode: string;
     quantityCap: number;
   }>,
   context: EventStoreContext,
@@ -192,6 +193,7 @@ type ValidatedImportRow = Readonly<{
   acquisitionCostAmount: string | null;
   sellerSku: string | null;
   listingPriceAmount: string | null;
+  listingPriceCurrencyCode: string | null;
   listingQuantityCap: number | null;
   rowNote: string | null;
   validationErrors: readonly string[];
@@ -983,9 +985,13 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       errors,
     );
     const listingPriceValue = clean(values.listingPriceAmount);
+    const listingCurrencyValue = clean(values.listingPriceCurrencyCode) ?? "";
     const listingCapValue = clean(values.listingQuantityCap);
-    const hasListingDraftFields = Boolean(listingPriceValue || listingCapValue);
+    const hasListingDraftFields = Boolean(listingPriceValue || listingCurrencyValue || listingCapValue);
     const listingPriceAmount = moneyAmount(listingPriceValue, "listingPriceAmount", errors);
+    const listingPriceCurrencyCode = /^[A-Za-z]{3}$/.test(listingCurrencyValue)
+      ? listingCurrencyValue.toUpperCase()
+      : null;
     const listingQuantityCap = listingCapValue
       ? positiveWholeNumber(listingCapValue, "listingQuantityCap", errors)
       : null;
@@ -997,6 +1003,11 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       }
       if (!listingCapValue) {
         errors.push("listingQuantityCap is required when listingPriceAmount is set.");
+      }
+      if (!listingCurrencyValue) {
+        errors.push("listingPriceCurrencyCode is required when listingPriceAmount is set.");
+      } else if (!listingPriceCurrencyCode) {
+        errors.push("listingPriceCurrencyCode must be a three-letter ISO-4217 code.");
       }
       if (
         listingQuantityCap !== null &&
@@ -1024,6 +1035,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       acquisitionCostAmount,
       sellerSku: clean(values.sellerSku),
       listingPriceAmount: hasListingDraftFields ? listingPriceAmount : null,
+      listingPriceCurrencyCode: hasListingDraftFields ? listingPriceCurrencyCode : null,
       listingQuantityCap: hasListingDraftFields ? listingQuantityCap : null,
       rowNote: clean(values.rowNote),
       validationErrors: errors,
@@ -1298,6 +1310,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       if (
         inventoryItemId &&
         row.listing_price_amount &&
+        row.listing_price_currency_code &&
         row.listing_quantity_cap &&
         listingQuantity > 0 &&
         deps.draftListingCreator
@@ -1324,6 +1337,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             totalQuantity: listingQuantity,
             acquisitionCostAmount: row.acquisition_cost_amount,
             priceAmount: row.listing_price_amount,
+            priceCurrencyCode: row.listing_price_currency_code,
             quantityCap: row.listing_quantity_cap,
           },
           context,
@@ -1477,7 +1491,12 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           batchId,
           row.rowNumber,
           validated.status,
-          JSON.stringify(row.rawRow),
+          JSON.stringify({
+            ...row.rawRow,
+            ...(validated.listingPriceCurrencyCode
+              ? { listingPriceCurrencyCode: validated.listingPriceCurrencyCode }
+              : {}),
+          }),
           validated.externalReference ? JSON.stringify(validated.externalReference) : null,
           validated.rowFingerprint,
           validated.quantityMode,

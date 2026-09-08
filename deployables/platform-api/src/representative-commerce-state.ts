@@ -12,6 +12,7 @@ import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@ch
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import { reconcileRepresentativeProductContentsScenario } from "@chase-sets/catalog/server";
+import type { MarketplaceServices } from "@chase-sets/marketplace/server";
 import {
   normalizeRepresentativeCandidateLimit,
   acceptRepresentativeOffers,
@@ -29,7 +30,6 @@ import {
   reconcileRepresentativeOrderingSupplyState,
   type CatalogRepresentativeServices,
   type RepresentativeInventoryServices,
-  type RepresentativeMarketplaceServices,
 } from "@chase-sets/catalog-seed";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import { createPlatformApiHost } from "./app";
@@ -893,7 +893,7 @@ function getCatalogServices(services: Readonly<Record<string, unknown>>): Repres
   return catalog as RepresentativeCatalogServices;
 }
 
-function getMarketplaceServices(services: Readonly<Record<string, unknown>>): RepresentativeMarketplaceServices {
+function getMarketplaceServices(services: Readonly<Record<string, unknown>>): MarketplaceServices {
   const marketplace = services.marketplace;
   if (
     !marketplace ||
@@ -907,7 +907,7 @@ function getMarketplaceServices(services: Readonly<Record<string, unknown>>): Re
     throw new Error("Representative commerce state requires mounted Marketplace services with a queryable db.");
   }
 
-  return marketplace as RepresentativeMarketplaceServices;
+  return marketplace as MarketplaceServices;
 }
 
 function getInventoryServices(services: Readonly<Record<string, unknown>>): RepresentativeInventoryServices {

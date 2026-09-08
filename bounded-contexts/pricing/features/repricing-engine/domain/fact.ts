@@ -9,6 +9,7 @@ export type RepricingEvaluationSkipReason =
   | "terminal-hold"
   | "terminal-pause"
   | "terminal-notify-only"
+  | "currency-input-incomplete-or-mismatched"
   | "budget-exhausted"
   | "manual-edit-conflict"
   | "domain-no-op"
@@ -23,7 +24,10 @@ export type RepricingPolicyListingTrace = Readonly<{
   targetPriceAmount: string | null;
   ruleIndex: number;
   anchor: RepricingAnchorTrace | null;
-  exhaustedAnchors: readonly Readonly<{ source: string; state: "present" | "stale" | "absent" }>[];
+  exhaustedAnchors: readonly Readonly<{
+    source: string;
+    state: "present" | "stale" | "absent" | "currency-incomplete" | "currency-mismatch";
+  }>[];
   clamps: RepricingClampTrace;
   flags: readonly string[];
   outcome: "changed" | "skipped" | "pause-requested" | "notify-only";

@@ -134,6 +134,11 @@ export type AddCheckoutSellListLineInput = Readonly<{
   buyerAccountId?: string | null;
   buyerDisplayName?: string | null;
   offerPriceAmount?: string | null;
+  offerPriceCurrencyCode?: string | null;
+  offerStreamVersion?: number | null;
+  listingPriceAmount?: string | null;
+  listingPriceCurrencyCode?: string | null;
+  listingStreamVersion?: number | null;
   catalogItemId: string;
   productId: string;
   itemTitle: string;
@@ -295,6 +300,11 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       buyerAccountId: params.buyerAccountId ?? null,
       buyerDisplayName: params.buyerDisplayName ?? null,
       offerPriceAmount: params.offerPriceAmount ?? null,
+      offerPriceCurrencyCode: params.offerPriceCurrencyCode ?? null,
+      offerStreamVersion: params.offerStreamVersion ?? null,
+      listingPriceAmount: params.listingPriceAmount ?? null,
+      listingPriceCurrencyCode: params.listingPriceCurrencyCode ?? null,
+      listingStreamVersion: params.listingStreamVersion ?? null,
       productId: product.productId,
       selectedOptions: product.selection,
       itemSubtitle: params.itemSubtitle ?? null,
@@ -530,6 +540,11 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
               buyerAccountId: line.buyerAccountId,
               buyerDisplayName: line.buyerDisplayName,
               offerPriceAmount: line.offerPriceAmount,
+              offerPriceCurrencyCode: line.offerPriceCurrencyCode,
+              offerStreamVersion: line.offerStreamVersion,
+              listingPriceAmount: line.listingPriceAmount,
+              listingPriceCurrencyCode: line.listingPriceCurrencyCode,
+              listingStreamVersion: line.listingStreamVersion,
               catalogItemId: line.catalogItemId,
               productId: line.productId,
               itemTitle: line.itemTitle,

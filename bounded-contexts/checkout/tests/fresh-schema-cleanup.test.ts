@@ -75,6 +75,8 @@ describe("fresh checkout read-model schemas", () => {
       "selected_listing_seller_display_name",
       "selected_listing_seller_slug",
       "selected_listing_price_amount",
+      "selected_listing_price_currency_code",
+      "selected_listing_stream_version",
       "selected_listing_snapshot_source",
       "selected_listing_snapshot_captured_at",
     ]);
@@ -84,12 +86,22 @@ describe("fresh checkout read-model schemas", () => {
     // inline ADD COLUMN in the base SQL.
     expect(checkoutSellListSchemaMigrations).toEqual([
       expect.objectContaining({
+        migrationId: "20260907_checkout_sell_list_price_currency",
+        statements: [
+          expect.stringContaining("ADD COLUMN IF NOT EXISTS offer_price_currency_code text NULL"),
+          expect.stringContaining("ADD COLUMN IF NOT EXISTS price_currency_code text NULL"),
+        ],
+      }),
+      expect.objectContaining({
         migrationId: "20260714_checkout_sell_list_line_listing_id",
         statements: [expect.stringContaining("ADD COLUMN IF NOT EXISTS listing_id text NULL")],
       }),
     ]);
-    expect(checkoutSellListSchemaMigrations[0]?.statements).toHaveLength(1);
-    expect(checkoutSellListSchemaMigrations[0]?.statements.join("\n")).not.toMatch(/SET NOT NULL/);
+    expect(checkoutSellListSchemaMigrations[0]?.statements).toHaveLength(2);
+    expect(checkoutSellListSchemaMigrations[1]?.statements).toHaveLength(1);
+    expect(checkoutSellListSchemaMigrations.flatMap((migration) => migration.statements).join("\n")).not.toMatch(
+      /SET NOT NULL/,
+    );
     const sessionAddColumns = [...checkoutSessionSchemaSql.matchAll(/ADD COLUMN IF NOT EXISTS ([a-z_]+)/g)].map(
       ([, column]) => column,
     );
@@ -150,6 +162,12 @@ describe("fresh checkout read-model schemas", () => {
     expect(checkoutCartClaimsTableSchemaSql).toContain(`CHECK (account_id ~ U&'^acc_[^${whitespaceSql}]+$')`);
     expect(checkoutCartSchemaMigrations).toEqual([
       expect.objectContaining({
+        migrationId: "20260907_checkout_selected_listing_price_currency",
+        statements: [
+          expect.stringContaining("ADD COLUMN IF NOT EXISTS selected_listing_price_currency_code text NULL"),
+        ],
+      }),
+      expect.objectContaining({
         migrationId: "20260903_checkout_cart_claims",
         statements: [
           checkoutCartClaimsTableSchemaSql,
@@ -157,7 +175,8 @@ describe("fresh checkout read-model schemas", () => {
         ],
       }),
     ]);
-    expect(checkoutCartSchemaMigrations[0]?.statements).toHaveLength(2);
+    expect(checkoutCartSchemaMigrations[0]?.statements).toHaveLength(1);
+    expect(checkoutCartSchemaMigrations[1]?.statements).toHaveLength(2);
     // The alias is written on the command path and read back in the same
     // request, so it stays logged rather than joining the unlogged projections.
     expect(checkoutCartClaimsTableSchemaSql).not.toMatch(/CREATE\s+UNLOGGED\s+TABLE/i);
@@ -220,6 +239,7 @@ describe("fresh checkout read-model schemas", () => {
       "checkout_marketplace_seller_options_seller_availability_idx",
     );
     expect(statements).toEqual([
+      expect.stringContaining("ADD COLUMN IF NOT EXISTS price_currency_code text NULL"),
       expect.stringContaining("ADD COLUMN IF NOT EXISTS evidence_requirements jsonb NULL"),
       expect.stringContaining("ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb"),
       expect.stringContaining(
@@ -232,10 +252,10 @@ describe("fresh checkout read-model schemas", () => {
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_marketplace_seller_options_seller_availability_idx",
       ),
     ]);
-    expect(statements[2]).toContain("ON checkout_marketplace_seller_options (inventory_item_id)");
-    expect(statements[3]).toContain("ON checkout_marketplace_seller_options (catalog_catalog_item_id)");
-    expect(statements[4]).toContain("ON checkout_marketplace_seller_options (seller_account_id, status)");
-    expect(statements[4]).toContain("WHERE status IN ('active', 'seller-unavailable')");
+    expect(statements[3]).toContain("ON checkout_marketplace_seller_options (inventory_item_id)");
+    expect(statements[4]).toContain("ON checkout_marketplace_seller_options (catalog_catalog_item_id)");
+    expect(statements[5]).toContain("ON checkout_marketplace_seller_options (seller_account_id, status)");
+    expect(statements[5]).toContain("WHERE status IN ('active', 'seller-unavailable')");
   });
 
   it("uses the fresh Sell List confirmation read model without execution receipts", () => {

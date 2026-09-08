@@ -42,6 +42,7 @@ import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
   initialMarketplaceListingState,
+  normalizeListingPriceCurrencyCode,
   type MarketplaceListingPhoto,
   type MarketplaceListingPurchaseLimits,
   type MarketplaceListingCommand,
@@ -122,7 +123,7 @@ const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "
  * snapshot with a different schema version is ignored -- load() falls back
  * to full replay, exactly as if no snapshot existed.
  */
-const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 5;
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 6;
 /**
  * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
  * listings accumulate hundreds of `UpdateListingPrice` events, and every
@@ -181,6 +182,7 @@ export type MarketplaceListingServices = Readonly<{
       accountId: AccountId;
       inventoryItemId: string;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
@@ -207,6 +209,7 @@ export type MarketplaceListingServices = Readonly<{
       availableQuantity?: number;
       acquisitionCostAmount: string | null;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
@@ -229,6 +232,7 @@ export type MarketplaceListingServices = Readonly<{
       availableQuantity?: number;
       acquisitionCostAmount: string | null;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
@@ -317,6 +321,7 @@ export type MarketplaceListingServices = Readonly<{
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
       productSummary?: string | null;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
     }>,
@@ -339,6 +344,7 @@ export type MarketplaceListingServices = Readonly<{
       accountId: string;
       listingId: string;
       priceAmount: string;
+      priceCurrencyCode: string;
       feeQuoteFingerprint?: string | null;
     }>,
     context: EventStoreContext,
@@ -572,6 +578,7 @@ type AnonymousListingDraftIntentRow = Readonly<{
   selected_options: unknown;
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string | null;
   quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
@@ -591,6 +598,7 @@ function normalizeAnonymousListingDraftRow(
     ...row,
     selected_options: normalizeSelectedOptions(row.selected_options),
     price_amount: String(row.price_amount),
+    price_currency_code: row.price_currency_code,
   };
 }
 
@@ -1012,6 +1020,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     const sourcePath = params.sourcePath.trim();
     const selectedOptions = normalizeSelectedOptions(params.selectedOptions);
     const priceAmount = normalizePriceAmount(params.priceAmount);
+    const priceCurrencyCode = normalizeListingPriceCurrencyCode(params.priceCurrencyCode);
     const quantityCap = normalizePositiveInteger(params.quantityCap, "Listing quantity must be greater than zero.");
     const purchaseLimits = {
       maxUnitsPerOrder: normalizeOptionalPositiveInteger(
@@ -1046,10 +1055,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          AND product_id = $3
          AND selected_options = $4::jsonb
          AND price_amount = $5::numeric
-         AND quantity_cap = $6
-         AND max_units_per_order IS NOT DISTINCT FROM $7
-         AND max_units_per_day IS NOT DISTINCT FROM $8
-         AND max_units_per_customer_account IS NOT DISTINCT FROM $9
+         AND price_currency_code = $6
+         AND quantity_cap = $7
+         AND max_units_per_order IS NOT DISTINCT FROM $8
+         AND max_units_per_day IS NOT DISTINCT FROM $9
+         AND max_units_per_customer_account IS NOT DISTINCT FROM $10
        ORDER BY updated_at DESC
        LIMIT 1`,
       [
@@ -1058,6 +1068,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         productId,
         JSON.stringify(selectedOptions),
         priceAmount,
+        priceCurrencyCode,
         quantityCap,
         purchaseLimits.maxUnitsPerOrder,
         purchaseLimits.maxUnitsPerDay,
@@ -1106,12 +1117,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          selected_options,
          product_summary,
          price_amount,
+         price_currency_code,
          quantity_cap,
          max_units_per_order,
          max_units_per_day,
          max_units_per_customer_account,
          expires_at
-       ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::numeric, $9, $10, $11, $12, $13)
+       ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::numeric, $9, $10, $11, $12, $13, $14)
        RETURNING *`,
       [
         createId("ldi"),
@@ -1122,6 +1134,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         JSON.stringify(selectedOptions),
         params.productSummary ?? null,
         priceAmount,
+        priceCurrencyCode,
         quantityCap,
         purchaseLimits.maxUnitsPerOrder,
         purchaseLimits.maxUnitsPerDay,
@@ -1349,6 +1362,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       event_type: event.eventType,
       stream_version: event.streamVersion,
       price_amount: stringField(data, "priceAmount"),
+      price_currency_code: stringField(data, "priceCurrencyCode"),
       quantity_cap: numberField(data, "quantityCap"),
       marketplace_sales_fee_unit_amount: stringField(data, "marketplaceSalesFeeUnitAmount"),
       seller_net_unit_amount: stringField(data, "sellerNetUnitAmount"),
@@ -1367,6 +1381,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       accountId: AccountId;
       inventoryItemId: string;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
@@ -1447,6 +1462,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         shipFromCode: supply.ship_from_code,
         shipFromAddress: supply.ship_from_address,
         priceAmount: params.priceAmount,
+        priceCurrencyCode: params.priceCurrencyCode,
         feeLock: feeLockFromMarketplaceTermsQuote(params.quantityCap, quote),
         quantityCap: params.quantityCap,
         purchaseLimits: params.purchaseLimits,
@@ -1503,6 +1519,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           accountId: params.accountId as AccountId,
           inventoryItemId: params.inventoryItemId,
           priceAmount: params.priceAmount,
+          priceCurrencyCode: params.priceCurrencyCode,
           quantityCap: params.quantityCap,
           purchaseLimits: params.purchaseLimits,
           listingIdOverride: params.listingIdOverride,
@@ -1522,6 +1539,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           accountId: params.accountId as AccountId,
           inventoryItemId: params.inventoryItemId,
           priceAmount: params.priceAmount,
+          priceCurrencyCode: params.priceCurrencyCode,
           quantityCap: params.quantityCap,
           purchaseLimits: params.purchaseLimits,
           listingIdOverride: params.listingIdOverride,
@@ -1752,6 +1770,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         command: {
           type: "UpdateListingPrice",
           priceAmount: params.priceAmount,
+          priceCurrencyCode: params.priceCurrencyCode,
           feeLocks,
         },
         context,
@@ -1803,6 +1822,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
               command: {
                 type: "UpdateListingPrice",
                 priceAmount: update.priceAmount,
+                priceCurrencyCode: update.priceCurrencyCode,
                 feeLocks,
                 minimumChange: update.minimumChange,
                 changeSource: update.idempotencyKey?.startsWith("repricing:") ? "repricing-engine" : undefined,

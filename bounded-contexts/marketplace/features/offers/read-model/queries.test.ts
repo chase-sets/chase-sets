@@ -86,6 +86,8 @@ describe("marketplace offer read-model queries", () => {
                 country: "US",
               },
               price_amount: "20.00",
+              price_currency_code: "USD",
+              last_stream_version: 2,
               quantity_requested: 1,
               status: "submitted",
               accepted_seller_account_id: null,
@@ -97,6 +99,8 @@ describe("marketplace offer read-model queries", () => {
               buyer_review_count: 0,
               listing_id: "lst_air_balloon",
               listing_price_amount: "21.50",
+              listing_price_currency_code: "USD",
+              listing_stream_version: 3,
               listing_quantity_cap: 1,
               listing_visible_quantity: 1,
               seller_available_quantity: 1,
@@ -130,6 +134,9 @@ describe("marketplace offer read-model queries", () => {
     expect(selectCall?.sql).toContain("listing.account_id = $1");
     expect(selectCall?.sql).toContain("listing.status = 'active'");
     expect(selectCall?.sql).toContain("listing.product_id = offer.product_id");
+    expect(selectCall?.sql).toContain("listing.listing_stream_version > 0");
+    expect(selectCall?.sql).toContain("listing.listing_stream_version,");
+    expect(selectCall?.sql).not.toContain("listing.last_stream_version");
     expect(selectCall?.sql).toContain("LEFT JOIN LATERAL");
     expect(selectCall?.sql).toContain("supply_hold.item_id = item.item_id");
     expect(selectCall?.sql).toContain("supply_hold.status = 'active'");

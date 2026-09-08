@@ -104,6 +104,7 @@ describe("pricing marketplace source projection", () => {
         catalogItemId: "cat_1",
         productId: "prod_1",
         priceAmount: "20.00",
+        priceCurrencyCode: "USD",
         quantityCap: 2,
       },
       timing: {
@@ -122,6 +123,7 @@ describe("pricing marketplace source projection", () => {
       "cat_1",
       "prod_1",
       "20.00",
+      "USD",
       2,
       "raw",
       "2026-05-09T00:00:00.000Z",
@@ -142,7 +144,7 @@ describe("pricing marketplace source projection", () => {
       type: "marketplace.listing.price-updated",
       streamId: "marketplace.listing-lst_1",
       streamVersion: 7,
-      data: { priceAmount: "18.00" },
+      data: { priceAmount: "18.00", priceCurrencyCode: "EUR" },
       timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
     } as never);
 
@@ -156,9 +158,9 @@ describe("pricing marketplace source projection", () => {
 
     // Every writing handler carries the event stream version and only advances
     // rows strictly behind it, so a redelivered older event is a no-op.
-    expect(calls[0]?.sql).toContain("last_stream_version = $4");
-    expect(calls[0]?.sql).toContain("AND last_stream_version < $4");
-    expect(calls[0]?.params).toEqual(["lst_1", "18.00", "2026-05-09T00:00:00.000Z", 7]);
+    expect(calls[0]?.sql).toContain("last_stream_version = $5");
+    expect(calls[0]?.sql).toContain("AND last_stream_version < $5");
+    expect(calls[0]?.params).toEqual(["lst_1", "18.00", "EUR", "2026-05-09T00:00:00.000Z", 7]);
     expect(calls[1]?.sql).toContain("last_stream_version = $3");
     expect(calls[1]?.sql).toContain("AND last_stream_version < $3");
     expect(calls[1]?.params).toEqual(["lst_1", "2026-05-09T00:00:00.000Z", 8]);
@@ -273,12 +275,23 @@ describe("pricing marketplace source projection", () => {
         productId: "prod_1",
         totalQuantity: 3,
         acquisitionCostAmount: "6.50",
+        acquisitionCostCurrencyCode: "USD",
       },
       timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
     } as never);
 
     expect(calls[0]?.sql).toContain("acquisition_cost_amount");
-    expect(calls[0]?.params).toEqual(["inv_1", "acc_1", "cat_1", "prod_1", 3, "6.50", "2026-05-09T00:00:00.000Z", 1]);
+    expect(calls[0]?.params).toEqual([
+      "inv_1",
+      "acc_1",
+      "cat_1",
+      "prod_1",
+      3,
+      "6.50",
+      "USD",
+      "2026-05-09T00:00:00.000Z",
+      1,
+    ]);
   });
 
   it("stores a null acquisition cost basis when the inventory item omits it", async () => {
@@ -304,6 +317,16 @@ describe("pricing marketplace source projection", () => {
       timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
     } as never);
 
-    expect(calls[0]?.params).toEqual(["inv_2", "acc_1", "cat_1", "prod_1", 3, null, "2026-05-09T00:00:00.000Z", 1]);
+    expect(calls[0]?.params).toEqual([
+      "inv_2",
+      "acc_1",
+      "cat_1",
+      "prod_1",
+      3,
+      null,
+      null,
+      "2026-05-09T00:00:00.000Z",
+      1,
+    ]);
   });
 });

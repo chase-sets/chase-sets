@@ -55,6 +55,11 @@ export type CheckoutSellListLineRow = Readonly<{
   buyer_account_id: string | null;
   buyer_display_name: string | null;
   offer_price_amount: string | null;
+  offer_price_currency_code?: string | null;
+  offer_stream_version?: number | null;
+  listing_price_amount?: string | null;
+  listing_price_currency_code?: string | null;
+  listing_stream_version?: number | null;
   catalog_catalog_item_id: string;
   product_id: string;
   item_title: string;
@@ -153,6 +158,8 @@ export type CheckoutSellOfferMatch = Readonly<{
   selected_options: readonly VersionSelectedOptionEntry[];
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string;
+  offer_stream_version: number;
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
@@ -161,6 +168,8 @@ export type CheckoutSellOfferMatch = Readonly<{
   updated_at: string;
   listing_id: string;
   listing_price_amount: string;
+  listing_price_currency_code: string;
+  listing_stream_version: number;
   listing_quantity_cap: number;
   listing_visible_quantity: number;
   offer_price_gap_amount: string;
@@ -238,6 +247,8 @@ type SellOfferPageRow = Readonly<{
   selected_options: unknown;
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string | null;
+  last_stream_version: number;
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
@@ -250,6 +261,8 @@ type SellOfferMatchRow = SellOfferPageRow &
   Readonly<{
     listing_id: string;
     listing_price_amount: string;
+    listing_price_currency_code: string;
+    listing_stream_version: number;
     listing_quantity_cap: number;
     listing_visible_quantity: number;
     offer_price_gap_amount: string;
@@ -369,8 +382,12 @@ function mapOfferMatch(row: SellOfferMatchRow): CheckoutSellOfferMatch {
     row.seller_listing_availability_status === "unavailable" ? "unavailable" : "available";
   return {
     ...offer,
+    price_currency_code: row.price_currency_code!,
+    offer_stream_version: row.last_stream_version,
     listing_id: row.listing_id,
     listing_price_amount: row.listing_price_amount,
+    listing_price_currency_code: row.listing_price_currency_code,
+    listing_stream_version: row.listing_stream_version,
     listing_quantity_cap: row.listing_quantity_cap,
     listing_visible_quantity: row.listing_visible_quantity,
     offer_price_gap_amount: row.offer_price_gap_amount,
@@ -509,7 +526,10 @@ function compareTermsWithStandard(
 function selectedOfferMatchesLine(offer: ReturnType<typeof mapSellOfferRow>, line: CheckoutSellListLineRow) {
   return (
     offer.catalog_catalog_item_id === line.catalog_catalog_item_id &&
-    (!line.product_id || offer.product_id === line.product_id)
+    (!line.product_id || offer.product_id === line.product_id) &&
+    line.offer_price_amount === offer.price_amount &&
+    line.offer_price_currency_code === offer.price_currency_code &&
+    line.offer_stream_version === offer.last_stream_version
   );
 }
 
@@ -616,6 +636,11 @@ export async function listSellListLines(db: PgQueryable, sellerAccountId: string
        buyer_account_id,
        buyer_display_name,
        offer_price_amount,
+       offer_price_currency_code,
+       offer_stream_version,
+       listing_price_amount,
+       listing_price_currency_code,
+       listing_stream_version,
        catalog_catalog_item_id,
        product_id,
        item_title,
@@ -728,6 +753,8 @@ async function getSellOffer(db: PgQueryable, offerId: string) {
        selected_options,
        product_summary,
        price_amount::text AS price_amount,
+       price_currency_code,
+       last_stream_version,
        quantity_requested,
        status,
        accepted_seller_account_id,
@@ -754,6 +781,8 @@ const offerMatchSelectSql = `
   offer.selected_options,
   offer.product_summary,
   offer.price_amount::text AS price_amount,
+  offer.price_currency_code,
+  offer.last_stream_version::integer AS last_stream_version,
   offer.quantity_requested,
   offer.status,
   offer.accepted_seller_account_id,
@@ -765,6 +794,8 @@ const offerMatchSelectSql = `
   COALESCE(buyer.review_count, 0)::integer AS buyer_review_count,
   matched_listing.listing_id,
   matched_listing.listing_price_amount::text AS listing_price_amount,
+  matched_listing.listing_price_currency_code,
+  matched_listing.listing_stream_version::integer AS listing_stream_version,
   matched_listing.listing_quantity_cap,
   matched_listing.listing_visible_quantity,
   matched_listing.listing_visible_quantity AS seller_available_quantity,
@@ -782,6 +813,8 @@ function offerMatchListingJoinSql(sellerAccountSql: string) {
     SELECT
       option.listing_id,
       option.price_amount AS listing_price_amount,
+      option.price_currency_code AS listing_price_currency_code,
+      option.listing_stream_version AS listing_stream_version,
       option.listing_quantity_cap,
       LEAST(
         option.listing_quantity_cap,
@@ -794,6 +827,9 @@ function offerMatchListingJoinSql(sellerAccountSql: string) {
     WHERE option.seller_account_id = ${sellerAccountSql}
       AND option.status = 'active'
       AND option.product_id = offer.product_id
+      AND option.price_currency_code IS NOT NULL
+      AND offer.price_currency_code IS NOT NULL
+      AND option.price_currency_code = offer.price_currency_code
     ORDER BY
       CASE
         WHEN option.price_amount > 0 THEN offer.price_amount / option.price_amount
@@ -825,6 +861,9 @@ export async function getCheckoutSellOfferMatch(
          WHERE option.seller_account_id = $1
            AND option.status = 'active'
            AND option.product_id = offer.product_id
+           AND option.price_currency_code IS NOT NULL
+           AND offer.price_currency_code IS NOT NULL
+           AND option.price_currency_code = offer.price_currency_code
        )`,
     [sellerAccountId, offerId],
   );
@@ -860,6 +899,7 @@ async function listCheckoutSellOfferMatches(
        AND matched_listing.listing_visible_quantity >= offer.quantity_requested
      ORDER BY
        offer_to_listing_price_bps DESC,
+       offer.price_currency_code ASC,
        offer.price_amount DESC,
        offer.quantity_requested DESC,
        offer.created_at ASC,
@@ -1055,7 +1095,9 @@ export async function loadCheckoutGuestSellListOfferReviews(
   commercialTermsResolver: CheckoutCommercialTermsResolver,
   lines: readonly CheckoutSellListLineRow[],
 ): Promise<readonly CheckoutSellListOfferReview[]> {
-  const selectedOfferLines = lines.filter((line) => line.line_type === "selected-offer" && line.offer_price_amount);
+  const selectedOfferLines = lines.filter(
+    (line) => line.line_type === "selected-offer" && line.offer_price_amount && line.offer_price_currency_code,
+  );
   const previewByPrice = new Map<string, Promise<CheckoutSellListPublicStandardTermsPreview | null>>();
   const previewForPrice = (priceAmount: string) => {
     if (!previewByPrice.has(priceAmount)) {

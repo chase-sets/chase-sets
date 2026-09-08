@@ -64,6 +64,8 @@ const cartLine: CheckoutCartLine = {
   selected_listing_seller_display_name: null,
   selected_listing_seller_slug: null,
   selected_listing_price_amount: null,
+  selected_listing_price_currency_code: null,
+  selected_listing_stream_version: null,
   selected_listing_snapshot_source: null,
   selected_listing_snapshot_captured_at: null,
   seller_preference_id: null,
@@ -77,6 +79,8 @@ const cartLine: CheckoutCartLine = {
       seller_average_rating: "4.90",
       seller_review_count: 12,
       price_amount: "389.00",
+      price_currency_code: "USD",
+      listing_stream_version: 7,
       available_quantity: 6,
       product_summary: "Form: Raw | Condition: Near Mint",
       product_measure_snapshot: productMeasureSnapshot,
@@ -89,6 +93,8 @@ const cartLine: CheckoutCartLine = {
       seller_average_rating: null,
       seller_review_count: 0,
       price_amount: "395.00",
+      price_currency_code: "USD",
+      listing_stream_version: 8,
       available_quantity: 4,
       product_summary: "Form: Raw | Condition: Near Mint",
       product_measure_snapshot: productMeasureSnapshot,
@@ -503,6 +509,97 @@ describe("checkout cart page", () => {
     expect(markup).toContain("is locked for checkout unless availability changes.");
   });
 
+  it("renders one complete EUR line and total in its authoritative currency", () => {
+    const eurLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_hobby_shop",
+      seller_options: cartLine.seller_options.map((option) => ({
+        ...option,
+        price_currency_code: "EUR",
+      })),
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[eurLine]} />);
+
+    expect(markup).toContain("€790.00");
+    expect(markup).not.toContain("$790.00");
+    expect(markup).toContain('action="/checkout/buy/readiness"');
+  });
+
+  it("aggregates two complete EUR lines into one EUR total", () => {
+    const eurLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_hobby_shop",
+      quantity: 1,
+      seller_options: cartLine.seller_options.map((option) => ({
+        ...option,
+        price_currency_code: "EUR",
+      })),
+    };
+    const secondEurLine: CheckoutCartLine = {
+      ...eurLine,
+      line_id: "cart_line_eur_second",
+      catalog_catalog_item_id: "cat_blastoise",
+      product_id: "cat_blastoise::form:raw",
+      item_title: "Blastoise",
+      locked_listing_id: "lst_eur_second",
+      seller_preference_id: "lst_eur_second",
+      seller_options: [
+        {
+          ...eurLine.seller_options[0]!,
+          listing_id: "lst_eur_second",
+          price_amount: "10.00",
+          listing_stream_version: 9,
+        },
+      ],
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[eurLine, secondEurLine]} />);
+
+    expect(markup).toContain("€405.00");
+    expect(markup).not.toContain("$405.00");
+    expect(markup).toContain('action="/checkout/buy/readiness"');
+  });
+
+  it("renders each mixed-currency line without producing a scalar total or Checkout Session action", () => {
+    const usdLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_hobby_shop",
+      quantity: 1,
+    };
+    const eurLine: CheckoutCartLine = {
+      ...usdLine,
+      line_id: "cart_line_eur",
+      catalog_catalog_item_id: "cat_blastoise",
+      product_id: "cat_blastoise::form:raw",
+      item_title: "Blastoise",
+      locked_listing_id: "lst_eur",
+      seller_preference_id: "lst_eur",
+      seller_options: [
+        {
+          ...usdLine.seller_options[0]!,
+          listing_id: "lst_eur",
+          price_amount: "10.00",
+          price_currency_code: "EUR",
+          listing_stream_version: 9,
+        },
+      ],
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[usdLine, eurLine]} />);
+
+    expect(markup).toContain("$395.00");
+    expect(markup).toContain("€10.00");
+    expect(markup).toContain("Priced at checkout");
+    expect(markup).not.toContain("$405.00");
+    expect(markup).not.toContain("€405.00");
+    expect(markup).not.toContain('action="/checkout/buy/readiness"');
+    expect(markup).toContain('href="/checkout/buy/readiness"');
+  });
+
   it("uses the selected listing snapshot when seller options do not include the locked listing", () => {
     const lockedSnapshotLine: CheckoutCartLine = {
       ...cartLine,
@@ -513,6 +610,8 @@ describe("checkout cart page", () => {
       selected_listing_seller_display_name: "Hobby Shop",
       selected_listing_seller_slug: "hobby-shop",
       selected_listing_price_amount: "395.00",
+      selected_listing_price_currency_code: "USD",
+      selected_listing_stream_version: 8,
       selected_listing_snapshot_source: "discovery.item-detail.add-to-cart",
       selected_listing_snapshot_captured_at: "2026-06-18T00:00:00.000Z",
       seller_options: [
@@ -524,6 +623,8 @@ describe("checkout cart page", () => {
           seller_average_rating: "4.90",
           seller_review_count: 12,
           price_amount: "389.00",
+          price_currency_code: "USD",
+          listing_stream_version: 7,
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
           product_measure_snapshot: productMeasureSnapshot,
@@ -595,6 +696,8 @@ describe("checkout cart page", () => {
       selected_listing_seller_display_name: "Card Vault",
       selected_listing_seller_slug: "card-vault",
       selected_listing_price_amount: "389.00",
+      selected_listing_price_currency_code: "USD",
+      selected_listing_stream_version: 7,
       seller_options: [],
     };
 
@@ -645,6 +748,8 @@ describe("checkout cart page", () => {
           seller_average_rating: "4.90",
           seller_review_count: 12,
           price_amount: "389.00",
+          price_currency_code: "USD",
+          listing_stream_version: 7,
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
           product_measure_snapshot: productMeasureSnapshot,
@@ -657,6 +762,8 @@ describe("checkout cart page", () => {
           seller_average_rating: null,
           seller_review_count: 0,
           price_amount: "395.00",
+          price_currency_code: "USD",
+          listing_stream_version: 8,
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
           product_measure_snapshot: productMeasureSnapshot,
@@ -707,6 +814,8 @@ describe("checkout cart page", () => {
           seller_average_rating: null,
           seller_review_count: 0,
           price_amount: "395.00",
+          price_currency_code: "USD",
+          listing_stream_version: 8,
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
           product_measure_snapshot: productMeasureSnapshot,
@@ -737,6 +846,8 @@ describe("checkout cart page", () => {
           seller_average_rating: "4.90",
           seller_review_count: 12,
           price_amount: "389.00",
+          price_currency_code: "USD",
+          listing_stream_version: 7,
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
           product_measure_snapshot: productMeasureSnapshot,
@@ -749,6 +860,8 @@ describe("checkout cart page", () => {
           seller_average_rating: "4.10",
           seller_review_count: 5,
           price_amount: "395.00",
+          price_currency_code: "USD",
+          listing_stream_version: 8,
           available_quantity: 2,
           product_summary: "Form: Raw | Condition: Near Mint",
           product_measure_snapshot: productMeasureSnapshot,

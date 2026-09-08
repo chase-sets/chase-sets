@@ -21,6 +21,8 @@ type ListingPageRow = {
   ship_from_code: string | null;
   ship_from_address: unknown;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number | null;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -88,25 +90,35 @@ class ProjectionDb implements PgQueryable {
         ship_from_code: values[13] === null ? null : String(values[13]),
         ship_from_address: JSON.parse(String(values[14])),
         price_amount: String(values[15]),
-        marketplace_sales_fee_unit_amount: String(values[16]),
-        seller_net_unit_amount: String(values[17]),
-        shipping_allowance_percentage_bps: Number(values[18]),
-        terms_schedule_id: values[19] === null ? null : String(values[19]),
-        terms_agreement_id: values[20] === null ? null : String(values[20]),
-        terms_resolved_at: values[21] === null ? null : String(values[21]),
-        fee_quote_fingerprint: String(values[22]),
-        fee_locks: JSON.parse(String(values[23])),
-        quantity_cap: Number(values[24]),
-        max_units_per_order: values[25] === null ? null : Number(values[25]),
-        max_units_per_day: values[26] === null ? null : Number(values[26]),
-        max_units_per_customer_account: values[27] === null ? null : Number(values[27]),
-        evidence_requirements: values[28] === null ? null : JSON.parse(String(values[28])),
-        evidence: JSON.parse(String(values[29])),
+        price_currency_code: values[16] === null ? null : String(values[16]),
+        listing_stream_version: Number(values[17]),
+        marketplace_sales_fee_unit_amount: String(values[18]),
+        seller_net_unit_amount: String(values[19]),
+        shipping_allowance_percentage_bps: Number(values[20]),
+        terms_schedule_id: values[21] === null ? null : String(values[21]),
+        terms_agreement_id: values[22] === null ? null : String(values[22]),
+        terms_resolved_at: values[23] === null ? null : String(values[23]),
+        fee_quote_fingerprint: String(values[24]),
+        fee_locks: JSON.parse(String(values[25])),
+        quantity_cap: Number(values[26]),
+        max_units_per_order: values[27] === null ? null : Number(values[27]),
+        max_units_per_day: values[28] === null ? null : Number(values[28]),
+        max_units_per_customer_account: values[29] === null ? null : Number(values[29]),
+        evidence_requirements: values[30] === null ? null : JSON.parse(String(values[30])),
+        evidence: JSON.parse(String(values[31])),
         status: "draft",
-        created_at: String(values[30]),
-        updated_at: String(values[30]),
+        created_at: String(values[32]),
+        updated_at: String(values[32]),
       });
 
+      const existing = this.listings.get(row.listing_id);
+      if (
+        existing?.listing_stream_version !== null &&
+        existing?.listing_stream_version !== undefined &&
+        existing.listing_stream_version >= (row.listing_stream_version ?? 0)
+      ) {
+        return { rows: [], rowCount: 0 };
+      }
       this.listings.set(row.listing_id, row);
       return { rows: [], rowCount: 1 };
     }
@@ -178,6 +190,21 @@ class ProjectionDb implements PgQueryable {
     if (sql.includes("SELECT * FROM marketplace_listing_pages WHERE listing_id = $1")) {
       const row = this.listings.get(String(values[0]));
       return { rows: (row ? [row] : []) as Row[], rowCount: row ? 1 : 0 };
+    }
+
+    if (sql.includes("SET price_amount = $2") && sql.includes("listing_stream_version = $4")) {
+      const row = this.listings.get(String(values[0]));
+      const streamVersion = Number(values[3]);
+      if (!row || (row.listing_stream_version !== null && row.listing_stream_version >= streamVersion)) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.price_amount = String(values[1]);
+      row.price_currency_code = values[2] === null ? null : String(values[2]);
+      row.listing_stream_version = streamVersion;
+      row.marketplace_sales_fee_unit_amount = String(values[4]);
+      row.seller_net_unit_amount = String(values[5]);
+      row.updated_at = String(values[12]);
+      return { rows: [], rowCount: 1 };
     }
 
     if (sql.includes("INSERT INTO marketplace_seller_listing_availability_pages (") && sql.includes("'unavailable'")) {
@@ -312,6 +339,8 @@ function listingPage(overrides: Partial<ListingPageRow> = {}): ListingPageRow {
       country: "US",
     },
     price_amount: "120.00",
+    price_currency_code: "USD",
+    listing_stream_version: 1,
     marketplace_sales_fee_unit_amount: "6.00",
     seller_net_unit_amount: "114.00",
     shipping_allowance_percentage_bps: 500,
@@ -373,6 +402,7 @@ function listingCreatedData(overrides: Record<string, unknown> = {}) {
       country: "US",
     },
     priceAmount: "120.00",
+    priceCurrencyCode: "USD",
     marketplaceSalesFeeUnitAmount: "6.00",
     sellerNetUnitAmount: "114.00",
     shippingAllowancePercentageBps: 500,
@@ -415,10 +445,12 @@ function event(
   type: string,
   data: Record<string, unknown>,
   streamId = "catalog.product-measures-cat_1",
+  streamVersion = 1,
 ): TransportEvent {
   return buildTransportEvent(type, data, {
     id: "evt_1",
     streamId,
+    streamVersion,
     tenantId: "tnt_1",
     audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
     timing: { occurredAt: "2026-05-09T00:01:00.000Z", recordedAt: "2026-05-09T00:01:00.000Z" },
@@ -440,6 +472,101 @@ describe("marketplace listing projection", () => {
       product_measure_snapshot: productMeasureSnapshot,
       evidence_requirements: { requirementHash: "sha256:requirements" },
       evidence: [],
+    });
+  });
+
+  it("keeps legacy currency missing until a newer complete pair and rejects lower-version regression", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    const { priceCurrencyCode: _legacyOmission, ...legacyCreated } = listingCreatedData();
+
+    await handlers["marketplace.listing.created"]!(
+      event("marketplace.listing.created", legacyCreated, "marketplace.listing-lst_1", 1),
+    );
+    expect(db.listings.get("lst_1")).toMatchObject({
+      price_amount: "120.00",
+      price_currency_code: null,
+      listing_stream_version: 1,
+    });
+
+    const priceData = {
+      priceAmount: "120.00",
+      priceCurrencyCode: "EUR",
+      marketplaceSalesFeeUnitAmount: "6.00",
+      sellerNetUnitAmount: "114.00",
+      shippingAllowancePercentageBps: 500,
+      termsScheduleId: "cts_default",
+      termsAgreementId: null,
+      termsResolvedAt: "2026-05-09T00:02:00.000Z",
+      feeQuoteFingerprint: "fee_2",
+      feeLocks: [],
+    };
+    const { priceCurrencyCode: _historicalOmission, ...legacyPriceData } = priceData;
+    await handlers["marketplace.listing.price-updated"]!(
+      event(
+        "marketplace.listing.price-updated",
+        { ...legacyPriceData, priceAmount: "119.00" },
+        "marketplace.listing-lst_1",
+        2,
+      ),
+    );
+    expect(db.listings.get("lst_1")).toMatchObject({
+      price_amount: "119.00",
+      price_currency_code: null,
+      listing_stream_version: 2,
+    });
+
+    await handlers["marketplace.listing.price-updated"]!(
+      event("marketplace.listing.price-updated", priceData, "marketplace.listing-lst_1", 3),
+    );
+    await handlers["marketplace.listing.price-updated"]!(
+      event(
+        "marketplace.listing.price-updated",
+        { ...priceData, priceCurrencyCode: null, priceAmount: "99.00" },
+        "marketplace.listing-lst_1",
+        2,
+      ),
+    );
+
+    expect(db.listings.get("lst_1")).toMatchObject({
+      price_amount: "120.00",
+      price_currency_code: "EUR",
+      listing_stream_version: 3,
+    });
+  });
+
+  it("publishes an amount-frozen currency change as one version-fenced source pair", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+
+    await handlers["marketplace.listing.created"]!(
+      event("marketplace.listing.created", listingCreatedData(), "marketplace.listing-lst_1", 4),
+    );
+    await handlers["marketplace.listing.price-updated"]!(
+      event(
+        "marketplace.listing.price-updated",
+        {
+          priceAmount: "120.00",
+          priceCurrencyCode: "EUR",
+          marketplaceSalesFeeUnitAmount: "6.00",
+          sellerNetUnitAmount: "114.00",
+          shippingAllowancePercentageBps: 500,
+          termsScheduleId: "cts_default",
+          termsAgreementId: null,
+          termsResolvedAt: "2026-05-09T00:02:00.000Z",
+          feeQuoteFingerprint: "fee_5",
+          feeLocks: [],
+        },
+        "marketplace.listing-lst_1",
+        5,
+      ),
+    );
+
+    expect(db.listings.get("lst_1")).toMatchObject({
+      listing_id: "lst_1",
+      price_amount: "120.00",
+      price_currency_code: "EUR",
+      listing_stream_version: 5,
     });
   });
 

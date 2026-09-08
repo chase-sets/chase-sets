@@ -35,10 +35,12 @@ class ProductAlertProjectionDb implements PgQueryable {
         item_subtitle: values[6],
         product_summary: values[7],
         price_amount: values[8],
-        quantity: values[9],
+        price_currency_code: values[9],
+        source_stream_version: values[10],
+        quantity: values[11],
         status: sql.includes("'submitted'") ? "submitted" : "draft",
-        created_at: values[10],
-        updated_at: values[10],
+        created_at: values[12],
+        updated_at: values[12],
       });
       return { rows: [], rowCount: 1 };
     }
@@ -49,7 +51,9 @@ class ProductAlertProjectionDb implements PgQueryable {
         this.activities.set(String(values[0]), {
           ...current,
           price_amount: values[1],
-          updated_at: values[2],
+          price_currency_code: values[2],
+          source_stream_version: values[3],
+          updated_at: values[4],
         });
       } else if (sql.includes("quantity = $2")) {
         this.activities.set(String(values[0]), {
@@ -109,6 +113,7 @@ describe("Product Alert notification projector", () => {
       market_side: "listing",
       product_id: "cat_1::raw",
       threshold_amount: "20.00",
+      threshold_currency_code: "EUR",
       status: "active",
     });
 
@@ -125,6 +130,7 @@ describe("Product Alert notification projector", () => {
         itemSubtitle: null,
         productSummary: "Raw",
         priceAmount: "18.00",
+        priceCurrencyCode: "EUR",
         quantityCap: 1,
       }),
     );
@@ -150,6 +156,7 @@ describe("Product Alert notification projector", () => {
       market_side: "offer",
       product_id: "cat_1::raw",
       threshold_amount: "10.00",
+      threshold_currency_code: "EUR",
       status: "active",
     });
 
@@ -166,6 +173,7 @@ describe("Product Alert notification projector", () => {
         itemSubtitle: null,
         productSummary: "Raw",
         priceAmount: "12.00",
+        priceCurrencyCode: "EUR",
         quantityRequested: 1,
       }),
     );

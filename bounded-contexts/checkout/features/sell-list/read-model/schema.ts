@@ -10,6 +10,11 @@ CREATE TABLE IF NOT EXISTS checkout_sell_list_line_pages (
   buyer_account_id text NULL,
   buyer_display_name text NULL,
   offer_price_amount text NULL,
+  offer_price_currency_code text NULL,
+  offer_stream_version bigint NULL,
+  listing_price_amount text NULL,
+  listing_price_currency_code text NULL,
+  listing_stream_version bigint NULL,
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   item_title text NOT NULL,
@@ -69,6 +74,7 @@ CREATE TABLE IF NOT EXISTS checkout_sell_offer_pages (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   price_amount numeric(12,2) NOT NULL,
+  price_currency_code text NULL,
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   status text NOT NULL DEFAULT 'submitted',
   accepted_seller_account_id text NULL,
@@ -95,6 +101,20 @@ CREATE INDEX IF NOT EXISTS checkout_sell_offer_pages_buyer_idx
 // single nullable `ADD COLUMN IF NOT EXISTS` is a catalog-only change that holds
 // ACCESS EXCLUSIVE only for an instant, so it is safe under live read traffic.
 export const checkoutSellListSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_checkout_sell_list_price_currency",
+    description: "Carry versioned Marketplace Listing and Offer price pairs through Sell List.",
+    statements: [
+      `ALTER TABLE checkout_sell_list_line_pages
+  ADD COLUMN IF NOT EXISTS offer_price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS offer_stream_version bigint NULL,
+  ADD COLUMN IF NOT EXISTS listing_price_amount text NULL,
+  ADD COLUMN IF NOT EXISTS listing_price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS listing_stream_version bigint NULL`,
+      `ALTER TABLE checkout_sell_offer_pages
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL`,
+    ],
+  },
   {
     migrationId: "20260714_checkout_sell_list_line_listing_id",
     description: "Backfill the sell-list line listing_id column on databases created before it existed.",

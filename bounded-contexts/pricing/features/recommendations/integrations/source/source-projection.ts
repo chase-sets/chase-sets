@@ -149,6 +149,7 @@ export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): P
         productId: string;
         totalQuantity: number;
         acquisitionCostAmount?: string | null;
+        acquisitionCostCurrencyCode?: string | null;
       };
 
       await db.query(
@@ -159,15 +160,17 @@ export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): P
            product_id,
            total_quantity,
            acquisition_cost_amount,
+           acquisition_cost_currency_code,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (item_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              total_quantity = EXCLUDED.total_quantity,
              acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
+             acquisition_cost_currency_code = EXCLUDED.acquisition_cost_currency_code,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE pricing_inventory_item_inputs.last_stream_version < EXCLUDED.last_stream_version`,
@@ -178,6 +181,7 @@ export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): P
           data.productId,
           data.totalQuantity,
           data.acquisitionCostAmount ?? null,
+          data.acquisitionCostCurrencyCode ?? null,
           event.timing.recordedAt,
           event.streamVersion,
         ],
@@ -299,6 +303,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
         catalogItemId: string;
         productId: string;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityCap: number;
         gradedCard?: unknown | null;
       };
@@ -311,6 +316,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
            catalog_catalog_item_id,
            product_id,
            price_amount,
+           price_currency_code,
            quantity_cap,
            status,
            grading,
@@ -318,13 +324,14 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
            pause_reason,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9, NULL, $9, $10)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, NULL, $10, $11)
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              inventory_item_id = EXCLUDED.inventory_item_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
              quantity_cap = EXCLUDED.quantity_cap,
              grading = EXCLUDED.grading,
              created_at = EXCLUDED.created_at,
@@ -339,6 +346,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
           data.catalogItemId,
           data.productId,
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
           data.quantityCap,
           data.gradedCard ? "graded" : "raw",
           event.timing.recordedAt,
@@ -347,18 +355,20 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
       );
     },
     "marketplace.listing.price-updated": async (event) => {
-      const data = event.data as { priceAmount: string };
+      const data = event.data as { priceAmount: string; priceCurrencyCode?: string | null };
 
       await db.query(
         `UPDATE pricing_market_listing_inputs
          SET price_amount = $2,
-             updated_at = $3,
-             last_stream_version = $4
+             price_currency_code = $3,
+             updated_at = $4,
+             last_stream_version = $5
          WHERE listing_id = $1
-           AND last_stream_version < $4`,
+           AND last_stream_version < $5`,
         [
           extractIdFromStreamId(event.streamId, "marketplace.listing-"),
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
           event.timing.recordedAt,
           event.streamVersion,
         ],
@@ -430,6 +440,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
         catalogItemId: string;
         productId: string;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityRequested: number;
       };
 
@@ -441,17 +452,19 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
            catalog_catalog_item_id,
            product_id,
            price_amount,
+           price_currency_code,
            quantity_requested,
            status,
            accepted_at,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, NULL, $3, $4, $5, $6, 'submitted', NULL, $7, $8)
+         ) VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, 'submitted', NULL, $8, $9)
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
              quantity_requested = EXCLUDED.quantity_requested,
              status = EXCLUDED.status,
              accepted_at = EXCLUDED.accepted_at,
@@ -464,7 +477,28 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
           data.catalogItemId,
           data.productId,
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
           data.quantityRequested,
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
+      );
+    },
+    "marketplace.offer.price-updated": async (event) => {
+      const data = event.data as { priceAmount: string; priceCurrencyCode?: string | null };
+
+      await db.query(
+        `UPDATE pricing_buyer_offer_inputs
+         SET price_amount = $2,
+             price_currency_code = $3,
+             updated_at = $4,
+             last_stream_version = $5
+         WHERE offer_id = $1
+           AND last_stream_version < $5`,
+        [
+          extractIdFromStreamId(event.streamId, "marketplace.offer-"),
+          data.priceAmount,
+          data.priceCurrencyCode ?? null,
           event.timing.recordedAt,
           event.streamVersion,
         ],
@@ -478,6 +512,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
         catalogItemId: string;
         productId: string;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityRequested: number;
         acceptedAt: string;
       };
@@ -490,18 +525,20 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
            catalog_catalog_item_id,
            product_id,
            price_amount,
+           price_currency_code,
            quantity_requested,
            status,
            accepted_at,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'accepted', $8, $8, $9)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'accepted', $9, $9, $10)
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
              quantity_requested = EXCLUDED.quantity_requested,
              status = EXCLUDED.status,
              accepted_at = EXCLUDED.accepted_at,
@@ -515,6 +552,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
           data.catalogItemId,
           data.productId,
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
           data.quantityRequested,
           data.acceptedAt,
           event.streamVersion,

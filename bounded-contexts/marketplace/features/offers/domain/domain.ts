@@ -36,6 +36,13 @@ function normalizeMoneyAmount(value: string): string {
   return centsToMoneyAmount(cents);
 }
 
+export function normalizeOfferPriceCurrencyCode(value: string): string {
+  assert(typeof value === "string", "Offer price currency code must be a three-letter ISO-4217 code.");
+  const normalized = value.trim().toUpperCase();
+  assert(/^[A-Z]{3}$/.test(normalized), "Offer price currency code must be a three-letter ISO-4217 code.");
+  return normalized;
+}
+
 function normalizeNonNegativeMoneyAmount(value: string, fieldName: string): string {
   const normalized = value.trim();
   const cents = tryMoneyToCents(normalized);
@@ -82,6 +89,7 @@ export type MarketplaceOfferState = Readonly<{
   productSummary: string | null;
   shippingDestinationSnapshot: AddressSnapshot | null;
   priceAmount: string | null;
+  priceCurrencyCode: string | null;
   quantityRequested: number;
   status: OfferStatus;
   acceptedSellerAccountId: AccountId | null;
@@ -118,6 +126,7 @@ export const initialMarketplaceOfferState: MarketplaceOfferState = {
   productSummary: null,
   shippingDestinationSnapshot: null,
   priceAmount: null,
+  priceCurrencyCode: null,
   quantityRequested: 0,
   status: "draft",
   acceptedSellerAccountId: null,
@@ -156,7 +165,15 @@ export type SubmitOfferCommand = Readonly<{
   productSummary: string | null;
   shippingDestinationSnapshot: AddressSnapshot;
   priceAmount: string;
+  priceCurrencyCode: string;
   quantityRequested: number;
+}>;
+
+export type UpdateOfferPriceCommand = Readonly<{
+  type: "UpdateOfferPrice";
+  buyerAccountId: AccountId;
+  priceAmount: string;
+  priceCurrencyCode: string;
 }>;
 
 export type AcceptOfferCommand = Readonly<{
@@ -185,7 +202,7 @@ export type AcceptOfferCommand = Readonly<{
   acceptanceBatchSize?: number | null;
 }>;
 
-export type MarketplaceOfferCommand = SubmitOfferCommand | AcceptOfferCommand;
+export type MarketplaceOfferCommand = SubmitOfferCommand | UpdateOfferPriceCommand | AcceptOfferCommand;
 
 export type OfferSubmittedEvent = DomainEvent<
   "marketplace.offer.submitted",
@@ -200,7 +217,19 @@ export type OfferSubmittedEvent = DomainEvent<
     productSummary: string | null;
     shippingDestinationSnapshot: AddressSnapshot;
     priceAmount: string;
+    /** Missing only when decoding historical amount-only Offer events. */
+    priceCurrencyCode?: string | null;
     quantityRequested: number;
+  }>
+>;
+
+export type OfferPriceUpdatedEvent = DomainEvent<
+  "marketplace.offer.price-updated",
+  Readonly<{
+    offerId: OfferId;
+    buyerAccountId: AccountId;
+    priceAmount: string;
+    priceCurrencyCode: string;
   }>
 >;
 
@@ -221,6 +250,8 @@ export type OfferAcceptedEvent = DomainEvent<
     productSummary: string | null;
     shippingDestinationSnapshot: AddressSnapshot;
     priceAmount: string;
+    /** Missing only when decoding historical amount-only Offer events. */
+    priceCurrencyCode?: string | null;
     quantityRequested: number;
     acceptedAt: string;
     marketplaceSalesFeePercentageBps?: number;
@@ -243,7 +274,7 @@ export type OfferAcceptedEvent = DomainEvent<
   }>
 >;
 
-export type MarketplaceOfferEvent = OfferSubmittedEvent | OfferAcceptedEvent;
+export type MarketplaceOfferEvent = OfferSubmittedEvent | OfferPriceUpdatedEvent | OfferAcceptedEvent;
 
 export const decideMarketplaceOffer: AggregateDecider<
   MarketplaceOfferState,
@@ -277,6 +308,7 @@ export const decideMarketplaceOffer: AggregateDecider<
               "Shipping destination",
             ),
             priceAmount: normalizeMoneyAmount(command.priceAmount),
+            priceCurrencyCode: normalizeOfferPriceCurrencyCode(command.priceCurrencyCode),
             quantityRequested: ensurePositiveInteger(
               command.quantityRequested,
               "Offer quantity requested must be a positive whole number.",
@@ -284,10 +316,35 @@ export const decideMarketplaceOffer: AggregateDecider<
           },
         },
       ];
+    case "UpdateOfferPrice": {
+      assert(state.offerId !== null, "Offer must be submitted first.");
+      assert(state.status === "submitted", "Only submitted offers can change price.");
+      assert(state.buyerAccountId === command.buyerAccountId, "Only the Offer's buyer can change its price.");
+      const priceAmount = normalizeMoneyAmount(command.priceAmount);
+      const priceCurrencyCode = normalizeOfferPriceCurrencyCode(command.priceCurrencyCode);
+      if (state.priceAmount === priceAmount && state.priceCurrencyCode === priceCurrencyCode) {
+        return [];
+      }
+      return [
+        {
+          type: "marketplace.offer.price-updated",
+          data: {
+            offerId: state.offerId,
+            buyerAccountId: state.buyerAccountId,
+            priceAmount,
+            priceCurrencyCode,
+          },
+        },
+      ];
+    }
     case "AcceptOffer":
       assert(state.offerId !== null, "Offer must be submitted first.");
       assert(state.status === "submitted", "Only submitted offers can be accepted.");
       assert(state.buyerAccountId !== command.sellerAccountId, "Accounts cannot accept their own offers.");
+      assert(
+        state.priceAmount !== null && state.priceCurrencyCode !== null,
+        "Offer price is incomplete. The buyer must supply an amount and currency before acceptance.",
+      );
 
       return [
         {
@@ -313,6 +370,7 @@ export const decideMarketplaceOffer: AggregateDecider<
             productSummary: state.productSummary,
             shippingDestinationSnapshot: state.shippingDestinationSnapshot!,
             priceAmount: state.priceAmount!,
+            priceCurrencyCode: state.priceCurrencyCode,
             quantityRequested: state.quantityRequested,
             acceptedAt: normalizeRequiredText(command.acceptedAt, "Offer acceptance must record a timestamp."),
             marketplaceSalesFeePercentageBps: normalizePercentageBps(
@@ -389,6 +447,7 @@ export const evolveMarketplaceOffer: AggregateEvolver<MarketplaceOfferState, Mar
       productSummary: event.data.productSummary,
       shippingDestinationSnapshot: event.data.shippingDestinationSnapshot,
       priceAmount: event.data.priceAmount,
+      priceCurrencyCode: event.data.priceCurrencyCode ?? null,
       quantityRequested: event.data.quantityRequested,
       status: "submitted",
       acceptedSellerAccountId: null,
@@ -412,6 +471,14 @@ export const evolveMarketplaceOffer: AggregateEvolver<MarketplaceOfferState, Mar
       feeQuoteFingerprint: null,
       acceptanceBatchId: null,
       acceptanceBatchSize: null,
+    };
+  }
+
+  if (event.type === "marketplace.offer.price-updated") {
+    return {
+      ...state,
+      priceAmount: event.data.priceAmount,
+      priceCurrencyCode: event.data.priceCurrencyCode,
     };
   }
 

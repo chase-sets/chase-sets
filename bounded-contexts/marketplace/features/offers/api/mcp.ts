@@ -162,6 +162,7 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
         productSummary: readMcpStringArgument(args, "productSummary"),
         shippingDestinationSnapshot: readShippingDestination(args),
         priceAmount: readRequiredString(args, "priceAmount"),
+        priceCurrencyCode: readRequiredString(args, "priceCurrencyCode"),
         quantityRequested: readRequiredPositiveInteger(args, "quantityRequested"),
       },
       createActorEventStoreContext(scopedActor),
@@ -174,6 +175,22 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
   };
 
   const submitOffer: McpToolHandler = async ({ actor, arguments: args }) => writeSubmittedOffer(actor, args);
+
+  const updateOfferPrice: McpToolHandler = async ({ actor, arguments: args }) => {
+    rejectDryRun(args);
+    const accountId = readRequiredString(args, "accountId");
+    const scopedActor = ensureMcpActorAccount(actor, accountId);
+    const result = await services.updateOfferPrice(
+      {
+        offerId: readMcpTypedIdArgument(args, "offerId", "off"),
+        buyerAccountId: scopedActor.accountId as AccountId,
+        priceAmount: readRequiredString(args, "priceAmount"),
+        priceCurrencyCode: readRequiredString(args, "priceCurrencyCode"),
+      },
+      createActorEventStoreContext(scopedActor),
+    );
+    return offerReceipt(scopedActor.accountId, result, "submitted");
+  };
 
   const counterOffer: McpToolHandler = async ({ actor, arguments: args }) => {
     const counteredOfferId = readMcpTypedIdArgument(args, "counteredOfferId", "off");
@@ -298,6 +315,7 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
   return {
     toolHandlers: {
       "marketplace.submit-offer": submitOffer,
+      "marketplace.update-offer-price": updateOfferPrice,
       "marketplace.counter-offer": counterOffer,
       "marketplace.accept-offer": acceptOffer,
       "marketplace.decline-offer": declineOffer,

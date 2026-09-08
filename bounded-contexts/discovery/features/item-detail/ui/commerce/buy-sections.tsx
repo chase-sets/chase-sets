@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   HiddenInput,
   Form,
@@ -12,6 +12,7 @@ import {
   ProductOptions,
   Stack,
   Text,
+  TextInput,
 } from "@chase-sets/design-system";
 import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 import {
@@ -47,6 +48,7 @@ export function ProductAlertCreationSection({
   errorMessage?: string | null;
 }) {
   const isListingAlert = marketSide === "listing";
+  const [thresholdCurrencyCode, setThresholdCurrencyCode] = useState("");
   const defaultActions = (
     <Button type="submit" disabled={!productId} block>
       {isListingAlert
@@ -155,15 +157,22 @@ export function ProductAlertCreationSection({
                 : t("discovery.routes.itemDetail.alert.minimum.offer.price")
             }
             name="thresholdAmount"
-            currencyCode="USD"
-            currencyAccessibleDescription={t("localization.currency.amountIn", {
-              currency: t("localization.currency.usd"),
-            })}
+            currencyCode={thresholdCurrencyCode}
             decrementLabel={t("localization.currency.decreaseAmount")}
             incrementLabel={t("localization.currency.increaseAmount")}
             placeholder={isListingAlert ? "25.00" : "15.00"}
             min="0"
             step="0.01"
+          />
+          <TextInput
+            label={t("discovery.routes.itemDetail.listing.price.currency.code")}
+            name="thresholdCurrencyCode"
+            value={thresholdCurrencyCode}
+            onChange={(event) => setThresholdCurrencyCode(event.target.value)}
+            placeholder={t("discovery.routes.itemDetail.listing.price.currency.code.placeholder")}
+            minLength={3}
+            maxLength={3}
+            autoCapitalize="characters"
           />
           {errorMessage ? <Text>{errorMessage}</Text> : null}
           {actions !== undefined ? actions : defaultActions}
@@ -197,9 +206,10 @@ export function MarketplaceOfferSubmissionSection({
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
   productSummary: string | null;
-  lowestListing?: { price_amount: string } | null;
+  lowestListing?: { price_amount: string; price_currency_code?: string | null } | null;
   errorMessage?: string | null;
 }) {
+  const [priceCurrencyCode, setPriceCurrencyCode] = useState("");
   const defaultActions = (
     <Button type="submit" disabled={!productId} block>
       {t("discovery.routes.itemDetail.make.offer.action")}
@@ -266,7 +276,9 @@ export function MarketplaceOfferSubmissionSection({
               {productId && lowestListing ? (
                 <Text size="sm" tone="secondary">
                   {t("discovery.routes.itemDetail.current.lowest.listing.summary", {
-                    price: formatMoneyAmount(lowestListing.price_amount),
+                    price: lowestListing.price_currency_code
+                      ? formatMoneyAmount(lowestListing.price_amount, lowestListing.price_currency_code)
+                      : t("discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable"),
                   })}
                 </Text>
               ) : !productId ? (
@@ -281,15 +293,23 @@ export function MarketplaceOfferSubmissionSection({
         <CurrencyInput
           label={t("discovery.routes.itemDetail.offer.price")}
           name="priceAmount"
-          currencyCode="USD"
-          currencyAccessibleDescription={t("localization.currency.amountIn", {
-            currency: t("localization.currency.usd"),
-          })}
+          currencyCode={priceCurrencyCode}
           decrementLabel={t("localization.currency.decreaseAmount")}
           incrementLabel={t("localization.currency.increaseAmount")}
           placeholder="24.99"
           min="0"
           step="0.01"
+          required
+        />
+        <TextInput
+          label={t("discovery.routes.itemDetail.listing.price.currency.code")}
+          name="priceCurrencyCode"
+          value={priceCurrencyCode}
+          onChange={(event) => setPriceCurrencyCode(event.target.value)}
+          placeholder={t("discovery.routes.itemDetail.listing.price.currency.code.placeholder")}
+          minLength={3}
+          maxLength={3}
+          autoCapitalize="characters"
           required
         />
         <NumberField label={t("discovery.routes.itemDetail.quantity")} name="quantityRequested" min={1} required />
