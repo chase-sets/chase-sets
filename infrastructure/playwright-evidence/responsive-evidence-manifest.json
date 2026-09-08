@@ -2007,7 +2007,7 @@
         "height": 900
       },
       "target": {
-        "identity": "populated-admin-projection-workbench",
+        "identity": "populated-admin-projection-workbench-light",
         "selector": "main",
         "populatedSelector": "tbody tr:has(a:has-text('Details'))"
       },
@@ -2050,7 +2050,7 @@
         "height": 900
       },
       "target": {
-        "identity": "populated-admin-projection-workbench",
+        "identity": "populated-admin-projection-workbench-dark",
         "selector": "main",
         "populatedSelector": "tbody tr:has(a:has-text('Details'))"
       },
@@ -2093,7 +2093,7 @@
         "height": 900
       },
       "target": {
-        "identity": "populated-search-results",
+        "identity": "empty-search-results-control",
         "selector": "main",
         "populatedSelector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp'])"
       },
