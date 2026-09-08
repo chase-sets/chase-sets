@@ -98,16 +98,24 @@ const indexes = [
   "CREATE UNIQUE INDEX IF NOT EXISTS channels_live_reconciliation_scope_idx ON channels_listing_reconciliation_runs (connection_id, scope, scope_key) WHERE state IN ('pending','draining')",
 ] as const;
 
+const migrationIndexes = [
+  "CREATE INDEX CONCURRENTLY IF NOT EXISTS channels_listing_facts_account_idx ON channels_listing_publication_facts (account_id, listing_id)",
+  "CREATE INDEX CONCURRENTLY IF NOT EXISTS channels_listing_facts_inventory_idx ON channels_listing_publication_facts (inventory_item_id, listing_id)",
+  "CREATE INDEX CONCURRENTLY IF NOT EXISTS channels_listing_facts_catalog_idx ON channels_listing_publication_facts (catalog_item_id, listing_id)",
+  "CREATE INDEX CONCURRENTLY IF NOT EXISTS channels_active_holds_item_idx ON channels_inventory_hold_facts (item_id) WHERE status = 'active'",
+  "CREATE INDEX CONCURRENTLY IF NOT EXISTS channels_linked_product_reference_idx ON channels_external_product_reference_facts (provider_key, catalog_item_id, selected_option_key) WHERE link_state = 'linked'",
+  "CREATE INDEX CONCURRENTLY IF NOT EXISTS channels_linked_catalog_reference_idx ON channels_external_catalog_item_reference_facts (provider_key, catalog_item_id) WHERE link_state = 'linked'",
+  "CREATE INDEX CONCURRENTLY IF NOT EXISTS channels_mapping_review_queue_idx ON channels_channel_mappings (connection_id, dimension, source_key) WHERE review_status NOT IN ('accepted','auto-accepted')",
+  "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS channels_live_reconciliation_scope_idx ON channels_listing_reconciliation_runs (connection_id, scope, scope_key) WHERE state IN ('pending','draining')",
+] as const;
+
 export const channelListingCompositionSchemaSql = `${tables.join(";\n")};\n${indexes.join(";\n")};`;
 
 export const channelListingCompositionSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260908_channels_listing_desired_state",
     description: "Create the twelve Channel Publication Facts, configuration, Link, and reconciliation projections.",
-    statements: [
-      ...tables,
-      ...indexes.map((sql) => sql.replace("CREATE INDEX IF NOT EXISTS", "CREATE INDEX IF NOT EXISTS")),
-    ],
+    statements: [...tables, ...migrationIndexes],
   },
 ];
 
