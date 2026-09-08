@@ -29,6 +29,7 @@ import {
   decideMarketplaceOffer,
   evolveMarketplaceOffer,
   initialMarketplaceOfferState,
+  normalizeOfferPriceCurrencyCode,
   type MarketplaceOfferCommand,
   type MarketplaceOfferEvent,
   type MarketplaceOfferState,
@@ -272,6 +273,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       listing_id: string;
       seller_account_id: string;
       listing_price_amount: string;
+      listing_price_currency_code: string | null;
       buyer_listing_daily_offer_count: string;
       muted_at: string | null;
       lowball_cooldown_until: string | null;
@@ -281,6 +283,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
          listing.listing_id,
          listing.account_id AS seller_account_id,
          listing.price_amount::text AS listing_price_amount,
+         listing.price_currency_code AS listing_price_currency_code,
          (
            SELECT COUNT(DISTINCT offer_scope.offer_id)::text
            FROM (
@@ -330,11 +333,13 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       now,
       buyerDailySubmissionCount: Number(buyerCountResult.rows[0]?.count ?? 0),
       offerPriceAmount,
+      offerPriceCurrencyCode,
       listingGuards: listingsResult.rows.map(
         (row): MarketplaceOfferListingSubmissionGuard => ({
           listingId: row.listing_id,
           sellerAccountId: row.seller_account_id,
           listingPriceAmount: row.listing_price_amount,
+          listingPriceCurrencyCode: row.listing_price_currency_code,
           buyerListingDailyOfferCount: Number(row.buyer_listing_daily_offer_count),
           mutedAt: row.muted_at,
           lowballCooldownUntil: row.lowball_cooldown_until,
@@ -369,6 +374,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     commandHandler,
     sellerControlCommandHandler,
     submitOffer: async (params, context) => {
+      const priceCurrencyCode = normalizeOfferPriceCurrencyCode(params.priceCurrencyCode);
       const catalogItem = await getCatalogItemSnapshot(params.catalogItemId);
       if (!catalogItem) {
         throw new Error("Catalog item not found.");
@@ -398,7 +404,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         params.buyerAccountId,
         catalogVersion.productId,
         params.priceAmount,
-        params.priceCurrencyCode,
+        priceCurrencyCode,
         offerAbusePolicy(),
       );
 
@@ -418,7 +424,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
           productSummary: params.productSummary,
           shippingDestinationSnapshot: params.shippingDestinationSnapshot,
           priceAmount: params.priceAmount,
-          priceCurrencyCode: params.priceCurrencyCode,
+          priceCurrencyCode,
           quantityRequested: params.quantityRequested,
         },
         context,

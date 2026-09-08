@@ -146,7 +146,10 @@ function offerAbuseControlMessage(error: MarketplaceOfferAbuseControlError) {
       });
     case "offer_price_floor_not_met":
       return t("marketplace.features.offers.api.route.offer.price.floor.not.met", {
-        amount: formatMoney(String(error.details.minimumOfferAmount ?? "0.00"), "USD"),
+        amount: formatMoney(
+          String(error.details.minimumOfferAmount ?? "0.00"),
+          String(error.details.minimumOfferCurrencyCode ?? ""),
+        ),
       });
     case "offer_lowball_cooldown":
       return t("marketplace.features.offers.api.route.offer.lowball.cooldown");

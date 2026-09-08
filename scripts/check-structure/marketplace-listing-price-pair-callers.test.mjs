@@ -50,6 +50,24 @@ const registeredCallers = new Map([
   ["deployables/platform-worker/src/main.ts", ["MarketplaceListingServices", "InventoryDraftListingCreator"]],
 ]);
 
+const registeredOfferCallers = new Map([
+  [
+    "bounded-contexts/marketplace/features/offers/api/mcp.ts",
+    ['priceCurrencyCode: readRequiredString(args, "priceCurrencyCode")'],
+  ],
+  ["bounded-contexts/marketplace/features/offers/api/route.ts", ["priceCurrencyCode: String(body.priceCurrencyCode"]],
+  ["contracts/catalog-seed/representative-commerce-state.ts", ["priceCurrencyCode: string"]],
+]);
+
+const versionedConsumerRoots = [
+  "bounded-contexts/checkout/",
+  "bounded-contexts/discovery/",
+  "bounded-contexts/ordering/",
+  "bounded-contexts/platform-operations/",
+  "bounded-contexts/pricing/",
+  "bounded-contexts/settlement/",
+];
+
 function source(file) {
   return readFileSync(path.join(repoRoot, ...file.split("/")), "utf8");
 }
@@ -64,6 +82,29 @@ function sourceDerivedCallers() {
   return tracked.filter((file) => authoringCall.test(source(file)) && source(file).includes("priceAmount"));
 }
 
+function sourceDerivedOfferCallers() {
+  return productionTypescriptFiles().filter((file) => {
+    const text = source(file);
+    return /\.(?:submitOffer|updateOfferPrice)\s*\(/.test(text) && text.includes("priceAmount");
+  });
+}
+
+function productionTypescriptFiles() {
+  return execFileSync("git", ["ls-files", "*.ts", "*.tsx"], { cwd: repoRoot, encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .filter((file) => !/\.test\.[cm]?[jt]sx?$/.test(file));
+}
+
+function sourceDerivedVersionedPairConsumers() {
+  const eventName = /marketplace\.(?:listing\.(?:created|price-updated)|offer\.(?:submitted|price-updated|accepted))/;
+  return productionTypescriptFiles().filter((file) => {
+    if (!versionedConsumerRoots.some((root) => file.startsWith(root))) return false;
+    const text = source(file);
+    return eventName.test(text) && /priceAmount|price_amount/.test(text);
+  });
+}
+
 describe("marketplace-listing-price-pair-caller-closure", () => {
   it("registers every source-derived production authoring caller", () => {
     const unregistered = sourceDerivedCallers().filter((file) => !registeredCallers.has(file));
@@ -74,5 +115,28 @@ describe("marketplace-listing-price-pair-caller-closure", () => {
     const text = source(file);
     for (const fragment of evidence) expect(text).toContain(fragment);
     expect(text).not.toMatch(/priceCurrencyCode\s*[:=][^\r\n]*(?:\?\?|\|\|)\s*["']USD["']/);
+  });
+
+  it("registers every source-derived production Offer authoring caller", () => {
+    const unregistered = sourceDerivedOfferCallers().filter((file) => !registeredOfferCallers.has(file));
+    expect(unregistered).toEqual([]);
+  });
+
+  it.each([...registeredOfferCallers.entries()])("keeps buyer-authored currency evidence in %s", (file, evidence) => {
+    const text = source(file);
+    for (const fragment of evidence) expect(text).toContain(fragment);
+    expect(text).not.toMatch(/priceCurrencyCode\s*[:=][^\r\n]*(?:\?\?|\|\|)\s*["']USD["']/);
+  });
+
+  it("currency-pair-consumer-closure keeps every source-derived event consumer versioned and paired", () => {
+    const consumers = sourceDerivedVersionedPairConsumers();
+    expect(consumers.length).toBeGreaterThan(0);
+    for (const file of consumers) {
+      const text = source(file);
+      expect(text, `${file} must retain currency beside the amount`).toMatch(/priceCurrencyCode|price_currency_code/);
+      expect(text, `${file} must retain the source version beside the pair`).toMatch(
+        /streamVersion|stream_version|sourceVersion|source_version|last_stream_version/,
+      );
+    }
   });
 });

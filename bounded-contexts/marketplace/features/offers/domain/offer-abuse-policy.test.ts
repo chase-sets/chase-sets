@@ -17,6 +17,7 @@ const listingGuard = {
   listingId: "lst_1",
   sellerAccountId: "acc_seller",
   listingPriceAmount: "100.00",
+  listingPriceCurrencyCode: "USD",
   buyerListingDailyOfferCount: 1,
   mutedAt: null,
   lowballCooldownUntil: null,
@@ -46,6 +47,7 @@ describe("marketplace offer abuse policy", () => {
         now: new Date("2026-07-05T12:00:00.000Z"),
         buyerDailySubmissionCount: 1,
         offerPriceAmount: "50.00",
+        offerPriceCurrencyCode: "USD",
         listingGuards: [listingGuard],
       }),
     ).not.toThrow();
@@ -59,6 +61,7 @@ describe("marketplace offer abuse policy", () => {
           now: new Date("2026-07-05T12:00:00.000Z"),
           buyerDailySubmissionCount: 2,
           offerPriceAmount: "50.00",
+          offerPriceCurrencyCode: "USD",
           listingGuards: [listingGuard],
         }),
       "offer_daily_submission_cap_reached",
@@ -71,6 +74,7 @@ describe("marketplace offer abuse policy", () => {
           now: new Date("2026-07-05T12:00:00.000Z"),
           buyerDailySubmissionCount: 1,
           offerPriceAmount: "50.00",
+          offerPriceCurrencyCode: "USD",
           listingGuards: [{ ...listingGuard, buyerListingDailyOfferCount: 2 }],
         }),
       "offer_listing_submission_cap_reached",
@@ -85,6 +89,7 @@ describe("marketplace offer abuse policy", () => {
           now: new Date("2026-07-05T12:00:00.000Z"),
           buyerDailySubmissionCount: 0,
           offerPriceAmount: "49.99",
+          offerPriceCurrencyCode: "USD",
           listingGuards: [listingGuard],
         }),
       "offer_price_floor_not_met",
@@ -99,6 +104,7 @@ describe("marketplace offer abuse policy", () => {
           now: new Date("2026-07-05T12:00:00.000Z"),
           buyerDailySubmissionCount: 0,
           offerPriceAmount: "60.00",
+          offerPriceCurrencyCode: "USD",
           listingGuards: [
             {
               ...listingGuard,
@@ -119,9 +125,23 @@ describe("marketplace offer abuse policy", () => {
           now: new Date("2026-07-05T12:00:00.000Z"),
           buyerDailySubmissionCount: 0,
           offerPriceAmount: "80.00",
+          offerPriceCurrencyCode: "USD",
           listingGuards: [{ ...listingGuard, mutedAt: "2026-07-05T11:00:00.000Z" }],
         }),
       "offer_muted_by_sellers",
     );
+  });
+
+  it("does not compare a buyer Offer with a differently denominated Listing", () => {
+    expect(() =>
+      assertOfferSubmissionAllowed({
+        policy,
+        now: new Date("2026-07-05T12:00:00.000Z"),
+        buyerDailySubmissionCount: 0,
+        offerPriceAmount: "1.00",
+        offerPriceCurrencyCode: "EUR",
+        listingGuards: [listingGuard],
+      }),
+    ).not.toThrow();
   });
 });
