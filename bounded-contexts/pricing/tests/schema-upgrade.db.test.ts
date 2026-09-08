@@ -8,6 +8,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { MoneyAmount } from "@chase-sets/primitives/money";
 import {
   MARKET_STAT_HYGIENE_COMPILED_REVISION_ID,
   MARKET_STAT_HYGIENE_LEGACY_UNTRIMMED_REVISION_ID,
@@ -340,7 +341,7 @@ describeDb("pricing schema upgrades", () => {
       connectionId: "connection_1",
       catalogItemId: "cat_1",
       inventoryItemId: "item_1",
-      marketUnitPrice: { amount: "10.00", currency: "usd" },
+      marketUnitPrice: { amount: "10.00" as MoneyAmount, currency: "usd" },
       quantity: 1,
       effectiveAt: "2026-09-06T00:00:00.000Z",
     });
