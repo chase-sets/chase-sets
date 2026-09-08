@@ -103,6 +103,12 @@ function sectionEnd(headings, headingIndex, lineCount) {
 }
 
 const QUALITY_DECLARATIONS = Object.freeze({
+  profile: {
+    code: "BRIEF_QUALITY_PROFILE",
+    label: "QUALITY_PROFILE",
+    candidate: /^QUALITY_PROFILE\s*:/i,
+    pattern: /^QUALITY_PROFILE:\s*(prototype|product-feature|core-library|hot-path|migration|contract)$/,
+  },
   intent: {
     heading: "intent surfaces",
     code: "BRIEF_QUALITY_INTENT_SURFACES",
@@ -125,6 +131,12 @@ const QUALITY_DECLARATIONS = Object.freeze({
     code: "BRIEF_QUALITY_GLOSSARY_IMPACT",
     headers: ["public term", "owning glossary or contract"],
     none: "none — no new or renamed public names.",
+  },
+  compatibility: {
+    heading: "contract compatibility",
+    code: "BRIEF_QUALITY_CONTRACT_COMPATIBILITY",
+    headers: ["changed contract", "compatibility posture", "removed path"],
+    none: "none — no schema, event, or contract changes.",
   },
 });
 
@@ -179,7 +191,33 @@ function hasCompleteTable(lines, expectedHeaders) {
   return false;
 }
 
-function tableDeclarationFinding(markdown, declaration) {
+function declarationFinding(markdown, declaration) {
+  if (declaration.pattern) {
+    const declarations = markdown.lines
+      .map((line, index) => ({ index, line: line.trim() }))
+      .filter(
+        ({ index, line }) =>
+          !markdown.ignoredLines.has(index) &&
+          !/^(?: {4}|\t)/.test(markdown.lines[index]) &&
+          declaration.candidate.test(line),
+      );
+    if (declarations.length !== 1) {
+      return {
+        code: declaration.code,
+        line: declarations[0]?.index + 1,
+        message: `${declaration.label} must appear exactly once as a standalone declaration.`,
+      };
+    }
+    if (!declaration.pattern.test(declarations[0].line)) {
+      return {
+        code: declaration.code,
+        line: declarations[0].index + 1,
+        message: `${declaration.label} must name one installed quality-v2 profile exactly.`,
+      };
+    }
+    return null;
+  }
+
   const sections = matchingSections(markdown, declaration.heading);
   if (sections.length !== 1) {
     return {
@@ -209,20 +247,38 @@ function tableDeclarationFinding(markdown, declaration) {
   };
 }
 
-function footprintShapeFinding(markdown) {
-  const footprint = matchingSections(markdown, "footprint chain");
+function footprintShapeFindings(markdown) {
+  const findings = [];
   const simplest = matchingSections(markdown, "simplest shape");
+  const notBuilt = matchingSections(markdown, "not built");
+  const simplestLines = simplest.length === 1 ? sectionContentLines(markdown, simplest[0]) : [];
+  const notBuiltLines = notBuilt.length === 1 ? sectionContentLines(markdown, notBuilt[0]) : [];
+  if (
+    simplest.length !== 1 ||
+    simplestLines.length !== 1 ||
+    /^none\b/i.test(simplestLines[0] ?? "") ||
+    notBuilt.length !== 1 ||
+    !hasCompleteTable(notBuiltLines, ["not built", "reason"])
+  ) {
+    findings.push({
+      code: "BRIEF_QUALITY_G0",
+      line: simplest[0]?.heading.index + 1 ?? notBuilt[0]?.heading.index + 1,
+      message: "G0 needs one non-empty simplest-shape line and one complete Not built | Reason table.",
+    });
+  }
+
+  const footprint = matchingSections(markdown, "footprint chain");
   const scope = matchingSections(markdown, "scope fence");
-  if (footprint.length !== 1 || simplest.length !== 1 || scope.length !== 1) {
-    return {
+  if (footprint.length !== 1 || scope.length !== 1) {
+    findings.push({
       code: "BRIEF_QUALITY_FOOTPRINT_SHAPE",
-      line: footprint[0]?.heading.index + 1 ?? simplest[0]?.heading.index + 1 ?? scope[0]?.heading.index + 1,
-      message: "Footprint & chain, Simplest shape, and Scope fence must each appear exactly once.",
-    };
+      line: footprint[0]?.heading.index + 1 ?? scope[0]?.heading.index + 1,
+      message: "Footprint & chain and Scope fence must each appear exactly once.",
+    });
+    return findings;
   }
 
   const footprintLines = sectionContentLines(markdown, footprint[0]);
-  const simplestLines = sectionContentLines(markdown, simplest[0]);
   const scopeEnd = sectionEnd(markdown.headings, scope[0].headingIndex, markdown.lines.length);
   const scopeLines = markdown.lines.slice(scope[0].heading.index + 1, scopeEnd);
   const inlineNonGoals = scopeLines.some((line) =>
@@ -238,27 +294,15 @@ function footprintShapeFinding(markdown) {
   if (
     footprintLines.length === 0 ||
     /^none\b/i.test(footprintLines.join(" ")) ||
-    simplestLines.length !== 1 ||
-    /^none\b/i.test(simplestLines[0]) ||
     (!inlineNonGoals && !labeledNonGoals)
   ) {
-    return {
+    findings.push({
       code: "BRIEF_QUALITY_FOOTPRINT_SHAPE",
-      line: simplest[0].heading.index + 1,
-      message: "Declare a non-empty footprint, a one-line simplest shape, and a non-empty Non-goals: fence.",
-    };
+      line: footprint[0].heading.index + 1,
+      message: "Declare a non-empty footprint and a non-empty Non-goals: fence.",
+    });
   }
-  return null;
-}
-
-function qualitySurfaceFindings(markdown) {
-  return [
-    tableDeclarationFinding(markdown, QUALITY_DECLARATIONS.intent),
-    footprintShapeFinding(markdown),
-    tableDeclarationFinding(markdown, QUALITY_DECLARATIONS.ui),
-    tableDeclarationFinding(markdown, QUALITY_DECLARATIONS.data),
-    tableDeclarationFinding(markdown, QUALITY_DECLARATIONS.glossary),
-  ].filter(Boolean);
+  return findings;
 }
 
 function pointerFindings(markdown) {
@@ -413,7 +457,17 @@ export function lintBrief(body) {
     }
   }
   findings.push(...pointerFindings(markdown), ...salvageFindings(markdown));
-  findings.push(...qualitySurfaceFindings(markdown));
+  findings.push(
+    ...[
+      declarationFinding(markdown, QUALITY_DECLARATIONS.profile),
+      declarationFinding(markdown, QUALITY_DECLARATIONS.intent),
+      ...footprintShapeFindings(markdown),
+      declarationFinding(markdown, QUALITY_DECLARATIONS.ui),
+      declarationFinding(markdown, QUALITY_DECLARATIONS.data),
+      declarationFinding(markdown, QUALITY_DECLARATIONS.compatibility),
+      declarationFinding(markdown, QUALITY_DECLARATIONS.glossary),
+    ].filter(Boolean),
+  );
   return { bytes, findings, maxBytes: BRIEF_MAX_BYTES };
 }
 

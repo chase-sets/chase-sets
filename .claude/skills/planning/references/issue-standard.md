@@ -71,38 +71,46 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
 ## Quality-surface declarations
 
 Every newly registered or replanned brief declares the planning baseline for
-quality-v1 in these five shapes. The declaration is mechanical; the pressure
-test judges whether it is complete and true.
+quality-v2 below. Shape is mechanical; the pressure test judges truth.
 
-1. **AC exercised surfaces.** An `Intent surfaces` section contains a Markdown
-   table with exactly `Acceptance criterion | Exercised surface`. It has at
-   least one non-empty row and maps every AC to the public standard, scanner,
-   command, event, projection, UI state, contract field, or observation it
-   exercises. There is no `none` form.
-2. **Footprint and simplest shape.** `Footprint & chain` is non-empty,
-   `Simplest shape` is one non-empty line, and `Scope fence` contains a
-   non-empty `Non-goals:` declaration. There is no `none` form.
-3. **UI states and design-system sources.** `UI states and design-system
+1. **Quality profile.** One standalone line is exactly
+   `QUALITY_PROFILE: <profile>`, where `<profile>` is one installed fixed value: `prototype`,
+   `product-feature`, `core-library`, `hot-path`, `migration`, or `contract`.
+   The brief selects it explicitly; there is no negotiation, defaulting, or
+   profile autodetection in the linter.
+2. **AC exercised surfaces.** `Intent surfaces` contains a Markdown table with
+   exactly `Acceptance criterion | Exercised surface`, at least one fully
+   populated row, and every AC mapped to the public surface it exercises.
+3. **G0, footprint, and non-goals.** `Simplest shape` is exactly one non-empty
+   line. `Not built` is a Markdown table with exactly `Not built | Reason` and
+   at least one fully populated rejected-addition row. `Footprint & chain` is
+   non-empty, and `Scope fence` contains a non-empty `Non-goals:` declaration.
+   None of these declarations has a `none` form.
+4. **UI states and design-system sources.** `UI states and design-system
    sources` contains either the exact line `none — no UI surface changes.` or a
-   Markdown table whose exact ordered columns are `UI surface`, `Loading`,
-   `Empty`, `Error`, `Success`, and `Design-system component source`, with at
-   least one fully populated row.
-4. **Data-path envelope.** `Data-path envelope` contains either the exact line
-   `none — no data path changes.` or a Markdown table whose exact ordered
-   columns are `Data path`, `Bound`, `Index expectation`, and `Per-item I/O`,
-   with at least one fully populated row for each changed query or loop.
-5. **Glossary impact.** The existing `Glossary impact` section contains either
-   the exact line `none — no new or renamed public names.` or a Markdown table
-   with exactly `Public term | Owning glossary or contract` and at least one
-   fully populated row. Every new or renamed public name maps to its owning
-   `GLOSSARY.md` or published contract.
+   Markdown table with exact ordered columns `UI surface`, `Loading`, `Empty`,
+   `Error`, `Success`, and `Design-system component source`, plus a fully
+   populated row for every changed UI surface.
+5. **Data-path envelope.** `Data-path envelope` contains either the exact line
+   `none — no data path changes.` or a Markdown table with exact ordered columns
+   `Data path`, `Bound`, `Index expectation`, and `Per-item I/O`, plus a fully
+   populated row for every changed query or loop.
+6. **Contract compatibility.** `Contract compatibility` contains either the
+   exact line `none — no schema, event, or contract changes.` or a Markdown
+   table with exact ordered columns `Changed contract`, `Compatibility posture`,
+   and `Removed path`, plus a fully populated row for every changed contract.
+7. **Glossary impact.** `Glossary impact` contains either the exact line
+   `none — no new or renamed public names.` or a Markdown table with exactly
+   `Public term | Owning glossary or contract` and a fully populated row for
+   every new or renamed public name.
 
-Headings may use ATX, setext, or standalone-label Markdown and may sit beneath
-any valid parent section. Each declaration heading appears exactly once. A
-`none` form is the declaration's entire content and cannot accompany a table.
+Declaration headings may use ATX, setext, or standalone-label Markdown beneath
+any valid parent. Each heading and `QUALITY_PROFILE` appears exactly once. A
+`none` form is the declaration's entire payload and cannot accompany a table;
+empty or partial payloads do not pass merely because the heading exists.
 
 `ready-10-quality-surfaces` is the enforcing drafting-time presence-and-shape
-rule for these five declarations. `scripts/brief-lint.mjs` enforces it with no
+rule for these declarations. `scripts/brief-lint.mjs` enforces it with no
 opt-out on its CLI path. It is explicitly outside the `issue-readiness/v1`
 checked-rule set: ready-00 through ready-09, that receipt's rule list, and its
 schema remain unchanged. Semantic truth and conformance remain pressure-test

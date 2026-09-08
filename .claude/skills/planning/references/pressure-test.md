@@ -65,27 +65,55 @@ aspirational suggestion.
 Report findings ranked by rework-risk: a missed decision, false parallel
 claim, or unprobed authority-timing assumption outranks a fuzzy AC.
 
-## Quality-v1 verdict
+## Quality-v2 balance verdict
 
-The twelve rubric items above feed this distinct ordered verdict; they are the
-review method, not a second set of semantic requirements. Return all ten keys
-in this canonical order using quality-v1's evidence and sole blocking sub-case:
+The rubric above is the review method, not a second contract. Start with G0:
+construct a strictly smaller shape that meets every AC. If the chosen shape is
+not the smallest and the brief neither builds nor rejects the smaller one with
+a reason, return `BLOCK_REPLAN`. Verify the brief's not-built/reason rows.
 
-| Key | Evidence to inspect | Blocks only when |
-|---|---|---|
-| INTENT | Acceptance criteria mapped to executed probes | An acceptance criterion is unmet or has no executed probe |
-| CORRECTNESS | Executed reproductions on the exact head | Any confirmed incorrect behavior |
-| SECURITY | Threat notes for every touched authorization, input, secret, and data path | Any confirmed exposure |
-| SURFACES | Changed public surfaces and the test exercising each | A changed public surface has no test that exercises it |
-| SIMPLICITY | Diff against predicted footprint; every new abstraction and its caller count | Footprint is outside the fence or a new abstraction has one caller |
-| DEPTH | Public interface added versus the behavior it hides | An internal is exposed across a bounded-context boundary |
-| RELIABILITY | Failure modes and steady state for every changed lifecycle | An unhandled state or transition exists in a changed lifecycle |
-| PERFORMANCE | Bounds, indexes, and I/O per item for every changed query or loop | An unbounded query or per-item I/O exists on a hot path |
-| EXPERIENCE | Loading, empty, error, and success states plus design-system component sources | A state is missing or a component/override is outside the design system |
-| LANGUAGE | Every new or renamed public name mapped to its owning glossary or published contract | A public name contradicts the owning glossary or contract |
+Read exactly one declared `QUALITY_PROFILE`; never negotiate, infer, or detect
+one from domain vocabulary. Apply its fixed weights. High blocks on either
+side's stated sub-case, Med blocks only on too little, and Low makes both sides
+notes. Confirmed incorrect behavior under SCOPE and confirmed exposure under
+SECURITY always block.
 
-Taste, style, preference, and unrelated debt never block. For each key return
-`PASS`, `BLOCK <finding IDs>`, `NOTE <non-blocking IDs>`, or `N/A <absent
-surface>`; presence and shape from `ready-10-quality-surfaces` never substitute
-for this semantic judgment. A genuinely new concept without a glossary home is
-`BLOCK_REPLAN` under LANGUAGE, never an invented term.
+| Key | prototype | product-feature | core-library | hot-path | migration | contract |
+|---|---|---|---|---|---|---|
+| SCOPE | Med | High | High | High | High | High |
+| ROBUSTNESS | Low | Med | High | Med | High | High |
+| DEPTH | Med | Med | High | Med | Low | High |
+| READABILITY | Low | Med | High | Med | Med | Med |
+| TESTS | Low | Med | High | High | High | High |
+| OBSERVABILITY | Low | Med | Med | High | High | High |
+| SECURITY | Med | High | Med | Med | High | High |
+| PERFORMANCE | Low | Low | Med | High | Med | Low |
+| ROLLOUT | Low | Med | High | Med | High | High |
+| CONSISTENCY | Low | Med | High | Med | Med | High |
+| EXPERIENCE | Low | High | Low | Low | Low | Low |
+| LANGUAGE | Med | High | High | Med | Med | High |
+
+Return every pair below once, in this order, scoring both sides against its
+reproducible sub-case and the selected weight:
+
+| Key | Pair | Too little blocks when | Too much blocks when | Evidence |
+|---|---|---|---|---|
+| SCOPE | Correctness vs scope | A named state or acceptance criterion behaves incorrectly or has no executed probe | A behavior ships that no acceptance criterion asked for | Criteria mapped to executed probes; diff against the brief's footprint |
+| ROBUSTNESS | Simplicity vs robustness | A changed lifecycle has an unhandled state or transition | A guard, retry, or fallback names no concrete failure it prevents | State and failure-mode table; every guard annotated with its failure |
+| DEPTH | Depth vs flexibility | An internal is exposed across a bounded-context boundary, or the public interface is wider than the behavior it hides | A new abstraction has one caller and no second real caller named | Interface added versus behavior hidden; caller count per abstraction |
+| READABILITY | Readability vs brevity | Following one changed behavior from its entry point to its effect opens more than three non-test files, or a changed exported symbol states its behavior in none of its name, signature, types, or doc comment | A comment restates the adjacent code token for token, or a new identifier is an abbreviation found in neither the owning glossary nor the repo's convention list | Trace per changed behavior listing the files opened; exported-symbol table naming where each behavior is stated; comment diff; identifier list checked against the glossary |
+| TESTS | Coverage vs test weight | A changed public surface has no test that exercises it | A test asserts only implementation details and would break on a correct refactor | Surface-to-test table; each new test named with the behavior it pins |
+| OBSERVABILITY | Observability vs noise | A failure on a changed path produces no visible signal | Success on a changed path logs or alerts | Failure-signal table; log and alert diff |
+| SECURITY | Boundary security vs friction | Input, authorization, secrets, or personal data cross a boundary unhandled | Defensive checks sit deep inside trusted code | Boundary inventory; checks placed at the boundary only |
+| PERFORMANCE | Performance vs clarity | An unbounded query or per-item I/O on a measured hot path | An optimisation with no measurement on a path that is not hot | Bounds and indexes per query; measurement attached to each optimisation |
+| ROLLOUT | Rollout safety vs cleanup | A schema, event, or contract change is not backward-safe or reversible where it matters | A dead path, flag, or legacy branch remains once safe to remove | Compatibility note per changed contract; removed-paths list |
+| CONSISTENCY | Consistency vs improvement | A departure from local convention is unstated | A convention is followed where the brief called for a stated improvement | Departures listed with reasons |
+| EXPERIENCE | Design-system fidelity vs local override | A changed UI surface misses a state (loading, empty, error, success) or uses the wrong design-system pattern | A local override or new component where the design system already has one | State inventory; component sources |
+| LANGUAGE | Ubiquitous language vs convenience | A public name contradicts the owning glossary or a contract's published name | A new term is coined where the glossary already has one, or two names mean one thing | Public-name to glossary map; synonym check |
+
+Use the contract field names `QUALITY_PROFILE` and `QUALITY_VERDICT`, with a
+leading `G0: PASS <not-built list verified> | BLOCK_REPLAN <simpler shape>`
+line. Each key line includes `[High|Med|Low]`, `little=...`, and `much=...`.
+`PASS` names evidence, `BLOCK` names blocking IDs, `NOTE` names non-blocking
+IDs, and `N/A` names the absent surface. Taste, preference, and unrelated debt
+never block; ready-10 shape never substitutes for semantic judgment.

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -14,10 +15,13 @@ const ruleLines = [
 ];
 
 const qualityFindingCodes = new Set([
+  "BRIEF_QUALITY_PROFILE",
   "BRIEF_QUALITY_INTENT_SURFACES",
+  "BRIEF_QUALITY_G0",
   "BRIEF_QUALITY_FOOTPRINT_SHAPE",
   "BRIEF_QUALITY_UI_STATES",
   "BRIEF_QUALITY_DATA_PATH",
+  "BRIEF_QUALITY_CONTRACT_COMPATIBILITY",
   "BRIEF_QUALITY_GLOSSARY_IMPACT",
 ]);
 
@@ -30,37 +34,43 @@ const intentDeclaration = [
 ].join("\n");
 
 const qualitySections = {
+  profile: "QUALITY_PROFILE: product-feature",
   scope: "## Scope fence\n\nIn scope: bounded lint changes.\n\nNon-goals: no runtime or provider changes.",
   intent: intentDeclaration,
   footprint: "## Footprint & chain\n\n- `scripts/brief-lint.mjs`",
-  simplest: "## Simplest shape\n\nExtend the existing Markdown scan with five structural checks.",
+  simplest: "## Simplest shape\n\nExtend the existing Markdown scan with v2 declarations.",
+  notBuilt: "## Not built\n\n| Not built | Reason |\n|---|---|\n| Second parser | Existing scan owns Markdown. |",
   ui: "## UI states and design-system sources\n\nnone — no UI surface changes.",
   data: "## Data-path envelope\n\nnone — no data path changes.",
+  compatibility: "## Contract compatibility\n\nnone — no schema, event, or contract changes.",
   glossary: "## Glossary impact\n\nnone — no new or renamed public names.",
 };
 
 function conformingBrief(overrides = {}) {
   return [
     "# Context\n\nBounded planning lint change.",
+    overrides.profile ?? qualitySections.profile,
     overrides.scope ?? qualitySections.scope,
     overrides.intent ?? qualitySections.intent,
     overrides.footprint ?? qualitySections.footprint,
     overrides.simplest ?? qualitySections.simplest,
+    overrides.notBuilt ?? qualitySections.notBuilt,
     overrides.ui ?? qualitySections.ui,
     overrides.data ?? qualitySections.data,
+    overrides.compatibility ?? qualitySections.compatibility,
     overrides.glossary ?? qualitySections.glossary,
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-function legacyResult(body) {
+function nonQualityResult(body) {
   const result = lintBrief(body);
   return { ...result, findings: result.findings.filter((finding) => !qualityFindingCodes.has(finding.code)) };
 }
 
 function codes(body) {
-  return legacyResult(body).findings.map((finding) => finding.code);
+  return nonQualityResult(body).findings.map((finding) => finding.code);
 }
 
 function qualityCodes(body) {
@@ -69,14 +79,14 @@ function qualityCodes(body) {
 
 describe("brief body byte limit", () => {
   it("accepts exactly 12 × 1024 UTF-8 bytes and rejects one byte more", () => {
-    expect(legacyResult("a".repeat(BRIEF_MAX_BYTES))).toMatchObject({ bytes: BRIEF_MAX_BYTES, findings: [] });
+    expect(nonQualityResult("a".repeat(BRIEF_MAX_BYTES))).toMatchObject({ bytes: BRIEF_MAX_BYTES, findings: [] });
     expect(codes("a".repeat(BRIEF_MAX_BYTES + 1))).toContain("BRIEF_BODY_BYTES");
   });
 
   it("measures a Unicode boundary in UTF-8 bytes rather than JavaScript characters", () => {
     const exact = `${"a".repeat(BRIEF_MAX_BYTES - 4)}💡`;
     expect(exact.length).toBeLessThan(BRIEF_MAX_BYTES);
-    expect(legacyResult(exact)).toMatchObject({ bytes: BRIEF_MAX_BYTES, findings: [] });
+    expect(nonQualityResult(exact)).toMatchObject({ bytes: BRIEF_MAX_BYTES, findings: [] });
     expect(codes(`${exact}a`)).toContain("BRIEF_BODY_BYTES");
   });
 });
@@ -251,9 +261,28 @@ describe("planning integration", () => {
       expect.stringContaining("BRIEF_COLLISION_CENSUS"),
     ]);
   });
+
+  it("runs the actual public CLI with enforcing zero and one exits", () => {
+    const cliPath = path.join(repoRoot, "scripts/brief-lint.mjs");
+    const pass = spawnSync(process.execPath, [cliPath, "-"], { encoding: "utf8", input: conformingBrief() });
+    expect(pass).toMatchObject({ status: 0, stderr: "" });
+    expect(pass.stdout).toContain("Brief lint passed");
+
+    const fail = spawnSync(process.execPath, [cliPath, "-"], {
+      encoding: "utf8",
+      input: conformingBrief({ profile: "QUALITY_PROFILE:" }),
+    });
+    expect(fail.status).toBe(1);
+    expect(fail.stderr).toContain("BRIEF_QUALITY_PROFILE");
+  });
 });
 
 describe("ready-10 quality-surface declarations", () => {
+  it.each(["prototype", "product-feature", "core-library", "hot-path", "migration", "contract"])(
+    "accepts the installed %s profile",
+    (profile) => expect(qualityCodes(conformingBrief({ profile: `QUALITY_PROFILE: ${profile}` }))).toEqual([]),
+  );
+
   it("accepts the explicit no-surface forms and complete applicable tables", () => {
     expect(qualityCodes(conformingBrief())).toEqual([]);
     expect(
@@ -273,12 +302,19 @@ describe("ready-10 quality-surface declarations", () => {
             "|---|---|---|---|",
             "| Search scan | 100 rows | `items(search_key)` | none |",
           ].join("\n"),
+          compatibility: [
+            "## Contract compatibility",
+            "",
+            "| Changed contract | Compatibility posture | Removed path |",
+            "|---|---|---|",
+            "| Brief declaration | Breaking for future registrations | v1 declaration |",
+          ].join("\n"),
           glossary: [
             "## Glossary impact",
             "",
             "| Public term | Owning glossary or contract |",
             "|---|---|",
-            "| Quality surface | `contracts/quality-v1.md` |",
+            "| Quality profile | `contracts/quality-v2.md` |",
           ].join("\n"),
         }),
       ),
@@ -288,19 +324,32 @@ describe("ready-10 quality-surface declarations", () => {
   it("accepts alternate Markdown section syntax independent of the parent section", () => {
     const alternate = [
       "Context\n=======\n\nBounded planning lint change.",
+      "QUALITY_PROFILE: core-library",
       "Scope fence\n-----------\n\nNon-goals: no runtime changes.",
       "## Arbitrary valid planning section",
       "Intent surfaces:\n\n| Acceptance criterion | Exercised surface |\n|---|---|\n| AC1 | CLI |",
       "Footprint & chain\n-----------------\n\n- `scripts/brief-lint.mjs`",
       "Simplest shape:\n\nExtend the existing scan.",
+      "Not built:\n\n| Not built | Reason |\n|---|---|\n| Parser | Existing scan owns it. |",
       "UI states and design-system sources:\n\nnone — no UI surface changes.",
       "Data-path envelope\n------------------\n\nnone — no data path changes.",
+      "Contract compatibility\n----------------------\n\nnone — no schema, event, or contract changes.",
       "Glossary impact\n---------------\n\nnone — no new or renamed public names.",
     ].join("\n\n");
     expect(qualityCodes(alternate)).toEqual([]);
   });
 
   it.each([
+    ["missing quality profile", { profile: "" }, "BRIEF_QUALITY_PROFILE"],
+    ["empty quality profile", { profile: "QUALITY_PROFILE:" }, "BRIEF_QUALITY_PROFILE"],
+    ["unknown quality profile", { profile: "QUALITY_PROFILE: service" }, "BRIEF_QUALITY_PROFILE"],
+    [
+      "duplicate quality profile",
+      { profile: "QUALITY_PROFILE: core-library\nQUALITY_PROFILE: contract" },
+      "BRIEF_QUALITY_PROFILE",
+    ],
+    ["fenced pseudo-profile", { profile: "```text\nQUALITY_PROFILE: core-library\n```" }, "BRIEF_QUALITY_PROFILE"],
+    ["indented-code pseudo-profile", { profile: "    QUALITY_PROFILE: core-library" }, "BRIEF_QUALITY_PROFILE"],
     ["missing intent declaration", { intent: "" }, "BRIEF_QUALITY_INTENT_SURFACES"],
     [
       "empty intent table row",
@@ -318,11 +367,25 @@ describe("ready-10 quality-surface declarations", () => {
       "BRIEF_QUALITY_INTENT_SURFACES",
     ],
     ["empty footprint", { footprint: "## Footprint & chain" }, "BRIEF_QUALITY_FOOTPRINT_SHAPE"],
-    ["missing simplest shape", { simplest: "" }, "BRIEF_QUALITY_FOOTPRINT_SHAPE"],
+    ["missing simplest shape", { simplest: "" }, "BRIEF_QUALITY_G0"],
     [
       "multi-line simplest shape",
       { simplest: "## Simplest shape\n\nExtend the existing scan\nwith another parser." },
-      "BRIEF_QUALITY_FOOTPRINT_SHAPE",
+      "BRIEF_QUALITY_G0",
+    ],
+    ["missing not-built declaration", { notBuilt: "" }, "BRIEF_QUALITY_G0"],
+    [
+      "blank not-built reason",
+      { notBuilt: "## Not built\n\n| Not built | Reason |\n|---|---|\n| Second parser | |" },
+      "BRIEF_QUALITY_G0",
+    ],
+    [
+      "not-built payload outside its heading boundary",
+      {
+        notBuilt:
+          "## Not built\n\n## Arbitrary peer\n\n| Not built | Reason |\n|---|---|\n| Second parser | Existing scan owns it. |",
+      },
+      "BRIEF_QUALITY_G0",
     ],
     [
       "missing non-goals declaration",
@@ -355,12 +418,25 @@ describe("ready-10 quality-surface declarations", () => {
       },
       "BRIEF_QUALITY_DATA_PATH",
     ],
+    [
+      "malformed compatibility none form",
+      { compatibility: "Contract compatibility:\n\nnone" },
+      "BRIEF_QUALITY_CONTRACT_COMPATIBILITY",
+    ],
+    [
+      "blank compatibility posture",
+      {
+        compatibility:
+          "## Contract compatibility\n\n| Changed contract | Compatibility posture | Removed path |\n|---|---|---|\n| Brief | | v1 |",
+      },
+      "BRIEF_QUALITY_CONTRACT_COMPATIBILITY",
+    ],
     ["malformed glossary none form", { glossary: "Glossary impact:\n\nnone" }, "BRIEF_QUALITY_GLOSSARY_IMPACT"],
     [
       "incomplete glossary table",
       {
         glossary:
-          "## Glossary impact\n\n| Public term | Owner |\n|---|---|\n| Quality surface | `contracts/quality-v1.md` |",
+          "## Glossary impact\n\n| Public term | Owner |\n|---|---|\n| Quality profile | `contracts/quality-v2.md` |",
       },
       "BRIEF_QUALITY_GLOSSARY_IMPACT",
     ],
@@ -400,10 +476,13 @@ describe("ready-10 quality-surface declarations", () => {
     const findings = qualityCodes("# Collision census\n");
     expect(findings).toContain("BRIEF_COLLISION_CENSUS");
     expect(findings.filter((code) => qualityFindingCodes.has(code))).toEqual([
+      "BRIEF_QUALITY_PROFILE",
       "BRIEF_QUALITY_INTENT_SURFACES",
+      "BRIEF_QUALITY_G0",
       "BRIEF_QUALITY_FOOTPRINT_SHAPE",
       "BRIEF_QUALITY_UI_STATES",
       "BRIEF_QUALITY_DATA_PATH",
+      "BRIEF_QUALITY_CONTRACT_COMPATIBILITY",
       "BRIEF_QUALITY_GLOSSARY_IMPACT",
     ]);
   });
@@ -419,30 +498,56 @@ describe("quality-surface planning contract mirrors", () => {
     ".claude/skills/planning/references/pressure-test.md",
   ];
   const qualityKeys = [
-    "INTENT",
-    "CORRECTNESS",
-    "SECURITY",
-    "SURFACES",
-    "SIMPLICITY",
+    "SCOPE",
+    "ROBUSTNESS",
     "DEPTH",
-    "RELIABILITY",
+    "READABILITY",
+    "TESTS",
+    "OBSERVABILITY",
+    "SECURITY",
     "PERFORMANCE",
+    "ROLLOUT",
+    "CONSISTENCY",
     "EXPERIENCE",
     "LANGUAGE",
   ];
+  const profileRows = [
+    "| SCOPE | Med | High | High | High | High | High |",
+    "| ROBUSTNESS | Low | Med | High | Med | High | High |",
+    "| DEPTH | Med | Med | High | Med | Low | High |",
+    "| READABILITY | Low | Med | High | Med | Med | Med |",
+    "| TESTS | Low | Med | High | High | High | High |",
+    "| OBSERVABILITY | Low | Med | Med | High | High | High |",
+    "| SECURITY | Med | High | Med | Med | High | High |",
+    "| PERFORMANCE | Low | Low | Med | High | Med | Low |",
+    "| ROLLOUT | Low | Med | High | Med | High | High |",
+    "| CONSISTENCY | Low | Med | High | Med | Med | High |",
+    "| EXPERIENCE | Low | High | Low | Low | Low | Low |",
+    "| LANGUAGE | Med | High | High | Med | Med | High |",
+  ];
   const read = (relativePath) => readFileSync(path.join(repoRoot, relativePath), "utf8");
-  const verdictKeys = (source) => [...source.matchAll(/^\| ([A-Z]+) \|/gm)].map((match) => match[1]);
-  const hasCanonicalVerdict = (source) => JSON.stringify(verdictKeys(source)) === JSON.stringify(qualityKeys);
+  const pairSection = (source) =>
+    source.slice(source.indexOf("| Key | Pair |"), source.indexOf("\n\nUse the contract"));
+  const pairKeys = (source) => [...pairSection(source).matchAll(/^\| ([A-Z]+) \|/gm)].map((match) => match[1]);
+  const hasCanonicalPairs = (source) => {
+    const section = pairSection(source);
+    return (
+      JSON.stringify(pairKeys(source)) === JSON.stringify(qualityKeys) &&
+      section.includes("| Key | Pair | Too little blocks when | Too much blocks when | Evidence |")
+    );
+  };
 
-  it("keeps the five declarations and drafting-only ready-10 rule identical in both issue standards", () => {
+  it("keeps the v2 declarations and drafting-only ready-10 rule identical in both issue standards", () => {
     const sources = issueStandardPaths.map(read);
     expect(sources[0]).toBe(sources[1]);
     for (const token of [
-      "1. **AC exercised surfaces.**",
-      "2. **Footprint and simplest shape.**",
-      "3. **UI states and design-system sources.**",
-      "4. **Data-path envelope.**",
-      "5. **Glossary impact.** The existing",
+      "1. **Quality profile.**",
+      "2. **AC exercised surfaces.**",
+      "3. **G0, footprint, and non-goals.**",
+      "4. **UI states and design-system sources.**",
+      "5. **Data-path envelope.**",
+      "6. **Contract compatibility.**",
+      "7. **Glossary impact.**",
       "`ready-10-quality-surfaces`",
       "explicitly outside the `issue-readiness/v1`",
     ]) {
@@ -457,25 +562,54 @@ describe("quality-surface planning contract mirrors", () => {
     }
   });
 
-  it("keeps the complete canonical ten-key verdict identical in both pressure-test mirrors", () => {
+  it("keeps G0, profile weights, and the canonical twelve two-sided pairs identical in both mirrors", () => {
     const sources = pressureTestPaths.map(read);
     expect(sources[0]).toBe(sources[1]);
-    expect(verdictKeys(sources[0])).toEqual(qualityKeys);
+    expect(sources[0]).toContain("QUALITY_PROFILE");
+    expect(sources[0]).toContain("G0: PASS <not-built list verified> | BLOCK_REPLAN <simpler shape>");
+    expect(profileRows.every((row) => sources[0].split(row).length === 2)).toBe(true);
+    expect(pairKeys(sources[0])).toEqual(qualityKeys);
   });
 
-  it("rejects omitted, duplicated, reordered, and renamed verdict keys", () => {
+  it("detects profile-weight drift", () => {
     const source = read(pressureTestPaths[0]);
-    const intentLine =
-      "| INTENT | Acceptance criteria mapped to executed probes | An acceptance criterion is unmet or has no executed probe |";
-    const correctnessLine =
-      "| CORRECTNESS | Executed reproductions on the exact head | Any confirmed incorrect behavior |";
+    const hasCanonicalWeights = (value) =>
+      value.includes("| Key | prototype | product-feature | core-library | hot-path | migration | contract |") &&
+      profileRows.every((row) => value.split(row).length === 2);
     for (const mutation of [
-      source.replace(`${intentLine}\n`, ""),
-      source.replace(intentLine, `${intentLine}\n${intentLine}`),
-      source.replace(`${intentLine}\n${correctnessLine}`, `${correctnessLine}\n${intentLine}`),
-      source.replace("| INTENT |", "| PURPOSE |"),
+      source.replace("| Key | prototype | product-feature | core-library |", "| Key | prototype | core-library |"),
+      source.replace(
+        profileRows[0],
+        profileRows[0].replace("| High | High | High | High | High |", "| Low | High | High | High | High |"),
+      ),
+      source.replace(
+        "| ROBUSTNESS | Low | Med | High | Med | High | High |",
+        "| ROBUSTNESS | Low | Med | Extreme | Med | High | High |",
+      ),
     ]) {
-      expect(hasCanonicalVerdict(mutation)).toBe(false);
+      expect(hasCanonicalWeights(mutation)).toBe(false);
+    }
+  });
+
+  it("rejects omitted, duplicated, reordered, renamed, and one-sided pair declarations", () => {
+    const source = read(pressureTestPaths[0]);
+    const scopeLine = pairSection(source)
+      .split("\n")
+      .find((line) => line.startsWith("| SCOPE |"));
+    const robustnessLine = pairSection(source)
+      .split("\n")
+      .find((line) => line.startsWith("| ROBUSTNESS |"));
+    for (const mutation of [
+      source.replace(`${scopeLine}\n`, ""),
+      source.replace(scopeLine, `${scopeLine}\n${scopeLine}`),
+      source.replace(`${scopeLine}\n${robustnessLine}`, `${robustnessLine}\n${scopeLine}`),
+      source.replace(scopeLine, scopeLine.replace("| SCOPE |", "| PURPOSE |")),
+      source.replace(
+        "| Key | Pair | Too little blocks when | Too much blocks when | Evidence |",
+        "| Key | Pair | Too little blocks when | Evidence |",
+      ),
+    ]) {
+      expect(hasCanonicalPairs(mutation)).toBe(false);
     }
   });
 });
