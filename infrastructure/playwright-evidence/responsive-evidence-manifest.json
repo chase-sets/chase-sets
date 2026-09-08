@@ -246,6 +246,146 @@
     },
     {
       "kind": "claim",
+      "id": "population-bulk-positive",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "records every row in a high-cardinality population @marketplace-browse",
+      "route": {
+        "name": "high-cardinality populated target fixture",
+        "path": "/responsive-evidence/population-bulk-positive"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:population-bulk-positive:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "population-bulk-positive",
+        "selector": "[data-evidence-target='population-bulk-positive']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "population-bulk-positive-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "equals": 820,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "population-bulk-positive"
+    },
+    {
+      "kind": "negative-control",
+      "id": "population-bulk-hidden-late",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when a late population row is hidden @marketplace-browse",
+      "route": {
+        "name": "high-cardinality late hidden population fixture",
+        "path": "/responsive-evidence/population-bulk-hidden-late"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:population-bulk-hidden-late:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "population-bulk-hidden-late",
+        "selector": "[data-evidence-target='population-bulk-hidden-late']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "population-bulk-hidden-late-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "equals": 820,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "population-bulk-hidden-late"
+    },
+    {
+      "kind": "negative-control",
+      "id": "population-bulk-zero-layout-late",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when a late population row has zero layout @marketplace-browse",
+      "route": {
+        "name": "high-cardinality late zero-layout population fixture",
+        "path": "/responsive-evidence/population-bulk-zero-layout-late"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:population-bulk-zero-layout-late:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "population-bulk-zero-layout-late",
+        "selector": "[data-evidence-target='population-bulk-zero-layout-late']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "population-bulk-zero-layout-late-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "equals": 820,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "population-bulk-zero-layout-late"
+    },
+    {
+      "kind": "negative-control",
+      "id": "population-bulk-absent",
+      "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
+      "testTitle": "fails before capture when a high-cardinality fixture has no matching population @marketplace-browse",
+      "route": {
+        "name": "high-cardinality absent population fixture",
+        "path": "/responsive-evidence/population-bulk-absent"
+      },
+      "fixture": {
+        "identity": "responsive-evidence:population-bulk-absent:v1"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "population-bulk-absent",
+        "selector": "[data-evidence-target='population-bulk-absent']",
+        "populatedSelector": ":scope > [data-evidence-row]"
+      },
+      "measurements": [
+        {
+          "identity": "population-bulk-absent-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "equals": 820,
+            "tolerance": 0.5
+          }
+        }
+      ],
+      "artifact": "population-bulk-absent"
+    },
+    {
+      "kind": "claim",
       "id": "fixture-scope-cards-mobile",
       "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
       "testTitle": "records exact mobile card evidence at 390px @marketplace-browse",
