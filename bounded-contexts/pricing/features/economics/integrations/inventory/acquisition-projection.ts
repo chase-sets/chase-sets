@@ -55,7 +55,7 @@ export async function projectInventoryAcquisitionLot(
        SELECT pricing_inventory_item_inputs.seller_account_id AS account_id
        FROM pricing_inventory_item_inputs
        WHERE pricing_inventory_item_inputs.item_id = $1
-     ), inserted AS (
+     ), persisted AS (
        INSERT INTO pricing_inventory_acquisition_lots (
          account_id,
          inventory_item_id,
@@ -69,23 +69,19 @@ export async function projectInventoryAcquisitionLot(
        )
        SELECT account_binding.account_id, $1, $2, $3, $4, $5, $6, $7, $8
        FROM account_binding
-       ON CONFLICT (account_id, inventory_item_id, event_stream_version) DO NOTHING
+       ON CONFLICT (account_id, inventory_item_id, event_stream_version) DO UPDATE
+       SET quantity = pricing_inventory_acquisition_lots.quantity
+       WHERE pricing_inventory_acquisition_lots.quantity = EXCLUDED.quantity
+         AND pricing_inventory_acquisition_lots.occurrence_kind = EXCLUDED.occurrence_kind
+         AND pricing_inventory_acquisition_lots.acquired_at IS NOT DISTINCT FROM EXCLUDED.acquired_at
+         AND pricing_inventory_acquisition_lots.occurrence_source IS NOT DISTINCT FROM EXCLUDED.occurrence_source
+         AND pricing_inventory_acquisition_lots.last_source_event_id = EXCLUDED.last_source_event_id
+         AND pricing_inventory_acquisition_lots.last_source_event_recorded_at = EXCLUDED.last_source_event_recorded_at
        RETURNING 1
      )
      SELECT
        (SELECT COUNT(*)::text FROM account_binding) AS binding_count,
-       (SELECT COUNT(*)::text
-        FROM pricing_inventory_acquisition_lots
-        JOIN account_binding
-          ON account_binding.account_id = pricing_inventory_acquisition_lots.account_id
-        WHERE pricing_inventory_acquisition_lots.inventory_item_id = $1
-          AND pricing_inventory_acquisition_lots.event_stream_version = $2
-          AND pricing_inventory_acquisition_lots.quantity = $3
-          AND pricing_inventory_acquisition_lots.occurrence_kind = $4
-          AND pricing_inventory_acquisition_lots.acquired_at IS NOT DISTINCT FROM $5::timestamptz
-          AND pricing_inventory_acquisition_lots.occurrence_source IS NOT DISTINCT FROM $6::text
-          AND pricing_inventory_acquisition_lots.last_source_event_id = $7
-          AND pricing_inventory_acquisition_lots.last_source_event_recorded_at = $8::timestamptz) AS persisted_count`,
+       (SELECT COUNT(*)::text FROM persisted) AS persisted_count`,
     [itemId, event.streamVersion, quantity, occurrence.kind, columns[0], columns[1], eventId, recordedAt],
   );
   const outcome = result.rows[0];
@@ -111,7 +107,7 @@ type LotInsert = Readonly<{
 
 async function insertKnownAccountLot(db: PgQueryable, input: LotInsert): Promise<void> {
   const result = await db.query<{ persisted_count: string }>(
-    `WITH inserted AS (
+    `WITH persisted AS (
        INSERT INTO pricing_inventory_acquisition_lots (
          account_id,
          inventory_item_id,
@@ -123,20 +119,18 @@ async function insertKnownAccountLot(db: PgQueryable, input: LotInsert): Promise
          last_source_event_id,
          last_source_event_recorded_at
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (account_id, inventory_item_id, event_stream_version) DO NOTHING
+       ON CONFLICT (account_id, inventory_item_id, event_stream_version) DO UPDATE
+       SET quantity = pricing_inventory_acquisition_lots.quantity
+       WHERE pricing_inventory_acquisition_lots.quantity = EXCLUDED.quantity
+         AND pricing_inventory_acquisition_lots.occurrence_kind = EXCLUDED.occurrence_kind
+         AND pricing_inventory_acquisition_lots.acquired_at IS NOT DISTINCT FROM EXCLUDED.acquired_at
+         AND pricing_inventory_acquisition_lots.occurrence_source IS NOT DISTINCT FROM EXCLUDED.occurrence_source
+         AND pricing_inventory_acquisition_lots.last_source_event_id = EXCLUDED.last_source_event_id
+         AND pricing_inventory_acquisition_lots.last_source_event_recorded_at = EXCLUDED.last_source_event_recorded_at
        RETURNING 1
      )
      SELECT COUNT(*)::text AS persisted_count
-     FROM pricing_inventory_acquisition_lots
-     WHERE pricing_inventory_acquisition_lots.account_id = $1
-       AND pricing_inventory_acquisition_lots.inventory_item_id = $2
-       AND pricing_inventory_acquisition_lots.event_stream_version = $3
-       AND pricing_inventory_acquisition_lots.quantity = $4
-       AND pricing_inventory_acquisition_lots.occurrence_kind = $5
-       AND pricing_inventory_acquisition_lots.acquired_at IS NOT DISTINCT FROM $6::timestamptz
-       AND pricing_inventory_acquisition_lots.occurrence_source IS NOT DISTINCT FROM $7::text
-       AND pricing_inventory_acquisition_lots.last_source_event_id = $8
-       AND pricing_inventory_acquisition_lots.last_source_event_recorded_at = $9::timestamptz`,
+     FROM persisted`,
     [
       input.accountId,
       input.itemId,
@@ -155,8 +149,8 @@ async function insertKnownAccountLot(db: PgQueryable, input: LotInsert): Promise
 }
 
 function parseAcquisitionOccurrence(raw: unknown, commandOccurredAt: string): AcquisitionOccurrence {
-  // Retained events emitted before #7707 had no occurrence field. Their
-  // history remains readable, but it remains explicitly unknown.
+  // Retained events emitted before acquisition occurrence was captured have
+  // no occurrence field. Their history remains readable and explicitly unknown.
   if (raw === undefined) return { kind: "unknown" };
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error("acquisitionOccurrence must be an object.");

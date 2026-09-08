@@ -37,6 +37,11 @@ describe("Inventory acquisition lot projection adapter", () => {
       }),
       "inventory.item.created",
     );
+    expect(target.calls[0]?.[0]).toContain(
+      "ON CONFLICT (account_id, inventory_item_id, event_stream_version) DO UPDATE",
+    );
+    expect(target.calls[0]?.[0]).toContain("last_source_event_id = EXCLUDED.last_source_event_id");
+    expect(target.calls[0]?.[0]).toContain("FROM persisted");
     expect(target.calls[0]?.[1]).toEqual([
       "synthetic-owner-account",
       "synthetic-item",

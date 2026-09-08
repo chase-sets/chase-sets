@@ -68,7 +68,7 @@ export type EconomicsForPricingGoal = Readonly<{
   dailyReturnHurdle: EconomicsFact<number>;
 }>;
 
-/** Pure #7706-facing adapter: it copies already-resolved facts and never
+/** Pure goal-facing adapter: it copies already-resolved facts and never
  * derives fees, costs, or hurdles in the goal engine. */
 export function toEconomicsForPricingGoal(resolution: EconomicsResolution): EconomicsForPricingGoal {
   return resolution.kind === "resolved"

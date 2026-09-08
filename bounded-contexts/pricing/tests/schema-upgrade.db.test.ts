@@ -248,7 +248,31 @@ describeDb("pricing schema upgrades", () => {
       "2026-09-01T10:00:05.000Z",
     );
     await inventoryHandlers["inventory.item.created"]!(created);
+    const cleanFirstWrite = await pool.query(
+      `SELECT account_id, inventory_item_id, event_stream_version, quantity, occurrence_kind,
+              acquired_at::text, occurrence_source, last_source_event_id, last_source_event_recorded_at::text
+       FROM pricing_inventory_acquisition_lots`,
+    );
+    expect(cleanFirstWrite.rows).toEqual([
+      {
+        account_id: "seller_1",
+        inventory_item_id: "item_1",
+        event_stream_version: 1,
+        quantity: 2,
+        occurrence_kind: "occurred",
+        acquired_at: "2026-08-01 09:00:00+00",
+        occurrence_source: "import-supplied",
+        last_source_event_id: "evt_inventory",
+        last_source_event_recorded_at: "2026-09-01 10:00:05+00",
+      },
+    ]);
     await inventoryHandlers["inventory.item.created"]!(created);
+    const exactReplay = await pool.query(
+      `SELECT account_id, inventory_item_id, event_stream_version, quantity, occurrence_kind,
+              acquired_at::text, occurrence_source, last_source_event_id, last_source_event_recorded_at::text
+       FROM pricing_inventory_acquisition_lots`,
+    );
+    expect(exactReplay.rows).toEqual(cleanFirstWrite.rows);
     await expect(
       inventoryHandlers["inventory.item.created"]!(
         event(
@@ -269,6 +293,12 @@ describeDb("pricing schema upgrades", () => {
         ),
       ),
     ).rejects.toThrow(/conflicts with a different source event/);
+    const conflictingSourceRefused = await pool.query(
+      `SELECT account_id, inventory_item_id, event_stream_version, quantity, occurrence_kind,
+              acquired_at::text, occurrence_source, last_source_event_id, last_source_event_recorded_at::text
+       FROM pricing_inventory_acquisition_lots`,
+    );
+    expect(conflictingSourceRefused.rows).toEqual(cleanFirstWrite.rows);
     await inventoryHandlers["inventory.item.adjusted"]!(
       event(
         "evt_adjust_unknown",

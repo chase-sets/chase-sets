@@ -14,6 +14,9 @@ describe("channel-publication-no-redeclaration", () => {
     const contractsSource = readFileSync(path.join(repoRoot, publicationContractsPath), "utf8");
     expect(files.size).toBeGreaterThan(0);
     expect(files.has("bounded-contexts/channels/index.ts")).toBe(true);
+    expect(files.has("scripts/check-structure/fixtures/channel-connection-contract/economics-local-alias.ts")).toBe(
+      false,
+    );
     expect(collectStructuralRedeclarations(files, contractsSource)).toEqual([]);
 
     const siblingMutant = new Map(files);

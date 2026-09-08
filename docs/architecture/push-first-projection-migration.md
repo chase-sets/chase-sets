@@ -178,6 +178,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `pricing:pricing-market-input-projection` | Pricing | **marketplace** | push-enabled | 1/1 |
 | `pricing:pricing-market-trades-projection` | Pricing | authenticity, fulfillment, **identity**, **ordering**, **payments** | push-eligible | 3/5 |
 | `pricing:pricing-order-input-projection` | Pricing | **ordering** | push-enabled | 1/1 |
+| `pricing:pricing-economics-overrides-projection` | Pricing | pricing | push-eligible | 0/1 |
 | `pricing:pricing-repricing-evaluation-reaction` | Pricing | **marketplace**, pricing | push-eligible | 1/2 |
 | `public-presence:platform-policy-document-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
 | `public-presence:public-presence-waitlist-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |

@@ -50,6 +50,7 @@ describe("pricing market-trades source projection", () => {
     expect(calls[1]?.params).toEqual([
       "ord_1",
       "line_1",
+      null,
       "seller_1",
       "buyer_1",
       "cat_1",
@@ -88,7 +89,7 @@ describe("pricing market-trades source projection", () => {
         timing: { recordedAt: "2026-07-01T00:00:00.000Z" },
       } as never);
 
-      expect(calls[1]?.params?.[8]).toBe(expectedChannel);
+      expect(calls[1]?.params?.[9]).toBe(expectedChannel);
     }
   });
 
