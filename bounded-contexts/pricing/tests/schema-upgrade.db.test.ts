@@ -208,13 +208,13 @@ describeDb("pricing schema upgrades", () => {
        ORDER BY relname`,
     );
     expect(persistence.rows).toEqual([
+      { relname: "pricing_economics_overrides", relpersistence: "u" },
       { relname: "pricing_external_catalog_item_reference_inputs", relpersistence: "u" },
       { relname: "pricing_external_listing_ask_depth", relpersistence: "p" },
       { relname: "pricing_external_listing_snapshots", relpersistence: "p" },
       { relname: "pricing_external_market_captures", relpersistence: "p" },
       { relname: "pricing_external_sale_observations", relpersistence: "p" },
       { relname: "pricing_external_weekly_sale_buckets", relpersistence: "p" },
-      { relname: "pricing_economics_overrides", relpersistence: "u" },
       { relname: "pricing_inventory_acquisition_lots", relpersistence: "u" },
     ]);
   });
