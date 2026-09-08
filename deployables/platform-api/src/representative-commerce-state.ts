@@ -12,7 +12,7 @@ import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@ch
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import { reconcileRepresentativeProductContentsScenario } from "@chase-sets/catalog/server";
-import type { MarketplaceServices } from "@chase-sets/marketplace";
+import type { MarketplaceServices } from "@chase-sets/marketplace/server";
 import {
   normalizeRepresentativeCandidateLimit,
   acceptRepresentativeOffers,

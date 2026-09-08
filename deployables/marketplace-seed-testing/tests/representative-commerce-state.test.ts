@@ -1,5 +1,5 @@
 import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
-import type { MarketplaceServices } from "@chase-sets/marketplace";
+import type { MarketplaceServices } from "@chase-sets/marketplace/server";
 import {
   acceptRepresentativeOffers,
   ensureRepresentativeInventoryStock,
