@@ -323,7 +323,6 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
        WHERE listing.product_id = $2
          AND listing.status = 'active'
          AND listing.account_id <> $1
-         AND listing.price_currency_code = $4
        ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
       [buyerAccountId, productId, dailyWindowStart, offerPriceCurrencyCode.trim().toUpperCase()],
     );

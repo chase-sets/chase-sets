@@ -199,6 +199,29 @@ describe("marketplace offer runtime", () => {
     } satisfies Partial<MarketplaceOfferAbuseControlError>);
   });
 
+  it("preserves per-listing caps before filtering monetary comparisons by currency", async () => {
+    const db = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [activeCatalogItem()] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ count: "0" }] })
+        .mockResolvedValueOnce({
+          rows: [
+            activeListingGuard({
+              listing_price_currency_code: "EUR",
+              buyer_listing_daily_offer_count: "3",
+            }),
+          ],
+        }),
+    };
+
+    await expect(submitOfferWithDb(db)).rejects.toMatchObject({
+      code: "offer_listing_submission_cap_reached",
+    } satisfies Partial<MarketplaceOfferAbuseControlError>);
+    expect(db.query.mock.calls[3]?.[0]).not.toContain("listing.price_currency_code = $4");
+  });
+
   it("rejects offer submissions below the listing-relative price floor", async () => {
     const db = {
       query: vi
