@@ -1071,7 +1071,7 @@ describe("public waitlist form migration smoke", () => {
       for (const element of sectionElements) {
         act(() => {
           sectionInstance.callback(
-            [{ target: element, isIntersecting: true } as IntersectionObserverEntry],
+            [{ target: element, isIntersecting: true } as unknown as IntersectionObserverEntry],
             {} as IntersectionObserver,
           );
         });
@@ -1089,7 +1089,7 @@ describe("public waitlist form migration smoke", () => {
       for (const element of sectionElements) {
         act(() => {
           sectionInstance.callback(
-            [{ target: element, isIntersecting: true } as IntersectionObserverEntry],
+            [{ target: element, isIntersecting: true } as unknown as IntersectionObserverEntry],
             {} as IntersectionObserver,
           );
         });
