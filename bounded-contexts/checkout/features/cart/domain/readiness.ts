@@ -161,7 +161,7 @@ function optionHasPricedAvailability(option: CartReadinessSellerOption) {
 }
 
 function optionHasAvailablePricedQuantity(option: CartReadinessSellerOption, quantity: number) {
-  return option.available_quantity >= quantity && moneyValue(option.price_amount) !== null;
+  return option.available_quantity >= quantity && optionHasPricedAvailability(option);
 }
 
 function optionCanFulfill(option: CartReadinessSellerOption, quantity: number) {

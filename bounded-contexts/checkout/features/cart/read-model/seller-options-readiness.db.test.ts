@@ -126,7 +126,7 @@ describeDb("seller-options readiness against the checkout read model", () => {
     }
   });
 
-  it("marks an added locked listing ready and offers a Save-$X optimization the buyer can accept", async () => {
+  it("marks an added locked listing ready and offers a currency-qualified optimization the buyer can accept", async () => {
     await seedReadModel(
       [seededLine()],
       [
@@ -155,7 +155,7 @@ describeDb("seller-options readiness against the checkout read model", () => {
       currentListingId: "lst_dear",
       savingsAmount: "6.00",
     });
-    expect(proposed.customerSafeFacts).toContain("Save $6.00 by changing fulfillment before checkout.");
+    expect(proposed.customerSafeFacts).toContain("Save USD 6.00 by changing fulfillment before checkout.");
 
     const accepted = createCartReadinessSnapshot(cartLines, {
       optimization: { decision: "accepted", lineId: "cli_charizard", listingId: "lst_cheap" },

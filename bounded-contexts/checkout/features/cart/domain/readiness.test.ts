@@ -91,6 +91,8 @@ describe("cart readiness snapshots", () => {
           seller_account_id: "acc_second_seller",
           seller_display_name: "Second Seller",
           price_amount: "10.00",
+          price_currency_code: "USD",
+          listing_stream_version: 8,
           available_quantity: 2,
           product_summary: "Raw",
           product_measure_snapshot: rawProductMeasureSnapshot,
@@ -188,6 +190,8 @@ describe("cart readiness snapshots", () => {
           seller_account_id: "acc_expensive",
           seller_display_name: "Expensive Seller",
           price_amount: "30.00",
+          price_currency_code: "USD",
+          listing_stream_version: 8,
           available_quantity: 1,
           product_summary: "Raw",
           product_measure_snapshot: rawProductMeasureSnapshot,
@@ -197,6 +201,8 @@ describe("cart readiness snapshots", () => {
           seller_account_id: "acc_lower",
           seller_display_name: "Lower Seller",
           price_amount: "24.00",
+          price_currency_code: "USD",
+          listing_stream_version: 9,
           available_quantity: 1,
           product_summary: "Raw",
           product_measure_snapshot: rawProductMeasureSnapshot,
@@ -216,13 +222,50 @@ describe("cart readiness snapshots", () => {
       proposedListingId: "lst_lower",
       currentListingId: "lst_expensive",
       savingsAmount: "6.00",
+      currency: "USD",
     });
+    expect(proposed.customerSafeFacts).toContain("Save USD 6.00 by changing fulfillment before checkout.");
     expect(accepted.status).toBe("ready");
     expect(accepted.optimization.decision).toBe("accepted");
     expect(checkoutLines[0]).toMatchObject({
       fulfillment_mode: "locked-listing",
       locked_listing_id: "lst_lower",
     });
+  });
+
+  it("keeps incomplete legacy Listing money pairs out of fulfillment and savings", () => {
+    const incompleteLine: CartReadinessLine = {
+      ...readyLine,
+      seller_options: [{ ...readyLine.seller_options[0]!, price_currency_code: null }],
+    };
+
+    const snapshot = createCartReadinessSnapshot([incompleteLine]);
+
+    expect(cartReadinessLineHasFulfillment(incompleteLine)).toBe(false);
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.optimization.available).toBe(false);
+  });
+
+  it("keeps complete cross-currency Listing prices out of savings comparisons", () => {
+    const crossCurrencyLine: CartReadinessLine = {
+      ...readyLine,
+      seller_options: [
+        { ...readyLine.seller_options[0]!, price_amount: "30.00" },
+        {
+          ...readyLine.seller_options[0]!,
+          listing_id: "lst_eur_lower",
+          price_amount: "24.00",
+          price_currency_code: "EUR",
+          listing_stream_version: 8,
+        },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([crossCurrencyLine]);
+
+    expect(cartReadinessLineHasFulfillment(crossCurrencyLine)).toBe(true);
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.optimization.available).toBe(false);
   });
 
   it("locks Smart Match lines to the readiness-selected listing before checkout starts", () => {
