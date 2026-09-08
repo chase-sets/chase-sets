@@ -26,7 +26,7 @@ This skill is tracked identically at `.agents/skills/` (read by Codex) and `.cla
 
 No plan file, no sandbox bootstrap unless the tests touched need the database, no per-PR deployment verification.
 
-**Full path.** Money movement (payments, settlement, payouts, tax), cross-context contract or event changes, external provider contract changes (payment-provider event sets, webhook payloads, third-party API schemas), schema migrations, destructive data changes, or work explicitly flagged as high risk. Everything in the fast path, plus Planning and the full-path review packet; in solo mode, also deploy-awareness after merge (see Deployment).
+**Full path.** Money movement (payments, settlement, payouts, tax), cross-context contract or event changes, external provider contract changes (payment-provider event sets, webhook payloads, third-party API schemas), schema migrations, destructive data changes, or work explicitly flagged as high risk. Everything in the fast path, plus Planning and the full-path Design Evidence described below; in solo mode, also deploy-awareness after merge (see Deployment).
 
 When in doubt, start on the fast path and escalate the moment scope grows into a full-path trigger.
 
@@ -76,11 +76,18 @@ git -C <worktree> switch -c <branch> --track origin/main
 
 ## Review
 
-- Before the implementation head is dispatched for independent review, complete one bounded author self-review and its `## Self-review` section across Correctness, Simplicity, Elegance, Performance, and Footprint. In each dimension, either make a concrete edit or record why no edit is needed. For every changed rule, contract, or prose claim, check an enforcement pair: the changed item and the test, checker, or direct inspection that constrains it. Re-run the scoped check after each fix; stop a dimension only when a full pass makes no edit. This author loop supplies evidence for an independent review; it never replaces that review or hosted CI ownership.
-- For full-path work, produce a compact review packet from the issue's seed:
+- Before the implementation head is dispatched for independent review, complete one bounded author review and its `## Quality Packet` in four steps:
+  1. Answer G0 first: list what was not built and give one reason for each omission.
+  2. Inspect SCOPE, ROBUSTNESS, DEPTH, READABILITY, TESTS, OBSERVABILITY, SECURITY, PERFORMANCE, ROLLOUT, CONSISTENCY, EXPERIENCE, and LANGUAGE in that order. Fill both sides with `PASS` or `NOTE`, or use whole-pair `N/A` only when the diff has no surface on that pair. Make a concrete edit or record why no edit is needed for every key.
+  3. For every changed rule, contract, or prose claim, check an enforcement pair: the changed item and the test, checker, or direct inspection that constrains it.
+  4. Re-run the scoped check after each fix; stop a key only when a full pass makes no edit. `Edits per key:` records each edited key, its edit, and the check re-run after it.
+  This author loop supplies evidence for an independent review; it never replaces that review or hosted CI ownership.
+- For full-path work, add compact attack evidence from the issue's seed:
   changed invariants, likely failure modes, exact omission-revealing artifacts,
-  and the focused commands/probes that exercise them. This packet directs the
+  and the focused commands/probes that exercise them. This evidence directs the
   independent attack; it never asks the reviewer to trust the author's result.
+- Every PR on every path must carry one `## Quality Packet`. Its exact order is the heading; `G0: PASS — <not built, one reason each>`; `QUALITY_PROFILE: <prototype|product-feature|core-library|hot-path|migration|contract>`; `QUALITY_VERDICT:`; the twelve key lines above; then `Edits per key:`, `Enforcement pairs checked:`, and `Unverifiable assumptions:`. A key is `KEY [High|Med|Low]: little=<PASS|NOTE> <payload> ; much=<PASS|NOTE> <payload>`, or `KEY [weight]: N/A <absent surface>` when the pair has no surface in the diff. `BLOCK` belongs only to the reviewer.
+- Each payload follows the matching quality-v2 Evidence column. `PASS` names the probe or artifact examined; `NOTE` names the author's non-blocking observation and its surface; whole-pair `N/A` names the absent surface. When evidence is too large to state inline, cite a resolvable repository path, `file::test name`, executed command, or PR section such as `## Design Evidence`; never use a bare verdict or unnamed "see tests". The independent reviewer must verify every Quality Packet claim and never adopt one.
 - Two probes are mandatory in that pass when they apply, because both defect classes have shipped through green CI:
   - **Changed a service function's signature?** Grep every caller — including composition roots and support/wiring layers — and replace hand-written decoupled function types and `as {...}` casts with the imported interface, so future drift is a typecheck error. A unit test in a fake harness does not prove the production caller compiles.
   - **Added validation to a command handler?** Enumerate every seeding path (seed, bootstrap, import, reconciliation) and run each against the new rules. PR-lane CI does **not** run the DB-profile suite — the merge group is its first executor — so stand up a disposable Postgres locally rather than pushing unverified attempts.
@@ -119,7 +126,7 @@ repair brief rather than rediscovering the PR:
 
 ## PR & Readiness
 
-Keep PR bodies to roughly 10–20 lines:
+Keep PR bodies compact. The validated snippet below is the canonical section shape; replace its concrete claims with evidence from the exact head:
 
 ```markdown
 ## Summary
@@ -134,38 +141,44 @@ state machine/lifecycle → every state, every transition, the steady state, and
 validation on a shared handler → the caller inventory (seed/bootstrap/import/reconciliation) and which you ran ·
 external provider contract → the provider's test-mode validation output>
 
-## Review Packet
-<full path: changed invariants, likely failure modes, omission-revealing artifacts, and focused attack commands/probes>
+## Quality Packet
+Use the validated `### Quality Packet snippet` below, replacing its concrete evidence with evidence from this exact head.
 
 ## Verification
 <what you ran and observed>
 
-## Self-review
-Dimensions passed: <Correctness; Simplicity; Elegance; Performance; Footprint, with pass result>
-Edits per dimension: <edit made, or no-change reason for each dimension>
-Enforcement pairs checked: <changed rule/contract/prose → test/check/inspection>
-Reproduction and results: <exact commands and observed results>
-Unverifiable assumptions: <bounded assumptions or none>
-
 Refs #<issue>
 ```
 
-Do not include goal-completion boilerplate, worktree/sandbox metadata, or restated checklists.
+Do not include goal-completion boilerplate, worktree/sandbox metadata, or restated checklists. The Quality Packet is required even when `## Design Evidence` does not apply.
 
-### Self-review snippet
+### Quality Packet snippet
 
-Use this bounded section verbatim as the PR's stable author-review record; it must stay at or below 2,048 UTF-8 bytes.
+Use this concrete, validated example as the PR's stable author record; replace its claims with evidence from the exact change. The section must stay at or below 2,048 UTF-8 bytes.
 
 ```markdown
-## Self-review
-Dimensions passed: Correctness; Simplicity; Elegance; Performance; Footprint — <pass result for each>.
-Edits per dimension: <edit made, or no-change reason for each dimension>.
-Enforcement pairs checked: <changed rule/contract/prose → test/check/inspection>.
-Reproduction and results: <exact command → observed result>.
-Unverifiable assumptions: <bounded assumptions, or none>.
+## Quality Packet
+G0: PASS — smallest shape: rename the shipped #7716 pair in place; not built: a second checker module (one file already owns the shape), a CI or launcher guard (#7737 owns it), a profile-weight table (the reviewer verifies weights).
+QUALITY_PROFILE: contract
+QUALITY_VERDICT:
+SCOPE [High]: little=PASS AC1-AC4 → quality-packet-section-contract.test.mjs matrix ; much=PASS diff is the brief's four paths
+ROBUSTNESS [High]: little=PASS every reject path returns a named error, none throws ; much=PASS no guard beyond those errors
+DEPTH [High]: little=PASS script-local; 3 exports, 1 caller ; much=PASS a rename, no new abstraction
+READABILITY [Med]: little=PASS trace SKILL.md → extractQualityPacketSection → errors, 2 files ; much=PASS no restating comment
+TESTS [High]: little=PASS both exports and both mirrors pinned ; much=PASS asserts returned error strings, not internals
+OBSERVABILITY [High]: little=PASS each rejection names its key and reason ; much=PASS accept path is silent
+SECURITY [High]: N/A no input, authorization, secret, or personal-data boundary in the diff
+PERFORMANCE [Low]: N/A no query, loop, or per-item I/O; one file read, bounded section
+ROLLOUT [High]: little=PASS retired headings deleted, not left beside ; much=PASS no legacy branch or flag kept
+CONSISTENCY [High]: little=PASS follows scripts/check-structure conventions ; much=PASS no unstated departure
+EXPERIENCE [Low]: N/A no UI surface in the diff
+LANGUAGE [High]: little=PASS Quality Packet, G0, the twelve keys → contracts/quality-v2.md ; much=PASS no coined term
+Edits per key: ROLLOUT deleted the retired field list; LANGUAGE renamed the completion-report item; others no edit, scoped check re-run after each.
+Enforcement pairs checked: packet shape → quality-packet-section-contract.test.mjs; mirror rule → skill-mirror.test.mjs.
+Unverifiable assumptions: none.
 ```
 
-**Draft semantics.** Open the PR as a draft while iterating. Mark it ready only when scoped checks are green, the self-review is done, and no full-path assumption is unresolved. If anything is unresolved, stay draft and say why in your report — draft vs. ready is a deliberate signal, and the orchestrator never readies drafts on your behalf.
+**Draft semantics.** Open the PR as a draft while iterating. Mark it ready only when scoped checks are green, the Quality Packet is complete, and no full-path assumption is unresolved. If anything is unresolved, stay draft and say why in your report — draft vs. ready is a deliberate signal, and the orchestrator never readies drafts on your behalf.
 
 ## Completion Report (lane mode)
 
@@ -176,7 +189,7 @@ End your lane with a report the orchestrator can act on:
 3. File footprint touched (for parallel-lane collision checks).
 4. Assumptions flagged in the PR.
 5. Decisions needing escalation, each with a recommendation.
-6. Full-path review packet, or repair finding IDs with one disposition each.
+6. Quality Packet plus any applicable attack evidence, or repair finding IDs with one disposition each.
 
 ## Landing (solo mode only)
 
