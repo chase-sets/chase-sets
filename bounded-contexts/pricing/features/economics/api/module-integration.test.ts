@@ -107,7 +107,7 @@ describe("Pricing Economics bounded-context integration", () => {
     });
   });
 
-  it("increments only the two source subscriptions whose persisted facts changed", () => {
+  it("increments only the two Economics source subscriptions and preserves Marketplace v2", () => {
     const versions = new Map(
       contextManifest.eventSubscriptions.map((subscription) => [
         `${subscription.sourceContextName}.${subscription.projectionName}`,
@@ -116,7 +116,7 @@ describe("Pricing Economics bounded-context integration", () => {
     );
     expect(versions.get("inventory.pricing-inventory-input-projection")).toBe(3);
     expect(versions.get("ordering.pricing-market-trades-projection")).toBe(2);
-    expect(versions.get("marketplace.pricing-market-input-projection")).toBe(1);
+    expect(versions.get("marketplace.pricing-market-input-projection")).toBe(2);
     expect(versions.get("ordering.pricing-order-input-projection")).toBe(1);
     expect(versions.get("fulfillment.pricing-fulfillment-input-projection")).toBe(1);
     expect(versions.get("fulfillment.pricing-market-trades-projection")).toBe(1);
