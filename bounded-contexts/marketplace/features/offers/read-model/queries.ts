@@ -119,7 +119,7 @@ const sellerVisibilitySql = `
         AND listing.price_currency_code IS NOT NULL
         AND offer.price_currency_code IS NOT NULL
         AND listing.price_currency_code = offer.price_currency_code
-        AND listing.last_stream_version > 0
+        AND listing.listing_stream_version > 0
         AND offer.last_stream_version > 0
     )
   )
@@ -136,7 +136,7 @@ function sellerBestListingJoinSql(sellerAccountSql: string) {
       listing.listing_id,
       listing.price_amount AS listing_price_amount,
       listing.price_currency_code AS listing_price_currency_code,
-      listing.last_stream_version AS listing_stream_version,
+      listing.listing_stream_version,
       listing.quantity_cap AS listing_quantity_cap,
       LEAST(
         listing.quantity_cap,
@@ -160,7 +160,7 @@ function sellerBestListingJoinSql(sellerAccountSql: string) {
       AND listing.price_currency_code IS NOT NULL
       AND offer.price_currency_code IS NOT NULL
       AND listing.price_currency_code = offer.price_currency_code
-      AND listing.last_stream_version > 0
+      AND listing.listing_stream_version > 0
       AND offer.last_stream_version > 0
     ORDER BY
       CASE
@@ -181,7 +181,7 @@ function sellerExactListingJoinSql(sellerAccountSql: string, listingIdSql: strin
       listing.listing_id,
       listing.price_amount AS listing_price_amount,
       listing.price_currency_code AS listing_price_currency_code,
-      listing.last_stream_version AS listing_stream_version,
+      listing.listing_stream_version,
       listing.quantity_cap AS listing_quantity_cap,
       LEAST(
         listing.quantity_cap,
@@ -206,7 +206,7 @@ function sellerExactListingJoinSql(sellerAccountSql: string, listingIdSql: strin
       AND listing.price_currency_code IS NOT NULL
       AND offer.price_currency_code IS NOT NULL
       AND listing.price_currency_code = offer.price_currency_code
-      AND listing.last_stream_version > 0
+      AND listing.listing_stream_version > 0
       AND offer.last_stream_version > 0
     LIMIT 1
   ) AS matched_listing ON TRUE`;

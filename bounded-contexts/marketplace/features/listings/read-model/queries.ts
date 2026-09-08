@@ -1016,7 +1016,7 @@ export async function getMarketSummaryForItem(
      WHERE listing.product_id = $1
        AND listing.status = 'active'
        AND listing.price_currency_code IS NOT NULL
-       AND listing.last_stream_version > 0
+       AND listing.listing_stream_version > 0
        AND COALESCE(availability.status, 'available') = 'available'`,
     [productId],
   );
@@ -1063,7 +1063,7 @@ ${listingPageColumnSelectSql},
      WHERE listing.product_id = $1
        AND listing.status = 'active'
        AND listing.price_currency_code IS NOT NULL
-       AND listing.last_stream_version > 0
+       AND listing.listing_stream_version > 0
        AND COALESCE(availability.status, 'available') = 'available'
        AND LEAST(
          listing.quantity_cap,
