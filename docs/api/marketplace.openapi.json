@@ -21,6 +21,7 @@
     }
   ],
   "tags": [
+    { "name": "Channels" },
     { "name": "Discovery" },
     { "name": "Cart and Checkout" },
     { "name": "Listings and Offers" },
@@ -33,6 +34,10 @@
     { "name": "Notifications" }
   ],
   "paths": {
+    "/api/channels/publication": { "get": { "tags": ["Channels"], "summary": "List the account's channel publication connections.", "responses": { "200": { "$ref": "#/components/responses/List" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/channels/publication/{connectionId}": { "get": { "tags": ["Channels"], "summary": "Get channel publication state for one account connection.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/channels/publication/{connectionId}/settings": { "put": { "tags": ["Channels"], "summary": "Replace channel publication settings with stream concurrency.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" }, "409": { "$ref": "#/components/responses/Conflict" } } } },
+    "/api/channels/publication/{connectionId}/mappings/{dimension}/{sourceKey}/decision": { "post": { "tags": ["Channels"], "summary": "Record an account-scoped channel mapping review decision.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" }, "409": { "$ref": "#/components/responses/Conflict" } } } },
     "/api/marketplace/items": { "get": { "tags": ["Discovery"], "summary": "Search marketplace items.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/items/{id}": {"get":{"tags":["Discovery"],"summary":"Get a marketplace item detail page.","responses":{"200":{"$ref":"#/components/responses/Ok"},"404":{"$ref":"#/components/responses/NotFound"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/categories": { "get": { "tags": ["Discovery"], "summary": "List browse categories.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
@@ -537,6 +542,7 @@
       "AuthenticationRequired": { "description": "Authentication required.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Forbidden": { "description": "Forbidden.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "ValidationFailed": { "description": "Validation failed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Conflict": { "description": "The expected stream version is stale.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "FeeQuoteStale": { "description": "Confirmed fee quote is missing or stale. Response includes error.currentQuote.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FeeQuoteStaleError" } } } },
       "ProjectionFreshnessTimeout": {"description":"The fresh-write receipt is valid, but the required projection checkpoints did not catch up before the bounded read consistency timeout. Retry with the same receipt while it remains fresh or show a temporary recovery state.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ProjectionFreshnessTimeoutError"}}}},
       "NotFound": { "description": "Resource not found.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }

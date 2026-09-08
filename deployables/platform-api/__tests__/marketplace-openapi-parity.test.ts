@@ -182,6 +182,7 @@ describe("marketplace OpenAPI parity", () => {
     const openApiPaths = Object.keys(openApi.paths);
 
     expect(readMarketplaceWebApiMounts()).toEqual([
+      "/api/channels",
       "/api/identity",
       "/api/inventory",
       "/api/marketplace",
