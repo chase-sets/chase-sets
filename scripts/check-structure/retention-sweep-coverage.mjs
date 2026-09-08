@@ -95,7 +95,8 @@ async function listSourceFiles(repoRoot) {
   }
   return files.filter((file) => {
     const relativePath = relative(repoRoot, file);
-    return /\.(?:ts|sql)$/.test(file) && !relativePath.includes("/tests/fixtures/");
+    const isHistoricalSqlFixture = file.endsWith(".sql") && relativePath.includes("/tests/fixtures/");
+    return /\.(?:ts|sql)$/.test(file) && !isHistoricalSqlFixture;
   });
 }
 
