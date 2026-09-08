@@ -14,6 +14,18 @@ function render(ui: ReactNode, options?: RenderOptions) {
   return renderWithoutRouter(ui, { wrapper: MemoryRouter, ...options });
 }
 
+// Captures every `chase-sets:waitlist-analytics` window CustomEvent detail in
+// dispatch order, for tests asserting the event itself (AC7) rather than the
+// `window.dataLayer` mirror the other cases already cover.
+function captureAnalyticsEvents() {
+  const events: Record<string, unknown>[] = [];
+  const handler = (event: Event) => {
+    events.push((event as CustomEvent<Record<string, unknown>>).detail);
+  };
+  window.addEventListener("chase-sets:waitlist-analytics", handler);
+  return { events, stop: () => window.removeEventListener("chase-sets:waitlist-analytics", handler) };
+}
+
 const source = {
   pagePath: "/?utm_source=smoke",
   referrer: "https://example.test/cards",
@@ -878,6 +890,350 @@ describe("public waitlist form migration smoke", () => {
     expect(window.dataLayer).toContainEqual(
       expect.objectContaining({ event: "cta_clicked", section: "mobile_sticky", target: "waitlist_form_final" }),
     );
+  });
+
+  it("renders every hero copy key, call-time CTA/link label, and game-roster label byte-exact per variant (AC6)", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const gameRosterLabels: readonly (readonly [string, string])[] = [
+      ["pokemon", t("publicPresence.home.gameRoster.game.pokemon")],
+      ["magic-the-gathering", t("publicPresence.home.gameRoster.game.magicTheGathering")],
+      ["yu-gi-oh", t("publicPresence.home.gameRoster.game.yuGiOh")],
+      ["one-piece-card-game", t("publicPresence.home.gameRoster.game.onePieceCardGame")],
+      ["disney-lorcana", t("publicPresence.home.gameRoster.game.disneyLorcana")],
+    ];
+
+    const variants = [
+      {
+        pageSource: source,
+        heroEyebrow: t("publicPresence.home.eyebrow"),
+        heroTitle: t("publicPresence.home.title"),
+        heroDescription: t("publicPresence.home.description"),
+      },
+      {
+        pageSource: { ...source, pagePath: "/?intent=buy" },
+        heroEyebrow: t("publicPresence.home.buyerHero.eyebrow"),
+        heroTitle: t("publicPresence.home.buyerHero.title"),
+        heroDescription: t("publicPresence.home.buyerHero.description"),
+      },
+    ];
+
+    for (const variant of variants) {
+      const { container } = render(<PublicPresenceHomePage actionData={null} source={variant.pageSource} />);
+
+      const heroSection = container.querySelector('[data-public-presence-section="hero"]');
+      if (!heroSection) throw new Error("Expected the hero section to render.");
+      const titleEl = heroSection.querySelector("h1");
+      if (!titleEl) throw new Error("Expected the hero h1 to render.");
+      expect(titleEl.textContent).toBe(variant.heroTitle);
+      expect(titleEl.previousElementSibling?.textContent).toBe(variant.heroEyebrow);
+      expect(titleEl.nextElementSibling?.textContent).toBe(variant.heroDescription);
+
+      expect(container.querySelector('nav a[href="/#waitlist-form"]')?.textContent).toBe(
+        t("publicPresence.nav.waitlist"),
+      );
+      expect(container.querySelector('footer a[href="/help"]')?.textContent).toBe(t("publicPresence.nav.help"));
+      expect(container.querySelector('footer a[href="/terms"]')?.textContent).toBe(t("publicPresence.nav.terms"));
+      expect(container.querySelector('footer a[href="/privacy"]')?.textContent).toBe(t("publicPresence.nav.privacy"));
+      expect(container.querySelector('footer a[href="/refunds-and-returns"]')?.textContent).toBe(
+        t("publicPresence.nav.refunds"),
+      );
+      expect(container.querySelector('footer a[href="/order-protection"]')?.textContent).toBe(
+        t("publicPresence.nav.buyerProtection"),
+      );
+      expect(container.querySelector('footer a[href="/sales-fees"]')?.textContent).toBe(
+        t("publicPresence.nav.sellerFees"),
+      );
+      expect(container.querySelector('footer a[href="/founders"]')?.textContent).toBe(
+        t("publicPresence.nav.foundersTerms"),
+      );
+      expect(container.querySelector('footer a[href="/contact"]')?.textContent).toBe(t("publicPresence.nav.contact"));
+
+      const rosterSection = container.querySelector('[data-public-presence-section="game_roster"]');
+      if (!rosterSection) throw new Error("Expected the game roster section to render.");
+      for (const [slug, label] of gameRosterLabels) {
+        const tile = Array.from(rosterSection.querySelectorAll<HTMLAnchorElement>("a")).find((anchor) =>
+          anchor.getAttribute("href")?.includes(`game=${slug}`),
+        );
+        if (!tile) throw new Error(`Expected a game-roster tile for ${slug}.`);
+        expect(tile.textContent).toBe(label);
+      }
+
+      const sellerToolsSection = container.querySelector('[data-public-presence-section="seller_tools"]');
+      expect(sellerToolsSection?.querySelector('a[href="/#waitlist-form-final"]')?.textContent).toBe(
+        t("publicPresence.home.sellerTools.cta.action"),
+      );
+
+      const foundersSection = container.querySelector('[data-public-presence-section="founders_offer"]');
+      expect(foundersSection?.querySelector('a[href="/founders"]')?.textContent).toBe(
+        t("publicPresence.home.foundersOffer.action"),
+      );
+
+      const timelineSection = container.querySelector('[data-public-presence-section="launch_timeline"]');
+      expect(timelineSection?.querySelector('a[href="/#waitlist-form"]')?.textContent).toBe(
+        t("publicPresence.home.launchTimeline.action"),
+      );
+
+      const previewSection = container.querySelector('[data-public-presence-section="product_preview"]');
+      if (!previewSection) throw new Error("Expected the product preview section to render.");
+      expect(previewSection.querySelector('a[href="/#waitlist-form"]')?.textContent).toBe(
+        t("publicPresence.preview.listing.action"),
+      );
+      const orderProtectionLinks = Array.from(
+        previewSection.querySelectorAll<HTMLAnchorElement>('a[href="/order-protection"]'),
+      ).map((anchor) => anchor.textContent);
+      expect(orderProtectionLinks).toHaveLength(2);
+      expect(orderProtectionLinks).toEqual(
+        expect.arrayContaining([
+          t("publicPresence.preview.listing.secondaryAction"),
+          t("publicPresence.preview.total.protectionLink"),
+        ]),
+      );
+
+      const finalCtaSection = container.querySelector('[data-public-presence-section="final_cta"]');
+      expect(finalCtaSection?.querySelector('a[href="/founders"]')?.textContent).toBe(
+        t("publicPresence.home.foundersOffer.action"),
+      );
+
+      const faqSection = container.querySelector('[data-public-presence-section="faq"]');
+      expect(faqSection?.querySelector('a[href="/faq"]')?.textContent).toBe(t("publicPresence.faq.all"));
+    }
+  });
+
+  it.each([
+    { label: "seller_first_v1", pageSource: source, variant: "seller_first_v1" },
+    { label: "seller_first_v2", pageSource: { ...source, pagePath: "/?intent=buy" }, variant: "seller_first_v2" },
+  ])(
+    "fires section_viewed exactly once per section for the $label variant, deduping a repeat intersection (AC7)",
+    ({ pageSource, variant }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+        ),
+      );
+      window.dataLayer = [];
+
+      const instances: { callback: IntersectionObserverCallback; observed: Element[] }[] = [];
+      vi.stubGlobal(
+        "IntersectionObserver",
+        vi.fn(function IntersectionObserverStub(callback: IntersectionObserverCallback) {
+          const observed: Element[] = [];
+          instances.push({ callback, observed });
+          return {
+            observe: (element: Element) => observed.push(element),
+            disconnect: vi.fn(),
+            unobserve: vi.fn(),
+          };
+        }),
+      );
+
+      const { events, stop } = captureAnalyticsEvents();
+
+      render(<PublicPresenceHomePage actionData={null} source={pageSource} />);
+
+      const expectedSections = [
+        "hero",
+        "game_roster",
+        "open_offers",
+        "seller_tools",
+        "fee_comparison",
+        "founders_offer",
+        "launch_timeline",
+        "product_preview",
+        "founder_story",
+        "final_cta",
+        "faq",
+      ];
+      const sectionElements = Array.from(document.querySelectorAll<HTMLElement>("[data-public-presence-section]"));
+      expect(sectionElements.map((element) => element.getAttribute("data-public-presence-section"))).toEqual(
+        expectedSections,
+      );
+
+      // Two IntersectionObserver instances mount: MobileStickyWaitlistCta's
+      // (observing only the hero form) and useLandingSectionViewTracking's
+      // (observing every section). Identify the latter by observed-set
+      // membership rather than mount order.
+      const sectionInstance = instances.find((instance) =>
+        sectionElements.every((element) => instance.observed.includes(element)),
+      );
+      if (!sectionInstance) {
+        throw new Error("Expected an IntersectionObserver instance observing every landing section.");
+      }
+
+      for (const element of sectionElements) {
+        act(() => {
+          sectionInstance.callback(
+            [{ target: element, isIntersecting: true } as IntersectionObserverEntry],
+            {} as IntersectionObserver,
+          );
+        });
+      }
+
+      const sectionViewedEvents = events.filter((detail) => detail.event === "section_viewed");
+      expect(sectionViewedEvents).toHaveLength(expectedSections.length);
+      for (const section of expectedSections) {
+        expect(sectionViewedEvents).toContainEqual({ event: "section_viewed", section, variant });
+      }
+
+      // Repeating the same intersecting entries must not refire section_viewed:
+      // this is the executed proof of the viewedSections Set + observer.unobserve
+      // dedupe, not just of the event shape.
+      for (const element of sectionElements) {
+        act(() => {
+          sectionInstance.callback(
+            [{ target: element, isIntersecting: true } as IntersectionObserverEntry],
+            {} as IntersectionObserver,
+          );
+        });
+      }
+      expect(events.filter((detail) => detail.event === "section_viewed")).toHaveLength(expectedSections.length);
+
+      stop();
+    },
+  );
+
+  it("fires the exact cta_clicked window-event detail for every previously-uncovered trackCtaClick site (AC7)", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+    const { events, stop } = captureAnalyticsEvents();
+
+    const { container } = render(
+      <PublicPresenceHomePage actionData={null} discordInviteUrl="https://discord.gg/chase-sets" source={source} />,
+    );
+
+    function clickAndExpect(selector: string, scope: ParentNode, expected: Record<string, unknown>) {
+      const target = scope.querySelector<HTMLElement>(selector);
+      if (!target) {
+        throw new Error(`Expected an element matching ${selector} to render.`);
+      }
+      const before = events.length;
+      fireEvent.click(target);
+      expect(events.slice(before).filter((detail) => detail.event === "cta_clicked")).toEqual([
+        { event: "cta_clicked", ...expected },
+      ]);
+    }
+
+    const founderStorySection = container.querySelector('[data-public-presence-section="founder_story"]');
+    if (!founderStorySection) throw new Error("Expected the founder-story section to render.");
+    clickAndExpect('a[href="https://discord.gg/chase-sets"]', founderStorySection, {
+      section: "founder_story",
+      target: "discord",
+      variant: "seller_first_v1",
+    });
+
+    const navSurface = container.querySelector("nav");
+    if (!navSurface) throw new Error("Expected the nav to render.");
+    clickAndExpect('a[href="/#waitlist-form"]', navSurface, {
+      section: "nav",
+      target: "waitlist_form",
+      variant: "seller_first_v1",
+    });
+
+    const rosterSection = container.querySelector('[data-public-presence-section="game_roster"]');
+    if (!rosterSection) throw new Error("Expected the game roster section to render.");
+    const pokemonTile = Array.from(rosterSection.querySelectorAll<HTMLAnchorElement>("a")).find((anchor) =>
+      anchor.getAttribute("href")?.includes("game=pokemon"),
+    );
+    if (!pokemonTile) throw new Error("Expected a Pokemon game-roster tile.");
+    const beforeRoster = events.length;
+    fireEvent.click(pokemonTile);
+    expect(events.slice(beforeRoster).filter((detail) => detail.event === "cta_clicked")).toEqual([
+      { event: "cta_clicked", section: "game_roster", target: "pokemon", variant: "seller_first_v1" },
+    ]);
+
+    const foundersSection = container.querySelector('[data-public-presence-section="founders_offer"]');
+    if (!foundersSection) throw new Error("Expected the founders-offer section to render.");
+    clickAndExpect('a[href="/founders"]', foundersSection, {
+      section: "founders_offer",
+      target: "founders_terms",
+      variant: "seller_first_v1",
+    });
+
+    const timelineSection = container.querySelector('[data-public-presence-section="launch_timeline"]');
+    if (!timelineSection) throw new Error("Expected the launch-timeline section to render.");
+    clickAndExpect('a[href="/#waitlist-form"]', timelineSection, {
+      section: "launch_timeline",
+      target: "waitlist_form",
+      variant: "seller_first_v1",
+    });
+
+    const previewSection = container.querySelector('[data-public-presence-section="product_preview"]');
+    if (!previewSection) throw new Error("Expected the product-preview section to render.");
+    clickAndExpect('a[href="/#waitlist-form"]', previewSection, {
+      section: "product_preview",
+      target: "waitlist_form",
+      variant: "seller_first_v1",
+    });
+
+    const orderProtectionCta = Array.from(
+      previewSection.querySelectorAll<HTMLAnchorElement>('a[href="/order-protection"]'),
+    ).find((anchor) => anchor.textContent === t("publicPresence.preview.listing.secondaryAction"));
+    if (!orderProtectionCta) throw new Error("Expected the product-preview order-protection CTA to render.");
+    const beforeOrderProtection = events.length;
+    fireEvent.click(orderProtectionCta);
+    expect(events.slice(beforeOrderProtection).filter((detail) => detail.event === "cta_clicked")).toEqual([
+      { event: "cta_clicked", section: "product_preview", target: "order_protection", variant: "seller_first_v1" },
+    ]);
+
+    const finalCtaSection = container.querySelector('[data-public-presence-section="final_cta"]');
+    if (!finalCtaSection) throw new Error("Expected the final-CTA section to render.");
+    clickAndExpect('a[href="/founders"]', finalCtaSection, {
+      section: "final_cta",
+      target: "founders_terms",
+      variant: "seller_first_v1",
+    });
+
+    const faqSection = container.querySelector('[data-public-presence-section="faq"]');
+    if (!faqSection) throw new Error("Expected the FAQ section to render.");
+    clickAndExpect('a[href="/faq"]', faqSection, {
+      section: "faq",
+      target: "faq",
+      variant: "seller_first_v1",
+    });
+
+    stop();
+  });
+
+  it("keeps the seller_tools CTA's cta_clicked payload variant-less even from the buyer (seller_first_v2) landing context (AC7)", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+    const { events, stop } = captureAnalyticsEvents();
+
+    const { container } = render(
+      <PublicPresenceHomePage actionData={null} source={{ ...source, pagePath: "/?intent=buy" }} />,
+    );
+
+    const sellerToolsSection = container.querySelector('[data-public-presence-section="seller_tools"]');
+    const cta = sellerToolsSection?.querySelector('a[href="/#waitlist-form-final"]');
+    if (!cta) {
+      throw new Error("Expected the seller-tools CTA to render.");
+    }
+
+    fireEvent.click(cta);
+
+    expect(events.filter((detail) => detail.event === "cta_clicked")).toEqual([
+      { event: "cta_clicked", section: "seller_tools", target: "waitlist_form_final", variant: "seller_first_v1" },
+    ]);
+
+    stop();
   });
 });
 
