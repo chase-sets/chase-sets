@@ -651,32 +651,63 @@ describe("cart readiness snapshots", () => {
     });
   });
 
-  it("marks a Smart Match line ready when measured supply is split across listings", () => {
-    const splitSupplyLine: CartReadinessLine = {
+  it("selects a fulfilling Smart Match Listing when a sibling lacks shipping measures", () => {
+    const optimizeWithIncompleteSibling: CartReadinessLine = {
       ...readyLine,
-      line_id: "cli_optimize_split_supply",
-      quantity: 3,
+      line_id: "cli_optimize_measured",
       fulfillment_mode: "optimize",
       locked_listing_id: null,
       seller_options: [
-        { ...readyLine.seller_options[0]!, listing_id: "lst_a", available_quantity: 2, price_amount: "21.00" },
-        { ...readyLine.seller_options[0]!, listing_id: "lst_b", available_quantity: 1, price_amount: "18.00" },
+        { ...readyLine.seller_options[0]!, listing_id: "lst_measured", price_amount: "18.00" },
+        {
+          ...readyLine.seller_options[0]!,
+          listing_id: "lst_missing_measure",
+          price_amount: "17.00",
+          product_measure_snapshot: null,
+        },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([optimizeWithIncompleteSibling]);
+
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_optimize_measured",
+      outcome: "checkout",
+      reason: "ready",
+    });
+    expect(snapshot.fulfillmentGroups[0]?.listingIds).toEqual(["lst_measured"]);
+  });
+
+  it("keeps Smart Match unresolved when no single Listing can fulfill its quantity", () => {
+    const splitSupplyLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_optimize_split_supply",
+      quantity: 2,
+      fulfillment_mode: "optimize",
+      locked_listing_id: null,
+      seller_options: [
+        { ...readyLine.seller_options[0]!, listing_id: "lst_a", available_quantity: 1, price_amount: "10.00" },
+        { ...readyLine.seller_options[0]!, listing_id: "lst_b", available_quantity: 1, price_amount: "10.00" },
       ],
     };
 
     const snapshot = createCartReadinessSnapshot([splitSupplyLine]);
 
-    expect(cartReadinessLineHasFulfillment(splitSupplyLine)).toBe(true);
-    expect(snapshot.status).toBe("ready");
+    expect(cartReadinessLineHasFulfillment(splitSupplyLine)).toBe(false);
+    expect(snapshot.status).toBe("needs-resolution");
+    expect(snapshot.includedLineIds).toEqual([]);
+    expect(snapshot.unresolvedLineIds).toEqual(["cli_optimize_split_supply"]);
     expect(snapshot.lineOutcomes).toContainEqual({
       lineId: "cli_optimize_split_supply",
       outcome: "checkout",
-      reason: "ready",
+      reason: "unassigned-fulfillment",
     });
-    expect(applyCartReadinessToLines([splitSupplyLine], snapshot)).toEqual([splitSupplyLine]);
+    expect(snapshot.fulfillmentGroups).toEqual([]);
+    expect(applyCartReadinessToLines([splitSupplyLine], snapshot)).toEqual([]);
   });
 
-  it("marks split Smart Match supply unresolved when shipping measures are incomplete", () => {
+  it("does not aggregate split Smart Match supply while evaluating shipping measures", () => {
     const splitSupplyMissingMeasureLine: CartReadinessLine = {
       ...readyLine,
       line_id: "cli_optimize_split_missing_measure",
@@ -698,11 +729,11 @@ describe("cart readiness snapshots", () => {
     const snapshot = createCartReadinessSnapshot([splitSupplyMissingMeasureLine]);
 
     expect(cartReadinessLineHasFulfillment(splitSupplyMissingMeasureLine)).toBe(false);
-    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.status).toBe("needs-resolution");
     expect(snapshot.lineOutcomes).toContainEqual({
       lineId: "cli_optimize_split_missing_measure",
       outcome: "checkout",
-      reason: "shipping-measure-missing",
+      reason: "unassigned-fulfillment",
     });
   });
 

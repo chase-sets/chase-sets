@@ -169,21 +169,6 @@ function optionCanFulfill(option: CartReadinessSellerOption, quantity: number) {
   return optionHasAvailablePricedQuantity(option, quantity) && optionHasProductMeasure(option);
 }
 
-function pricedAvailableQuantity(options: readonly CartReadinessSellerOption[]) {
-  return options.reduce(
-    (sum, option) => (optionHasPricedAvailability(option) ? sum + option.available_quantity : sum),
-    0,
-  );
-}
-
-function measuredPricedAvailableQuantity(options: readonly CartReadinessSellerOption[]) {
-  return options.reduce(
-    (sum, option) =>
-      optionHasPricedAvailability(option) && optionHasProductMeasure(option) ? sum + option.available_quantity : sum,
-    0,
-  );
-}
-
 function groupHash(value: unknown) {
   return stableHash(value).replace(/^cr_/, "cfg_");
 }
@@ -246,8 +231,10 @@ function lineHasMissingShippingMeasure(line: CartReadinessLine) {
   }
 
   return (
-    pricedAvailableQuantity(line.seller_options) >= line.quantity &&
-    measuredPricedAvailableQuantity(line.seller_options) < line.quantity
+    !line.seller_options.some((option) => optionCanFulfill(option, line.quantity)) &&
+    line.seller_options.some(
+      (option) => optionHasAvailablePricedQuantity(option, line.quantity) && !optionHasProductMeasure(option),
+    )
   );
 }
 
@@ -269,7 +256,7 @@ export function cartReadinessLineHasFulfillment(line: CartReadinessLine) {
     return false;
   }
 
-  return measuredPricedAvailableQuantity(line.seller_options) >= line.quantity;
+  return lowestCartReadinessListing(line) !== null;
 }
 
 function lineReason(line: CartReadinessLine): CartReadinessSnapshot["lineOutcomes"][number]["reason"] {
@@ -367,41 +354,6 @@ function selectedListingForCheckout(
   return lowestCartReadinessListing(line);
 }
 
-function selectedCheckoutCurrencyCodes(
-  line: CartReadinessLine,
-  optimizationAccepted: boolean,
-  optimizationProposal: ReturnType<typeof findOptimizationProposal>,
-) {
-  const selected = selectedListingForCheckout(line, optimizationAccepted, optimizationProposal);
-  if (selected?.price_currency_code) {
-    return [selected.price_currency_code];
-  }
-
-  if (line.fulfillment_mode !== "optimize") {
-    return [];
-  }
-
-  return line.seller_options
-    .filter((option) => optionHasPricedAvailability(option) && optionHasProductMeasure(option))
-    .map((option) => option.price_currency_code as string);
-}
-
-function currencyMismatchLineIds(
-  lines: readonly CartReadinessLine[],
-  includedLineIds: readonly string[],
-  optimizationAccepted: boolean,
-  optimizationProposal: ReturnType<typeof findOptimizationProposal>,
-) {
-  const included = new Set(includedLineIds);
-  const currencies = new Set(
-    lines.flatMap((line) =>
-      included.has(line.line_id) ? selectedCheckoutCurrencyCodes(line, optimizationAccepted, optimizationProposal) : [],
-    ),
-  );
-
-  return currencies.size > 1 ? new Set(includedLineIds) : new Set<string>();
-}
-
 function buildFulfillmentGroups(
   lines: readonly CartReadinessLine[],
   includedLineIds: readonly string[],
@@ -426,10 +378,14 @@ function buildFulfillmentGroups(
     }
 
     const selected = selectedListingForCheckout(line, optimizationAccepted, optimizationProposal);
-    const listingId = selected?.listing_id ?? line.locked_listing_id ?? null;
-    const sellerAccountId = selected?.seller_account_id?.trim() || null;
-    const sellerDisplayName = selected?.seller_display_name?.trim() || null;
-    const groupKey = sellerAccountId ? `seller:${sellerAccountId}` : `listing:${listingId ?? line.line_id}`;
+    if (!selected || !optionCanFulfill(selected, line.quantity)) {
+      return [];
+    }
+
+    const listingId = selected.listing_id;
+    const sellerAccountId = selected.seller_account_id?.trim() || null;
+    const sellerDisplayName = selected.seller_display_name?.trim() || null;
+    const groupKey = sellerAccountId ? `seller:${sellerAccountId}` : `listing:${listingId}`;
     const group = groups.get(groupKey) ?? {
       lineIds: [],
       listingIds: [],
@@ -439,9 +395,7 @@ function buildFulfillmentGroups(
     };
 
     group.lineIds.push(line.line_id);
-    if (listingId) {
-      group.listingIds.push(listingId);
-    }
+    group.listingIds.push(listingId);
     group.itemCount += line.quantity;
     groups.set(groupKey, group);
   }
@@ -583,17 +537,34 @@ export function createCartReadinessSnapshot(
   }
   initiallyIncludedLineIds.sort();
 
-  const mismatchedLineIds = currencyMismatchLineIds(
-    sortedLines,
-    initiallyIncludedLineIds,
-    optimizationAccepted,
-    optimizationProposal,
-  );
-  const lineOutcomes = initialLineOutcomes.map((outcome) =>
-    mismatchedLineIds.has(outcome.lineId) && outcome.outcome === "checkout"
-      ? { ...outcome, reason: "currency-mismatch" as const }
-      : outcome,
-  );
+  const initiallyIncluded = new Set(initiallyIncludedLineIds);
+  const selectedCurrencyCodes = new Set<string>();
+  const unassignedLineIds = new Set<string>();
+  for (const line of sortedLines) {
+    if (!initiallyIncluded.has(line.line_id)) {
+      continue;
+    }
+
+    const selected = selectedListingForCheckout(line, optimizationAccepted, optimizationProposal);
+    if (!selected || !optionCanFulfill(selected, line.quantity) || !selected.price_currency_code) {
+      unassignedLineIds.add(line.line_id);
+      continue;
+    }
+    selectedCurrencyCodes.add(selected.price_currency_code);
+  }
+  const mismatchedLineIds =
+    selectedCurrencyCodes.size > 1
+      ? new Set(initiallyIncludedLineIds.filter((lineId) => !unassignedLineIds.has(lineId)))
+      : new Set<string>();
+  const lineOutcomes = initialLineOutcomes.map((outcome) => {
+    if (outcome.outcome !== "checkout") {
+      return outcome;
+    }
+    if (unassignedLineIds.has(outcome.lineId)) {
+      return { ...outcome, reason: "unassigned-fulfillment" as const };
+    }
+    return mismatchedLineIds.has(outcome.lineId) ? { ...outcome, reason: "currency-mismatch" as const } : outcome;
+  });
   const includedLineIds = lineOutcomes
     .filter((outcome) => outcome.outcome === "checkout" && outcome.reason === "ready")
     .map((outcome) => outcome.lineId);
@@ -603,8 +574,19 @@ export function createCartReadinessSnapshot(
     .filter((outcome) => outcome.outcome === "checkout" && outcome.reason !== "ready")
     .map((outcome) => outcome.lineId);
 
+  const unassignedCheckoutLineIds = new Set(
+    lineOutcomes
+      .filter((outcome) => outcome.outcome === "checkout" && outcome.reason === "unassigned-fulfillment")
+      .map((outcome) => outcome.lineId),
+  );
+  const hasUnresolvedSmartMatchCandidate = sortedLines.some(
+    (line) =>
+      line.fulfillment_mode === "optimize" &&
+      unassignedCheckoutLineIds.has(line.line_id) &&
+      line.seller_options.some((option) => optionHasPricedAvailability(option) && optionHasProductMeasure(option)),
+  );
   const status =
-    mismatchedLineIds.size > 0
+    mismatchedLineIds.size > 0 || hasUnresolvedSmartMatchCandidate
       ? "needs-resolution"
       : includedLineIds.length === 0
         ? "blocked"

@@ -303,6 +303,49 @@ describe("checkout session domain", () => {
     ).toThrow("Cart readiness must include split group facts.");
   });
 
+  it("rejects cart sessions when a cart line omits its selected Listing", () => {
+    expect(() =>
+      decideCheckoutSession(initialCheckoutSessionState, {
+        type: "StartCheckoutSession",
+        sessionId: "chk_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sourceType: "cart",
+        shippingOption: "standard",
+        cartReadinessSnapshot,
+        lines: [
+          {
+            ...line,
+            listingId: null,
+            fulfillmentMode: "optimize",
+            lockedListingId: null,
+          },
+        ],
+        createdAt: "2026-04-29T00:00:00.000Z",
+      }),
+    ).toThrow("Cart checkout lines must name their selected listings.");
+  });
+
+  it("rejects cart sessions when a fulfillment group omits its selected Listing", () => {
+    expect(() =>
+      decideCheckoutSession(initialCheckoutSessionState, {
+        type: "StartCheckoutSession",
+        sessionId: "chk_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sourceType: "cart",
+        shippingOption: "standard",
+        cartReadinessSnapshot: {
+          ...cartReadinessSnapshot,
+          fulfillmentGroups: cartReadinessSnapshot.fulfillmentGroups.map((group) => ({
+            ...group,
+            listingIds: [],
+          })),
+        },
+        lines: [line],
+        createdAt: "2026-04-29T00:00:00.000Z",
+      }),
+    ).toThrow("Cart readiness split groups must name selected listings.");
+  });
+
   it("does not create split group handoff facts for non-cart source intents", () => {
     const started = decideCheckoutSession(initialCheckoutSessionState, {
       type: "StartCheckoutSession",

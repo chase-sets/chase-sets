@@ -1408,6 +1408,68 @@ describe("checkout session runtime", () => {
     expect(allEvents).toEqual([]);
   });
 
+  it("refuses split Smart Match supply before appending a Checkout Session event", async () => {
+    const splitSupplyLine: CheckoutCartLineRow = {
+      ...readyCartLine,
+      line_id: "cli_synthetic_split",
+      quantity: 2,
+      fulfillment_mode: "optimize",
+      locked_listing_id: null,
+      seller_options: [
+        {
+          ...readyCartLine.seller_options[0]!,
+          listing_id: "lst_synthetic_a",
+          available_quantity: 1,
+          price_amount: "10.00",
+          price_currency_code: "USD",
+          listing_stream_version: 7,
+        },
+        {
+          ...readyCartLine.seller_options[0]!,
+          listing_id: "lst_synthetic_b",
+          available_quantity: 1,
+          price_amount: "10.00",
+          price_currency_code: "USD",
+          listing_stream_version: 7,
+        },
+      ],
+    };
+    const readiness = createCartReadinessSnapshot([splitSupplyLine]);
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices([splitSupplyLine]) as never,
+    });
+
+    expect(readiness).toMatchObject({
+      status: "needs-resolution",
+      includedLineIds: [],
+      unresolvedLineIds: ["cli_synthetic_split"],
+      fulfillmentGroups: [],
+    });
+    expect(readiness.lineOutcomes).toContainEqual({
+      lineId: "cli_synthetic_split",
+      outcome: "checkout",
+      reason: "unassigned-fulfillment",
+    });
+    await expect(
+      services.createFromCart(
+        {
+          accountId: "acc_buyer" as never,
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: "unresolved_fulfillment",
+      message: "Resolve item availability before checkout starts.",
+    });
+    expect(allEvents).toEqual([]);
+  });
+
   it.each([
     {
       decision: "accepted",
