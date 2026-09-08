@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { cssValues, fixture, sha256 } from "./token-contract";
+import { join } from "node:path";
+import { cssValues, fixture, repositoryRoot, sha256 } from "./token-contract";
 import {
   createStripeConnectAppearance,
   createStripeElementsAppearance,
@@ -148,7 +148,10 @@ describe("Stripe appearance helpers", () => {
   });
 });
 
-const factorySource = readFileSync(fileURLToPath(new URL("../theme/stripe-appearance.ts", import.meta.url)), "utf8");
+const factorySource = readFileSync(
+  join(repositoryRoot(), "packages/design-system/src/theme/stripe-appearance.ts"),
+  "utf8",
+);
 const fallbackPattern = /((?:token|pxToken)\("(--[\w-]+)", )("[^"\n]*"|'[^'\n]*')(, scope\))/g;
 
 function fallbackInventory(source: string) {

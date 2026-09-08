@@ -1,11 +1,21 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import fixture from "../theme/__fixtures__/ink-foil-candidate-tokens.json";
 
 export { fixture };
 export type Mode = "light" | "dark";
-export const stylesheet = readFileSync(fileURLToPath(new URL("../styles/styles.css", import.meta.url)), "utf8");
+export function repositoryRoot() {
+  let candidate = process.cwd();
+  while (!existsSync(join(candidate, "pnpm-workspace.yaml"))) {
+    const parent = dirname(candidate);
+    if (parent === candidate) throw new Error(`Could not locate the repository root from ${process.cwd()}`);
+    candidate = parent;
+  }
+  return candidate;
+}
+
+export const stylesheet = readFileSync(join(repositoryRoot(), "packages/design-system/src/styles/styles.css"), "utf8");
 export const sha256 = (value: string) => createHash("sha256").update(value.replaceAll("\r\n", "\n")).digest("hex");
 
 export function declarations(css: string) {
