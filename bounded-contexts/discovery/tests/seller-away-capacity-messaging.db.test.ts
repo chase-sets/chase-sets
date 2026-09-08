@@ -271,12 +271,13 @@ async function insertListing(
     `INSERT INTO discovery_market_listings (
        listing_id, listing_slug, product_slug, account_id, inventory_item_id, catalog_catalog_item_id,
        product_id, item_title, item_subtitle, selected_options, product_summary, product_measure_snapshot,
-       storage_location_name, ship_from_code, price_amount, shipping_allowance_percentage_bps, quantity_cap,
+       storage_location_name, ship_from_code, price_amount, price_currency_code, listing_stream_version,
+       shipping_allowance_percentage_bps, quantity_cap,
        supply_total_quantity, active_held_quantity, status, created_at, updated_at
      ) VALUES (
        $1, $2, 'prd_1', $3, 'inv_1', 'cat_1', 'prd_1', 'Charizard', NULL, '[]'::jsonb, 'Raw',
        '{"catalogItemId":"cat_1","productId":"prd_1","measureVersion":"pm_raw_v1"}'::jsonb,
-       'STL Main', 'STL', '10.00', 500, $4, NULL, 0, 'active', now(), now()
+       'STL Main', 'STL', '10.00', 'USD', 1, 500, $4, NULL, 0, 'active', now(), now()
      )`,
     [params.listingId, params.slug ?? params.listingId, params.accountId, params.quantityCap ?? 3],
   );

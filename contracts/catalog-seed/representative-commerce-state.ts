@@ -175,6 +175,7 @@ export type RepresentativeMarketplaceServices = Readonly<{
         productSummary: string | null;
         shippingDestinationSnapshot: AddressSnapshot;
         priceAmount: string;
+        priceCurrencyCode: string;
         quantityRequested: number;
       }>,
       context: EventStoreContext,
@@ -937,6 +938,7 @@ export async function submitRepresentativeOffers(
         productSummary: summarizeRepresentativeSelectedOptions(catalogItem.product_schema, product.selection),
         shippingDestinationSnapshot: representativeBuyerShippingAddress(index),
         priceAmount: representativeOfferPrice(index),
+        priceCurrencyCode: "USD",
         quantityRequested: index % 2 === 0 ? 1 : Math.min(3, Math.max(1, stock.totalQuantity)),
       },
       representativeSeedContext,

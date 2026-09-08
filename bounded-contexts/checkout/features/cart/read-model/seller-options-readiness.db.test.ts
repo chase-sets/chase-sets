@@ -66,6 +66,8 @@ type SeededSellerOption = Readonly<{
   seller_account_id: string;
   product_id: string;
   price_amount: string;
+  price_currency_code: string;
+  listing_stream_version: number;
   listing_quantity_cap: number;
   supply_total_quantity: number | null;
   active_held_quantity: number | null;
@@ -696,16 +698,19 @@ async function seedReadModel(
   for (const option of options) {
     await pool.query(
       `INSERT INTO checkout_marketplace_seller_options (
-         listing_id, seller_account_id, product_id, catalog_catalog_item_id, price_amount, listing_quantity_cap,
+         listing_id, seller_account_id, product_id, catalog_catalog_item_id, price_amount, price_currency_code,
+         listing_stream_version, listing_quantity_cap,
          product_summary, product_measure_snapshot, status, updated_at, seller_slug, seller_display_name,
          supply_total_quantity, active_held_quantity
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
       [
         option.listing_id,
         option.seller_account_id,
         option.product_id,
         option.product_id.split("::", 1)[0],
         option.price_amount,
+        option.price_currency_code,
+        option.listing_stream_version,
         option.listing_quantity_cap,
         option.product_summary,
         option.product_measure_snapshot,
@@ -765,6 +770,8 @@ function seededOption(overrides: Partial<SeededSellerOption> = {}): SeededSeller
     seller_account_id: "acc_card_vault",
     product_id: "cat_charizard::form:raw",
     price_amount: "30.00",
+    price_currency_code: "USD",
+    listing_stream_version: 1,
     listing_quantity_cap: 3,
     supply_total_quantity: 100,
     active_held_quantity: 0,
