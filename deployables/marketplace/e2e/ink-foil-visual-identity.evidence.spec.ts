@@ -329,12 +329,14 @@ test.describe("Ink & Foil rendered visual identity", () => {
     await cta.evaluate((element, oldColor) => {
       (element as HTMLElement).style.backgroundColor = oldColor;
     }, fixture.light["--primary"]!.shipped);
+    await expect(cta).toHaveCSS("background-color", hexToRgbString(fixture.light["--primary"]!.shipped));
     const staleCta = await ctaObservation(cta);
     expect(() => assertCandidateObservation(staleCta, expected)).toThrow("fixture-candidate background");
     await cta.evaluate((element, style) => {
       if (style === null) element.removeAttribute("style");
       else element.setAttribute("style", style);
     }, previousStyle);
+    await expect(cta).toHaveCSS("background-color", expected.background);
     await assertPopulatedCta(page, "light");
     await page
       .locator(`article:has(> a[href='${populatedSearchPriceProof.detailPath}'])`)
