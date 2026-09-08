@@ -1663,18 +1663,27 @@
         "height": 844
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-item-purchase",
+        "selector": "main",
+        "populatedSelector": "button.bg-accent:visible:enabled"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "button.bg-accent:visible:enabled >> nth=0",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1697,18 +1706,27 @@
         "height": 900
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-item-purchase",
+        "selector": "main",
+        "populatedSelector": "button.bg-accent:visible:enabled"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "button.bg-accent:visible:enabled >> nth=0",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1731,18 +1749,27 @@
         "height": 844
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-search-results",
+        "selector": "main",
+        "populatedSelector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp'])"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp']) a.bg-accent",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1765,18 +1792,27 @@
         "height": 900
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-search-results",
+        "selector": "main",
+        "populatedSelector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp'])"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp']) a.bg-accent",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1799,18 +1835,27 @@
         "height": 800
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-item-purchase",
+        "selector": "main",
+        "populatedSelector": "button.bg-accent:visible:enabled"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "button.bg-accent:visible:enabled >> nth=0",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1833,18 +1878,27 @@
         "height": 1180
       },
       "target": {
-        "identity": "marketplace-shell-brand-link",
-        "selector": "a[aria-label='Chase Sets']",
-        "populatedSelector": ":scope svg[data-color-mode='auto']"
+        "identity": "populated-item-purchase",
+        "selector": "main",
+        "populatedSelector": "button.bg-accent:visible:enabled"
       },
       "measurements": [
         {
           "identity": "brand-link-width",
-          "scope": "target",
-          "selector": ":scope",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "button.bg-accent:visible:enabled >> nth=0",
+          "property": "visible",
+          "assertion": {
+            "equals": true
           }
         }
       ],
@@ -1935,6 +1989,135 @@
         }
       ],
       "artifact": "item-detail-product-options-desktop-768"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-admin-workbench-light",
+      "file": "deployables/admin-web/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records populated admin workbench light @admin-platform",
+      "route": {
+        "name": "populated projection workbench",
+        "path": "/platform/projections/reference"
+      },
+      "fixture": {
+        "identity": "browser-e2e:projection-groups:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "populated-admin-projection-workbench",
+        "selector": "main",
+        "populatedSelector": "tbody tr:has(a:has-text('Details'))"
+      },
+      "measurements": [
+        {
+          "identity": "workbench-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "workbench-cta-visible",
+          "scope": "target",
+          "selector": "a[href='/platform/projections'].bg-accent",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        }
+      ],
+      "artifact": "ink-foil-admin-workbench-light"
+    },
+    {
+      "kind": "claim",
+      "id": "ink-foil-admin-workbench-dark",
+      "file": "deployables/admin-web/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records populated admin workbench dark @admin-platform",
+      "route": {
+        "name": "populated projection workbench",
+        "path": "/platform/projections/reference"
+      },
+      "fixture": {
+        "identity": "browser-e2e:projection-groups:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "populated-admin-projection-workbench",
+        "selector": "main",
+        "populatedSelector": "tbody tr:has(a:has-text('Details'))"
+      },
+      "measurements": [
+        {
+          "identity": "workbench-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "workbench-cta-visible",
+          "scope": "target",
+          "selector": "a[href='/platform/projections'].bg-accent",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        }
+      ],
+      "artifact": "ink-foil-admin-workbench-dark"
+    },
+    {
+      "kind": "negative-control",
+      "id": "ink-foil-search-empty-control",
+      "file": "deployables/marketplace/e2e/ink-foil-visual-identity.evidence.spec.ts",
+      "testTitle": "records search Ink & Foil evidence at 1280x900 light @marketplace-browse",
+      "route": {
+        "name": "marketplace search",
+        "path": "/search"
+      },
+      "fixture": {
+        "identity": "browser-e2e:cat_seed_charizard_base_set:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "populated-search-results",
+        "selector": "main",
+        "populatedSelector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp'])"
+      },
+      "measurements": [
+        {
+          "identity": "brand-link-width",
+          "scope": "page",
+          "selector": "a[aria-label='Chase Sets']",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "populated-cta-visible",
+          "scope": "target",
+          "selector": "article:has(> a[href='/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp']) a.bg-accent",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        }
+      ],
+      "artifact": "ink-foil-search-empty-control"
     }
   ]
 }

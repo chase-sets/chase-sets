@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { cssValues } from "./token-contract";
 import { afterEach, describe, expect, it } from "vitest";
 import { createStripeConnectAppearance, createStripeElementsAppearance } from "../theme/stripe-appearance";
 
@@ -37,7 +38,7 @@ const fixture = JSON.parse(
 
 const NORMAL_TEXT_MINIMUM_RATIO = 4.5;
 const modes = ["light", "dark"] as const;
-const sources = ["candidate", "shipped"] as const;
+const sources = ["candidate", "shipped", "css"] as const;
 
 type Mode = (typeof modes)[number];
 type Source = (typeof sources)[number];
@@ -99,9 +100,15 @@ function themedRoot(mode: Mode, source: Source) {
   const root = document.createElement("div");
   root.dataset.chaseTheme = "";
   root.dataset.colorMode = mode;
-  for (const [name, entry] of Object.entries(fixture[mode] as Record<string, Record<Source, string>>)) {
-    root.style.setProperty(name, entry[source]);
-  }
+  const values =
+    source === "css"
+      ? cssValues(mode)
+      : Object.fromEntries(
+          Object.entries(fixture[mode] as Record<string, Record<"candidate" | "shipped", string>>).map(
+            ([name, entry]) => [name, entry[source]],
+          ),
+        );
+  for (const [name, value] of Object.entries(values)) root.style.setProperty(name, value);
   document.body.appendChild(root);
   roots.push(root);
 
@@ -136,10 +143,18 @@ function elementsRowsFor(mode: Mode, source: Source): Row[] {
   // resolve from the fixture at run time.
   const roles: ReadonlyArray<readonly [string, string]> = [
     ["colorText", appearance.variables.colorText!],
+    ["colorPrimary", appearance.variables.colorPrimary!],
+    ["colorDanger", appearance.variables.colorDanger!],
+    ["colorSuccess", appearance.variables.colorSuccess!],
+    ["colorWarning", appearance.variables.colorWarning!],
     ["colorTextSecondary", appearance.variables.colorTextSecondary!],
     ["colorTextPlaceholder", appearance.variables.colorTextPlaceholder!],
     [".Label color", appearance.rules![".Label"]!.color!],
     [".Input color", appearance.rules![".Input"]!.color!],
+    [".Input--invalid color", appearance.rules![".Input--invalid"]!.color!],
+    [".Tab color", appearance.rules![".Tab"]!.color!],
+    [".Tab:hover color", appearance.rules![".Tab:hover"]!.color!],
+    [".Tab--selected color", appearance.rules![".Tab--selected"]!.color!],
   ];
   const surfaces: ReadonlyArray<readonly [string, string]> = [
     ["card surface", cardSurface],
@@ -164,6 +179,17 @@ afterEach(() => {
 });
 
 describe("Stripe Elements text contrast", () => {
+  it("covers every Elements normal-text variable and every rule color", () => {
+    const appearance = elementsAppearanceFor("light", "css");
+    const rows = elementsRowsFor("light", "css");
+    const actualRoles = [
+      ...Object.keys(appearance.variables).filter((name) => /^color(Text|Primary|Danger|Success|Warning)/.test(name)),
+      ...Object.entries(appearance.rules!).flatMap(([selector, rules]) =>
+        "color" in rules ? [`${selector} color`] : [],
+      ),
+    ];
+    expect([...new Set(rows.map((row) => row.role))].sort()).toEqual(actualRoles.sort());
+  });
   it("binds colorTextPlaceholder to the secondary text role, not the muted role", () => {
     for (const mode of modes) {
       for (const source of sources) {
@@ -172,13 +198,17 @@ describe("Stripe Elements text contrast", () => {
           appearance.variables.colorTextPlaceholder,
           `${mode}/${source}: colorTextPlaceholder must resolve from --text-secondary`,
         ).toBe(appearance.variables.colorTextSecondary);
-        expect(appearance.variables.colorTextPlaceholder).toBe(fixture[mode]["--text-secondary"][source]);
-        expect(appearance.variables.colorTextPlaceholder).not.toBe(fixture[mode]["--text-muted"][source]);
+        expect(appearance.variables.colorTextPlaceholder).toBe(
+          fixture[mode]["--text-secondary"][source === "css" ? "candidate" : source],
+        );
+        expect(appearance.variables.colorTextPlaceholder).not.toBe(
+          fixture[mode]["--text-muted"][source === "css" ? "candidate" : source],
+        );
       }
     }
   });
 
-  it("clears 4.5:1 for every normal-size text role, in both modes, from both value sources", () => {
+  it("clears 4.5:1 for every normal-size text role, in both modes, from fixture and actual CSS sources", () => {
     const rows = modes.flatMap((mode) => sources.flatMap((source) => elementsRowsFor(mode, source)));
 
     console.log(
@@ -217,6 +247,52 @@ describe("Stripe Elements text contrast", () => {
     expect(contrastRatio("#7d7791", "#ffffff")).toBeCloseTo(4.269, 2);
     // A translucent foreground is measured composited over its surface.
     expect(contrastRatio("rgba(0, 0, 0, 0)", "#ffffff")).toBeCloseTo(1, 5);
+  });
+});
+
+describe("actual stylesheet text and status contrast", () => {
+  it.each(modes)("measures complete text/status pairs in %s", (mode) => {
+    const values = cssValues(mode);
+    const pairs: [string, string, number][] = [
+      ["--foreground", "--background", 4.5],
+      ["--card-foreground", "--card", 4.5],
+      ["--popover-foreground", "--popover", 4.5],
+      ["--primary-foreground", "--primary", 4.5],
+      ["--secondary-foreground", "--secondary", 4.5],
+      ...["--card", "--background", "--surface-2", "--surface-3", "--elevated"].flatMap(
+        (surface): [string, string, number][] => [
+          ["--text-primary", surface, 4.5],
+          ["--text-secondary", surface, 4.5],
+          ["--text-muted", surface, 3],
+        ],
+      ),
+      ...["success", "warning", "danger", "info"].flatMap((status): [string, string, number][] => [
+        [`--${status}`, `--${status}-soft`, 4.5],
+        [`--${status}-contrast`, `--${status}`, 4.5],
+      ]),
+    ];
+    const rows = pairs.map(([role, surface, minimum]) => ({
+      mode,
+      role,
+      surface,
+      minimum,
+      foreground: values[role]!,
+      background: values[surface]!,
+      ratio: contrastRatio(values[role]!, values[surface]!),
+    }));
+    console.log(`actual CSS text/status table: ${JSON.stringify(rows)}`);
+    expect(rows.filter((row) => row.ratio < row.minimum)).toEqual([]);
+  });
+
+  it("rejects one below-threshold normal-text role on its actual surface and mode", () => {
+    const appearance = elementsAppearanceFor("light", "css");
+    const surface = appearance.rules![".Input"]!.backgroundColor!;
+    const failures = (foreground: string) =>
+      contrastRatio(foreground, surface) < NORMAL_TEXT_MINIMUM_RATIO
+        ? ["Elements/light/colorTextPlaceholder on .Input"]
+        : [];
+    expect(failures(appearance.variables.colorTextPlaceholder!)).toEqual([]);
+    expect(failures(cssValues("light")["--text-muted"]!)).toEqual(["Elements/light/colorTextPlaceholder on .Input"]);
   });
 });
 
@@ -330,7 +406,7 @@ describe("Stripe Connect text contrast", () => {
     expect(derived).toEqual([...connectTextVariables].sort());
   });
 
-  it("binds formPlaceholderTextColor to secondary text on both palettes and from both value sources", () => {
+  it("binds formPlaceholderTextColor to secondary text on both palettes and from fixture and actual CSS sources", () => {
     for (const mode of modes) {
       for (const source of sources) {
         const appearance = connectAppearanceFor(mode, source);
@@ -338,8 +414,12 @@ describe("Stripe Connect text contrast", () => {
           appearance.variables.formPlaceholderTextColor,
           `${mode}/${source}: formPlaceholderTextColor must resolve from --text-secondary`,
         ).toBe(appearance.variables.colorSecondaryText);
-        expect(appearance.variables.formPlaceholderTextColor).toBe(fixture[mode]["--text-secondary"][source]);
-        expect(appearance.variables.formPlaceholderTextColor).not.toBe(fixture[mode]["--text-muted"][source]);
+        expect(appearance.variables.formPlaceholderTextColor).toBe(
+          fixture[mode]["--text-secondary"][source === "css" ? "candidate" : source],
+        );
+        expect(appearance.variables.formPlaceholderTextColor).not.toBe(
+          fixture[mode]["--text-muted"][source === "css" ? "candidate" : source],
+        );
       }
     }
   });

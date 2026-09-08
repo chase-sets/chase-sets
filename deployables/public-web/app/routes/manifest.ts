@@ -11,8 +11,8 @@ function buildPublicManifest() {
     display: "standalone",
     orientation: "any",
     categories: ["shopping", "productivity"],
-    theme_color: "#1d5fd6",
-    background_color: "#f8fafc",
+    theme_color: "#4845c6",
+    background_color: "#f7f5f1",
     icons: [],
   } as const;
 }
