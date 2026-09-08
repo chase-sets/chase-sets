@@ -258,7 +258,11 @@ describe("actual stylesheet text and status contrast", () => {
       ["--card-foreground", "--card", 4.5],
       ["--popover-foreground", "--popover", 4.5],
       ["--primary-foreground", "--primary", 4.5],
+      ["--accent-foreground", "--accent", 4.5],
       ["--secondary-foreground", "--secondary", 4.5],
+      ["--trust", "--trust-soft", 4.5],
+      ["--deal", "--deal-soft", 4.5],
+      ["--rating", "--rating-soft", 4.5],
       ...["--card", "--background", "--surface-2", "--surface-3", "--elevated"].flatMap(
         (surface): [string, string, number][] => [
           ["--text-primary", surface, 4.5],
@@ -307,6 +311,8 @@ const connectTextVariables = [
   "buttonSecondaryColorText",
   "colorSecondaryText",
   "colorText",
+  "colorDanger",
+  "colorPrimary",
   "formPlaceholderTextColor",
 ] as const;
 
@@ -314,6 +320,22 @@ function connectRowsFor(mode: Mode, source: Source): Row[] {
   const appearance = connectAppearanceFor(mode, source);
   const value = (name: string) => String(appearance.variables[name]);
   const rows: ReadonlyArray<readonly [string, string, ReadonlyArray<readonly [string, string]>]> = [
+    [
+      "colorDanger",
+      value("colorDanger"),
+      [
+        ["colorBackground", value("colorBackground")],
+        ["formBackgroundColor", value("formBackgroundColor")],
+      ],
+    ],
+    [
+      "colorPrimary",
+      value("colorPrimary"),
+      [
+        ["colorBackground", value("colorBackground")],
+        ["offsetBackgroundColor", value("offsetBackgroundColor")],
+      ],
+    ],
     [
       "colorText",
       value("colorText"),
@@ -400,7 +422,10 @@ describe("Stripe Connect text contrast", () => {
   it("derives the complete normal-text variable inventory from the factory", () => {
     const appearance = connectAppearanceFor("light", "candidate");
     const derived = Object.keys(appearance.variables)
-      .filter((name) => /(colortext|textcolor|secondarytext)$/i.test(name))
+      .filter(
+        (name) =>
+          /(colortext|textcolor|secondarytext)$/i.test(name) || name === "colorDanger" || name === "colorPrimary",
+      )
       .sort();
 
     expect(derived).toEqual([...connectTextVariables].sort());
