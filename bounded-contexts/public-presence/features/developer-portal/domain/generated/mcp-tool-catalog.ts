@@ -4746,7 +4746,7 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "offerId", "priceAmount", "priceCurrencyCode"],
+      required: ["accountId", "offerId", "priceAmount", "priceCurrencyCode", "confirmationText"],
       properties: {
         accountId: {
           type: "string",
@@ -4763,6 +4763,10 @@ export const mcpToolCatalog = [
         priceCurrencyCode: {
           type: "string",
           description: "Buyer-authored three-letter ISO-4217 Offer price currency code.",
+        },
+        confirmationText: {
+          type: "string",
+          description: "Exact user or policy confirmation text.",
         },
       },
     },

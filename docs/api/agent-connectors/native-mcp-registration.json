@@ -2651,7 +2651,8 @@
           "accountId",
           "offerId",
           "priceAmount",
-          "priceCurrencyCode"
+          "priceCurrencyCode",
+          "confirmationText"
         ],
         "properties": {
           "accountId": {
@@ -2669,6 +2670,10 @@
           "priceCurrencyCode": {
             "type": "string",
             "description": "Buyer-authored three-letter ISO-4217 Offer price currency code."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
           }
         }
       },

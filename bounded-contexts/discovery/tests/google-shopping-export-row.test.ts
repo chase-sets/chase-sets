@@ -12,7 +12,14 @@ import {
   selectGoogleShoppingImage,
   type GoogleShoppingFeedRowInput,
 } from "../features/google-shopping-operations/api/export-row";
-import { discoveryGoogleShoppingSchemaSql } from "../features/google-shopping-operations/api/schema";
+import {
+  discoveryGoogleShoppingSchemaMigrations,
+  discoveryGoogleShoppingSchemaSql,
+} from "../features/google-shopping-operations/api/schema";
+
+const googleShoppingOperationalIndexSql = discoveryGoogleShoppingSchemaMigrations
+  .find(({ migrationId }) => migrationId === "20260907_discovery_google_shopping_operational_indexes")!
+  .statements.join("\n");
 
 describe("google shopping export rows", () => {
   it("derives stable row, offer, and seller identifiers from source ids", () => {
@@ -141,9 +148,9 @@ describe("google shopping export rows", () => {
   });
 
   it("creates sync and tombstone indexes for Merchant operations", () => {
-    expect(discoveryGoogleShoppingSchemaSql).toContain("discovery_google_shopping_feed_rows_pending_sync_idx");
-    expect(discoveryGoogleShoppingSchemaSql).toContain("discovery_google_shopping_feed_rows_stale_refresh_idx");
-    expect(discoveryGoogleShoppingSchemaSql).toContain("discovery_google_shopping_feed_rows_tombstone_idx");
+    expect(googleShoppingOperationalIndexSql).toContain("discovery_google_shopping_feed_rows_pending_sync_idx");
+    expect(googleShoppingOperationalIndexSql).toContain("discovery_google_shopping_feed_rows_stale_refresh_idx");
+    expect(googleShoppingOperationalIndexSql).toContain("discovery_google_shopping_feed_rows_tombstone_idx");
   });
 
   it("records image eligibility and policy evidence columns for operator remediation", () => {
@@ -152,7 +159,7 @@ describe("google shopping export rows", () => {
     expect(discoveryGoogleShoppingSchemaSql).toContain("shipping_policy_url text NULL");
     expect(discoveryGoogleShoppingSchemaSql).toContain("return_policy_url text NULL");
     expect(discoveryGoogleShoppingSchemaSql).toContain("return_policy_label text NULL");
-    expect(discoveryGoogleShoppingSchemaSql).toContain("discovery_google_shopping_feed_rows_image_eligibility_idx");
+    expect(googleShoppingOperationalIndexSql).toContain("discovery_google_shopping_feed_rows_image_eligibility_idx");
   });
 
   it("maps a complete raw card listing into a stable eligible Merchant payload", () => {
