@@ -365,15 +365,15 @@ function validateProducerIdentity(producer, gitIdentity) {
     violations.push("responsive evidence producer source head does not match the observed source head.");
   }
   if (producer?.eventName === "pull_request") {
-    const eventParentsObserved =
-      gitIdentity?.checkoutParents?.includes(producer.sourceHeadSha) &&
-      producer.baseSha &&
-      gitIdentity.checkoutParents.includes(producer.baseSha);
-    const parentsHiddenByShallowCheckout = gitIdentity?.shallow === true && gitIdentity.checkoutParents.length === 0;
-    if (!eventParentsObserved && !parentsHiddenByShallowCheckout) {
-      violations.push(
-        "pull-request evidence checkout neither exposes the declared head/base parents nor records an exact shallow checkout boundary.",
-      );
+    const parents = Array.isArray(gitIdentity?.checkoutParents) ? gitIdentity.checkoutParents : [];
+    if (!parents.includes(producer.sourceHeadSha)) {
+      violations.push("pull-request evidence checkout does not contain the declared source head parent.");
+    }
+    if (!producer.baseSha || !parents.includes(producer.baseSha)) {
+      violations.push("pull-request evidence checkout does not contain the declared base parent.");
+    }
+    if (!shaPattern.test(gitIdentity?.sourceHeadTree ?? "")) {
+      violations.push("pull-request evidence requires an observed source head tree.");
     }
   }
   return violations;
@@ -403,7 +403,7 @@ async function fileRecord(root, file) {
   return { path: relative(root, file), bytes: (await readFile(file)).length, sha256: await fileSha256(file) };
 }
 
-function observeGitIdentity(repoRoot, sourceHead) {
+export function observeGitIdentity(repoRoot, sourceHead) {
   const git = (...args) => {
     const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
     if (result.error || result.status !== 0) {
@@ -417,8 +417,8 @@ function observeGitIdentity(repoRoot, sourceHead) {
   });
   return {
     checkoutCommit: git("rev-parse", "HEAD"),
-    checkoutTree: git("show", "-s", "--format=%T", "HEAD"),
-    checkoutParents: git("show", "-s", "--format=%P", "HEAD").split(/\s+/).filter(Boolean),
+    checkoutTree: git("show", "-s", "--diff-merges=off", "--format=%T", "HEAD"),
+    checkoutParents: git("show", "-s", "--diff-merges=off", "--format=%P", "HEAD").split(/\s+/).filter(Boolean),
     shallow: git("rev-parse", "--is-shallow-repository") === "true",
     sourceHead,
     sourceHeadTree: sourceTree.status === 0 ? sourceTree.stdout.trim() : null,
