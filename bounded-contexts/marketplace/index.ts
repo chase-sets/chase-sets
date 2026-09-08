@@ -50,6 +50,8 @@ import { marketplaceOfferSchemaMigrations } from "./features/offers/read-model/s
 import { reviewSchemaMigrations } from "./features/reviews/read-model/schema";
 import { inspectMarketplaceSeedState, seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
 
+export type { MarketplaceServices } from "./support/runtime-support/services";
+
 const marketplaceContextManifest = contextManifest as BcContextManifest;
 
 export const module = defineBoundedContextModule<MarketplaceServices, PgTransactionalPool, MarketplaceServiceOptions>({

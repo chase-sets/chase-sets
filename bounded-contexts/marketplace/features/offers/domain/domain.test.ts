@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { decideMarketplaceOffer, evolveMarketplaceOffer, initialMarketplaceOfferState } from "./domain";
+import {
+  decideMarketplaceOffer,
+  evolveMarketplaceOffer,
+  initialMarketplaceOfferState,
+  normalizeOfferPriceCurrencyCode,
+} from "./domain";
 
 const shippingDestinationSnapshot = {
   name: "Jane Smith",
@@ -31,6 +36,12 @@ const listingCommitment = {
 } as const;
 
 describe("marketplace offer domain", () => {
+  it("reports a missing Offer currency as the named domain assertion", () => {
+    expect(() => normalizeOfferPriceCurrencyCode(undefined as never)).toThrow(
+      "Offer price currency code must be a three-letter ISO-4217 code.",
+    );
+  });
+
   it("submits an offer with a normalized buyer intent snapshot", () => {
     const events = decideMarketplaceOffer(initialMarketplaceOfferState, {
       type: "SubmitOffer",

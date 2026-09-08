@@ -148,6 +148,7 @@ function checkoutStartHref(listing: DiscoveryPublicListing) {
     quantity: "1",
     selectedOptions: JSON.stringify(listing.selected_options ?? []),
     priceAmount: listing.price_amount,
+    priceCurrencyCode: listing.price_currency_code ?? "",
     sellerName: listing.seller_display_name ?? t("discovery.routes.publicListing.seller"),
     availability: [availableQuantityLabel(listing.visible_quantity, listing.quantity_cap), purchaseLimitLabel(listing)]
       .filter(Boolean)

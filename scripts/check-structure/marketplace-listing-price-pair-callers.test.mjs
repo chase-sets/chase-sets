@@ -59,6 +59,36 @@ const registeredOfferCallers = new Map([
   ["contracts/catalog-seed/representative-commerce-state.ts", ["priceCurrencyCode: string"]],
 ]);
 
+const registeredBuyNowPriceHandoffs = new Map([
+  [
+    "bounded-contexts/discovery/routes/public-listing.tsx",
+    ["priceAmount: listing.price_amount", 'priceCurrencyCode: listing.price_currency_code ?? ""'],
+  ],
+  [
+    "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
+    ['priceAmount: lockedListing?.price_amount ?? ""', 'priceCurrencyCode: lockedListing?.price_currency_code ?? ""'],
+  ],
+  [
+    "bounded-contexts/checkout/features/sessions/ui/checkout-start-page-types.ts",
+    ["priceAmount: string | null", "priceCurrencyCode: string | null"],
+  ],
+  [
+    "bounded-contexts/checkout/support/route-support/buy-checkout-readiness/checkout-start-source.ts",
+    [
+      'priceCurrencyCode: url.searchParams.get("priceCurrencyCode") || null',
+      'priceCurrencyCode: String(formData.get("priceCurrencyCode") ?? "") || null',
+    ],
+  ],
+  [
+    "bounded-contexts/checkout/features/sessions/ui/checkout-start-summary.tsx",
+    [
+      'name="priceCurrencyCode"',
+      "source.priceAmount && source.priceCurrencyCode",
+      "formatMoney(source.priceAmount, source.priceCurrencyCode)",
+    ],
+  ],
+]);
+
 const versionedConsumerRoots = [
   "bounded-contexts/checkout/",
   "bounded-contexts/discovery/",
@@ -105,6 +135,15 @@ function sourceDerivedVersionedPairConsumers() {
   });
 }
 
+function sourceDerivedBuyNowPriceProducers() {
+  return productionTypescriptFiles().filter((file) => {
+    const text = source(file);
+    return (
+      text.includes("/checkout/buy/readiness") && text.includes('source: "buy-now"') && text.includes("priceAmount")
+    );
+  });
+}
+
 describe("marketplace-listing-price-pair-caller-closure", () => {
   it("registers every source-derived production authoring caller", () => {
     const unregistered = sourceDerivedCallers().filter((file) => !registeredCallers.has(file));
@@ -139,4 +178,18 @@ describe("marketplace-listing-price-pair-caller-closure", () => {
       );
     }
   });
+
+  it("registers every source-derived buy-now price handoff producer", () => {
+    const unregistered = sourceDerivedBuyNowPriceProducers().filter((file) => !registeredBuyNowPriceHandoffs.has(file));
+    expect(unregistered).toEqual([]);
+  });
+
+  it.each([...registeredBuyNowPriceHandoffs.entries()])(
+    "keeps the complete Listing price pair in transitive buy-now handoff %s",
+    (file, evidence) => {
+      const text = source(file);
+      for (const fragment of evidence) expect(text).toContain(fragment);
+      expect(text).not.toContain('formatMoney(source.priceAmount, "USD")');
+    },
+  );
 });

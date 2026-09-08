@@ -385,6 +385,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           productSummary: source.productSummary ?? "",
           quantity: String(source.quantity),
           priceAmount: lockedListing?.price_amount ?? "",
+          priceCurrencyCode: lockedListing?.price_currency_code ?? "",
           sellerName: lockedListing?.seller_display_name ?? "",
           availability: lockedListing
             ? t("discovery.routes.itemDetail.inventory.option.label", {

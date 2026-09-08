@@ -66,7 +66,7 @@ type SeededSellerOption = Readonly<{
   seller_account_id: string;
   product_id: string;
   price_amount: string;
-  price_currency_code: string;
+  price_currency_code: string | null;
   listing_stream_version: number;
   listing_quantity_cap: number;
   supply_total_quantity: number | null;
@@ -268,6 +268,31 @@ describeDb("seller-options readiness against the checkout read model", () => {
       lineId: "cli_charizard",
       outcome: "checkout",
       reason: "unassigned-fulfillment",
+    });
+  });
+
+  it("excludes incomplete legacy Listing money pairs from fulfillment readiness", async () => {
+    await seedReadModel(
+      [seededLine({ locked_listing_id: "lst_legacy_amount_only" })],
+      [
+        seededOption({
+          listing_id: "lst_legacy_amount_only",
+          price_currency_code: null,
+          listing_stream_version: 1,
+        }),
+        seededOption({
+          listing_id: "lst_legacy_unversioned",
+          price_currency_code: "USD",
+          listing_stream_version: 0,
+        }),
+      ],
+    );
+
+    const cartLines = await listCartLines(pool, buyerAccountId);
+    expect(cartLines[0]?.seller_options).toEqual([]);
+    expect(createCartReadinessSnapshot(cartLines)).toMatchObject({
+      status: "blocked",
+      unresolvedLineIds: ["cli_charizard"],
     });
   });
 

@@ -551,6 +551,7 @@ describe("checkout web routes: checkout start", () => {
         selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
         productSummary: "Raw",
         priceAmount: null,
+        priceCurrencyCode: null,
         sellerName: null,
         availability: null,
         fulfillment: null,

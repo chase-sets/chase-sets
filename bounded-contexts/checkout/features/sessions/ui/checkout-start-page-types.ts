@@ -27,6 +27,7 @@ export type CheckoutStartBuyNowSource = Readonly<{
   productSummary: string | null;
   quantity: number;
   priceAmount: string | null;
+  priceCurrencyCode: string | null;
   sellerName: string | null;
   availability: string | null;
   fulfillment: string | null;

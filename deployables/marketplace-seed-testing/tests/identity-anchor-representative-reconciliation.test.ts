@@ -1,10 +1,10 @@
 import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
+import type { MarketplaceServices } from "@chase-sets/marketplace";
 import {
   catalogScenarioItems,
   ensureRepresentativeInventoryStock,
   publishRepresentativeListings,
   type RepresentativeInventoryServices,
-  type RepresentativeMarketplaceServices,
 } from "@chase-sets/catalog-seed";
 import { beforeAll, expect, it } from "vitest";
 import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
@@ -85,8 +85,8 @@ function getInventoryServices(services: Readonly<Record<string, unknown>>): Repr
   return services.inventory as RepresentativeInventoryServices;
 }
 
-function getMarketplaceServices(services: Readonly<Record<string, unknown>>): RepresentativeMarketplaceServices {
-  return services.marketplace as RepresentativeMarketplaceServices;
+function getMarketplaceServices(services: Readonly<Record<string, unknown>>): MarketplaceServices {
+  return services.marketplace as MarketplaceServices;
 }
 
 async function syncRepresentativeProjection(

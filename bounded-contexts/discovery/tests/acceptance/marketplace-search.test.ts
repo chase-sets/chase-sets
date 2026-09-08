@@ -1545,6 +1545,34 @@ describe("marketplace search", () => {
     await project("marketplace.listing.published", "marketplace.listing-lst_market_signal_2", 2, {});
     expect(await signals()).toEqual({ lowest_price_amount: "12.00", visible_quantity: 6 });
 
+    await project("inventory.item.created", "inventory.item-inv_market_signal_legacy", 1, {
+      itemId: "inv_market_signal_legacy",
+      accountId: "acc_market_signal",
+      catalogItemId: "cat_market_signal",
+      productId: "prd_market_signal_legacy",
+      selectedOptions: [],
+      storageLocationId: "loc_market_signal",
+      totalQuantity: 7,
+    });
+    await project("marketplace.listing.created", "marketplace.listing-lst_market_signal_legacy", 1, {
+      listingId: "lst_market_signal_legacy",
+      accountId: "acc_market_signal",
+      inventoryItemId: "inv_market_signal_legacy",
+      catalogItemId: "cat_market_signal",
+      productId: "prd_market_signal_legacy",
+      itemTitle: "Legacy amount-only Market Signal Item",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      productMeasureSnapshot: { quantity: 1, unit: "item" },
+      storageLocationName: "Test location",
+      shipFromCode: "US-IL",
+      priceAmount: "1.00",
+      quantityCap: 7,
+    });
+    await project("marketplace.listing.published", "marketplace.listing-lst_market_signal_legacy", 2, {});
+    expect(await signals()).toEqual({ lowest_price_amount: "12.00", visible_quantity: 6 });
+
     await project(
       "marketplace.seller-listing-availability.disabled",
       "marketplace.seller-listing-availability-acc_market_signal",

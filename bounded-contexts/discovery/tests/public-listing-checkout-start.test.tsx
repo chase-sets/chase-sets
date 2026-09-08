@@ -54,6 +54,7 @@ describe("public listing checkout start", () => {
       productSummary: "Near Mint",
       quantity: "1",
       priceAmount: "42.00",
+      priceCurrencyCode: "EUR",
       sellerName: "Card Vault",
     });
 

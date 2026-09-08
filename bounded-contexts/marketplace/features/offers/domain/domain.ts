@@ -37,6 +37,7 @@ function normalizeMoneyAmount(value: string): string {
 }
 
 export function normalizeOfferPriceCurrencyCode(value: string): string {
+  assert(typeof value === "string", "Offer price currency code must be a three-letter ISO-4217 code.");
   const normalized = value.trim().toUpperCase();
   assert(/^[A-Z]{3}$/.test(normalized), "Offer price currency code must be a three-letter ISO-4217 code.");
   return normalized;

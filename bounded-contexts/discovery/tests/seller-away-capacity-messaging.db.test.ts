@@ -168,10 +168,18 @@ describeDb("discovery buyer-facing away & at-capacity messaging", () => {
   it("keeps the buyer-visible search/browse predicate unchanged: away excluded, at-capacity still visible", async () => {
     await pool.query(
       `INSERT INTO discovery_market_accounts (account_id, seller_listing_availability_status, seller_at_capacity)
-       VALUES ('acc_away', 'unavailable', false), ('acc_at_capacity', 'available', true)`,
+       VALUES
+         ('acc_away', 'unavailable', false),
+         ('acc_at_capacity', 'available', true),
+         ('acc_legacy', 'available', false)`,
     );
     await insertListing(pool, { listingId: "lst_away", accountId: "acc_away" });
     await insertListing(pool, { listingId: "lst_at_capacity", accountId: "acc_at_capacity" });
+    await insertListing(pool, {
+      listingId: "lst_legacy_amount_only",
+      accountId: "acc_legacy",
+      priceCurrencyCode: null,
+    });
 
     const result = await pool.query<{ listing_id: string }>(
       `SELECT listing.listing_id
@@ -265,7 +273,14 @@ async function selectAccount(pool: PgTransactionalPool, accountId: string) {
 
 async function insertListing(
   pool: PgTransactionalPool,
-  params: Readonly<{ listingId: string; accountId: string; slug?: string; quantityCap?: number }>,
+  params: Readonly<{
+    listingId: string;
+    accountId: string;
+    slug?: string;
+    quantityCap?: number;
+    priceCurrencyCode?: string | null;
+    listingStreamVersion?: number;
+  }>,
 ) {
   await pool.query(
     `INSERT INTO discovery_market_listings (
@@ -277,9 +292,16 @@ async function insertListing(
      ) VALUES (
        $1, $2, 'prd_1', $3, 'inv_1', 'cat_1', 'prd_1', 'Charizard', NULL, '[]'::jsonb, 'Raw',
        '{"catalogItemId":"cat_1","productId":"prd_1","measureVersion":"pm_raw_v1"}'::jsonb,
-       'STL Main', 'STL', '10.00', 'USD', 1, 500, $4, NULL, 0, 'active', now(), now()
+       'STL Main', 'STL', '10.00', $5, $6, 500, $4, NULL, 0, 'active', now(), now()
      )`,
-    [params.listingId, params.slug ?? params.listingId, params.accountId, params.quantityCap ?? 3],
+    [
+      params.listingId,
+      params.slug ?? params.listingId,
+      params.accountId,
+      params.quantityCap ?? 3,
+      params.priceCurrencyCode === undefined ? "USD" : params.priceCurrencyCode,
+      params.listingStreamVersion ?? 1,
+    ],
   );
 }
 

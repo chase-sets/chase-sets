@@ -59,6 +59,9 @@ export function CheckoutStartSourceFields({
       {"priceAmount" in source ? (
         <HiddenInput type="hidden" name="priceAmount" value={source.priceAmount ?? ""} />
       ) : null}
+      {"priceCurrencyCode" in source ? (
+        <HiddenInput type="hidden" name="priceCurrencyCode" value={source.priceCurrencyCode ?? ""} />
+      ) : null}
       {"sellerName" in source ? <HiddenInput type="hidden" name="sellerName" value={source.sellerName ?? ""} /> : null}
       {"availability" in source ? (
         <HiddenInput type="hidden" name="availability" value={source.availability ?? ""} />
@@ -68,6 +71,15 @@ export function CheckoutStartSourceFields({
       ) : null}
     </>
   );
+}
+
+function checkoutStartSourcePrice(source: CheckoutStartSource) {
+  if (source.type === "offer-intent") {
+    return formatMoney(source.offerPriceAmount, source.offerPriceCurrencyCode);
+  }
+  return source.priceAmount && source.priceCurrencyCode
+    ? formatMoney(source.priceAmount, source.priceCurrencyCode)
+    : t("checkout.routes.checkoutStart.price.confirmed.before.payment");
 }
 
 export function CheckoutStartSourceSummary({ source }: { source: CheckoutStartSource }) {
@@ -80,13 +92,7 @@ export function CheckoutStartSourceSummary({ source }: { source: CheckoutStartSo
           <ProductOptions options={productOptionsFromSummary(source.productSummary)} variant="compact" />
         ) : null)
       }
-      price={
-        source.type === "offer-intent"
-          ? formatMoney(source.offerPriceAmount, source.offerPriceCurrencyCode)
-          : source.priceAmount
-            ? formatMoney(source.priceAmount, "USD")
-            : t("checkout.routes.checkoutStart.price.confirmed.before.payment")
-      }
+      price={checkoutStartSourcePrice(source)}
       quantity={formatMarketplaceNumber(
         source.quantity,
         t("checkout.routes.checkoutStart.quantity.confirmed.before.payment"),
@@ -159,12 +165,7 @@ export function CheckoutStartSummary({
                 },
                 {
                   label: t("checkout.routes.checkoutStart.price"),
-                  value:
-                    source.type === "offer-intent"
-                      ? formatMoney(source.offerPriceAmount, source.offerPriceCurrencyCode)
-                      : source.priceAmount
-                        ? formatMoney(source.priceAmount, "USD")
-                        : t("checkout.routes.checkoutStart.price.confirmed.before.payment"),
+                  value: checkoutStartSourcePrice(source),
                 },
                 {
                   label: t("checkout.routes.checkoutStart.quantity"),

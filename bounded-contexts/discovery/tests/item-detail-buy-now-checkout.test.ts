@@ -120,6 +120,7 @@ function activeListing(overrides: Record<string, unknown> = {}) {
     status: "active",
     product_id: "cat_charizard::form:raw",
     price_amount: "380.00",
+    price_currency_code: "EUR",
     seller_display_name: "Fresh Seller",
     quantity_cap: 3,
     visible_quantity: 3,
@@ -1191,6 +1192,7 @@ describe("item detail buy now checkout actions", () => {
     expect(redirectUrl.searchParams.get("productSummary")).toBe("Raw");
     expect(redirectUrl.searchParams.get("quantity")).toBe("2");
     expect(redirectUrl.searchParams.get("priceAmount")).toBe("380.00");
+    expect(redirectUrl.searchParams.get("priceCurrencyCode")).toBe("EUR");
     expect(redirectUrl.searchParams.get("sellerName")).toBe("Fresh Seller");
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
@@ -1207,6 +1209,7 @@ describe("item detail buy now checkout actions", () => {
             listing_id: "lst_charizard",
             status: "active",
             price_amount: "380.00",
+            price_currency_code: "EUR",
             seller_display_name: "Fresh Seller",
             quantity_cap: 2,
             visible_quantity: 2,
@@ -1229,6 +1232,7 @@ describe("item detail buy now checkout actions", () => {
     form.set("quantity", "1");
     form.set("lockedListingId", "lst_charizard");
     form.set("priceAmount", "1.00");
+    form.set("priceCurrencyCode", "USD");
     form.set("sellerName", "Tampered Seller");
     form.set("availability", "999 available");
 
@@ -1248,6 +1252,7 @@ describe("item detail buy now checkout actions", () => {
     expect(redirectUrl.searchParams.get("fulfillmentMode")).toBe("locked-listing");
     expect(redirectUrl.searchParams.get("lockedListingId")).toBe("lst_charizard");
     expect(redirectUrl.searchParams.get("priceAmount")).toBe("380.00");
+    expect(redirectUrl.searchParams.get("priceCurrencyCode")).toBe("EUR");
     expect(redirectUrl.searchParams.get("sellerName")).toBe("Fresh Seller");
     expect(redirectUrl.searchParams.get("availability")).toBe("Raw - 2 available");
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
