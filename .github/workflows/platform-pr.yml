@@ -311,10 +311,32 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run marketplace e2e suites
+        id: e2e-producer
         env:
           CHASE_SETS_BROWSER_E2E_SYSTEM: production
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
-        run: pnpm run test:e2e:suite "${{ matrix.suite_batch }}"
+        run: |
+          set -o pipefail
+          pnpm run test:e2e:suite "${{ matrix.suite_batch }}" 2>&1 | tee "${RUNNER_TEMP}/responsive-evidence-producer.log"
+
+      - name: Prepare successful responsive evidence
+        id: responsive-evidence
+        env:
+          RESPONSIVE_EVIDENCE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}
+          RESPONSIVE_EVIDENCE_JOB_INDEX: ${{ strategy.job-index }}
+          RESPONSIVE_EVIDENCE_PRODUCER_LOG: ${{ runner.temp }}/responsive-evidence-producer.log
+          RESPONSIVE_EVIDENCE_PRODUCER_OUTCOME: ${{ steps.e2e-producer.outcome }}
+          RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+        run: node ./scripts/validate-responsive-evidence-artifacts.mjs --prepare-hosted-artifact --suite-batch="${{ matrix.suite_batch }}"
+
+      - name: Upload successful responsive evidence
+        if: steps.responsive-evidence.outputs.publish == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: responsive-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
+          path: artifacts/hosted-responsive-evidence
+          if-no-files-found: error
+          retention-days: 14
 
   build:
     name: Build
