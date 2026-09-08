@@ -2289,6 +2289,11 @@ export const mcpToolCatalog = [
           type: "string",
           description: "Optional operator note for the stock adjustment.",
         },
+        acquisitionOccurredAt: {
+          type: "string",
+          description:
+            "Optional timezone-bearing acquisition occurrence for positive stock intake. Omit when unknown; forbidden for reductions.",
+        },
         idempotencyKey: {
           type: "string",
           description:
