@@ -87,7 +87,9 @@ function normalizeRow(row: RawImportBatchRow): InventoryImportBatchRow {
   return {
     ...row,
     acquisition_occurred_at:
-      row.acquisition_occurred_at === null ? null : new Date(row.acquisition_occurred_at).toISOString(),
+      row.acquisition_occurred_at === null || row.acquisition_occurred_at === undefined
+        ? null
+        : new Date(row.acquisition_occurred_at).toISOString(),
     raw_row:
       typeof row.raw_row === "object" && row.raw_row !== null && !Array.isArray(row.raw_row)
         ? (row.raw_row as Record<string, string>)
