@@ -1,11 +1,17 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { scanPlaywrightArtifactUploads } from "./playwright-artifact-upload-fence.mjs";
-import { validateResponsiveEvidenceArtifacts } from "./validate-responsive-evidence-artifacts.mjs";
+import {
+  observeGitIdentity,
+  prepareHostedResponsiveEvidenceArtifact,
+  validateResponsiveEvidenceArtifacts,
+} from "./validate-responsive-evidence-artifacts.mjs";
 
 const roots = [];
 const repoRoot = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -98,19 +104,241 @@ describe("responsive evidence artifact validation", () => {
     expect(result.violations).toContainEqual(expect.stringContaining("duplicate cross-claim"));
   });
 
-  it("responsive evidence upload remains strict without a raw Playwright path", async () => {
+  it("stages only complete successful registered payloads behind the raw Playwright fence", async () => {
+    const root = await fixture();
+    const outputRoot = "artifacts/hosted-responsive-evidence";
+    const originalManifest = await readFile(path.join(root, runtimeManifestPath), "utf8");
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer: successfulProducer(),
+      producerLogPath: await producerLog(root),
+      gitIdentity: syntheticGitIdentity(),
+      outputRoot,
+    });
+
+    expect(result).toMatchObject({ publish: true, violations: [], expectedClaimIds: ["claim"] });
+    expect(JSON.parse(await readFile(path.join(root, outputRoot, "provenance.json"), "utf8"))).toMatchObject({
+      schemaVersion: "hosted-responsive-evidence/v1",
+      producer: { outcome: "success", runId: 123, runAttempt: 2, jobIndex: 3 },
+      claims: [{ claimId: "claim" }],
+    });
+    expect(await readFile(path.join(root, outputRoot, "captures/claim/claim.png"), "utf8")).toBe("screenshot");
+    expect(await readFile(path.join(root, outputRoot, "captures/claim/claim.manifest.json"), "utf8")).toBe(
+      originalManifest,
+    );
+    expect(result.files).toEqual([
+      "captures/claim/claim.manifest.json",
+      "captures/claim/claim.png",
+      "provenance.json",
+      "style-evidence.log",
+    ]);
+    expect(await readFile(path.join(root, outputRoot, "style-evidence.log"), "utf8")).not.toContain("SYNTHETIC_SECRET");
+
     const workflow = await readFile(path.join(repoRoot, ".github/workflows/platform-pr.yml"), "utf8");
     const e2eJob = workflow.slice(workflow.indexOf("  e2e-tests:"), workflow.indexOf("\n  build:"));
     const fence = scanPlaywrightArtifactUploads({ root: repoRoot });
 
     expect(e2eJob).toContain('pnpm run test:e2e:suite "${{ matrix.suite_batch }}"');
-    expect(e2eJob).not.toContain("actions/upload-artifact@");
+    expect(e2eJob).toMatch(/uses: actions\/checkout@[^\n]+\r?\n\s+with:\r?\n\s+fetch-depth: 2\r?\n/);
+    expect(e2eJob).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(e2eJob).toContain("path: artifacts/hosted-responsive-evidence");
+    expect(e2eJob).toContain("if-no-files-found: error");
+    expect(e2eJob).toContain("if: steps.responsive-evidence.outputs.publish == 'true'");
     expect(e2eJob).not.toContain("artifacts/playwright/report");
     expect(e2eJob).not.toContain("artifacts/playwright/test-results");
     expect(fence.status).toBe("pass");
     expect(fence.findings).toEqual([]);
   });
+
+  it("publishes nothing when the successful producer payload is incomplete", async () => {
+    const root = await fixture();
+    await rm(path.join(root, screenshotPath));
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer: successfulProducer(),
+      producerLogPath: await producerLog(root),
+      gitIdentity: syntheticGitIdentity(),
+    });
+
+    expect(result.publish).toBe(false);
+    expect(result.violations).toContainEqual(expect.stringContaining("required screenshot payload"));
+    expect(existsSync(path.join(root, "artifacts/hosted-responsive-evidence"))).toBe(false);
+  });
+
+  it.each([
+    ["failed producer", { outcome: "failure" }, syntheticGitIdentity(), "producer outcome"],
+    ["wrong producer head", {}, { ...syntheticGitIdentity(), sourceHead: "4".repeat(40) }, "source head"],
+  ])("publishes nothing for a %s", async (_name, producerPatch, gitIdentity, violation) => {
+    const root = await fixture();
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer: { ...successfulProducer(), ...producerPatch },
+      producerLogPath: await producerLog(root),
+      gitIdentity,
+    });
+
+    expect(result.publish).toBe(false);
+    expect(result.violations.join("\n")).toContain(violation);
+    expect(existsSync(path.join(root, "artifacts/hosted-responsive-evidence"))).toBe(false);
+  });
+
+  it("accepts the final successful producer line after an unchanged retry", async () => {
+    const root = await fixture();
+    const log = await producerLog(root);
+    await writeFile(
+      log,
+      "× 1 [marketplace-chromium] › claim.spec.ts:1:1 › claim @marketplace-browse (1ms)\n" +
+        "± 1 [marketplace-chromium] › claim.spec.ts:1:1 › claim @marketplace-browse (retry #1) (1ms)\n" +
+        "1 flaky\n",
+      "utf8",
+    );
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer: successfulProducer(),
+      producerLogPath: log,
+      gitIdentity: syntheticGitIdentity(),
+    });
+
+    expect(result).toMatchObject({ publish: true, violations: [] });
+  });
 });
+
+describe("hosted evidence from real merge checkouts", () => {
+  it.each([1, 2, null])("observes and validates a merge checkout at depth %s", async (depth) => {
+    const { root, producer, sourceHeadTree, checkoutTree } = await mergeCheckout(depth);
+    const gitIdentity = observeGitIdentity(root, producer.sourceHeadSha);
+    expect(gitIdentity).toEqual({
+      checkoutCommit: producer.checkoutSha,
+      checkoutTree,
+      checkoutParents: depth === 1 ? [] : [producer.baseSha, producer.sourceHeadSha],
+      shallow: depth !== null,
+      sourceHead: producer.sourceHeadSha,
+      sourceHeadTree: depth === 1 ? null : sourceHeadTree,
+    });
+    expect(sourceHeadTree).toMatch(/^[0-9a-f]{40}$/);
+    expect(sourceHeadTree).not.toBe(checkoutTree);
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer,
+      producerLogPath: await producerLog(root),
+      gitIdentity,
+    });
+
+    if (depth === 1) {
+      expect(result).toMatchObject({ publish: false, files: [] });
+      expect(result.violations).toEqual([
+        "pull-request evidence checkout does not contain the declared source head parent.",
+        "pull-request evidence checkout does not contain the declared base parent.",
+        "pull-request evidence requires an observed source head tree.",
+      ]);
+      expect(existsSync(path.join(root, "artifacts/hosted-responsive-evidence"))).toBe(false);
+    } else {
+      expect(result).toMatchObject({ publish: true, violations: [], expectedClaimIds: ["claim"] });
+      const provenance = JSON.parse(
+        await readFile(path.join(root, "artifacts/hosted-responsive-evidence/provenance.json"), "utf8"),
+      );
+      expect(provenance.producer).toEqual(producer);
+      expect(provenance.git).toEqual(gitIdentity);
+    }
+  });
+
+  it.each([
+    ["sourceHeadSha", "source head parent"],
+    ["baseSha", "base parent"],
+  ])("rejects a declared %s missing from the observed merge parents", async (field, violation) => {
+    const { root, producer } = await mergeCheckout(2);
+    producer[field] = producer.checkoutSha;
+    const gitIdentity = observeGitIdentity(root, producer.sourceHeadSha);
+    expect(gitIdentity.checkoutParents).toHaveLength(2);
+    expect(gitIdentity.checkoutParents).not.toContain(producer[field]);
+    expect(gitIdentity.sourceHeadTree).toMatch(/^[0-9a-f]{40}$/);
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer,
+      producerLogPath: await producerLog(root),
+      gitIdentity,
+    });
+
+    expect(result).toMatchObject({ publish: false, files: [] });
+    expect(result.violations).toEqual([`pull-request evidence checkout does not contain the declared ${violation}.`]);
+    expect(existsSync(path.join(root, "artifacts/hosted-responsive-evidence"))).toBe(false);
+  });
+
+  it("rejects observed parents when the source head tree cannot be resolved", async () => {
+    const { root, producer } = await mergeCheckout(null);
+    // The local deep clone owns independent loose objects; remove only its source commit.
+    // HEAD still exposes both real parent IDs, but Git can no longer resolve the source tree.
+    await rm(path.join(root, ".git/objects", producer.sourceHeadSha.slice(0, 2), producer.sourceHeadSha.slice(2)));
+    const gitIdentity = observeGitIdentity(root, producer.sourceHeadSha);
+    expect(gitIdentity.checkoutParents).toEqual([producer.baseSha, producer.sourceHeadSha]);
+    expect(gitIdentity.sourceHeadTree).toBeNull();
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer,
+      producerLogPath: await producerLog(root),
+      gitIdentity,
+    });
+
+    expect(result).toMatchObject({ publish: false, files: [] });
+    expect(result.violations).toEqual(["pull-request evidence requires an observed source head tree."]);
+    expect(existsSync(path.join(root, "artifacts/hosted-responsive-evidence"))).toBe(false);
+  });
+});
+
+async function mergeCheckout(depth) {
+  const source = await fixture();
+  const git = (...args) =>
+    execFileSync("git", ["-C", source, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git("init", "--initial-branch=main");
+  git("config", "user.name", "Synthetic evidence test");
+  git("config", "user.email", "synthetic@example.invalid");
+  git("config", "commit.gpgSign", "false");
+  git("config", "core.autocrlf", "false");
+  git("add", ".");
+  git("commit", "-m", "Synthetic initial payload");
+  git("checkout", "-b", "source");
+  await write(source, "source.txt", "Synthetic source change\n");
+  git("add", ".");
+  git("commit", "-m", "Synthetic source head");
+  const sourceHeadSha = git("rev-parse", "HEAD");
+  const sourceHeadTree = git("show", "-s", "--format=%T", "HEAD");
+  git("checkout", "main");
+  await write(source, "base.txt", "Synthetic base change\n");
+  git("add", ".");
+  git("commit", "-m", "Synthetic base head");
+  const baseSha = git("rev-parse", "HEAD");
+  git("merge", "--no-ff", "source", "-m", "Synthetic pull-request merge");
+  const checkoutSha = git("rev-parse", "HEAD");
+  const checkoutTree = git("show", "-s", "--format=%T", "HEAD");
+  const root = await mkdtemp(path.join(os.tmpdir(), "responsive-merge-checkout-"));
+  roots.push(root);
+  // file:// forces the upload-pack shallow boundary rather than a local object copy.
+  git(
+    "clone",
+    "--config=core.autocrlf=false",
+    ...(depth === null ? ["--no-hardlinks", source] : [`--depth=${depth}`, pathToFileURL(source).href]),
+    root,
+  );
+  return {
+    root,
+    producer: { ...successfulProducer(), checkoutSha, sourceHeadSha, baseSha },
+    sourceHeadTree,
+    checkoutTree,
+  };
+}
 
 const sourceManifestPath = "infrastructure/playwright-evidence/responsive-evidence-manifest.json";
 const runtimeManifestPath = "artifacts/playwright/test-results/run/claim.manifest.json";
@@ -177,6 +405,49 @@ async function write(root, relativePath, contents) {
   const file = path.join(root, relativePath);
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, contents, "utf8");
+}
+
+async function producerLog(root) {
+  const file = "producer.log";
+  await write(
+    root,
+    file,
+    "✓ 1 [marketplace-chromium] › claim.spec.ts:1:1 › claim @marketplace-browse (1ms)\n" +
+      'palette (light): {"observed":{"background":"rgb(0, 0, 0)"},"expected":{"background":"rgb(0, 0, 0)"}}\n' +
+      "1 passed (1s)\n" +
+      "SYNTHETIC_SECRET=must-not-be-retained\n",
+  );
+  return path.join(root, file);
+}
+
+function successfulProducer() {
+  return {
+    outcome: "success",
+    repository: "synthetic/example",
+    workflow: "Synthetic PR",
+    workflowRef: "synthetic/example/.github/workflows/pr.yml@refs/pull/1/merge",
+    workflowSha: "7".repeat(40),
+    eventName: "pull_request",
+    runId: 123,
+    runAttempt: 2,
+    job: "evidence",
+    jobIndex: 3,
+    suiteBatch: "marketplace_browse",
+    checkoutSha: "1".repeat(40),
+    sourceHeadSha: "2".repeat(40),
+    baseSha: "3".repeat(40),
+  };
+}
+
+function syntheticGitIdentity() {
+  return {
+    checkoutCommit: "1".repeat(40),
+    checkoutTree: "5".repeat(40),
+    checkoutParents: ["3".repeat(40), "2".repeat(40)],
+    shallow: false,
+    sourceHead: "2".repeat(40),
+    sourceHeadTree: "6".repeat(40),
+  };
 }
 
 function sha256(value) {

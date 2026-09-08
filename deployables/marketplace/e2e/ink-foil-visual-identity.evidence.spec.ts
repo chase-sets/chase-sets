@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 
 // Charter scope: rendered Ink & Foil evidence -- the display type, the brand
@@ -129,22 +129,61 @@ async function assertFoilStops(page: Page, mode: "light" | "dark") {
   expect(resolved).toEqual(foilCandidates(mode));
 }
 
-async function assertShippedPalette(page: Page, mode: "light" | "dark") {
-  // The two palette expectations read the fixture's SHIPPED values: the
-  // render-time proof this candidate advanced no palette name. The palette
-  // cutover rebaselines exactly these two expectations onto candidate.
-  const expectedBackground = hexToRgbString(fixture[mode]["--background"]!.shipped);
-  const expectedForeground = hexToRgbString(fixture[mode]["--foreground"]!.shipped);
-  const observed = await page.evaluate(() => {
-    const heading = document.querySelector("h1, h2, [class*='font-heading']");
-    return {
-      background: getComputedStyle(document.body).backgroundColor,
-      foreground: heading ? getComputedStyle(heading).color : "",
-    };
-  });
-  console.log(`palette-still-shipped (${mode}): ${JSON.stringify(observed)}`);
-  expect(observed.background, `${mode} body background must stay the shipped palette`).toBe(expectedBackground);
-  expect(observed.foreground, `${mode} heading colour must stay the shipped palette`).toBe(expectedForeground);
+function assertCandidateObservation(
+  observed: { background: string; foreground: string },
+  expected: { background: string; foreground: string },
+) {
+  expect(observed.background, "fixture-candidate background").toBe(expected.background);
+  expect(observed.foreground, "fixture-candidate foreground").toBe(expected.foreground);
+}
+
+async function assertCandidatePalette(page: Page, mode: "light" | "dark") {
+  const expected = {
+    background: hexToRgbString(fixture[mode]["--background"]!.candidate),
+    foreground: hexToRgbString(fixture[mode]["--foreground"]!.candidate),
+  };
+  await expect(page.locator("h1").first()).toBeVisible();
+  const observed = await page.evaluate(() => ({
+    background: getComputedStyle(document.body).backgroundColor,
+    foreground: getComputedStyle(document.querySelector("h1")!).color,
+  }));
+  console.log(`palette (${mode}): ${JSON.stringify({ observed, expected })}`);
+  assertCandidateObservation(observed, expected);
+}
+
+function populatedCta(page: Page) {
+  return page.url().includes("/search")
+    ? page.locator(`article:has(> a[href='${populatedSearchPriceProof.detailPath}']) a.bg-accent`)
+    : page.locator("main button.bg-accent:visible:enabled").first();
+}
+
+async function ctaObservation(cta: Locator) {
+  await expect(cta, "populated state CTA must be visible").toBeVisible();
+  await expect(cta, "populated state CTA must be enabled").toBeEnabled();
+  await cta.scrollIntoViewIfNeeded();
+  await expect(cta).toBeInViewport();
+  return cta.evaluate((element) => ({
+    background: getComputedStyle(element).backgroundColor,
+    foreground: getComputedStyle(element).color,
+  }));
+}
+
+async function assertPopulatedCta(page: Page, mode: "light" | "dark") {
+  if (!page.url().includes("/search")) {
+    await expect(page.locator("h1")).toContainText("Charizard");
+    const listing = page.getByRole("article", { name: /Listing .* from/i }).first();
+    await expect(listing, "the item must show an actual listing, not an empty market state").toBeVisible();
+    await listing.scrollIntoViewIfNeeded();
+    await expect(listing).toBeInViewport();
+    await expect(page.locator("[data-product-options-surface]")).not.toHaveAttribute("data-product-id", "");
+  }
+  const observed = await ctaObservation(populatedCta(page));
+  const expected = {
+    background: hexToRgbString(fixture[mode]["--primary"]!.candidate),
+    foreground: hexToRgbString(fixture[mode]["--primary-foreground"]!.candidate),
+  };
+  console.log(`populated CTA (${mode}): ${JSON.stringify({ observed, expected })}`);
+  assertCandidateObservation(observed, expected);
 }
 
 async function assertPopulatedSearchPriceRole(page: Page) {
@@ -226,60 +265,109 @@ async function assertPopulatedSearchPriceRole(page: Page) {
 
 test.describe("Ink & Foil rendered visual identity", () => {
   test("records browse Ink & Foil evidence at 390x844 light @marketplace-browse", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: "light" });
     await gotoAndSettle(page, itemDetailPath);
     await assertFontsInstalled(page);
     await assertTypeRoles(page);
     await assertFoilStops(page, "light");
-    await assertShippedPalette(page, "light");
+    await assertCandidatePalette(page, "light");
+    await assertPopulatedCta(page, "light");
     await captureResponsiveEvidence({ page, testInfo, claimId: "ink-foil-item-mobile-light" });
   });
 
   test("records browse Ink & Foil evidence at 1280x900 dark @marketplace-browse", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.emulateMedia({ colorScheme: "dark" });
     await gotoAndSettle(page, itemDetailPath);
     await assertFontsInstalled(page);
     await assertTypeRoles(page);
     await assertFoilStops(page, "dark");
-    await assertShippedPalette(page, "dark");
+    await assertCandidatePalette(page, "dark");
+    await assertPopulatedCta(page, "dark");
     await captureResponsiveEvidence({ page, testInfo, claimId: "ink-foil-item-desktop-dark" });
   });
 
   test("records search Ink & Foil evidence at 390x844 dark @marketplace-browse", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: "dark" });
     await gotoAndSettle(page, "/search");
     await assertFontsInstalled(page);
     await assertFoilStops(page, "dark");
-    await assertShippedPalette(page, "dark");
+    await assertCandidatePalette(page, "dark");
+    await assertPopulatedCta(page, "dark");
     await assertPopulatedSearchPriceRole(page);
     await captureResponsiveEvidence({ page, testInfo, claimId: "ink-foil-search-mobile-dark" });
   });
 
   test("records search Ink & Foil evidence at 1280x900 light @marketplace-browse", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.emulateMedia({ colorScheme: "light" });
     await gotoAndSettle(page, "/search");
     await assertFontsInstalled(page);
     await assertFoilStops(page, "light");
-    await assertShippedPalette(page, "light");
+    await assertCandidatePalette(page, "light");
+    await assertPopulatedCta(page, "light");
     await assertPopulatedSearchPriceRole(page);
     await captureResponsiveEvidence({ page, testInfo, claimId: "ink-foil-search-desktop-light" });
+
+    // Single-variable controls exercise the same observation assertion and
+    // registered capture after the successful, populated evidence is retained.
+    const cta = populatedCta(page);
+    const observed = await ctaObservation(cta);
+    const expected = {
+      background: hexToRgbString(fixture.light["--primary"]!.candidate),
+      foreground: hexToRgbString(fixture.light["--primary-foreground"]!.candidate),
+    };
+    expect(() =>
+      assertCandidateObservation(observed, {
+        ...expected,
+        background: hexToRgbString(fixture.light["--primary"]!.shipped),
+      }),
+    ).toThrow("fixture-candidate background");
+    const previousStyle = await cta.getAttribute("style");
+    await cta.evaluate((element, oldColor) => {
+      (element as HTMLElement).style.backgroundColor = oldColor;
+    }, fixture.light["--primary"]!.shipped);
+    await expect(cta).toHaveCSS("background-color", hexToRgbString(fixture.light["--primary"]!.shipped));
+    const staleCta = await ctaObservation(cta);
+    expect(() => assertCandidateObservation(staleCta, expected)).toThrow("fixture-candidate background");
+    await cta.evaluate((element, style) => {
+      if (style === null) element.removeAttribute("style");
+      else element.setAttribute("style", style);
+    }, previousStyle);
+    await expect(cta).toHaveCSS("background-color", expected.background);
+    await assertPopulatedCta(page, "light");
+    await page
+      .locator(`article:has(> a[href='${populatedSearchPriceProof.detailPath}'])`)
+      .evaluate((element) => element.remove());
+    await expect(
+      captureResponsiveEvidence({ page, testInfo, claimId: "ink-foil-search-empty-control" }),
+    ).rejects.toThrow("target-population-empty");
   });
 
   test("records browse Ink & Foil evidence at 360x800 light @marketplace-browse", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 360, height: 800 });
     await page.emulateMedia({ colorScheme: "light" });
     await gotoAndSettle(page, itemDetailPath);
     await assertFoilStops(page, "light");
+    await assertCandidatePalette(page, "light");
+    await assertPopulatedCta(page, "light");
     await captureResponsiveEvidence({ page, testInfo, claimId: "ink-foil-item-mobile-360" });
   });
 
   test("records browse Ink & Foil evidence at 820x1180 light @marketplace-browse", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 820, height: 1180 });
     await page.emulateMedia({ colorScheme: "light" });
     await gotoAndSettle(page, itemDetailPath);
     await assertFoilStops(page, "light");
+    await assertCandidatePalette(page, "light");
+    await assertPopulatedCta(page, "light");
     await captureResponsiveEvidence({ page, testInfo, claimId: "ink-foil-item-tablet-820" });
   });
 
   test("keeps the mark visible and named under forced colors @marketplace-browse", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: "light", forcedColors: "active" });
     await gotoAndSettle(page, itemDetailPath);
 

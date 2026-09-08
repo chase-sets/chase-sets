@@ -1,13 +1,17 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { validateResponsiveEvidenceSourceManifest } from "./check-structure/responsive-evidence-guard.mjs";
 import { collectFiles, defaultSkippedDirectories } from "./lib/files.mjs";
 
 const sourceManifestPath = "infrastructure/playwright-evidence/responsive-evidence-manifest.json";
 const defaultArtifactRoot = "artifacts/playwright/test-results";
+const defaultHostedArtifactRoot = "artifacts/hosted-responsive-evidence";
+const shaPattern = /^[0-9a-f]{40}$/;
 
 export async function validateResponsiveEvidenceArtifacts({
   repoRoot,
@@ -209,6 +213,218 @@ export async function validateResponsiveEvidenceArtifacts({
   return { violations, manifests: manifests.map((entry) => entry.relativeFile), expectedClaimIds: [...expectedIds] };
 }
 
+export async function prepareHostedResponsiveEvidenceArtifact({
+  repoRoot,
+  selectedGreps,
+  producer,
+  producerLogPath,
+  gitIdentity,
+  artifactRoot = defaultArtifactRoot,
+  outputRoot = defaultHostedArtifactRoot,
+}) {
+  const destination = path.resolve(repoRoot, outputRoot);
+  if (!isInside(repoRoot, destination)) {
+    throw new Error(`Hosted responsive evidence output root must resolve inside the repository: ${outputRoot}`);
+  }
+  await rm(destination, { recursive: true, force: true });
+
+  const violations = validateProducerIdentity(producer, gitIdentity);
+  if (producer?.outcome !== "success") {
+    violations.push(`responsive evidence producer outcome must be 'success', got '${producer?.outcome ?? "missing"}'.`);
+  }
+  if (violations.length > 0) {
+    return { publish: false, violations, expectedClaimIds: [], files: [] };
+  }
+
+  const validation = await validateResponsiveEvidenceArtifacts({ repoRoot, selectedGreps, artifactRoot });
+  if (validation.violations.length > 0) {
+    return {
+      publish: false,
+      violations: validation.violations,
+      expectedClaimIds: validation.expectedClaimIds,
+      files: [],
+    };
+  }
+  if (validation.expectedClaimIds.length === 0) {
+    return { publish: false, violations: [], expectedClaimIds: [], files: [] };
+  }
+
+  const source = JSON.parse(await readFile(path.join(repoRoot, sourceManifestPath), "utf8"));
+  const producerLog = stripAnsi(await readFile(producerLogPath, "utf8"));
+  const manifestEntries = [];
+  for (const runtimeRelativePath of validation.manifests) {
+    const runtimeSource = path.join(repoRoot, runtimeRelativePath);
+    const runtime = JSON.parse(await readFile(runtimeSource, "utf8"));
+    const claim = source.claims.find((candidate) => candidate.id === runtime.claimId);
+    const successLines = producerLog
+      .split(/\r?\n/)
+      .filter((line) => (line.includes("✓") || line.includes("±")) && line.includes(claim.testTitle));
+    if (successLines.length !== 1) {
+      violations.push(
+        `${runtimeRelativePath}: expected exactly one successful producer line for '${claim.testTitle}', found ${successLines.length}.`,
+      );
+      continue;
+    }
+
+    const screenshotSource = path.resolve(repoRoot, runtime.artifacts.screenshot.path);
+    const captureDirectory = path.join(destination, "captures", runtime.claimId);
+    const runtimeDestination = path.join(captureDirectory, `${runtime.claimId}.manifest.json`);
+    const screenshotDestination = path.join(captureDirectory, `${runtime.claimId}.png`);
+    await mkdir(captureDirectory, { recursive: true });
+    await copyFile(runtimeSource, runtimeDestination);
+    await copyFile(screenshotSource, screenshotDestination);
+    manifestEntries.push({
+      claimId: runtime.claimId,
+      testTitle: claim.testTitle,
+      producerSuccessLine: successLines[0].trim(),
+      sourceClaimSha256: runtime.artifacts.sourceClaimSha256,
+      runtimeManifest: await fileRecord(destination, runtimeDestination),
+      screenshot: await fileRecord(destination, screenshotDestination),
+    });
+  }
+
+  if (violations.length > 0 || manifestEntries.length !== validation.expectedClaimIds.length) {
+    await rm(destination, { recursive: true, force: true });
+    return { publish: false, violations, expectedClaimIds: validation.expectedClaimIds, files: [] };
+  }
+
+  const styleEvidencePath = path.join(destination, "style-evidence.log");
+  await writeFile(styleEvidencePath, extractBoundedStyleEvidence(producerLog), "utf8");
+  const provenance = {
+    schemaVersion: "hosted-responsive-evidence/v1",
+    producer,
+    git: gitIdentity,
+    source: {
+      manifest: { path: sourceManifestPath, sha256: await fileSha256(path.join(repoRoot, sourceManifestPath)) },
+      playwrightConfig: {
+        path: "playwright.config.ts",
+        sha256: await fileSha256(path.join(repoRoot, "playwright.config.ts")),
+      },
+      producerLogSha256: await fileSha256(producerLogPath),
+    },
+    claims: manifestEntries.sort((left, right) => left.claimId.localeCompare(right.claimId, "en")),
+    styleEvidence: await fileRecord(destination, styleEvidencePath),
+  };
+  const provenancePath = path.join(destination, "provenance.json");
+  await writeFile(provenancePath, `${JSON.stringify(provenance, null, 2)}\n`, "utf8");
+  const files = [
+    provenancePath,
+    styleEvidencePath,
+    ...manifestEntries.flatMap((entry) => [entry.runtimeManifest.path, entry.screenshot.path]),
+  ];
+  return {
+    publish: true,
+    violations: [],
+    expectedClaimIds: validation.expectedClaimIds,
+    files: files.map((file) => (path.isAbsolute(file) ? relative(destination, file) : file)).sort(),
+    outputRoot: relative(repoRoot, destination),
+  };
+}
+
+function validateProducerIdentity(producer, gitIdentity) {
+  const violations = [];
+  for (const field of ["repository", "workflow", "workflowRef", "eventName", "job", "suiteBatch"]) {
+    if (!text(producer?.[field])) violations.push(`responsive evidence producer.${field} is required.`);
+  }
+  if (!new Set(["pull_request", "merge_group"]).has(producer?.eventName)) {
+    violations.push("responsive evidence producer.eventName must be pull_request or merge_group.");
+  }
+  for (const field of ["runId", "runAttempt"]) {
+    if (!Number.isSafeInteger(producer?.[field]) || producer[field] < 1) {
+      violations.push(`responsive evidence producer.${field} must be a positive integer.`);
+    }
+  }
+  if (!Number.isSafeInteger(producer?.jobIndex) || producer.jobIndex < 0) {
+    violations.push("responsive evidence producer.jobIndex must be a non-negative integer.");
+  }
+  for (const field of ["workflowSha", "checkoutSha", "sourceHeadSha"]) {
+    if (!shaPattern.test(producer?.[field] ?? "")) violations.push(`responsive evidence producer.${field} is invalid.`);
+  }
+  if (producer?.baseSha !== null && !shaPattern.test(producer?.baseSha ?? "")) {
+    violations.push("responsive evidence producer.baseSha is invalid.");
+  }
+  for (const field of ["checkoutCommit", "checkoutTree", "sourceHead"]) {
+    if (!shaPattern.test(gitIdentity?.[field] ?? "")) violations.push(`responsive evidence git.${field} is invalid.`);
+  }
+  if (gitIdentity?.sourceHeadTree !== null && !shaPattern.test(gitIdentity?.sourceHeadTree ?? "")) {
+    violations.push("responsive evidence git.sourceHeadTree is invalid.");
+  }
+  if (
+    !Array.isArray(gitIdentity?.checkoutParents) ||
+    gitIdentity.checkoutParents.some((value) => !shaPattern.test(value))
+  ) {
+    violations.push("responsive evidence git.checkoutParents is invalid.");
+  }
+  if (typeof gitIdentity?.shallow !== "boolean") {
+    violations.push("responsive evidence git.shallow must be boolean.");
+  }
+  if (producer?.checkoutSha !== gitIdentity?.checkoutCommit) {
+    violations.push("responsive evidence producer checkout SHA does not match the observed checkout commit.");
+  }
+  if (producer?.sourceHeadSha !== gitIdentity?.sourceHead) {
+    violations.push("responsive evidence producer source head does not match the observed source head.");
+  }
+  if (producer?.eventName === "pull_request") {
+    const parents = Array.isArray(gitIdentity?.checkoutParents) ? gitIdentity.checkoutParents : [];
+    if (!parents.includes(producer.sourceHeadSha)) {
+      violations.push("pull-request evidence checkout does not contain the declared source head parent.");
+    }
+    if (!producer.baseSha || !parents.includes(producer.baseSha)) {
+      violations.push("pull-request evidence checkout does not contain the declared base parent.");
+    }
+    if (!shaPattern.test(gitIdentity?.sourceHeadTree ?? "")) {
+      violations.push("pull-request evidence requires an observed source head tree.");
+    }
+  }
+  return violations;
+}
+
+function extractBoundedStyleEvidence(log) {
+  const scalarPrefixes = [
+    "palette (",
+    "populated CTA (",
+    "admin workbench (",
+    "brand foil stops (",
+    "h1.font-display computed family:",
+    ".font-heading computed family:",
+  ];
+  const retained = log
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => scalarPrefixes.some((prefix) => line.startsWith(prefix)) || /^\d+ passed(?:\s|$)/.test(line));
+  return retained.length === 0 ? "" : `${retained.join("\n")}\n`;
+}
+
+function stripAnsi(value) {
+  return value.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+async function fileRecord(root, file) {
+  return { path: relative(root, file), bytes: (await readFile(file)).length, sha256: await fileSha256(file) };
+}
+
+export function observeGitIdentity(repoRoot, sourceHead) {
+  const git = (...args) => {
+    const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
+    if (result.error || result.status !== 0) {
+      throw new Error(`git ${args.join(" ")} failed: ${result.error?.message ?? result.stderr.trim()}`);
+    }
+    return result.stdout.trim();
+  };
+  const sourceTree = spawnSync("git", ["show", "-s", "--format=%T", sourceHead], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  return {
+    checkoutCommit: git("rev-parse", "HEAD"),
+    checkoutTree: git("show", "-s", "--diff-merges=off", "--format=%T", "HEAD"),
+    checkoutParents: git("show", "-s", "--diff-merges=off", "--format=%P", "HEAD").split(/\s+/).filter(Boolean),
+    shallow: git("rev-parse", "--is-shallow-repository") === "true",
+    sourceHead,
+    sourceHeadTree: sourceTree.status === 0 ? sourceTree.stdout.trim() : null,
+  };
+}
+
 function validateRuntimeShape(runtime) {
   const violations = [];
   if (
@@ -332,6 +548,8 @@ function sha256(value) {
 
 async function main() {
   const repoRoot = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
+  const prepareHostedArtifact = process.argv.includes("--prepare-hosted-artifact");
+  const suiteBatch = option(process.argv.slice(2), "--suite-batch");
   const selectedGreps = process.argv
     .slice(2)
     .filter((arg) => arg.startsWith("--grep="))
@@ -345,6 +563,58 @@ async function main() {
       .slice(2)
       .find((arg) => arg.startsWith("--artifact-root="))
       ?.slice("--artifact-root=".length) ?? defaultArtifactRoot;
+  if (prepareHostedArtifact) {
+    if (!suiteBatch) throw new Error("--suite-batch is required when preparing a hosted artifact.");
+    const { e2eSuiteById } = await import("./e2e-suites.mjs");
+    const suiteIds = suiteBatch
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const suites = suiteIds.map((suiteId) => {
+      const suite = e2eSuiteById(suiteId);
+      if (!suite || Array.isArray(suite.command)) throw new Error(`Unknown Playwright suite '${suiteId}'.`);
+      return suite;
+    });
+    const sourceHeadSha = process.env.RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA ?? "";
+    const producer = {
+      outcome: process.env.RESPONSIVE_EVIDENCE_PRODUCER_OUTCOME ?? "",
+      repository: process.env.GITHUB_REPOSITORY ?? "",
+      workflow: process.env.GITHUB_WORKFLOW ?? "",
+      workflowRef: process.env.GITHUB_WORKFLOW_REF ?? "",
+      workflowSha: process.env.GITHUB_WORKFLOW_SHA ?? "",
+      eventName: process.env.GITHUB_EVENT_NAME ?? "",
+      runId: Number(process.env.GITHUB_RUN_ID),
+      runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+      job: process.env.GITHUB_JOB ?? "",
+      jobIndex: Number(process.env.RESPONSIVE_EVIDENCE_JOB_INDEX),
+      suiteBatch,
+      checkoutSha: process.env.GITHUB_SHA ?? "",
+      sourceHeadSha,
+      baseSha: process.env.RESPONSIVE_EVIDENCE_BASE_SHA || null,
+    };
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot,
+      selectedGreps: suites.map((suite) => suite.grep),
+      producer,
+      producerLogPath: process.env.RESPONSIVE_EVIDENCE_PRODUCER_LOG ?? "",
+      gitIdentity: observeGitIdentity(repoRoot, sourceHeadSha),
+      artifactRoot,
+    });
+    if (result.violations.length > 0) throw new Error(result.violations.join("\n"));
+    if (process.env.GITHUB_OUTPUT) {
+      await writeFile(
+        process.env.GITHUB_OUTPUT,
+        `publish=${result.publish}\nclaim-count=${result.expectedClaimIds.length}\n`,
+        { encoding: "utf8", flag: "a" },
+      );
+    }
+    console.log(
+      result.publish
+        ? `Hosted responsive evidence artifact: ${result.expectedClaimIds.length} complete registered claims staged.`
+        : "Hosted responsive evidence artifact: no registered claims selected for this suite batch.",
+    );
+    return;
+  }
   const result = await validateResponsiveEvidenceArtifacts({ repoRoot, selectedGreps, expectedClaimIds, artifactRoot });
   if (result.violations.length > 0) {
     console.error(result.violations.join("\n"));
@@ -354,6 +624,11 @@ async function main() {
       `responsive evidence artifacts: ${result.manifests.length}/${result.expectedClaimIds.length} required runtime manifests and payloads validated.`,
     );
   }
+}
+
+function option(argv, name) {
+  const prefix = `${name}=`;
+  return argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? null;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

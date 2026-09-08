@@ -122,6 +122,7 @@ describe("public web deployable", () => {
       context: undefined,
     } as never);
     const body = (await manifest.json()) as { name: string; icons: unknown[] };
+    expect(body).toMatchObject({ theme_color: "#4845c6", background_color: "#f7f5f1" });
 
     expect(manifest.headers.get("Content-Type")).toContain("application/manifest+json");
     expect(body.name).toBe("Chase Sets");

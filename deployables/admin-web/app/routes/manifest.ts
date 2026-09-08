@@ -11,8 +11,8 @@ function buildAdminManifest() {
     display: "standalone",
     orientation: "any",
     categories: ["business", "productivity"],
-    theme_color: "#1f6f68",
-    background_color: "#f8fafc",
+    theme_color: "#0f766e",
+    background_color: "#f7f5f1",
     icons: [
       {
         src: "/icons/chase-sets-admin-192.png",
