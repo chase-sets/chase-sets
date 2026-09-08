@@ -242,6 +242,23 @@ const contextRootExportContracts = new Map([
     ]),
   ],
 ]);
+const approvedCrossContextTypeContracts = new Map([
+  [
+    "@chase-sets/channels",
+    {
+      importer: /^bounded-contexts\/pricing\/features\/economics\/[^/]+(?:\/.*)?\.ts$/,
+      symbols: new Set(["ChannelEnvironment", "ChannelProviderIdentity"]),
+    },
+  ],
+  [
+    "@chase-sets/commercial-terms/server",
+    {
+      importer:
+        /^(?:bounded-contexts\/pricing\/features\/economics\/(?:api\/services|integrations\/native-commercial-terms\/provider)|bounded-contexts\/pricing\/support\/runtime-support\/services)\.ts$/,
+      symbols: new Set(["CommercialTermsResolver"]),
+    },
+  ],
+]);
 const canonicalBoundedContextRootFiles = new Set([
   "README.md",
   "GLOSSARY.md",
@@ -562,6 +579,28 @@ function extractImportSpecifiers(content) {
   }
 
   return specifiers;
+}
+
+export function isApprovedCrossContextTypeContractImport(relativeFile, specifier, content) {
+  const contract = approvedCrossContextTypeContracts.get(specifier);
+  if (!contract || !contract.importer.test(relativeFile.replaceAll("\\", "/"))) return false;
+
+  const declarations = [...content.matchAll(/(?:^|\n)\s*import\s+([\s\S]*?)\s+from\s+["']([^"']+)["']\s*;?/g)]
+    .filter((match) => match[2] === specifier)
+    .map((match) => match[1].trim());
+  const references = extractImportSpecifiers(content).filter((candidate) => candidate === specifier);
+  if (declarations.length === 0 || declarations.length !== references.length) return false;
+
+  return declarations.every((declaration) => {
+    const named = declaration.match(/^type\s*\{([\s\S]*)\}$/);
+    if (!named) return false;
+    const symbols = named[1]
+      .split(",")
+      .map((member) => member.trim())
+      .filter(Boolean)
+      .map((member) => member.replace(/^type\s+/, "").split(/\s+as\s+/)[0]);
+    return symbols.length > 0 && symbols.every((symbol) => contract.symbols.has(symbol));
+  });
 }
 
 const retiredFreshnessDroppingForwardingImportMessage =
@@ -2591,7 +2630,7 @@ export async function runStructureCheck(options = {}) {
     }
   }
 
-  function checkImport(file, specifier) {
+  function checkImport(file, specifier, content) {
     const normalized = specifier.replaceAll("\\", "/");
     const relativeFile = normalizeRelative(file);
     const resolvedSpecifier = resolveRelativeSpecifier(relativeFile, normalized);
@@ -2661,6 +2700,7 @@ export async function runStructureCheck(options = {}) {
     if (
       importerContextRoot !== null &&
       !isAllowedContextImporter(relativeFile) &&
+      !isApprovedCrossContextTypeContractImport(relativeFile, normalized, content) &&
       boundedContextPackages.some(
         (packageName) =>
           matchesPackageSpecifier(normalized, packageName) &&
@@ -3300,7 +3340,7 @@ export async function runStructureCheck(options = {}) {
       }
 
       for (const specifier of extractImportSpecifiers(content)) {
-        checkImport(file, specifier);
+        checkImport(file, specifier, content);
       }
     },
   });

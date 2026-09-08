@@ -1,16 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MoneyAmount } from "@chase-sets/primitives/money";
 import { contextManifest } from "../../../index";
-import {
-  economicsFactNames,
-  economicsPolicy,
-  toEconomicsForPricingGoal,
-  type ChannelConnectionIdentityReader,
-  type EconomicsResolution,
-} from "../../../server";
 import type { EconomicsServices } from "./services";
 import { createEconomicsServices } from "./services";
-import { ECONOMICS_LAUNCH_POLICY_VALUE } from "../domain/policy";
+import { economicsFactNames, type ChannelConnectionIdentityReader } from "../domain/contracts";
+import { economicsPolicy, ECONOMICS_LAUNCH_POLICY_VALUE } from "../domain/policy";
+import { toEconomicsForPricingGoal, type EconomicsResolution } from "../domain/resolution";
 
 const identity = { providerKey: "synthetic-provider-a", environment: "sandbox" } as const;
 const request = {

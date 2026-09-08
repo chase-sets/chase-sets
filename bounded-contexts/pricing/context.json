@@ -434,6 +434,40 @@
           "bounded-contexts/pricing/features/recommendations/ui/recommendation-list-page.test.tsx"
         ]
       }
+    },
+    {
+      "id": "pricing.economics-resolution-observation",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "read-model-neutral",
+      "surfaces": ["api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /resolve"],
+      "exception": {
+        "owner": "pricing",
+        "reason": "Economics resolution is a read-only calculation over authoritative provider facts, policy, acquisition and sale evidence, and account-scoped overrides. The POST body carries the calculation coordinates; the route appends no event and creates no post-write read.",
+        "reviewBy": "2027-03-08",
+        "issue": "#7707"
+      }
+    },
+    {
+      "id": "pricing.economics-override-command-snapshots",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /overrides/set",
+        "api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /overrides/clear",
+        "api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /overrides/clear-all"
+      ],
+      "visibleDestination": {
+        "description": "Override command responses return the command-folded Economics override entries and aggregate version, so callers do not depend on the asynchronously projected override table for post-write state."
+      },
+      "proof": {
+        "authoritativeResponse": "EconomicsOverrideRuntime.execute appends with expected-version concurrency, folds the emitted events into aggregate state, and the API returns that state's version and entries directly.",
+        "tests": [
+          "bounded-contexts/pricing/features/economics/api/override-runtime.test.ts",
+          "bounded-contexts/pricing/features/economics/api/route.test.ts"
+        ]
+      }
     }
   ],
   "deployableContributions": [
