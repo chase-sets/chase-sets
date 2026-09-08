@@ -64,3 +64,28 @@ aspirational suggestion.
 
 Report findings ranked by rework-risk: a missed decision, false parallel
 claim, or unprobed authority-timing assumption outranks a fuzzy AC.
+
+## Quality-v1 verdict
+
+The twelve rubric items above feed this distinct ordered verdict; they are the
+review method, not a second set of semantic requirements. Return all ten keys
+in this canonical order using quality-v1's evidence and sole blocking sub-case:
+
+| Key | Evidence to inspect | Blocks only when |
+|---|---|---|
+| INTENT | Acceptance criteria mapped to executed probes | An acceptance criterion is unmet or has no executed probe |
+| CORRECTNESS | Executed reproductions on the exact head | Any confirmed incorrect behavior |
+| SECURITY | Threat notes for every touched authorization, input, secret, and data path | Any confirmed exposure |
+| SURFACES | Changed public surfaces and the test exercising each | A changed public surface has no test that exercises it |
+| SIMPLICITY | Diff against predicted footprint; every new abstraction and its caller count | Footprint is outside the fence or a new abstraction has one caller |
+| DEPTH | Public interface added versus the behavior it hides | An internal is exposed across a bounded-context boundary |
+| RELIABILITY | Failure modes and steady state for every changed lifecycle | An unhandled state or transition exists in a changed lifecycle |
+| PERFORMANCE | Bounds, indexes, and I/O per item for every changed query or loop | An unbounded query or per-item I/O exists on a hot path |
+| EXPERIENCE | Loading, empty, error, and success states plus design-system component sources | A state is missing or a component/override is outside the design system |
+| LANGUAGE | Every new or renamed public name mapped to its owning glossary or published contract | A public name contradicts the owning glossary or contract |
+
+Taste, style, preference, and unrelated debt never block. For each key return
+`PASS`, `BLOCK <finding IDs>`, `NOTE <non-blocking IDs>`, or `N/A <absent
+surface>`; presence and shape from `ready-10-quality-surfaces` never substitute
+for this semantic judgment. A genuinely new concept without a glossary home is
+`BLOCK_REPLAN` under LANGUAGE, never an invented term.

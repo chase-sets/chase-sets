@@ -102,6 +102,165 @@ function sectionEnd(headings, headingIndex, lineCount) {
   return lineCount;
 }
 
+const QUALITY_DECLARATIONS = Object.freeze({
+  intent: {
+    heading: "intent surfaces",
+    code: "BRIEF_QUALITY_INTENT_SURFACES",
+    headers: ["acceptance criterion", "exercised surface"],
+  },
+  ui: {
+    heading: "ui states and design system sources",
+    code: "BRIEF_QUALITY_UI_STATES",
+    headers: ["ui surface", "loading", "empty", "error", "success", "design system component source"],
+    none: "none — no UI surface changes.",
+  },
+  data: {
+    heading: "data path envelope",
+    code: "BRIEF_QUALITY_DATA_PATH",
+    headers: ["data path", "bound", "index expectation", "per item i o"],
+    none: "none — no data path changes.",
+  },
+  glossary: {
+    heading: "glossary impact",
+    code: "BRIEF_QUALITY_GLOSSARY_IMPACT",
+    headers: ["public term", "owning glossary or contract"],
+    none: "none — no new or renamed public names.",
+  },
+});
+
+function matchingSections(markdown, normalizedHeading) {
+  return markdown.headings
+    .map((heading, headingIndex) => ({ heading, headingIndex }))
+    .filter(({ heading }) => normalizeHeading(heading.text) === normalizedHeading);
+}
+
+function sectionContentLines(markdown, section) {
+  const end = sectionEnd(markdown.headings, section.headingIndex, markdown.lines.length);
+  const headingLines = new Set(markdown.headings.map((heading) => heading.index));
+  return markdown.lines
+    .slice(section.heading.index + 1, end)
+    .filter((_line, offset) => {
+      const index = section.heading.index + 1 + offset;
+      return !markdown.ignoredLines.has(index) && !headingLines.has(index);
+    })
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function tableCells(line) {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return null;
+  return trimmed
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function hasCompleteTable(lines, expectedHeaders) {
+  for (let index = 0; index + 2 < lines.length; index += 1) {
+    const headers = tableCells(lines[index]);
+    const separator = tableCells(lines[index + 1]);
+    if (!headers || !separator || headers.length !== expectedHeaders.length || separator.length !== headers.length) {
+      continue;
+    }
+    if (!headers.every((header, cell) => normalizeHeading(header) === expectedHeaders[cell])) continue;
+    if (!separator.every((cell) => /^:?-{3,}:?$/.test(cell))) continue;
+
+    let rowCount = 0;
+    for (let rowIndex = index + 2; rowIndex < lines.length; rowIndex += 1) {
+      const row = tableCells(lines[rowIndex]);
+      if (!row) break;
+      if (row.length !== headers.length || row.some((cell) => !cell)) return false;
+      rowCount += 1;
+    }
+    if (rowCount > 0) return true;
+  }
+  return false;
+}
+
+function tableDeclarationFinding(markdown, declaration) {
+  const sections = matchingSections(markdown, declaration.heading);
+  if (sections.length !== 1) {
+    return {
+      code: declaration.code,
+      line: sections[0]?.heading.index + 1,
+      message: `The ${declaration.heading} declaration must appear exactly once.`,
+    };
+  }
+
+  const lines = sectionContentLines(markdown, sections[0]);
+  const text = lines.join("\n");
+  if (declaration.none && text === declaration.none) return null;
+  if (declaration.none && lines.some((line) => /^none\b/i.test(line))) {
+    return {
+      code: declaration.code,
+      line: sections[0].heading.index + 1,
+      message: `The ${declaration.heading} explicit none form must be exact and cannot accompany other content.`,
+    };
+  }
+  if (hasCompleteTable(lines, declaration.headers)) return null;
+  return {
+    code: declaration.code,
+    line: sections[0].heading.index + 1,
+    message: declaration.none
+      ? `The ${declaration.heading} declaration needs its complete required table or the exact explicit none form.`
+      : `The ${declaration.heading} declaration needs its complete required table.`,
+  };
+}
+
+function footprintShapeFinding(markdown) {
+  const footprint = matchingSections(markdown, "footprint chain");
+  const simplest = matchingSections(markdown, "simplest shape");
+  const scope = matchingSections(markdown, "scope fence");
+  if (footprint.length !== 1 || simplest.length !== 1 || scope.length !== 1) {
+    return {
+      code: "BRIEF_QUALITY_FOOTPRINT_SHAPE",
+      line: footprint[0]?.heading.index + 1 ?? simplest[0]?.heading.index + 1 ?? scope[0]?.heading.index + 1,
+      message: "Footprint & chain, Simplest shape, and Scope fence must each appear exactly once.",
+    };
+  }
+
+  const footprintLines = sectionContentLines(markdown, footprint[0]);
+  const simplestLines = sectionContentLines(markdown, simplest[0]);
+  const scopeEnd = sectionEnd(markdown.headings, scope[0].headingIndex, markdown.lines.length);
+  const scopeLines = markdown.lines.slice(scope[0].heading.index + 1, scopeEnd);
+  const inlineNonGoals = scopeLines.some((line) =>
+    /^\s*(?:[-+*]\s*)?(?:\*\*|__)?non-goals?(?:\*\*|__)?\s*:\s*\S/i.test(line),
+  );
+  const labeledNonGoals = markdown.headings.some(
+    (heading, headingIndex) =>
+      heading.index > scope[0].heading.index &&
+      heading.index < scopeEnd &&
+      normalizeHeading(heading.text) === "non goals" &&
+      sectionContentLines(markdown, { heading, headingIndex }).length > 0,
+  );
+  if (
+    footprintLines.length === 0 ||
+    /^none\b/i.test(footprintLines.join(" ")) ||
+    simplestLines.length !== 1 ||
+    /^none\b/i.test(simplestLines[0]) ||
+    (!inlineNonGoals && !labeledNonGoals)
+  ) {
+    return {
+      code: "BRIEF_QUALITY_FOOTPRINT_SHAPE",
+      line: simplest[0].heading.index + 1,
+      message: "Declare a non-empty footprint, a one-line simplest shape, and a non-empty Non-goals: fence.",
+    };
+  }
+  return null;
+}
+
+function qualitySurfaceFindings(markdown) {
+  return [
+    tableDeclarationFinding(markdown, QUALITY_DECLARATIONS.intent),
+    footprintShapeFinding(markdown),
+    tableDeclarationFinding(markdown, QUALITY_DECLARATIONS.ui),
+    tableDeclarationFinding(markdown, QUALITY_DECLARATIONS.data),
+    tableDeclarationFinding(markdown, QUALITY_DECLARATIONS.glossary),
+  ].filter(Boolean);
+}
+
 function pointerFindings(markdown) {
   const findings = [];
   const pointersByLine = new Map();
@@ -254,6 +413,7 @@ export function lintBrief(body) {
     }
   }
   findings.push(...pointerFindings(markdown), ...salvageFindings(markdown));
+  findings.push(...qualitySurfaceFindings(markdown));
   return { bytes, findings, maxBytes: BRIEF_MAX_BYTES };
 }
 

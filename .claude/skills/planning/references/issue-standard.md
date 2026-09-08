@@ -39,7 +39,7 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   exposes omissions invisible in the diff (state enumeration, caller inventory,
   authority probe, provider test-mode result). This is a focused attack surface,
   not a restated checklist.
-- **Predicted footprint.** Workspaces/files the change will touch, plus chain
+- **Footprint & chain.** Workspaces/files the change will touch, plus chain
   position. Record chain links as **native GitHub issue dependencies**
   (Blocked by / Blocks); the prose `Blocked by #N` line is a convenience mirror
   and the relationship is what the orchestrator reads. Feeds parallel-lane
@@ -67,6 +67,46 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   records `not applicable — fast path`.
 - **Tier + routing hint.** Fast or full path (blast radius), and
   presentation-vs-system for lane assignment.
+
+## Quality-surface declarations
+
+Every newly registered or replanned brief declares the planning baseline for
+quality-v1 in these five shapes. The declaration is mechanical; the pressure
+test judges whether it is complete and true.
+
+1. **AC exercised surfaces.** An `Intent surfaces` section contains a Markdown
+   table with exactly `Acceptance criterion | Exercised surface`. It has at
+   least one non-empty row and maps every AC to the public standard, scanner,
+   command, event, projection, UI state, contract field, or observation it
+   exercises. There is no `none` form.
+2. **Footprint and simplest shape.** `Footprint & chain` is non-empty,
+   `Simplest shape` is one non-empty line, and `Scope fence` contains a
+   non-empty `Non-goals:` declaration. There is no `none` form.
+3. **UI states and design-system sources.** `UI states and design-system
+   sources` contains either the exact line `none — no UI surface changes.` or a
+   Markdown table whose exact ordered columns are `UI surface`, `Loading`,
+   `Empty`, `Error`, `Success`, and `Design-system component source`, with at
+   least one fully populated row.
+4. **Data-path envelope.** `Data-path envelope` contains either the exact line
+   `none — no data path changes.` or a Markdown table whose exact ordered
+   columns are `Data path`, `Bound`, `Index expectation`, and `Per-item I/O`,
+   with at least one fully populated row for each changed query or loop.
+5. **Glossary impact.** The existing `Glossary impact` section contains either
+   the exact line `none — no new or renamed public names.` or a Markdown table
+   with exactly `Public term | Owning glossary or contract` and at least one
+   fully populated row. Every new or renamed public name maps to its owning
+   `GLOSSARY.md` or published contract.
+
+Headings may use ATX, setext, or standalone-label Markdown and may sit beneath
+any valid parent section. Each declaration heading appears exactly once. A
+`none` form is the declaration's entire content and cannot accompany a table.
+
+`ready-10-quality-surfaces` is the enforcing drafting-time presence-and-shape
+rule for these five declarations. `scripts/brief-lint.mjs` enforces it with no
+opt-out on its CLI path. It is explicitly outside the `issue-readiness/v1`
+checked-rule set: ready-00 through ready-09, that receipt's rule list, and its
+schema remain unchanged. Semantic truth and conformance remain pressure-test
+work.
 
 ## Definition of ready (the dispatch gate)
 
