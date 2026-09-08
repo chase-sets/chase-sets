@@ -120,6 +120,9 @@ describe("native Commercial Terms Economics provider", () => {
     ["missing cap field", { marketplaceSalesFeeCapAmount: undefined }],
     ["out-of-range allowance", { shippingAllowancePercentageBps: 10_001 }],
     ["non-finite relative fee", { marketplaceSalesFeePercentageBps: Number.NaN }],
+    ["foreign account", { accountId: "synthetic-foreign-account" }],
+    ["different basis amount", { basisAmount: "99.00" }],
+    ["different evaluation instant", { resolvedAt: "2026-09-07T06:00:01Z" }],
   ])("collapses %s from a mixed dynamic Terms result to numeric unavailable", async (_name, overrides) => {
     const provider = createNativeCommercialTermsEconomicsProvider({
       identity,

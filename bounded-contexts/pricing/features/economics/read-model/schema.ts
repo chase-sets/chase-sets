@@ -19,6 +19,8 @@ const pricingInventoryAcquisitionLotsTableSql = `CREATE TABLE IF NOT EXISTS pric
 
 const pricingInventoryAcquisitionLotsLookupIndexSql = `CREATE INDEX IF NOT EXISTS pricing_inventory_acquisition_lots_lookup_idx
   ON pricing_inventory_acquisition_lots (account_id, inventory_item_id, acquired_at, event_stream_version)`;
+const pricingInventoryAcquisitionLotsLookupConcurrentIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_inventory_acquisition_lots_lookup_idx
+  ON pricing_inventory_acquisition_lots (account_id, inventory_item_id, acquired_at, event_stream_version)`;
 
 const pricingEconomicsOverridesTableSql = `CREATE TABLE IF NOT EXISTS pricing_economics_overrides (
   account_id text NOT NULL,
@@ -54,6 +56,8 @@ const pricingEconomicsOverridesTableSql = `CREATE TABLE IF NOT EXISTS pricing_ec
 
 const pricingEconomicsOverridesStreamIndexSql = `CREATE UNIQUE INDEX IF NOT EXISTS pricing_economics_overrides_stream_idx
   ON pricing_economics_overrides (account_id, connection_id, currency_code, last_stream_version)`;
+const pricingEconomicsOverridesStreamConcurrentIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS pricing_economics_overrides_stream_idx
+  ON pricing_economics_overrides (account_id, connection_id, currency_code, last_stream_version)`;
 
 export const pricingEconomicsSchemaSql = [
   pricingInventoryAcquisitionLotsTableSql,
@@ -65,19 +69,18 @@ export const pricingEconomicsSchemaSql = [
   .join("\n\n");
 
 /**
- * The clean-boot schema and the upgrade ledger deliberately share these exact
- * statement constants. This makes it impossible to add an Economics table or
- * index to boot SQL without also giving upgrades the same construction path.
+ * Clean boot creates indexes alongside empty tables. Upgrade migrations use
+ * PostgreSQL's concurrent form so an existing Pricing database stays writable.
  */
 export const pricingEconomicsSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260907_pricing_economics_acquisition_lots",
     description: "Project explicit known and unknown Inventory acquisition occurrences for Economics history.",
-    statements: [pricingInventoryAcquisitionLotsTableSql, pricingInventoryAcquisitionLotsLookupIndexSql],
+    statements: [pricingInventoryAcquisitionLotsTableSql, pricingInventoryAcquisitionLotsLookupConcurrentIndexSql],
   },
   {
     migrationId: "20260907_pricing_economics_overrides",
     description: "Persist the current tombstone-preserving Economics override projection.",
-    statements: [pricingEconomicsOverridesTableSql, pricingEconomicsOverridesStreamIndexSql],
+    statements: [pricingEconomicsOverridesTableSql, pricingEconomicsOverridesStreamConcurrentIndexSql],
   },
 ];

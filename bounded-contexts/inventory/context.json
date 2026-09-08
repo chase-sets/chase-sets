@@ -4,6 +4,7 @@
   "localeCatalogs": ["contracts/localization/locales/en/inventory.ts"],
   "ownedNouns": [
     "inventory-item",
+    "acquisition-occurrence",
     "inventory-hold",
     "import-batch",
     "recovered-item",

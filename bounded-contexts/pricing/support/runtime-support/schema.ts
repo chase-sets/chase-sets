@@ -30,6 +30,10 @@ import {
   pricingBulkRepriceIngestionSchemaSql,
 } from "../../features/bulk-reprice-ingestion/read-model/schema";
 import { pricingOwnSaleObservationsSchemaSql } from "../../features/own-sale-observations/read-model/schema";
+import {
+  pricingEconomicsSchemaMigrations,
+  pricingEconomicsSchemaSql,
+} from "../../features/economics/read-model/schema";
 
 export const pricingFeatureSchemaMigrations = [
   ...pricingProviderObservationsSchemaMigrations,
@@ -38,6 +42,7 @@ export const pricingFeatureSchemaMigrations = [
   ...pricingRecommendationSchemaMigrations,
   ...pricingMarketRollupsSchemaMigrations,
   ...pricingBulkRepriceIngestionSchemaMigrations,
+  ...pricingEconomicsSchemaMigrations,
 ];
 
 export const pricingSchemaSql = [
@@ -53,6 +58,7 @@ export const pricingSchemaSql = [
   pricingProviderObservationsSchemaSql,
   pricingRecommendationSchemaSql,
   pricingMarketTradesSchemaSql,
+  pricingEconomicsSchemaSql,
   pricingMarketRollupsSchemaSql,
   pricingMarketEstimatesSchemaSql,
   // Must run after pricingRecommendationSourceSchemaSql: the assignment view joins

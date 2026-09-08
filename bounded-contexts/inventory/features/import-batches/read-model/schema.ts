@@ -1,5 +1,6 @@
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
 export const inventoryImportBatchSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_import_batches (
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS inventory_import_batch_rows (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   storage_location_id text NULL,
   total_quantity integer NULL,
+  acquisition_occurred_at timestamptz NULL,
   acquisition_cost_amount numeric(12, 2) NULL,
   seller_sku text NULL,
   listing_price_amount numeric(12, 2) NULL,
@@ -106,6 +108,7 @@ ALTER TABLE inventory_import_batch_rows
   ADD COLUMN IF NOT EXISTS selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS storage_location_id text NULL,
   ADD COLUMN IF NOT EXISTS total_quantity integer NULL,
+  ADD COLUMN IF NOT EXISTS acquisition_occurred_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS acquisition_cost_amount numeric(12, 2) NULL,
   ADD COLUMN IF NOT EXISTS seller_sku text NULL,
   ADD COLUMN IF NOT EXISTS listing_price_amount numeric(12, 2) NULL,
@@ -126,3 +129,14 @@ ${durableJobWorkUnitSchemaSql({
   workUnitsTable: "inventory_import_batch_work_units",
 })}
 `;
+
+export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260908_inventory_import_acquisition_occurrence",
+    description: "Preserve import-supplied acquisition occurrence through staged Inventory rows.",
+    statements: [
+      `ALTER TABLE inventory_import_batch_rows
+  ADD COLUMN IF NOT EXISTS acquisition_occurred_at timestamptz NULL`,
+    ],
+  },
+];

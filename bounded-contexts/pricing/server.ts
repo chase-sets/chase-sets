@@ -57,6 +57,25 @@ export type {
   RollupGranularity,
 } from "./support/request-support/api-client";
 export { pricingRealtimeManifest } from "./support/realtime-support/topics";
+export { economicsPolicy, type EconomicsPolicyValue } from "./features/economics/domain/policy";
+export { toEconomicsForPricingGoal } from "./features/economics/domain/resolution";
+export { economicsFactNames } from "./features/economics/domain/contracts";
+export type {
+  ChannelConnectionIdentityReader,
+  Economics,
+  EconomicsFact,
+  EconomicsFactName,
+  EconomicsFacts,
+  FactSource,
+  ResolveEconomicsInput,
+  ResolveEconomicsRequest,
+} from "./features/economics/domain/contracts";
+export type {
+  EconomicsForPricingGoal,
+  EconomicsResolution,
+  EconomicsResolver,
+  UnavailableEconomics,
+} from "./features/economics/domain/resolution";
 /**
  * The m110 platform-policy declarations for pricing's market-analytics
  * dials: assembled once, cross-context, by the `platform-api` composition

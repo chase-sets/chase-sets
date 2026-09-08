@@ -16,6 +16,7 @@ export const pricingMarketTradesSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_market_trades (
   order_id text NOT NULL,
   line_id text NOT NULL,
+  inventory_item_id text NULL,
   seller_account_id text NOT NULL,
   buyer_account_id text NOT NULL,
   catalog_catalog_item_id text NOT NULL,
@@ -107,6 +108,17 @@ CREATE INDEX IF NOT EXISTS pricing_market_trade_rollup_rederive_queue_age_idx
 `;
 
 export const pricingMarketTradesSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260908_pricing_market_trades_inventory_item",
+    description: "Retain Ordering's Inventory Item identity on replayed Trades Tape lines for Economics evidence.",
+    statements: [
+      `ALTER TABLE pricing_market_trades
+  ADD COLUMN IF NOT EXISTS inventory_item_id text NULL`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_market_trades_inventory_item_idx
+  ON pricing_market_trades (seller_account_id, inventory_item_id, sold_at)
+  WHERE inventory_item_id IS NOT NULL`,
+    ],
+  },
   {
     migrationId: "20260720_pricing_rollup_rederive_queue_generation",
     description: "Version every rollup re-derive enqueue so concurrent acknowledgments cannot lose work.",

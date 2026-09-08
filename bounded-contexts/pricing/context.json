@@ -21,7 +21,14 @@
     "listing-snapshot",
     "listing-ask-depth",
     "anonymous-capture-seller-ordinal",
-    "own-sale-observation"
+    "own-sale-observation",
+    "economics",
+    "economics-fact",
+    "fact-source",
+    "policy-owned",
+    "observed-hold",
+    "observed-turnaround",
+    "daily-return-hurdle"
   ],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
@@ -35,11 +42,17 @@
     "repricing-engine",
     "public-market-pages",
     "bulk-reprice-ingestion",
-    "own-sale-observations"
+    "own-sale-observations",
+    "economics"
   ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
-  "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory"],
+  "allowedContextDependencies": [
+    "@chase-sets/channels",
+    "@chase-sets/commercial-terms",
+    "@chase-sets/marketplace",
+    "@chase-sets/inventory"
+  ],
   "seedRequirements": [
     "catalog",
     "identity",
@@ -131,7 +144,7 @@
     {
       "sourceContextName": "ordering",
       "projectionName": "pricing-market-trades-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": [
         "ordering.order.created",
@@ -239,7 +252,8 @@
       "ownedTables": [
         "pricing_inventory_item_inputs",
         "pricing_inventory_hold_inputs",
-        "pricing_own_sale_observations"
+        "pricing_own_sale_observations",
+        "pricing_inventory_acquisition_lots"
       ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
@@ -279,6 +293,13 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "pricing-economics-overrides-projection",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": ["pricing_economics_overrides"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "pricing-repricing-evaluation-reaction",
       "handlerKind": "reaction",
       "sourceContextNames": ["marketplace", "pricing"],
@@ -289,6 +310,16 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "commercialTermsResolver",
+      "providedBy": "commercial-terms",
+      "purpose": "Resolve the four Commercial Terms-owned Economics facts at the caller-supplied evaluation instant."
+    },
+    {
+      "portName": "channelConnectionIdentityReader",
+      "providedBy": "channels",
+      "purpose": "Resolve account-qualified Channel Connection identity before Economics provider selection."
+    },
     {
       "portName": "tcgplayerMarketTransport",
       "providedBy": "platform-api, platform-worker",
@@ -501,6 +532,14 @@
     }
   ],
   "directoryIntent": {
+    "economics": {
+      "classification": "slice",
+      "purpose": "Resolve replayable seller-and-Channel Economics facts, evidence, and overrides for Pricing consumers.",
+      "expectedConsumers": [
+        "Internal pricing module composition",
+        "Pricing Goal consumers through the Pricing server contract"
+      ]
+    },
     "recommendations": {
       "classification": "slice",
       "purpose": "Own recommendations feature behavior, read models, and UI contracts for the pricing context.",

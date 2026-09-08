@@ -12,6 +12,7 @@ export type NativeInventoryExportRow = Readonly<{
   catalog_item_id: string;
   storage_location_id: string;
   total_quantity: number;
+  acquisition_occurred_at?: string | null;
   selected_options: readonly Readonly<{
     dimensionId: string;
     optionId: string;
@@ -28,6 +29,7 @@ export const nativeInventoryImportCsvTemplateHeaders = [
   "catalogItemId",
   "storageLocationId",
   "totalQuantity",
+  "acquisitionOccurredAt",
   "option:form",
   "option:condition",
   "acquisitionCostAmount",
@@ -45,6 +47,7 @@ export function buildNativeInventoryImportCsvTemplate(
     "cat_example",
     location.storage_location_id,
     "1",
+    "",
     "Raw",
     "Near Mint",
     "",
@@ -64,6 +67,7 @@ export function buildNativeInventoryExportCsv(rows: readonly NativeInventoryExpo
     "catalogItemId",
     "storageLocationId",
     "totalQuantity",
+    "acquisitionOccurredAt",
     ...optionColumns.map((dimensionId) => `option:${dimensionId}`),
     "acquisitionCostAmount",
     "sellerSku",
@@ -79,6 +83,7 @@ export function buildNativeInventoryExportCsv(rows: readonly NativeInventoryExpo
       row.catalog_item_id,
       row.storage_location_id,
       String(row.total_quantity),
+      row.acquisition_occurred_at ?? "",
       ...optionColumns.map((dimensionId) => selectedOptions.get(dimensionId) ?? ""),
       row.acquisition_cost_amount ?? "",
       row.seller_sku ?? "",

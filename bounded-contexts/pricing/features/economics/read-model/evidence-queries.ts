@@ -151,7 +151,7 @@ function parseAcquisition(row: AcquisitionRow): AcquisitionLotObservation {
     }
     return {
       kind: "occurred",
-      occurredAt: requireRfc3339Instant(row.acquired_at, `Acquisition ${lotId} acquiredAt`),
+      occurredAt: databaseInstant(row.acquired_at, `Acquisition ${lotId} acquiredAt`),
       source: row.occurrence_source,
     } as const;
   })();
@@ -173,7 +173,7 @@ function parseSale(row: SaleRow, currency: string): SaleObservation {
     inventoryItemId: row.inventory_item_id === null ? null : identity(row.inventory_item_id, "sale inventory item id"),
     saleId: `${orderId}:${lineId}`,
     quantity: positiveInteger(row.quantity, `Sale ${orderId}:${lineId} quantity`),
-    soldAt: requireRfc3339Instant(row.sold_at, `Sale ${orderId}:${lineId} soldAt`),
+    soldAt: databaseInstant(row.sold_at, `Sale ${orderId}:${lineId} soldAt`),
     currency,
     excluded: row.excluded,
   };
@@ -181,7 +181,7 @@ function parseSale(row: SaleRow, currency: string): SaleObservation {
 
 function parseCost(row: CostRow, currency: string): InventoryCostLot {
   const itemId = identity(row.item_id, "cost inventory item id");
-  const observedAt = requireRfc3339Instant(row.updated_at, `Cost ${itemId} observedAt`);
+  const observedAt = databaseInstant(row.updated_at, `Cost ${itemId} observedAt`);
   const quantity = positiveInteger(row.total_quantity, `Cost ${itemId} quantity`);
   const cost =
     row.acquisition_cost_amount === null
@@ -210,7 +210,7 @@ function parseCheckpoints(rows: readonly CheckpointRow[], effectiveAt: string) {
     if (!/^(?:0|[1-9]\d*)$/.test(position)) {
       throw new Error(`Economics projection checkpoint ${row.checkpoint_key} has an invalid global position.`);
     }
-    const observedAt = requireRfc3339Instant(row.updated_at, `${row.checkpoint_key} updatedAt`);
+    const observedAt = databaseInstant(row.updated_at, `${row.checkpoint_key} updatedAt`);
     if (Date.parse(observedAt) > Date.parse(effectiveAt)) {
       throw new Error(`Economics projection checkpoint ${row.checkpoint_key} is later than effectiveAt.`);
     }
@@ -233,4 +233,10 @@ function identity(value: string, name: string): string {
     throw new Error(`${name} must be non-empty and already trimmed.`);
   }
   return value;
+}
+
+function databaseInstant(value: string, name: string): string {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${name} must be a valid database instant.`);
+  return requireRfc3339Instant(new Date(parsed).toISOString(), name);
 }

@@ -2,6 +2,34 @@
 
 This glossary defines the canonical terminology for the Pricing bounded context.
 
+## Economics
+
+**Economics** is the replayable seller-and-Channel fact set Pricing resolves at one evaluation instant. It binds account-qualified Channel identity, currency, Commercial Terms, Inventory cost evidence, observed capital-cycle evidence, policy defaults, and seller overrides without changing any authoritative source.
+
+## Economics Fact
+
+An **Economics Fact** carries a source value, closed Fact Source, effective value, optional seller override, and the oldest observation instant that materially supports it. Missing money is never represented as zero.
+
+## Fact Source
+
+A **Fact Source** is the closed provenance vocabulary for an Economics Fact: Commercial Terms, Inventory observation, Pricing observation, Pricing policy ownership, or an explicit policy default with a failure-only reason.
+
+## Policy-owned
+
+**Policy-owned** is Fact Source provenance for a healthy Economics assumption that Pricing deliberately governs, rather than a fallback for missing authority. It carries the exact `pricing.economics` policy revision and never a Commercial Terms agreement or failure reason.
+
+## Observed Hold
+
+**Observed Hold** is the median elapsed time from an Inventory-owned known Acquisition Occurrence to an eligible Ordering sale occurrence after one-to-one quantity allocation. Unknown acquisition time contributes no sample.
+
+## Observed Turnaround
+
+**Observed Turnaround** is the median elapsed time from an eligible Ordering sale occurrence to a later known Inventory acquisition after independent one-to-one quantity allocation across the account.
+
+## Daily Return Hurdle
+
+The **Daily Return Hurdle** is Pricing's finite per-day return target derived from positive covered cost, positive net proceeds, Observed Hold, and Observed Turnaround. When any precondition is unavailable, a numeric policy default remains explicit in provenance.
+
 ## Price Signal
 
 A **Price Signal** is an observed market input used to estimate fair value for a resolved product.

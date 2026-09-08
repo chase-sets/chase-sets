@@ -13,8 +13,10 @@ import {
 } from "@chase-sets/catalog/server";
 import {
   createObjectStorageTcgplayerMarketCaptureReceiptSink,
+  type ChannelConnectionIdentityReader,
   type PricingHostPorts,
 } from "@chase-sets/pricing/server";
+import { module as channelsModule } from "@chase-sets/channels";
 import { createSesEmailNotificationAdapter, createSesSendRequest } from "@chase-sets/ses-email";
 import { createLocalEmailCaptureNotificationAdapter } from "@chase-sets/local-email-capture";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
@@ -209,10 +211,6 @@ const tcgplayerAutomationHttpClients = config.tcgplayerAutomation
 const tcgplayerAutomationCatalogClient = tcgplayerAutomationHttpClients
   ? createTcgplayerAutomationCatalogClient(tcgplayerAutomationHttpClients)
   : undefined;
-const pricingHostPorts: PricingHostPorts = {
-  tcgplayerMarketTransport: tcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
-};
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
 const commercialTermsResolver = pools["commercial-terms"]
@@ -223,6 +221,14 @@ const commercialTermsResolver = pools["commercial-terms"]
       ),
     })
   : undefined;
+const pricingHostPorts: PricingHostPorts = {
+  tcgplayerMarketTransport: tcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
+  tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
+  commercialTermsResolver: commercialTermsResolver ?? null,
+  channelConnectionIdentityReader: createChannelConnectionIdentityReader(
+    () => runtime?.services.channels as ReturnType<typeof channelsModule.createServices> | undefined,
+  ),
+};
 const termsAcceptanceResolver = pools.identity ? createIdentityTermsAcceptanceResolver(pools.identity) : undefined;
 const balanceCreditResolver = pools.settlement
   ? createSettlementBalanceCreditResolver(pools.settlement, {
@@ -294,6 +300,23 @@ type WorkerIdentityServices = Readonly<{
     }> | null>;
   }>;
 }>;
+
+function createChannelConnectionIdentityReader(
+  getServices: () => ReturnType<typeof channelsModule.createServices> | undefined,
+): ChannelConnectionIdentityReader {
+  return {
+    resolve: async (input) => {
+      const connection = await getServices()?.connections.getConnection(input);
+      return connection
+        ? {
+            connectionId: connection.connectionId,
+            providerKey: connection.providerKey,
+            environment: connection.environment,
+          }
+        : null;
+    },
+  };
+}
 
 function createIdentityCommercialTermsAccountSource(
   getIdentityServices: () => WorkerIdentityServices | undefined,

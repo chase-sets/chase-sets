@@ -1,5 +1,11 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { economicsFactNames, parseFactValue, requireCurrency, type EconomicsFactName } from "../domain/contracts";
+import {
+  economicsFactNames,
+  parseFactValue,
+  requireCurrency,
+  requireRfc3339Instant,
+  type EconomicsFactName,
+} from "../domain/contracts";
 import {
   initialEconomicsOverridesState,
   type EconomicsOverrideEntry,
@@ -58,7 +64,7 @@ export async function readCurrentEconomicsOverrides(
         value: null,
         revision: row.last_stream_version,
         setAt: null,
-        clearedAt: row.cleared_at,
+        clearedAt: databaseInstant(row.cleared_at, `${factName} clearedAt`),
       };
       continue;
     }
@@ -71,16 +77,23 @@ export async function readCurrentEconomicsOverrides(
       factName,
       value: parseFactValue(factName, row.override_value, initial.key.currency),
       revision: row.last_stream_version,
-      setAt: row.set_at,
+      setAt: databaseInstant(row.set_at, `${factName} setAt`),
       clearedAt: null,
     };
   }
 
   const lastChangedAt = result.rows.reduce<string | null>((latest, row) => {
-    const changedAt = row.set_at ?? row.cleared_at;
+    const rawChangedAt = row.set_at ?? row.cleared_at;
+    const changedAt = rawChangedAt === null ? null : databaseInstant(rawChangedAt, `${row.fact_name} changedAt`);
     return changedAt !== null && (latest === null || Date.parse(changedAt) > Date.parse(latest)) ? changedAt : latest;
   }, null);
   return { ...initial, version, lastChangedAt, entries };
+}
+
+function databaseInstant(value: string, name: string): string {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${name} must be a valid database instant.`);
+  return requireRfc3339Instant(new Date(parsed).toISOString(), name);
 }
 
 function parseFactName(value: string): EconomicsFactName {

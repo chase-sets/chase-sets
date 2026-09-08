@@ -44,6 +44,7 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
     selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
     storage_location_id: "loc_1",
     total_quantity: 3,
+    acquisition_occurred_at: null,
     acquisition_cost_amount: "1.00",
     seller_sku: "SKU-1",
     listing_price_amount: "5.00",

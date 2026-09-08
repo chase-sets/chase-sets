@@ -46,15 +46,15 @@ describe("buildNativeInventoryImportCsvTemplate", () => {
     ]);
 
     expect(csv.split("\n")[0]).toBe(
-      "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
+      "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
     );
-    expect(csv).toContain("cat_example,loc_main,1,Raw,Near Mint,,,,,,Example for Main shelf");
-    expect(csv).toContain('cat_example,loc_case,1,Raw,Near Mint,,,,,,"Example for Case ""A"", top"');
+    expect(csv).toContain("cat_example,loc_main,1,,Raw,Near Mint,,,,,,Example for Main shelf");
+    expect(csv).toContain('cat_example,loc_case,1,,Raw,Near Mint,,,,,,"Example for Case ""A"", top"');
   });
 
   it("renders a header-only template when the account has no active storage locations", () => {
     expect(buildNativeInventoryImportCsvTemplate([])).toBe(
-      "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
+      "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
     );
   });
 });
@@ -88,16 +88,16 @@ describe("buildNativeInventoryExportCsv", () => {
 
     expect(csv).toBe(
       [
-        "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,option:language,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
-        "cat_1,loc_1,3,Raw,Near Mint,,1.25,,,,,",
-        'cat_2,loc_2,0,,,en,,seller-2,5.00,USD,2,"quoted, note"',
+        "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,option:form,option:condition,option:language,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
+        "cat_1,loc_1,3,,Raw,Near Mint,,1.25,,,,,",
+        'cat_2,loc_2,0,,,,en,,seller-2,5.00,USD,2,"quoted, note"',
       ].join("\n"),
     );
   });
 
   it("renders a header-only export when the account has no inventory", () => {
     expect(buildNativeInventoryExportCsv([])).toBe(
-      "catalogItemId,storageLocationId,totalQuantity,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
+      "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
     );
   });
 });

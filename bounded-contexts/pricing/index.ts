@@ -35,13 +35,17 @@ import {
   buildCompetingAskRepricingReactionHandlers,
   buildMarketPriceRepricingReactionHandlers,
 } from "./features/repricing-engine/integrations/signal-reactions";
+import { composePricingInventoryEconomicsProjectionHandlers } from "./features/economics/integrations/inventory/projection";
 
 const pricingContextManifest = contextManifest as BcContextManifest;
 
 export const module = defineBoundedContextModule<PricingServices, PgTransactionalPool, PricingHostPorts>({
   manifest: pricingContextManifest,
   schemaSql: pricingSchemaSql,
-  schemaMigrations: [...pricingUnloggedProjectionSchemaMigrations, ...pricingFeatureSchemaMigrations],
+  // Evolve feature tables before applying their physical replay posture. This
+  // ordering matters on an upgrade where a newly introduced projection table
+  // does not exist yet for its later SET UNLOGGED migration.
+  schemaMigrations: [...pricingFeatureSchemaMigrations, ...pricingUnloggedProjectionSchemaMigrations],
   createServices: (pool, ports) => createPricingServices(pool, ports),
   buildApis: (services) => [
     { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildPricingApi(services) },
@@ -60,10 +64,14 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
             ...buildPricingCatalogInputProjectionHandlers(services.db),
             ...buildPricingPriceSignalCatalogProjectionHandlers(services.db),
           }),
-          "inventory.pricing-inventory-input-projection": () => ({
-            ...buildPricingInventoryInputProjectionHandlers(services.db),
-            ...buildPricingOwnSaleObservationProjectionHandlers(services.db),
-          }),
+          "inventory.pricing-inventory-input-projection": () =>
+            composePricingInventoryEconomicsProjectionHandlers(
+              services.db,
+              {
+                ...buildPricingInventoryInputProjectionHandlers(services.db),
+                ...buildPricingOwnSaleObservationProjectionHandlers(services.db),
+              },
+            ),
           "marketplace.pricing-market-input-projection": () =>
             buildPricingMarketplaceInputProjectionHandlers(services.db),
           "ordering.pricing-order-input-projection": () => buildPricingOrderingInputProjectionHandlers(services.db),

@@ -40,4 +40,13 @@ export const pricingUnloggedProjectionSchemaMigrations: readonly BcSchemaMigrati
       "ALTER TABLE pricing_external_catalog_item_reference_inputs SET UNLOGGED;",
     ],
   },
+  {
+    migrationId: "20260908_pricing_economics_unlogged_projections",
+    description: "Store replayable Economics acquisition-lot and override projections as unlogged tables.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      "ALTER TABLE pricing_inventory_acquisition_lots SET UNLOGGED;",
+      "ALTER TABLE pricing_economics_overrides SET UNLOGGED;",
+    ],
+  },
 ];

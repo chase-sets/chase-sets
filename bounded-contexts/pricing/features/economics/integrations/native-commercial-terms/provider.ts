@@ -34,6 +34,13 @@ export function createNativeCommercialTermsEconomicsProvider(
           amount: request.marketUnitPrice.amount,
           effectiveAt: request.effectiveAt,
         });
+        if (
+          terms.accountId !== request.accountId ||
+          terms.basisAmount !== request.marketUnitPrice.amount ||
+          terms.resolvedAt !== request.effectiveAt
+        ) {
+          throw new Error("Commercial Terms returned facts for different resolution coordinates.");
+        }
         const currency = request.marketUnitPrice.currency;
         const commercialSource = {
           kind: "commercial-terms" as const,

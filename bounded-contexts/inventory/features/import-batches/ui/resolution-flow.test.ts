@@ -29,6 +29,7 @@ function row(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportB
     selected_options: [],
     storage_location_id: null,
     total_quantity: null,
+    acquisition_occurred_at: null,
     acquisition_cost_amount: null,
     seller_sku: null,
     listing_price_amount: null,

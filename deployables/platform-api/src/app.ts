@@ -32,7 +32,12 @@ import {
   resolveCatalogProductSelection,
 } from "@chase-sets/catalog/server";
 import type { SavedListProductCatalog } from "@chase-sets/collections/server";
-import { pricingRealtimeManifest, type PricingHostPorts } from "@chase-sets/pricing/server";
+import {
+  pricingRealtimeManifest,
+  type ChannelConnectionIdentityReader,
+  type PricingHostPorts,
+} from "@chase-sets/pricing/server";
+import { module as channelsModule } from "@chase-sets/channels";
 import { module as identityModule } from "@chase-sets/identity";
 import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
 import {
@@ -92,6 +97,7 @@ import {
   marketAnalyticsDisplayPolicy,
   marketEstimatePolicy,
   marketStatHygienePolicy,
+  economicsPolicy,
   priceSignalPolicy,
   providerObservationPolicy,
   repricingEnginePolicy,
@@ -383,6 +389,7 @@ export function createPlatformApiHost(
         marketStatHygienePolicy,
         marketAnalyticsDisplayPolicy,
         marketEstimatePolicy,
+        economicsPolicy,
         priceSignalPolicy,
         providerObservationPolicy,
         repricingEnginePolicy,
@@ -519,6 +526,10 @@ export function createPlatformApiHost(
   const pricingHostPorts: PricingHostPorts = {
     tcgplayerMarketTransport: { kind: "not-mounted" },
     tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+    commercialTermsResolver: commercialTermsResolver ?? null,
+    channelConnectionIdentityReader: createChannelConnectionIdentityReader(
+      () => runtime?.services.channels as ReturnType<typeof channelsModule.createServices> | undefined,
+    ),
   };
 
   runtime = createApiHost(apiContextRegistry, "platform-api", {
@@ -602,6 +613,23 @@ function lazyPolicyConsoleWritePort(
     revisePolicyDocument: (definition, documentId, params, context) =>
       requirePolicies().revisePolicyDocument(definition, documentId, params, context),
     resolvePolicy: (definition, params) => requirePolicies().resolvePolicy(definition, params),
+  };
+}
+
+function createChannelConnectionIdentityReader(
+  getServices: () => ReturnType<typeof channelsModule.createServices> | undefined,
+): ChannelConnectionIdentityReader {
+  return {
+    resolve: async (input) => {
+      const connection = await getServices()?.connections.getConnection(input);
+      return connection
+        ? {
+            connectionId: connection.connectionId,
+            providerKey: connection.providerKey,
+            environment: connection.environment,
+          }
+        : null;
+    },
   };
 }
 
