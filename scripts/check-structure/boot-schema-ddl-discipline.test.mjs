@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,6 +10,7 @@ import {
   findBootSchemaMigrationAddedIndexViolationsInSource,
   findBootSchemaDdlDisciplineViolations,
   findBootSchemaLedgerConvergenceViolations,
+  findBootSchemaRetainedUpgradeViolations,
   findSchemaMigrationDdlSafetyViolationsInSource,
   isFastDefaultSafeExpression,
 } from "./boot-schema-ddl-discipline.mjs";
@@ -157,6 +159,60 @@ export const exampleSchemaMigrations = [{
 `;
 
     expect(findBootSchemaLedgerConvergenceViolations({ baseSource, currentSource })).toEqual([]);
+  });
+
+  it("flags the exact 6feb1454 Pricing source without retained-schema boot expansions", () => {
+    const failedSource = execFileSync(
+      "git",
+      [
+        "show",
+        "6feb1454cecb4a73a90845103a9a0de2a336eaad:bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts",
+      ],
+      { encoding: "utf8" },
+    );
+    const retainedSource = execFileSync(
+      "git",
+      [
+        "show",
+        "3edef8e981847f1aa16c97e13efcdeda7063608e:bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts",
+      ],
+      { encoding: "utf8" },
+    );
+
+    expect(
+      findBootSchemaRetainedUpgradeViolations({ baseSource: retainedSource, currentSource: failedSource }),
+    ).toEqual([
+      expect.objectContaining({
+        tableName: "pricing_market_listing_inputs",
+        columnName: "price_currency_code",
+      }),
+      expect.objectContaining({
+        tableName: "pricing_buyer_offer_inputs",
+        columnName: "price_currency_code",
+      }),
+    ]);
+  });
+
+  it("accepts the repaired Pricing source with retained-schema boot expansions", async () => {
+    const repairedSource = await readFile(
+      new URL(
+        "../../bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const retainedSource = execFileSync(
+      "git",
+      [
+        "show",
+        "3edef8e981847f1aa16c97e13efcdeda7063608e:bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts",
+      ],
+      { encoding: "utf8" },
+    );
+
+    expect(
+      findBootSchemaRetainedUpgradeViolations({ baseSource: retainedSource, currentSource: repairedSource }),
+    ).toEqual([]);
   });
 
   it("does not treat a same-named column migration on another table as reachable", () => {

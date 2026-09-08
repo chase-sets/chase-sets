@@ -248,6 +248,35 @@ export function findBootSchemaLedgerConvergenceViolations({ baseSource, currentS
   return violations;
 }
 
+export function findBootSchemaRetainedUpgradeViolations({ baseSource, currentSource }) {
+  const baseTables = extractBootSchemaTableColumns(baseSource);
+  const currentTables = extractBootSchemaTableColumns(currentSource);
+  const bootExpansionColumns = extractBootSchemaIdempotentExpansionColumns(currentSource);
+  const violations = [];
+
+  for (const [tableName, currentColumns] of currentTables) {
+    const baseColumns = baseTables.get(tableName);
+    if (!baseColumns) {
+      continue;
+    }
+
+    const expandedColumns = bootExpansionColumns.get(tableName) ?? new Set();
+    for (const columnName of currentColumns) {
+      if (baseColumns.has(columnName) || expandedColumns.has(columnName)) {
+        continue;
+      }
+
+      violations.push({
+        tableName,
+        columnName,
+        message: `fresh-boot column ${tableName}.${columnName} has no idempotent boot ADD COLUMN expansion; retained databases can reach a dependent boot consumer before ledger migrations (#7751).`,
+      });
+    }
+  }
+
+  return violations;
+}
+
 export function findSchemaMigrationDdlSafetyViolationsInSource(source, { baseSource } = {}) {
   const baseStatementSql = new Set(
     baseSource
@@ -403,6 +432,13 @@ export async function findBootSchemaDdlDisciplineViolations({ repoRoot, changedF
           message: violation.message,
         });
       }
+      for (const violation of findBootSchemaRetainedUpgradeViolations({ baseSource, currentSource: source })) {
+        violations.push({
+          file: relativeFilePath,
+          line: 1,
+          message: violation.message,
+        });
+      }
     }
 
     for (const violation of findBootSchemaMigrationAddedIndexViolationsInSource(source)) {
@@ -425,6 +461,25 @@ export async function findBootSchemaDdlDisciplineViolations({ repoRoot, changedF
   }
 
   return violations;
+}
+
+function extractBootSchemaIdempotentExpansionColumns(source) {
+  const columnsByTable = new Map();
+  const alterTablePattern = /\bALTER\s+TABLE(?:\s+IF\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_.]*)\s+([\s\S]*?);/gi;
+  const addColumnPattern = /\bADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+"?([A-Za-z_][A-Za-z0-9_]*)"?/gi;
+
+  for (const template of extractExportedBootSchemaSqlTemplates(source)) {
+    for (const alterMatch of template.sql.matchAll(alterTablePattern)) {
+      const tableName = alterMatch[1].toLowerCase();
+      const columns = columnsByTable.get(tableName) ?? new Set();
+      for (const columnMatch of alterMatch[2].matchAll(addColumnPattern)) {
+        columns.add(columnMatch[1].toLowerCase());
+      }
+      columnsByTable.set(tableName, columns);
+    }
+  }
+
+  return columnsByTable;
 }
 
 function extractTopLevelSqlConstants(source) {

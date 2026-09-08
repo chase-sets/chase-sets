@@ -93,7 +93,10 @@ async function listSourceFiles(repoRoot) {
   for (const rootName of ["bounded-contexts", "infrastructure"]) {
     await walk(path.join(repoRoot, rootName), files);
   }
-  return files.filter((file) => /\.(?:ts|sql)$/.test(file));
+  return files.filter((file) => {
+    const relativePath = relative(repoRoot, file);
+    return /\.(?:ts|sql)$/.test(file) && !relativePath.includes("/tests/fixtures/");
+  });
 }
 
 async function walk(directory, files) {

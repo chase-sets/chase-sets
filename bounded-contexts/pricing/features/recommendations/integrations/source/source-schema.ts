@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
   last_stream_version integer NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0)
 );
 
+ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL;
+
 CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_lookup_idx
   ON pricing_market_listing_inputs (seller_account_id, catalog_catalog_item_id, product_id, status);
 
@@ -115,6 +118,9 @@ CREATE TABLE IF NOT EXISTS pricing_buyer_offer_inputs (
   updated_at timestamptz NOT NULL,
   last_stream_version integer NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0)
 );
+
+ALTER TABLE pricing_buyer_offer_inputs
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL;
 
 CREATE INDEX IF NOT EXISTS pricing_buyer_offer_inputs_lookup_idx
   ON pricing_buyer_offer_inputs (catalog_catalog_item_id, product_id, status);

@@ -1,8 +1,10 @@
-import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
-import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
-import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
+-- Provenance commit: 6feb1454cecb4a73a90845103a9a0de2a336eaad
+-- Raw evaluated SQL SHA-256: c85eb210d5a6970893ffe172407d1cd7133952d1af14a2fc5754fc6b784fe646
+-- Derivation: git archive --format=tar --output=$archivePath 6feb1454cecb4a73a90845103a9a0de2a336eaad
+-- Derivation: tar -xf $archivePath -C $fixtureRoot; pnpm install --offline --frozen-lockfile --ignore-scripts
+-- Derivation: pnpm exec tsx -e "import('./bounded-contexts/pricing/features/recommendations/read-model/schema.ts').then(({ pricingRecommendationSchemaSql }) => require('node:fs').writeFileSync('.fixture-recommendation-schema.sql', pricingRecommendationSchemaSql, 'utf8'))"
 
-export const pricingRecommendationSchemaSql = `
+
 CREATE TABLE IF NOT EXISTS pricing_recommendation_pages (
   recommendation_id text PRIMARY KEY,
   catalog_catalog_item_id text NOT NULL,
@@ -57,6 +59,7 @@ SELECT
   recommendation.market_signal_type,
   recommendation.market_observed_at,
   recommendation.current_price_amount,
+  listing_input.price_currency_code AS current_price_currency_code,
   recommendation.recommended_list_amount,
   recommendation.recommendation_reason,
   recommendation.quantity_cap,
@@ -72,8 +75,7 @@ SELECT
   COALESCE(order_signal.committed_order_quantity, 0) AS committed_order_quantity,
   COALESCE(fulfillment_signal.delivered_quantity, 0) AS delivered_quantity,
   COALESCE(fulfillment_signal.returned_quantity, 0) AS returned_quantity,
-  recommendation.updated_at,
-  listing_input.price_currency_code AS current_price_currency_code
+  recommendation.updated_at
 FROM pricing_recommendation_pages AS recommendation
 LEFT JOIN pricing_catalog_item_inputs AS catalog_input
   ON catalog_input.catalog_item_id = recommendation.catalog_catalog_item_id
@@ -181,24 +183,107 @@ LEFT JOIN (
   ON fulfillment_signal.seller_account_id = recommendation.seller_account_id
  AND fulfillment_signal.catalog_catalog_item_id = recommendation.catalog_catalog_item_id;
 
-${durableJobSchemaSql({
-  jobsTable: "pricing_recommendation_jobs",
-  eventsTable: "pricing_recommendation_job_events",
-})}
 
-${durableJobWorkUnitSchemaSql({
-  jobsTable: "pricing_recommendation_jobs",
-  workUnitsTable: "pricing_recommendation_work_units",
-})}
-`;
+CREATE TABLE IF NOT EXISTS pricing_recommendation_jobs (
+  job_id text PRIMARY KEY,
+  job_kind text NOT NULL,
+  status text NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  progress jsonb NOT NULL DEFAULT '{}'::jsonb,
+  result jsonb NULL,
+  error_message text NULL,
+  event_context jsonb NULL,
+  claim_owner_id text NULL,
+  claimed_until timestamptz NULL,
+  attempt_count integer NOT NULL DEFAULT 0,
+  next_eligible_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL,
+  started_at timestamptz NULL,
+  completed_at timestamptz NULL,
+  updated_at timestamptz NOT NULL
+);
 
-export const pricingRecommendationSchemaMigrations: readonly BcSchemaMigration[] = [
-  {
-    migrationId: "20260907_pricing_recommendation_action_index_ledger",
-    description: "Create the recommendation action index after its legacy-added columns are present.",
-    statements: [
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_recommendation_pages_action_idx
-  ON pricing_recommendation_pages (seller_account_id, status, action_type, updated_at DESC)`,
-    ],
-  },
-];
+ALTER TABLE pricing_recommendation_jobs
+  ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0;
+
+ALTER TABLE pricing_recommendation_jobs
+  ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NULL;
+
+UPDATE pricing_recommendation_jobs
+SET next_eligible_at = COALESCE(next_eligible_at, created_at, updated_at, now())
+WHERE next_eligible_at IS NULL;
+
+ALTER TABLE pricing_recommendation_jobs
+  ALTER COLUMN next_eligible_at SET DEFAULT now(),
+  ALTER COLUMN next_eligible_at SET NOT NULL;
+
+DO $$
+BEGIN
+  ALTER TABLE pricing_recommendation_jobs
+    ADD CONSTRAINT pricing_recommendation_jobs_attempt_count_nonnegative CHECK (attempt_count >= 0);
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS pricing_recommendation_jobs_status_created_idx
+  ON pricing_recommendation_jobs (status, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS pricing_recommendation_jobs_claim_eligibility_idx
+  ON pricing_recommendation_jobs (status, next_eligible_at ASC, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS pricing_recommendation_jobs_kind_status_idx
+  ON pricing_recommendation_jobs (job_kind, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS pricing_recommendation_jobs_event_context_idx
+  ON pricing_recommendation_jobs USING GIN (event_context);
+
+CREATE INDEX IF NOT EXISTS pricing_recommendation_jobs_event_context_actor_idx
+  ON pricing_recommendation_jobs (
+    (event_context->>'tenantId'),
+    (event_context->'audit'->>'forAccountId'),
+    (event_context->'audit'->>'performedByUserId'),
+    updated_at DESC
+  );
+
+CREATE TABLE IF NOT EXISTS pricing_recommendation_job_events (
+  job_id text NOT NULL REFERENCES pricing_recommendation_jobs(job_id) ON DELETE CASCADE,
+  sequence integer NOT NULL CHECK (sequence >= 1),
+  event_name text NOT NULL,
+  snapshot jsonb NOT NULL,
+  created_at timestamptz NOT NULL,
+  PRIMARY KEY (job_id, sequence)
+);
+
+CREATE INDEX IF NOT EXISTS pricing_recommendation_job_events_lookup_idx
+  ON pricing_recommendation_job_events (job_id, sequence);
+
+
+
+CREATE TABLE IF NOT EXISTS pricing_recommendation_work_units (
+  job_id text NOT NULL REFERENCES pricing_recommendation_jobs(job_id) ON DELETE CASCADE,
+  unit_id text NOT NULL,
+  unit_kind text NOT NULL DEFAULT 'default',
+  state text NOT NULL CHECK (state IN ('queued', 'running', 'completed', 'failed', 'skipped')),
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  result jsonb NULL,
+  error_message text NULL,
+  claim_owner_id text NULL,
+  claim_token text NULL,
+  claimed_until timestamptz NULL,
+  attempt_count integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  completed_at timestamptz NULL,
+  PRIMARY KEY (job_id, unit_id)
+);
+
+CREATE INDEX IF NOT EXISTS pricing_recommendation_work_units_claimable_idx
+  ON pricing_recommendation_work_units (state, claimed_until, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS pricing_recommendation_work_units_job_state_idx
+  ON pricing_recommendation_work_units (job_id, state, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS pricing_recommendation_work_units_active_claims_idx
+  ON pricing_recommendation_work_units (job_id, claimed_until)
+  WHERE state = 'running';
+
