@@ -16,6 +16,9 @@ import {
 import { buildPricingMarketTradesProjectionHandlers } from "../features/market-trades/integrations/source/source-projection";
 import { buildPricingInventoryInputProjectionHandlers } from "../features/recommendations/integrations/source/source-projection";
 import { composePricingInventoryEconomicsProjectionHandlers } from "../features/economics/integrations/inventory/projection";
+import { deriveCostBasisFacts } from "../features/economics/domain/derivation";
+import { ECONOMICS_LAUNCH_POLICY_VALUE, type ResolvedEconomicsPolicy } from "../features/economics/domain/policy";
+import type { EconomicsEvidenceSnapshot } from "../features/economics/domain/resolution";
 import {
   createPostgresEconomicsEvidenceReader,
   economicsInventoryCheckpointKey,
@@ -238,6 +241,7 @@ describeDb("pricing schema upgrades", () => {
         productId: "product_1",
         totalQuantity: 2,
         acquisitionCostAmount: "5.00",
+        acquisitionCostCurrencyCode: "USD",
         acquisitionOccurrence: {
           kind: "occurred",
           occurredAt: "2026-08-01T09:00:00.000Z",
@@ -442,6 +446,52 @@ describeDb("pricing schema upgrades", () => {
     ]);
   });
 
+  it("keeps Inventory cost denomination authoritative through the upgraded schema", async () => {
+    const pool = pools.pricing;
+    await bootstrapContextDatabase(pricingModule, pool);
+    await pool.query(
+      `INSERT INTO pricing_inventory_item_inputs (
+         item_id, seller_account_id, catalog_catalog_item_id, product_id, total_quantity,
+         acquisition_cost_amount, acquisition_cost_currency_code, updated_at, last_stream_version
+       ) VALUES
+         ('item_usd', 'seller_1', 'cat_usd', 'product_usd', 1, 71.70, 'USD', '2026-09-01T11:00:00Z', 4),
+         ('item_legacy', 'seller_1', 'cat_legacy', 'product_legacy', 1, 71.70, NULL, '2026-09-01T11:00:00Z', 4)`,
+    );
+
+    const reader = createPostgresEconomicsEvidenceReader(pool);
+    const requestFor = (inventoryItemId: string, catalogItemId: string, currency: string) => ({
+      accountId: "seller_1",
+      connectionId: "synthetic-connection",
+      catalogItemId,
+      inventoryItemId,
+      marketUnitPrice: { amount: "100.00" as MoneyAmount, currency },
+      quantity: 1,
+      effectiveAt: "2026-09-06T00:00:00.000Z",
+    });
+    const usdRequest = requestFor("item_usd", "cat_usd", "usd");
+    const eurRequest = requestFor("item_usd", "cat_usd", "eur");
+    const legacyRequest = requestFor("item_legacy", "cat_legacy", "usd");
+    const [sameCurrency, mismatchedCurrency, legacyNullCurrency] = await Promise.all([
+      reader.resolve(usdRequest),
+      reader.resolve(eurRequest),
+      reader.resolve(legacyRequest),
+    ]);
+
+    expect(sameCurrency.costLots[0]?.acquisitionCostPerUnit).toEqual({ amount: "71.70", currency: "usd" });
+    expect(deriveDbCostFacts(sameCurrency, usdRequest)).toMatchObject({ coveredQuantity: 1, selectedQuantity: 1 });
+    expect(mismatchedCurrency.costLots[0]?.acquisitionCostPerUnit).toEqual({ amount: "71.70", currency: "usd" });
+    expect(mismatchedCurrency.costLots[0]?.revision).toBe(sameCurrency.costLots[0]?.revision);
+    expect(deriveDbCostFacts(mismatchedCurrency, eurRequest)).toMatchObject({
+      coveredQuantity: 0,
+      selectedQuantity: 1,
+    });
+    expect(legacyNullCurrency.costLots[0]?.acquisitionCostPerUnit).toBeNull();
+    expect(deriveDbCostFacts(legacyNullCurrency, legacyRequest)).toMatchObject({
+      coveredQuantity: 0,
+      selectedQuantity: 1,
+    });
+  });
+
   it("keeps override tombstones monotonic under duplicate and stale delivery", async () => {
     const pool = pools.pricing;
     await bootstrapContextDatabase(pricingModule, pool);
@@ -494,3 +544,30 @@ describeDb("pricing schema upgrades", () => {
     });
   });
 });
+
+const syntheticEconomicsPolicy: ResolvedEconomicsPolicy = {
+  value: ECONOMICS_LAUNCH_POLICY_VALUE,
+  policyRevision: "sha256:synthetic-policy-revision",
+  observedAt: "2026-09-06T20:28:41Z",
+  source: "fallback",
+  documentId: null,
+  effectiveFrom: null,
+  effectiveUntil: null,
+};
+
+function deriveDbCostFacts(
+  evidence: EconomicsEvidenceSnapshot,
+  request: Parameters<ReturnType<typeof createPostgresEconomicsEvidenceReader>["resolve"]>[0],
+) {
+  return deriveCostBasisFacts({
+    accountId: request.accountId,
+    inventoryItemId: request.inventoryItemId,
+    marketUnitPrice: request.marketUnitPrice,
+    quantity: request.quantity,
+    effectiveAt: request.effectiveAt,
+    inventoryWatermark: evidence.inventoryWatermark,
+    inventoryObservedAt: evidence.inventoryObservedAt,
+    lots: evidence.costLots,
+    policy: syntheticEconomicsPolicy,
+  });
+}

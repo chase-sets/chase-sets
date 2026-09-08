@@ -41,6 +41,7 @@ type CostRow = Readonly<{
   seller_account_id: string;
   total_quantity: number;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
   updated_at: string;
   last_stream_version: number;
 }>;
@@ -97,6 +98,7 @@ export function createPostgresEconomicsEvidenceReader(db: PgQueryable): Economic
              inventory_item.seller_account_id,
              inventory_item.total_quantity,
              inventory_item.acquisition_cost_amount::text,
+             inventory_item.acquisition_cost_currency_code,
              inventory_item.updated_at::text,
              inventory_item.last_stream_version
            FROM pricing_inventory_item_inputs AS inventory_item
@@ -124,7 +126,7 @@ export function createPostgresEconomicsEvidenceReader(db: PgQueryable): Economic
       return {
         acquisitions: acquisitionResult.rows.map(parseAcquisition),
         sales: saleResult.rows.map((row) => parseSale(row, request.marketUnitPrice.currency)),
-        costLots: costResult.rows.map((row) => parseCost(row, request.marketUnitPrice.currency)),
+        costLots: costResult.rows.map(parseCost),
         inventoryWatermark: checkpoints.inventory.watermark,
         pricingWatermark: checkpoints.sales.watermark,
         inventoryObservedAt: checkpoints.inventory.observedAt,
@@ -179,12 +181,13 @@ function parseSale(row: SaleRow, currency: string): SaleObservation {
   };
 }
 
-function parseCost(row: CostRow, currency: string): InventoryCostLot {
+function parseCost(row: CostRow): InventoryCostLot {
   const itemId = identity(row.item_id, "cost inventory item id");
   const observedAt = databaseInstant(row.updated_at, `Cost ${itemId} observedAt`);
   const quantity = positiveInteger(row.total_quantity, `Cost ${itemId} quantity`);
+  const currency = decodeInventoryCurrency(row.acquisition_cost_currency_code);
   const cost =
-    row.acquisition_cost_amount === null
+    row.acquisition_cost_amount === null || currency === null
       ? null
       : parseMoney({ amount: row.acquisition_cost_amount, currency }, `Cost ${itemId} acquisitionCostPerUnit`);
   return {
@@ -194,8 +197,20 @@ function parseCost(row: CostRow, currency: string): InventoryCostLot {
     quantity,
     acquisitionCostPerUnit: cost,
     observedAt,
-    revision: canonicalSha256({ itemId, quantity, cost, observedAt, streamVersion: row.last_stream_version }),
+    revision: canonicalSha256({
+      itemId,
+      quantity,
+      acquisitionCostAmount: row.acquisition_cost_amount,
+      acquisitionCostCurrencyCode: row.acquisition_cost_currency_code,
+      observedAt,
+      streamVersion: row.last_stream_version,
+    }),
   };
+}
+
+function decodeInventoryCurrency(value: string | null): string | null {
+  if (value === null || !/^[A-Za-z]{3}$/.test(value)) return null;
+  return value.toLowerCase();
 }
 
 function parseCheckpoints(rows: readonly CheckpointRow[], effectiveAt: string) {

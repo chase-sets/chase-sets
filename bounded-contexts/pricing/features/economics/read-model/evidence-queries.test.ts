@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { PgQueryable, PgQueryFunction } from "@chase-sets/event-core-postgres";
-import { parseResolveEconomicsRequest } from "../domain/contracts";
+import { deriveCostBasisFacts } from "../domain/derivation";
+import { parseResolveEconomicsRequest, type ResolveEconomicsRequest } from "../domain/contracts";
+import { ECONOMICS_LAUNCH_POLICY_VALUE, type ResolvedEconomicsPolicy } from "../domain/policy";
+import type { EconomicsEvidenceSnapshot } from "../domain/resolution";
 import {
   createPostgresEconomicsEvidenceReader,
   economicsInventoryCheckpointKey,
@@ -63,6 +66,7 @@ function dbWithEvidence() {
                 seller_account_id: request.accountId,
                 total_quantity: 2,
                 acquisition_cost_amount: "71.70",
+                acquisition_cost_currency_code: "USD",
                 updated_at: "2026-09-01T11:00:00Z",
                 last_stream_version: 4,
               },
@@ -142,6 +146,7 @@ describe("Economics evidence queries", () => {
     expect(target.calls[1]?.text).toContain("trade.sold_at <= $2::timestamptz");
     expect(target.calls[1]?.values).toEqual([request.accountId, request.effectiveAt]);
     expect(target.calls[2]?.text).toContain("inventory_item.catalog_catalog_item_id = $3");
+    expect(target.calls[2]?.text).toContain("inventory_item.acquisition_cost_currency_code");
     expect(target.calls[2]?.values).toEqual([
       request.accountId,
       request.inventoryItemId,
@@ -181,4 +186,68 @@ describe("Economics evidence queries", () => {
     expect(snapshot.inventoryObservedAt).toBe("1970-01-01T00:00:00Z");
     expect(snapshot.inventoryWatermark).toBe(`${economicsInventoryCheckpointKey}@0`);
   });
+
+  it("keeps Inventory cost denomination authoritative and excludes null or mismatched evidence", async () => {
+    const usdReader = createPostgresEconomicsEvidenceReader(costDatabase("USD"));
+    const sameCurrency = await usdReader.resolve(request);
+    const eurRequest = parseResolveEconomicsRequest({
+      ...request,
+      marketUnitPrice: { ...request.marketUnitPrice, currency: "eur" },
+    });
+    const mismatchedCurrency = await usdReader.resolve(eurRequest);
+    const legacyNullCurrency = await createPostgresEconomicsEvidenceReader(costDatabase(null)).resolve(request);
+
+    expect(sameCurrency.costLots[0]?.acquisitionCostPerUnit).toEqual({ amount: "71.70", currency: "usd" });
+    expect(costFacts(sameCurrency, request)).toMatchObject({ coveredQuantity: 1, selectedQuantity: 1 });
+    expect(mismatchedCurrency.costLots[0]?.acquisitionCostPerUnit).toEqual({ amount: "71.70", currency: "usd" });
+    expect(mismatchedCurrency.costLots[0]?.revision).toBe(sameCurrency.costLots[0]?.revision);
+    expect(costFacts(mismatchedCurrency, eurRequest)).toMatchObject({ coveredQuantity: 0, selectedQuantity: 1 });
+    expect(legacyNullCurrency.costLots[0]?.acquisitionCostPerUnit).toBeNull();
+    expect(costFacts(legacyNullCurrency, request)).toMatchObject({ coveredQuantity: 0, selectedQuantity: 1 });
+  });
 });
+
+const resolvedPolicy: ResolvedEconomicsPolicy = {
+  value: ECONOMICS_LAUNCH_POLICY_VALUE,
+  policyRevision: "sha256:synthetic-policy-revision",
+  observedAt: "2026-09-06T20:28:41Z",
+  source: "fallback",
+  documentId: null,
+  effectiveFrom: null,
+  effectiveUntil: null,
+};
+
+function costDatabase(currency: string | null): PgQueryable {
+  return {
+    query: async <Row>(text: string) => {
+      const rows = text.includes("FROM pricing_inventory_item_inputs")
+        ? [
+            {
+              item_id: request.inventoryItemId,
+              seller_account_id: request.accountId,
+              total_quantity: 1,
+              acquisition_cost_amount: "71.70",
+              acquisition_cost_currency_code: currency,
+              updated_at: "2026-09-01T11:00:00Z",
+              last_stream_version: 4,
+            },
+          ]
+        : [];
+      return { rows: rows.map((row) => row as unknown as Row) };
+    },
+  };
+}
+
+function costFacts(snapshot: EconomicsEvidenceSnapshot, costRequest: ResolveEconomicsRequest) {
+  return deriveCostBasisFacts({
+    accountId: costRequest.accountId,
+    inventoryItemId: costRequest.inventoryItemId,
+    marketUnitPrice: costRequest.marketUnitPrice,
+    quantity: costRequest.quantity,
+    effectiveAt: costRequest.effectiveAt,
+    inventoryWatermark: snapshot.inventoryWatermark,
+    inventoryObservedAt: snapshot.inventoryObservedAt,
+    lots: snapshot.costLots,
+    policy: resolvedPolicy,
+  });
+}

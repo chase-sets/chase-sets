@@ -1,5 +1,7 @@
 import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
+import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import type { PricingHostPorts } from "@chase-sets/pricing/server";
 import { createHash } from "node:crypto";
 import {
   buildProjectionInterestIndex,
@@ -19,6 +21,13 @@ import {
   createFakePaymentProcessorGateway,
   createSandboxPostageLabelProvider,
 } from "../src/test-support/provider-gateways";
+
+const syntheticPricingHostPorts = {
+  tcgplayerMarketTransport: { kind: "not-mounted" },
+  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+  commercialTermsResolver: createNoopCommercialTermsResolver(),
+  channelConnectionIdentityReader: { resolve: async () => null },
+} satisfies PricingHostPorts;
 
 const ORDERING_CREATED_INVENTORY_RESERVATION_TARGET = {
   sourceContextName: "ordering",
@@ -372,6 +381,7 @@ function createPlatformWorkerHost(runtimeProfile: "landing" | "proof" | "public"
         resolveShipmentOrderId: async () => null,
         resolveWebhookTargets: async () => [],
       },
+      ...syntheticPricingHostPorts,
     },
     runtimeProfile,
   });

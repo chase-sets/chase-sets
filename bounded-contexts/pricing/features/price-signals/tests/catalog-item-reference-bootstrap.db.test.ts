@@ -10,6 +10,7 @@ import {
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as catalogModule } from "@chase-sets/catalog";
+import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { module as pricingModule } from "../../../index";
 import { selectMarketCaptureSignalWork } from "../read-model/provider-observation-writes";
 
@@ -20,6 +21,12 @@ const context: EventStoreContext = {
   tenantId: "tnt_synthetic" as never,
   audit: { performedByUserId: "usr_synthetic" as never, forAccountId: "acc_synthetic" as never },
 };
+const syntheticPricingHostPorts = {
+  tcgplayerMarketTransport: { kind: "not-mounted" },
+  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+  commercialTermsResolver: createNoopCommercialTermsResolver(),
+  channelConnectionIdentityReader: { resolve: async () => null },
+} satisfies Parameters<typeof pricingModule.createServices>[1];
 
 describeDb("Pricing Catalog v5-to-v6 historical bootstrap", () => {
   let pools: Readonly<Record<"catalog" | "pricing", PgTransactionalPool>>;
@@ -41,10 +48,7 @@ describeDb("Pricing Catalog v5-to-v6 historical bootstrap", () => {
 
   it("replays a pre-upgrade product link from the null v6 checkpoint after v5 is advanced", async () => {
     const catalog = catalogModule.createServices(pools.catalog, {});
-    const pricing = pricingModule.createServices(pools.pricing, {
-      tcgplayerMarketTransport: { kind: "not-mounted" },
-      tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
-    });
+    const pricing = pricingModule.createServices(pools.pricing, syntheticPricingHostPorts);
     await command(catalog.items.commandHandler, "catalog.item-cat_synthetic", {
       type: "CreateCatalogItem",
       itemId: "cat_synthetic",

@@ -20,6 +20,7 @@ import {
   createCommercialTermsResolver,
   createStandardScheduleResolver,
   type CommercialTermsAccountSource,
+  type CommercialTermsResolver,
 } from "@chase-sets/commercial-terms/server";
 import {
   createDiscoveryUcpHandlers,
@@ -523,14 +524,16 @@ export function createPlatformApiHost(
 
     return createBatch(params, context);
   };
-  const pricingHostPorts: PricingHostPorts = {
-    tcgplayerMarketTransport: { kind: "not-mounted" },
-    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
-    commercialTermsResolver: commercialTermsResolver ?? null,
-    channelConnectionIdentityReader: createChannelConnectionIdentityReader(
-      () => runtime?.services.channels as ReturnType<typeof channelsModule.createServices> | undefined,
-    ),
-  };
+  const pricingHostPorts: PricingHostPorts | undefined = pricingPool
+    ? {
+        tcgplayerMarketTransport: { kind: "not-mounted" },
+        tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+        commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
+        channelConnectionIdentityReader: createChannelConnectionIdentityReader(
+          () => runtime?.services.channels as ReturnType<typeof channelsModule.createServices> | undefined,
+        ),
+      }
+    : undefined;
 
   runtime = createApiHost(apiContextRegistry, "platform-api", {
     ...options,
@@ -553,7 +556,7 @@ export function createPlatformApiHost(
       draftListingCreator,
       inventoryCleanupAuthority,
       inventorySavedListImportBatchCreator,
-      ...pricingHostPorts,
+      ...(pricingHostPorts ?? {}),
     },
   });
   return runtime;
@@ -631,6 +634,13 @@ function createChannelConnectionIdentityReader(
         : null;
     },
   };
+}
+
+function requirePricingCommercialTermsResolver(resolver: CommercialTermsResolver | undefined): CommercialTermsResolver {
+  if (!resolver) {
+    throw new Error("Pricing cannot be mounted without the Commercial Terms resolver host port.");
+  }
+  return resolver;
 }
 
 /**

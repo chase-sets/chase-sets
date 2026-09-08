@@ -24,8 +24,8 @@ import type { TcgplayerMarketCaptureReceiptSinkCapability } from "../../features
 export type PricingHostPorts = Readonly<{
   tcgplayerMarketTransport: TcgplayerMarketTransportCapability;
   tcgplayerMarketCaptureReceiptSink: TcgplayerMarketCaptureReceiptSinkCapability;
-  commercialTermsResolver?: Pick<CommercialTermsResolver, "resolveListingTerms"> | null;
-  channelConnectionIdentityReader?: ChannelConnectionIdentityReader | null;
+  commercialTermsResolver: CommercialTermsResolver;
+  channelConnectionIdentityReader: ChannelConnectionIdentityReader;
 }>;
 
 export type PricingServices = Readonly<{
@@ -52,13 +52,10 @@ export type PricingServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createPricingServices(
-  pool: PgTransactionalPool,
-  ports: PricingHostPorts = {
-    tcgplayerMarketTransport: { kind: "not-mounted" },
-    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
-  },
-): PricingServices {
+export function createPricingServices(pool: PgTransactionalPool, ports: PricingHostPorts): PricingServices {
+  if (!ports?.commercialTermsResolver || !ports.channelConnectionIdentityReader) {
+    throw new Error("Pricing requires Commercial Terms and Channel Connection Economics host ports.");
+  }
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "pricing" }),

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { createNoopCommercialTermsResolver, type CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { MoneyAmount } from "@chase-sets/primitives/money";
-import { contextManifest } from "../../../index";
+import { contextManifest, module as pricingModule } from "../../../index";
 import type { EconomicsServices } from "./services";
 import { createEconomicsServices } from "./services";
 import { economicsFactNames, type ChannelConnectionIdentityReader } from "../domain/contracts";
@@ -18,9 +19,18 @@ const request = {
   effectiveAt: "2026-09-07T06:00:00Z",
 } as const;
 
-function createServices(
-  commercialTermsResolver?: Parameters<typeof createEconomicsServices>[0]["commercialTermsResolver"],
-) {
+const syntheticChannelConnectionIdentityReader: ChannelConnectionIdentityReader = {
+  resolve: async () => null,
+};
+
+const failingCommercialTermsResolver: CommercialTermsResolver = {
+  ...createNoopCommercialTermsResolver(),
+  resolveListingTerms: async () => {
+    throw new Error("Synthetic Commercial Terms failure.");
+  },
+};
+
+function createServices(commercialTermsResolver: CommercialTermsResolver) {
   return createEconomicsServices({
     eventStore: {} as never,
     db: { query: vi.fn() } as never,
@@ -36,10 +46,43 @@ function createServices(
       })),
     } as never,
     commercialTermsResolver,
+    channelConnectionIdentityReader: syntheticChannelConnectionIdentityReader,
   });
 }
 
+function compilePricingHostPortBoundary(pool: Parameters<typeof pricingModule.createServices>[0]) {
+  // @ts-expect-error Both Economics authorities are required at the Pricing composition boundary.
+  pricingModule.createServices(pool);
+  // @ts-expect-error Commercial Terms cannot be omitted while the Channel reader is mounted.
+  pricingModule.createServices(pool, {
+    tcgplayerMarketTransport: { kind: "not-mounted" },
+    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+    channelConnectionIdentityReader: syntheticChannelConnectionIdentityReader,
+  });
+  // @ts-expect-error The Channel reader cannot be omitted while Commercial Terms is mounted.
+  pricingModule.createServices(pool, {
+    tcgplayerMarketTransport: { kind: "not-mounted" },
+    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+    commercialTermsResolver: failingCommercialTermsResolver,
+  });
+  const completePorts: Parameters<typeof pricingModule.createServices>[1] = {
+    tcgplayerMarketTransport: { kind: "not-mounted" },
+    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+    commercialTermsResolver: failingCommercialTermsResolver,
+    channelConnectionIdentityReader: syntheticChannelConnectionIdentityReader,
+  };
+  pricingModule.createServices(pool, completePorts);
+}
+
+void compilePricingHostPortBoundary;
+
 describe("Pricing Economics bounded-context integration", () => {
+  it("rejects a missing Economics authority at the runtime composition boundary", () => {
+    expect(() => pricingModule.createServices({} as never, undefined as never)).toThrow(
+      "Pricing requires Commercial Terms and Channel Connection Economics host ports.",
+    );
+  });
+
   it("publishes the canonical Economics contract without a goal-specific provider fork", () => {
     const compileOnlyPublicSurface: readonly [
       typeof economicsPolicy,
@@ -73,6 +116,7 @@ describe("Pricing Economics bounded-context integration", () => {
 
   it("constructs the root service and registers an exact native adapter without consumer branching", async () => {
     const services = createServices({
+      ...createNoopCommercialTermsResolver(),
       resolveListingTerms: async () => ({
         accountId: request.accountId,
         accountType: "business",
@@ -97,8 +141,8 @@ describe("Pricing Economics bounded-context integration", () => {
     expect(() => services.registerNativeCommercialTermsProvider(identity)).toThrow(/already registered/);
   });
 
-  it("keeps an explicitly unmounted Terms host bounded after exact registration", async () => {
-    const services = createServices(null);
+  it("keeps an explicit Commercial Terms failure bounded after exact registration", async () => {
+    const services = createServices(failingCommercialTermsResolver);
     services.registerNativeCommercialTermsProvider(identity);
     await expect(services.providers.resolve(identity).resolve(request)).resolves.toMatchObject({
       kind: "unavailable",

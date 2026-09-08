@@ -24,22 +24,28 @@ export function createEconomicsServices(
     eventStore: EventStore;
     db: PgQueryable;
     policies: PolicyRuntime;
-    commercialTermsResolver?: Pick<CommercialTermsResolver, "resolveListingTerms"> | null;
-    channelConnectionIdentityReader?: ChannelConnectionIdentityReader | null;
+    commercialTermsResolver: CommercialTermsResolver;
+    channelConnectionIdentityReader: ChannelConnectionIdentityReader;
   }>,
 ): EconomicsServices {
+  if (!deps.commercialTermsResolver || !deps.channelConnectionIdentityReader) {
+    throw new Error("Pricing Economics requires Commercial Terms and Channel Connection host ports.");
+  }
   const resolvePolicy = async (effectiveAt: string) =>
     toResolvedEconomicsPolicy(await deps.policies.resolvePolicy(economicsPolicy, { at: effectiveAt }));
-  const commercialTermsResolver = deps.commercialTermsResolver ?? unavailableCommercialTermsResolver;
   const providers = createEconomicsProviderRegistry();
   const registerNativeCommercialTermsProvider = (identity: ChannelProviderIdentity) => {
     providers.registerExact(
-      createNativeCommercialTermsEconomicsProvider({ identity, commercialTermsResolver, resolvePolicy }),
+      createNativeCommercialTermsEconomicsProvider({
+        identity,
+        commercialTermsResolver: deps.commercialTermsResolver,
+        resolvePolicy,
+      }),
     );
   };
   const overrides = createEconomicsOverrideRuntime({ eventStore: deps.eventStore, db: deps.db });
   const resolver = createEconomicsRuntime({
-    channelConnectionIdentityReader: deps.channelConnectionIdentityReader ?? absentChannelConnectionIdentityReader,
+    channelConnectionIdentityReader: deps.channelConnectionIdentityReader,
     providerRegistry: providers,
     evidenceReader: createPostgresEconomicsEvidenceReader(deps.db),
     overrides,
@@ -48,13 +54,3 @@ export function createEconomicsServices(
 
   return { resolve: resolver.resolve, overrides, providers, registerNativeCommercialTermsProvider };
 }
-
-const absentChannelConnectionIdentityReader: ChannelConnectionIdentityReader = {
-  resolve: async () => null,
-};
-
-const unavailableCommercialTermsResolver: Pick<CommercialTermsResolver, "resolveListingTerms"> = {
-  resolveListingTerms: async () => {
-    throw new Error("Commercial Terms is not mounted for Pricing Economics.");
-  },
-};
