@@ -1554,6 +1554,9 @@ importers:
       '@chase-sets/auth':
         specifier: workspace:*
         version: link:../../bounded-contexts/auth
+      '@chase-sets/channels':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/channels
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../../bounded-contexts/checkout
