@@ -51,6 +51,8 @@ export type CheckoutSelectedListingSnapshotInput = Readonly<{
   sellerDisplayName?: string | null;
   sellerSlug?: string | null;
   priceAmount?: string | null;
+  priceCurrencyCode?: string | null;
+  listingStreamVersion?: number | null;
   source?: string | null;
 }>;
 

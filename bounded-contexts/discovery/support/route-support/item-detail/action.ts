@@ -143,6 +143,8 @@ function selectedListingSnapshotFromListing(listing: DiscoveryItemDetail["market
     sellerDisplayName: listing.seller_display_name,
     sellerSlug: listing.seller_slug ?? null,
     priceAmount: listing.price_amount,
+    priceCurrencyCode: listing.price_currency_code,
+    listingStreamVersion: listing.listing_stream_version,
     source: "discovery.item-detail.add-to-cart",
   };
 }

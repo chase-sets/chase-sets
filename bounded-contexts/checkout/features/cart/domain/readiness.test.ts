@@ -268,6 +268,64 @@ describe("cart readiness snapshots", () => {
     expect(snapshot.optimization.available).toBe(false);
   });
 
+  it("keeps a complete two-line EUR cart ready under one authoritative currency", () => {
+    const eurLine: CartReadinessLine = {
+      ...readyLine,
+      seller_options: [
+        {
+          ...readyLine.seller_options[0]!,
+          price_currency_code: "EUR",
+        },
+      ],
+    };
+    const secondEurLine: CartReadinessLine = {
+      ...eurLine,
+      line_id: "cli_eur_second",
+      locked_listing_id: "lst_eur_second",
+      seller_options: [
+        {
+          ...eurLine.seller_options[0]!,
+          listing_id: "lst_eur_second",
+          listing_stream_version: 8,
+        },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([eurLine, secondEurLine]);
+
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.unresolvedLineIds).toEqual([]);
+    expect(snapshot.includedLineIds).toEqual(["cli_eur_second", "cli_ready"]);
+  });
+
+  it("names a cart-wide currency mismatch and keeps mixed Listing prices out of Checkout Session", () => {
+    const eurLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_eur",
+      locked_listing_id: "lst_eur",
+      seller_options: [
+        {
+          ...readyLine.seller_options[0]!,
+          listing_id: "lst_eur",
+          price_currency_code: "EUR",
+          listing_stream_version: 8,
+        },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([readyLine, eurLine]);
+
+    expect(snapshot.status).toBe("needs-resolution");
+    expect(snapshot.includedLineIds).toEqual([]);
+    expect(snapshot.unresolvedLineIds).toEqual(["cli_eur", "cli_ready"]);
+    expect(snapshot.lineOutcomes).toEqual([
+      { lineId: "cli_eur", outcome: "checkout", reason: "currency-mismatch" },
+      { lineId: "cli_ready", outcome: "checkout", reason: "currency-mismatch" },
+    ]);
+    expect(snapshot.fulfillmentGroups).toEqual([]);
+    expect(snapshot.customerSafeFacts).toContain("Cart items use different currencies.");
+  });
+
   it("locks Smart Match lines to the readiness-selected listing before checkout starts", () => {
     const smartMatchLine: CartReadinessLine = {
       ...readyLine,

@@ -85,7 +85,8 @@ export type CartReadinessSnapshot = Readonly<{
       | "unavailable"
       | "waiting-for-supply"
       | "changed"
-      | "shipping-measure-missing";
+      | "shipping-measure-missing"
+      | "currency-mismatch";
   }>[];
   optimization: Readonly<{
     available: boolean;
@@ -366,6 +367,41 @@ function selectedListingForCheckout(
   return lowestCartReadinessListing(line);
 }
 
+function selectedCheckoutCurrencyCodes(
+  line: CartReadinessLine,
+  optimizationAccepted: boolean,
+  optimizationProposal: ReturnType<typeof findOptimizationProposal>,
+) {
+  const selected = selectedListingForCheckout(line, optimizationAccepted, optimizationProposal);
+  if (selected?.price_currency_code) {
+    return [selected.price_currency_code];
+  }
+
+  if (line.fulfillment_mode !== "optimize") {
+    return [];
+  }
+
+  return line.seller_options
+    .filter((option) => optionHasPricedAvailability(option) && optionHasProductMeasure(option))
+    .map((option) => option.price_currency_code as string);
+}
+
+function currencyMismatchLineIds(
+  lines: readonly CartReadinessLine[],
+  includedLineIds: readonly string[],
+  optimizationAccepted: boolean,
+  optimizationProposal: ReturnType<typeof findOptimizationProposal>,
+) {
+  const included = new Set(includedLineIds);
+  const currencies = new Set(
+    lines.flatMap((line) =>
+      included.has(line.line_id) ? selectedCheckoutCurrencyCodes(line, optimizationAccepted, optimizationProposal) : [],
+    ),
+  );
+
+  return currencies.size > 1 ? new Set(includedLineIds) : new Set<string>();
+}
+
 function buildFulfillmentGroups(
   lines: readonly CartReadinessLine[],
   includedLineIds: readonly string[],
@@ -523,7 +559,7 @@ export function createCartReadinessSnapshot(
     normalized.optimization?.lineId === optimizationProposal?.line.line_id &&
     normalized.optimization?.listingId === optimizationProposal?.proposed.listing_id;
 
-  const lineOutcomes = sortedLines.map((line) => {
+  const initialLineOutcomes = sortedLines.map((line) => {
     const reason = lineReason(line);
     const explicitOutcome = normalized.lineOutcomes.get(line.line_id);
     const outcome: CartReadinessLineOutcome = explicitOutcome ?? "checkout";
@@ -534,17 +570,33 @@ export function createCartReadinessSnapshot(
     };
   });
 
-  const includedLineIds = lineOutcomes
+  const initiallyIncludedLineIds = initialLineOutcomes
     .filter((outcome) => outcome.outcome === "checkout" && outcome.reason === "ready")
     .map((outcome) => outcome.lineId);
   if (
     optimizationAccepted &&
     optimizationProposal &&
     !normalized.lineOutcomes.has(optimizationProposal.line.line_id) &&
-    !includedLineIds.includes(optimizationProposal.line.line_id)
+    !initiallyIncludedLineIds.includes(optimizationProposal.line.line_id)
   ) {
-    includedLineIds.push(optimizationProposal.line.line_id);
+    initiallyIncludedLineIds.push(optimizationProposal.line.line_id);
   }
+  initiallyIncludedLineIds.sort();
+
+  const mismatchedLineIds = currencyMismatchLineIds(
+    sortedLines,
+    initiallyIncludedLineIds,
+    optimizationAccepted,
+    optimizationProposal,
+  );
+  const lineOutcomes = initialLineOutcomes.map((outcome) =>
+    mismatchedLineIds.has(outcome.lineId) && outcome.outcome === "checkout"
+      ? { ...outcome, reason: "currency-mismatch" as const }
+      : outcome,
+  );
+  const includedLineIds = lineOutcomes
+    .filter((outcome) => outcome.outcome === "checkout" && outcome.reason === "ready")
+    .map((outcome) => outcome.lineId);
   includedLineIds.sort();
 
   const unresolvedLineIds = lineOutcomes
@@ -552,7 +604,13 @@ export function createCartReadinessSnapshot(
     .map((outcome) => outcome.lineId);
 
   const status =
-    includedLineIds.length === 0 ? "blocked" : unresolvedLineIds.length > 0 ? "needs-resolution" : ("ready" as const);
+    mismatchedLineIds.size > 0
+      ? "needs-resolution"
+      : includedLineIds.length === 0
+        ? "blocked"
+        : unresolvedLineIds.length > 0
+          ? "needs-resolution"
+          : ("ready" as const);
   const sourceRevision = unionSource
     ? unionSourceRevisionFor(sortedLines, unionSource)
     : legacySourceRevisionFor(sortedLines);
@@ -595,6 +653,7 @@ export function createCartReadinessSnapshot(
         : status === "blocked"
           ? "No cart items are ready for checkout."
           : "Some cart items need attention before checkout.",
+      ...(mismatchedLineIds.size > 0 ? ["Cart items use different currencies."] : []),
       ...(optimizationProposal
         ? [
             `Save ${optimizationProposal.current.price_currency_code} ${formatAmount(optimizationProposal.savings)} by changing fulfillment before checkout.`,

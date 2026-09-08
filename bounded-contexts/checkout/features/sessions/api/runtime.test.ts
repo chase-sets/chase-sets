@@ -94,6 +94,8 @@ const readyCartLine: CheckoutCartLineRow = {
       seller_average_rating: null,
       seller_review_count: 0,
       price_amount: "25.00",
+      price_currency_code: "USD",
+      listing_stream_version: 7,
       available_quantity: 1,
       product_summary: null,
       product_measure_snapshot: productMeasureSnapshot,
@@ -1364,6 +1366,46 @@ describe("checkout session runtime", () => {
         context,
       ),
     ).rejects.toThrow("Resolve item availability before checkout starts.");
+  });
+
+  it("refuses a mixed-currency cart before appending a Checkout Session event", async () => {
+    const eurCartLine: CheckoutCartLineRow = {
+      ...secondSellerCartLine,
+      seller_options: secondSellerCartLine.seller_options.map((option) => ({
+        ...option,
+        price_currency_code: "EUR",
+      })),
+    };
+    const cartLines = [readyCartLine, eurCartLine];
+    const readiness = createCartReadinessSnapshot(cartLines);
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices(cartLines) as never,
+    });
+
+    expect(readiness).toMatchObject({
+      status: "needs-resolution",
+      includedLineIds: [],
+      unresolvedLineIds: ["cli_1", "cli_second"],
+    });
+    expect(readiness.lineOutcomes.every((outcome) => outcome.reason === "currency-mismatch")).toBe(true);
+    await expect(
+      services.createFromCart(
+        {
+          accountId: "acc_buyer" as never,
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: "unresolved_fulfillment",
+      message: "Resolve item availability before checkout starts.",
+    });
+    expect(allEvents).toEqual([]);
   });
 
   it.each([

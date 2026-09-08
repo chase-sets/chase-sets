@@ -123,6 +123,79 @@ describe("checkout cart domain", () => {
     });
   });
 
+  it("accepts the complete EUR Listing pair and positive source version produced by the item-detail route", () => {
+    const [event] = decideCheckoutCart(initialCheckoutCartState, {
+      type: "AddCartLine",
+      buyerAccountId: "acc_buyer" as never,
+      lineId: "cli_eur" as never,
+      catalogItemId: "cat_1",
+      productId: "cat_1::" as never,
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      itemImageUrl: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+      fulfillmentMode: "locked-listing",
+      lockedListingId: "lst_eur",
+      sellerPreferenceId: "lst_eur",
+      selectedListingSnapshot: {
+        listingId: "lst_eur",
+        sellerAccountId: "acc_seller",
+        priceAmount: "20.00",
+        priceCurrencyCode: "EUR",
+        listingStreamVersion: 11,
+        source: "discovery.item-detail.add-to-cart",
+      },
+    });
+
+    expect(event).toMatchObject({
+      data: {
+        selectedListingSnapshot: {
+          priceAmount: "20.00",
+          priceCurrencyCode: "EUR",
+          listingStreamVersion: 11,
+        },
+      },
+    });
+  });
+
+  it.each([
+    {
+      name: "amount-only",
+      snapshot: { listingId: "lst_eur", priceAmount: "20.00", listingStreamVersion: 11 },
+      message: "Selected listing price must include both amount and currency.",
+    },
+    {
+      name: "version-zero",
+      snapshot: { listingId: "lst_eur", priceAmount: "20.00", priceCurrencyCode: "EUR", listingStreamVersion: 0 },
+      message: "Selected listing price must include its source stream version.",
+    },
+  ])("retains the named $name selected-Listing refusal", ({ snapshot, message }) => {
+    expect(() =>
+      decideCheckoutCart(initialCheckoutCartState, {
+        type: "AddCartLine",
+        buyerAccountId: "acc_buyer" as never,
+        lineId: "cli_eur" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::" as never,
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_eur",
+        sellerPreferenceId: "lst_eur",
+        selectedListingSnapshot: {
+          ...snapshot,
+          source: "discovery.item-detail.add-to-cart",
+        },
+      }),
+    ).toThrow(message);
+  });
+
   it("rejects adding the buyer account's own listing to cart", () => {
     expect(() =>
       decideCheckoutCart(initialCheckoutCartState, {

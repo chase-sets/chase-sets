@@ -121,6 +121,7 @@ function activeListing(overrides: Record<string, unknown> = {}) {
     product_id: "cat_charizard::form:raw",
     price_amount: "380.00",
     price_currency_code: "EUR",
+    listing_stream_version: 11,
     seller_display_name: "Fresh Seller",
     quantity_cap: 3,
     visible_quantity: 3,
@@ -639,7 +640,7 @@ describe("item detail buy now checkout actions", () => {
     expect(readPostWriteHandoff(viewCartUrl)).toBeNull();
   });
 
-  it("adds an explicitly selected listing to the account Buy Cart as a locked-listing line", async () => {
+  it("adds an explicitly selected listing from the fresh authoritative row to the account Buy Cart", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       permissions: [],
@@ -656,6 +657,8 @@ describe("item detail buy now checkout actions", () => {
             product_id: "cat_charizard::form:raw",
             status: "active",
             price_amount: "380.00",
+            price_currency_code: "EUR",
+            listing_stream_version: 11,
             seller_display_name: "Card Vault",
             seller_slug: "card-vault",
             quantity_cap: 2,
@@ -678,6 +681,9 @@ describe("item detail buy now checkout actions", () => {
     form.set("productSummary", "Raw");
     form.set("quantity", "2");
     form.set("sellerPreferenceId", "lst_charizard");
+    form.set("priceAmount", "0.01");
+    form.set("priceCurrencyCode", "USD");
+    form.set("listingStreamVersion", "0");
 
     const response = (await action({
       request: new Request("http://localhost/items/cat_charizard", {
@@ -701,6 +707,8 @@ describe("item detail buy now checkout actions", () => {
           sellerDisplayName: "Card Vault",
           sellerSlug: "card-vault",
           priceAmount: "380.00",
+          priceCurrencyCode: "EUR",
+          listingStreamVersion: 11,
           source: "discovery.item-detail.add-to-cart",
         },
         quantity: 2,
@@ -725,6 +733,8 @@ describe("item detail buy now checkout actions", () => {
             product_id: "cat_charizard::form:raw",
             status: "active",
             price_amount: "380.00",
+            price_currency_code: "EUR",
+            listing_stream_version: 11,
             seller_display_name: "Card Vault",
             seller_slug: "card-vault",
             quantity_cap: 2,
@@ -773,6 +783,8 @@ describe("item detail buy now checkout actions", () => {
           sellerDisplayName: "Card Vault",
           sellerSlug: "card-vault",
           priceAmount: "380.00",
+          priceCurrencyCode: "EUR",
+          listingStreamVersion: 11,
           source: "discovery.item-detail.add-to-cart",
         },
         quantity: 2,

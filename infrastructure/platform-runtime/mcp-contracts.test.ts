@@ -277,6 +277,54 @@ describe("MCP service catalog", () => {
     expect(updateSchema?.required).toContain("priceCurrencyCode");
   });
 
+  it("carries selected Listing currency and source version through both closed Checkout write schemas", () => {
+    const inputs = {
+      "checkout.add-cart-line": {
+        accountId: "acc_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::form:raw",
+        itemTitle: "Charizard",
+        quantity: 1,
+        idempotencyKey: "idem_add",
+        confirmationText: "Add Cart Line.",
+      },
+      "checkout.update-cart-line": {
+        accountId: "acc_1",
+        cartLineId: "cli_1",
+        idempotencyKey: "idem_update",
+        confirmationText: "Update Cart Line.",
+      },
+    } as const;
+
+    for (const [toolName, requiredInput] of Object.entries(inputs)) {
+      const schema = findMcpTool(toolName)?.inputSchema;
+      const selectedListingSnapshot = schema?.properties.selectedListingSnapshot;
+      expect(selectedListingSnapshot).toMatchObject({
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          priceAmount: { type: "string" },
+          priceCurrencyCode: { type: "string" },
+          listingStreamVersion: { type: "integer" },
+        },
+      });
+
+      const completeSnapshot = {
+        listingId: "lst_1",
+        priceAmount: "20.00",
+        priceCurrencyCode: "EUR",
+        listingStreamVersion: 11,
+      };
+      expect(validateObject({ ...requiredInput, selectedListingSnapshot: completeSnapshot }, schema!)).toEqual([]);
+      expect(
+        validateObject(
+          { ...requiredInput, selectedListingSnapshot: { ...completeSnapshot, inferredCurrency: "USD" } },
+          schema!,
+        ),
+      ).toContain("inferredCurrency is not allowed.");
+    }
+  });
+
   it("publishes output schemas for available MCP handler outputs", () => {
     const listSourcesOutput = {
       items: [

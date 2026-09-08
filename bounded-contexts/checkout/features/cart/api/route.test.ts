@@ -275,8 +275,33 @@ describe("checkout cart routes", () => {
     );
   });
 
-  it("passes selected listing snapshots through account cart adds", async () => {
-    const services = createServices();
+  it("passes a complete EUR selected Listing snapshot through the real route and Cart domain", async () => {
+    const memory = createInMemoryEventStore();
+    const services = createCheckoutCartRuntime({
+      eventStore: memory.eventStore,
+      checkpointStore: {} as never,
+      db: {
+        query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+          if (sql.includes("FROM checkout_catalog_items")) {
+            return {
+              rows: [
+                {
+                  catalog_item_id: String(values[0]),
+                  language_code: "en",
+                  status: "active",
+                  product_schema: null,
+                },
+              ],
+              rowCount: 1,
+            };
+          }
+          if (sql.includes("WITH requested_owners AS")) {
+            return { rows: [], rowCount: 0 };
+          }
+          throw new Error(`Unexpected query: ${sql}`);
+        }),
+      },
+    });
     const app = buildApp({
       actor: accountCartActor(),
       services,
@@ -288,9 +313,9 @@ describe("checkout cart routes", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           catalogItemId: "cat_charizard",
-          productId: "cat_charizard::form=raw",
+          productId: "cat_charizard::",
           itemTitle: "Charizard",
-          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          selectedOptions: [],
           productSummary: "Form: Raw",
           quantity: 1,
           fulfillmentMode: "locked-listing",
@@ -311,10 +336,11 @@ describe("checkout cart routes", () => {
     );
 
     expect(response.status).toBe(201);
-    expect(services.addLine).toHaveBeenCalledWith(
-      expect.objectContaining({
+    const [event] = await memory.eventStore.readStream({ streamId: "checkout.cart-acc_buyer" });
+    expect(event).toMatchObject({
+      eventType: "checkout.cart.line-added",
+      payload: {
         lockedListingId: "lst_card_vault",
-        sellerPreferenceId: "lst_card_vault",
         selectedListingSnapshot: {
           listingId: "lst_card_vault",
           sellerAccountId: "acc_card_vault",
@@ -325,9 +351,8 @@ describe("checkout cart routes", () => {
           listingStreamVersion: 11,
           source: "discovery.item-detail.add-to-cart",
         },
-      }),
-      expect.anything(),
-    );
+      },
+    });
   });
 
   it("creates a signed-in cart readiness snapshot with customer decisions", async () => {

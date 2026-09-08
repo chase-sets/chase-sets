@@ -146,6 +146,14 @@ function readSelectedListingSnapshot(
         : String(source.sellerDisplayName),
     sellerSlug: source.sellerSlug === null || source.sellerSlug === undefined ? null : String(source.sellerSlug),
     priceAmount: source.priceAmount === null || source.priceAmount === undefined ? null : String(source.priceAmount),
+    priceCurrencyCode:
+      source.priceCurrencyCode === null || source.priceCurrencyCode === undefined
+        ? null
+        : String(source.priceCurrencyCode),
+    listingStreamVersion:
+      source.listingStreamVersion === null || source.listingStreamVersion === undefined
+        ? null
+        : Number(source.listingStreamVersion),
     source: source.source === null || source.source === undefined ? null : String(source.source),
   };
 }

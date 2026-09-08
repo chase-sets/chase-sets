@@ -149,6 +149,14 @@ export const mcpToolCatalog = [
               type: "string",
               description: "Listing price amount.",
             },
+            priceCurrencyCode: {
+              type: "string",
+              description: "Listing price ISO 4217 currency code.",
+            },
+            listingStreamVersion: {
+              type: "integer",
+              description: "Listing stream version that authored the price pair.",
+            },
             source: {
               type: "string",
               description: "Snapshot source.",
@@ -745,6 +753,14 @@ export const mcpToolCatalog = [
             priceAmount: {
               type: "string",
               description: "Listing price amount.",
+            },
+            priceCurrencyCode: {
+              type: "string",
+              description: "Listing price ISO 4217 currency code.",
+            },
+            listingStreamVersion: {
+              type: "integer",
+              description: "Listing stream version that authored the price pair.",
             },
             source: {
               type: "string",
