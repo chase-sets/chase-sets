@@ -775,7 +775,10 @@ describe("findContextRootExportViolation", () => {
   });
 
   it("accepts only the closed Channels root contract", () => {
-    const channelsRoot = readFileSync(path.join(repoRoot, "bounded-contexts/channels/index.ts"), "utf8");
+    const channelsRoot = readFileSync(
+      path.resolve(import.meta.dirname, "../..", "bounded-contexts/channels/index.ts"),
+      "utf8",
+    );
     const diagnostic = "context root entrypoint exports must match the approved closed contract";
 
     expect(findContextRootExportViolation(channelsRoot, "bounded-contexts/channels")).toBeNull();
