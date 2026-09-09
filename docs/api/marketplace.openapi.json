@@ -31,9 +31,30 @@
     { "name": "Reputation" },
     { "name": "Inventory" },
     { "name": "Identity" },
-    { "name": "Notifications" }
+    { "name": "Notifications" },
+    { "name": "Channels" }
   ],
   "paths": {
+    "/api/channels/connections/{connectionId}/outbound-operations": {
+      "get": {
+        "tags": ["Channels"],
+        "summary": "Get an account connection's paginated outbound operation log and time-window summary.",
+        "parameters": [
+          { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "from", "in": "query", "required": false, "description": "Inclusive event-origin summary boundary. Defaults to 30 days before to.", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "required": false, "description": "Exclusive event-origin summary boundary. Defaults to the current instant.", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": { "$ref": "#/components/responses/OutboundOperations" },
+          "400": { "$ref": "#/components/responses/ValidationFailed" },
+          "401": { "$ref": "#/components/responses/AuthenticationRequired" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+
     "/api/channels/publication": { "get": { "tags": ["Channels"], "summary": "List the account's channel publication connections.", "responses": { "200": { "$ref": "#/components/responses/List" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
     "/api/channels/publication/{connectionId}": { "get": { "tags": ["Channels"], "summary": "Get channel publication state for one account connection.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
     "/api/channels/publication/{connectionId}/settings": { "put": { "tags": ["Channels"], "summary": "Replace channel publication settings with stream concurrency.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" }, "409": { "$ref": "#/components/responses/Conflict" } } } },
@@ -384,6 +405,107 @@
           "status": { "type": "string" }
         }
       },
+      "OutboundConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["connectionId", "providerKey", "environment", "status", "createdAt"],
+        "properties": {
+          "connectionId": { "type": "string" },
+          "providerKey": { "type": "string" },
+          "environment": { "type": "string", "enum": ["sandbox", "production"] },
+          "status": { "type": "string", "enum": ["pending-setup", "active", "paused", "disconnected"] },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "OutboundOperationCompleteness": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "total"],
+            "properties": {
+              "kind": { "type": "string", "const": "complete" },
+              "total": { "type": "integer", "minimum": 0 }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "reason"],
+            "properties": {
+              "kind": { "type": "string", "const": "bounded-incomplete" },
+              "reason": { "type": "string" }
+            }
+          }
+        ]
+      },
+      "OutboundOperationLogItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operationId", "channelListingId", "listingId", "operationKind", "status", "terminalReason", "rejectionCode", "attemptCount", "linkWriteState", "sourceOccurredAt", "enqueuedAt", "terminalAt", "eventToEnqueueMs", "enqueueToTerminalMs", "eventToProviderAckMs"],
+        "properties": {
+          "operationId": { "type": "string" },
+          "channelListingId": { "type": "string" },
+          "listingId": { "type": "string" },
+          "operationKind": { "type": "string", "enum": ["publish", "update", "delist"] },
+          "status": { "type": "string", "enum": ["pending", "in-flight", "succeeded", "failed"] },
+          "terminalReason": { "type": ["string", "null"] },
+          "rejectionCode": { "type": ["string", "null"] },
+          "attemptCount": { "type": "integer", "minimum": 0 },
+          "linkWriteState": { "type": "string", "enum": ["pending", "applied", "link-write-refused"] },
+          "sourceOccurredAt": { "type": "string", "format": "date-time" },
+          "enqueuedAt": { "type": "string", "format": "date-time" },
+          "terminalAt": { "type": ["string", "null"], "format": "date-time" },
+          "eventToEnqueueMs": { "type": "number" },
+          "enqueueToTerminalMs": { "type": ["number", "null"] },
+          "eventToProviderAckMs": { "type": ["number", "null"] }
+        }
+      },
+      "OutboundOperationLogPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "completeness"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/OutboundOperationLogItem" } },
+          "nextCursor": { "type": "string" },
+          "completeness": { "$ref": "#/components/schemas/OutboundOperationCompleteness" }
+        }
+      },
+      "OutboundOperationLatencyPercentiles": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["p50", "p95", "p99"],
+        "properties": {
+          "p50": { "type": ["number", "null"] },
+          "p95": { "type": ["number", "null"] },
+          "p99": { "type": ["number", "null"] }
+        }
+      },
+      "OutboundOperationSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["completeness", "succeeded", "failed", "pending", "inFlight", "blocked", "inlineEventToProviderAckMs", "claimedEventToProviderAckMs"],
+        "properties": {
+          "completeness": { "$ref": "#/components/schemas/OutboundOperationCompleteness" },
+          "succeeded": { "type": "integer", "minimum": 0 },
+          "failed": { "type": "integer", "minimum": 0 },
+          "pending": { "type": "integer", "minimum": 0 },
+          "inFlight": { "type": "integer", "minimum": 0 },
+          "blocked": { "type": "integer", "minimum": 0 },
+          "inlineEventToProviderAckMs": { "$ref": "#/components/schemas/OutboundOperationLatencyPercentiles" },
+          "claimedEventToProviderAckMs": { "$ref": "#/components/schemas/OutboundOperationLatencyPercentiles" }
+        }
+      },
+      "OutboundOperationsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["connection", "log", "summary"],
+        "properties": {
+          "connection": { "$ref": "#/components/schemas/OutboundConnection" },
+          "log": { "$ref": "#/components/schemas/OutboundOperationLogPage" },
+          "summary": { "$ref": "#/components/schemas/OutboundOperationSummary" }
+        }
+      },
       "PostWriteHandoff": {
         "type": "object",
         "required": ["kind", "expectation"],
@@ -534,6 +656,7 @@
     "responses": {
       "Ok": { "description": "Successful response." },
       "List": { "description": "List response.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListResponse" } } } },
+      "OutboundOperations": { "description": "Account-scoped outbound operation log page and independent event-origin summary.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OutboundOperationsResponse" } } } },
       "ListingTermsPreview": { "description": "Seller-confirmed fee preview.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MarketplaceListingTermsPreview" } } } },
       "ListingFeeHistory": { "description": "Listing fee lock history.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeHistoryResponse" } } } },
       "ListingFeeLockReport": { "description": "Marketplace sales fee lock report.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeLockReportResponse" } } } },
