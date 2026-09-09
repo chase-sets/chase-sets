@@ -245,6 +245,29 @@ describeDb(
         }),
       ).rejects.toMatchObject({ code: "reservation-membership-mismatch" });
       expect(await rows(pools.channels)).toEqual(snapshot);
+      const valid = memberOutcome(first!.operations[0]!, { kind: "abandoned", reason: "released" });
+      const invalidReports = [
+        { claimant: claimantA, outcomes: [valid, valid] },
+        {
+          claimant: claimantA,
+          outcomes: [{ ...valid, operationId: "operation-not-in-reservation" }],
+        },
+        { claimant: claimantB, outcomes: [valid] },
+        { claimant: claimantA, outcomes: [{ ...valid, attemptId: "attempt-stale" }] },
+        { claimant: claimantA, outcomes: [{ ...valid, claimGeneration: valid.claimGeneration + 1 }] },
+        { claimant: claimantA, outcomes: [{ ...valid, desiredStateSequence: 7 }] },
+        { claimant: claimantA, outcomes: [{ ...valid, desiredStateSequence: 999 }] },
+      ];
+      for (const invalid of invalidReports) {
+        await expect(
+          runtime.reportClaimedOperationOutcomes({
+            reservationId: first!.reservationId,
+            claimant: invalid.claimant,
+            outcomes: invalid.outcomes,
+          }),
+        ).rejects.toMatchObject({ code: "reservation-membership-mismatch" });
+        expect(await rows(pools.channels)).toEqual(snapshot);
+      }
     });
 
     it("outbound-poison-isolation blocks only the unknown lane until a fenced clear", async () => {
