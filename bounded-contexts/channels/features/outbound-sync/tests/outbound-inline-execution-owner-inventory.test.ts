@@ -7,7 +7,7 @@ import type { ChannelPublicationResult } from "../../publication-port/domain/con
 import type { OutboundOperationRecord, OutboundSyncRuntimeDependencies } from "../domain/contracts";
 
 type ProducerPublicationOutcomeCommand = Parameters<
-  ChannelListingCompositionServices["recordChannelListingPublicationOutcome"]
+  ChannelListingCompositionServices["recordChannelListingPublicationOutcomeInTransaction"]
 >[0];
 
 describe("outbound-inline-execution-owner-inventory", () => {
@@ -46,7 +46,9 @@ describe("outbound-inline-execution-owner-inventory", () => {
     expect(runtime).not.toContain("productionChannelProviderDescriptors");
     expect(composition).toContain("createChannelListingPublicationOutcomeRecorder(listingComposition)");
     expect(composition).toContain("assertDelistDirective: assertChannelListingDelistDirective");
-    expect(integration).toContain('Pick<ChannelListingCompositionServices, "recordChannelListingPublicationOutcome">');
+    expect(integration).toContain(
+      'Pick<ChannelListingCompositionServices, "recordChannelListingPublicationOutcomeInTransaction">',
+    );
   });
 
   it("exposes one outcome dependency whose caller receives persisted state rather than caller-minted identity", () => {
@@ -72,7 +74,7 @@ function toProducerCommand(
     reportedListingRevision: operation.listingRevision,
     reportedDesiredStateHash: operation.sourceDesiredStateHash,
     outcome,
-    expectedStreamVersion: operation.sourceStreamVersion,
+    expectedStreamVersion: operation.sourceDesiredStateSequence,
   };
 }
 
