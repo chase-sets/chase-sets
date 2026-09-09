@@ -44,6 +44,28 @@ describe("authenticated Economics request", () => {
 });
 
 describe("authenticated Economics override requests", () => {
+  it("retains the scope discriminant when a valid Channel ID matches the native literal", () => {
+    const common = {
+      currency: "usd",
+      expectedVersion: 0,
+      factName: "turnaroundDays",
+      value: 14,
+      setAt: "2026-09-07T06:01:00Z",
+    } as const;
+    const native = parseAuthenticatedSetEconomicsOverrideRequest(
+      { ...common, scope: { kind: "native-marketplace" } },
+      "synthetic-owner-account",
+    );
+    const channel = parseAuthenticatedSetEconomicsOverrideRequest(
+      { ...common, scope: { kind: "channel-connection", connectionId: "native-marketplace" } },
+      "synthetic-owner-account",
+    );
+
+    expect(native.key.scopeKey).toBe("native-marketplace");
+    expect(channel.key.scopeKey).toBe("channel-connection:native-marketplace");
+    expect(channel.key).not.toEqual(native.key);
+  });
+
   it("injects account identity and closes set, clear, and clear-all shapes", () => {
     const subject = {
       scope: { kind: "channel-connection", connectionId: "synthetic-connection-1" },
@@ -56,7 +78,11 @@ describe("authenticated Economics override requests", () => {
         "synthetic-owner-account",
       ),
     ).toMatchObject({
-      key: { accountId: "synthetic-owner-account", scopeKey: subject.scope.connectionId, currency: "usd" },
+      key: {
+        accountId: "synthetic-owner-account",
+        scopeKey: `channel-connection:${subject.scope.connectionId}`,
+        currency: "usd",
+      },
       command: { type: "SetEconomicsFactOverride", expectedVersion: 2, factName: "turnaroundDays", value: 14 },
     });
     expect(

@@ -3,6 +3,7 @@ import type {
   InventoryAdjustmentReason,
   InventoryAdjustmentSourceRef,
   AcquisitionOccurrence,
+  InventoryItemCreatedPayload,
   InventoryItemOfflineSaleRecordedPayload,
   InventoryOfflineSaleChannel,
 } from "@chase-sets/event-core/public-event-payloads";
@@ -124,22 +125,17 @@ export type InventoryItemCommand =
 
 export type InventoryItemCreatedEvent = DomainEvent<
   "inventory.item.created",
-  Readonly<{
-    itemId: InventoryItemId;
-    accountId: AccountId;
-    catalogItemId: CatalogItemId;
-    productId: ProductKey;
-    selectedOptions: InventorySelectedOptionEntry[];
-    gradedCard: GradedCardDetails | null;
-    storageLocationId: string;
-    totalQuantity: number;
-    acquisitionCostAmount: string | null;
-    /** Optional only for retained amount-only events. New events always carry
-     * an explicit null or an uppercase source-authored currency. */
-    acquisitionCostCurrencyCode?: string | null;
-    acquisitionOccurrence?: AcquisitionOccurrence;
-    csatOutcomeFact?: JsonObject;
-  }>
+  InventoryItemCreatedPayload &
+    Readonly<{
+      itemId: InventoryItemId;
+      accountId: AccountId;
+      catalogItemId: CatalogItemId;
+      productId: ProductKey;
+      selectedOptions: InventorySelectedOptionEntry[];
+      gradedCard: GradedCardDetails | null;
+      storageLocationId: string;
+      csatOutcomeFact?: JsonObject;
+    }>
 >;
 
 export type InventoryItemAdjustedEvent = DomainEvent<

@@ -4,7 +4,7 @@ import { readCurrentEconomicsOverrides } from "./override-queries";
 
 const key = {
   accountId: "synthetic-owner-account",
-  scopeKey: "synthetic-connection-1",
+  scopeKey: "channel-connection:synthetic-connection-1",
   currency: "usd",
 } as const;
 

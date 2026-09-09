@@ -1,6 +1,7 @@
 import type { ChannelProviderIdentity } from "@chase-sets/channels";
 import {
   assertEconomicsFacts,
+  economicsScopeKey,
   parseResolveEconomicsRequest,
   requireRfc3339Instant,
   type Economics,
@@ -132,8 +133,7 @@ function assertSubject(
   }
   if (
     input.overrides.key.accountId !== request.accountId ||
-    input.overrides.key.scopeKey !==
-      (request.scope.kind === "native-marketplace" ? "native-marketplace" : request.scope.connectionId) ||
+    input.overrides.key.scopeKey !== economicsScopeKey(request.scope) ||
     input.overrides.key.currency !== request.marketUnitPrice.currency
   ) {
     throw new Error("Economics overrides do not match the request subject.");

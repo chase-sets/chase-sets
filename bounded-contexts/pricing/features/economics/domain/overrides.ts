@@ -3,17 +3,19 @@ import type { JsonValue } from "@chase-sets/primitives/json";
 import {
   economicsFactNames,
   parseFactValue,
+  requireEconomicsScopeKey,
   requireCurrency,
   requireRfc3339Instant,
   type EconomicsFactName,
   type EconomicsFact,
   type EconomicsFactValueMap,
   type EconomicsFacts,
+  type EconomicsScopeKey,
 } from "./contracts";
 
 export type EconomicsOverrideKey = Readonly<{
   accountId: string;
-  scopeKey: string;
+  scopeKey: EconomicsScopeKey;
   currency: string;
 }>;
 
@@ -72,7 +74,7 @@ export type EconomicsOverrideEvent = Readonly<{
   type: "pricing.economics-fact-override-set" | "pricing.economics-fact-override-cleared";
   data: Readonly<{
     accountId: string;
-    scopeKey: string;
+    scopeKey: EconomicsScopeKey;
     currency: string;
     factName: EconomicsFactName;
     value: JsonValue;
@@ -89,16 +91,15 @@ export class EconomicsOverrideConflictError extends Error {
 }
 
 export function initialEconomicsOverridesState(key: EconomicsOverrideKey): EconomicsOverridesState {
-  if (
-    key.accountId.length === 0 ||
-    key.accountId.trim() !== key.accountId ||
-    key.scopeKey.length === 0 ||
-    key.scopeKey.trim() !== key.scopeKey
-  ) {
+  if (key.accountId.length === 0 || key.accountId.trim() !== key.accountId) {
     throw new Error("Economics override identity must be non-empty and already trimmed.");
   }
   return {
-    key: { ...key, currency: requireCurrency(key.currency, "currency") },
+    key: {
+      ...key,
+      scopeKey: requireEconomicsScopeKey(key.scopeKey),
+      currency: requireCurrency(key.currency, "currency"),
+    },
     version: 0,
     lastChangedAt: null,
     entries: {},
@@ -286,6 +287,7 @@ function assertClosedEvent(eventToApply: EconomicsOverrideEvent): void {
     ["accountId", "currency", "factName", "occurredAt", "scopeKey", "value"],
     "Economics override event data",
   );
+  requireEconomicsScopeKey(eventToApply.data.scopeKey);
   if (eventToApply.type === "pricing.economics-fact-override-cleared" && eventToApply.data.value !== null) {
     throw new Error("A cleared Economics override event must carry a null value.");
   }

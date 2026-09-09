@@ -509,7 +509,7 @@ describeDb("pricing schema upgrades", () => {
     const pool = pools.pricing;
     await bootstrapContextDatabase(pricingModule, pool);
     const handlers = buildEconomicsOverrideProjectionHandlers(pool);
-    const key = { accountId: "seller_1", scopeKey: "native-marketplace", currency: "usd" };
+    const key = { accountId: "seller_1", scopeKey: "native-marketplace", currency: "usd" } as const;
     const set = event(
       "evt_set",
       "pricing.economics-fact-override-set",

@@ -3,14 +3,16 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   economicsFactNames,
   parseFactValue,
+  requireEconomicsScopeKey,
   requireCurrency,
   requireRfc3339Instant,
   type EconomicsFactName,
+  type EconomicsScopeKey,
 } from "../domain/contracts";
 
 type OverrideProjectionPayload = Readonly<{
   accountId: string;
-  scopeKey: string;
+  scopeKey: EconomicsScopeKey;
   currency: string;
   factName: EconomicsFactName;
   value: unknown;
@@ -95,7 +97,7 @@ function parsePayload(raw: Record<string, unknown>, kind: "set" | "cleared"): Ov
     throw new Error(`Economics override event data must contain exactly: ${expected.join(", ")}.`);
   }
   const accountId = identity(raw.accountId, "accountId");
-  const scopeKey = identity(raw.scopeKey, "scopeKey");
+  const scopeKey = requireEconomicsScopeKey(raw.scopeKey);
   const currency = requireCurrency(raw.currency, "currency");
   const factName = raw.factName;
   if (typeof factName !== "string" || !(economicsFactNames as readonly string[]).includes(factName)) {

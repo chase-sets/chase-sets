@@ -91,7 +91,7 @@ function build(
   facts: EconomicsFacts,
   overrides = initialEconomicsOverridesState({
     accountId: "synthetic-owner-account",
-    scopeKey: "synthetic-connection-1",
+    scopeKey: "channel-connection:synthetic-connection-1",
     currency: "usd",
   }),
   requestValue = request(),
@@ -230,7 +230,7 @@ describe("Economics overrides and revision", () => {
   it("keeps an active null cap distinct from a clear tombstone", () => {
     const initial = initialEconomicsOverridesState({
       accountId: "synthetic-owner-account",
-      scopeKey: "synthetic-connection-1",
+      scopeKey: "channel-connection:synthetic-connection-1",
       currency: "usd",
     });
     const [set] = decideEconomicsOverride(initial, {
@@ -264,7 +264,7 @@ describe("Economics overrides and revision", () => {
   it("reveals refreshed source truth after clear and fingerprints every override/tombstone", () => {
     const initial = initialEconomicsOverridesState({
       accountId: "synthetic-owner-account",
-      scopeKey: "synthetic-connection-1",
+      scopeKey: "channel-connection:synthetic-connection-1",
       currency: "usd",
     });
     const [set] = decideEconomicsOverride(initial, {
@@ -311,7 +311,7 @@ describe("Economics overrides and revision", () => {
   it("clear-all emits and retains one ordered tombstone per canonical fact", () => {
     let state = initialEconomicsOverridesState({
       accountId: "synthetic-owner-account",
-      scopeKey: "synthetic-connection-1",
+      scopeKey: "channel-connection:synthetic-connection-1",
       currency: "usd",
     });
     const values: Readonly<Record<(typeof economicsFactNames)[number], unknown>> = {
@@ -352,7 +352,7 @@ describe("Economics overrides and revision", () => {
   it("rejects optimistic conflicts and evolves a clear into a tombstone", () => {
     const initial = initialEconomicsOverridesState({
       accountId: "synthetic-owner-account",
-      scopeKey: "synthetic-connection-1",
+      scopeKey: "channel-connection:synthetic-connection-1",
       currency: "usd",
     });
     const [set] = decideEconomicsOverride(initial, {
@@ -392,7 +392,7 @@ describe("Economics overrides and revision", () => {
   it("rejects an unknown event type instead of treating it as a clear", () => {
     const initial = initialEconomicsOverridesState({
       accountId: "synthetic-owner-account",
-      scopeKey: "synthetic-connection-1",
+      scopeKey: "channel-connection:synthetic-connection-1",
       currency: "usd",
     });
     expect(() =>
@@ -400,7 +400,7 @@ describe("Economics overrides and revision", () => {
         type: "pricing.economics-fact-override-near-miss",
         data: {
           accountId: "synthetic-owner-account",
-          scopeKey: "synthetic-connection-1",
+          scopeKey: "channel-connection:synthetic-connection-1",
           currency: "usd",
           factName: "turnaroundDays",
           value: null,
@@ -420,7 +420,7 @@ describe("Economics overrides and revision", () => {
         facts,
         initialEconomicsOverridesState({
           accountId: "synthetic-owner-account",
-          scopeKey: "synthetic-connection-2",
+          scopeKey: "channel-connection:synthetic-connection-2",
           currency: "usd",
         }),
         request({ scope: { kind: "channel-connection", connectionId: "synthetic-connection-2" } }),

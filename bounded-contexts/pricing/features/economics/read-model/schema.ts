@@ -24,7 +24,10 @@ const pricingInventoryAcquisitionLotsLookupConcurrentIndexSql = `CREATE INDEX CO
 
 const pricingEconomicsOverridesTableSql = `CREATE TABLE IF NOT EXISTS pricing_economics_overrides (
   account_id text NOT NULL,
-  scope_key text NOT NULL,
+  scope_key text NOT NULL CHECK (
+    scope_key = 'native-marketplace' OR
+    (scope_key LIKE 'channel-connection:%' AND char_length(scope_key) > char_length('channel-connection:'))
+  ),
   currency_code text NOT NULL CHECK (currency_code ~ '^[a-z]{3}$'),
   fact_name text NOT NULL CHECK (fact_name IN (
     'platformFeeRelativeBps',

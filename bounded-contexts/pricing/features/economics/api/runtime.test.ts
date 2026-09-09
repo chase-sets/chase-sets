@@ -179,12 +179,12 @@ describe("Economics runtime", () => {
     expect(second.economics.revision).not.toBe(result.economics.revision);
     expect(deps.overrides.loadAt).toHaveBeenNthCalledWith(
       1,
-      { accountId: request.accountId, scopeKey: "synthetic-connection-1", currency: "usd" },
+      { accountId: request.accountId, scopeKey: "channel-connection:synthetic-connection-1", currency: "usd" },
       request.effectiveAt,
     );
     expect(deps.overrides.loadAt).toHaveBeenNthCalledWith(
       2,
-      { accountId: request.accountId, scopeKey: "synthetic-connection-2", currency: "usd" },
+      { accountId: request.accountId, scopeKey: "channel-connection:synthetic-connection-2", currency: "usd" },
       request.effectiveAt,
     );
   });

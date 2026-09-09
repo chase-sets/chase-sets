@@ -20,6 +20,8 @@ describe("Pricing Economics schema", () => {
     );
     expect(pricingEconomicsSchemaSql).toContain("override_state text NOT NULL");
     expect(pricingEconomicsSchemaSql).toContain("scope_key text NOT NULL");
+    expect(pricingEconomicsSchemaSql).toContain("scope_key = 'native-marketplace'");
+    expect(pricingEconomicsSchemaSql).toContain("scope_key LIKE 'channel-connection:%'");
     expect(pricingEconomicsSchemaSql).not.toContain("connection_id text NOT NULL");
     expect(pricingEconomicsSchemaSql).toContain(
       "override_state = 'cleared' AND override_value IS NULL AND set_at IS NULL AND cleared_at IS NOT NULL",

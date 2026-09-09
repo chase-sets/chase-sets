@@ -180,6 +180,7 @@ export type InventoryItemCreatedPayload = Readonly<{
   productId: string;
   totalQuantity: number;
   acquisitionCostAmount: string | null;
+  acquisitionCostCurrencyCode?: string | null;
   acquisitionOccurrence?: AcquisitionOccurrence;
 }>;
 

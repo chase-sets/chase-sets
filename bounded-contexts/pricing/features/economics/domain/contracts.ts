@@ -51,6 +51,8 @@ export type EconomicsScope =
   | Readonly<{ kind: "native-marketplace" }>
   | Readonly<{ kind: "channel-connection"; connectionId: string }>;
 
+export type EconomicsScopeKey = "native-marketplace" | `channel-connection:${string}`;
+
 export type ResolveEconomicsRequest = Readonly<{
   accountId: string;
   scope: EconomicsScope;
@@ -234,9 +236,19 @@ export function parseEconomicsScope(raw: unknown): EconomicsScope {
   throw new EconomicsContractError("scope.kind must be native-marketplace or channel-connection.");
 }
 
-export function economicsScopeKey(scope: EconomicsScope): string {
+export function economicsScopeKey(scope: EconomicsScope): EconomicsScopeKey {
   const parsed = parseEconomicsScope(scope);
-  return parsed.kind === "native-marketplace" ? "native-marketplace" : parsed.connectionId;
+  return parsed.kind === "native-marketplace" ? "native-marketplace" : `channel-connection:${parsed.connectionId}`;
+}
+
+export function requireEconomicsScopeKey(value: unknown, fieldName = "scopeKey"): EconomicsScopeKey {
+  if (value === "native-marketplace") return value;
+  if (typeof value === "string" && value.startsWith("channel-connection:")) {
+    const connectionId = value.slice("channel-connection:".length);
+    requireNonEmptyString(connectionId, `${fieldName} channel connection ID`);
+    return value as EconomicsScopeKey;
+  }
+  throw new EconomicsContractError(`${fieldName} must be a canonical Economics scope key.`);
 }
 
 export function parseMoney(raw: unknown, fieldName: string): Money {

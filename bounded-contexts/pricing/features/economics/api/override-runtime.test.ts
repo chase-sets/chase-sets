@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createEventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgQueryFunction } from "@chase-sets/event-core-postgres";
+import { applyEconomicsOverrideToFact } from "../domain/overrides";
+import type { EconomicsFact } from "../domain/contracts";
+import {
+  parseAuthenticatedClearEconomicsOverrideRequest,
+  parseAuthenticatedSetEconomicsOverrideRequest,
+} from "./contracts";
 import { createEconomicsOverrideRuntime } from "./override-runtime";
 
 const context: EventStoreContext = {
@@ -14,7 +20,7 @@ const context: EventStoreContext = {
 
 const key = {
   accountId: "synthetic-owner-account",
-  scopeKey: "synthetic-connection-1",
+  scopeKey: "channel-connection:synthetic-connection-1",
   currency: "usd",
 } as const;
 
@@ -55,7 +61,173 @@ function memoryEventStore(): EventStore {
   };
 }
 
+type ProjectedOverrideRow = Readonly<{
+  accountId: string;
+  scopeKey: string;
+  currency: string;
+  fact_name: string;
+  override_state: string;
+  override_value: unknown;
+  set_at: string | null;
+  cleared_at: string | null;
+  last_stream_version: number;
+}>;
+
+function projectedOverrideDb() {
+  const rows = new Map<string, ProjectedOverrideRow>();
+  const query: PgQueryFunction = async <Row>(text: string, values?: readonly unknown[]) => {
+    const params = values ?? [];
+    if (text.includes("INSERT INTO pricing_economics_overrides")) {
+      const [accountId, scopeKey, currency, factName, state, value, setAt, clearedAt, streamVersion] = params;
+      const rowKey = [accountId, scopeKey, currency, factName].join("\u0000");
+      const existing = rows.get(rowKey);
+      if (existing === undefined || existing.last_stream_version < Number(streamVersion)) {
+        rows.set(rowKey, {
+          accountId: String(accountId),
+          scopeKey: String(scopeKey),
+          currency: String(currency),
+          fact_name: String(factName),
+          override_state: String(state),
+          override_value: value === null ? null : JSON.parse(String(value)),
+          set_at: setAt === null ? null : String(setAt),
+          cleared_at: clearedAt === null ? null : String(clearedAt),
+          last_stream_version: Number(streamVersion),
+        });
+      }
+      return { rows: [] as Row[] };
+    }
+    if (text.includes("FROM pricing_economics_overrides")) {
+      const [accountId, scopeKey, currency] = params;
+      const selected = [...rows.values()]
+        .filter((row) => row.accountId === accountId && row.scopeKey === scopeKey && row.currency === currency)
+        .sort((left, right) => left.last_stream_version - right.last_stream_version);
+      return { rows: selected as unknown as Row[] };
+    }
+    throw new Error("Unexpected synthetic projection query.");
+  };
+  return { value: { query } satisfies PgQueryable, rows };
+}
+
+async function projectStoredEvents(
+  runtime: ReturnType<typeof createEconomicsOverrideRuntime>,
+  eventStore: EventStore,
+  projectedEventIds: Set<string>,
+): Promise<void> {
+  const handlers = runtime.projectors[0]!.handlers;
+  for (const stored of await eventStore.readAll()) {
+    if (projectedEventIds.has(stored.eventId)) continue;
+    const handler = handlers[stored.eventType];
+    if (handler === undefined) throw new Error(`Missing synthetic projector for ${stored.eventType}.`);
+    await handler({
+      id: stored.eventId,
+      type: stored.eventType,
+      streamId: stored.streamId,
+      streamVersion: stored.streamVersion,
+      globalPosition: stored.globalPosition,
+      tenantId: stored.tenantId,
+      data: stored.payload,
+      metadata: stored.metadata,
+      audit: { performedByUserId: stored.performedByUserId, forAccountId: stored.forAccountId },
+      trace: {},
+      timing: { occurredAt: stored.occurredAt, recordedAt: stored.recordedAt },
+    } as never);
+    projectedEventIds.add(stored.eventId);
+  }
+}
+
 describe("Economics override runtime", () => {
+  it("isolates native and same-literal Channel scopes across API, streams, projection, clears, and reads", async () => {
+    const eventStore = memoryEventStore();
+    const projection = projectedOverrideDb();
+    const runtime = createEconomicsOverrideRuntime({ eventStore, db: projection.value });
+    const common = {
+      currency: "usd",
+      expectedVersion: 0,
+      factName: "turnaroundDays",
+      setAt: "2026-09-07T06:01:00Z",
+    } as const;
+    const native = parseAuthenticatedSetEconomicsOverrideRequest(
+      { ...common, scope: { kind: "native-marketplace" }, value: 11 },
+      "synthetic-owner-account",
+    );
+    const channel = parseAuthenticatedSetEconomicsOverrideRequest(
+      {
+        ...common,
+        scope: { kind: "channel-connection", connectionId: "native-marketplace" },
+        value: 22,
+      },
+      "synthetic-owner-account",
+    );
+
+    expect(native.key.scopeKey).toBe("native-marketplace");
+    expect(channel.key.scopeKey).toBe("channel-connection:native-marketplace");
+    expect(runtime.streamIdForKey(native.key)).not.toBe(runtime.streamIdForKey(channel.key));
+
+    const [nativeSet, channelSet] = await Promise.all([
+      runtime.execute({ ...native, context }),
+      runtime.execute({ ...channel, context }),
+    ]);
+    expect(nativeSet.version).toBe(1);
+    expect(channelSet.version).toBe(1);
+
+    const projectedEventIds = new Set<string>();
+    await projectStoredEvents(runtime, eventStore, projectedEventIds);
+    expect(projection.rows.size).toBe(2);
+
+    const nativeClear = parseAuthenticatedClearEconomicsOverrideRequest(
+      {
+        scope: { kind: "native-marketplace" },
+        currency: "usd",
+        expectedVersion: 1,
+        factName: "turnaroundDays",
+        clearedAt: "2026-09-07T06:02:00Z",
+      },
+      "synthetic-owner-account",
+    );
+    const nativeCleared = await runtime.execute({ ...nativeClear, context });
+    await projectStoredEvents(runtime, eventStore, projectedEventIds);
+
+    const [nativeProjection, channelProjection] = await Promise.all([
+      runtime.readCurrentProjection(native.key),
+      runtime.readCurrentProjection(channel.key),
+    ]);
+    expect(nativeCleared.version).toBe(2);
+    expect(nativeProjection).toMatchObject({
+      version: 2,
+      entries: { turnaroundDays: { kind: "cleared", revision: 2 } },
+    });
+    expect(channelProjection).toMatchObject({
+      version: 1,
+      entries: { turnaroundDays: { kind: "active", value: 22, revision: 1 } },
+    });
+    expect([...projection.rows.values()].map((row) => [row.scopeKey, row.override_state])).toEqual(
+      expect.arrayContaining([
+        ["native-marketplace", "cleared"],
+        ["channel-connection:native-marketplace", "active"],
+      ]),
+    );
+
+    const sourceFact: EconomicsFact<number> = {
+      sourceValue: 30,
+      source: {
+        kind: "policy-default",
+        policyRevision: "sha256:synthetic-policy",
+        reason: "insufficient-observed-history",
+      },
+      effectiveValue: 30,
+      override: null,
+      observedAt: "2026-09-07T06:00:00Z",
+    };
+    expect(applyEconomicsOverrideToFact("turnaroundDays", sourceFact, nativeProjection)).toMatchObject({
+      effectiveValue: 30,
+      override: null,
+    });
+    expect(applyEconomicsOverrideToFact("turnaroundDays", sourceFact, channelProjection)).toMatchObject({
+      effectiveValue: 22,
+      override: { revision: 1 },
+    });
+  });
+
   it("uses one account/scope/currency stream and replays overrides at effective time", async () => {
     const runtime = createEconomicsOverrideRuntime({
       eventStore: memoryEventStore(),
@@ -75,7 +247,7 @@ describe("Economics override runtime", () => {
     expect(active.version).toBe(1);
     expect(active.entries.dailyReturnHurdle).toMatchObject({ kind: "active", value: 0.01, revision: 1 });
     expect(runtime.streamIdForKey(key)).not.toBe(
-      runtime.streamIdForKey({ ...key, scopeKey: "synthetic-connection-2" }),
+      runtime.streamIdForKey({ ...key, scopeKey: "channel-connection:synthetic-connection-2" }),
     );
     expect(runtime.streamIdForKey(key)).not.toBe(runtime.streamIdForKey({ ...key, scopeKey: "native-marketplace" }));
 
