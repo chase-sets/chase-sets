@@ -194,6 +194,7 @@ const contextRootExportContracts = new Map([
       "ChannelProviderRegistry",
       "createChannelProviderRegistry",
       "channelProviderRegistry",
+      "assertChannelListingDelistDirective",
       "createChannelListingCompositionRuntime",
       "ChannelListingCompositionServices",
       "buildChannelCategorySourceKeys",

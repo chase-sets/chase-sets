@@ -820,7 +820,7 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
  */
 async function assertStreamExpectedVersionInTransaction(
   args: Readonly<{
-    client: PgPoolClient;
+    client: PgQueryable;
     input: AppendToStreamInput;
     now: () => IsoUtcTimestamp;
     upsertStreamSql: string;

@@ -1,6 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext, GlobalPosition } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import type { ChannelListingCompositionServices } from "../api/runtime";
 import { channelListingEventCodec } from "../domain/codecs";
 import type { OutboundSyncServices } from "../../outbound-sync/domain/contracts";
@@ -11,7 +12,7 @@ type SignalEvent = Readonly<{
   streamId: string;
   streamVersion: number;
   globalPosition: GlobalPosition;
-  data: Record<string, unknown>;
+  data: JsonObject;
   tenantId: string;
   audit: Readonly<{ performedByUserId: string; forAccountId: string }>;
   trace: EventStoreContext["trace"];
