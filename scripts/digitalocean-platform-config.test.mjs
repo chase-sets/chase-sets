@@ -2318,14 +2318,8 @@ describe("DigitalOcean platform configuration", () => {
     const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
     const deployProductionJob = workflowJob(platformProductionWorkflow, "deploy-production");
     const deployStep = workflowStep(platformProductionWorkflow, "Deploy staging Kubernetes release");
-    const representativeStep = workflowStep(
-      platformProductionWorkflow,
-      "Run staging representative commerce state in cluster",
-    );
-    const uploadStep = workflowStep(
-      platformProductionWorkflow,
-      "Upload staging representative commerce state evidence",
-    );
+    const representativeStep = workflowStep(platformProductionWorkflow, "Await staging projection convergence");
+    const uploadStep = workflowStep(platformProductionWorkflow, "Upload staging Buy Now probe evidence");
     const buyNowStep = workflowStep(platformProductionWorkflow, "Staging Buy Now freshness probes");
 
     expect(representativeStep).toContain("set -euo pipefail");
@@ -2356,7 +2350,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(representativeStep).toContain("staging-representative-commerce-state-release-binding/v1");
     expect(representativeStep).toContain("evidenceSha256: $evidenceSha256");
     expect(uploadStep).toContain("if: always()");
-    expect(uploadStep).toContain("steps.staging_representative_commerce.conclusion != 'skipped'");
+    expect(uploadStep).toContain("steps.projection_convergence_gate.conclusion != 'skipped'");
+    expect(uploadStep).toContain("artifacts/release-health/staging-representative-commerce-state");
     expect(uploadStep).toContain("if-no-files-found: error");
 
     expect(deployStagingJob.indexOf(deployStep)).toBeLessThan(deployStagingJob.indexOf(representativeStep));
@@ -2962,7 +2957,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowProbesStep).toContain("--flow account");
     expect(stagingBuyNowProbesStep).toContain("PLATFORM_ADMIN_EMAIL");
     expect(stagingBuyNowEvidenceStep).toContain(
-      "if: always() && env.SHOULD_DEPLOY != 'false' && steps.buy_now_probes.conclusion != 'skipped'",
+      "if: always() && env.SHOULD_DEPLOY != 'false' && (steps.projection_convergence_gate.conclusion != 'skipped' || steps.buy_now_probes.conclusion != 'skipped')",
     );
     expect(stagingBuyNowEvidenceStep).toContain("staging-buy-now-freshness-probes");
     expect(stagingBuyNowEvidenceStep).toContain("artifacts/release-health/account-buy-now-freshness-probe.json");

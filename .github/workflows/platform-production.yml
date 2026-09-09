@@ -1724,106 +1724,6 @@ jobs:
             --managed-postgres-ca-sha256 "${{ steps.staging_managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}" \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
 
-      - name: Run staging representative commerce state in cluster
-        id: staging_representative_commerce
-        if: env.SHOULD_DEPLOY != 'false'
-        env:
-          KUBECONFIG: ${{ runner.temp }}/chase-sets-staging.kubeconfig
-          EXPECTED_RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
-          EXPECTED_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-        run: |
-          set -euo pipefail
-          evidence_dir=artifacts/release-health/staging-representative-commerce-state
-          evidence_path="$evidence_dir/representative-commerce-state.json"
-          binding_path="$evidence_dir/release-binding.json"
-          remote_evidence_path=/tmp/representative-commerce-state.json
-          mkdir -p "$evidence_dir"
-
-          if [ -z "${KUBECONFIG:-}" ] || [ ! -s "$KUBECONFIG" ]; then
-            echo "Representative commerce state requires the staging Kubernetes credential configured by this job." >&2
-            exit 1
-          fi
-          if ! [[ "$EXPECTED_RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Representative commerce state requires the exact 40-character deployed release commit." >&2
-            exit 1
-          fi
-          if ! [[ "$EXPECTED_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "Representative commerce state requires the exact deployed image digest." >&2
-            exit 1
-          fi
-
-          # Pick the canonical ready platform-api pod only from the exact image
-          # deployed by this job. A stale or mixed-version pod is not authority
-          # for the release's representative commerce evidence.
-          pod_record="$(kubectl get pods --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            -l app.kubernetes.io/component=platform-api -o json \
-            | jq -cer --arg image_digest "$EXPECTED_IMAGE_DIGEST" '
-                [
-                  .items[]
-                  | select(.status.phase == "Running")
-                  | . as $pod
-                  | [
-                      .status.containerStatuses[]?
-                      | select(.name == "platform-api" and .ready == true and (.imageID | endswith($image_digest)))
-                    ] as $containers
-                  | select(($containers | length) == 1)
-                  | { podName: $pod.metadata.name, imageID: $containers[0].imageID }
-                ]
-                | sort_by(.podName)
-                | first // error("no ready platform-api pod runs the exact deployed image digest")
-              ')"
-          pod="$(jq -er '.podName' <<<"$pod_record")"
-          image_id="$(jq -er '.imageID' <<<"$pod_record")"
-
-          kubectl exec --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --container platform-api "$pod" -- \
-            rm -f "$remote_evidence_path"
-          kubectl exec --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --container platform-api "$pod" -- \
-            env DEPLOYMENT_ENVIRONMENT=staging \
-              REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce' \
-              REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT="$remote_evidence_path" \
-              pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production
-          kubectl cp --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --container platform-api \
-            "$pod:$remote_evidence_path" "$evidence_path"
-
-          test -s "$evidence_path"
-          jq -e '
-            .schemaVersion == "representative-commerce-state.evidence/v2"
-            and .type == "representative-commerce-state.complete"
-            and .environmentName == "staging"
-            and (.checkedAt | type == "string" and length > 0)
-            and .dataProfiles == [
-              "critical-bootstrap",
-              "catalog-integration-bootstrap",
-              "representative-commerce-state"
-            ]
-          ' "$evidence_path" >/dev/null
-          evidence_sha256="$(sha256sum "$evidence_path" | awk '{print $1}')"
-          jq -n \
-            --arg releaseCommit "$EXPECTED_RELEASE_COMMIT" \
-            --arg imageDigest "$EXPECTED_IMAGE_DIGEST" \
-            --arg podName "$pod" \
-            --arg imageID "$image_id" \
-            --arg evidenceSha256 "$evidence_sha256" \
-            '{
-              schemaVersion: "staging-representative-commerce-state-release-binding/v1",
-              environment: "staging",
-              releaseCommit: $releaseCommit,
-              imageDigest: $imageDigest,
-              podName: $podName,
-              imageID: $imageID,
-              evidenceSha256: $evidenceSha256
-            }' > "$binding_path"
-          echo "Representative commerce state completed in ${pod} for ${EXPECTED_RELEASE_COMMIT}@${EXPECTED_IMAGE_DIGEST}."
-
-      - name: Upload staging representative commerce state evidence
-        if: always() && env.SHOULD_DEPLOY != 'false' && steps.staging_representative_commerce.conclusion != 'skipped'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: staging-representative-commerce-state
-          path: artifacts/release-health/staging-representative-commerce-state
-          if-no-files-found: error
-          retention-days: 30
-
       - name: Capture staging Kubernetes deploy diagnostics
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -2040,6 +1940,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          KUBECONFIG: ${{ runner.temp }}/chase-sets-staging.kubeconfig
+          EXPECTED_RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          EXPECTED_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -2053,6 +1956,87 @@ jobs:
           PROJECTION_CONVERGENCE_PROJECTION_NAMES: ${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'checkout.session-projection' }}
         run: |
           set -euo pipefail
+          cd ../../..
+          evidence_dir=artifacts/release-health/staging-representative-commerce-state
+          evidence_path="$evidence_dir/representative-commerce-state.json"
+          binding_path="$evidence_dir/release-binding.json"
+          remote_evidence_path=/tmp/representative-commerce-state.json
+          mkdir -p "$evidence_dir"
+
+          if [ -z "${KUBECONFIG:-}" ] || [ ! -s "$KUBECONFIG" ]; then
+            echo "Representative commerce state requires the staging Kubernetes credential configured by this job." >&2
+            exit 1
+          fi
+          if ! [[ "$EXPECTED_RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Representative commerce state requires the exact 40-character deployed release commit." >&2
+            exit 1
+          fi
+          if ! [[ "$EXPECTED_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Representative commerce state requires the exact deployed image digest." >&2
+            exit 1
+          fi
+
+          pod_record="$(kubectl get pods --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            -l app.kubernetes.io/component=platform-api -o json \
+            | jq -cer --arg image_digest "$EXPECTED_IMAGE_DIGEST" '
+                [
+                  .items[]
+                  | select(.status.phase == "Running")
+                  | . as $pod
+                  | [
+                      .status.containerStatuses[]?
+                      | select(.name == "platform-api" and .ready == true and (.imageID | endswith($image_digest)))
+                    ] as $containers
+                  | select(($containers | length) == 1)
+                  | { podName: $pod.metadata.name, imageID: $containers[0].imageID }
+                ]
+                | sort_by(.podName)
+                | first // error("no ready platform-api pod runs the exact deployed image digest")
+              ')"
+          pod="$(jq -er '.podName' <<<"$pod_record")"
+          image_id="$(jq -er '.imageID' <<<"$pod_record")"
+
+          kubectl exec --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --container platform-api "$pod" -- \
+            rm -f "$remote_evidence_path"
+          kubectl exec --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --container platform-api "$pod" -- \
+            env DEPLOYMENT_ENVIRONMENT=staging \
+              REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce' \
+              REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT="$remote_evidence_path" \
+              pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production
+          kubectl cp --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --container platform-api \
+            "$pod:$remote_evidence_path" "$evidence_path"
+
+          test -s "$evidence_path"
+          jq -e '
+            .schemaVersion == "representative-commerce-state.evidence/v2"
+            and .type == "representative-commerce-state.complete"
+            and .environmentName == "staging"
+            and (.checkedAt | type == "string" and length > 0)
+            and .dataProfiles == [
+              "critical-bootstrap",
+              "catalog-integration-bootstrap",
+              "representative-commerce-state"
+            ]
+          ' "$evidence_path" >/dev/null
+          evidence_sha256="$(sha256sum "$evidence_path" | awk '{print $1}')"
+          jq -n \
+            --arg releaseCommit "$EXPECTED_RELEASE_COMMIT" \
+            --arg imageDigest "$EXPECTED_IMAGE_DIGEST" \
+            --arg podName "$pod" \
+            --arg imageID "$image_id" \
+            --arg evidenceSha256 "$evidence_sha256" \
+            '{
+              schemaVersion: "staging-representative-commerce-state-release-binding/v1",
+              environment: "staging",
+              releaseCommit: $releaseCommit,
+              imageDigest: $imageDigest,
+              podName: $podName,
+              imageID: $imageID,
+              evidenceSha256: $evidenceSha256
+            }' > "$binding_path"
+          echo "Representative commerce state completed in ${pod} for ${EXPECTED_RELEASE_COMMIT}@${EXPECTED_IMAGE_DIGEST}."
+
+          cd infrastructure/digitalocean/platform
           admin_domain="$(terraform output -raw admin_domain)"
           if [ -z "$admin_domain" ]; then
             echo "Required staging admin domain was not present in Terraform outputs." >&2
@@ -2242,12 +2226,13 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        if: always() && env.SHOULD_DEPLOY != 'false' && steps.buy_now_probes.conclusion != 'skipped'
+        if: always() && env.SHOULD_DEPLOY != 'false' && (steps.projection_convergence_gate.conclusion != 'skipped' || steps.buy_now_probes.conclusion != 'skipped')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: staging-buy-now-freshness-probes
           path: |
             artifacts/release-health/staging-projection-convergence-gate.json
+            artifacts/release-health/staging-representative-commerce-state
             artifacts/release-health/guest-buy-now-freshness-probe.json
             artifacts/release-health/account-buy-now-freshness-probe.json
           if-no-files-found: error
