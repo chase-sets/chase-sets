@@ -339,6 +339,35 @@ describe("ready-10 quality-surface declarations", () => {
     expect(qualityCodes(alternate)).toEqual([]);
   });
 
+  it("treats inert Markdown examples as absent declaration content", () => {
+    const indentedIntent = conformingBrief({
+      intent: [
+        "## Intent surfaces",
+        "",
+        "    | Acceptance criterion | Exercised surface |",
+        "    |---|---|",
+        "    | AC1 | lintBrief |",
+      ].join("\n"),
+    });
+    expect(qualityCodes(indentedIntent)).toContain("BRIEF_QUALITY_INTENT_SURFACES");
+
+    for (const scope of [
+      "## Scope fence\n\nIn scope: bounded lint changes.\n\n```md\nNon-goals: no runtime changes.\n```",
+      "## Scope fence\n\nIn scope: bounded lint changes.\n\n    Non-goals: no runtime changes.",
+      "## Scope fence\n\nIn scope: bounded lint changes.\n\n\tNon-goals: no runtime changes.",
+    ]) {
+      expect(qualityCodes(conformingBrief({ scope }))).toContain("BRIEF_QUALITY_FOOTPRINT_SHAPE");
+    }
+  });
+
+  it("keeps a quoted standalone declaration example inert beside the real section", () => {
+    const body = conformingBrief({
+      scope:
+        "## Scope fence\n\n> Intent surfaces:\n\nIn scope: bounded lint changes.\n\nNon-goals: no runtime changes.",
+    });
+    expect(qualityCodes(body)).toEqual([]);
+  });
+
   it.each([
     ["missing quality profile", { profile: "" }, "BRIEF_QUALITY_PROFILE"],
     ["empty quality profile", { profile: "QUALITY_PROFILE:" }, "BRIEF_QUALITY_PROFILE"],
@@ -470,6 +499,19 @@ describe("ready-10 quality-surface declarations", () => {
       1,
     );
     expect(logs).toEqual([expect.stringContaining("BRIEF_QUALITY_DATA_PATH")]);
+  });
+
+  it("returns exit 1 for malformed inert-content input through the real CLI", () => {
+    const cliPath = path.join(repoRoot, "scripts/brief-lint.mjs");
+    const malformed = spawnSync(process.execPath, [cliPath, "-"], {
+      encoding: "utf8",
+      input: conformingBrief({
+        intent:
+          "## Intent surfaces\n\n    | Acceptance criterion | Exercised surface |\n    |---|---|\n    | AC1 | lintBrief |",
+      }),
+    });
+    expect(malformed.status).toBe(1);
+    expect(malformed.stderr).toContain("BRIEF_QUALITY_INTENT_SURFACES");
   });
 
   it("reports ready-10 omissions alongside an existing scanner violation", () => {

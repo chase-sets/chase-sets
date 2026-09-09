@@ -47,6 +47,10 @@ function standaloneLabel(line) {
   return value.length <= 100 ? value : null;
 }
 
+function isInertDeclarationContentLine(line, ignoredLines = new Set(), index = -1) {
+  return ignoredLines.has(index) || /^(?: {4}|\t)/.test(line) || /^\s{0,3}>/.test(line);
+}
+
 function scanMarkdown(body) {
   const lines = String(body).replace(/\r\n?/g, "\n").split("\n");
   const headings = [];
@@ -69,6 +73,10 @@ function scanMarkdown(body) {
       continue;
     }
     if (fence) {
+      ignoredLines.add(index);
+      continue;
+    }
+    if (isInertDeclarationContentLine(line)) {
       ignoredLines.add(index);
       continue;
     }
@@ -153,7 +161,9 @@ function sectionContentLines(markdown, section) {
     .slice(section.heading.index + 1, end)
     .filter((_line, offset) => {
       const index = section.heading.index + 1 + offset;
-      return !markdown.ignoredLines.has(index) && !headingLines.has(index);
+      return (
+        !headingLines.has(index) && !isInertDeclarationContentLine(markdown.lines[index], markdown.ignoredLines, index)
+      );
     })
     .map((line) => line.trim())
     .filter(Boolean);
@@ -281,8 +291,10 @@ function footprintShapeFindings(markdown) {
   const footprintLines = sectionContentLines(markdown, footprint[0]);
   const scopeEnd = sectionEnd(markdown.headings, scope[0].headingIndex, markdown.lines.length);
   const scopeLines = markdown.lines.slice(scope[0].heading.index + 1, scopeEnd);
-  const inlineNonGoals = scopeLines.some((line) =>
-    /^\s*(?:[-+*]\s*)?(?:\*\*|__)?non-goals?(?:\*\*|__)?\s*:\s*\S/i.test(line),
+  const inlineNonGoals = scopeLines.some(
+    (line, offset) =>
+      !isInertDeclarationContentLine(line, markdown.ignoredLines, scope[0].heading.index + 1 + offset) &&
+      /^\s*(?:[-+*]\s*)?(?:\*\*|__)?non-goals?(?:\*\*|__)?\s*:\s*\S/i.test(line),
   );
   const labeledNonGoals = markdown.headings.some(
     (heading, headingIndex) =>
