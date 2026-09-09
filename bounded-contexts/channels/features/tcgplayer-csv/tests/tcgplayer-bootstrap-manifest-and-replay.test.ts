@@ -51,6 +51,21 @@ describe("tcgplayer-bootstrap-manifest-and-replay", () => {
     expect(combined).not.toMatch(/desiredStateSequence\s*:\s*(?:operation\.)?listingRevision/);
   });
 
+  it("composes the canonical producer runtimes, TCGplayer profiles, schema, and expiry settlement port", () => {
+    const contextRoot = path.resolve(import.meta.dirname, "../../..");
+    const compositionRoot = readFileSync(path.join(contextRoot, "index.ts"), "utf8");
+    for (const required of [
+      "createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles)",
+      "claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort()",
+      "createTcgplayerCsvRuntime({",
+      "...tcgplayerCsvSchemaMigrations",
+      "...tcgplayerCsv.projectors",
+    ]) {
+      expect(compositionRoot, required).toContain(required);
+    }
+    expect(compositionRoot).toContain("export { type ChannelEnvironment }");
+  });
+
   it("keeps membership digests stable across jsonb-style object key reordering", () => {
     const member = {
       operationId: "operation-synthetic",

@@ -171,6 +171,7 @@ const contextRootExportContracts = new Map([
     new Set([
       "contextManifest",
       "module",
+      "ChannelEnvironment",
       "channelExecutionModes",
       "ChannelExecutionMode",
       "channelPublicationRejectionCodes",

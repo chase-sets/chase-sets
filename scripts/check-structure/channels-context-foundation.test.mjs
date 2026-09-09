@@ -642,6 +642,7 @@ describe("channels-wake-registry-derivation", () => {
         "channels:channel-listing-desired-state-reaction",
         "channels:channel-outbound-operation-enqueue",
         "channels:channel-owned-publication-state",
+        "channels:tcgplayer-csv-projection",
       ],
       routeDependencyIds: [],
     });
@@ -663,6 +664,7 @@ describe("channels-wake-registry-derivation", () => {
       "channels:channel-listing-desired-state-reaction",
       "channels:channel-outbound-operation-enqueue",
       "channels:channel-owned-publication-state",
+      "channels:tcgplayer-csv-projection",
       "neutral-consumer:connection-view",
     ]);
     expect(projectionMutant.affectedProjectionNames).not.toEqual(entry.affectedProjectionNames);
