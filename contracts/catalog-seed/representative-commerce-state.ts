@@ -117,7 +117,7 @@ export type MarketplaceRepresentativeListingResult = Readonly<{
   accountId: string;
   inventoryItemId: string;
   listingId: string;
-  status: "created" | "already-present";
+  status: "created" | "price-repaired" | "already-present";
 }>;
 
 export type MarketplaceRepresentativeOfferResult = Readonly<{
@@ -161,6 +161,15 @@ export type RepresentativeMarketplaceServices = Readonly<{
       params: Readonly<{ accountId: AccountId; listingId: string; feeQuoteFingerprint: string }>,
       context: EventStoreContext,
     ) => Promise<Readonly<{ listingId: string; version: number }>>;
+    updateListingPrice: (
+      params: Readonly<{
+        accountId: AccountId;
+        listingId: string;
+        priceAmount: string;
+        priceCurrencyCode: string;
+      }>,
+      context: EventStoreContext,
+    ) => Promise<Readonly<{ listingId: string; version: number }>>;
   }>;
   offers: Readonly<{
     submitOffer: (
@@ -198,12 +207,15 @@ export type RepresentativeMarketplaceServices = Readonly<{
 export type DiscoveryRepresentativeMarketStateInput = Readonly<{
   listingIds: readonly string[];
   offerIds: readonly string[];
-  existingRepresentativeLimit?: number;
 }>;
 
 export type DiscoveryRepresentativeMarketStateServices = Readonly<{
   discoveryDb: RepresentativeQueryable;
   marketplaceDb: RepresentativeQueryable;
+}>;
+
+export type DiscoveryRepresentativeMarketStateObservationServices = Readonly<{
+  discoveryDb: RepresentativeQueryable;
 }>;
 
 export type DiscoveryRepresentativeMarketStateResult = Readonly<{
@@ -845,10 +857,35 @@ export async function publishRepresentativeListings(
 
   for (const [index, stock] of stockItems.entries()) {
     const listingId = createRepresentativeListingId(stock);
-    const existing = await getListingStatus(services.db, listingId);
-    if (existing !== null && existing !== "draft") {
-      // Retained representative listings (active or later lifecycle states)
-      // are recognized as-is; a repeat run must not mutate them.
+    const priceAmount = representativePrice(index);
+    const existing = await getRepresentativeListingState(services.db, listingId);
+    if (existing !== null && existing.status !== "draft") {
+      if (
+        index === 0 &&
+        (existing.priceAmount !== priceAmount ||
+          existing.priceCurrencyCode !== "USD" ||
+          (existing.listingStreamVersion ?? 0) <= 0)
+      ) {
+        await services.listings.updateListingPrice(
+          {
+            accountId: stock.accountId as AccountId,
+            listingId,
+            priceAmount,
+            priceCurrencyCode: "USD",
+          },
+          representativeSeedContext,
+        );
+
+        results.push({
+          catalogItemId: stock.catalogItemId,
+          accountId: stock.accountId,
+          inventoryItemId: stock.inventoryItemId,
+          listingId,
+          status: "price-repaired",
+        });
+        continue;
+      }
+
       results.push({
         catalogItemId: stock.catalogItemId,
         accountId: stock.accountId,
@@ -863,13 +900,13 @@ export async function publishRepresentativeListings(
       {
         accountId: stock.accountId as AccountId,
         inventoryItemId: stock.inventoryItemId,
-        priceAmount: representativePrice(index),
+        priceAmount,
         priceCurrencyCode: "USD",
         quantityCap: Math.max(1, Math.min(stock.totalQuantity, index % 2 === 0 ? 2 : 4)),
         listingIdOverride: listingId as ListingId,
         // A retained draft already carries its creation photo evidence;
         // re-uploading on resume would append duplicate photo events.
-        listingPhotoUploads: existing === "draft" ? null : buildRepresentativeListingPhotoUpload(listingId),
+        listingPhotoUploads: existing?.status === "draft" ? null : buildRepresentativeListingPhotoUpload(listingId),
       },
       representativeSeedContext,
     );
@@ -1067,43 +1104,37 @@ export async function acceptRepresentativeOffers(
   return results;
 }
 
-export async function reconcileRepresentativeDiscoveryMarketState(
-  services: DiscoveryRepresentativeMarketStateServices,
+export async function observeRepresentativeDiscoveryMarketState(
+  services: DiscoveryRepresentativeMarketStateObservationServices,
   input: DiscoveryRepresentativeMarketStateInput,
 ): Promise<DiscoveryRepresentativeMarketStateResult> {
-  const explicitListingIds = uniqueTextValues(input.listingIds);
-  const explicitOfferIds = uniqueTextValues(input.offerIds);
-  const existingRepresentativeLimit = normalizeRepresentativeCandidateLimit(input.existingRepresentativeLimit);
-  const [listingIds, offerIds] = await Promise.all([
-    explicitListingIds.length > 0
-      ? Promise.resolve(explicitListingIds)
-      : loadExistingRepresentativeMarketplaceListingIds(services.marketplaceDb, {
-          limit: existingRepresentativeLimit,
-        }),
-    explicitOfferIds.length > 0
-      ? Promise.resolve(explicitOfferIds)
-      : loadExistingRepresentativeMarketplaceOfferIds(services.marketplaceDb, {
-          limit: existingRepresentativeLimit,
-        }),
-  ]);
-  const [listings, offers] = await Promise.all([
-    loadMarketplaceListings(services.marketplaceDb, listingIds),
-    loadMarketplaceOffers(services.marketplaceDb, offerIds),
-  ]);
-  const accountIds = uniqueTextValues([
-    ...listings.map((listing) => listing.account_id),
-    ...offers.map((offer) => offer.buyer_account_id),
-    ...offers.flatMap((offer) => (offer.accepted_seller_account_id ? [offer.accepted_seller_account_id] : [])),
-  ]);
-
-  await reconcileAccounts(services, accountIds);
-  await reconcileListings(services.discoveryDb, listings);
-  await reconcileOffers(services.discoveryDb, offers);
+  const listingIds = uniqueTextValues(input.listingIds);
+  const offerIds = uniqueTextValues(input.offerIds);
+  const result = await services.discoveryDb.query<{
+    account_count: number | string;
+    listing_count: number | string;
+    offer_count: number | string;
+  }>(
+    `SELECT
+       (SELECT COUNT(*)::int FROM discovery_market_listings WHERE listing_id = ANY($1::text[])) AS listing_count,
+       (SELECT COUNT(*)::int FROM discovery_offer_demand_matches WHERE offer_id = ANY($2::text[])) AS offer_count,
+       (SELECT COUNT(DISTINCT account_id)::int
+          FROM (
+            SELECT account_id FROM discovery_market_listings WHERE listing_id = ANY($1::text[])
+            UNION ALL
+            SELECT buyer_account_id FROM discovery_offer_demand_matches WHERE offer_id = ANY($2::text[])
+            UNION ALL
+            SELECT accepted_seller_account_id FROM discovery_offer_demand_matches
+             WHERE offer_id = ANY($2::text[]) AND accepted_seller_account_id IS NOT NULL
+          ) AS representative_accounts) AS account_count`,
+    [listingIds, offerIds],
+  );
+  const row = result.rows[0];
 
   return {
-    accountCount: accountIds.length,
-    listingCount: listings.length,
-    offerCount: offers.length,
+    accountCount: normalizeObservedCount(row?.account_count),
+    listingCount: normalizeObservedCount(row?.listing_count),
+    offerCount: normalizeObservedCount(row?.offer_count),
   };
 }
 
@@ -1501,15 +1532,42 @@ function createRepresentativeOfferId(stock: MarketplaceRepresentativeInventorySt
   return `off_repr_${hash}`;
 }
 
-async function getListingStatus(db: RepresentativeQueryable, listingId: string): Promise<string | null> {
-  const result = await db.query<{ status: string }>(
-    `SELECT status
+type RepresentativeListingState = Readonly<{
+  status: string;
+  priceAmount: string;
+  priceCurrencyCode: string | null;
+  listingStreamVersion: number | null;
+}>;
+
+async function getRepresentativeListingState(
+  db: RepresentativeQueryable,
+  listingId: string,
+): Promise<RepresentativeListingState | null> {
+  const result = await db.query<{
+    status: string;
+    price_amount: string;
+    price_currency_code: string | null;
+    listing_stream_version: number | null;
+  }>(
+    `SELECT
+       status,
+       price_amount::text AS price_amount,
+       price_currency_code,
+       listing_stream_version
      FROM marketplace_listing_pages
      WHERE listing_id = $1`,
     [listingId],
   );
+  const row = result.rows[0];
 
-  return result.rows[0]?.status ?? null;
+  return row
+    ? {
+        status: row.status,
+        priceAmount: row.price_amount,
+        priceCurrencyCode: row.price_currency_code,
+        listingStreamVersion: row.listing_stream_version,
+      }
+    : null;
 }
 
 async function getOfferStatus(db: RepresentativeQueryable, offerId: string): Promise<string | null> {
@@ -2367,6 +2425,11 @@ function jsonObject(value: unknown): string {
 function positiveStreamVersion(value: number | string | null): number {
   const numericValue = typeof value === "number" ? value : Number.parseInt(value ?? "", 10);
   return Number.isFinite(numericValue) && numericValue > 0 ? Math.trunc(numericValue) : 1;
+}
+
+function normalizeObservedCount(value: number | string | null | undefined): number {
+  const numericValue = typeof value === "number" ? value : Number.parseInt(value ?? "", 10);
+  return Number.isFinite(numericValue) && numericValue > 0 ? Math.trunc(numericValue) : 0;
 }
 
 function toIsoText(value: string | Date): string {

@@ -3,9 +3,9 @@ import type { MarketplaceServices } from "@chase-sets/marketplace/server";
 import {
   acceptRepresentativeOffers,
   ensureRepresentativeInventoryStock,
+  observeRepresentativeDiscoveryMarketState,
   prepareRepresentativeCatalogUsageCandidates,
   publishRepresentativeListings,
-  reconcileRepresentativeDiscoveryMarketState,
   reconcileRepresentativeInventoryCatalogItems,
   reconcileRepresentativeMarketplaceCatalogItems,
   reconcileRepresentativeOrderingSupplyState,
@@ -48,13 +48,14 @@ type RepresentativeCommerceStateRun = Readonly<{
   offers: readonly MarketplaceRepresentativeOfferResult[];
   acceptedOffers: readonly MarketplaceRepresentativeOfferAcceptanceResult[];
   orderingSupply: Awaited<ReturnType<typeof reconcileRepresentativeOrderingSupplyState>>;
-  discovery: Awaited<ReturnType<typeof reconcileRepresentativeDiscoveryMarketState>>;
+  discovery: Awaited<ReturnType<typeof observeRepresentativeDiscoveryMarketState>>;
 }>;
 
 type PartialRepresentativeCommerceStateRun = Pick<RepresentativeCommerceStateRun, "candidates" | "stock" | "listings">;
 
 describeWithMarketplaceSeedDatabase("representative commerce state", () => {
   const seedRuntime = useMarketplaceSeedRuntime("representative-commerce-state", { resetSchemas: "beforeAll" });
+  let testRuntime: MarketplaceSeedRuntime | null = null;
   let partialRun: PartialRepresentativeCommerceStateRun | null = null;
   let firstRun: RepresentativeCommerceStateRun | null = null;
   let repeatRun: RepresentativeCommerceStateRun | null = null;
@@ -63,12 +64,26 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
 
   beforeAll(async () => {
     const runtime = await seedRuntime.seed();
+    testRuntime = runtime;
     await insertRepresentativeCatalogSource(seedRuntime.pools);
 
     // Pass one is interrupted on purpose: it stops right after publishing the
     // representative listings and before the listing projection sync, the
     // shape a crashed refresh leaves behind.
     partialRun = await runRepresentativeCommercePassThroughListings(runtime);
+    await getMarketplaceServices(runtime.services).listings.updateListingPrice(
+      {
+        accountId: partialRun.stock[0]!.accountId,
+        listingId: partialRun.listings[0]!.listingId,
+        priceAmount: "27.50",
+        priceCurrencyCode: "EUR",
+      },
+      {
+        tenantId: "tnt_identity",
+        audit: { performedByUserId: "usr_repr_support_ops_user", forAccountId: "acc_repr_support_ops_account" },
+        correlationId: "representative-stale-listing-test",
+      } as never,
+    );
     // Pass two resumes the interrupted run to completion against retained state.
     firstRun = await runRepresentativeCommercePass(runtime);
     eventCountsAfterFirstRun = await readEventCounts(seedRuntime.pools);
@@ -94,6 +109,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-listing-projection");
     const listings = await publishRepresentativeListings(getMarketplaceServices(runtime.services), stock);
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-listing-projection");
+    await syncRepresentativeProjection(runtime, "discovery", "discovery-market-projection");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-supply-input-projection");
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-offer-projection");
     const offers = await submitRepresentativeOffers(getMarketplaceServices(runtime.services), stock);
@@ -105,6 +121,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     await syncRepresentativeProjection(runtime, "inventory", "inventory-hold-projection");
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-inventory-supply-projection");
     await syncRepresentativeProjection(runtime, "marketplace", "marketplace-listing-projection");
+    await syncRepresentativeProjection(runtime, "discovery", "discovery-market-projection");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-marketplace-supply-input-projection");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-inventory-reservation-outcomes");
     await syncRepresentativeProjection(runtime, "ordering", "ordering-order-projection");
@@ -118,11 +135,8 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
         listingIds: listings.map((listing) => listing.listingId),
       },
     );
-    const discovery = await reconcileRepresentativeDiscoveryMarketState(
-      {
-        discoveryDb: seedRuntime.pools.discovery,
-        marketplaceDb: seedRuntime.pools.marketplace,
-      },
+    const discovery = await observeRepresentativeDiscoveryMarketState(
+      { discoveryDb: seedRuntime.pools.discovery },
       {
         listingIds: listings.map((listing) => listing.listingId),
         offerIds: offers.map((offer) => offer.offerId),
@@ -234,10 +248,14 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       catalog_catalog_item_id: string;
       product_id: string;
       selected_options: unknown;
+      price_amount: string;
+      price_currency_code: string | null;
+      listing_stream_version: number | null;
       quantity_cap: number;
       evidence: unknown;
     }>(
-      `SELECT listing_id, status, catalog_catalog_item_id, product_id, selected_options, quantity_cap, evidence
+      `SELECT listing_id, status, catalog_catalog_item_id, product_id, selected_options,
+              price_amount::text AS price_amount, price_currency_code, listing_stream_version, quantity_cap, evidence
        FROM marketplace_listing_pages
        WHERE listing_id = $1`,
       [listingId],
@@ -269,8 +287,11 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       status: "active",
       catalog_catalog_item_id: representativeCatalogItem.catalogItemId,
       product_id: representativeProductId(),
+      price_amount: "9.99",
+      price_currency_code: "USD",
       quantity_cap: 2,
     });
+    expect(listing.rows[0]?.listing_stream_version).toBeGreaterThan(0);
     expect(listing.rows[0]?.selected_options).toEqual(expect.arrayContaining(representativeSelectedOptions()));
     expect(listing.rows[0]?.evidence).toEqual(
       expect.arrayContaining([expect.objectContaining({ altText: expect.any(String) })]),
@@ -288,11 +309,11 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     const partial = requireRun(partialRun);
     const resumed = requireRun(firstRun);
 
-    // The interrupted pass created the listing; the resumed pass recognizes it
-    // even though the interruption happened before the listing projection sync.
+    // The interrupted pass created the listing; the resumed pass repairs its
+    // retained stale Listing Price through the canonical seller command.
     expect(partial.listings[0]?.status).toBe("created");
     expect(resumed.listings).toEqual([
-      expect.objectContaining({ listingId: partial.listings[0]?.listingId, status: "already-present" }),
+      expect.objectContaining({ listingId: partial.listings[0]?.listingId, status: "price-repaired" }),
     ]);
     expect(resumed.stock).toEqual([
       expect.objectContaining({
@@ -418,8 +439,14 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       status: string;
       catalog_catalog_item_id: string;
       selected_options: unknown;
+      price_amount: string;
+      price_currency_code: string | null;
+      listing_stream_version: number;
+      visible_quantity: number;
     }>(
-      `SELECT listing_id, listing_slug, product_slug, status, catalog_catalog_item_id, selected_options
+      `SELECT listing_id, listing_slug, product_slug, status, catalog_catalog_item_id, selected_options,
+              price_amount::text AS price_amount, price_currency_code, listing_stream_version,
+              LEAST(quantity_cap, GREATEST(supply_total_quantity - active_held_quantity, 0)) AS visible_quantity
        FROM discovery_market_listings
        WHERE listing_id = $1`,
       [state.listings[0]?.listingId],
@@ -446,7 +473,11 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     expect(discoveryListing.rows[0]).toMatchObject({
       status: "active",
       catalog_catalog_item_id: representativeCatalogItem.catalogItemId,
+      price_amount: "9.99",
+      price_currency_code: "USD",
     });
+    expect(discoveryListing.rows[0]?.listing_stream_version).toBeGreaterThan(0);
+    expect(discoveryListing.rows[0]?.visible_quantity).toBeGreaterThan(0);
     expect(discoveryListing.rows[0]?.selected_options).toEqual(expect.arrayContaining(representativeSelectedOptions()));
     expect(discoveryListing.rows[0]?.listing_slug).not.toBe("");
     expect(discoveryListing.rows[0]?.product_slug).not.toBe("");
@@ -454,6 +485,39 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
       status: "accepted",
       accepted_seller_account_id: state.stock[0]?.accountId,
     });
+
+    const marketplaceBuyerListings = await getMarketplaceServices(
+      requireRun(testRuntime).services,
+    ).listings.listItemListings(representativeProductId());
+    expect(marketplaceBuyerListings).toEqual([
+      expect.objectContaining({
+        listing_id: state.listings[0]?.listingId,
+        price_amount: "9.99",
+        price_currency_code: "USD",
+        visible_quantity: expect.any(Number),
+      }),
+    ]);
+    expect(marketplaceBuyerListings[0]?.visible_quantity).toBeGreaterThan(0);
+
+    const discoveryServices = requireRun(testRuntime).services.discovery as {
+      items: { market: { getPublicListingBySlug: (listingSlug: string) => Promise<unknown> } };
+    };
+    const discoveryBuyerListing = (await discoveryServices.items.market.getPublicListingBySlug(
+      discoveryListing.rows[0]!.listing_slug,
+    )) as {
+      listing_id: string;
+      price_amount: string;
+      price_currency_code: string | null;
+      listing_stream_version: number;
+      visible_quantity: number;
+    } | null;
+    expect(discoveryBuyerListing).toMatchObject({
+      listing_id: state.listings[0]?.listingId,
+      price_amount: "9.99",
+      price_currency_code: "USD",
+    });
+    expect(discoveryBuyerListing?.listing_stream_version).toBeGreaterThan(0);
+    expect(discoveryBuyerListing?.visible_quantity).toBeGreaterThan(0);
   });
 
   function requireRun<Run>(run: Run | null): Run {

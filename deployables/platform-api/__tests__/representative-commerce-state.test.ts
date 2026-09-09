@@ -1,9 +1,10 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   assertRepresentativeProductContentsReconciled,
+  assertRepresentativeCanaryBuyerVisible,
   assertRepresentativeCommerceStateRunAllowed,
   assertRepresentativeCommerceStateEvidenceIsSupportSafe,
   buildRepresentativeCatalogReplayBinding,
@@ -32,6 +33,32 @@ describe("representative commerce state refresh guardrails", () => {
         { contextName: "discovery", projectionName: "discovery-search-item-projection" },
       ],
     });
+  });
+
+  it("accepts only a currency-complete positive-quantity canary visible in Marketplace and Discovery", async () => {
+    const services = representativeCanaryReadServices();
+
+    await expect(
+      assertRepresentativeCanaryBuyerVisible(services, representativeCanaryListing()),
+    ).resolves.toBeUndefined();
+    expect(services.marketplace.getSellerListing).toHaveBeenCalledWith(
+      "lst_repr_canary",
+      "acc_repr_card_vault_account",
+    );
+    expect(services.marketplace.getMarketSummaryForItem).toHaveBeenCalledWith("cat_pokemon::");
+    expect(services.discovery.getItemDetail).toHaveBeenCalledWith("cat_pokemon");
+  });
+
+  it("fails closed when either buyer-visible read model is incomplete", async () => {
+    const marketplaceMissing = representativeCanaryReadServices({ marketplaceVisibleQuantity: 0 });
+    const discoveryMissing = representativeCanaryReadServices({ discoveryCurrencyCode: null });
+
+    await expect(
+      assertRepresentativeCanaryBuyerVisible(marketplaceMissing, representativeCanaryListing()),
+    ).rejects.toThrow("must be buyer-visible in Marketplace and Discovery");
+    await expect(
+      assertRepresentativeCanaryBuyerVisible(discoveryMissing, representativeCanaryListing()),
+    ).rejects.toThrow("must be buyer-visible in Marketplace and Discovery");
   });
 
   it("allows confirmed staging runs", () => {
@@ -592,5 +619,55 @@ function supportSafeRepresentativeEvidence(): RepresentativeCommerceStateEvidenc
       ],
     },
     contexts: ["identity", "settlement", "marketplace", "ordering"],
+  };
+}
+
+function representativeCanaryListing() {
+  return {
+    catalogItemId: "cat_pokemon",
+    accountId: "acc_repr_card_vault_account",
+    inventoryItemId: "inv_repr_canary",
+    listingId: "lst_repr_canary",
+    status: "price-repaired" as const,
+  };
+}
+
+function representativeCanaryReadServices(
+  options: Readonly<{
+    marketplaceVisibleQuantity?: number;
+    discoveryCurrencyCode?: string | null;
+  }> = {},
+) {
+  const marketplaceVisibleQuantity = options.marketplaceVisibleQuantity ?? 2;
+  const discoveryCurrencyCode = options.discoveryCurrencyCode === undefined ? "USD" : options.discoveryCurrencyCode;
+  const listing = {
+    listing_id: "lst_repr_canary",
+    price_amount: "9.99",
+    price_currency_code: "USD",
+    listing_stream_version: 3,
+    visible_quantity: marketplaceVisibleQuantity,
+  };
+
+  return {
+    marketplace: {
+      getSellerListing: vi.fn(async () => ({ ...listing, product_id: "cat_pokemon::" })),
+      getMarketSummaryForItem: vi.fn(async () => ({
+        active_listing_count: marketplaceVisibleQuantity > 0 ? 1 : 0,
+        total_visible_quantity: marketplaceVisibleQuantity,
+      })),
+      listItemListings: vi.fn(async () => (marketplaceVisibleQuantity > 0 ? [listing] : [])),
+    },
+    discovery: {
+      getItemDetail: vi.fn(async () => ({
+        market_summary: discoveryCurrencyCode === null ? null : { active_listing_count: 1, total_visible_quantity: 2 },
+        market_listings: [
+          {
+            ...listing,
+            price_currency_code: discoveryCurrencyCode,
+            visible_quantity: 2,
+          },
+        ],
+      })),
+    },
   };
 }
