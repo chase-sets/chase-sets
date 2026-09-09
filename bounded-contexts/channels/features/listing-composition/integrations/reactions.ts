@@ -1,16 +1,21 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStoreContext, GlobalPosition } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ChannelListingCompositionServices } from "../api/runtime";
+import { channelListingEventCodec } from "../domain/codecs";
+import type { OutboundSyncServices } from "../../outbound-sync/domain/contracts";
 
 type SignalEvent = Readonly<{
   id: string;
   type: string;
   streamId: string;
   streamVersion: number;
+  globalPosition: GlobalPosition;
   data: Record<string, unknown>;
   tenantId: string;
   audit: Readonly<{ performedByUserId: string; forAccountId: string }>;
+  trace: EventStoreContext["trace"];
+  timing: Readonly<{ occurredAt: string }>;
 }>;
 
 const listingEvents = [
@@ -167,6 +172,7 @@ export function buildChannelCatalogDesiredStateReactionHandlers(
 
 export function buildChannelOwnedDesiredStateReactionHandlers(
   services: ChannelListingCompositionServices,
+  outboundSync: Pick<OutboundSyncServices, "enqueueDesiredState">,
 ): ProjectorHandlerMap {
   const handlers: { [key: string]: ProjectorHandlerMap[string] } = {};
   for (const eventType of connectionEvents)
@@ -203,6 +209,31 @@ export function buildChannelOwnedDesiredStateReactionHandlers(
         context(event),
       );
     };
+  handlers["channels.channel-listing.desired-state-changed"] = async (value) => {
+    const source = value as unknown as SignalEvent;
+    const event = channelListingEventCodec.decode({ eventType: source.type, payload: source.data });
+    if (event.type !== "channels.channel-listing.desired-state-changed") return;
+    await outboundSync.enqueueDesiredState({
+      connectionId: event.data.connectionId,
+      channelListingId: event.data.channelListingId,
+      listingId: event.data.listingId,
+      operationKind: event.data.intent,
+      listingRevision: event.data.listingRevision,
+      desiredStateSequence: event.data.desiredStateSequence,
+      desiredStateHash: event.data.desiredStateHash,
+      payload:
+        event.data.intent === "delist"
+          ? { kind: "delist", delist: event.data.delist }
+          : { kind: "draft", draft: event.data.draft },
+      envelope: {
+        sourceEventId: source.id,
+        sourceStreamId: source.streamId,
+        sourceStreamVersion: source.streamVersion,
+        sourceGlobalPosition: source.globalPosition,
+        sourceOccurredAt: source.timing.occurredAt,
+      },
+    });
+  };
   handlers["channels.channel-listing-reconciliation.run-settled"] = async () => {};
   return handlers;
 }
@@ -230,5 +261,6 @@ function context(event: SignalEvent): EventStoreContext {
       performedByUserId: event.audit.performedByUserId as EventStoreContext["audit"]["performedByUserId"],
       forAccountId: event.audit.forAccountId as EventStoreContext["audit"]["forAccountId"],
     },
+    trace: event.trace,
   };
 }

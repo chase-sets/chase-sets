@@ -17,6 +17,10 @@ type SourceContextRow = Readonly<{
   tenant_id: string;
   performed_by_user_id: string;
   for_account_id: string;
+  trace_id: string | null;
+  span_id: string | null;
+  parent_span_id: string | null;
+  trace_state: string | null;
 }>;
 
 export function buildChannelOutboundOperationReactionHandlers(services: OutboundSyncServices): ProjectorHandlerMap {
@@ -48,12 +52,12 @@ export function buildChannelOutboundOperationReactionHandlers(services: Outbound
 }
 
 export function createChannelListingPublicationOutcomeRecorder(
-  services: Pick<ChannelListingCompositionServices, "recordChannelListingPublicationOutcome">,
+  services: Pick<ChannelListingCompositionServices, "recordChannelListingPublicationOutcomeInTransaction">,
 ): NonNullable<OutboundSyncRuntimeDependencies["recordOutcome"]> {
   return async (db, operation, outcome) => {
     const context = await readSourceEventContext(db, operation);
     if (!context) return "link-write-refused";
-    const result = await services.recordChannelListingPublicationOutcome(
+    const result = await services.recordChannelListingPublicationOutcomeInTransaction(
       {
         connectionId: operation.connectionId,
         channelListingId: operation.channelListingId,
@@ -62,9 +66,10 @@ export function createChannelListingPublicationOutcomeRecorder(
         reportedListingRevision: operation.listingRevision,
         reportedDesiredStateHash: operation.sourceDesiredStateHash,
         outcome,
-        expectedStreamVersion: operation.sourceStreamVersion,
+        expectedStreamVersion: operation.sourceDesiredStateSequence,
       },
       context,
+      db,
     );
     return result.kind === "applied" || result.kind === "unchanged" ? "applied" : "link-write-refused";
   };
@@ -75,7 +80,8 @@ async function readSourceEventContext(
   operation: OutboundOperationRecord,
 ): Promise<EventStoreContext | null> {
   const result = await db.query<SourceContextRow>(
-    `SELECT source.tenant_id, source.performed_by_user_id, source.for_account_id
+    `SELECT source.tenant_id, source.performed_by_user_id, source.for_account_id,
+            source.trace_id, source.span_id, source.parent_span_id, source.trace_state
      FROM event_store_events AS source
      JOIN channel_connections AS connection
        ON connection.connection_id = $2
@@ -94,11 +100,21 @@ async function readSourceEventContext(
   );
   const row = result.rows[0];
   if (!row || result.rows.length !== 1) return null;
+  const trace =
+    row.trace_id || row.span_id || row.parent_span_id || row.trace_state
+      ? {
+          ...(row.trace_id ? { traceId: row.trace_id } : {}),
+          ...(row.span_id ? { spanId: row.span_id } : {}),
+          ...(row.parent_span_id ? { parentSpanId: row.parent_span_id } : {}),
+          ...(row.trace_state ? { traceState: row.trace_state } : {}),
+        }
+      : undefined;
   return {
     tenantId: row.tenant_id as EventStoreContext["tenantId"],
     audit: {
       performedByUserId: row.performed_by_user_id as EventStoreContext["audit"]["performedByUserId"],
       forAccountId: row.for_account_id as EventStoreContext["audit"]["forAccountId"],
     },
+    ...(trace ? { trace } : {}),
   };
 }

@@ -58,6 +58,14 @@ const createProviderRateStateTable = `CREATE TABLE IF NOT EXISTS channel_provide
   PRIMARY KEY (provider_key, environment)
 )`;
 
+const createReservationSettlementsTable = `CREATE TABLE IF NOT EXISTS channel_outbound_reservation_settlements (
+  reservation_id text PRIMARY KEY,
+  claimant jsonb NOT NULL,
+  outcomes jsonb NOT NULL,
+  run_settlement jsonb NULL,
+  settled_at timestamptz NOT NULL
+)`;
+
 const createOutboundLanesTable = `CREATE TABLE IF NOT EXISTS channel_outbound_lanes (
   connection_id text NOT NULL,
   channel_listing_id text NOT NULL,
@@ -101,6 +109,7 @@ const createOutboundIndexes = [
 
 export const outboundSyncSchemaSql = `
 ${createOutboundOperationsTable};
+${createReservationSettlementsTable};
 ${createProviderRateStateTable};
 ${createOutboundLanesTable};
 ${createOutboundIndexes.map((statement) => `${statement};`).join("\n")}
@@ -109,9 +118,10 @@ ${createOutboundIndexes.map((statement) => `${statement};`).join("\n")}
 export const outboundSyncSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260907_channels_outbound_sync",
-    description: "Create durable latest-state outbound operations, lane isolation, and provider rate state.",
+    description: "Create durable outbound operations, settlement receipts, lane isolation, and provider rate state.",
     statements: [
       createOutboundOperationsTable,
+      createReservationSettlementsTable,
       createProviderRateStateTable,
       createOutboundLanesTable,
       ...createOutboundIndexes,

@@ -1,4 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { parseGradedCardSnapshot } from "@chase-sets/primitives/graded-card-snapshot";
+import { buildChannelConditionSourceKeys } from "../../listing-composition/domain/canonical";
+import type { TcgplayerConditionMappingRead } from "../domain/composition";
 import type {
   ChannelInventorySnapshot,
   ChannelInventorySnapshotRow,
@@ -39,6 +42,48 @@ export async function readLatestSnapshotRows(
   input: Readonly<{ connectionId: string; surface: "live" | "staged" }>,
 ): ReturnType<typeof readSnapshotRows> {
   return readSnapshotRows(db, input);
+}
+
+export async function readTcgplayerConditionMappingInputs(
+  db: PgQueryable,
+  input: Readonly<{ connectionId: string; channelListingIds: readonly string[] }>,
+): Promise<readonly TcgplayerConditionMappingRead[]> {
+  if (input.channelListingIds.length === 0) return [];
+  const facts = await db.query<{ channel_listing_id: string; graded_card: unknown }>(
+    `SELECT link.channel_listing_id,listing.graded_card
+     FROM channels_channel_listing_links AS link
+     JOIN channels_listing_publication_facts AS listing ON listing.listing_id=link.listing_id
+     WHERE link.connection_id=$1 AND link.channel_listing_id=ANY($2::text[])`,
+    [input.connectionId, input.channelListingIds],
+  );
+  const sourceByListingId = new Map<string, string>();
+  for (const fact of facts.rows) {
+    const gradedCard = fact.graded_card === null ? null : parseGradedCardSnapshot(fact.graded_card);
+    const sourceKeys = buildChannelConditionSourceKeys([], gradedCard, null);
+    if (sourceKeys.length === 1 && sourceKeys[0]) sourceByListingId.set(fact.channel_listing_id, sourceKeys[0]);
+  }
+  const sourceKeys = [...new Set(sourceByListingId.values())];
+  if (sourceKeys.length === 0) return [];
+  const mappings = await db.query<{ source_key: string; target_key: string }>(
+    `SELECT source_key,target_key FROM channels_channel_mappings
+     WHERE connection_id=$1 AND dimension='condition' AND source_key=ANY($2::text[])
+       AND review_status IN ('accepted','auto-accepted')`,
+    [input.connectionId, sourceKeys],
+  );
+  const targetsBySourceKey = new Map(mappings.rows.map((mapping) => [mapping.source_key, mapping.target_key]));
+  return input.channelListingIds.flatMap((channelListingId) => {
+    const sourceKey = sourceByListingId.get(channelListingId);
+    return sourceKey
+      ? [
+          {
+            channelListingId,
+            dimension: "condition" as const,
+            sourceKey,
+            targetKey: targetsBySourceKey.get(sourceKey) ?? null,
+          },
+        ]
+      : [];
+  });
 }
 
 export async function readSnapshotRowsById(db: PgQueryable, snapshotId: string): ReturnType<typeof readSnapshotRows> {

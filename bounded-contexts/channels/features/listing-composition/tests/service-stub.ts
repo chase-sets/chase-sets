@@ -10,6 +10,7 @@ export function createUnavailableListingCompositionServices(): ChannelListingCom
     decideChannelMappingReview: unavailable,
     recordChannelListingDesiredState: unavailable,
     recordChannelListingPublicationOutcome: unavailable,
+    recordChannelListingPublicationOutcomeInTransaction: unavailable,
     enqueueChannelListingDesiredStateBackfill: unavailable,
     enqueueChannelListingDesiredStateReconciliation: unavailable,
     drainChannelListingDesiredStateReconciliation: unavailable,

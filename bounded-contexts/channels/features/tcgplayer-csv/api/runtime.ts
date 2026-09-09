@@ -37,7 +37,12 @@ import {
   assertTcgplayerImportSummary,
   assertTimezoneInstant,
 } from "../domain/validation";
-import { readLatestSnapshotRows, readRun, readSnapshotRowsById } from "../read-model/queries";
+import {
+  readLatestSnapshotRows,
+  readRun,
+  readSnapshotRowsById,
+  readTcgplayerConditionMappingInputs,
+} from "../read-model/queries";
 import {
   buildTcgplayerCsvProjectionHandlers,
   projectChannelSyncRunComposed,
@@ -272,6 +277,10 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
         connectionId: input.connectionId,
         channelListingIds: reservation.operations.map((operation) => operation.channelListingId),
       });
+      const conditionMappings = await readTcgplayerConditionMappingInputs(lockClient, {
+        connectionId: input.connectionId,
+        channelListingIds: reservation.operations.map((operation) => operation.channelListingId),
+      });
       const pin = await readSchemaPin(lockClient, input.connectionId);
       if (!pin) throw new ChannelSyncRunError("staged-basis-unavailable", "Staged schema is not pinned.");
       const composition = composeTcgplayerReservation({
@@ -282,6 +291,7 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
         basisRows: basis.rows,
         header: pin.header,
         references,
+        conditionMappings,
         profile,
         maxRowsPerBatch: input.resolvedPolicy.maxRowsPerBatch,
       });
@@ -370,13 +380,27 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
         importSummary: options.importSummary ?? null,
       },
     };
+    if (isChannelSyncRunTerminalState(nextState)) {
+      const settledRun: ChannelSyncRun = {
+        ...current,
+        state: nextState,
+        verificationSnapshotId: options.verificationSnapshotId ?? current.verificationSnapshotId,
+        verificationSnapshotGeneration: verificationSnapshotGeneration ?? current.verificationSnapshotGeneration,
+        uploadAttemptedAt: options.uploadAttemptedAt ?? current.uploadAttemptedAt,
+        uploadFileName: options.uploadFileName ?? current.uploadFileName,
+        importSummary: options.importSummary ?? current.importSummary,
+      };
+      await reportTerminalRun(dependencies, settledRun, event.data, context);
+      const committed = await readRun(dependencies.db, input.runId);
+      if (!committed) throw new ChannelSyncRunError("unknown-run");
+      return committed;
+    }
     const stored = await appendRunEvent(dependencies.eventStore, current.runId, current.revision + 1, event, context);
     await withPgTransaction(dependencies.db, (db) =>
       projectChannelSyncRunTransitioned(db, event.data, stored.streamVersion, stored.recordedAt),
     );
     const run = await readRun(dependencies.db, input.runId);
     if (!run) throw new ChannelSyncRunError("unknown-run");
-    if (isChannelSyncRunTerminalState(run.state)) await reportTerminalRun(dependencies, run);
     return run;
   };
 
@@ -459,7 +483,18 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
         reservationId: run.reservationId,
         claimant: run.claimant,
         outcomes: deriveClaimedOperationOutcomes(settled),
-        runSettlement: { runId: run.runId, expectedRunRevision: run.revision },
+        runSettlement: {
+          runId: run.runId,
+          expectedRunRevision: run.revision,
+          fromState: run.state,
+          toState: terminalState,
+          verificationSnapshotId: null,
+          verificationSnapshotGeneration: null,
+          uploadAttemptedAt: null,
+          uploadFileName: null,
+          importSummary: null,
+          context: null,
+        },
       });
       const result = await readRun(dependencies.db, run.runId);
       if (!result) throw new ChannelSyncRunError("unknown-run");
@@ -607,19 +642,21 @@ async function recordMappingCandidates(
   members: readonly ChannelSyncRunMember[],
   context: EventStoreContext,
 ): Promise<void> {
-  const candidates = members.flatMap((member) =>
-    member.memberKind === "refused" && member.mappingDimension && member.mappingSourceKey
-      ? [
-          {
-            dimension: member.mappingDimension,
-            sourceKey: member.mappingSourceKey,
-            proposedTargetKey: null,
-            confidenceTier: "low" as const,
-            evidence: { listingId: member.listingId, derivedFrom: "tcgplayer-staged-export" },
-          },
-        ]
-      : [],
-  );
+  const candidates = [];
+  const discovered = new Set<string>();
+  for (const member of members) {
+    if (member.memberKind !== "refused" || !member.mappingDimension || !member.mappingSourceKey) continue;
+    const identity = `${member.mappingDimension}\u0000${member.mappingSourceKey}`;
+    if (discovered.has(identity)) continue;
+    discovered.add(identity);
+    candidates.push({
+      dimension: member.mappingDimension,
+      sourceKey: member.mappingSourceKey,
+      proposedTargetKey: null,
+      confidenceTier: "low" as const,
+      evidence: { listingId: member.listingId, derivedFrom: "tcgplayer-staged-export" },
+    });
+  }
   if (candidates.length > 0) {
     await service.recordChannelMappingCandidates(
       { connectionId, provenance: "export-discovered", candidates },
@@ -628,11 +665,28 @@ async function recordMappingCandidates(
   }
 }
 
-async function reportTerminalRun(dependencies: TcgplayerCsvRuntimeDependencies, run: ChannelSyncRun): Promise<void> {
+async function reportTerminalRun(
+  dependencies: TcgplayerCsvRuntimeDependencies,
+  run: ChannelSyncRun,
+  transition: Extract<ChannelSyncRunEvent, { type: "channels.tcgplayer-sync-run.transitioned" }>["data"],
+  context: EventStoreContext,
+): Promise<void> {
   await dependencies.outboundSync.reportClaimedOperationOutcomes({
     reservationId: run.reservationId,
     claimant: run.claimant,
     outcomes: deriveClaimedOperationOutcomes(run),
+    runSettlement: {
+      runId: transition.runId,
+      expectedRunRevision: transition.expectedRevision,
+      fromState: transition.fromState as "composed" | "claimed" | "awaiting-verification",
+      toState: transition.toState as Exclude<ChannelSyncRun["state"], "composed" | "claimed" | "awaiting-verification">,
+      verificationSnapshotId: transition.verificationSnapshotId,
+      verificationSnapshotGeneration: transition.verificationSnapshotGeneration,
+      uploadAttemptedAt: transition.uploadAttemptedAt,
+      uploadFileName: transition.uploadFileName,
+      importSummary: transition.importSummary,
+      context,
+    },
   });
 }
 

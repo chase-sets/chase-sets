@@ -155,6 +155,21 @@ describe("postgres event store", () => {
     expect(calls.some((call) => call.sql.includes("INSERT INTO event_store_events"))).toBe(true);
   });
 
+  it("appends on a caller-owned transaction without beginning, committing, or releasing it", async () => {
+    const { pool, calls } = createAppendPool();
+    const store = createPostgresEventStore({
+      pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+      wakeNotifications: { enabled: true },
+    });
+
+    await expect(store.appendToStreamInTransaction(pool, appendInput())).resolves.toHaveLength(1);
+
+    expect(calls.map((call) => call.sql)).not.toEqual(expect.arrayContaining(["BEGIN", "COMMIT", "ROLLBACK"]));
+    expect(calls.some((call) => call.sql === "SELECT pg_notify($1, $2)")).toBe(true);
+  });
+
   it("rejects an oversized payload anywhere in a multi-stream append before persisting any stream", async () => {
     const { pool, calls } = createAppendPool();
     const store = createPostgresEventStore({ pool });

@@ -17,6 +17,7 @@ import {
   OutboundSyncError,
   type ClaimedOperationClaimant,
   type ClaimedOperationOutcome,
+  type ClaimedReservationRunSettlement,
   type BoundClaimedReservationRun,
   type OutboundConnection,
   type OutboundOperationLane,
@@ -26,7 +27,7 @@ import {
   type OutboundOperationSummary,
   type OutboundSyncRuntimeDependencies,
 } from "../domain/contracts";
-import { assertClaimedOperationClaimant, assertClaimedOperationOutcome } from "../domain/validation";
+import { assertClaimedOperationClaimant, assertClaimedOperationOutcome, canonicalJson } from "../domain/validation";
 import {
   createOutboundOperationStore,
   mapOutboundLaneRow,
@@ -108,7 +109,7 @@ export function createOutboundSyncRuntime(
       reservationId: string;
       claimant: ClaimedOperationClaimant;
       outcomes: readonly ClaimedOperationOutcome[];
-      runSettlement?: Readonly<{ runId: string; expectedRunRevision: number }>;
+      runSettlement?: ClaimedReservationRunSettlement;
     }): Promise<void> => {
       if (!dependencies.recordOutcome) {
         throw new OutboundSyncError("invalid-input", "The canonical publication outcome writer is not bound.");
@@ -120,6 +121,19 @@ export function createOutboundSyncRuntime(
       for (const outcome of input.outcomes) assertClaimedOperationOutcome(outcome);
       assertRunSettlement(input.runSettlement);
       await withPgTransaction(dependencies.db, async (db) => {
+        const receipt = await db.query<{
+          claimant: unknown;
+          outcomes: unknown;
+          run_settlement: unknown;
+        }>(
+          `SELECT claimant,outcomes,run_settlement FROM channel_outbound_reservation_settlements
+           WHERE reservation_id=$1 FOR UPDATE`,
+          [input.reservationId],
+        );
+        if (receipt.rows[0]) {
+          assertSettlementReceiptMatches(receipt.rows[0], input.claimant, input.outcomes, input.runSettlement);
+          return;
+        }
         const members = await db.query<OperationRow>(
           `SELECT ${outboundOperationSqlColumns}
            FROM channel_outbound_operations
@@ -128,31 +142,56 @@ export function createOutboundSyncRuntime(
            FOR UPDATE`,
           [input.reservationId],
         );
-        if (members.rows.length === 0 || members.rows.length !== input.outcomes.length) membershipMismatch();
+        if (members.rows.length === 0) {
+          const concurrentlySettled = await db.query<{
+            claimant: unknown;
+            outcomes: unknown;
+            run_settlement: unknown;
+          }>(
+            `SELECT claimant,outcomes,run_settlement FROM channel_outbound_reservation_settlements
+             WHERE reservation_id=$1 FOR UPDATE`,
+            [input.reservationId],
+          );
+          if (concurrentlySettled.rows[0]) {
+            assertSettlementReceiptMatches(
+              concurrentlySettled.rows[0],
+              input.claimant,
+              input.outcomes,
+              input.runSettlement,
+            );
+            return;
+          }
+          membershipMismatch();
+        }
+        if (members.rows.length !== input.outcomes.length) membershipMismatch();
         const reports = new Map(input.outcomes.map((outcome) => [outcome.operationId, outcome]));
         if (reports.size !== input.outcomes.length) membershipMismatch();
+        const port = dependencies.claimedReservationRunSettlement;
+        if (input.runSettlement && !port) {
+          throw new OutboundSyncError(
+            "run-settlement-unavailable",
+            "The downstream run settlement port is not installed.",
+          );
+        }
         const currentInstant = now();
         const expired = members.rows.every(
           (row) => Date.parse(timestamp(row.claimed_until)!) <= Date.parse(currentInstant),
         );
         let boundRun: BoundClaimedReservationRun | null = null;
         if (input.runSettlement) {
-          if (!expired) throw new OutboundSyncError("stale-fence", "Run settlement is only valid after lease expiry.");
-          const port = dependencies.claimedReservationRunSettlement;
-          if (!port) {
-            throw new OutboundSyncError(
-              "run-settlement-unavailable",
-              "The downstream run settlement port is not installed.",
-            );
-          }
-          boundRun = await port.lockBoundRun(db, {
+          boundRun = await port!.lockBoundRun(db, {
             reservationId: input.reservationId,
             runId: input.runSettlement.runId,
             expectedRunRevision: input.runSettlement.expectedRunRevision,
           });
           if (!boundRun) throw new OutboundSyncError("stale-fence", "The bound run fence did not match.");
-          assertBoundRunSettlement(boundRun, input.claimant, members.rows, currentInstant);
-          if (!sameOutcomeVector(boundRun.outcomes, input.outcomes)) membershipMismatch();
+          assertBoundRunIdentity(boundRun, input.claimant, members.rows);
+          if (
+            boundRun.state !== input.runSettlement.fromState ||
+            boundRun.revision !== input.runSettlement.expectedRunRevision
+          ) {
+            throw new OutboundSyncError("stale-fence", "The bound run transition fence did not match.");
+          }
         }
         for (const row of members.rows) {
           const report = reports.get(row.operation_id);
@@ -165,7 +204,7 @@ export function createOutboundSyncRuntime(
             Number(row.source_desired_state_sequence) !== report.desiredStateSequence
           )
             membershipMismatch();
-          if (!input.runSettlement && Date.parse(timestamp(row.claimed_until)!) <= Date.parse(currentInstant)) {
+          if (!input.runSettlement && expired) {
             throw new OutboundSyncError("reservation-expired");
           }
         }
@@ -179,13 +218,20 @@ export function createOutboundSyncRuntime(
           );
         }
         if (boundRun && input.runSettlement) {
-          await dependencies.claimedReservationRunSettlement!.settleBoundRun(db, {
-            runId: boundRun.runId,
-            expectedRunRevision: boundRun.revision,
-            fromState: nonTerminalRunState(boundRun),
-            toState: boundRun.state === "awaiting-verification" ? "application-unknown" : "abandoned",
+          await port!.settleBoundRun(db, {
+            ...input.runSettlement,
+            reservationId: input.reservationId,
+            outcomes: input.outcomes,
           });
         }
+        await writeSettlementReceipt(
+          db,
+          input.reservationId,
+          input.claimant,
+          input.outcomes,
+          input.runSettlement,
+          currentInstant,
+        );
       });
     },
 
@@ -344,7 +390,7 @@ async function recoverExpiredReservationsWithBoundRuns(
       }
       if (boundRun.state === "terminal") continue;
       const claimant = claimantFromRow(members.rows[0]!);
-      assertBoundRunSettlement(boundRun, claimant, members.rows, currentInstant);
+      assertExpiredBoundRunSettlement(boundRun, claimant, members.rows, currentInstant);
       const reports = new Map(boundRun.outcomes.map((outcome) => [outcome.operationId, outcome]));
       for (const row of members.rows) {
         await settleClaimedMember(
@@ -355,12 +401,24 @@ async function recoverExpiredReservationsWithBoundRuns(
           currentInstant,
         );
       }
-      await dependencies.claimedReservationRunSettlement!.settleBoundRun(db, {
+      const runSettlement: ClaimedReservationRunSettlement = {
         runId: boundRun.runId,
         expectedRunRevision: boundRun.revision,
         fromState: nonTerminalRunState(boundRun),
         toState: boundRun.state === "awaiting-verification" ? "application-unknown" : "abandoned",
+        verificationSnapshotId: null,
+        verificationSnapshotGeneration: null,
+        uploadAttemptedAt: null,
+        uploadFileName: null,
+        importSummary: null,
+        context: null,
+      };
+      await dependencies.claimedReservationRunSettlement!.settleBoundRun(db, {
+        ...runSettlement,
+        reservationId,
+        outcomes: boundRun.outcomes,
       });
+      await writeSettlementReceipt(db, reservationId, claimant, boundRun.outcomes, runSettlement, currentInstant);
       settled += members.rows.length;
     }
     return settled;
@@ -1243,29 +1301,102 @@ function membershipMismatch(): never {
   throw new OutboundSyncError("reservation-membership-mismatch");
 }
 
-function assertRunSettlement(value: Readonly<{ runId: string; expectedRunRevision: number }> | undefined): void {
-  if (value === undefined) return;
+function settlementReceiptRunIdentity(settlement: ClaimedReservationRunSettlement | undefined): unknown {
+  if (!settlement) return null;
+  const { context: _context, ...identity } = settlement;
+  return identity;
+}
+
+function assertSettlementReceiptMatches(
+  receipt: Readonly<{ claimant: unknown; outcomes: unknown; run_settlement: unknown }>,
+  claimant: ClaimedOperationClaimant,
+  outcomes: readonly ClaimedOperationOutcome[],
+  runSettlement: ClaimedReservationRunSettlement | undefined,
+): void {
   if (
-    Object.keys(value).sort().join(",") !== "expectedRunRevision,runId" ||
+    canonicalJson(receipt.claimant) !== canonicalJson(claimant) ||
+    canonicalJson(receipt.outcomes) !== canonicalJson(outcomes) ||
+    canonicalJson(receipt.run_settlement) !== canonicalJson(settlementReceiptRunIdentity(runSettlement))
+  ) {
+    membershipMismatch();
+  }
+}
+
+async function writeSettlementReceipt(
+  db: PgQueryable,
+  reservationId: string,
+  claimant: ClaimedOperationClaimant,
+  outcomes: readonly ClaimedOperationOutcome[],
+  runSettlement: ClaimedReservationRunSettlement | undefined,
+  settledAt: string,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO channel_outbound_reservation_settlements
+       (reservation_id,claimant,outcomes,run_settlement,settled_at)
+     VALUES ($1,$2::jsonb,$3::jsonb,$4::jsonb,$5)`,
+    [
+      reservationId,
+      JSON.stringify(claimant),
+      JSON.stringify(outcomes),
+      JSON.stringify(settlementReceiptRunIdentity(runSettlement)),
+      settledAt,
+    ],
+  );
+}
+
+function assertRunSettlement(value: ClaimedReservationRunSettlement | undefined): void {
+  if (value === undefined) return;
+  const keys = [
+    "expectedRunRevision",
+    "fromState",
+    "context",
+    "importSummary",
+    "runId",
+    "toState",
+    "uploadAttemptedAt",
+    "uploadFileName",
+    "verificationSnapshotGeneration",
+    "verificationSnapshotId",
+  ];
+  if (
+    Object.keys(value).sort().join(",") !== keys.sort().join(",") ||
     !isText(value.runId) ||
     value.runId.length > 512 ||
     !Number.isSafeInteger(value.expectedRunRevision) ||
-    value.expectedRunRevision < 1
+    value.expectedRunRevision < 0 ||
+    !["composed", "claimed", "awaiting-verification"].includes(value.fromState) ||
+    !["applied", "validation-rejected", "application-unknown", "superseded", "stale-basis", "abandoned"].includes(
+      value.toState,
+    ) ||
+    (value.verificationSnapshotId !== null && !isText(value.verificationSnapshotId)) ||
+    (value.verificationSnapshotGeneration !== null &&
+      (!Number.isSafeInteger(value.verificationSnapshotGeneration) || value.verificationSnapshotGeneration < 1)) ||
+    (value.uploadAttemptedAt !== null && !instant(value.uploadAttemptedAt)) ||
+    (value.uploadFileName !== null && !isText(value.uploadFileName)) ||
+    (value.context !== null &&
+      (!isText(value.context.tenantId) ||
+        !isText(value.context.audit?.performedByUserId) ||
+        !isText(value.context.audit?.forAccountId))) ||
+    (value.importSummary !== null &&
+      (!isText(value.importSummary.fileName) ||
+        !isText(value.importSummary.dateImportedText) ||
+        !Number.isSafeInteger(value.importSummary.numberOfProducts) ||
+        value.importSummary.numberOfProducts < 0 ||
+        !instant(value.importSummary.recordedAt)))
   ) {
     throw new OutboundSyncError("invalid-input", "runSettlement is invalid.");
   }
 }
 
-function assertBoundRunSettlement(
+function assertBoundRunIdentity(
   run: BoundClaimedReservationRun,
   claimant: ClaimedOperationClaimant,
   members: readonly OperationRow[],
-  currentInstant: string,
 ): void {
   if (
     !isText(run.runId) ||
     !Number.isSafeInteger(run.revision) ||
-    run.revision < 1 ||
+    run.revision < 0 ||
     !isText(run.reservationId) ||
     run.reservationId !== members[0]?.reservation_id ||
     run.claimant.claimantKind !== claimant.claimantKind ||
@@ -1274,6 +1405,31 @@ function assertBoundRunSettlement(
   ) {
     throw new OutboundSyncError("stale-fence", "The bound run is stale or terminal.");
   }
+  if (run.outcomes.length !== members.length) membershipMismatch();
+  const reports = new Map(run.outcomes.map((outcome) => [outcome.operationId, outcome]));
+  if (reports.size !== run.outcomes.length) membershipMismatch();
+  for (const member of members) {
+    const report = reports.get(member.operation_id);
+    if (
+      !report ||
+      report.attemptId !== member.attempt_id ||
+      report.claimGeneration !== Number(member.claim_generation) ||
+      report.desiredStateSequence !== Number(member.source_desired_state_sequence) ||
+      member.claimant_kind !== claimant.claimantKind ||
+      member.claim_owner_id !== claimant.claimantId
+    ) {
+      membershipMismatch();
+    }
+  }
+}
+
+function assertExpiredBoundRunSettlement(
+  run: BoundClaimedReservationRun,
+  claimant: ClaimedOperationClaimant,
+  members: readonly OperationRow[],
+  currentInstant: string,
+): void {
+  assertBoundRunIdentity(run, claimant, members);
   const leaseExpiresAt = Math.min(...members.map((member) => Date.parse(timestamp(member.claimed_until)!)));
   if (!Number.isFinite(leaseExpiresAt) || leaseExpiresAt > Date.parse(currentInstant)) {
     throw new OutboundSyncError("stale-fence", "The reservation lease is not expired.");
@@ -1295,22 +1451,6 @@ function assertBoundRunSettlement(
   ) {
     throw new OutboundSyncError("stale-fence", "Pre-submit expiry evidence is invalid.");
   }
-  if (run.outcomes.length !== members.length) membershipMismatch();
-  const reports = new Map(run.outcomes.map((outcome) => [outcome.operationId, outcome]));
-  if (reports.size !== run.outcomes.length) membershipMismatch();
-  for (const member of members) {
-    const report = reports.get(member.operation_id);
-    if (
-      !report ||
-      report.attemptId !== member.attempt_id ||
-      report.claimGeneration !== Number(member.claim_generation) ||
-      report.desiredStateSequence !== Number(member.source_desired_state_sequence) ||
-      member.claimant_kind !== claimant.claimantKind ||
-      member.claim_owner_id !== claimant.claimantId
-    ) {
-      membershipMismatch();
-    }
-  }
 }
 
 function nonTerminalRunState(
@@ -1325,46 +1465,6 @@ function claimantFromRow(row: OperationRow): ClaimedOperationClaimant {
     throw new OutboundSyncError("stale-fence", "The claimed reservation owner is invalid.");
   }
   return { claimantKind: row.claimant_kind, claimantId: row.claim_owner_id };
-}
-
-function sameOutcomeVector(
-  expected: readonly ClaimedOperationOutcome[],
-  actual: readonly ClaimedOperationOutcome[],
-): boolean {
-  if (expected.length !== actual.length) return false;
-  const actualByOperation = new Map(actual.map((outcome) => [outcome.operationId, outcome]));
-  return (
-    actualByOperation.size === actual.length &&
-    expected.every((outcome) => claimedOutcomeEquals(outcome, actualByOperation.get(outcome.operationId)))
-  );
-}
-
-function claimedOutcomeEquals(left: ClaimedOperationOutcome, right: ClaimedOperationOutcome | undefined): boolean {
-  if (
-    !right ||
-    left.operationId !== right.operationId ||
-    left.attemptId !== right.attemptId ||
-    left.claimGeneration !== right.claimGeneration ||
-    left.desiredStateSequence !== right.desiredStateSequence ||
-    left.outcome.kind !== right.outcome.kind
-  ) {
-    return false;
-  }
-  if (left.outcome.kind === "applied" && right.outcome.kind === "applied") {
-    return (
-      left.outcome.result.kind === right.outcome.result.kind &&
-      left.outcome.result.externalListingId === right.outcome.result.externalListingId &&
-      left.outcome.result.externalOfferId === right.outcome.result.externalOfferId &&
-      left.outcome.result.providerRevision === right.outcome.result.providerRevision
-    );
-  }
-  if (left.outcome.kind === "rejected" && right.outcome.kind === "rejected") {
-    return left.outcome.code === right.outcome.code;
-  }
-  if (left.outcome.kind === "abandoned" && right.outcome.kind === "abandoned") {
-    return left.outcome.reason === right.outcome.reason;
-  }
-  return left.outcome.kind === "outcome-unknown" && right.outcome.kind === "outcome-unknown";
 }
 
 function isText(value: unknown): value is string {

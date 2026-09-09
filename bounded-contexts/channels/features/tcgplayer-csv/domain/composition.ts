@@ -1,4 +1,5 @@
 import type { ClaimedOperationReservation, ClaimedOutboundOperation } from "../../outbound-sync/domain/contracts";
+import { assertChannelListingDelistDirective } from "../../listing-composition/domain/codecs";
 import type {
   ChannelCompositionProfile,
   ChannelListingDelistDirective,
@@ -22,8 +23,16 @@ export type ComposeTcgplayerReservationInput = Readonly<{
   basisRows: readonly ChannelInventorySnapshotRow[];
   header: readonly string[];
   references: readonly ChannelReferenceRead[];
+  conditionMappings: readonly TcgplayerConditionMappingRead[];
   profile: ChannelCompositionProfile;
   maxRowsPerBatch: number;
+}>;
+
+export type TcgplayerConditionMappingRead = Readonly<{
+  channelListingId: string;
+  dimension: "condition";
+  sourceKey: string;
+  targetKey: string | null;
 }>;
 
 export type ComposedTcgplayerReservation = Readonly<{
@@ -73,8 +82,15 @@ export function composeTcgplayerReservation(input: ComposeTcgplayerReservationIn
     throw new Error("Every composition basis row must belong to the exact Staged snapshot.");
   }
   const references = new Map(input.references.map((reference) => [reference.channelListingId, reference]));
+  const conditionMappings = new Map(input.conditionMappings.map((mapping) => [mapping.channelListingId, mapping]));
   const members = input.reservation.operations.map((operation, ordinal) =>
-    composeOperation(input, operation, ordinal, references.get(operation.channelListingId)),
+    composeOperation(
+      input,
+      operation,
+      ordinal,
+      references.get(operation.channelListingId),
+      conditionMappings.get(operation.channelListingId),
+    ),
   );
   const rows = members.flatMap((member) => (member.memberKind === "composed" ? [member.csvRow] : []));
   return {
@@ -124,6 +140,7 @@ function composeOperation(
   operation: ClaimedOutboundOperation,
   ordinal: number,
   reference: ChannelReferenceRead | undefined,
+  conditionMapping: TcgplayerConditionMappingRead | undefined,
 ): ChannelSyncRunMember {
   const common = {
     operationId: operation.operationId,
@@ -149,8 +166,20 @@ function composeOperation(
   if (candidates.length === 0) return refused(common, "staged-basis-row-absent", catalogReference.externalKey);
   const target = readTarget(operation);
   if (target.kind === "refused") return refused(common, target.reason, catalogReference.externalKey);
-  const basis = chooseBasisRow(candidates, target.conditionKey, input.profile.snapshotPreservedPlaceholder);
-  if (!basis) return refused(common, "condition-identity-ambiguous", catalogReference.externalKey);
+  const basis = chooseBasisRow(
+    candidates,
+    target.conditionKey,
+    input.profile.snapshotPreservedPlaceholder,
+    conditionMapping?.targetKey ?? null,
+  );
+  if (!basis) {
+    return refused(
+      common,
+      "condition-identity-ambiguous",
+      catalogReference.externalKey,
+      conditionMapping?.targetKey === null ? conditionMapping : undefined,
+    );
+  }
   if (basis.pendingQuantityDelta !== 0) {
     return refusedFromBasis(common, "staged-pending-delta-unknown", basis);
   }
@@ -230,36 +259,31 @@ function readTarget(operation: ClaimedOutboundOperation):
       conditionKey: operation.payload.draft.conditionKey,
     };
   }
-  if (!isDelistDirective(operation.payload.delist)) return { kind: "refused", reason: "price-unresolvable" };
+  try {
+    assertChannelListingDelistDirective(operation.payload.delist);
+  } catch {
+    return { kind: "refused", reason: "price-unresolvable" };
+  }
+  const delist = operation.payload.delist as ChannelListingDelistDirective;
   return {
     kind: "target",
     quantity: 0,
-    priceAmountMinor: operation.payload.delist.lastPublishedPrice.amountMinor,
-    currency: operation.payload.delist.lastPublishedPrice.currency,
+    priceAmountMinor: delist.lastPublishedPrice.amountMinor,
+    currency: delist.lastPublishedPrice.currency,
     conditionKey: null,
   };
-}
-
-function isDelistDirective(value: unknown): value is ChannelListingDelistDirective {
-  if (!isRecord(value) || !isRecord(value.lastPublishedPrice)) return false;
-  return (
-    typeof value.channelListingId === "string" &&
-    Number.isSafeInteger(value.listingRevision) &&
-    Number.isSafeInteger(value.lastPublishedQuantity) &&
-    Number.isSafeInteger(value.lastPublishedPrice.amountMinor) &&
-    typeof value.lastPublishedPrice.currency === "string" &&
-    Array.isArray(value.delistReasons)
-  );
 }
 
 function chooseBasisRow(
   candidates: readonly ChannelInventorySnapshotRow[],
   conditionKey: string | null,
   placeholder: string,
+  mappedConditionText: string | null,
 ): ChannelInventorySnapshotRow | null {
   if (candidates.length === 1) return candidates[0] ?? null;
-  if (conditionKey && conditionKey !== placeholder) {
-    const matches = candidates.filter((row) => row.conditionText === conditionKey);
+  const resolvedConditionText = conditionKey && conditionKey !== placeholder ? conditionKey : mappedConditionText;
+  if (resolvedConditionText) {
+    const matches = candidates.filter((row) => row.conditionText === resolvedConditionText);
     if (matches.length === 1) return matches[0] ?? null;
   }
   return null;
@@ -269,6 +293,7 @@ function refused(
   common: RunMemberCommon,
   refusalReason: TcgplayerLocalRefusalReason,
   externalKey: string | null = null,
+  mapping: TcgplayerConditionMappingRead | undefined = undefined,
 ): ChannelSyncRunRefusedMember {
   return {
     ...common,
@@ -283,8 +308,8 @@ function refused(
     targetPriceAmountMinor: null,
     csvRow: null,
     refusalReason,
-    mappingDimension: null,
-    mappingSourceKey: null,
+    mappingDimension: mapping?.dimension ?? null,
+    mappingSourceKey: mapping?.sourceKey ?? null,
   };
 }
 
@@ -301,8 +326,4 @@ function refusedFromBasis(
     basisTotalQuantity: basis.totalQuantity,
     basisPriceAmountMinor: basis.priceAmountMinor,
   };
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -12,6 +12,8 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import { module as channelsModule } from "../../../index";
 import { createChannelListingCompositionRuntime } from "../api/runtime";
 import { createChannelCompositionProfileRegistry } from "../domain/canonical";
+import { buildChannelOwnedDesiredStateReactionHandlers } from "../integrations/reactions";
+import { channelProviderRegistry } from "../../publication-port/api/registry";
 import {
   buildChannelCatalogFactsProjectionHandlers,
   buildChannelConnectionFactsProjectionHandlers,
@@ -217,6 +219,121 @@ describeDb("channel-listing-desired-state-production-path", () => {
       { amountMinor: 2_000, currency: "EUR" },
     ]);
     expect(desired[0]!.payload.desiredStateHash).not.toBe(desired[1]!.payload.desiredStateHash);
+
+    const rootServices = channelsModule.createServices(pools.channels, {});
+    const ownedReaction = buildChannelOwnedDesiredStateReactionHandlers(
+      rootServices.listingComposition,
+      rootServices.outboundSync,
+    );
+    const sourceEvent = await pools.channels.query<{
+      event_id: string;
+      stream_id: string;
+      stream_version: number;
+      global_position: string;
+      occurred_at: string | Date;
+      payload: Record<string, unknown>;
+    }>(
+      `SELECT event_id,stream_id,stream_version,global_position::text,occurred_at,payload
+       FROM event_store_events
+       WHERE event_type='channels.channel-listing.desired-state-changed'
+       ORDER BY stream_version LIMIT 1`,
+    );
+    const origin = sourceEvent.rows[0]!;
+    await ownedReaction["channels.channel-listing.desired-state-changed"]!(
+      buildTransportEvent("channels.channel-listing.desired-state-changed", origin.payload, {
+        id: origin.event_id,
+        streamId: origin.stream_id,
+        streamVersion: origin.stream_version,
+        globalPosition: origin.global_position,
+        timing: {
+          occurredAt: new Date(origin.occurred_at).toISOString(),
+          recordedAt: new Date(origin.occurred_at).toISOString(),
+        },
+      }),
+    );
+    const queued = await pools.channels.query<{
+      operation_kind: string;
+      source_event_id: string;
+      payload: Record<string, unknown>;
+    }>(
+      `SELECT operation_kind,source_event_id,payload FROM channel_outbound_operations
+       WHERE source_event_id=$1`,
+      [origin.event_id],
+    );
+    expect(queued.rows).toEqual([
+      expect.objectContaining({ operation_kind: "publish", source_event_id: origin.event_id }),
+    ]);
+    await pools.channels.query(
+      "UPDATE channel_connections SET provider_key='tcgplayer' WHERE connection_id='connection-production'",
+    );
+    const reservation = await rootServices.outboundSync.reserveClaimedOutboundOperations({
+      registry: channelProviderRegistry,
+      connectionId: "connection-production",
+      claimant: { claimantKind: "connector", claimantId: "producer-boundary-proof" },
+      maxOperations: 1,
+      leaseMs: 60_000,
+    });
+    expect(reservation?.operations).toHaveLength(1);
+    const operation = reservation!.operations[0]!;
+    const report = {
+      reservationId: reservation!.reservationId,
+      claimant: reservation!.claimant,
+      outcomes: [
+        {
+          operationId: operation.operationId,
+          attemptId: operation.attemptId,
+          claimGeneration: operation.claimGeneration,
+          desiredStateSequence: operation.desiredStateSequence,
+          outcome: {
+            kind: "applied",
+            result: { kind: "succeeded", externalListingId: "tcgplayer:production-boundary" },
+          },
+        },
+      ],
+    } as const;
+    await rootServices.outboundSync.reportClaimedOperationOutcomes(report);
+    await expect(rootServices.outboundSync.reportClaimedOperationOutcomes(report)).resolves.toBeUndefined();
+    await expect(
+      rootServices.outboundSync.reportClaimedOperationOutcomes({
+        ...report,
+        outcomes: [{ ...report.outcomes[0], desiredStateSequence: 99 }],
+      }),
+    ).rejects.toMatchObject({ code: "reservation-membership-mismatch" });
+    expect(
+      await pools.channels.query(
+        `SELECT event_type FROM event_store_events
+         WHERE stream_id=$1 AND event_type='channels.channel-listing.publication-recorded'`,
+        [origin.stream_id],
+      ),
+    ).toMatchObject({ rows: [{ event_type: "channels.channel-listing.publication-recorded" }] });
+    await expect(
+      ownedReaction["channels.channel-listing.desired-state-changed"]!(
+        buildTransportEvent(
+          "channels.channel-listing.desired-state-changed",
+          {
+            ...origin.payload,
+            intent: "delist",
+            delist: {
+              channelListingId: origin.payload.channelListingId,
+              listingRevision: origin.payload.listingRevision,
+              lastPublishedQuantity: 1,
+              delistReasons: ["sold-out"],
+            },
+          },
+          {
+            id: "invalid-delist-event",
+            streamId: origin.stream_id,
+            streamVersion: origin.stream_version,
+            globalPosition: origin.global_position,
+          },
+        ),
+      ),
+    ).rejects.toThrow();
+    expect(
+      await pools.channels.query(
+        "SELECT 1 FROM channel_outbound_operations WHERE source_event_id='invalid-delist-event'",
+      ),
+    ).toMatchObject({ rows: [] });
 
     await marketplace["marketplace.listing.price-updated"]!(
       event(

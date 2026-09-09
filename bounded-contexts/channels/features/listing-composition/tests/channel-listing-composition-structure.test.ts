@@ -26,14 +26,13 @@ describe("channel-subscription-order-fence", () => {
     const subscriptions = contextManifest.eventSubscriptions;
     const reactions = contextManifest.eventReactions;
     expect(subscriptions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 8, 14]);
-    expect(reactions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 8, 11, 1]);
+    expect(reactions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 8, 12, 1]);
     expect(subscriptions.every((entry) => entry.subscriptionVersion === 1 && entry.filterToEventTypes)).toBe(true);
     expect(reactions.every((entry) => entry.subscriptionVersion === 1 && entry.filterToEventTypes)).toBe(true);
     for (let index = 0; index < 3; index += 1) {
       expect(reactions[index]!.eventTypes).toEqual(subscriptions[index]!.eventTypes);
     }
     const channelListingOutcomeEvents = [
-      "channels.channel-listing.desired-state-changed",
       "channels.channel-listing.publication-blocked",
       "channels.channel-listing.publication-recorded",
     ];

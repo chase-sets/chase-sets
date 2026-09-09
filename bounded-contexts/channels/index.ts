@@ -2,6 +2,7 @@ export { default as contextManifest } from "./context.json" with { type: "json" 
 export { channelProviderRegistry, createChannelProviderRegistry } from "./features/publication-port/api/registry";
 export { createChannelListingCompositionRuntime } from "./features/listing-composition/api/runtime";
 export { type ChannelListingCompositionServices } from "./features/listing-composition/api/runtime";
+export { assertChannelListingDelistDirective } from "./features/listing-composition/domain/codecs";
 export {
   buildChannelCategorySourceKeys,
   buildChannelConditionSourceKeys,
@@ -140,6 +141,7 @@ import {
   createChannelListingCompositionRuntime,
   type ChannelListingCompositionServices,
 } from "./features/listing-composition/api/runtime";
+import { assertChannelListingDelistDirective } from "./features/listing-composition/domain/codecs";
 import { createChannelCompositionProfileRegistry } from "./features/listing-composition/domain/canonical";
 import {
   buildChannelCatalogDesiredStateReactionHandlers,
@@ -168,7 +170,7 @@ import {
 } from "./features/outbound-sync/integrations/listing-composition";
 import type { OutboundSyncServices } from "./features/outbound-sync/domain/contracts";
 import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "./features/outbound-sync/read-model/schema";
-import { assertChannelListingDelistDirectivePayload } from "./features/listing-composition/domain/codecs";
+import { assertChannelListingDelistDirective } from "./features/listing-composition/domain/codecs";
 import { createTcgplayerCsvRuntime, type TcgplayerCsvServices } from "./features/tcgplayer-csv/api/runtime";
 import { tcgplayerCompositionProfiles } from "./features/tcgplayer-csv/domain/profile";
 import { createTcgplayerClaimedReservationRunSettlementPort } from "./features/tcgplayer-csv/integrations/outbound-sync-settlement";
@@ -218,6 +220,7 @@ export const module = defineBoundedContextModule<
     const compositionProfiles = createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles);
     const listingComposition = createChannelListingCompositionRuntime({
       eventStore,
+      transactionalEventStore: eventStore,
       db: pool,
       profiles: compositionProfiles,
     });
@@ -227,10 +230,10 @@ export const module = defineBoundedContextModule<
         db: pool,
         resolveBudgetPolicy: async () => (await policies.resolvePolicy(outboundOperationBudgetPolicy)).value,
         recordOutcome: createChannelListingPublicationOutcomeRecorder(listingComposition),
-        claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(),
+        claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(eventStore),
       },
       {
-        assertDelistDirective: assertChannelListingDelistDirectivePayload,
+        assertDelistDirective: assertChannelListingDelistDirective,
       },
     );
     const tcgplayerCsv = createTcgplayerCsvRuntime({

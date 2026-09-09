@@ -45,7 +45,7 @@ describe("outbound-inline-execution-owner-inventory", () => {
     expect(runtime).not.toContain("features/listing-composition");
     expect(runtime).not.toContain("productionChannelProviderDescriptors");
     expect(composition).toContain("createChannelListingPublicationOutcomeRecorder(listingComposition)");
-    expect(composition).toContain("assertChannelListingDelistDirectivePayload");
+    expect(composition).toContain("assertDelistDirective: assertChannelListingDelistDirective");
     expect(integration).toContain('Pick<ChannelListingCompositionServices, "recordChannelListingPublicationOutcome">');
   });
 

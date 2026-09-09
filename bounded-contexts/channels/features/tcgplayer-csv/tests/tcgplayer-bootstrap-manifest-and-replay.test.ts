@@ -56,7 +56,7 @@ describe("tcgplayer-bootstrap-manifest-and-replay", () => {
     const compositionRoot = readFileSync(path.join(contextRoot, "index.ts"), "utf8");
     for (const required of [
       "createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles)",
-      "claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort()",
+      "claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(eventStore)",
       "createTcgplayerCsvRuntime({",
       "...tcgplayerCsvSchemaMigrations",
       "...tcgplayerCsv.projectors",

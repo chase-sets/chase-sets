@@ -46,6 +46,7 @@ const sliceAdditions = [
   "ChannelProviderRegistry",
   "createChannelProviderRegistry",
   "channelProviderRegistry",
+  "assertChannelListingDelistDirective",
   "buildChannelCategorySourceKeys",
   "buildChannelConditionSourceKeys",
   "buildChannelGradedAttributeSourceEntries",

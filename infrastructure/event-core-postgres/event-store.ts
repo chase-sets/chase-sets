@@ -28,7 +28,13 @@ import type {
   ReadStreamInput,
   StoredEvent,
 } from "@chase-sets/event-core/storage";
-import { isPgRetryableTransientError, withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "./types";
+import {
+  isPgRetryableTransientError,
+  withPgTransaction,
+  type PgPoolClient,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 import { buildStreamPrefixFilterSql, streamCategory, streamContextName } from "./stream-prefix-filter";
 
@@ -149,6 +155,10 @@ export type PostgresEventStoreConfig = Readonly<{
   wakeNotifications?: PostgresEventStoreWakeNotificationConfig;
 }>;
 
+export interface PostgresEventStore extends EventStore {
+  appendToStreamInTransaction(client: PgQueryable, input: AppendToStreamInput): Promise<readonly StoredEvent[]>;
+}
+
 const DEFAULT_EVENTS_TABLE = "event_store_events";
 
 const DEFAULT_STREAMS_TABLE = "event_store_streams";
@@ -180,7 +190,7 @@ const EVENT_COLUMNS = [
   "trace_state",
 ].join(", ");
 
-export function createPostgresEventStore(config: PostgresEventStoreConfig): EventStore {
+export function createPostgresEventStore(config: PostgresEventStoreConfig): PostgresEventStore {
   const pool = config.pool;
   const eventsTable = assertSqlIdentifier(config.eventsTableName ?? DEFAULT_EVENTS_TABLE);
   const streamsTable = assertSqlIdentifier(config.streamsTableName ?? DEFAULT_STREAMS_TABLE);
@@ -223,6 +233,44 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
   `;
 
   return {
+    appendToStreamInTransaction: async (client, input) => {
+      if (input.events.length === 0) return [];
+      assertEventPayloadSizes([input]);
+      return observeEventStoreOperation(
+        "append_to_stream_in_transaction",
+        {
+          event_count: input.events.length,
+          event_type: input.events.length === 1 ? input.events[0].eventType : "multiple",
+        },
+        async () => {
+          try {
+            const storedEvents = await appendEventsToStream({
+              client,
+              input,
+              now,
+              createEventId,
+              upsertStreamSql,
+              readCurrentVersionSql,
+              eventsTable,
+              readEventsByIdsSql,
+              updateStreamVersionSql,
+            });
+            if (wakeNotifications) {
+              await enqueueEventStoreWakeNotificationInTransaction({
+                client,
+                config: wakeNotifications,
+                input,
+                storedEvents,
+                emittedAt: now(),
+              });
+            }
+            return storedEvents;
+          } catch (error) {
+            throw normalizeEventStoreError(error, "Failed to append events in a caller-owned Postgres transaction.");
+          }
+        },
+      );
+    },
     appendToStream: async (input) => {
       if (input.events.length === 0) {
         return [];
@@ -520,7 +568,7 @@ export async function readGapSafeEventStoreHead(
 }
 
 type AppendInTransactionArgs = Readonly<{
-  client: PgPoolClient;
+  client: PgQueryable;
   input: AppendToStreamInput;
   now: () => IsoUtcTimestamp;
   createEventId: () => EventId;
@@ -1058,7 +1106,7 @@ function buildInsertEventsParams(events: readonly AppendEventToInsert[]): readon
 }
 
 async function readExistingEventsById(
-  client: PgPoolClient,
+  client: PgQueryable,
   readEventsByIdsSql: string,
   events: readonly AppendEventCandidate[],
 ): Promise<Map<string, StoredEvent>> {
@@ -1181,12 +1229,43 @@ function normalizeEventStoreWakeNotificationConfig(
 }
 
 type EmitEventStoreWakeNotificationAfterCommitArgs = Readonly<{
-  client: PgPoolClient;
+  client: PgQueryable;
   config: NormalizedEventStoreWakeNotificationConfig;
   input: AppendToStreamInput;
   storedEvents: readonly StoredEvent[];
   emittedAt: IsoUtcTimestamp;
 }>;
+
+async function enqueueEventStoreWakeNotificationInTransaction(
+  args: EmitEventStoreWakeNotificationAfterCommitArgs,
+): Promise<void> {
+  if (args.storedEvents.length === 0) return;
+  const envelope = createEventStoreWakeNotificationEnvelope({
+    input: args.input,
+    storedEvents: args.storedEvents,
+    source: args.config.source,
+    emittedAt: args.emittedAt,
+  });
+  let serialized: string;
+  try {
+    serialized = serializeEventStoreWakeNotificationEnvelope(envelope, {
+      maxPayloadBytes: args.config.maxPayloadBytes,
+    });
+  } catch (error) {
+    const observation = createEventStoreWakeNotificationObservation(args.config.channel, envelope);
+    emitWakeNotificationObserver(args.config.observer?.payloadRejected, {
+      ...observation,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+  try {
+    await args.client.query("SELECT pg_notify($1, $2)", [args.config.channel, serialized]);
+  } catch (error) {
+    const observation = createEventStoreWakeNotificationObservation(args.config.channel, envelope);
+    emitWakeNotificationObserver(args.config.observer?.notificationFailed, { ...observation, error });
+  }
+}
 
 async function emitEventStoreWakeNotificationAfterCommit(
   args: EmitEventStoreWakeNotificationAfterCommitArgs,

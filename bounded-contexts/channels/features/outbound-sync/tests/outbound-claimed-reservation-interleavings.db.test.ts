@@ -14,7 +14,7 @@ import type { JsonObject } from "@chase-sets/primitives/json";
 import { module as channelsModule } from "../../../index";
 import { createChannelListingCompositionRuntime } from "../../listing-composition/api/runtime";
 import { createChannelCompositionProfileRegistry } from "../../listing-composition/domain/canonical";
-import { assertChannelListingDelistDirectivePayload } from "../../listing-composition/domain/codecs";
+import { assertChannelListingDelistDirective } from "../../listing-composition/domain/codecs";
 import { buildChannelListingStateProjectionHandlers } from "../../listing-composition/read-model/state-projection";
 import { syntheticProfile } from "../../listing-composition/tests/test-support";
 import { createChannelProviderRegistry } from "../../publication-port/api/registry";
@@ -216,7 +216,7 @@ describeDb(
       const recordOutcome = createChannelListingPublicationOutcomeRecorder(listingComposition);
       const outbound = createOutboundSyncRuntime(
         { db: pools.channels, recordOutcome },
-        { assertDelistDirective: assertChannelListingDelistDirectivePayload },
+        { assertDelistDirective: assertChannelListingDelistDirective },
       );
       const reaction = buildChannelOutboundOperationReactionHandlers(outbound);
 
@@ -1158,7 +1158,7 @@ describeDb(
           reservationId: reservation.reservationId,
           claimant,
           outcomes: [{ ...outcomes[0]!, desiredStateSequence: 2 }],
-          runSettlement: { runId: "run-race", expectedRunRevision: 1 },
+          runSettlement: fixtureRunSettlement("run-race", 1),
         }),
       ).rejects.toMatchObject({ code: "reservation-membership-mismatch" });
       const results = await Promise.allSettled([
@@ -1166,7 +1166,7 @@ describeDb(
           reservationId: reservation.reservationId,
           claimant,
           outcomes,
-          runSettlement: { runId: "run-race", expectedRunRevision: 1 },
+          runSettlement: fixtureRunSettlement("run-race", 1),
         }),
         runtime.recoverExpiredClaimedOperations(),
       ]);
@@ -1180,9 +1180,9 @@ describeDb(
           reservationId: reservation.reservationId,
           claimant,
           outcomes,
-          runSettlement: { runId: "run-race", expectedRunRevision: 1 },
+          runSettlement: fixtureRunSettlement("run-race", 1),
         }),
-      ).rejects.toMatchObject({ code: "reservation-membership-mismatch" });
+      ).resolves.toBeUndefined();
     });
 
     it("outbound-operation-log-completeness / outbound-event-to-ack-latency pages to the independent total", async () => {
@@ -1751,6 +1751,21 @@ function createBoundRunFixturePort(): ClaimedReservationRunSettlementPort {
       );
       if (Number(result.rowCount ?? 0) !== 1) throw new Error("fixture-run-stale-fence");
     },
+  };
+}
+
+function fixtureRunSettlement(runId: string, expectedRunRevision: number) {
+  return {
+    runId,
+    expectedRunRevision,
+    fromState: "claimed" as const,
+    toState: "abandoned" as const,
+    verificationSnapshotId: null,
+    verificationSnapshotGeneration: null,
+    uploadAttemptedAt: null,
+    uploadFileName: null,
+    importSummary: null,
+    context: null,
   };
 }
 

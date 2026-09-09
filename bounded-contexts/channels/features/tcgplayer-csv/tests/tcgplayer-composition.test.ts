@@ -44,6 +44,7 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
           externalKey: "product:90000003",
         }),
       ],
+      conditionMappings: [],
       profile: tcgplayerProfile,
       maxRowsPerBatch: 500,
     });
@@ -95,6 +96,7 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
             externalKey: "product:90000001",
           }),
         ],
+        conditionMappings: [],
         profile: tcgplayerProfile,
         maxRowsPerBatch: 500,
       }),
@@ -111,6 +113,7 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
       basisRows: [basis("product:90000001", 4, 26)],
       header: ["TCGplayer Id", "Title", "Total Quantity", "Add to Quantity", "TCG Marketplace Price"],
       profile: tcgplayerProfile,
+      conditionMappings: [],
       maxRowsPerBatch: 500,
     };
     const catalogLinked = composeTcgplayerReservation({
@@ -154,6 +157,7 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
       basisRows: [basis("product:90000001", 4, 26)],
       header: ["TCGplayer Id", "Title", "Total Quantity", "Add to Quantity", "TCG Marketplace Price"],
       maxRowsPerBatch: 500,
+      conditionMappings: [],
     };
     const cases = [
       {
@@ -216,6 +220,7 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
         basisRows: [],
         header: [],
         references: [],
+        conditionMappings: [],
         profile: tcgplayerProfile,
         maxRowsPerBatch: 2,
       }),
@@ -237,6 +242,7 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
           externalKey: "product:90000001",
         }),
       ],
+      conditionMappings: [],
       profile: tcgplayerProfile,
       maxRowsPerBatch: 500,
     });
@@ -245,6 +251,60 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
       kind: "parsed",
       rows: [{ externalKey: "product:90000001", totalQuantity: 4, pendingQuantityDelta: -1, priceAmountMinor: 27 }],
     });
+  });
+
+  it("emits one genuine condition candidate or uses its accepted provider target", () => {
+    const one = { ...reservation, operations: [reservation.operations[0]!] };
+    const input = {
+      runId: "run-condition-mapping",
+      reservation: one,
+      basisSnapshotId: "snapshot-staged",
+      basisSnapshotGeneration: 7,
+      basisRows: [basis("product:90000001", 4, 26, "Near Mint"), basis("product:90000001", 4, 26, "Lightly Played")],
+      header: ["TCGplayer Id", "Condition", "Total Quantity", "Add to Quantity", "TCG Marketplace Price"],
+      references: [
+        reference("channel-listing-composed", {
+          kind: "linked" as const,
+          providerKey: "tcgplayer",
+          externalKey: "product:90000001",
+        }),
+      ],
+      profile: tcgplayerProfile,
+      maxRowsPerBatch: 500,
+    };
+    const discovered = composeTcgplayerReservation({
+      ...input,
+      conditionMappings: [
+        {
+          channelListingId: "channel-listing-composed",
+          dimension: "condition",
+          sourceKey: "graded-condition:PSA|10",
+          targetKey: null,
+        },
+      ],
+    });
+    expect(discovered.batch).toBeNull();
+    expect(discovered.members).toEqual([
+      expect.objectContaining({
+        memberKind: "refused",
+        refusalReason: "condition-identity-ambiguous",
+        mappingDimension: "condition",
+        mappingSourceKey: "graded-condition:PSA|10",
+      }),
+    ]);
+
+    const accepted = composeTcgplayerReservation({
+      ...input,
+      conditionMappings: [
+        {
+          channelListingId: "channel-listing-composed",
+          dimension: "condition",
+          sourceKey: "graded-condition:PSA|10",
+          targetKey: "Near Mint",
+        },
+      ],
+    });
+    expect(accepted.members[0]).toMatchObject({ memberKind: "composed", conditionText: "Near Mint" });
   });
 });
 
@@ -288,7 +348,12 @@ function operation(
   };
 }
 
-function basis(externalKey: string, quantity: number, price: number): ChannelInventorySnapshotRow {
+function basis(
+  externalKey: string,
+  quantity: number,
+  price: number,
+  conditionText: string | null = null,
+): ChannelInventorySnapshotRow {
   return {
     snapshotId: "snapshot-staged",
     snapshotGeneration: 7,
@@ -296,7 +361,7 @@ function basis(externalKey: string, quantity: number, price: number): ChannelInv
     providerKey: "tcgplayer",
     surface: "staged",
     externalKey,
-    conditionText: null,
+    conditionText,
     totalQuantity: quantity,
     pendingQuantityDelta: 0,
     priceAmountText: `${Math.floor(price / 100)}.${String(price % 100).padStart(2, "0")}00`,
@@ -304,6 +369,7 @@ function basis(externalKey: string, quantity: number, price: number): ChannelInv
     currency: "USD",
     referenceColumns: {
       "TCGplayer Id": externalKey.slice("product:".length),
+      ...(conditionText === null ? {} : { Condition: conditionText }),
       Title: "synthetic-title",
       "Total Quantity": String(quantity),
     },
