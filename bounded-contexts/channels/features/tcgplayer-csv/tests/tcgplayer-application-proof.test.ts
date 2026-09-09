@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelSyncRun } from "../domain/contracts";
+import { parseTcgplayerFullExport } from "../domain/csv";
 import {
   applicationMatchesImportSummary,
   applicationMatchesSnapshot,
@@ -108,6 +109,46 @@ const run: ChannelSyncRun = {
 };
 
 describe("tcgplayer-application-proof", () => {
+  it("proves a synthetic two-row application only from an independently parsed newer Staged export", () => {
+    const second = {
+      ...run.members[0]!,
+      operationId: "operation-composed-two",
+      attemptId: "attempt-composed-two",
+      channelListingId: "channel-listing-composed-two",
+      listingId: "listing-composed-two",
+      desiredStateSequence: 44,
+      ordinal: 1,
+      externalKey: "product:90000002",
+      conditionText: "Lightly Played",
+      targetQuantity: 3,
+      targetPriceAmountMinor: 30,
+    };
+    const twoRowRun: ChannelSyncRun = {
+      ...run,
+      membershipCompleteness: { kind: "complete", total: 2 },
+      members: [run.members[0]!, second],
+    };
+    const parsed = parseTcgplayerFullExport(
+      {
+        surface: "staged",
+        csv: [
+          "TCGplayer Id,Condition,Total Quantity,Add to Quantity,TCG Marketplace Price",
+          "90000001,Near Mint,1,0,0.2600",
+          "90000002,Lightly Played,3,0,0.3000",
+        ].join("\r\n"),
+      },
+      { maxRecords: 2 },
+    );
+    if (parsed.kind !== "parsed") throw new Error("Synthetic verification export did not parse.");
+    expect(
+      applicationMatchesSnapshot(twoRowRun, {
+        snapshotGeneration: 2,
+        rows: parsed.rows,
+      }),
+    ).toBe(true);
+    expect(parsed.rows[0]).toMatchObject({ priceAmountText: "0.2600", priceAmountMinor: 26 });
+  });
+
   it("uses only a newer snapshot's quantity and minor-unit aggregate", () => {
     const rows = [
       {
