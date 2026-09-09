@@ -908,11 +908,15 @@ describeDb(
       const policy = {
         incidentMultiplier: 1,
         providers: {
-          "synthetic-drill:sandbox": { maxRequestsPerWindow: 10_000, windowMs: 900_000 },
+          "synthetic-drill:sandbox": {
+            maxRequestsPerWindow: 10_000,
+            windowMs: 900_000,
+            maxInFlightPerConnection: 42,
+          },
           "synthetic-neighbor:sandbox": {
             maxRequestsPerWindow: 5_000,
             windowMs: 900_000,
-            maxInFlightPerConnection: 2,
+            maxInFlightPerConnection: 21,
           },
         },
       };
@@ -1267,11 +1271,11 @@ async function seedBacklogFairnessDrill(db: PgTransactionalPool) {
       UNION ALL
       SELECT
         'connection-neighbor'::text,
-        ('neighbor-channel-' || lpad(value::text, 3, '0'))::text,
-        ('neighbor-listing-' || lpad(value::text, 3, '0'))::text,
-        ('neighbor-event-' || lpad(value::text, 3, '0'))::text,
+        ('neighbor-channel-' || lpad(value::text, 5, '0'))::text,
+        ('neighbor-listing-' || lpad(value::text, 5, '0'))::text,
+        ('neighbor-event-' || lpad(value::text, 5, '0'))::text,
         (10000 + value)::bigint,
-        ('2026-09-07T18:59:00.002Z'::timestamptz + value * interval '500 milliseconds')
+        ('2026-09-07T18:59:00.002Z'::timestamptz + value * interval '10 milliseconds')
       FROM generate_series(1, 5000) AS value
     ), lanes AS (
       INSERT INTO channel_outbound_lanes (connection_id, channel_listing_id)
