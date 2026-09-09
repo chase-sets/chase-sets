@@ -228,7 +228,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
     );
     await expect(services.recordChannelListingDesiredState(source, testContext)).resolves.toMatchObject({
       kind: "unchanged",
-      streamVersion: 2,
+      streamVersion: 3,
     });
     expect(await desiredEvents()).toHaveLength(2);
 
@@ -237,7 +237,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
     );
     await expect(services.recordChannelListingDesiredState(source, testContext)).resolves.toMatchObject({
       kind: "applied",
-      streamVersion: 3,
+      streamVersion: 4,
     });
     const final = await pools.channels.query<{ event_type: string; payload: { reasons: readonly string[] } }>(
       `SELECT event_type,payload FROM event_store_events
