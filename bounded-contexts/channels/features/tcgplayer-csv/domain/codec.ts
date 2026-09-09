@@ -7,7 +7,9 @@ import {
   type ChannelSyncRun,
   type ChannelSyncRunEvent,
   type ChannelSyncRunMember,
+  type ChannelSyncRunMemberKind,
   type ChannelSyncRunState,
+  type TcgplayerLocalRefusalReason,
 } from "./contracts";
 import {
   assertBoundedText,
@@ -109,7 +111,21 @@ function decodeChannelSyncRunEvent(stored: Pick<StoredEvent, "eventType" | "payl
     ) {
       throw new Error("Run transition carries unrelated evidence.");
     }
-    return { type: stored.eventType, data: stored.payload } as ChannelSyncRunEvent;
+    return {
+      type: stored.eventType,
+      data: {
+        runId: stored.payload.runId,
+        reservationId: stored.payload.reservationId,
+        expectedRevision: stored.payload.expectedRevision,
+        fromState: stored.payload.fromState,
+        toState: stored.payload.toState,
+        verificationSnapshotId: stored.payload.verificationSnapshotId,
+        verificationSnapshotGeneration: stored.payload.verificationSnapshotGeneration,
+        uploadAttemptedAt: stored.payload.uploadAttemptedAt,
+        uploadFileName: stored.payload.uploadFileName,
+        importSummary: stored.payload.importSummary,
+      },
+    };
   }
   throw new Error("Unsupported Channel Sync Run event type.");
 }
@@ -166,7 +182,7 @@ function assertChannelSyncRun(value: unknown): asserts value is ChannelSyncRun {
   assertSafeInteger(value.revision, 0, Number.MAX_SAFE_INTEGER, "revision");
   assertSafeInteger(value.sequence, 1, Number.MAX_SAFE_INTEGER, "sequence");
   assertSafeInteger(value.basisSnapshotGeneration, 1, Number.MAX_SAFE_INTEGER, "basisSnapshotGeneration");
-  if (value.providerKey !== "tcgplayer" || !channelSyncRunStates.includes(value.state as never))
+  if (value.providerKey !== "tcgplayer" || !isChannelSyncRunState(value.state))
     throw new Error("Channel Sync Run identity or state is invalid.");
   assertClosedRecord(value.claimant, ["claimantKind", "claimantId"], "run claimant");
   if (value.claimant.claimantKind !== "manual" && value.claimant.claimantKind !== "connector")
@@ -213,7 +229,7 @@ function assertChannelSyncRunMember(value: unknown, ordinal: number): asserts va
   if (typeof value !== "object" || value === null || Array.isArray(value))
     throw new Error("Run member must be a record.");
   const member = value as Record<string, unknown>;
-  if (!channelSyncRunMemberKinds.includes(member.memberKind as never)) throw new Error("Run member kind is invalid.");
+  if (!isChannelSyncRunMemberKind(member.memberKind)) throw new Error("Run member kind is invalid.");
   for (const key of [
     "operationId",
     "attemptId",
@@ -258,7 +274,7 @@ function assertChannelSyncRunMember(value: unknown, ordinal: number): asserts va
     throw new Error("Run member is not closed.");
   if (member.memberKind === "refused") {
     if (
-      !tcgplayerLocalRefusalReasons.includes(member.refusalReason as never) ||
+      !isTcgplayerLocalRefusalReason(member.refusalReason) ||
       member.csvRow !== null ||
       (member.mappingDimension === null) !== (member.mappingSourceKey === null) ||
       (member.mappingDimension !== null &&
@@ -288,6 +304,14 @@ function assertChannelSyncRunMember(value: unknown, ordinal: number): asserts va
       throw new Error("Already-satisfied run member proof is invalid.");
     }
   }
+}
+
+function isChannelSyncRunMemberKind(value: unknown): value is ChannelSyncRunMemberKind {
+  return typeof value === "string" && channelSyncRunMemberKinds.some((kind) => kind === value);
+}
+
+function isTcgplayerLocalRefusalReason(value: unknown): value is TcgplayerLocalRefusalReason {
+  return typeof value === "string" && tcgplayerLocalRefusalReasons.some((reason) => reason === value);
 }
 
 function isStringRecord(value: unknown): value is Readonly<Record<string, string>> {

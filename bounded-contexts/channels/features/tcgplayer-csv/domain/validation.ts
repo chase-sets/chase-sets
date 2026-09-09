@@ -85,7 +85,16 @@ export function assertManualClaimLeasePolicySnapshot(value: unknown): asserts va
   }
   if (typeof value.digest !== "string" || !/^[0-9a-f]{64}$/.test(value.digest))
     throw new Error("Policy digest is invalid.");
-  const { digest, ...tuple } = value as unknown as ManualClaimLeasePolicySnapshot;
+  const tuple: Omit<ManualClaimLeasePolicySnapshot, "digest"> = {
+    policyKey: value.policyKey,
+    value: { leaseMs: value.value.leaseMs },
+    source: value.source,
+    documentId: value.documentId,
+    effectiveFrom: value.effectiveFrom,
+    effectiveUntil: value.effectiveUntil,
+    resolvedAt: value.resolvedAt,
+  };
+  const digest = value.digest;
   if (digest !== canonicalManualClaimLeasePolicySnapshotDigest(tuple))
     throw new Error("Policy digest does not match its tuple.");
 }

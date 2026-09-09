@@ -11,7 +11,6 @@ import { composeTcgplayerReservation, type ComposedTcgplayerReservation } from "
 import { parseTcgplayerFullExport } from "../domain/csv";
 import {
   ChannelSyncRunError,
-  channelSyncRunTerminalStates,
   type ChannelExportSchemaPin,
   type ChannelInventorySnapshot,
   type ChannelSyncRun,
@@ -28,6 +27,7 @@ import {
   applicationMatchesImportSummary,
   decideChannelSyncRunTransition,
   deriveClaimedOperationOutcomes,
+  isChannelSyncRunTerminalState,
 } from "../domain/lifecycle";
 import {
   assertBoundedText,
@@ -376,7 +376,7 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
     );
     const run = await readRun(dependencies.db, input.runId);
     if (!run) throw new ChannelSyncRunError("unknown-run");
-    if (channelSyncRunTerminalStates.includes(run.state as never)) await reportTerminalRun(dependencies, run);
+    if (isChannelSyncRunTerminalState(run.state)) await reportTerminalRun(dependencies, run);
     return run;
   };
 
@@ -451,7 +451,7 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
       const run = await readRun(dependencies.db, input.runId);
       if (!run) throw new ChannelSyncRunError("unknown-run");
       if (run.revision !== input.expectedRevision) throw new ChannelSyncRunError("stale-fence");
-      if (channelSyncRunTerminalStates.includes(run.state as never)) throw new ChannelSyncRunError("terminal");
+      if (isChannelSyncRunTerminalState(run.state)) throw new ChannelSyncRunError("terminal");
       const terminalState: "application-unknown" | "abandoned" =
         run.state === "awaiting-verification" ? "application-unknown" : "abandoned";
       const settled = { ...run, state: terminalState };

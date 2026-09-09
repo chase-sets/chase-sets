@@ -13,6 +13,7 @@ export {
   applicationMatchesImportSummary,
   decideChannelSyncRunTransition,
   deriveClaimedOperationOutcomes,
+  isChannelSyncRunTerminalState,
 } from "./domain/lifecycle";
 export { tcgplayerStagedImportPolicy } from "./domain/policy";
 export {

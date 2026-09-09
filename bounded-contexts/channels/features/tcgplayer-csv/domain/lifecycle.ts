@@ -34,7 +34,7 @@ export function decideChannelSyncRunTransition(
   trigger: ChannelSyncRunTrigger,
   options: Readonly<{ verificationMatched?: boolean }> = {},
 ): ChannelSyncRunState {
-  if (channelSyncRunTerminalStates.includes(state as never)) throw new ChannelSyncRunError("terminal");
+  if (isChannelSyncRunTerminalState(state)) throw new ChannelSyncRunError("terminal");
   if (trigger === "compose") throw new ChannelSyncRunError("illegal-transition");
   if (trigger === "report-upload-attempted" && state === "composed") {
     throw new ChannelSyncRunError("no-attempt-outstanding");
@@ -53,7 +53,7 @@ export function deriveClaimedOperationOutcomes(run: ChannelSyncRun): readonly Cl
   if (run.membershipCompleteness.kind !== "complete") {
     throw new ChannelSyncRunError("stale-fence", "Incomplete run membership cannot be acknowledged.");
   }
-  if (!channelSyncRunTerminalStates.includes(run.state as never)) {
+  if (!isChannelSyncRunTerminalState(run.state)) {
     throw new ChannelSyncRunError("illegal-transition", "A non-terminal run cannot settle its reservation.");
   }
   return run.members.map((member) => {
@@ -107,6 +107,12 @@ export function deriveClaimedOperationOutcomes(run: ChannelSyncRun): readonly Cl
         return assertNever(run.state);
     }
   });
+}
+
+export function isChannelSyncRunTerminalState(
+  state: ChannelSyncRunState,
+): state is (typeof channelSyncRunTerminalStates)[number] {
+  return channelSyncRunTerminalStates.some((terminal) => terminal === state);
 }
 
 export function applicationMatchesSnapshot(
