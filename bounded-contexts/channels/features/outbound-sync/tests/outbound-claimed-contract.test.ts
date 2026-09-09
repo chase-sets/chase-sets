@@ -39,3 +39,22 @@ describe("outbound claimed public contract", () => {
     expectTypeOf<keyof ChannelsServices>().toEqualTypeOf<"connections" | "outboundSync" | "projectors">();
   });
 });
+
+function compileClaimedBoundaryMutants(outcome: ClaimedOperationOutcome): void {
+  // @ts-expect-error desiredStateSequence is required on every report member
+  const omittedSequence: ClaimedOperationOutcome = {
+    operationId: outcome.operationId,
+    attemptId: outcome.attemptId,
+    claimGeneration: outcome.claimGeneration,
+    outcome: outcome.outcome,
+  };
+  const extraListingRevision: ClaimedOperationOutcome = {
+    ...outcome,
+    // @ts-expect-error listingRevision cannot substitute for the producer-authored sequence
+    listingRevision: outcome.desiredStateSequence,
+  };
+  void omittedSequence;
+  void extraListingRevision;
+}
+
+void compileClaimedBoundaryMutants;

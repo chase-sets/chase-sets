@@ -87,11 +87,9 @@ export function decodeOutboundOperationBudgetPolicy(raw: JsonValue): OutboundOpe
       if (typeof override.disabled !== "boolean") invalid(`${identity}.disabled must be boolean.`);
       decoded.disabled = override.disabled;
     }
-    if (
-      typeof decoded.baseBackoffMs === "number" &&
-      typeof decoded.maxBackoffMs === "number" &&
-      decoded.maxBackoffMs < decoded.baseBackoffMs
-    ) {
+    const effectiveBaseBackoffMs = decoded.baseBackoffMs ?? OUTBOUND_OPERATION_BUDGET_FALLBACK.baseBackoffMs;
+    const effectiveMaxBackoffMs = decoded.maxBackoffMs ?? OUTBOUND_OPERATION_BUDGET_FALLBACK.maxBackoffMs;
+    if (effectiveMaxBackoffMs < effectiveBaseBackoffMs) {
       invalid(`${identity}.maxBackoffMs must be at least baseBackoffMs.`);
     }
     providers[identity] = Object.freeze(decoded) as OutboundOperationBudgetOverride;

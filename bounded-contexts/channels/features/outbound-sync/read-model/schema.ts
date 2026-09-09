@@ -36,6 +36,12 @@ const createOutboundOperationsTable = `CREATE TABLE IF NOT EXISTS channel_outbou
     (status = 'in-flight' AND attempt_id IS NOT NULL AND claimant_kind IS NOT NULL AND claim_owner_id IS NOT NULL AND claimed_until IS NOT NULL)
     OR status <> 'in-flight'
   ),
+  CHECK (
+    status <> 'in-flight'
+    OR (claimant_kind = 'inline' AND reservation_id IS NULL)
+    OR (claimant_kind IN ('connector', 'manual') AND reservation_id IS NOT NULL)
+  ),
+  CHECK (source_stream_version = source_desired_state_sequence),
   CHECK ((status IN ('succeeded', 'failed') AND terminal_at IS NOT NULL) OR status NOT IN ('succeeded', 'failed'))
 )`;
 
@@ -80,11 +86,17 @@ const createOutboundIndexes = [
   `CREATE INDEX IF NOT EXISTS channel_outbound_operations_claim_idx
   ON channel_outbound_operations (next_attempt_at, enqueued_at, operation_id)
   WHERE status = 'pending'`,
+  `CREATE INDEX IF NOT EXISTS channel_outbound_operations_connection_claim_idx
+  ON channel_outbound_operations (connection_id, enqueued_at, operation_id)
+  WHERE status = 'pending'`,
   `CREATE INDEX IF NOT EXISTS channel_outbound_operations_connection_log_idx
   ON channel_outbound_operations (connection_id, enqueued_at DESC, operation_id DESC)`,
   `CREATE INDEX IF NOT EXISTS channel_outbound_operations_expiry_idx
   ON channel_outbound_operations (claimed_until, reservation_id)
   WHERE status = 'in-flight' AND claimant_kind IN ('connector', 'manual')`,
+  `CREATE INDEX IF NOT EXISTS channel_outbound_operations_inline_expiry_idx
+  ON channel_outbound_operations (claimed_until, operation_id)
+  WHERE status = 'in-flight' AND claimant_kind = 'inline'`,
 ] as const;
 
 export const outboundSyncSchemaSql = `

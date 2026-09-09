@@ -10,6 +10,7 @@ describe("outbound-bootstrap-and-manifest", () => {
       "channel_outbound_lanes",
       "channel_outbound_operations_one_pending_per_lane_uidx",
       "channel_outbound_operations_one_inflight_per_lane_uidx",
+      "channel_outbound_operations_connection_claim_idx",
       "source_desired_state_sequence",
       "source_desired_state_hash",
       "payload_digest",

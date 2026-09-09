@@ -59,6 +59,12 @@ describe("outbound-per-provider-budget-and-fairness", () => {
         providers: { "synthetic:sandbox": { nested: true } },
       } as never),
     ).toThrow(/unknown/);
+    expect(() =>
+      decodeOutboundOperationBudgetPolicy({
+        incidentMultiplier: 1,
+        providers: { "synthetic:sandbox": { maxBackoffMs: 999 } },
+      }),
+    ).toThrow(/at least baseBackoffMs/);
   });
 });
 

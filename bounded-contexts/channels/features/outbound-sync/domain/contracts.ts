@@ -130,6 +130,42 @@ export type ClaimedOperationOutcome = Readonly<{
     | Readonly<{ kind: "abandoned"; reason: "released" | "superseded-basis" | "claimant-cancelled" }>;
 }>;
 
+/**
+ * The reservation-side view of a downstream run while its operation members
+ * are locked. The downstream owner derives the total outcome vector from its
+ * immutable member partition; outbound sync only validates and settles it.
+ */
+export type BoundClaimedReservationRun = Readonly<{
+  runId: string;
+  revision: number;
+  reservationId: string;
+  state: "composed" | "claimed" | "awaiting-verification" | "terminal";
+  submitMayHaveOccurred: boolean;
+  uploadAttemptedAt: string | null;
+  claimant: ClaimedOperationClaimant;
+  outcomes: readonly ClaimedOperationOutcome[];
+}>;
+
+export interface ClaimedReservationRunSettlementPort {
+  lockBoundRun(
+    db: PgQueryable,
+    input: Readonly<{
+      reservationId: string;
+      runId?: string;
+      expectedRunRevision?: number;
+    }>,
+  ): Promise<BoundClaimedReservationRun | null>;
+  settleBoundRun(
+    db: PgQueryable,
+    input: Readonly<{
+      runId: string;
+      expectedRunRevision: number;
+      fromState: Exclude<BoundClaimedReservationRun["state"], "terminal">;
+      toState: "abandoned" | "application-unknown";
+    }>,
+  ): Promise<void>;
+}
+
 export type ConnectionExecutionAdmission =
   | Readonly<{ kind: "blocked"; reason: "provider-descriptor-unregistered" | "provider-publication-unregistered" }>
   | Readonly<{ kind: "claimed"; providerIdentity: ChannelProviderIdentity }>
@@ -248,6 +284,7 @@ export type OutboundSyncRuntimeDependencies = Readonly<{
       | Readonly<{ kind: "rejected"; code: ChannelPublicationRejectionCode }>
       | Readonly<{ kind: "outcome-unknown" }>,
   ) => Promise<"applied" | "link-write-refused">;
+  claimedReservationRunSettlement?: ClaimedReservationRunSettlementPort;
 }>;
 
 export class OutboundSyncError extends Error {

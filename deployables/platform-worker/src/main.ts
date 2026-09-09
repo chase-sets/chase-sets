@@ -119,6 +119,7 @@ import {
   type PlatformWorkerGoogleMerchantConfig,
 } from "./config";
 import { createAgentWebhookDispatchRunners, createOrderingAgentWebhookOrderResolvers } from "./agent-webhook-runners";
+import { createChannelsOutboundRunners } from "./channels-outbound-runners";
 import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
@@ -389,6 +390,7 @@ const bulkJobRunners = [
         ...createPricingJobRunners(runtime.services, config),
         ...createBulkRepriceIngestionJobRunners(runtime.services, config),
         ...createSettlementJobRunners(runtime.services, config),
+        ...createChannelsOutboundRunners(runtime.services, config),
       ]
     : []),
 ];
