@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import type { EventStoreContext, ExpectedStreamVersion, StoredEvent } from "@chase-sets/event-core/storage";
 import type { ChannelProviderRegistry } from "../../publication-port/domain/contracts";
 import type { OutboundSyncServices } from "../../outbound-sync/domain/contracts";
-import type { ClaimedOperationReservation } from "../../outbound-sync/domain/contracts";
 import type { ChannelCompositionProfileRegistry } from "../../listing-composition/domain/contracts";
 import type { ChannelListingCompositionServices } from "../../listing-composition/api/runtime";
 import { readChannelListingProviderProductReferences } from "../../listing-composition/read-model/queries";
@@ -15,12 +15,14 @@ import {
   type ChannelExportSchemaPin,
   type ChannelInventorySnapshot,
   type ChannelSyncRun,
+  type ChannelSyncRunEvent,
   type ChannelSyncRunMember,
   type ManualClaimLeasePolicySnapshot,
   type TcgplayerExportIngestLimits,
   type TcgplayerExportParseResult,
   type TcgplayerImportSummary,
 } from "../domain/contracts";
+import { channelSyncRunEventCodec } from "../domain/codec";
 import {
   applicationMatchesSnapshot,
   applicationMatchesImportSummary,
@@ -36,9 +38,15 @@ import {
   assertTimezoneInstant,
 } from "../domain/validation";
 import { readLatestSnapshotRows, readRun, readSnapshotRowsById } from "../read-model/queries";
+import {
+  buildTcgplayerCsvProjectionHandlers,
+  projectChannelSyncRunComposed,
+  projectChannelSyncRunTransitioned,
+} from "../read-model/projection";
 
 export type TcgplayerCsvRuntimeDependencies = Readonly<{
   db: PgTransactionalPool;
+  eventStore: EventStore;
   outboundSync: Pick<OutboundSyncServices, "reserveClaimedOutboundOperations" | "reportClaimedOperationOutcomes">;
   listingComposition: Pick<ChannelListingCompositionServices, "recordChannelMappingCandidates">;
   providerRegistry: ChannelProviderRegistry;
@@ -53,22 +61,25 @@ export interface TcgplayerCsvServices {
     input: ComposeTcgplayerSyncRunInput,
     context: EventStoreContext,
   ): Promise<Readonly<{ run: ChannelSyncRun; composition: ComposedTcgplayerReservation }> | null>;
-  claimRun(input: RunFenceInput): Promise<ChannelSyncRun>;
-  releaseRun(input: RunFenceInput): Promise<ChannelSyncRun>;
+  claimRun(input: RunFenceInput, context: EventStoreContext): Promise<ChannelSyncRun>;
+  releaseRun(input: RunFenceInput, context: EventStoreContext): Promise<ChannelSyncRun>;
   recordUploadAttempt(
     input: RunFenceInput & Readonly<{ uploadAttemptedAt: string; fileName: string }>,
+    context: EventStoreContext,
   ): Promise<ChannelSyncRun>;
-  recordValidationCancellation(input: RunFenceInput): Promise<ChannelSyncRun>;
+  recordValidationCancellation(input: RunFenceInput, context: EventStoreContext): Promise<ChannelSyncRun>;
   verifyRun(
     input: RunFenceInput & Readonly<{ verificationSnapshotId: string; importSummary: TcgplayerImportSummary }>,
+    context: EventStoreContext,
   ): Promise<ChannelSyncRun>;
-  supersedeRun(input: RunFenceInput): Promise<ChannelSyncRun>;
-  observeNewerBasis(input: RunFenceInput): Promise<ChannelSyncRun>;
+  supersedeRun(input: RunFenceInput, context: EventStoreContext): Promise<ChannelSyncRun>;
+  observeNewerBasis(input: RunFenceInput, context: EventStoreContext): Promise<ChannelSyncRun>;
   settleReservationLeaseExpiry(input: RunFenceInput): Promise<ChannelSyncRun>;
   readLatestSnapshotRows(
     input: Readonly<{ connectionId: string; surface: "live" | "staged" }>,
   ): ReturnType<typeof readLatestSnapshotRows>;
   readRun(runId: string): ReturnType<typeof readRun>;
+  projectors: readonly ProjectionHandlerSet[];
 }
 
 export type IngestTcgplayerExportSnapshotInput = Readonly<{
@@ -95,6 +106,13 @@ export type ComposeTcgplayerSyncRunInput = Readonly<{
 export type RunFenceInput = Readonly<{ runId: string; expectedRevision: number }>;
 
 export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDependencies): TcgplayerCsvServices {
+  const projectors = [
+    createProjectionHandlerSet({
+      projectionName: "tcgplayer-csv-projection",
+      handlers: buildTcgplayerCsvProjectionHandlers(dependencies.db),
+      streamPrefixes: ["channels.tcgplayer-sync-run-"],
+    }),
+  ];
   const ingestTcgplayerExportSnapshot = async (
     input: IngestTcgplayerExportSnapshotInput,
   ): Promise<TcgplayerExportParseResult & Readonly<{ snapshot?: ChannelInventorySnapshot }>> => {
@@ -268,9 +286,38 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
         maxRowsPerBatch: input.resolvedPolicy.maxRowsPerBatch,
       });
       await recordMappingCandidates(dependencies.listingComposition, input.connectionId, composition.members, context);
-      await persistRun(lockClient, input, reservation, basis.snapshot, pin.header, composition.members);
+      const sequence = await readNextRunSequence(lockClient, input.connectionId);
+      const initialRun: ChannelSyncRun = {
+        runId: input.runId,
+        revision: 0,
+        sequence,
+        connectionId: input.connectionId,
+        providerKey: "tcgplayer",
+        reservationId: reservation.reservationId,
+        claimant: reservation.claimant,
+        leaseExpiresAt: reservation.leaseExpiresAt,
+        manualClaimLeasePolicySnapshot: input.manualClaimLeasePolicySnapshot,
+        state: "composed",
+        basisSnapshotId: basis.snapshot.snapshotId,
+        basisSnapshotGeneration: basis.snapshot.snapshotGeneration,
+        verificationSnapshotId: null,
+        verificationSnapshotGeneration: null,
+        uploadAttemptedAt: null,
+        uploadFileName: null,
+        importSummary: null,
+        createdAt: input.composedAt,
+        updatedAt: input.composedAt,
+        membershipCompleteness: { kind: "complete", total: composition.members.length },
+        members: composition.members,
+      };
+      const event: ChannelSyncRunEvent = {
+        type: "channels.tcgplayer-sync-run.composed",
+        data: { run: initialRun, csvHeader: pin.header },
+      };
+      const stored = await appendRunEvent(dependencies.eventStore, input.runId, "no_stream", event, context);
+      await withTransaction(lockClient, (db) => projectChannelSyncRunComposed(db, event.data, stored.streamVersion));
       const run = await readRun(lockClient, input.runId);
-      if (!run) throw new Error("Persisted Channel Sync Run was not readable.");
+      if (!run) throw new Error("Projected Channel Sync Run was not readable.");
       return { run, composition };
     } finally {
       if (lockHeld)
@@ -284,6 +331,7 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
   const transition = async (
     input: RunFenceInput,
     trigger: Parameters<typeof decideChannelSyncRunTransition>[1],
+    context: EventStoreContext,
     options: Readonly<{
       verificationSnapshotId?: string;
       verificationMatched?: boolean;
@@ -304,30 +352,28 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
       throw new ChannelSyncRunError("stale-fence", "Upload attempt occurred after the claimed lease expired.");
     }
     const nextState = decideChannelSyncRunTransition(current.state, trigger, options);
-    const result = await dependencies.db.query(
-      `UPDATE channel_sync_runs SET state=$3,revision=revision+1,updated_at=clock_timestamp(),
-       upload_attempted_at=coalesce($4::timestamptz,upload_attempted_at),
-       verification_snapshot_id=coalesce($5,verification_snapshot_id),
-       verification_snapshot_generation=coalesce($6,verification_snapshot_generation),
-       upload_file_name=coalesce($8,upload_file_name),
-       import_summary=coalesce($9::jsonb,import_summary)
-       WHERE run_id=$1 AND revision=$2 AND state=$7 AND reservation_id=$10`,
-      [
-        input.runId,
-        input.expectedRevision,
-        nextState,
-        options.uploadAttemptedAt ?? null,
-        options.verificationSnapshotId ?? null,
-        options.verificationSnapshotId
-          ? await readSnapshotGeneration(dependencies.db, options.verificationSnapshotId)
-          : null,
-        current.state,
-        options.uploadFileName ?? null,
-        options.importSummary === undefined ? null : JSON.stringify(options.importSummary),
-        current.reservationId,
-      ],
+    const verificationSnapshotGeneration = options.verificationSnapshotId
+      ? await readSnapshotGeneration(dependencies.db, options.verificationSnapshotId)
+      : null;
+    const event: ChannelSyncRunEvent = {
+      type: "channels.tcgplayer-sync-run.transitioned",
+      data: {
+        runId: current.runId,
+        reservationId: current.reservationId,
+        expectedRevision: current.revision,
+        fromState: current.state,
+        toState: nextState,
+        verificationSnapshotId: options.verificationSnapshotId ?? null,
+        verificationSnapshotGeneration,
+        uploadAttemptedAt: options.uploadAttemptedAt ?? null,
+        uploadFileName: options.uploadFileName ?? null,
+        importSummary: options.importSummary ?? null,
+      },
+    };
+    const stored = await appendRunEvent(dependencies.eventStore, current.runId, current.revision + 1, event, context);
+    await withPgTransaction(dependencies.db, (db) =>
+      projectChannelSyncRunTransitioned(db, event.data, stored.streamVersion, stored.recordedAt),
     );
-    if (result.rowCount !== 1) throw new ChannelSyncRunError("stale-fence");
     const run = await readRun(dependencies.db, input.runId);
     if (!run) throw new ChannelSyncRunError("unknown-run");
     if (channelSyncRunTerminalStates.includes(run.state as never)) await reportTerminalRun(dependencies, run);
@@ -337,28 +383,28 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
   return {
     ingestTcgplayerExportSnapshot,
     composeTcgplayerSyncRun,
-    claimRun: (input) => {
+    claimRun: (input, context) => {
       assertClosedRecord(input, ["runId", "expectedRevision"], "claim run input");
-      return transition(input, "claim");
+      return transition(input, "claim", context);
     },
-    releaseRun: (input) => {
+    releaseRun: (input, context) => {
       assertClosedRecord(input, ["runId", "expectedRevision"], "release run input");
-      return transition(input, "release");
+      return transition(input, "release", context);
     },
-    recordUploadAttempt: (input) => {
+    recordUploadAttempt: (input, context) => {
       assertClosedRecord(input, ["runId", "expectedRevision", "uploadAttemptedAt", "fileName"], "upload attempt input");
       assertTimezoneInstant(input.uploadAttemptedAt, "uploadAttemptedAt");
       assertBoundedText(input.fileName, "upload fileName", 256);
-      return transition(input, "report-upload-attempted", {
+      return transition(input, "report-upload-attempted", context, {
         uploadAttemptedAt: input.uploadAttemptedAt,
         uploadFileName: input.fileName,
       });
     },
-    recordValidationCancellation: (input) => {
+    recordValidationCancellation: (input, context) => {
       assertClosedRecord(input, ["runId", "expectedRevision"], "validation cancellation input");
-      return transition(input, "report-validation-cancelled");
+      return transition(input, "report-validation-cancelled", context);
     },
-    verifyRun: async (input) => {
+    verifyRun: async (input, context) => {
       assertRunFence(input);
       assertClosedRecord(
         input,
@@ -385,19 +431,19 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
           snapshotGeneration: verification.snapshot.snapshotGeneration,
           rows: verification.rows,
         }) && applicationMatchesImportSummary(run, input.importSummary);
-      return transition(input, "verify", {
+      return transition(input, "verify", context, {
         verificationSnapshotId: input.verificationSnapshotId,
         verificationMatched: matched,
         importSummary: input.importSummary,
       });
     },
-    supersedeRun: (input) => {
+    supersedeRun: (input, context) => {
       assertClosedRecord(input, ["runId", "expectedRevision"], "supersede run input");
-      return transition(input, "supersede");
+      return transition(input, "supersede", context);
     },
-    observeNewerBasis: (input) => {
+    observeNewerBasis: (input, context) => {
       assertClosedRecord(input, ["runId", "expectedRevision"], "newer basis input");
-      return transition(input, "observe-newer-basis");
+      return transition(input, "observe-newer-basis", context);
     },
     settleReservationLeaseExpiry: async (input) => {
       assertClosedRecord(input, ["runId", "expectedRevision"], "lease expiry input");
@@ -421,6 +467,7 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
     },
     readLatestSnapshotRows: (input) => readLatestSnapshotRows(dependencies.db, input),
     readRun: (runId) => readRun(dependencies.db, runId),
+    projectors,
   };
 }
 
@@ -512,106 +559,46 @@ async function readEnvironment(db: PgQueryable, connectionId: string): Promise<"
   return result.rows[0].environment;
 }
 
-async function persistRun(
-  db: PgQueryable,
-  input: ComposeTcgplayerSyncRunInput,
-  reservation: ClaimedOperationReservation,
-  basis: ChannelInventorySnapshot,
-  header: readonly string[],
-  members: readonly ChannelSyncRunMember[],
-): Promise<void> {
+async function readNextRunSequence(db: PgQueryable, connectionId: string): Promise<number> {
   const sequenceResult = await db.query<{ next_sequence: string | number }>(
     "SELECT coalesce(max(sequence),0)+1 AS next_sequence FROM channel_sync_runs WHERE connection_id=$1",
-    [input.connectionId],
+    [connectionId],
   );
   const sequenceRow = sequenceResult.rows[0];
   if (!sequenceRow) throw new Error("Run sequence query returned no row.");
-  const digest = createHash("sha256").update(JSON.stringify(members), "utf8").digest("hex");
+  const sequence = Number(sequenceRow.next_sequence);
+  if (!Number.isSafeInteger(sequence) || sequence < 1) throw new Error("Run sequence is invalid.");
+  return sequence;
+}
+
+async function appendRunEvent(
+  eventStore: EventStore,
+  runId: string,
+  expectedVersion: ExpectedStreamVersion,
+  event: ChannelSyncRunEvent,
+  context: EventStoreContext,
+): Promise<StoredEvent> {
+  const stored = await eventStore.appendToStream({
+    streamId: `channels.tcgplayer-sync-run-${runId}`,
+    wakeSourceContextName: "channels",
+    expectedVersion,
+    context,
+    events: [channelSyncRunEventCodec.encode(event)],
+  });
+  const committed = stored[0];
+  if (!committed || stored.length !== 1) throw new Error("Channel Sync Run event append returned no receipt.");
+  return committed;
+}
+
+async function withTransaction(db: PgQueryable, action: (transaction: PgQueryable) => Promise<void>): Promise<void> {
   await db.query("BEGIN");
   try {
-    await db.query(
-      `INSERT INTO channel_sync_runs
-       (run_id,revision,sequence,connection_id,provider_key,reservation_id,claimant_kind,claimant_id,lease_expires_at,
-        manual_claim_lease_policy_snapshot,state,basis_snapshot_id,basis_snapshot_generation,verification_snapshot_id,
-        verification_snapshot_generation,upload_attempted_at,upload_file_name,import_summary,csv_header,member_count,
-        member_digest,created_at,updated_at)
-       VALUES ($1,0,$2,$3,'tcgplayer',$4,$5,$6,$7,$8::jsonb,'composed',$9,$10,NULL,NULL,NULL,NULL,NULL,$11::jsonb,$12,$13,$14,$14)`,
-      [
-        input.runId,
-        sequenceRow.next_sequence,
-        input.connectionId,
-        reservation.reservationId,
-        input.claimant.claimantKind,
-        input.claimant.claimantId,
-        reservation.leaseExpiresAt,
-        input.manualClaimLeasePolicySnapshot === null ? null : JSON.stringify(input.manualClaimLeasePolicySnapshot),
-        basis.snapshotId,
-        basis.snapshotGeneration,
-        JSON.stringify(header),
-        members.length,
-        digest,
-        input.composedAt,
-      ],
-    );
-    await insertMembers(db, input.runId, members);
+    await action(db);
     await db.query("COMMIT");
   } catch (error) {
     await db.query("ROLLBACK");
     throw error;
   }
-}
-
-async function insertMembers(db: PgQueryable, runId: string, members: readonly ChannelSyncRunMember[]): Promise<void> {
-  await db.query(
-    `INSERT INTO channel_sync_run_rows
-     (run_id,operation_id,ordinal,reservation_id,attempt_id,claim_generation,channel_listing_id,listing_id,
-      desired_state_sequence,listing_revision,payload_digest,member_kind,external_key,condition_text,basis_snapshot_id,
-      basis_snapshot_generation,basis_total_quantity,basis_price_amount_minor,target_quantity,target_price_amount_minor,
-      csv_row_json,refusal_reason,mapping_dimension,mapping_source_key,provider_action)
-     SELECT $1,row.operation_id,row.ordinal,row.reservation_id,row.attempt_id,row.claim_generation,row.channel_listing_id,
-            row.listing_id,row.desired_state_sequence,row.listing_revision,row.payload_digest,row.member_kind,row.external_key,
-            row.condition_text,row.basis_snapshot_id,row.basis_snapshot_generation,row.basis_total_quantity,
-            row.basis_price_amount_minor,row.target_quantity,row.target_price_amount_minor,row.csv_row_json,
-            row.refusal_reason,row.mapping_dimension,row.mapping_source_key,row.provider_action
-     FROM jsonb_to_recordset($2::jsonb) AS row(
-       operation_id text,ordinal integer,reservation_id text,attempt_id text,claim_generation bigint,
-       channel_listing_id text,listing_id text,desired_state_sequence bigint,listing_revision bigint,payload_digest text,
-       member_kind text,external_key text,condition_text text,basis_snapshot_id text,basis_snapshot_generation bigint,
-       basis_total_quantity integer,basis_price_amount_minor bigint,target_quantity integer,target_price_amount_minor bigint,
-       csv_row_json jsonb,refusal_reason text,mapping_dimension text,mapping_source_key text,provider_action text
-     )`,
-    [
-      runId,
-      JSON.stringify(
-        members.map((member) => ({
-          operation_id: member.operationId,
-          ordinal: member.ordinal,
-          reservation_id: member.reservationId,
-          attempt_id: member.attemptId,
-          claim_generation: member.claimGeneration,
-          channel_listing_id: member.channelListingId,
-          listing_id: member.listingId,
-          desired_state_sequence: member.desiredStateSequence,
-          listing_revision: member.listingRevision,
-          payload_digest: member.payloadDigest,
-          member_kind: member.memberKind,
-          external_key: member.externalKey,
-          condition_text: member.conditionText,
-          basis_snapshot_id: member.basisSnapshotId,
-          basis_snapshot_generation: member.basisSnapshotGeneration,
-          basis_total_quantity: member.basisTotalQuantity,
-          basis_price_amount_minor: member.basisPriceAmountMinor,
-          target_quantity: member.targetQuantity,
-          target_price_amount_minor: member.targetPriceAmountMinor,
-          csv_row_json: member.csvRow,
-          refusal_reason: member.refusalReason,
-          mapping_dimension: member.mappingDimension,
-          mapping_source_key: member.mappingSourceKey,
-          provider_action: member.memberKind === "already-satisfied" ? member.providerAction : null,
-        })),
-      ),
-    ],
-  );
 }
 
 async function recordMappingCandidates(

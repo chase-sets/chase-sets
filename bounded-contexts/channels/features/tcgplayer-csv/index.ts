@@ -6,6 +6,7 @@ export {
   type TcgplayerCsvServices,
 } from "./api/runtime";
 export { composeTcgplayerReservation, planStagedImportBatches, tcgplayerExternalListingId } from "./domain/composition";
+export { channelSyncRunEventCodec } from "./domain/codec";
 export { formatTcgplayerMinorUnits, parseTcgplayerFullExport, parseTcgplayerMoneyToMinorUnits } from "./domain/csv";
 export {
   channelSyncRunTransitions,
@@ -36,10 +37,13 @@ export {
   type ChannelInventorySnapshot,
   type ChannelInventorySnapshotRow,
   type ChannelSyncRun,
+  type ChannelSyncRunComposedEvent,
+  type ChannelSyncRunEvent,
   type ChannelSyncRunMember,
   type ChannelSyncRunMemberKind,
   type ChannelSyncRunState,
   type ChannelSyncRunTrigger,
+  type ChannelSyncRunTransitionedEvent,
   type ManualClaimLeasePolicySnapshot,
   type StagedImportBatch,
   type TcgplayerExportIngestLimits,
@@ -54,4 +58,5 @@ export {
   canonicalManualClaimLeasePolicySnapshotDigest,
 } from "./domain/validation";
 export { readLatestSnapshotRows, readRun, readSnapshotRowsById } from "./read-model/queries";
+export { buildTcgplayerCsvProjectionHandlers } from "./read-model/projection";
 export { tcgplayerCsvSchemaMigrations, tcgplayerCsvSchemaSql } from "./read-model/schema";

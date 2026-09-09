@@ -1,3 +1,4 @@
+import type { DomainEvent } from "@chase-sets/event-core";
 import type { ClaimedOperationClaimant } from "../../outbound-sync/domain/contracts";
 
 export const channelExportSurfaces = ["live", "staged"] as const;
@@ -254,6 +255,29 @@ export type ChannelSyncRun = Readonly<{
     | Readonly<{ kind: "bounded-incomplete"; reason: "member-count-or-digest-mismatch" }>;
   members: readonly ChannelSyncRunMember[];
 }>;
+
+export type ChannelSyncRunComposedEvent = DomainEvent<
+  "channels.tcgplayer-sync-run.composed",
+  Readonly<{ run: ChannelSyncRun; csvHeader: readonly string[] }>
+>;
+
+export type ChannelSyncRunTransitionedEvent = DomainEvent<
+  "channels.tcgplayer-sync-run.transitioned",
+  Readonly<{
+    runId: string;
+    reservationId: string;
+    expectedRevision: number;
+    fromState: ChannelSyncRunState;
+    toState: ChannelSyncRunState;
+    verificationSnapshotId: string | null;
+    verificationSnapshotGeneration: number | null;
+    uploadAttemptedAt: string | null;
+    uploadFileName: string | null;
+    importSummary: TcgplayerImportSummary | null;
+  }>
+>;
+
+export type ChannelSyncRunEvent = ChannelSyncRunComposedEvent | ChannelSyncRunTransitionedEvent;
 
 export type TcgplayerImportSummary = Readonly<{
   fileName: string;

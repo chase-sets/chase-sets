@@ -7,6 +7,10 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { channelSyncRunEventCodec } from "../domain/codec";
+import type { ChannelSyncRun } from "../domain/contracts";
+import { projectChannelSyncRunComposed, projectChannelSyncRunTransitioned } from "../read-model/projection";
+import { readRun } from "../read-model/queries";
 import { tcgplayerCsvSchemaSql } from "../read-model/schema";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -67,7 +71,99 @@ describeDb("tcgplayer-run-order-and-lease", () => {
       insertRun("run-connector", "reservation-connector", "connector", { synthetic: true }),
     ).rejects.toMatchObject({ code: "23514" });
   });
+
+  it("replays run composition and transitions twice without duplicate writes", async () => {
+    await seedSnapshot();
+    const run = replayRun();
+    const composed = { run, csvHeader: ["TCGplayer Id", "Total Quantity", "Add to Quantity", "TCG Marketplace Price"] };
+    const encoded = channelSyncRunEventCodec.encode({
+      type: "channels.tcgplayer-sync-run.composed",
+      data: composed,
+    });
+    const decoded = channelSyncRunEventCodec.decode({ eventType: encoded.eventType, payload: encoded.payload });
+    if (decoded.type !== "channels.tcgplayer-sync-run.composed") throw new Error("Unexpected decoded event.");
+    await projectChannelSyncRunComposed(pools.channels, decoded.data, 1);
+    await projectChannelSyncRunComposed(pools.channels, decoded.data, 1);
+    const transition = {
+      runId: run.runId,
+      reservationId: run.reservationId,
+      expectedRevision: 0,
+      fromState: "composed" as const,
+      toState: "claimed" as const,
+      verificationSnapshotId: null,
+      verificationSnapshotGeneration: null,
+      uploadAttemptedAt: null,
+      uploadFileName: null,
+      importSummary: null,
+    };
+    await projectChannelSyncRunTransitioned(pools.channels, transition, 2, "2026-09-09T00:01:00Z");
+    await projectChannelSyncRunTransitioned(pools.channels, transition, 2, "2026-09-09T00:01:00Z");
+    const replayed = await readRun(pools.channels, run.runId);
+    expect(replayed).toMatchObject({
+      state: "claimed",
+      revision: 1,
+      membershipCompleteness: { kind: "complete", total: 1 },
+    });
+    expect(replayed?.members).toEqual(run.members);
+    const counts = await pools.channels.query<{ runs: string; members: string }>(
+      "SELECT (SELECT count(*) FROM channel_sync_runs)::text AS runs,(SELECT count(*) FROM channel_sync_run_rows)::text AS members",
+    );
+    expect(counts.rows[0]).toEqual({ runs: "1", members: "1" });
+  });
 });
+
+function replayRun(): ChannelSyncRun {
+  return {
+    runId: "run-replay",
+    revision: 0,
+    sequence: 1,
+    connectionId: "connection-1",
+    providerKey: "tcgplayer",
+    reservationId: "reservation-replay",
+    claimant: { claimantKind: "connector", claimantId: "connector-replay" },
+    leaseExpiresAt: "2026-09-09T00:30:00Z",
+    manualClaimLeasePolicySnapshot: null,
+    state: "composed",
+    basisSnapshotId: "snapshot-1",
+    basisSnapshotGeneration: 1,
+    verificationSnapshotId: null,
+    verificationSnapshotGeneration: null,
+    uploadAttemptedAt: null,
+    uploadFileName: null,
+    importSummary: null,
+    createdAt: "2026-09-09T00:00:00Z",
+    updatedAt: "2026-09-09T00:00:00Z",
+    membershipCompleteness: { kind: "complete", total: 1 },
+    members: [
+      {
+        operationId: "operation-replay",
+        attemptId: "attempt-replay",
+        claimGeneration: 1,
+        reservationId: "reservation-replay",
+        channelListingId: "channel-listing-replay",
+        listingId: "listing-replay",
+        desiredStateSequence: 91,
+        listingRevision: 7,
+        payloadDigest: "b".repeat(64),
+        ordinal: 0,
+        memberKind: "already-satisfied",
+        externalKey: "product:90000001",
+        conditionText: null,
+        basisSnapshotId: "snapshot-1",
+        basisSnapshotGeneration: 1,
+        basisTotalQuantity: 2,
+        basisPriceAmountMinor: 26,
+        targetQuantity: 2,
+        targetPriceAmountMinor: 26,
+        csvRow: null,
+        refusalReason: null,
+        mappingDimension: null,
+        mappingSourceKey: null,
+        providerAction: "not-attempted-already-satisfied",
+      },
+    ],
+  };
+}
 
 async function seedSnapshot(): Promise<void> {
   await pools.channels.query(
@@ -86,9 +182,9 @@ async function insertRun(
   await pools.channels.query(
     `INSERT INTO channel_sync_runs
      (run_id,revision,sequence,connection_id,provider_key,reservation_id,claimant_kind,claimant_id,lease_expires_at,
-      manual_claim_lease_policy_snapshot,state,basis_snapshot_id,basis_snapshot_generation,csv_header,member_count,member_digest,created_at,updated_at)
+      manual_claim_lease_policy_snapshot,state,basis_snapshot_id,basis_snapshot_generation,csv_header,member_count,member_digest,created_at,updated_at,last_stream_version)
      VALUES ($1,0,(SELECT coalesce(max(sequence),0)+1 FROM channel_sync_runs),'connection-1','tcgplayer',$2,$3,'claimant-1',
-      '2026-09-09T00:30:00Z',$4::jsonb,'composed','snapshot-1',1,'[]'::jsonb,1,$5,'2026-09-09T00:00:00Z','2026-09-09T00:00:00Z')`,
+      '2026-09-09T00:30:00Z',$4::jsonb,'composed','snapshot-1',1,'[]'::jsonb,1,$5,'2026-09-09T00:00:00Z','2026-09-09T00:00:00Z',1)`,
     [runId, reservationId, claimantKind, snapshot === null ? null : JSON.stringify(snapshot), "a".repeat(64)],
   );
 }

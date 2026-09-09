@@ -26,6 +26,7 @@ describe("tcgplayer-bootstrap-manifest-and-replay", () => {
     expect(tcgplayerCsvSchemaSql).toContain("manual_claim_lease_policy_snapshot");
     expect(tcgplayerCsvSchemaSql).toContain("listing_id text NOT NULL");
     expect(tcgplayerCsvSchemaSql).toContain("desired_state_sequence bigint NOT NULL");
+    expect(tcgplayerCsvSchemaSql).toContain("last_stream_version bigint NOT NULL");
     expect(tcgplayerCsvSchemaSql).toContain("ON DELETE RESTRICT");
   });
 

@@ -74,6 +74,7 @@ const createChannelSyncRunsSql = `CREATE TABLE IF NOT EXISTS channel_sync_runs (
   member_digest text NOT NULL CHECK (member_digest ~ '^[0-9a-f]{64}$'),
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
+  last_stream_version bigint NOT NULL CHECK (last_stream_version > 0),
   CHECK ((claimant_kind = 'manual') = (manual_claim_lease_policy_snapshot IS NOT NULL)),
   CHECK ((verification_snapshot_id IS NULL) = (verification_snapshot_generation IS NULL)),
   CHECK ((upload_attempted_at IS NULL) = (upload_file_name IS NULL)),
