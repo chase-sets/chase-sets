@@ -276,6 +276,7 @@ export type OutboundSyncRuntimeDependencies = Readonly<{
   db: PgTransactionalPool;
   clock?: Readonly<{ now(): Date }>;
   resolveBudgetPolicy?: () => Promise<import("./policy").OutboundOperationBudgetPolicyValue>;
+  compiledProviderBudgets?: Readonly<Record<string, import("./policy").OutboundOperationBudget>>;
   recordOutcome?: (
     db: PgQueryable,
     operation: OutboundOperationRecord,

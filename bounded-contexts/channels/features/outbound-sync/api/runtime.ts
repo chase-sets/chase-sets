@@ -502,7 +502,11 @@ async function claimNextInlineBatch(
         continue;
       }
       if (admission.kind !== "inline") continue;
-      const resolved = resolveOutboundOperationBudget(policy, admission.providerIdentity);
+      const resolved = resolveOutboundOperationBudget(
+        policy,
+        admission.providerIdentity,
+        dependencies.compiledProviderBudgets,
+      );
       if (resolved.disabled) continue;
       const providerKey = `${admission.providerIdentity.providerKey}\0${admission.providerIdentity.environment}`;
       let providerClaim = providerClaims.get(providerKey);
@@ -856,7 +860,7 @@ async function recordSuccessfulRateBatch(
     else groups.set(key, { count: 1, identity: success.identity, threshold: success.budget.maxRequestsPerWindow });
   }
   for (const group of groups.values()) {
-    await db.query(
+    const updated = await db.query(
       `UPDATE channel_provider_rate_state
        SET adaptive_divisor = GREATEST(
              1,
@@ -870,6 +874,7 @@ async function recordSuccessfulRateBatch(
        WHERE provider_key = $1 AND environment = $2`,
       [group.identity.providerKey, group.identity.environment, group.count, group.threshold],
     );
+    if (Number(updated.rowCount ?? 0) !== 1) throw new OutboundSyncError("stale-fence");
   }
 }
 
@@ -1047,15 +1052,16 @@ async function recordRateResult(
 ) {
   if (result.kind === "rejected" && result.code === "rate-limited") {
     const throttledUntil = new Date(Date.parse(at) + budget.baseBackoffMs).toISOString();
-    await db.query(
+    const updated = await db.query(
       `UPDATE channel_provider_rate_state
        SET adaptive_divisor = LEAST(64, adaptive_divisor * 2), throttled_until = $3,
            consecutive_successes = 0, last_rate_limit_at = $4, revision = revision + 1
        WHERE provider_key = $1 AND environment = $2`,
       [providerIdentity.providerKey, providerIdentity.environment, throttledUntil, at],
     );
+    if (Number(updated.rowCount ?? 0) !== 1) throw new OutboundSyncError("stale-fence");
   } else if (result.kind === "succeeded") {
-    await db.query(
+    const updated = await db.query(
       `UPDATE channel_provider_rate_state
        SET adaptive_divisor = CASE WHEN consecutive_successes + 1 >= $3 THEN GREATEST(1, adaptive_divisor / 2) ELSE adaptive_divisor END,
            consecutive_successes = CASE WHEN consecutive_successes + 1 >= $3 THEN 0 ELSE consecutive_successes + 1 END,
@@ -1063,6 +1069,7 @@ async function recordRateResult(
        WHERE provider_key = $1 AND environment = $2`,
       [providerIdentity.providerKey, providerIdentity.environment, budget.maxRequestsPerWindow],
     );
+    if (Number(updated.rowCount ?? 0) !== 1) throw new OutboundSyncError("stale-fence");
   }
 }
 

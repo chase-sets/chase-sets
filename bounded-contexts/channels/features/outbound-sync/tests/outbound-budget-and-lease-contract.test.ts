@@ -41,6 +41,25 @@ describe("outbound-per-provider-budget-and-fairness", () => {
       baseBackoffMs: 1_000,
       maxBackoffMs: 300_000,
     });
+
+    const compiledProviders = {
+      "synthetic-a:sandbox": { ...OUTBOUND_OPERATION_BUDGET_FALLBACK, maxRequestsPerWindow: 17 },
+      "synthetic-b:sandbox": { ...OUTBOUND_OPERATION_BUDGET_FALLBACK, maxRequestsPerWindow: 29 },
+    };
+    expect(
+      resolveOutboundOperationBudget(
+        OUTBOUND_OPERATION_BUDGET_POLICY_FALLBACK,
+        { providerKey: "synthetic-a", environment: "sandbox" },
+        compiledProviders,
+      ).budget.maxRequestsPerWindow,
+    ).toBe(17);
+    expect(
+      resolveOutboundOperationBudget(
+        OUTBOUND_OPERATION_BUDGET_POLICY_FALLBACK,
+        { providerKey: "synthetic-b", environment: "sandbox" },
+        compiledProviders,
+      ).budget.maxRequestsPerWindow,
+    ).toBe(29);
   });
 
   it("recursively rejects unknown keys and invalid values", () => {
