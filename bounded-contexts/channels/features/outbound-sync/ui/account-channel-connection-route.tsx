@@ -3,9 +3,14 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createForwardedAuthHeaders, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData, useNavigate } from "react-router";
+import { useLoaderData } from "react-router";
 import type { PublicChannelConnection } from "../../connections/domain/contracts";
 import type { OutboundOperationLogPage, OutboundOperationSummary } from "../domain/contracts";
+import {
+  readOutboundOperationLogPosition,
+  resolveOutboundOperationLogNavigation,
+  type OutboundOperationLogNavigation,
+} from "./operation-log-navigation";
 import { OutboundOperationLogPanel } from "./operation-log-panel";
 
 type LoadedData = Readonly<{
@@ -13,21 +18,18 @@ type LoadedData = Readonly<{
   connection: PublicChannelConnection;
   log: OutboundOperationLogPage;
   summary: OutboundOperationSummary;
-  page: number;
-  nextCursor: string | null;
+  navigation: OutboundOperationLogNavigation;
 }>;
 
-type RouteData = LoadedData | Readonly<{ kind: "read-error"; page: number; nextCursor: null }>;
+type RouteData = LoadedData | Readonly<{ kind: "read-error" }>;
 
 export async function loader({ request, params }: LoaderFunctionArgs): Promise<RouteData> {
   await requireActorFromAuthApi({ request, permission: "channels.view" });
   const connectionId = String(params.connectionId ?? "");
-  const requestUrl = new URL(request.url);
-  const cursor = requestUrl.searchParams.get("cursor");
-  const page = positivePage(requestUrl.searchParams.get("page"));
+  const position = readOutboundOperationLogPosition(new URL(request.url).searchParams);
   const apiBaseUrl = resolveRequestApiBaseUrl(request, "/api/channels", { requireInternalApiOrigin: true });
   const query = new URLSearchParams({ limit: "50" });
-  if (cursor) query.set("cursor", cursor);
+  if (position.cursor !== null) query.set("cursor", position.cursor);
 
   let response: Response;
   try {
@@ -39,20 +41,19 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
       },
     );
   } catch {
-    return { kind: "read-error", page, nextCursor: null };
+    return { kind: "read-error" };
   }
   if (response.status === 404) {
     throw new Response(t("channels.outboundSync.connection.notFound"), { status: 404 });
   }
-  if (!response.ok) return { kind: "read-error", page, nextCursor: null };
-  const body = (await response.json()) as Omit<LoadedData, "kind" | "page" | "nextCursor">;
+  if (!response.ok) return { kind: "read-error" };
+  const body = (await response.json()) as Omit<LoadedData, "kind" | "navigation">;
   return {
     kind: "loaded",
     connection: body.connection,
     log: body.log,
     summary: body.summary,
-    page,
-    nextCursor: body.log.nextCursor ?? null,
+    navigation: resolveOutboundOperationLogNavigation(position, body.log.nextCursor ?? null),
   };
 }
 
@@ -64,23 +65,13 @@ export const meta: MetaFunction = () =>
 
 export default function AccountChannelConnectionRoute() {
   const data = useLoaderData<typeof loader>();
-  const navigate = useNavigate();
   return (
     <OutboundOperationLogPanel
-      state={data.kind === "loaded" ? { kind: "loaded", log: data.log, summary: data.summary } : { kind: "read-error" }}
-      page={data.page}
-      onPageChange={(nextPage) => {
-        if (nextPage > data.page && data.nextCursor) {
-          navigate(`?page=${nextPage}&cursor=${encodeURIComponent(data.nextCursor)}`);
-        } else if (nextPage < data.page) {
-          navigate("?page=1");
-        }
-      }}
+      state={
+        data.kind === "loaded"
+          ? { kind: "loaded", log: data.log, summary: data.summary, navigation: data.navigation }
+          : { kind: "read-error" }
+      }
     />
   );
-}
-
-function positivePage(value: string | null): number {
-  const page = Number(value ?? 1);
-  return Number.isSafeInteger(page) && page >= 1 ? page : 1;
 }

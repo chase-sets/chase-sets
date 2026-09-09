@@ -183,6 +183,95 @@ describeDb(
       ]);
     });
 
+    it("outbound-coalescing-latest-state-wins gives a pending replacement its own full retry budget", async () => {
+      await pools.channels.query(
+        "UPDATE channel_connections SET provider_key = 'synthetic-inline' WHERE connection_id = 'connection-a'",
+      );
+      let current = new Date("2026-09-07T19:00:00.000Z");
+      let providerCalls = 0;
+      let providerResult: ChannelPublicationResult = { kind: "rejected", code: "rate-limited" };
+      const registry = createChannelProviderRegistry([
+        inlineDescriptor("synthetic-inline", async () => {
+          providerCalls += 1;
+          return providerResult;
+        }),
+      ]);
+      const runtime = createOutboundSyncRuntime(
+        {
+          db: pools.channels,
+          clock: { now: () => current },
+          resolveBudgetPolicy: async () => ({
+            incidentMultiplier: 1,
+            providers: {
+              "synthetic-inline:sandbox": {
+                maxRequestsPerWindow: 6_400,
+                maxAttempts: 5,
+                baseBackoffMs: 1_000,
+                maxBackoffMs: 10_000,
+              },
+            },
+          }),
+          recordOutcome: async () => "applied",
+        },
+        { assertDelistDirective: () => undefined },
+      );
+      // Every step moves past the longest backoff and the rate-limit throttle so
+      // the only thing gating the next attempt is the operation's own budget.
+      const attemptOnce = async () => {
+        current = new Date(current.getTime() + 15_000);
+        return runtime.processNextInlineOperation({ registry, claimOwnerId: "worker-a" });
+      };
+
+      await runtime.enqueueDesiredState(desiredState("listing-budget", 1, 7, "event-budget-q1"));
+      for (let attempt = 1; attempt <= 4; attempt += 1) expect(await attemptOnce()).toBe(1);
+      expect(providerCalls).toBe(4);
+      const consumed = await retryBudgetRow(pools.channels, "listing-budget");
+      expect(consumed).toMatchObject({
+        status: "pending",
+        attempt_count: 4,
+        claim_generation: "4",
+        source_desired_state_sequence: "1",
+        listing_revision: "7",
+        terminal_reason: null,
+      });
+
+      expect(await runtime.enqueueDesiredState(desiredState("listing-budget", 2, 8, "event-budget-q2"))).not.toBeNull();
+      const replaced = await retryBudgetRow(pools.channels, "listing-budget");
+      expect(replaced).toMatchObject({
+        status: "pending",
+        attempt_count: 0,
+        claim_generation: consumed.claim_generation,
+        revision: String(Number(consumed.revision) + 1),
+        source_desired_state_sequence: "2",
+        listing_revision: "8",
+        last_rejection_code: null,
+        terminal_reason: null,
+      });
+      expect(replaced.operation_id).not.toBe(consumed.operation_id);
+
+      for (let attempt = 1; attempt <= 4; attempt += 1) expect(await attemptOnce()).toBe(1);
+      expect(providerCalls).toBe(8);
+      expect(await retryBudgetRow(pools.channels, "listing-budget")).toMatchObject({
+        operation_id: replaced.operation_id,
+        status: "pending",
+        attempt_count: 4,
+        last_rejection_code: "rate-limited",
+        terminal_reason: null,
+      });
+
+      providerResult = { kind: "succeeded", externalListingId: "external-budget" };
+      expect(await attemptOnce()).toBe(1);
+      expect(providerCalls).toBe(9);
+      expect(await retryBudgetRow(pools.channels, "listing-budget")).toMatchObject({
+        operation_id: replaced.operation_id,
+        status: "succeeded",
+        attempt_count: 5,
+        claim_generation: "9",
+        terminal_reason: null,
+      });
+      expect(await laneBlockState(pools.channels, "channel-listing-budget")).toEqual({ blocked_operation_id: null });
+    });
+
     it("keeps boot-twice and the idle day-after runner byte-inert", async () => {
       await bootstrapContextDatabase(channelsModule, pools.channels);
       await bootstrapContextDatabase(channelsModule, pools.channels);
@@ -1121,6 +1210,36 @@ async function rows(db: PgTransactionalPool, listingId?: string) {
     [listingId ?? null],
   );
   return result.rows;
+}
+
+async function retryBudgetRow(db: PgTransactionalPool, listingId: string) {
+  const result = await db.query<{
+    operation_id: string;
+    status: string;
+    attempt_count: number;
+    claim_generation: string;
+    revision: string;
+    source_desired_state_sequence: string;
+    listing_revision: string;
+    last_rejection_code: string | null;
+    terminal_reason: string | null;
+  }>(
+    `SELECT operation_id, status, attempt_count, claim_generation::text, revision::text,
+            source_desired_state_sequence::text, listing_revision::text, last_rejection_code, terminal_reason
+     FROM channel_outbound_operations
+     WHERE listing_id = $1`,
+    [listingId],
+  );
+  expect(result.rows).toHaveLength(1);
+  return result.rows[0]!;
+}
+
+async function laneBlockState(db: PgTransactionalPool, channelListingId: string) {
+  const result = await db.query<{ blocked_operation_id: string | null }>(
+    "SELECT blocked_operation_id FROM channel_outbound_lanes WHERE channel_listing_id = $1",
+    [channelListingId],
+  );
+  return result.rows[0];
 }
 
 async function createBoundRunFixtureTable(db: PgTransactionalPool) {

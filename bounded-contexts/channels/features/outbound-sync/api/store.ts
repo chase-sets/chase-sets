@@ -122,7 +122,7 @@ export function createOutboundOperationStore(
                    link_write_state = 'pending', source_event_id = $9, source_stream_id = $10,
                    source_stream_version = $11, source_global_position = $12,
                    source_desired_state_hash = $13, source_occurred_at = $14, enqueued_at = $8,
-                   first_claimed_at = NULL, terminal_at = NULL
+                   first_claimed_at = NULL, terminal_at = NULL, attempt_count = 0
                WHERE operation_id = $15 AND status = 'pending' AND revision = $16
                RETURNING ${operationColumns}`,
               [

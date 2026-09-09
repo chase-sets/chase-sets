@@ -19,7 +19,14 @@ export function createOutboundOperationRoutes(
       const limitText = c.req.query("limit");
       const limit = limitText === undefined ? undefined : Number(limitText);
       const cursor = c.req.query("cursor");
-      const to = c.req.query("to") ?? new Date().toISOString();
+      // A supplied `to` is validated before the default `from` is derived from it:
+      // an unparseable or empty instant would otherwise throw a RangeError out of
+      // Date#toISOString instead of reaching the invalid-input 400 path below.
+      const toText = c.req.query("to");
+      if (toText !== undefined && !Number.isFinite(Date.parse(toText))) {
+        throw new OutboundSyncError("invalid-input", "to is invalid.");
+      }
+      const to = toText ?? new Date().toISOString();
       const from = c.req.query("from") ?? new Date(Date.parse(to) - 30 * 24 * 60 * 60 * 1_000).toISOString();
       const [log, summary] = await Promise.all([
         outboundSync.readOutboundOperationLog({

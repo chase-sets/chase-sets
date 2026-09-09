@@ -38,11 +38,7 @@ describe("Channels account connection route contribution", () => {
       .mockRejectedValueOnce(new Error("synthetic channels read failure"));
     vi.stubGlobal("fetch", fetch);
     const request = new Request("http://localhost/account/channels/connection-a");
-    await expect(loader(loaderArgs(request))).resolves.toEqual({
-      kind: "read-error",
-      page: 1,
-      nextCursor: null,
-    });
+    await expect(loader(loaderArgs(request))).resolves.toEqual({ kind: "read-error" });
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

@@ -3,24 +3,29 @@ import {
   Badge,
   DataTable,
   EmptyState,
+  Inline,
+  LinkButton,
   MetricStrip,
   OperationalStatusBanner,
-  Pagination,
   WorkflowModule,
   type DataColumn,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { OutboundOperationLogItem, OutboundOperationLogPage, OutboundOperationSummary } from "../domain/contracts";
+import type { OutboundOperationLogNavigation } from "./operation-log-navigation";
 
 export type OutboundOperationLogPanelProps = Readonly<{
   state:
-    | Readonly<{ kind: "loaded"; log: OutboundOperationLogPage; summary: OutboundOperationSummary }>
+    | Readonly<{
+        kind: "loaded";
+        log: OutboundOperationLogPage;
+        summary: OutboundOperationSummary;
+        navigation: OutboundOperationLogNavigation;
+      }>
     | Readonly<{ kind: "read-error" }>;
-  page: number;
-  onPageChange?: (page: number) => void;
 }>;
 
-export function OutboundOperationLogPanel({ state, page, onPageChange }: OutboundOperationLogPanelProps) {
+export function OutboundOperationLogPanel({ state }: OutboundOperationLogPanelProps) {
   const columns = useMemo<DataColumn<OutboundOperationLogItem>[]>(
     () => [
       {
@@ -74,7 +79,7 @@ export function OutboundOperationLogPanel({ state, page, onPageChange }: Outboun
   }
 
   const total = state.summary.completeness.kind === "complete" ? state.summary.completeness.total : 0;
-  const totalPages = Math.max(page + (state.log.nextCursor ? 1 : 0), Math.ceil(total / 50), 1);
+  const { previous, next } = state.navigation;
   return (
     <WorkflowModule
       title={t("channels.outboundSync.operationLog.title")}
@@ -117,14 +122,32 @@ export function OutboundOperationLogPanel({ state, page, onPageChange }: Outboun
           emptyDescription={t("channels.outboundSync.operationLog.empty.description")}
         />
       )}
-      {totalPages > 1 ? (
-        <Pagination
-          page={page}
-          totalPages={totalPages}
-          onPageChange={onPageChange}
-          previousLabel={t("channels.outboundSync.operationLog.pagination.previous")}
-          nextLabel={t("channels.outboundSync.operationLog.pagination.next")}
-        />
+      {/* The log is keyset-paginated, so only the pages a cursor can actually reach
+          are offered: the walked-back previous page (or the first page when no
+          history is known) and the next page. Boundaries are dead ends by absence. */}
+      {previous || next ? (
+        <Inline gap={2} data-channels-outbound-operation-log-navigation="true">
+          {previous ? (
+            <LinkButton
+              size="sm"
+              tone="secondary"
+              leadingIcon="chevronLeft"
+              href={previous.href}
+              rel={previous.kind === "previous" ? "prev" : undefined}
+            >
+              {t(
+                previous.kind === "first"
+                  ? "channels.outboundSync.operationLog.pagination.first"
+                  : "channels.outboundSync.operationLog.pagination.previous",
+              )}
+            </LinkButton>
+          ) : null}
+          {next ? (
+            <LinkButton size="sm" tone="secondary" trailingIcon="chevronRight" href={next.href} rel="next">
+              {t("channels.outboundSync.operationLog.pagination.next")}
+            </LinkButton>
+          ) : null}
+        </Inline>
       ) : null}
     </WorkflowModule>
   );
