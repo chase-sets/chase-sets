@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ManualClaimLeasePolicySnapshot, TcgplayerExportIngestLimits } from "./contracts";
+import type { ManualClaimLeasePolicySnapshot } from "./contracts";
 
 export function assertClosedRecord(
   value: unknown,
@@ -12,11 +12,6 @@ export function assertClosedRecord(
   if (actual.some((key) => !keys.includes(key)) || keys.some((key) => !Object.hasOwn(value, key))) {
     throw new Error(`${label} must contain exactly ${keys.join(", ")}.`);
   }
-}
-
-export function assertTcgplayerExportIngestLimits(value: unknown): asserts value is TcgplayerExportIngestLimits {
-  assertClosedRecord(value, ["maxRecords"], "TCGplayer export ingest limits");
-  assertSafeInteger(value.maxRecords, 1, 1_000_000, "maxRecords");
 }
 
 export function assertSafeInteger(value: unknown, min: number, max: number, label: string): asserts value is number {

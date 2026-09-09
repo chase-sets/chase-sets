@@ -21,8 +21,15 @@ describe("tcgplayer-export-parse-record-limit", () => {
   });
 
   it("accepts the policy safety ceiling without treating it as provider capacity", () => {
-    const rows = Array.from({ length: 100_000 }, (_, index) => `${9_000_000 + index},1,0,1.00,synthetic`).join("\n");
-    const result = parseTcgplayerFullExport({ csv: `${header}\n${rows}`, surface: "staged" }, { maxRecords: 100_000 });
-    expect(result).toMatchObject({ kind: "parsed", parsedRowCount: 100_000, completeness: "unverified" });
+    const rows = Array.from({ length: 100_001 }, (_, index) => `${9_000_000 + index},1,0,1.00,synthetic`);
+    expect(
+      parseTcgplayerFullExport(
+        { csv: `${header}\n${rows.slice(0, 100_000).join("\n")}`, surface: "staged" },
+        { maxRecords: 100_000 },
+      ),
+    ).toMatchObject({ kind: "parsed", parsedRowCount: 100_000, completeness: "unverified" });
+    expect(
+      parseTcgplayerFullExport({ csv: `${header}\n${rows.join("\n")}`, surface: "staged" }, { maxRecords: 100_000 }),
+    ).toEqual({ kind: "refused", reason: "record-limit-exceeded" });
   });
 });

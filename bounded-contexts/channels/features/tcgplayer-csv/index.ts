@@ -1,4 +1,10 @@
-export { createTcgplayerCsvRuntime, type TcgplayerCsvServices } from "./api/runtime";
+export {
+  createTcgplayerCsvRuntime,
+  type ComposeTcgplayerSyncRunInput,
+  type IngestTcgplayerExportSnapshotInput,
+  type RunFenceInput,
+  type TcgplayerCsvServices,
+} from "./api/runtime";
 export { composeTcgplayerReservation, planStagedImportBatches, tcgplayerExternalListingId } from "./domain/composition";
 export { formatTcgplayerMinorUnits, parseTcgplayerFullExport, parseTcgplayerMoneyToMinorUnits } from "./domain/csv";
 export {
@@ -42,5 +48,9 @@ export {
   type TcgplayerRowRefusalReason,
 } from "./domain/contracts";
 export { createTcgplayerClaimedReservationRunSettlementPort } from "./integrations/outbound-sync-settlement";
+export {
+  assertManualClaimLeasePolicySnapshot,
+  canonicalManualClaimLeasePolicySnapshotDigest,
+} from "./domain/validation";
 export { readLatestSnapshotRows, readRun, readSnapshotRowsById } from "./read-model/queries";
 export { tcgplayerCsvSchemaMigrations, tcgplayerCsvSchemaSql } from "./read-model/schema";

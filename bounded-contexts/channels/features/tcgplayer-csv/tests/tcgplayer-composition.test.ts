@@ -277,7 +277,11 @@ function basis(externalKey: string, quantity: number, price: number): ChannelInv
     priceAmountText: `${Math.floor(price / 100)}.${String(price % 100).padStart(2, "0")}00`,
     priceAmountMinor: price,
     currency: "USD",
-    referenceColumns: { "TCGplayer Id": externalKey.slice("product:".length), Title: "synthetic-title" },
+    referenceColumns: {
+      "TCGplayer Id": externalKey.slice("product:".length),
+      Title: "synthetic-title",
+      "Total Quantity": String(quantity),
+    },
     rowNumber: 2,
     ingestedAt: "2026-09-09T00:00:00Z",
     capturedAt: "2026-09-09T00:00:00Z",

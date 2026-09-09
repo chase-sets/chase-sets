@@ -99,6 +99,10 @@ export function deriveClaimedOperationOutcomes(run: ChannelSyncRun): readonly Cl
         return { ...fence, outcome: { kind: "abandoned", reason: "superseded-basis" } };
       case "abandoned":
         return { ...fence, outcome: { kind: "abandoned", reason: "released" } };
+      case "composed":
+      case "claimed":
+      case "awaiting-verification":
+        throw new ChannelSyncRunError("illegal-transition", "A non-terminal run cannot be acknowledged.");
       default:
         return assertNever(run.state);
     }

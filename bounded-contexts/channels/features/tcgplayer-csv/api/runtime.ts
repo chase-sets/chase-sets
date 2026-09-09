@@ -355,7 +355,8 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
       if (!run) throw new ChannelSyncRunError("unknown-run");
       if (run.revision !== input.expectedRevision) throw new ChannelSyncRunError("stale-fence");
       if (channelSyncRunTerminalStates.includes(run.state as never)) throw new ChannelSyncRunError("terminal");
-      const terminalState = run.state === "awaiting-verification" ? "application-unknown" : "abandoned";
+      const terminalState: "application-unknown" | "abandoned" =
+        run.state === "awaiting-verification" ? "application-unknown" : "abandoned";
       const settled = { ...run, state: terminalState };
       await dependencies.outboundSync.reportClaimedOperationOutcomes({
         reservationId: run.reservationId,
@@ -424,6 +425,7 @@ async function assertFreshBasis(db: PgQueryable, connectionId: string, generatio
   const result = await db.query<{ verification_snapshot_generation: string | number | null }>(
     `SELECT verification_snapshot_generation FROM channel_sync_runs
      WHERE connection_id=$1 AND state NOT IN ('composed','claimed','awaiting-verification')
+       AND verification_snapshot_generation IS NOT NULL
      ORDER BY sequence DESC LIMIT 1`,
     [connectionId],
   );

@@ -8,7 +8,6 @@ import {
   type TcgplayerRowRefusalReason,
 } from "./contracts";
 import { tcgplayerExportSchemaDescriptors } from "./profile";
-import { assertTcgplayerExportIngestLimits } from "./validation";
 
 type TokenizedCsv =
   | Readonly<{ kind: "records"; records: readonly (readonly string[])[] }>
@@ -184,6 +183,24 @@ function parseInteger(value: string, min: number, max: number): number | null {
 
 function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function assertTcgplayerExportIngestLimits(value: unknown): asserts value is TcgplayerExportIngestLimits {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("TCGplayer export ingest limits must be a record.");
+  }
+  const record = value as Record<string, unknown>;
+  const maxRecords = record.maxRecords;
+  if (
+    Object.keys(record).length !== 1 ||
+    !Object.hasOwn(record, "maxRecords") ||
+    typeof maxRecords !== "number" ||
+    !Number.isSafeInteger(maxRecords) ||
+    maxRecords < 1 ||
+    maxRecords > 1_000_000
+  ) {
+    throw new Error("maxRecords must be a safe integer from 1 through 1000000.");
+  }
 }
 
 function assertParseInput(value: unknown): asserts value is Readonly<{
