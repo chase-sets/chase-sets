@@ -202,13 +202,11 @@ function mapMember(row: Record<string, unknown>): ChannelSyncRunMember {
   const memberKind = text(row.member_kind);
   if (memberKind === "refused") {
     const refusalReason = text(row.refusal_reason);
-    if (!tcgplayerLocalRefusalReasons.includes(refusalReason as never)) {
+    if (!isTcgplayerLocalRefusalReason(refusalReason)) {
       throw new Error("Persisted refusal reason is invalid.");
     }
     const mappingDimension = nullableText(row.mapping_dimension);
-    if (mappingDimension !== null && !["category", "condition", "attribute"].includes(mappingDimension)) {
-      throw new Error("Persisted mapping dimension is invalid.");
-    }
+    const validatedMappingDimension = parseMappingDimension(mappingDimension);
     return {
       ...common,
       memberKind,
@@ -221,8 +219,8 @@ function mapMember(row: Record<string, unknown>): ChannelSyncRunMember {
       targetQuantity: nullableNumber(row.target_quantity),
       targetPriceAmountMinor: nullableNumber(row.target_price_amount_minor),
       csvRow: null,
-      refusalReason: refusalReason as TcgplayerLocalRefusalReason,
-      mappingDimension: mappingDimension as "category" | "condition" | "attribute" | null,
+      refusalReason,
+      mappingDimension: validatedMappingDimension,
       mappingSourceKey: nullableText(row.mapping_source_key),
     };
   }
@@ -273,4 +271,13 @@ function record(value: unknown): Readonly<Record<string, string>> {
     result[key] = member;
   }
   return result;
+}
+
+function isTcgplayerLocalRefusalReason(value: string): value is TcgplayerLocalRefusalReason {
+  return tcgplayerLocalRefusalReasons.some((reason) => reason === value);
+}
+
+function parseMappingDimension(value: string | null): "category" | "condition" | "attribute" | null {
+  if (value === null || value === "category" || value === "condition" || value === "attribute") return value;
+  throw new Error("Persisted mapping dimension is invalid.");
 }

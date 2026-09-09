@@ -45,10 +45,8 @@ export function parseTcgplayerFullExport(
 ): TcgplayerExportParseResult {
   try {
     assertTcgplayerExportIngestLimits(limits);
+    assertParseInput(input);
   } catch {
-    return { kind: "refused", reason: "invalid-input" };
-  }
-  if (typeof input.csv !== "string" || (input.surface !== "live" && input.surface !== "staged")) {
     return { kind: "refused", reason: "invalid-input" };
   }
   const tokenized = tokenizeLogicalRecords(input.csv, limits.maxRecords);
@@ -86,9 +84,7 @@ export function parseTcgplayerFullExport(
     const priceAmountText = fields[positions.get("TCG Marketplace Price")!]!;
     const referenceColumns = Object.fromEntries(
       header.flatMap((column, columnIndex) =>
-        column === "Add to Quantity" || column === "TCG Marketplace Price"
-          ? []
-          : [[column, fields[columnIndex]!]],
+        column === "Add to Quantity" || column === "TCG Marketplace Price" ? [] : [[column, fields[columnIndex]!]],
       ),
     );
     rows.push({
@@ -188,4 +184,51 @@ function parseInteger(value: string, min: number, max: number): number | null {
 
 function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function assertParseInput(value: unknown): asserts value is Readonly<{
+  csv: string;
+  surface: ChannelExportSurface;
+  pinnedSchema?: ChannelExportSchemaPin | null;
+}> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Parse input is invalid.");
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).some((key) => !["csv", "surface", "pinnedSchema"].includes(key)) ||
+    typeof record.csv !== "string" ||
+    (record.surface !== "live" && record.surface !== "staged")
+  ) {
+    throw new Error("Parse input is invalid.");
+  }
+  if (record.pinnedSchema === undefined || record.pinnedSchema === null) return;
+  if (typeof record.pinnedSchema !== "object" || Array.isArray(record.pinnedSchema)) {
+    throw new Error("Pinned schema is invalid.");
+  }
+  const pin = record.pinnedSchema as Record<string, unknown>;
+  const keys = [
+    "connectionId",
+    "providerKey",
+    "surface",
+    "header",
+    "conditionColumn",
+    "pinnedFromSnapshotId",
+    "pinnedAt",
+  ];
+  if (
+    Object.keys(pin).length !== keys.length ||
+    Object.keys(pin).some((key) => !keys.includes(key)) ||
+    typeof pin.connectionId !== "string" ||
+    pin.providerKey !== "tcgplayer" ||
+    pin.surface !== record.surface ||
+    !Array.isArray(pin.header) ||
+    pin.header.length === 0 ||
+    !pin.header.every((column) => typeof column === "string") ||
+    (pin.conditionColumn !== "present" && pin.conditionColumn !== "absent") ||
+    typeof pin.pinnedFromSnapshotId !== "string" ||
+    typeof pin.pinnedAt !== "string" ||
+    !/(?:Z|[+-]\d{2}:\d{2})$/.test(pin.pinnedAt) ||
+    Number.isNaN(Date.parse(pin.pinnedAt))
+  ) {
+    throw new Error("Pinned schema is invalid.");
+  }
 }

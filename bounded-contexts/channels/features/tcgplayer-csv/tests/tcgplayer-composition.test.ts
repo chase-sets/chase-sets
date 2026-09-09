@@ -216,9 +216,7 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
       profile: tcgplayerCompositionProfiles[0]!,
       maxRowsPerBatch: 500,
     });
-    expect(
-      parseTcgplayerFullExport({ csv: composed.batch!.csv, surface: "staged" }, { maxRecords: 1 }),
-    ).toMatchObject({
+    expect(parseTcgplayerFullExport({ csv: composed.batch!.csv, surface: "staged" }, { maxRecords: 1 })).toMatchObject({
       kind: "parsed",
       rows: [{ externalKey: "product:90000001", totalQuantity: 4, pendingQuantityDelta: -1, priceAmountMinor: 27 }],
     });

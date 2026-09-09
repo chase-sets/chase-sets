@@ -110,7 +110,9 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
         "SELECT coalesce(max(snapshot_generation),0)+1 AS next_generation FROM channel_inventory_snapshots WHERE connection_id=$1 AND surface=$2",
         [input.connectionId, input.surface],
       );
-      const snapshotGeneration = Number(generationResult.rows[0]!.next_generation);
+      const generationRow = generationResult.rows[0];
+      if (!generationRow) throw new Error("Snapshot generation query returned no row.");
+      const snapshotGeneration = Number(generationRow.next_generation);
       if (input.surface === "staged" && !currentPin) {
         await db.query(
           `INSERT INTO channel_export_schema_pins
@@ -274,6 +276,13 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
     const current = await readRun(dependencies.db, input.runId);
     if (!current) throw new ChannelSyncRunError("unknown-run");
     if (current.revision !== input.expectedRevision) throw new ChannelSyncRunError("stale-fence");
+    if (
+      trigger === "report-upload-attempted" &&
+      options.uploadAttemptedAt !== undefined &&
+      Date.parse(options.uploadAttemptedAt) > Date.parse(current.leaseExpiresAt)
+    ) {
+      throw new ChannelSyncRunError("stale-fence", "Upload attempt occurred after the claimed lease expired.");
+    }
     const nextState = decideChannelSyncRunTransition(current.state, trigger, options);
     const result = await dependencies.db.query(
       `UPDATE channel_sync_runs SET state=$3,revision=revision+1,updated_at=clock_timestamp(),
@@ -444,6 +453,8 @@ async function persistRun(
     "SELECT coalesce(max(sequence),0)+1 AS next_sequence FROM channel_sync_runs WHERE connection_id=$1",
     [input.connectionId],
   );
+  const sequenceRow = sequenceResult.rows[0];
+  if (!sequenceRow) throw new Error("Run sequence query returned no row.");
   const digest = createHash("sha256").update(JSON.stringify(members), "utf8").digest("hex");
   await db.query("BEGIN");
   try {
@@ -456,7 +467,7 @@ async function persistRun(
        VALUES ($1,0,$2,$3,'tcgplayer',$4,$5,$6,$7,$8::jsonb,'composed',$9,$10,NULL,NULL,NULL,NULL,NULL,$11::jsonb,$12,$13,$14,$14)`,
       [
         input.runId,
-        sequenceResult.rows[0]!.next_sequence,
+        sequenceRow.next_sequence,
         input.connectionId,
         reservation.reservationId,
         input.claimant.claimantKind,

@@ -1,7 +1,5 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type {
   BoundClaimedReservationRun,
-  ClaimedOperationClaimant,
   ClaimedReservationRunSettlementPort,
 } from "../../outbound-sync/domain/contracts";
 import { deriveClaimedOperationOutcomes } from "../domain/lifecycle";
@@ -56,8 +54,3 @@ function terminalOrCurrent(state: ChannelSyncRun["state"]): BoundClaimedReservat
   if (state === "composed" || state === "claimed" || state === "awaiting-verification") return state;
   return "terminal";
 }
-
-export type TcgplayerClaimedReservationRunSettlementDependencies = Readonly<{
-  db: PgQueryable;
-  claimant: ClaimedOperationClaimant;
-}>;
