@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type {
   ChannelInventorySnapshot,
@@ -9,6 +8,7 @@ import type {
   TcgplayerLocalRefusalReason,
 } from "../domain/contracts";
 import { tcgplayerLocalRefusalReasons } from "../domain/contracts";
+import { digestChannelSyncRunMembers } from "../domain/digest";
 
 type RunRow = Readonly<{
   run_id: string;
@@ -156,7 +156,7 @@ async function mapRun(db: PgQueryable, row: RunRow): Promise<ChannelSyncRun> {
     [row.run_id],
   );
   const members = memberResult.rows.map(mapMember);
-  const digest = createHash("sha256").update(JSON.stringify(members), "utf8").digest("hex");
+  const digest = digestChannelSyncRunMembers(members);
   const complete = members.length === row.member_count && digest === row.member_digest;
   return {
     runId: row.run_id,

@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { tcgplayerCsvSchemaMigrations, tcgplayerCsvSchemaSql } from "../read-model/schema";
+import { digestChannelSyncRunMembers } from "../domain/digest";
 
 describe("tcgplayer-bootstrap-manifest-and-replay", () => {
   it("keeps boot SQL and the same-change migration aligned for every owned table and index", () => {
@@ -48,6 +49,36 @@ describe("tcgplayer-bootstrap-manifest-and-replay", () => {
       /as\s+(?:ClaimedOutboundOperation|ClaimedOperationReservation|OutboundSyncServices)\b/,
     );
     expect(combined).not.toMatch(/desiredStateSequence\s*:\s*(?:operation\.)?listingRevision/);
+  });
+
+  it("keeps membership digests stable across jsonb-style object key reordering", () => {
+    const member = {
+      operationId: "operation-synthetic",
+      attemptId: "attempt-synthetic",
+      claimGeneration: 1,
+      reservationId: "reservation-synthetic",
+      channelListingId: "channel-listing-synthetic",
+      listingId: "listing-synthetic",
+      desiredStateSequence: 9,
+      listingRevision: 3,
+      payloadDigest: "a".repeat(64),
+      ordinal: 0,
+      memberKind: "composed" as const,
+      externalKey: "product:90000001",
+      conditionText: null,
+      basisSnapshotId: "snapshot-synthetic",
+      basisSnapshotGeneration: 1,
+      basisTotalQuantity: 2,
+      basisPriceAmountMinor: 26,
+      targetQuantity: 1,
+      targetPriceAmountMinor: 27,
+      csvRow: { Zeta: "last", Alpha: "first" },
+      refusalReason: null,
+      mappingDimension: null,
+      mappingSourceKey: null,
+    };
+    const reordered = { ...member, csvRow: { Alpha: "first", Zeta: "last" } };
+    expect(digestChannelSyncRunMembers([member])).toBe(digestChannelSyncRunMembers([reordered]));
   });
 });
 

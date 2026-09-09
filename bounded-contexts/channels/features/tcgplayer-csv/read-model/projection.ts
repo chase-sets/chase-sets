@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { channelSyncRunEventCodec } from "../domain/codec";
@@ -7,6 +6,7 @@ import type {
   ChannelSyncRunMember,
   ChannelSyncRunTransitionedEvent,
 } from "../domain/contracts";
+import { digestChannelSyncRunMembers } from "../domain/digest";
 
 export function buildTcgplayerCsvProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -34,7 +34,7 @@ export async function projectChannelSyncRunComposed(
   streamVersion: number,
 ): Promise<void> {
   const run = data.run;
-  const digest = createHash("sha256").update(JSON.stringify(run.members), "utf8").digest("hex");
+  const digest = digestChannelSyncRunMembers(run.members);
   const inserted = await db.query(
     `INSERT INTO channel_sync_runs
      (run_id,revision,sequence,connection_id,provider_key,reservation_id,claimant_kind,claimant_id,lease_expires_at,
