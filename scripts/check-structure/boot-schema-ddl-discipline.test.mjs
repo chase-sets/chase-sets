@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,6 +10,7 @@ import {
   findBootSchemaMigrationAddedIndexViolationsInSource,
   findBootSchemaDdlDisciplineViolations,
   findBootSchemaLedgerConvergenceViolations,
+  findBootSchemaRetainedUpgradeViolations,
   findSchemaMigrationDdlSafetyViolationsInSource,
   isFastDefaultSafeExpression,
 } from "./boot-schema-ddl-discipline.mjs";
@@ -28,6 +30,16 @@ function findInlineViolations(source) {
     }
     return violations;
   });
+}
+
+function bootSchemaSource(sql) {
+  return `export const exampleSchemaSql = \`${sql}\`;`;
+}
+
+function retainedUpgradeKeys({ baseSource, currentSource }) {
+  return findBootSchemaRetainedUpgradeViolations({ baseSource, currentSource }).map(
+    ({ tableName, columnName }) => `${tableName}.${columnName}`,
+  );
 }
 
 describe("boot schema DDL discipline", () => {
@@ -157,6 +169,109 @@ export const exampleSchemaMigrations = [{
 `;
 
     expect(findBootSchemaLedgerConvergenceViolations({ baseSource, currentSource })).toEqual([]);
+  });
+
+  it("flags the exact 6feb1454 Pricing source without retained-schema boot expansions", () => {
+    const failedSource = execFileSync(
+      "git",
+      [
+        "show",
+        "6feb1454cecb4a73a90845103a9a0de2a336eaad:bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts",
+      ],
+      { encoding: "utf8" },
+    );
+    const retainedSource = execFileSync(
+      "git",
+      [
+        "show",
+        "3edef8e981847f1aa16c97e13efcdeda7063608e:bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts",
+      ],
+      { encoding: "utf8" },
+    );
+
+    expect(
+      findBootSchemaRetainedUpgradeViolations({ baseSource: retainedSource, currentSource: failedSource }),
+    ).toEqual([
+      expect.objectContaining({
+        tableName: "pricing_market_listing_inputs",
+        columnName: "price_currency_code",
+      }),
+      expect.objectContaining({
+        tableName: "pricing_buyer_offer_inputs",
+        columnName: "price_currency_code",
+      }),
+    ]);
+  });
+
+  it("accepts the repaired Pricing source with retained-schema boot expansions", async () => {
+    const repairedSource = await readFile(
+      new URL(
+        "../../bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const retainedSource = execFileSync(
+      "git",
+      [
+        "show",
+        "3edef8e981847f1aa16c97e13efcdeda7063608e:bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts",
+      ],
+      { encoding: "utf8" },
+    );
+
+    expect(
+      findBootSchemaRetainedUpgradeViolations({ baseSource: retainedSource, currentSource: repairedSource }),
+    ).toEqual([]);
+  });
+
+  describe("retained-schema boot expansion SQL recognition", () => {
+    const baseSource = bootSchemaSource("CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);");
+    const createWithStatus = "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY, status text NULL);";
+    const expansion = "ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS status text NULL;";
+
+    it.each([
+      ["line comments", `${createWithStatus} -- ${expansion}`],
+      ["block comments", `${createWithStatus} /* ${expansion} */`],
+      [
+        "single-quoted strings with escaped quotes and comment delimiters",
+        `${createWithStatus} SELECT 'ignored ''quoted'' -- /* ${expansion} */';`,
+      ],
+      ["PostgreSQL escape strings", `${createWithStatus} SELECT E'ignored \\'quoted\\' ${expansion}';`],
+      ["untagged dollar-quoted strings", `${createWithStatus} SELECT $$-- /* ${expansion} */$$;`],
+      ["tagged dollar-quoted strings", `${createWithStatus} SELECT $body$-- /* ${expansion} */$body$;`],
+      ["nested block comments", `${createWithStatus} /* outer /* inner */ ${expansion} */`],
+    ])("does not accept fake expansions inside %s", (_label, sql) => {
+      expect(retainedUpgradeKeys({ baseSource, currentSource: bootSchemaSource(sql) })).toEqual([
+        "example_pages.status",
+      ]);
+    });
+
+    it.each([
+      ["ordinary ALTER TABLE", expansion],
+      ["ALTER TABLE ONLY", "ALTER TABLE ONLY example_pages ADD COLUMN IF NOT EXISTS status text NULL;"],
+      ["ALTER TABLE after a quoted comment delimiter", `SELECT '-- not a comment /* or block */'; ${expansion}`],
+      [
+        "ALTER TABLE after a dollar-quoted comment delimiter",
+        `SELECT $tag$-- not a comment /* or block */$tag$; ${expansion}`,
+      ],
+    ])("accepts executable expansion via %s", (_label, ddl) => {
+      const currentSource = bootSchemaSource(`${createWithStatus} ${ddl}`);
+
+      expect(retainedUpgradeKeys({ baseSource, currentSource })).toEqual([]);
+    });
+
+    it.each([
+      ["missing expansion", createWithStatus],
+      [
+        "same-named expansion on the wrong table",
+        `${createWithStatus} ALTER TABLE other_pages ADD COLUMN IF NOT EXISTS status text NULL;`,
+      ],
+    ])("retains the violation for %s", (_label, sql) => {
+      expect(retainedUpgradeKeys({ baseSource, currentSource: bootSchemaSource(sql) })).toEqual([
+        "example_pages.status",
+      ]);
+    });
   });
 
   it("does not treat a same-named column migration on another table as reachable", () => {

@@ -37,6 +37,23 @@ describe("retention sweep coverage", () => {
     await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({ violations: [] });
   });
 
+  it("ignores historical SQL fixtures while retaining the production-source check", async () => {
+    const root = await fixture({
+      "bounded-contexts/example/tests/fixtures/deployed-schema.sql": `CREATE TABLE IF NOT EXISTS historical_job_events (
+        event_id text PRIMARY KEY,
+        created_at timestamptz NOT NULL
+      );`,
+      "bounded-contexts/example/schema.ts": `export const schema = \`CREATE TABLE IF NOT EXISTS current_job_events (
+        event_id text PRIMARY KEY,
+        created_at timestamptz NOT NULL
+      );\`;`,
+    });
+
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [expect.stringContaining("current_job_events")],
+    });
+  });
+
   it("keeps every exemption justified", () => {
     expect([...retentionCoverageExemptions.values()].every((reason) => reason.trim().length >= 20)).toBe(true);
   });
