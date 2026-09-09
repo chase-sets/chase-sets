@@ -6,6 +6,8 @@ import { tcgplayerCompositionProfiles } from "../domain/profile";
 import { parseTcgplayerFullExport } from "../domain/csv";
 
 const digest = "a".repeat(64);
+const tcgplayerProfile = tcgplayerCompositionProfiles[0];
+if (!tcgplayerProfile) throw new Error("TCGplayer composition profile fixture is unavailable.");
 const reservation: ClaimedOperationReservation = {
   reservationId: "reservation-synthetic",
   connectionId: "connection-synthetic",
@@ -42,7 +44,7 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
           externalKey: "product:90000003",
         }),
       ],
-      profile: tcgplayerCompositionProfiles[0]!,
+      profile: tcgplayerProfile,
       maxRowsPerBatch: 500,
     });
 
@@ -93,7 +95,7 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
             externalKey: "product:90000001",
           }),
         ],
-        profile: tcgplayerCompositionProfiles[0]!,
+        profile: tcgplayerProfile,
         maxRowsPerBatch: 500,
       }),
     ).toThrow("exact Staged snapshot");
@@ -108,7 +110,7 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
       basisSnapshotGeneration: 7,
       basisRows: [basis("product:90000001", 4, 26)],
       header: ["TCGplayer Id", "Title", "Total Quantity", "Add to Quantity", "TCG Marketplace Price"],
-      profile: tcgplayerCompositionProfiles[0]!,
+      profile: tcgplayerProfile,
       maxRowsPerBatch: 500,
     };
     const catalogLinked = composeTcgplayerReservation({
@@ -155,31 +157,31 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
     };
     const cases = [
       {
-        profile: tcgplayerCompositionProfiles[0]!,
+        profile: tcgplayerProfile,
         catalogItemReference: { kind: "unlinked" as const },
         productReference: { kind: "linked" as const, providerKey: "tcgplayer", externalKey: "sku:90000001" },
         reason: "provider-catalog-item-reference-unlinked",
       },
       {
-        profile: tcgplayerCompositionProfiles[0]!,
+        profile: tcgplayerProfile,
         catalogItemReference: { kind: "ambiguous" as const, candidateCount: 2 },
         productReference: { kind: "linked" as const, providerKey: "tcgplayer", externalKey: "sku:90000001" },
         reason: "provider-catalog-item-reference-ambiguous",
       },
       {
-        profile: { ...tcgplayerCompositionProfiles[0]!, requiresProviderProductReference: true },
+        profile: { ...tcgplayerProfile, requiresProviderProductReference: true },
         catalogItemReference: { kind: "linked" as const, providerKey: "tcgplayer", externalKey: "product:90000001" },
         productReference: { kind: "unlinked" as const },
         reason: "provider-product-reference-unlinked",
       },
       {
-        profile: { ...tcgplayerCompositionProfiles[0]!, requiresProviderProductReference: true },
+        profile: { ...tcgplayerProfile, requiresProviderProductReference: true },
         catalogItemReference: { kind: "linked" as const, providerKey: "tcgplayer", externalKey: "product:90000001" },
         productReference: { kind: "ambiguous" as const, candidateCount: 2 },
         reason: "provider-product-reference-ambiguous",
       },
       {
-        profile: tcgplayerCompositionProfiles[0]!,
+        profile: tcgplayerProfile,
         catalogItemReference: { kind: "linked" as const, providerKey: "tcgplayer", externalKey: "sku:90000001" },
         productReference: { kind: "linked" as const, providerKey: "tcgplayer", externalKey: "product:90000001" },
         reason: "provider-reference-wrong-family",
@@ -214,7 +216,7 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
         basisRows: [],
         header: [],
         references: [],
-        profile: tcgplayerCompositionProfiles[0]!,
+        profile: tcgplayerProfile,
         maxRowsPerBatch: 2,
       }),
     ).toThrow("policy-served batch cap");
@@ -235,10 +237,11 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
           externalKey: "product:90000001",
         }),
       ],
-      profile: tcgplayerCompositionProfiles[0]!,
+      profile: tcgplayerProfile,
       maxRowsPerBatch: 500,
     });
-    expect(parseTcgplayerFullExport({ csv: composed.batch!.csv, surface: "staged" }, { maxRecords: 1 })).toMatchObject({
+    if (!composed.batch) throw new Error("Synthetic composition did not create a batch.");
+    expect(parseTcgplayerFullExport({ csv: composed.batch.csv, surface: "staged" }, { maxRecords: 1 })).toMatchObject({
       kind: "parsed",
       rows: [{ externalKey: "product:90000001", totalQuantity: 4, pendingQuantityDelta: -1, priceAmountMinor: 27 }],
     });

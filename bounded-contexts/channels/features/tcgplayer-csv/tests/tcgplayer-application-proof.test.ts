@@ -107,11 +107,15 @@ const run: ChannelSyncRun = {
     },
   ],
 };
+const firstComposedMember = run.members[0];
+if (!firstComposedMember || firstComposedMember.memberKind !== "composed") {
+  throw new Error("Synthetic composed member fixture is unavailable.");
+}
 
 describe("tcgplayer-application-proof", () => {
   it("proves a synthetic two-row application only from an independently parsed newer Staged export", () => {
     const second = {
-      ...run.members[0]!,
+      ...firstComposedMember,
       operationId: "operation-composed-two",
       attemptId: "attempt-composed-two",
       channelListingId: "channel-listing-composed-two",
@@ -126,7 +130,7 @@ describe("tcgplayer-application-proof", () => {
     const twoRowRun: ChannelSyncRun = {
       ...run,
       membershipCompleteness: { kind: "complete", total: 2 },
-      members: [run.members[0]!, second],
+      members: [firstComposedMember, second],
     };
     const parsed = parseTcgplayerFullExport(
       {
@@ -159,16 +163,18 @@ describe("tcgplayer-application-proof", () => {
         priceAmountText: "0.2600",
       },
     ];
+    const row = rows[0];
+    if (!row) throw new Error("Synthetic verification row is unavailable.");
     expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows })).toBe(true);
     expect(applicationMatchesSnapshot(run, { snapshotGeneration: 1, rows })).toBe(false);
-    expect(
-      applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [{ ...rows[0]!, priceAmountMinor: null }] }),
-    ).toBe(false);
-    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [{ ...rows[0]!, totalQuantity: 2 }] })).toBe(
+    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [{ ...row, priceAmountMinor: null }] })).toBe(
+      false,
+    );
+    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [{ ...row, totalQuantity: 2 }] })).toBe(
       false,
     );
     expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [] })).toBe(false);
-    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [rows[0]!, rows[0]!] })).toBe(false);
+    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [row, row] })).toBe(false);
   });
 
   it("settles the mixed immutable partition without copying run state to every member", () => {

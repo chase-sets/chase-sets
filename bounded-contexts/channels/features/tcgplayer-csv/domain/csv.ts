@@ -54,7 +54,8 @@ export function parseTcgplayerFullExport(
   if (!header || records.length === 0) return { kind: "refused", reason: "empty-export" };
   if (new Set(header).size !== header.length) return { kind: "refused", reason: "header-duplicate-column" };
 
-  const descriptor = tcgplayerExportSchemaDescriptors.find((candidate) => candidate.surface === input.surface)!;
+  const descriptor = tcgplayerExportSchemaDescriptors.find((candidate) => candidate.surface === input.surface);
+  if (!descriptor) return { kind: "refused", reason: "invalid-input" };
   if (descriptor.requiredColumns.some((column) => !header.includes(column))) {
     return { kind: "refused", reason: "header-missing-required-column" };
   }
@@ -70,17 +71,17 @@ export function parseTcgplayerFullExport(
   const identities = new Set<string>();
   for (const [index, fields] of records.entries()) {
     if (fields.length !== header.length) return { kind: "refused", reason: "row-width-mismatch" };
-    const rawId = fields[positions.get("TCGplayer Id")!]!;
+    const rawId = fieldAt(fields, positions, "TCGplayer Id");
     if (!/^[1-9]\d*$/.test(rawId)) return { kind: "refused", reason: "invalid-input" };
-    const totalQuantity = parseInteger(fields[positions.get("Total Quantity")!]!, 0, 1_000_000);
-    const pendingQuantityDelta = parseInteger(fields[positions.get("Add to Quantity")!]!, -1_000_000, 1_000_000);
+    const totalQuantity = parseInteger(fieldAt(fields, positions, "Total Quantity"), 0, 1_000_000);
+    const pendingQuantityDelta = parseInteger(fieldAt(fields, positions, "Add to Quantity"), -1_000_000, 1_000_000);
     if (totalQuantity === null || pendingQuantityDelta === null) return { kind: "refused", reason: "invalid-integer" };
-    const conditionText = conditionColumn === "present" ? fields[positions.get("Condition")!]! || null : null;
+    const conditionText = conditionColumn === "present" ? fieldAt(fields, positions, "Condition") || null : null;
     const externalKey = `product:${rawId}`;
     const identity = `${externalKey}\u0000${conditionText ?? ""}`;
     if (identities.has(identity)) return { kind: "refused", reason: "duplicate-row-identity" };
     identities.add(identity);
-    const priceAmountText = fields[positions.get("TCG Marketplace Price")!]!;
+    const priceAmountText = fieldAt(fields, positions, "TCG Marketplace Price");
     const referenceColumns = Object.fromEntries(
       header.flatMap((column, columnIndex) =>
         column === "Add to Quantity" || column === "TCG Marketplace Price" ? [] : [[column, fields[columnIndex]!]],
@@ -130,7 +131,7 @@ function tokenizeLogicalRecords(input: string, maxRecords: number): TokenizedCsv
     return records.length - 1 > maxRecords ? "record-limit-exceeded" : null;
   };
   for (let index = 0; index < input.length; index += 1) {
-    const character = input[index]!;
+    const character = input.charAt(index);
     if (quoted) {
       if (character === '"') {
         if (input[index + 1] === '"') {
@@ -179,6 +180,14 @@ function parseInteger(value: string, min: number, max: number): number | null {
   if (!/^-?(?:0|[1-9]\d*)$/.test(value)) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= min && parsed <= max ? parsed : null;
+}
+
+function fieldAt(fields: readonly string[], positions: ReadonlyMap<string, number>, column: string): string {
+  const position = positions.get(column);
+  if (position === undefined) throw new Error(`Required TCGplayer column '${column}' is unavailable.`);
+  const value = fields[position];
+  if (value === undefined) throw new Error(`TCGplayer column '${column}' has no field.`);
+  return value;
 }
 
 function arraysEqual(left: readonly string[], right: readonly string[]): boolean {

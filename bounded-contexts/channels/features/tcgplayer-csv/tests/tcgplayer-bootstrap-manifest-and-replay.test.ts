@@ -5,7 +5,8 @@ import { tcgplayerCsvSchemaMigrations, tcgplayerCsvSchemaSql } from "../read-mod
 
 describe("tcgplayer-bootstrap-manifest-and-replay", () => {
   it("keeps boot SQL and the same-change migration aligned for every owned table and index", () => {
-    const migration = tcgplayerCsvSchemaMigrations[0]!;
+    const migration = tcgplayerCsvSchemaMigrations[0];
+    if (!migration) throw new Error("TCGplayer CSV migration is unavailable.");
     for (const table of [
       "channel_export_schema_pins",
       "channel_inventory_snapshots",

@@ -257,10 +257,10 @@ function chooseBasisRow(
   conditionKey: string | null,
   placeholder: string,
 ): ChannelInventorySnapshotRow | null {
-  if (candidates.length === 1) return candidates[0]!;
+  if (candidates.length === 1) return candidates[0] ?? null;
   if (conditionKey && conditionKey !== placeholder) {
     const matches = candidates.filter((row) => row.conditionText === conditionKey);
-    if (matches.length === 1) return matches[0]!;
+    if (matches.length === 1) return matches[0] ?? null;
   }
   return null;
 }
