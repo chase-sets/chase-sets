@@ -74,6 +74,87 @@ export {
   type ResolvedChannelPublication,
   type UpdatePriceQuantityInput,
 } from "./features/publication-port/domain/contracts";
+export {
+  createTcgplayerCsvRuntime,
+  type ComposeTcgplayerSyncRunInput,
+  type IngestTcgplayerExportSnapshotInput,
+  type RunFenceInput,
+  type TcgplayerCsvRuntimeDependencies,
+  type TcgplayerCsvServices,
+} from "./features/tcgplayer-csv/api/runtime";
+export { channelSyncRunEventCodec } from "./features/tcgplayer-csv/domain/codec";
+export {
+  composeTcgplayerReservation,
+  planStagedImportBatches,
+  tcgplayerExternalListingId,
+  type ComposedTcgplayerReservation,
+  type ComposeTcgplayerReservationInput,
+} from "./features/tcgplayer-csv/domain/composition";
+export {
+  formatTcgplayerMinorUnits,
+  parseTcgplayerFullExport,
+  parseTcgplayerMoneyToMinorUnits,
+} from "./features/tcgplayer-csv/domain/csv";
+export {
+  channelExportCompletenessStates,
+  channelExportSurfaces,
+  channelSyncRunMemberKinds,
+  channelSyncRunStates,
+  channelSyncRunTerminalStates,
+  channelSyncRunTriggers,
+  tcgplayerLocalRefusalReasons,
+  tcgplayerRowRefusalReasons,
+  type ChannelExportCompleteness,
+  type ChannelExportSchemaDescriptor,
+  type ChannelExportSchemaPin,
+  type ChannelExportSurface,
+  type ChannelInventorySnapshot,
+  type ChannelInventorySnapshotRow,
+  type ChannelSyncRun,
+  type ChannelSyncRunComposedEvent,
+  type ChannelSyncRunEvent,
+  type ChannelSyncRunMember,
+  type ChannelSyncRunMemberKind,
+  type ChannelSyncRunState,
+  type ChannelSyncRunTransitionedEvent,
+  type ChannelSyncRunTrigger,
+  type ManualClaimLeasePolicySnapshot,
+  type StagedImportBatch,
+  type TcgplayerExportIngestLimits,
+  type TcgplayerExportParseResult,
+  type TcgplayerImportSummary,
+  type TcgplayerLocalRefusalReason,
+  type TcgplayerRowRefusalReason,
+} from "./features/tcgplayer-csv/domain/contracts";
+export {
+  applicationMatchesImportSummary,
+  applicationMatchesSnapshot,
+  channelSyncRunTransitions,
+  decideChannelSyncRunTransition,
+  deriveClaimedOperationOutcomes,
+  isChannelSyncRunTerminalState,
+} from "./features/tcgplayer-csv/domain/lifecycle";
+export { tcgplayerStagedImportPolicy } from "./features/tcgplayer-csv/domain/policy";
+export {
+  tcgplayerCompositionProfiles,
+  tcgplayerExportSchemaDescriptors,
+  tcgplayerLiveExportHeader,
+  tcgplayerProviderDescriptors,
+} from "./features/tcgplayer-csv/domain/profile";
+export {
+  assertManualClaimLeasePolicySnapshot,
+  assertTcgplayerImportSummary,
+  canonicalManualClaimLeasePolicySnapshotDigest,
+} from "./features/tcgplayer-csv/domain/validation";
+export { createTcgplayerClaimedReservationRunSettlementPort } from "./features/tcgplayer-csv/integrations/outbound-sync-settlement";
+export { buildTcgplayerCsvProjectionHandlers } from "./features/tcgplayer-csv/read-model/projection";
+export {
+  readChannelSyncRunByReservation,
+  readLatestSnapshotRows,
+  readRun,
+  readSnapshotRowsById,
+} from "./features/tcgplayer-csv/read-model/queries";
+
 import {
   buildEventReactionsFromManifest,
   buildEventSubscriptionsFromManifest,

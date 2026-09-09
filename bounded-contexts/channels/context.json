@@ -460,7 +460,7 @@
     },
     "tcgplayer-csv": {
       "classification": "slice",
-      "purpose": "Own TCGplayer export snapshots, staged CSV composition, and replayable Channel Sync Runs.",
+      "purpose": "The tcgplayer-csv slice owns TCGplayer export snapshots, staged CSV composition, and replayable Channel Sync Runs.",
       "expectedConsumers": ["Channels manual and connector sync workflows"]
     },
     "routes": {
