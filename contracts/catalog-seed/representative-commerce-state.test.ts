@@ -5,11 +5,11 @@ import {
   loadRepresentativeCatalogUsageCandidates,
   normalizeRepresentativeCandidateLimit,
   normalizeRepresentativeCatalogCandidateLimit,
+  observeRepresentativeDiscoveryMarketState,
   prepareRepresentativeCatalogUsageCandidates,
   prepareRepresentativeCatalogUsageCandidatesByIds,
   prioritizeRepresentativeCatalogUsageCandidates,
   publishRepresentativeListings,
-  reconcileRepresentativeDiscoveryMarketState,
   reconcileRepresentativeInventoryCatalogItems,
   reconcileRepresentativeMarketplaceCatalogItems,
   reconcileRepresentativeOrderingSupplyState,
@@ -350,44 +350,6 @@ describe("representative commerce state seed helpers", () => {
     ]);
   });
 
-  it("reconciles selected representative marketplace facts into Discovery without replaying the full projection", async () => {
-    const discoveryQueries: QueryCall[] = [];
-    const discoveryDb = queryRecorder(discoveryQueries);
-    const marketplaceQueries: QueryCall[] = [];
-    const marketplaceDb: RepresentativeQueryable = {
-      query: async <Row>(sql: string, values?: readonly unknown[]) => {
-        marketplaceQueries.push([sql, values]);
-        if (sql.includes("FROM marketplace_listing_pages")) {
-          return { rows: [marketplaceListing()] as Row[] };
-        }
-        if (sql.includes("FROM marketplace_offer_pages")) {
-          return { rows: [marketplaceOffer()] as Row[] };
-        }
-        if (sql.includes("FROM marketplace_account_pages")) {
-          return {
-            rows: [
-              marketplaceAccount("acc_seller", "Representative Seller"),
-              marketplaceAccount("acc_buyer", "Representative Buyer"),
-            ] as Row[],
-          };
-        }
-        return { rows: [] as Row[] };
-      },
-    };
-
-    const result = await reconcileRepresentativeDiscoveryMarketState(
-      { discoveryDb, marketplaceDb },
-      { listingIds: ["lst_repr_1", "lst_repr_1"], offerIds: ["off_repr_1"] },
-    );
-
-    expect(result).toEqual({ accountCount: 2, listingCount: 1, offerCount: 1 });
-    expect(marketplaceQueries[0]?.[1]).toEqual([["lst_repr_1"]]);
-    expect(marketplaceQueries[1]?.[1]).toEqual([["off_repr_1"]]);
-    expect(discoveryQueries.some(([sql]) => sql.includes("INSERT INTO discovery_market_accounts"))).toBe(true);
-    expect(discoveryQueries.some(([sql]) => sql.includes("INSERT INTO discovery_market_listings"))).toBe(true);
-    expect(discoveryQueries.some(([sql]) => sql.includes("INSERT INTO discovery_offer_demand_matches"))).toBe(true);
-  });
-
   it("reconciles selected representative marketplace and inventory facts into Ordering supply inputs", async () => {
     const orderingQueries: QueryCall[] = [];
     const orderingDb = queryRecorder(orderingQueries);
@@ -463,6 +425,26 @@ describe("representative commerce state seed helpers", () => {
     expect(orderingQueries.some(([sql]) => sql.includes("INSERT INTO ordering_inventory_hold_inputs"))).toBe(true);
   });
 
+  it("observes derived Discovery representative state without writing projection rows", async () => {
+    const queries: QueryCall[] = [];
+    const discoveryDb: RepresentativeQueryable = {
+      query: async <Row>(sql: string, params?: readonly unknown[]) => {
+        queries.push([sql, params]);
+        return { rows: [{ account_count: 2, listing_count: 1, offer_count: 1 }] as Row[] };
+      },
+    };
+
+    const result = await observeRepresentativeDiscoveryMarketState(
+      { discoveryDb },
+      { listingIds: ["lst_repr_1"], offerIds: ["off_repr_1"] },
+    );
+
+    expect(result).toEqual({ accountCount: 2, listingCount: 1, offerCount: 1 });
+    expect(queries).toHaveLength(1);
+    expect(queries.every(([sql]) => /^\s*SELECT\b/.test(sql))).toBe(true);
+    expect(queries.every(([sql]) => !/\b(?:INSERT|UPDATE|DELETE)\b/.test(sql))).toBe(true);
+  });
+
   it("repairs existing representative Ordering supply inputs when no untouched listing candidates remain", async () => {
     const orderingQueries: QueryCall[] = [];
     const marketplaceQueries: QueryCall[] = [];
@@ -500,52 +482,6 @@ describe("representative commerce state seed helpers", () => {
     expect(marketplaceQueries[1]?.[1]).toEqual([["lst_repr_existing"]]);
     expect(inventoryQueries[0]?.[1]).toEqual([["inv_1"]]);
     expect(orderingQueries.some(([sql]) => sql.includes("INSERT INTO ordering_market_listing_inputs"))).toBe(true);
-  });
-
-  it("repairs existing representative marketplace facts when no untouched catalog candidates remain", async () => {
-    const discoveryQueries: QueryCall[] = [];
-    const discoveryDb = queryRecorder(discoveryQueries);
-    const marketplaceQueries: QueryCall[] = [];
-    const marketplaceDb: RepresentativeQueryable = {
-      query: async <Row>(sql: string, values?: readonly unknown[]) => {
-        marketplaceQueries.push([sql, values]);
-        if (sql.includes("WHERE listing.listing_id LIKE")) {
-          return { rows: [{ listing_id: "lst_repr_existing" }] as Row[] };
-        }
-        if (sql.includes("WHERE offer.offer_id LIKE")) {
-          return { rows: [{ offer_id: "off_repr_existing" }] as Row[] };
-        }
-        if (sql.includes("FROM marketplace_listing_pages")) {
-          return { rows: [marketplaceListing()] as Row[] };
-        }
-        if (sql.includes("FROM marketplace_offer_pages")) {
-          return { rows: [marketplaceOffer()] as Row[] };
-        }
-        if (sql.includes("FROM marketplace_account_pages")) {
-          return {
-            rows: [
-              marketplaceAccount("acc_seller", "Representative Seller"),
-              marketplaceAccount("acc_buyer", "Representative Buyer"),
-            ] as Row[],
-          };
-        }
-        return { rows: [] as Row[] };
-      },
-    };
-
-    const result = await reconcileRepresentativeDiscoveryMarketState(
-      { discoveryDb, marketplaceDb },
-      { listingIds: [], offerIds: [], existingRepresentativeLimit: 25 },
-    );
-
-    expect(result).toEqual({ accountCount: 2, listingCount: 1, offerCount: 1 });
-    expect(String(marketplaceQueries[0]?.[0])).toContain("listing.listing_id LIKE 'lst$_repr$_%' ESCAPE '$'");
-    expect(marketplaceQueries[0]?.[1]).toEqual([25]);
-    expect(String(marketplaceQueries[1]?.[0])).toContain("offer.offer_id LIKE 'off$_repr$_%' ESCAPE '$'");
-    expect(marketplaceQueries[1]?.[1]).toEqual([25]);
-    expect(marketplaceQueries[2]?.[1]).toEqual([["lst_repr_existing"]]);
-    expect(marketplaceQueries[3]?.[1]).toEqual([["off_repr_existing"]]);
-    expect(discoveryQueries.some(([sql]) => sql.includes("INSERT INTO discovery_market_listings"))).toBe(true);
   });
 });
 
@@ -723,9 +659,13 @@ describe("representative listing publication restart safety", () => {
 
     expect(harness.created).toEqual([
       expect.objectContaining({
+        priceAmount: "9.99",
+        priceCurrencyCode: "USD",
+        quantityCap: 2,
         listingPhotoUploads: [expect.objectContaining({ contentType: "image/png" })],
       }),
     ]);
+    expect(harness.updated).toEqual([]);
     expect(harness.published).toHaveLength(1);
     expect(results).toEqual([expect.objectContaining({ status: "created" })]);
   });
@@ -736,19 +676,103 @@ describe("representative listing publication restart safety", () => {
     const results = await publishRepresentativeListings(harness.services as never, [representativeStock()]);
 
     expect(harness.created).toEqual([expect.objectContaining({ listingPhotoUploads: null })]);
+    expect(harness.updated).toEqual([]);
     expect(harness.published).toHaveLength(1);
     expect(results).toEqual([expect.objectContaining({ status: "already-present" })]);
   });
 
-  it("leaves retained non-draft listings untouched on a repeat run", async () => {
-    for (const status of ["active", "paused", "withdrawn"]) {
-      const harness = listingHarness(status);
+  it("repairs an amount-only or stream-version-zero retained canary through the seller Listing command", async () => {
+    for (const retained of [
+      { status: "active", price_amount: "9.99", price_currency_code: null, listing_stream_version: 2 },
+      { status: "active", price_amount: "9.99", price_currency_code: "USD", listing_stream_version: 0 },
+    ]) {
+      const harness = listingHarness(retained);
 
       const results = await publishRepresentativeListings(harness.services as never, [representativeStock()]);
 
       expect(harness.created).toEqual([]);
       expect(harness.published).toEqual([]);
-      expect(results).toEqual([expect.objectContaining({ status: "already-present" })]);
+      expect(harness.updated).toEqual([
+        expect.objectContaining({
+          accountId: "acc_repr_card_vault_account",
+          priceAmount: "9.99",
+          priceCurrencyCode: "USD",
+        }),
+      ]);
+      expect(results).toEqual([expect.objectContaining({ status: "price-repaired" })]);
+      expect(harness.queries.every(([sql]) => /^\s*SELECT\b/.test(sql))).toBe(true);
+    }
+  });
+
+  it("repairs a stale retained canary to its intended USD Listing Price", async () => {
+    const harness = listingHarness({
+      status: "active",
+      price_amount: "27.50",
+      price_currency_code: "EUR",
+      listing_stream_version: 7,
+    });
+
+    await publishRepresentativeListings(harness.services as never, [representativeStock()]);
+
+    expect(harness.updated).toEqual([expect.objectContaining({ priceAmount: "9.99", priceCurrencyCode: "USD" })]);
+  });
+
+  it("leaves an already-correct retained canary untouched on a repeat run", async () => {
+    const harness = listingHarness({
+      status: "active",
+      price_amount: "9.99",
+      price_currency_code: "USD",
+      listing_stream_version: 2,
+    });
+
+    const results = await publishRepresentativeListings(harness.services as never, [representativeStock()]);
+
+    expect(harness.created).toEqual([]);
+    expect(harness.updated).toEqual([]);
+    expect(harness.published).toEqual([]);
+    expect(results).toEqual([expect.objectContaining({ status: "already-present" })]);
+  });
+
+  it("does not mutate unrelated retained representative Listings", async () => {
+    const harness = listingHarness([
+      { status: "active", price_amount: "9.99", price_currency_code: "USD", listing_stream_version: 2 },
+      { status: "active", price_amount: "13.50", price_currency_code: null, listing_stream_version: 0 },
+    ]);
+    const unrelatedStock = {
+      ...representativeStock(),
+      catalogItemId: "cat_unrelated_legacy",
+      inventoryItemId: "inv_unrelated_legacy",
+    };
+
+    await publishRepresentativeListings(harness.services as never, [representativeStock(), unrelatedStock]);
+
+    expect(harness.updated).toEqual([]);
+    expect(harness.created).toEqual([]);
+    expect(harness.published).toEqual([]);
+  });
+
+  it("leaves retained non-draft non-canary lifecycle states untouched", async () => {
+    for (const status of ["active", "paused", "withdrawn"]) {
+      const harness = listingHarness([
+        { status: "active", price_amount: "9.99", price_currency_code: "USD", listing_stream_version: 2 },
+        { status, price_amount: "13.50", price_currency_code: "USD", listing_stream_version: 2 },
+      ]);
+      const secondStock = {
+        ...representativeStock(),
+        catalogItemId: "cat_real_2",
+        inventoryItemId: "inv_repr_2",
+      };
+
+      const results = await publishRepresentativeListings(harness.services as never, [
+        representativeStock(),
+        secondStock,
+      ]);
+
+      expect(harness.created).toEqual([]);
+      expect(harness.updated).toEqual([]);
+      expect(harness.published).toEqual([]);
+      expect(results).toHaveLength(2);
+      expect(results.every((result) => result.status === "already-present")).toBe(true);
     }
   });
 });
@@ -849,18 +873,47 @@ function inventoryStockHarness(
   };
 }
 
-function listingHarness(existingStatus: string | null) {
+type ListingHarnessRow = Readonly<{
+  status: string;
+  price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number | null;
+}>;
+
+function listingHarness(existing: string | ListingHarnessRow | readonly ListingHarnessRow[] | null) {
   const created: unknown[] = [];
+  const updated: unknown[] = [];
   const published: unknown[] = [];
+  const queries: QueryCall[] = [];
+  const rows = Array.isArray(existing)
+    ? existing
+    : existing
+      ? [
+          typeof existing === "string"
+            ? {
+                status: existing,
+                price_amount: "9.99",
+                price_currency_code: "USD",
+                listing_stream_version: 2,
+              }
+            : existing,
+        ]
+      : [];
+  let queryIndex = 0;
 
   return {
     created,
+    updated,
     published,
+    queries,
     services: {
       db: {
-        query: async <Row>(sql: string) => {
-          if (sql.includes("FROM marketplace_listing_pages") && existingStatus) {
-            return { rows: [{ status: existingStatus }] as Row[] };
+        query: async <Row>(sql: string, params?: readonly unknown[]) => {
+          queries.push([sql, params]);
+          if (sql.includes("FROM marketplace_listing_pages")) {
+            const row = rows[queryIndex];
+            queryIndex += 1;
+            return { rows: row ? [row as Row] : [] };
           }
 
           return { rows: [] as Row[] };
@@ -874,6 +927,10 @@ function listingHarness(existingStatus: string | null) {
             version: 1,
             feeQuoteFingerprint: "fee_1",
           };
+        },
+        updateListingPrice: async (params: unknown) => {
+          updated.push(params);
+          return { listingId: (params as { listingId: string }).listingId, version: 3 };
         },
         publishListing: async (params: unknown) => {
           published.push(params);
@@ -975,45 +1032,5 @@ function inventoryHold() {
     released_at: null,
     updated_at: "2026-05-27T00:04:00.000Z",
     last_stream_version: "8",
-  };
-}
-
-function marketplaceOffer() {
-  return {
-    offer_id: "off_repr_1",
-    buyer_account_id: "acc_buyer",
-    catalog_catalog_item_id: "cat_1",
-    product_id: "prd_1",
-    item_title: "2026 Test Card",
-    item_subtitle: "Parallel",
-    selected_options: [{ dimensionId: "condition", optionId: "raw" }],
-    product_summary: "Condition: Raw",
-    price_amount: "7.75",
-    quantity_requested: 1,
-    status: "accepted",
-    accepted_seller_account_id: "acc_seller",
-    accepted_at: "2026-05-27T00:05:00.000Z",
-    created_at: "2026-05-27T00:00:00.000Z",
-    updated_at: "2026-05-27T00:05:00.000Z",
-  };
-}
-
-function marketplaceAccount(accountId: string, displayName: string) {
-  return {
-    account_id: accountId,
-    display_name: displayName,
-    status: "active",
-    average_rating: "4.80",
-    review_count: 5,
-    rating_1_count: 0,
-    rating_2_count: 0,
-    rating_3_count: 0,
-    rating_4_count: 1,
-    rating_5_count: 4,
-    reputation_updated_at: "2026-05-27T00:00:00.000Z",
-    seller_listing_availability_status: "available",
-    seller_listing_availability_reason_category: null,
-    seller_listing_available_again_on: null,
-    updated_at: "2026-05-27T00:00:00.000Z",
   };
 }
