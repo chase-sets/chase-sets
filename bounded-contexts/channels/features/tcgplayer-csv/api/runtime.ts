@@ -27,7 +27,14 @@ import {
   decideChannelSyncRunTransition,
   deriveClaimedOperationOutcomes,
 } from "../domain/lifecycle";
-import { assertManualClaimLeasePolicySnapshot, assertTimezoneInstant } from "../domain/validation";
+import {
+  assertBoundedText,
+  assertClosedRecord,
+  assertManualClaimLeasePolicySnapshot,
+  assertSafeInteger,
+  assertTcgplayerImportSummary,
+  assertTimezoneInstant,
+} from "../domain/validation";
 import { readLatestSnapshotRows, readRun, readSnapshotRowsById } from "../read-model/queries";
 
 export type TcgplayerCsvRuntimeDependencies = Readonly<{
@@ -91,8 +98,20 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
   const ingestTcgplayerExportSnapshot = async (
     input: IngestTcgplayerExportSnapshotInput,
   ): Promise<TcgplayerExportParseResult & Readonly<{ snapshot?: ChannelInventorySnapshot }>> => {
+    assertClosedRecord(
+      input,
+      ["snapshotId", "connectionId", "surface", "csv", "limits", "ingestedAt", "capturedAt", "capturedAtSource"],
+      "ingest snapshot input",
+    );
+    assertBoundedText(input.snapshotId, "snapshotId");
+    assertBoundedText(input.connectionId, "connectionId");
+    if (input.surface !== "live" && input.surface !== "staged") throw new Error("Snapshot surface is invalid.");
+    if (typeof input.csv !== "string") throw new Error("Snapshot csv is invalid.");
     assertTimezoneInstant(input.ingestedAt, "ingestedAt");
     assertTimezoneInstant(input.capturedAt, "capturedAt");
+    if (input.capturedAtSource !== "operator-declared" && input.capturedAtSource !== "ingest") {
+      throw new Error("capturedAtSource is invalid.");
+    }
     const existingPin = input.surface === "staged" ? await readSchemaPin(dependencies.db, input.connectionId) : null;
     const parsed = parseTcgplayerFullExport(
       { csv: input.csv, surface: input.surface, pinnedSchema: existingPin },
@@ -273,6 +292,7 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
       importSummary?: TcgplayerImportSummary;
     }> = {},
   ): Promise<ChannelSyncRun> => {
+    assertRunFence(input);
     const current = await readRun(dependencies.db, input.runId);
     if (!current) throw new ChannelSyncRunError("unknown-run");
     if (current.revision !== input.expectedRevision) throw new ChannelSyncRunError("stale-fence");
@@ -291,7 +311,7 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
        verification_snapshot_generation=coalesce($6,verification_snapshot_generation),
        upload_file_name=coalesce($8,upload_file_name),
        import_summary=coalesce($9::jsonb,import_summary)
-       WHERE run_id=$1 AND revision=$2 AND state=$7`,
+       WHERE run_id=$1 AND revision=$2 AND state=$7 AND reservation_id=$10`,
       [
         input.runId,
         input.expectedRevision,
@@ -304,6 +324,7 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
         current.state,
         options.uploadFileName ?? null,
         options.importSummary === undefined ? null : JSON.stringify(options.importSummary),
+        current.reservationId,
       ],
     );
     if (result.rowCount !== 1) throw new ChannelSyncRunError("stale-fence");
@@ -316,22 +337,44 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
   return {
     ingestTcgplayerExportSnapshot,
     composeTcgplayerSyncRun,
-    claimRun: (input) => transition(input, "claim"),
-    releaseRun: (input) => transition(input, "release"),
+    claimRun: (input) => {
+      assertClosedRecord(input, ["runId", "expectedRevision"], "claim run input");
+      return transition(input, "claim");
+    },
+    releaseRun: (input) => {
+      assertClosedRecord(input, ["runId", "expectedRevision"], "release run input");
+      return transition(input, "release");
+    },
     recordUploadAttempt: (input) => {
+      assertClosedRecord(input, ["runId", "expectedRevision", "uploadAttemptedAt", "fileName"], "upload attempt input");
       assertTimezoneInstant(input.uploadAttemptedAt, "uploadAttemptedAt");
-      if (input.fileName.length === 0 || input.fileName.length > 256) throw new Error("Upload fileName is invalid.");
+      assertBoundedText(input.fileName, "upload fileName", 256);
       return transition(input, "report-upload-attempted", {
         uploadAttemptedAt: input.uploadAttemptedAt,
         uploadFileName: input.fileName,
       });
     },
-    recordValidationCancellation: (input) => transition(input, "report-validation-cancelled"),
+    recordValidationCancellation: (input) => {
+      assertClosedRecord(input, ["runId", "expectedRevision"], "validation cancellation input");
+      return transition(input, "report-validation-cancelled");
+    },
     verifyRun: async (input) => {
+      assertRunFence(input);
+      assertClosedRecord(
+        input,
+        ["runId", "expectedRevision", "verificationSnapshotId", "importSummary"],
+        "verify run input",
+      );
+      assertBoundedText(input.verificationSnapshotId, "verificationSnapshotId");
+      assertTcgplayerImportSummary(input.importSummary);
       const run = await readRun(dependencies.db, input.runId);
       if (!run) throw new ChannelSyncRunError("unknown-run");
       const verification = await readSnapshotById(dependencies.db, input.verificationSnapshotId);
-      if (!verification || verification.snapshot.surface !== "staged") {
+      if (
+        !verification ||
+        verification.snapshot.surface !== "staged" ||
+        verification.snapshot.connectionId !== run.connectionId
+      ) {
         throw new ChannelSyncRunError("staged-basis-unavailable");
       }
       if (verification.membershipCompleteness.kind !== "complete") {
@@ -348,9 +391,17 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
         importSummary: input.importSummary,
       });
     },
-    supersedeRun: (input) => transition(input, "supersede"),
-    observeNewerBasis: (input) => transition(input, "observe-newer-basis"),
+    supersedeRun: (input) => {
+      assertClosedRecord(input, ["runId", "expectedRevision"], "supersede run input");
+      return transition(input, "supersede");
+    },
+    observeNewerBasis: (input) => {
+      assertClosedRecord(input, ["runId", "expectedRevision"], "newer basis input");
+      return transition(input, "observe-newer-basis");
+    },
     settleReservationLeaseExpiry: async (input) => {
+      assertClosedRecord(input, ["runId", "expectedRevision"], "lease expiry input");
+      assertRunFence(input);
       const run = await readRun(dependencies.db, input.runId);
       if (!run) throw new ChannelSyncRunError("unknown-run");
       if (run.revision !== input.expectedRevision) throw new ChannelSyncRunError("stale-fence");
@@ -374,6 +425,19 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
 }
 
 function validateComposeInput(input: ComposeTcgplayerSyncRunInput): void {
+  assertClosedRecord(
+    input,
+    ["runId", "connectionId", "claimant", "leaseMs", "manualClaimLeasePolicySnapshot", "resolvedPolicy", "composedAt"],
+    "compose run input",
+  );
+  assertBoundedText(input.runId, "runId");
+  assertBoundedText(input.connectionId, "connectionId");
+  assertClosedRecord(input.claimant, ["claimantKind", "claimantId"], "claimant");
+  if (input.claimant.claimantKind !== "connector" && input.claimant.claimantKind !== "manual") {
+    throw new Error("Claimant kind is invalid.");
+  }
+  assertBoundedText(input.claimant.claimantId, "claimantId");
+  assertClosedRecord(input.resolvedPolicy, ["maxRowsPerBatch"], "resolved batch policy");
   assertTimezoneInstant(input.composedAt, "composedAt");
   if (!Number.isSafeInteger(input.leaseMs) || input.leaseMs <= 0)
     throw new Error("leaseMs must be a positive safe integer.");
@@ -390,6 +454,11 @@ function validateComposeInput(input: ComposeTcgplayerSyncRunInput): void {
   } else if (input.manualClaimLeasePolicySnapshot !== null) {
     throw new Error("Connector runs cannot carry a manual lease policy snapshot.");
   }
+}
+
+function assertRunFence(input: RunFenceInput): void {
+  assertBoundedText(input.runId, "runId");
+  assertSafeInteger(input.expectedRevision, 0, Number.MAX_SAFE_INTEGER, "expectedRevision");
 }
 
 async function readSchemaPin(

@@ -13,7 +13,7 @@ const run: ChannelSyncRun = {
   connectionId: "connection-synthetic",
   providerKey: "tcgplayer",
   reservationId: "reservation-synthetic",
-  claimant: { claimantKind: "manual", claimantId: "claimant-synthetic" },
+  claimant: { claimantKind: "connector", claimantId: "claimant-synthetic" },
   leaseExpiresAt: "2026-09-09T00:30:00Z",
   manualClaimLeasePolicySnapshot: null,
   state: "awaiting-verification",
@@ -127,6 +127,7 @@ describe("tcgplayer-application-proof", () => {
       false,
     );
     expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [] })).toBe(false);
+    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [rows[0]!, rows[0]!] })).toBe(false);
   });
 
   it("settles the mixed immutable partition without copying run state to every member", () => {

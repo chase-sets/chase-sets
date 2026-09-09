@@ -123,7 +123,11 @@ export function applicationMatchesSnapshot(
 ): boolean {
   if (run.membershipCompleteness.kind !== "complete") return false;
   if (verification.snapshotGeneration <= run.basisSnapshotGeneration) return false;
-  const rows = new Map(verification.rows.map((row) => [`${row.externalKey}\u0000${row.conditionText ?? ""}`, row]));
+  const keyedRows = verification.rows.map(
+    (row) => [`${row.externalKey}\u0000${row.conditionText ?? ""}`, row] as const,
+  );
+  const rows = new Map(keyedRows);
+  if (rows.size !== keyedRows.length) return false;
   return run.members.every((member) => {
     if (member.memberKind !== "composed") return true;
     const row = rows.get(`${member.externalKey}\u0000${member.conditionText ?? ""}`);

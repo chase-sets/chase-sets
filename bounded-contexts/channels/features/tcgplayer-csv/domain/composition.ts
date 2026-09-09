@@ -53,6 +53,25 @@ export function composeTcgplayerReservation(input: ComposeTcgplayerReservationIn
     throw new Error("Reservation exceeds the policy-served batch cap.");
   }
   if (input.profile.identity.providerKey !== "tcgplayer") throw new Error("TCGplayer composition profile is required.");
+  if (
+    input.reservation.connectionId.length === 0 ||
+    input.reservation.providerIdentity.providerKey !== "tcgplayer" ||
+    input.reservation.providerIdentity.environment !== input.profile.identity.environment
+  ) {
+    throw new Error("Reservation identity does not match the TCGplayer composition profile.");
+  }
+  if (
+    input.basisRows.some(
+      (row) =>
+        row.connectionId !== input.reservation.connectionId ||
+        row.providerKey !== "tcgplayer" ||
+        row.surface !== "staged" ||
+        row.snapshotId !== input.basisSnapshotId ||
+        row.snapshotGeneration !== input.basisSnapshotGeneration,
+    )
+  ) {
+    throw new Error("Every composition basis row must belong to the exact Staged snapshot.");
+  }
   const references = new Map(input.references.map((reference) => [reference.channelListingId, reference]));
   const members = input.reservation.operations.map((operation, ordinal) =>
     composeOperation(input, operation, ordinal, references.get(operation.channelListingId)),

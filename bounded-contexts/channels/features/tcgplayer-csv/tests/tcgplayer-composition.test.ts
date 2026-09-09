@@ -77,6 +77,28 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
     expect(composed.batch?.csv).not.toContain("chase-sets:snapshot-preserved");
   });
 
+  it("rejects the Live-basis substitution mutant at the pure composition boundary", () => {
+    expect(() =>
+      composeTcgplayerReservation({
+        runId: "run-synthetic",
+        reservation: { ...reservation, operations: [reservation.operations[0]!] },
+        basisSnapshotId: "snapshot-staged",
+        basisSnapshotGeneration: 7,
+        basisRows: [{ ...basis("product:90000001", 5, 26), surface: "live" }],
+        header: ["TCGplayer Id", "Title", "Total Quantity", "Add to Quantity", "TCG Marketplace Price"],
+        references: [
+          reference("channel-listing-composed", {
+            kind: "linked",
+            providerKey: "tcgplayer",
+            externalKey: "product:90000001",
+          }),
+        ],
+        profile: tcgplayerCompositionProfiles[0]!,
+        maxRowsPerBatch: 500,
+      }),
+    ).toThrow("exact Staged snapshot");
+  });
+
   it("keeps productReference and catalogItemReference families distinct", () => {
     const one = { ...reservation, operations: [reservation.operations[0]!] };
     const base = {

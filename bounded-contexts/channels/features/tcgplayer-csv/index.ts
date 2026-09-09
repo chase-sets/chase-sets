@@ -49,6 +49,7 @@ export {
 } from "./domain/contracts";
 export { createTcgplayerClaimedReservationRunSettlementPort } from "./integrations/outbound-sync-settlement";
 export {
+  assertTcgplayerImportSummary,
   assertManualClaimLeasePolicySnapshot,
   canonicalManualClaimLeasePolicySnapshotDigest,
 } from "./domain/validation";

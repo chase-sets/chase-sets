@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ManualClaimLeasePolicySnapshot } from "./contracts";
+import type { ManualClaimLeasePolicySnapshot, TcgplayerImportSummary } from "./contracts";
 
 export function assertClosedRecord(
   value: unknown,
@@ -24,6 +24,20 @@ export function assertTimezoneInstant(value: unknown, label: string): asserts va
   if (typeof value !== "string" || !/(?:Z|[+-]\d{2}:\d{2})$/.test(value) || Number.isNaN(Date.parse(value))) {
     throw new Error(`${label} must be a timezone-bearing instant.`);
   }
+}
+
+export function assertBoundedText(value: unknown, label: string, maxLength = 512): asserts value is string {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLength) {
+    throw new Error(`${label} must be nonempty and at most ${maxLength} characters.`);
+  }
+}
+
+export function assertTcgplayerImportSummary(value: unknown): asserts value is TcgplayerImportSummary {
+  assertClosedRecord(value, ["fileName", "dateImportedText", "numberOfProducts", "recordedAt"], "import summary");
+  assertBoundedText(value.fileName, "import summary fileName", 256);
+  assertBoundedText(value.dateImportedText, "import summary dateImportedText", 256);
+  assertSafeInteger(value.numberOfProducts, 0, 1_000_000, "import summary numberOfProducts");
+  assertTimezoneInstant(value.recordedAt, "import summary recordedAt");
 }
 
 export function canonicalManualClaimLeasePolicySnapshotDigest(
