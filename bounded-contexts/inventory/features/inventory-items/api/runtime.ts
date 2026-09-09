@@ -83,6 +83,7 @@ export type InventoryItemServices = Readonly<{
       storageLocationId: string;
       totalQuantity: number;
       acquisitionCostAmount?: string | null;
+      acquisitionCostCurrencyCode?: string | null;
       acquisitionOccurrence?: AcquisitionOccurrence;
       itemIdOverride?: InventoryItemId;
     }>,
@@ -247,6 +248,7 @@ export function createInventoryItemRuntime(
           storageLocationId: params.storageLocationId,
           totalQuantity: params.totalQuantity,
           acquisitionCostAmount: params.acquisitionCostAmount ?? null,
+          acquisitionCostCurrencyCode: params.acquisitionCostCurrencyCode ?? null,
           acquisitionOccurrence: params.acquisitionOccurrence ?? { kind: "unknown" },
           commandOccurredAt,
         },
@@ -499,6 +501,7 @@ export function createInventoryItemRuntime(
             storageLocationId: location.storage_location_id,
             totalQuantity: params.quantity,
             acquisitionCostAmount: null,
+            acquisitionCostCurrencyCode: null,
             acquisitionOccurrence: { kind: "unknown" },
             commandOccurredAt: new Date().toISOString(),
           },
@@ -555,6 +558,7 @@ export function createInventoryItemRuntime(
           totalQuantity,
           availableQuantity,
           acquisitionCostAmount: null,
+          acquisitionCostCurrencyCode: null,
         },
       };
     },

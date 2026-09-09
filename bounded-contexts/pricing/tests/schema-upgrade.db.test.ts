@@ -168,6 +168,8 @@ describeDb("pricing schema upgrades", () => {
       inventory_item_column: string;
       acquisition_lots: string;
       overrides: string;
+      override_scope_key: string;
+      legacy_connection_column: number;
       applied_count: number;
     }>(
       `SELECT
@@ -178,6 +180,16 @@ describeDb("pricing schema upgrades", () => {
             AND column_name = 'inventory_item_id') AS inventory_item_column,
          to_regclass('pricing_inventory_acquisition_lots')::text AS acquisition_lots,
          to_regclass('pricing_economics_overrides')::text AS overrides,
+         (SELECT is_nullable
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'pricing_economics_overrides'
+            AND column_name = 'scope_key') AS override_scope_key,
+         (SELECT COUNT(*)::integer
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'pricing_economics_overrides'
+            AND column_name = 'connection_id') AS legacy_connection_column,
          (SELECT COUNT(*)::integer
           FROM bounded_context_schema_migrations
           WHERE migration_id IN (
@@ -192,6 +204,8 @@ describeDb("pricing schema upgrades", () => {
         inventory_item_column: "YES",
         acquisition_lots: "pricing_inventory_acquisition_lots",
         overrides: "pricing_economics_overrides",
+        override_scope_key: "NO",
+        legacy_connection_column: 0,
         applied_count: 4,
       },
     ]);
@@ -372,7 +386,7 @@ describeDb("pricing schema upgrades", () => {
 
     const evidence = await createPostgresEconomicsEvidenceReader(pool).resolve({
       accountId: "seller_1",
-      connectionId: "connection_1",
+      scope: { kind: "native-marketplace" },
       catalogItemId: "cat_1",
       inventoryItemId: "item_1",
       marketUnitPrice: { amount: "10.00" as MoneyAmount, currency: "usd" },
@@ -400,7 +414,6 @@ describeDb("pricing schema upgrades", () => {
         saleId: "order_1:line_1",
         quantity: 1,
         soldAt: "2026-09-05T12:30:00.000Z",
-        currency: "usd",
         excluded: false,
       },
     ]);
@@ -461,7 +474,7 @@ describeDb("pricing schema upgrades", () => {
     const reader = createPostgresEconomicsEvidenceReader(pool);
     const requestFor = (inventoryItemId: string, catalogItemId: string, currency: string) => ({
       accountId: "seller_1",
-      connectionId: "synthetic-connection",
+      scope: { kind: "native-marketplace" as const },
       catalogItemId,
       inventoryItemId,
       marketUnitPrice: { amount: "100.00" as MoneyAmount, currency },
@@ -496,7 +509,7 @@ describeDb("pricing schema upgrades", () => {
     const pool = pools.pricing;
     await bootstrapContextDatabase(pricingModule, pool);
     const handlers = buildEconomicsOverrideProjectionHandlers(pool);
-    const key = { accountId: "seller_1", connectionId: "connection_1", currency: "usd" };
+    const key = { accountId: "seller_1", scopeKey: "native-marketplace", currency: "usd" };
     const set = event(
       "evt_set",
       "pricing.economics-fact-override-set",

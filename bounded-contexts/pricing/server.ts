@@ -66,6 +66,7 @@ export type {
   EconomicsFact,
   EconomicsFactName,
   EconomicsFacts,
+  EconomicsScope,
   FactSource,
   ResolveEconomicsInput,
   ResolveEconomicsRequest,

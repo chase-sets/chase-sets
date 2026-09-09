@@ -18,6 +18,7 @@ export type NativeInventoryExportRow = Readonly<{
     optionId: string;
   }>[];
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
   seller_sku?: string | null;
   listing_price_amount?: string | null;
   listing_price_currency_code?: string | null;
@@ -33,6 +34,7 @@ export const nativeInventoryImportCsvTemplateHeaders = [
   "option:form",
   "option:condition",
   "acquisitionCostAmount",
+  "acquisitionCostCurrencyCode",
   "sellerSku",
   "listingPriceAmount",
   "listingPriceCurrencyCode",
@@ -55,6 +57,7 @@ export function buildNativeInventoryImportCsvTemplate(
     "",
     "",
     "",
+    "",
     `Example for ${location.name}`,
   ]);
 
@@ -70,6 +73,7 @@ export function buildNativeInventoryExportCsv(rows: readonly NativeInventoryExpo
     "acquisitionOccurredAt",
     ...optionColumns.map((dimensionId) => `option:${dimensionId}`),
     "acquisitionCostAmount",
+    "acquisitionCostCurrencyCode",
     "sellerSku",
     "listingPriceAmount",
     "listingPriceCurrencyCode",
@@ -86,6 +90,7 @@ export function buildNativeInventoryExportCsv(rows: readonly NativeInventoryExpo
       row.acquisition_occurred_at ?? "",
       ...optionColumns.map((dimensionId) => selectedOptions.get(dimensionId) ?? ""),
       row.acquisition_cost_amount ?? "",
+      row.acquisition_cost_currency_code ?? "",
       row.seller_sku ?? "",
       row.listing_price_amount ?? "",
       row.listing_price_currency_code ?? "",

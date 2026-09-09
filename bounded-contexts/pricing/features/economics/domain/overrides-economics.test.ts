@@ -55,7 +55,7 @@ function healthyFacts(): EconomicsFacts {
 function request(overrides: Partial<ResolveEconomicsRequest> = {}): ResolveEconomicsRequest {
   return {
     accountId: "synthetic-owner-account",
-    connectionId: "synthetic-connection-1",
+    scope: { kind: "channel-connection", connectionId: "synthetic-connection-1" },
     catalogItemId: "synthetic-catalog-item",
     inventoryItemId: "synthetic-inventory-item",
     marketUnitPrice: money("100.00"),
@@ -91,21 +91,17 @@ function build(
   facts: EconomicsFacts,
   overrides = initialEconomicsOverridesState({
     accountId: "synthetic-owner-account",
-    connectionId: "synthetic-connection-1",
+    scopeKey: "synthetic-connection-1",
     currency: "usd",
   }),
   requestValue = request(),
 ) {
   return buildEconomics({
     request: requestValue,
-    channel: {
-      connectionId: requestValue.connectionId,
-      providerKey: "synthetic-provider-a",
-      environment: "sandbox",
-    },
+    channel: requestValue.scope,
+    providerIdentity: { providerKey: "synthetic-provider-a", environment: "sandbox" },
     sourceEconomics: {
       kind: "resolved",
-      providerIdentity: { providerKey: "synthetic-provider-a", environment: "sandbox" },
       policy: {
         value: ECONOMICS_LAUNCH_POLICY_VALUE,
         policyRevision,
@@ -234,7 +230,7 @@ describe("Economics overrides and revision", () => {
   it("keeps an active null cap distinct from a clear tombstone", () => {
     const initial = initialEconomicsOverridesState({
       accountId: "synthetic-owner-account",
-      connectionId: "synthetic-connection-1",
+      scopeKey: "synthetic-connection-1",
       currency: "usd",
     });
     const [set] = decideEconomicsOverride(initial, {
@@ -268,7 +264,7 @@ describe("Economics overrides and revision", () => {
   it("reveals refreshed source truth after clear and fingerprints every override/tombstone", () => {
     const initial = initialEconomicsOverridesState({
       accountId: "synthetic-owner-account",
-      connectionId: "synthetic-connection-1",
+      scopeKey: "synthetic-connection-1",
       currency: "usd",
     });
     const [set] = decideEconomicsOverride(initial, {
@@ -315,7 +311,7 @@ describe("Economics overrides and revision", () => {
   it("clear-all emits and retains one ordered tombstone per canonical fact", () => {
     let state = initialEconomicsOverridesState({
       accountId: "synthetic-owner-account",
-      connectionId: "synthetic-connection-1",
+      scopeKey: "synthetic-connection-1",
       currency: "usd",
     });
     const values: Readonly<Record<(typeof economicsFactNames)[number], unknown>> = {
@@ -356,7 +352,7 @@ describe("Economics overrides and revision", () => {
   it("rejects optimistic conflicts and evolves a clear into a tombstone", () => {
     const initial = initialEconomicsOverridesState({
       accountId: "synthetic-owner-account",
-      connectionId: "synthetic-connection-1",
+      scopeKey: "synthetic-connection-1",
       currency: "usd",
     });
     const [set] = decideEconomicsOverride(initial, {
@@ -396,7 +392,7 @@ describe("Economics overrides and revision", () => {
   it("rejects an unknown event type instead of treating it as a clear", () => {
     const initial = initialEconomicsOverridesState({
       accountId: "synthetic-owner-account",
-      connectionId: "synthetic-connection-1",
+      scopeKey: "synthetic-connection-1",
       currency: "usd",
     });
     expect(() =>
@@ -404,7 +400,7 @@ describe("Economics overrides and revision", () => {
         type: "pricing.economics-fact-override-near-miss",
         data: {
           accountId: "synthetic-owner-account",
-          connectionId: "synthetic-connection-1",
+          scopeKey: "synthetic-connection-1",
           currency: "usd",
           factName: "turnaroundDays",
           value: null,
@@ -424,10 +420,10 @@ describe("Economics overrides and revision", () => {
         facts,
         initialEconomicsOverridesState({
           accountId: "synthetic-owner-account",
-          connectionId: "synthetic-connection-2",
+          scopeKey: "synthetic-connection-2",
           currency: "usd",
         }),
-        request({ connectionId: "synthetic-connection-2" }),
+        request({ scope: { kind: "channel-connection", connectionId: "synthetic-connection-2" } }),
       ).revision,
     ).not.toBe(baseline.revision);
   });

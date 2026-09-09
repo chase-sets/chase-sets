@@ -19,6 +19,8 @@ describe("Pricing Economics schema", () => {
       "occurrence_kind = 'unknown' AND acquired_at IS NULL AND occurrence_source IS NULL",
     );
     expect(pricingEconomicsSchemaSql).toContain("override_state text NOT NULL");
+    expect(pricingEconomicsSchemaSql).toContain("scope_key text NOT NULL");
+    expect(pricingEconomicsSchemaSql).not.toContain("connection_id text NOT NULL");
     expect(pricingEconomicsSchemaSql).toContain(
       "override_state = 'cleared' AND override_value IS NULL AND set_at IS NULL AND cleared_at IS NOT NULL",
     );

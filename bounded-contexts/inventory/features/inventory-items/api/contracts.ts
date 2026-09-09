@@ -16,6 +16,9 @@ export type InventoryCreateItemRequest = Readonly<
     /** Seller evidence only. Inventory owns the source label and represents an
      * omitted value as an explicit unknown occurrence in the emitted event. */
     acquisitionOccurredAt?: string | null;
+    /** Optional source-authored pair. Neither member is inferred. */
+    acquisitionCostAmount?: string | null;
+    acquisitionCostCurrencyCode?: string | null;
   }
 >;
 
@@ -39,6 +42,7 @@ export type InventoryListingStockSnapshot = Readonly<{
   totalQuantity: number;
   availableQuantity: number;
   acquisitionCostAmount: string | null;
+  acquisitionCostCurrencyCode: string | null;
 }>;
 
 export type InventoryEnsuredListingStock = Readonly<{

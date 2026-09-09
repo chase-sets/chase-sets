@@ -13,7 +13,7 @@ import {
 
 export type EconomicsOverrideKey = Readonly<{
   accountId: string;
-  connectionId: string;
+  scopeKey: string;
   currency: string;
 }>;
 
@@ -72,7 +72,7 @@ export type EconomicsOverrideEvent = Readonly<{
   type: "pricing.economics-fact-override-set" | "pricing.economics-fact-override-cleared";
   data: Readonly<{
     accountId: string;
-    connectionId: string;
+    scopeKey: string;
     currency: string;
     factName: EconomicsFactName;
     value: JsonValue;
@@ -92,8 +92,8 @@ export function initialEconomicsOverridesState(key: EconomicsOverrideKey): Econo
   if (
     key.accountId.length === 0 ||
     key.accountId.trim() !== key.accountId ||
-    key.connectionId.length === 0 ||
-    key.connectionId.trim() !== key.connectionId
+    key.scopeKey.length === 0 ||
+    key.scopeKey.trim() !== key.scopeKey
   ) {
     throw new Error("Economics override identity must be non-empty and already trimmed.");
   }
@@ -152,7 +152,7 @@ export const evolveEconomicsOverrides: AggregateEvolver<EconomicsOverridesState,
     assertClosedEvent(eventToApply);
     if (
       data.accountId !== state.key.accountId ||
-      data.connectionId !== state.key.connectionId ||
+      data.scopeKey !== state.key.scopeKey ||
       data.currency !== state.key.currency
     ) {
       throw new Error("Economics override event belongs to another aggregate.");
@@ -283,7 +283,7 @@ function assertClosedEvent(eventToApply: EconomicsOverrideEvent): void {
   assertExactKeys(eventToApply as unknown as Record<string, unknown>, ["data", "type"], "Economics override event");
   assertExactKeys(
     eventToApply.data as unknown as Record<string, unknown>,
-    ["accountId", "connectionId", "currency", "factName", "occurredAt", "value"],
+    ["accountId", "currency", "factName", "occurredAt", "scopeKey", "value"],
     "Economics override event data",
   );
   if (eventToApply.type === "pricing.economics-fact-override-cleared" && eventToApply.data.value !== null) {

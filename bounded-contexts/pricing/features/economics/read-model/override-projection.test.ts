@@ -21,7 +21,7 @@ function event(type: string, streamVersion: number, value: unknown) {
     tenantId: "tenant",
     data: {
       accountId: "synthetic-owner-account",
-      connectionId: "synthetic-connection-1",
+      scopeKey: "synthetic-connection-1",
       currency: "usd",
       factName: "platformFeeCapPerUnitAmount",
       value,

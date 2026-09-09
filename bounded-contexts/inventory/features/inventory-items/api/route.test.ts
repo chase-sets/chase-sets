@@ -44,6 +44,7 @@ const listingStockResult = {
     totalQuantity: 1,
     availableQuantity: 1,
     acquisitionCostAmount: null,
+    acquisitionCostCurrencyCode: null,
   },
 } satisfies Awaited<ReturnType<InventoryItemServices["ensureListingStock"]>>;
 

@@ -54,6 +54,7 @@ type InventoryItemSeed = Readonly<{
   storageLocationId: SeedStorageLocationId;
   totalQuantity: number;
   acquisitionCostAmount: string;
+  acquisitionCostCurrencyCode: string;
 }>;
 
 type GradedCardSeedDetails = Readonly<{
@@ -205,6 +206,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 3,
     acquisitionCostAmount: "275.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.charizardBaseSetPsa8,
@@ -228,6 +230,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 1,
     acquisitionCostAmount: "520.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
@@ -245,6 +248,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 8,
     acquisitionCostAmount: "12.50",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.lugiaNeoGenesisNearMint,
@@ -262,6 +266,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 2,
     acquisitionCostAmount: "180.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.lugiaNeoGenesisBgs95,
@@ -280,6 +285,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 1,
     acquisitionCostAmount: "475.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.mewtwoBlackStarPromoNearMint,
@@ -297,6 +303,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 5,
     acquisitionCostAmount: "34.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.pikachuPrismaticEvolutionsNearMint,
@@ -314,6 +321,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 12,
     acquisitionCostAmount: "8.25",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.pikachuPrismaticEvolutionsPsa10,
@@ -337,6 +345,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 2,
     acquisitionCostAmount: "44.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.prismaticEvolutionsBoosterPack,
@@ -345,6 +354,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 24,
     acquisitionCostAmount: "4.10",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.surgingSparksBoosterBox,
@@ -353,6 +363,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 6,
     acquisitionCostAmount: "119.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.twilightMasqueradeEliteTrainerBox,
@@ -361,6 +372,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 4,
     acquisitionCostAmount: "41.50",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.cardVaultCharizardNearMint,
@@ -379,6 +391,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 4,
     acquisitionCostAmount: "292.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.cardVaultCharizardPsa8,
@@ -403,6 +416,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 1,
     acquisitionCostAmount: "535.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.cardVaultPikachuExcellent,
@@ -421,6 +435,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 14,
     acquisitionCostAmount: "11.75",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.cardVaultMewtwoNearMint,
@@ -439,6 +454,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 5,
     acquisitionCostAmount: "32.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.cardVaultTwilightMasqueradeEliteTrainerBox,
@@ -448,6 +464,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 6,
     acquisitionCostAmount: "40.50",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.sealedStockroomPrismaticEvolutionsBoosterPack,
@@ -457,6 +474,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
     totalQuantity: 96,
     acquisitionCostAmount: "4.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.sealedStockroomSurgingSparksBoosterBox,
@@ -466,6 +484,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
     totalQuantity: 10,
     acquisitionCostAmount: "116.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.sealedStockroomTwilightMasqueradeEliteTrainerBox,
@@ -475,6 +494,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
     totalQuantity: 8,
     acquisitionCostAmount: "39.50",
+    acquisitionCostCurrencyCode: "USD",
   },
 ];
 
@@ -768,6 +788,7 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
         storageLocationId: item.storageLocationId,
         totalQuantity: item.totalQuantity,
         acquisitionCostAmount: item.acquisitionCostAmount,
+        acquisitionCostCurrencyCode: item.acquisitionCostCurrencyCode,
         acquisitionOccurrence: { kind: "unknown" },
         commandOccurredAt: DEMO_INVENTORY_COMMAND_OCCURRED_AT,
       });

@@ -24,7 +24,7 @@ const pricingInventoryAcquisitionLotsLookupConcurrentIndexSql = `CREATE INDEX CO
 
 const pricingEconomicsOverridesTableSql = `CREATE TABLE IF NOT EXISTS pricing_economics_overrides (
   account_id text NOT NULL,
-  connection_id text NOT NULL,
+  scope_key text NOT NULL,
   currency_code text NOT NULL CHECK (currency_code ~ '^[a-z]{3}$'),
   fact_name text NOT NULL CHECK (fact_name IN (
     'platformFeeRelativeBps',
@@ -47,7 +47,7 @@ const pricingEconomicsOverridesTableSql = `CREATE TABLE IF NOT EXISTS pricing_ec
   last_stream_version integer NOT NULL CHECK (last_stream_version >= 1),
   last_source_event_id text NOT NULL,
   last_source_event_recorded_at timestamptz NOT NULL,
-  PRIMARY KEY (account_id, connection_id, currency_code, fact_name),
+  PRIMARY KEY (account_id, scope_key, currency_code, fact_name),
   CHECK (
     (override_state = 'active' AND set_at IS NOT NULL AND cleared_at IS NULL) OR
     (override_state = 'cleared' AND override_value IS NULL AND set_at IS NULL AND cleared_at IS NOT NULL)
@@ -55,9 +55,9 @@ const pricingEconomicsOverridesTableSql = `CREATE TABLE IF NOT EXISTS pricing_ec
 )`;
 
 const pricingEconomicsOverridesStreamIndexSql = `CREATE UNIQUE INDEX IF NOT EXISTS pricing_economics_overrides_stream_idx
-  ON pricing_economics_overrides (account_id, connection_id, currency_code, last_stream_version)`;
+  ON pricing_economics_overrides (account_id, scope_key, currency_code, last_stream_version)`;
 const pricingEconomicsOverridesStreamConcurrentIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS pricing_economics_overrides_stream_idx
-  ON pricing_economics_overrides (account_id, connection_id, currency_code, last_stream_version)`;
+  ON pricing_economics_overrides (account_id, scope_key, currency_code, last_stream_version)`;
 
 export const pricingEconomicsSchemaSql = [
   pricingInventoryAcquisitionLotsTableSql,

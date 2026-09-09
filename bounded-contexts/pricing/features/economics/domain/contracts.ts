@@ -47,9 +47,13 @@ export type ResolvedChannelConnection = Readonly<{
   environment: ChannelEnvironment;
 }>;
 
+export type EconomicsScope =
+  | Readonly<{ kind: "native-marketplace" }>
+  | Readonly<{ kind: "channel-connection"; connectionId: string }>;
+
 export type ResolveEconomicsRequest = Readonly<{
   accountId: string;
-  connectionId: string;
+  scope: EconomicsScope;
   catalogItemId: string;
   inventoryItemId: string;
   marketUnitPrice: Money;
@@ -105,7 +109,7 @@ export type EconomicsFacts = Readonly<{
 
 export type Economics = Readonly<{
   accountId: string;
-  channel: ResolvedChannelConnection;
+  channel: EconomicsScope;
   currency: string;
   effectiveAt: string;
   revision: string;
@@ -129,7 +133,6 @@ export type Economics = Readonly<{
 export type SourceEconomics =
   | Readonly<{
       kind: "resolved";
-      providerIdentity: ChannelProviderIdentity;
       policy: ResolvedEconomicsPolicy;
       facts: Pick<
         EconomicsFacts,
@@ -144,14 +147,22 @@ export type SourceEconomics =
     }>
   | Readonly<{
       kind: "unavailable";
-      providerIdentity: ChannelProviderIdentity;
       reason: "provider-unavailable" | "terms-unavailable";
       policy?: ResolvedEconomicsPolicy;
     }>;
 
+export type ChannelSourceEconomics = SourceEconomics &
+  Readonly<{
+    providerIdentity: ChannelProviderIdentity;
+  }>;
+
+export interface NativeMarketplaceEconomicsProvider {
+  resolve(request: ResolveEconomicsRequest): Promise<SourceEconomics>;
+}
+
 export interface EconomicsProvider {
   readonly identity: ChannelProviderIdentity;
-  resolve(request: ResolveEconomicsRequest): Promise<SourceEconomics>;
+  resolve(request: ResolveEconomicsRequest): Promise<ChannelSourceEconomics>;
 }
 
 export interface EconomicsProviderRegistry {
@@ -163,20 +174,20 @@ export interface EconomicsProviderRegistry {
 const REQUEST_KEYS = [
   "accountId",
   "catalogItemId",
-  "connectionId",
   "effectiveAt",
   "inventoryItemId",
   "marketUnitPrice",
   "quantity",
+  "scope",
 ] as const;
 
 const REQUEST_INPUT_KEYS = [
   "catalogItemId",
-  "connectionId",
   "effectiveAt",
   "inventoryItemId",
   "marketUnitPrice",
   "quantity",
+  "scope",
 ] as const;
 
 export function parseResolveEconomicsRequest(raw: unknown): ResolveEconomicsRequest {
@@ -195,13 +206,37 @@ function parseResolveEconomicsFields(
   record: Record<(typeof REQUEST_INPUT_KEYS)[number], unknown>,
 ): ResolveEconomicsInput {
   return {
-    connectionId: requireNonEmptyString(record.connectionId, "connectionId"),
+    scope: parseEconomicsScope(record.scope),
     catalogItemId: requireNonEmptyString(record.catalogItemId, "catalogItemId"),
     inventoryItemId: requireNonEmptyString(record.inventoryItemId, "inventoryItemId"),
     marketUnitPrice: parseMoney(record.marketUnitPrice, "marketUnitPrice"),
     quantity: requirePositiveInteger(record.quantity, "quantity", Number.MAX_SAFE_INTEGER),
     effectiveAt: requireRfc3339Instant(record.effectiveAt, "effectiveAt"),
   };
+}
+
+export function parseEconomicsScope(raw: unknown): EconomicsScope {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new EconomicsContractError("scope must be an object.");
+  }
+  const kind = (raw as Record<string, unknown>).kind;
+  if (kind === "native-marketplace") {
+    requireClosedRecord(raw, ["kind"] as const, "native marketplace scope");
+    return { kind };
+  }
+  if (kind === "channel-connection") {
+    const scope = requireClosedRecord(raw, ["connectionId", "kind"] as const, "channel connection scope");
+    return {
+      kind,
+      connectionId: requireNonEmptyString(scope.connectionId, "scope.connectionId"),
+    };
+  }
+  throw new EconomicsContractError("scope.kind must be native-marketplace or channel-connection.");
+}
+
+export function economicsScopeKey(scope: EconomicsScope): string {
+  const parsed = parseEconomicsScope(scope);
+  return parsed.kind === "native-marketplace" ? "native-marketplace" : parsed.connectionId;
 }
 
 export function parseMoney(raw: unknown, fieldName: string): Money {
@@ -302,20 +337,16 @@ export function assertSourceEconomics(source: SourceEconomics, currency: string)
   if (source.kind === "unavailable") {
     requireClosedRecord(
       source,
-      source.policy === undefined
-        ? (["kind", "providerIdentity", "reason"] as const)
-        : (["kind", "policy", "providerIdentity", "reason"] as const),
+      source.policy === undefined ? (["kind", "reason"] as const) : (["kind", "policy", "reason"] as const),
       "unavailable source Economics",
     );
-    assertProviderIdentity(source.providerIdentity);
     if (source.reason !== "provider-unavailable" && source.reason !== "terms-unavailable") {
       throw new EconomicsContractError("Unknown source Economics unavailable reason.");
     }
     return;
   }
   if (source.kind !== "resolved") throw new EconomicsContractError("Unknown source Economics outcome.");
-  requireClosedRecord(source, ["facts", "kind", "policy", "providerIdentity"] as const, "resolved source Economics");
-  assertProviderIdentity(source.providerIdentity);
+  requireClosedRecord(source, ["facts", "kind", "policy"] as const, "resolved source Economics");
   const names = [
     "platformFeeRelativeBps",
     "platformFeeFixedPerUnitAmount",
@@ -333,6 +364,12 @@ export function assertSourceEconomics(source: SourceEconomics, currency: string)
     "Commercial Terms",
   );
   assertSamePolicyRevision(source.facts, names.slice(3, 6), "seller handling");
+}
+
+export function assertChannelSourceEconomics(source: ChannelSourceEconomics, currency: string): void {
+  assertProviderIdentity(source.providerIdentity);
+  const { providerIdentity: _, ...sourceWithoutIdentity } = source;
+  assertSourceEconomics(sourceWithoutIdentity as SourceEconomics, currency);
 }
 
 export function requireRfc3339Instant(value: unknown, fieldName: string): string {

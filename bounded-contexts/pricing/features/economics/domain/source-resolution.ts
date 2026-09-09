@@ -1,10 +1,12 @@
+import type { ChannelProviderIdentity } from "@chase-sets/channels";
 import {
   assertProviderIdentity,
   parseResolveEconomicsRequest,
   type ChannelConnectionIdentityReader,
   type EconomicsProviderRegistry,
+  type EconomicsScope,
+  type NativeMarketplaceEconomicsProvider,
   type ResolveEconomicsRequest,
-  type ResolvedChannelConnection,
   type SourceEconomics,
 } from "./contracts";
 
@@ -21,15 +23,29 @@ export async function resolveSourceEconomics(
   input: Readonly<{
     request: ResolveEconomicsRequest;
     channelConnectionIdentityReader: ChannelConnectionIdentityReader;
+    nativeMarketplaceProvider: NativeMarketplaceEconomicsProvider;
     providerRegistry: EconomicsProviderRegistry;
   }>,
-): Promise<Readonly<{ channel: ResolvedChannelConnection; source: SourceEconomics }>> {
+): Promise<
+  Readonly<{
+    channel: EconomicsScope;
+    providerIdentity: ChannelProviderIdentity | null;
+    source: SourceEconomics;
+  }>
+> {
   const request = parseResolveEconomicsRequest(input.request);
+  if (request.scope.kind === "native-marketplace") {
+    return {
+      channel: request.scope,
+      providerIdentity: null,
+      source: await input.nativeMarketplaceProvider.resolve(request),
+    };
+  }
   const channel = await input.channelConnectionIdentityReader.resolve({
     accountId: request.accountId,
-    connectionId: request.connectionId,
+    connectionId: request.scope.connectionId,
   });
-  if (channel === null || channel.connectionId !== request.connectionId) {
+  if (channel === null || channel.connectionId !== request.scope.connectionId) {
     throw new ChannelConnectionNotFoundError();
   }
   assertProviderIdentity({ providerKey: channel.providerKey, environment: channel.environment });
@@ -44,5 +60,10 @@ export async function resolveSourceEconomics(
   ) {
     throw new Error("Resolved Economics provider does not match the Channel connection.");
   }
-  return { channel, source };
+  const { providerIdentity, ...sourceEconomics } = source;
+  return {
+    channel: request.scope,
+    providerIdentity,
+    source: sourceEconomics as SourceEconomics,
+  };
 }

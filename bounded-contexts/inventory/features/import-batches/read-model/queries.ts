@@ -29,6 +29,7 @@ export type InventoryImportBatchRow = Readonly<{
   total_quantity: number | null;
   acquisition_occurred_at: string | null;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
   seller_sku: string | null;
   listing_price_amount: string | null;
   listing_price_currency_code: string | null;
@@ -161,6 +162,7 @@ export async function getImportBatch(
        total_quantity,
        acquisition_occurred_at::text,
        acquisition_cost_amount::text,
+       NULLIF(raw_row->>'acquisitionCostCurrencyCode', '') AS acquisition_cost_currency_code,
        seller_sku,
        listing_price_amount::text,
        NULLIF(raw_row->>'listingPriceCurrencyCode', '') AS listing_price_currency_code,

@@ -1,11 +1,12 @@
+import type { ChannelProviderIdentity } from "@chase-sets/channels";
 import {
   assertEconomicsFacts,
   parseResolveEconomicsRequest,
   requireRfc3339Instant,
   type Economics,
   type EconomicsFacts,
+  type EconomicsScope,
   type ResolveEconomicsRequest,
-  type ResolvedChannelConnection,
   type SourceEconomics,
 } from "./contracts";
 import type { CapitalCycleObservations } from "./observations";
@@ -16,7 +17,8 @@ import { canonicalSha256 } from "./revision";
 export function buildEconomics(
   input: Readonly<{
     request: ResolveEconomicsRequest;
-    channel: ResolvedChannelConnection;
+    channel: EconomicsScope;
+    providerIdentity: ChannelProviderIdentity | null;
     sourceEconomics: Extract<SourceEconomics, { kind: "resolved" }>;
     costBasis: CostBasisFacts;
     cycle: CycleFacts;
@@ -52,7 +54,7 @@ export function buildEconomics(
     revision: canonicalSha256({
       request: {
         accountId: request.accountId,
-        connectionId: request.connectionId,
+        scope: request.scope,
         catalogItemId: request.catalogItemId,
         inventoryItemId: request.inventoryItemId,
         currency: request.marketUnitPrice.currency,
@@ -60,7 +62,7 @@ export function buildEconomics(
         quantity: request.quantity,
         effectiveAt: request.effectiveAt,
       },
-      providerIdentity: input.sourceEconomics.providerIdentity,
+      providerIdentity: input.providerIdentity,
       sourceFacts,
       inventoryWatermark: input.costBasis.inventoryWatermark,
       pricingWatermark: requireWatermark(input.pricingWatermark, "pricingWatermark"),
@@ -107,23 +109,31 @@ function ageSeconds(observedAt: string, effectiveAt: string): number {
 
 function assertSubject(
   input: Readonly<{
-    channel: ResolvedChannelConnection;
+    channel: EconomicsScope;
+    providerIdentity: ChannelProviderIdentity | null;
     overrides: EconomicsOverridesState;
     sourceEconomics: Extract<SourceEconomics, { kind: "resolved" }>;
   }>,
   request: ResolveEconomicsRequest,
 ): void {
-  if (input.channel.connectionId !== request.connectionId)
-    throw new Error("Resolved Channel connection does not match request.");
   if (
-    input.channel.providerKey !== input.sourceEconomics.providerIdentity.providerKey ||
-    input.channel.environment !== input.sourceEconomics.providerIdentity.environment
+    input.channel.kind !== request.scope.kind ||
+    (input.channel.kind === "channel-connection" &&
+      request.scope.kind === "channel-connection" &&
+      input.channel.connectionId !== request.scope.connectionId)
   ) {
-    throw new Error("Resolved provider does not match the Channel connection.");
+    throw new Error("Resolved Economics scope does not match request.");
+  }
+  if (request.scope.kind === "native-marketplace" && input.providerIdentity !== null) {
+    throw new Error("Native marketplace Economics cannot carry a provider identity.");
+  }
+  if (request.scope.kind === "channel-connection" && input.providerIdentity === null) {
+    throw new Error("Channel connection Economics requires its resolved provider identity.");
   }
   if (
     input.overrides.key.accountId !== request.accountId ||
-    input.overrides.key.connectionId !== request.connectionId ||
+    input.overrides.key.scopeKey !==
+      (request.scope.kind === "native-marketplace" ? "native-marketplace" : request.scope.connectionId) ||
     input.overrides.key.currency !== request.marketUnitPrice.currency
   ) {
     throw new Error("Economics overrides do not match the request subject.");

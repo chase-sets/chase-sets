@@ -7,7 +7,7 @@ import {
 } from "./contracts";
 
 const input = {
-  connectionId: "synthetic-connection-1",
+  scope: { kind: "native-marketplace" },
   catalogItemId: "synthetic-catalog-item",
   inventoryItemId: "synthetic-inventory-item",
   marketUnitPrice: { amount: "100.00", currency: "usd" },
@@ -28,6 +28,14 @@ describe("authenticated Economics request", () => {
     { ...input, providerKey: "synthetic-forged-provider" },
     { ...input, environment: "production" },
     { ...input, channel: { accountId: "synthetic-forged-account" } },
+    {
+      ...input,
+      scope: {
+        kind: "channel-connection",
+        connectionId: "synthetic-connection-1",
+        providerKey: "synthetic-forged-provider",
+      },
+    },
   ])("rejects forged or duplicate identity coordinates before injection %#", (candidate) => {
     expect(() => parseAuthenticatedResolveEconomicsRequest(candidate, "synthetic-owner-account")).toThrow(
       /invalid shape/,
@@ -37,14 +45,18 @@ describe("authenticated Economics request", () => {
 
 describe("authenticated Economics override requests", () => {
   it("injects account identity and closes set, clear, and clear-all shapes", () => {
-    const subject = { connectionId: "synthetic-connection-1", currency: "usd", expectedVersion: 2 };
+    const subject = {
+      scope: { kind: "channel-connection", connectionId: "synthetic-connection-1" },
+      currency: "usd",
+      expectedVersion: 2,
+    };
     expect(
       parseAuthenticatedSetEconomicsOverrideRequest(
         { ...subject, factName: "turnaroundDays", value: 14, setAt: "2026-09-07T06:01:00Z" },
         "synthetic-owner-account",
       ),
     ).toMatchObject({
-      key: { accountId: "synthetic-owner-account", connectionId: subject.connectionId, currency: "usd" },
+      key: { accountId: "synthetic-owner-account", scopeKey: subject.scope.connectionId, currency: "usd" },
       command: { type: "SetEconomicsFactOverride", expectedVersion: 2, factName: "turnaroundDays", value: 14 },
     });
     expect(
@@ -64,7 +76,7 @@ describe("authenticated Economics override requests", () => {
   it.each([
     {
       accountId: "synthetic-forged",
-      connectionId: "synthetic-connection-1",
+      scope: { kind: "channel-connection", connectionId: "synthetic-connection-1" },
       currency: "usd",
       expectedVersion: 0,
       factName: "turnaroundDays",
@@ -73,7 +85,7 @@ describe("authenticated Economics override requests", () => {
     },
     {
       providerKey: "synthetic-forged",
-      connectionId: "synthetic-connection-1",
+      scope: { kind: "channel-connection", connectionId: "synthetic-connection-1" },
       currency: "usd",
       expectedVersion: 0,
       factName: "turnaroundDays",
@@ -81,7 +93,7 @@ describe("authenticated Economics override requests", () => {
       setAt: "2026-09-07T06:01:00Z",
     },
     {
-      connectionId: "synthetic-connection-1",
+      scope: { kind: "channel-connection", connectionId: "synthetic-connection-1" },
       currency: "usd",
       expectedVersion: 0,
       factName: "turnaroundDayz",

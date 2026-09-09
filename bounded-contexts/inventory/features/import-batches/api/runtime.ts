@@ -192,6 +192,7 @@ type ValidatedImportRow = Readonly<{
   totalQuantity: number | null;
   acquisitionOccurredAt: string | null;
   acquisitionCostAmount: string | null;
+  acquisitionCostCurrencyCode: string | null;
   sellerSku: string | null;
   listingPriceAmount: string | null;
   listingPriceCurrencyCode: string | null;
@@ -992,11 +993,19 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       }
     }
 
-    const acquisitionCostAmount = optionalMoneyAmount(
-      clean(values.acquisitionCostAmount),
-      "acquisitionCostAmount",
-      errors,
-    );
+    const acquisitionCostValue = clean(values.acquisitionCostAmount);
+    const acquisitionCostCurrencyValue = clean(values.acquisitionCostCurrencyCode);
+    const acquisitionCostAmount = optionalMoneyAmount(acquisitionCostValue, "acquisitionCostAmount", errors);
+    const acquisitionCostCurrencyCode =
+      acquisitionCostCurrencyValue && /^[A-Z]{3}$/.test(acquisitionCostCurrencyValue)
+        ? acquisitionCostCurrencyValue
+        : null;
+    if (Boolean(acquisitionCostValue) !== Boolean(acquisitionCostCurrencyValue)) {
+      errors.push("acquisitionCostAmount and acquisitionCostCurrencyCode must be supplied together.");
+    }
+    if (acquisitionCostCurrencyValue && !acquisitionCostCurrencyCode) {
+      errors.push("acquisitionCostCurrencyCode must be an uppercase three-letter ISO-4217 code.");
+    }
     const acquisitionOccurredAt = optionalAcquisitionOccurredAt(clean(values.acquisitionOccurredAt), errors);
     const listingPriceValue = clean(values.listingPriceAmount);
     const listingCurrencyValue = clean(values.listingPriceCurrencyCode) ?? "";
@@ -1048,6 +1057,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       totalQuantity: imported.displayQuantity,
       acquisitionOccurredAt,
       acquisitionCostAmount,
+      acquisitionCostCurrencyCode,
       sellerSku: clean(values.sellerSku),
       listingPriceAmount: hasListingDraftFields ? listingPriceAmount : null,
       listingPriceCurrencyCode: hasListingDraftFields ? listingPriceCurrencyCode : null,
@@ -1298,6 +1308,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             storageLocationId: row.storage_location_id,
             totalQuantity: quantityDelta,
             acquisitionCostAmount: row.acquisition_cost_amount,
+            acquisitionCostCurrencyCode: row.acquisition_cost_currency_code,
             acquisitionOccurrence: row.acquisition_occurred_at
               ? { kind: "occurred", occurredAt: row.acquisition_occurred_at, source: "import-supplied" }
               : { kind: "unknown" },
@@ -1526,6 +1537,9 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           validated.status,
           JSON.stringify({
             ...row.rawRow,
+            ...(validated.acquisitionCostCurrencyCode
+              ? { acquisitionCostCurrencyCode: validated.acquisitionCostCurrencyCode }
+              : {}),
             ...(validated.listingPriceCurrencyCode
               ? { listingPriceCurrencyCode: validated.listingPriceCurrencyCode }
               : {}),
@@ -1689,7 +1703,15 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         batchId,
         row.rowNumber,
         validated.status,
-        JSON.stringify(row.rawRow),
+        JSON.stringify({
+          ...row.rawRow,
+          ...(validated.acquisitionCostCurrencyCode
+            ? { acquisitionCostCurrencyCode: validated.acquisitionCostCurrencyCode }
+            : {}),
+          ...(validated.listingPriceCurrencyCode
+            ? { listingPriceCurrencyCode: validated.listingPriceCurrencyCode }
+            : {}),
+        }),
         validated.externalReference ? JSON.stringify(validated.externalReference) : null,
         validated.rowFingerprint,
         validated.quantityMode,

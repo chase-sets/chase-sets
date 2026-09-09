@@ -1,10 +1,4 @@
-import type {
-  Economics,
-  EconomicsFact,
-  ResolveEconomicsRequest,
-  ResolvedChannelConnection,
-  SignedMoney,
-} from "./contracts";
+import type { Economics, EconomicsFact, EconomicsScope, ResolveEconomicsRequest, SignedMoney } from "./contracts";
 import type { AcquisitionLotObservation, SaleObservation } from "./observations";
 import type { CostBasisFacts, CycleFacts, InventoryCostLot } from "./derivation";
 
@@ -30,7 +24,7 @@ export type UnavailableEconomics = Readonly<{
   kind: "unavailable";
   reason: "provider-unavailable" | "terms-unavailable";
   accountId: string;
-  channel: ResolvedChannelConnection;
+  channel: EconomicsScope;
   currency: string;
   effectiveAt: string;
   revision: string;

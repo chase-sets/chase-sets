@@ -30,6 +30,7 @@ export type InventoryItemState = Readonly<{
   storageLocationId: string | null;
   totalQuantity: number;
   acquisitionCostAmount: string | null;
+  acquisitionCostCurrencyCode: string | null;
 }>;
 
 export type GradedCardPopulation = Readonly<{
@@ -57,6 +58,7 @@ export const initialInventoryItemState: InventoryItemState = {
   storageLocationId: null,
   totalQuantity: 0,
   acquisitionCostAmount: null,
+  acquisitionCostCurrencyCode: null,
 };
 
 export type CreateInventoryItemCommand = Readonly<{
@@ -71,6 +73,7 @@ export type CreateInventoryItemCommand = Readonly<{
   storageLocationId: string;
   totalQuantity: number;
   acquisitionCostAmount?: string | null;
+  acquisitionCostCurrencyCode?: string | null;
   acquisitionOccurrence: AcquisitionOccurrence;
   commandOccurredAt: string;
 }>;
@@ -131,6 +134,9 @@ export type InventoryItemCreatedEvent = DomainEvent<
     storageLocationId: string;
     totalQuantity: number;
     acquisitionCostAmount: string | null;
+    /** Optional only for retained amount-only events. New events always carry
+     * an explicit null or an uppercase source-authored currency. */
+    acquisitionCostCurrencyCode?: string | null;
     acquisitionOccurrence?: AcquisitionOccurrence;
     csatOutcomeFact?: JsonObject;
   }>
@@ -183,6 +189,10 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
         command.acquisitionOccurrence,
         command.commandOccurredAt,
       );
+      const acquisitionCost = normalizeAcquisitionCost(
+        command.acquisitionCostAmount,
+        command.acquisitionCostCurrencyCode,
+      );
       return [
         {
           type: "inventory.item.created",
@@ -198,7 +208,8 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null),
             storageLocationId: normalizeLabel(command.storageLocationId),
             totalQuantity: command.totalQuantity,
-            acquisitionCostAmount: command.acquisitionCostAmount ?? null,
+            acquisitionCostAmount: acquisitionCost.amount,
+            acquisitionCostCurrencyCode: acquisitionCost.currencyCode,
             acquisitionOccurrence: createAcquisitionOccurrence,
             ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
@@ -341,6 +352,7 @@ export const evolveInventoryItem: AggregateEvolver<InventoryItemState, Inventory
         storageLocationId: event.data.storageLocationId,
         totalQuantity: event.data.totalQuantity,
         acquisitionCostAmount: event.data.acquisitionCostAmount,
+        acquisitionCostCurrencyCode: event.data.acquisitionCostCurrencyCode ?? null,
       };
     case "inventory.item.adjusted":
       return {
@@ -363,6 +375,21 @@ function requireCreatedInventoryItem(state: InventoryItemState) {
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeAcquisitionCost(
+  amount: string | null | undefined,
+  currencyCode: string | null | undefined,
+): Readonly<{ amount: string | null; currencyCode: string | null }> {
+  const hasAmount = amount !== null && amount !== undefined;
+  const hasCurrency = currencyCode !== null && currencyCode !== undefined;
+  assert(hasAmount === hasCurrency, "Acquisition cost amount and currency must be supplied together.");
+  if (!hasAmount || !hasCurrency) return { amount: null, currencyCode: null };
+  assert(/^[A-Z]{3}$/.test(currencyCode), "Acquisition cost currency must be an uppercase three-letter code.");
+  return {
+    amount: normalizeMoneyAmount(amount),
+    currencyCode,
+  };
 }
 
 function normalizeAcquisitionOccurrence(

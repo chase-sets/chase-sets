@@ -54,6 +54,7 @@ const inventoryItem: InventoryItemListItem = {
   held_quantity: 1,
   available_quantity: 2,
   acquisition_cost_amount: null,
+  acquisition_cost_currency_code: null,
   created_at: "2026-05-13T00:00:00.000Z",
   updated_at: "2026-05-13T00:00:00.000Z",
 };
@@ -86,6 +87,7 @@ const offlineSaleInventoryItem: InventoryItemListItem = {
   held_quantity: 0,
   available_quantity: 3,
   acquisition_cost_amount: null,
+  acquisition_cost_currency_code: null,
   created_at: "2026-05-13T00:00:00.000Z",
   updated_at: "2026-05-13T00:00:00.000Z",
 };
@@ -157,12 +159,25 @@ describe("inventory item pages", () => {
     expect(html).not.toContain(">ja<");
   });
 
+  it("labels retained acquisition amounts whose source currency was never recorded", () => {
+    const html = renderInventoryRoute(
+      <InventoryItemListPage
+        data={{ items: [{ ...inventoryItem, acquisition_cost_amount: "4.25" }] }}
+        locations={[]}
+      />,
+    );
+
+    expect(html).toContain("4.25 (currency not recorded)");
+    expect(html).not.toContain("$4.25");
+  });
+
   it("renders catalog item creation as a visible search and selection flow", () => {
     const html = renderInventoryRoute(<InventoryItemListPage data={{ items: [] }} locations={[]} />);
 
     expect(html).toContain("Search catalog");
     expect(html).toMatch(/<select[^>]*name="catalogItemId"/);
     expect(html).not.toMatch(/<input[^>]*name="catalogItemId"/);
+    expect(html).toMatch(/<input[^>]*name="acquisitionCostCurrencyCode"/);
   });
 
   it("renders inventory detail language codes as localized labels", () => {

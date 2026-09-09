@@ -28,6 +28,7 @@ export type InventoryItemListRow = Readonly<{
   held_quantity: number;
   available_quantity: number;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
   created_at: string;
   updated_at: string;
 }>;
@@ -87,6 +88,7 @@ type BaseInventoryItemRow = Readonly<{
   held_quantity: number;
   available_quantity: number;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
   created_at: string;
   updated_at: string;
 }>;
@@ -112,6 +114,7 @@ export type NativeInventoryExportItemRow = Readonly<{
   total_quantity: number;
   selected_options: readonly InventorySelectedOptionEntry[];
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
 }>;
 
 type CatalogItemSummaryRow = Readonly<{
@@ -217,6 +220,7 @@ export async function listInventoryItems(
            COALESCE(active_holds.held_quantity, 0) AS held_quantity,
            item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,
            item.acquisition_cost_amount,
+           item.acquisition_cost_currency_code,
            item.created_at,
            item.updated_at,
            COUNT(*) OVER()::integer AS total_count
@@ -262,6 +266,7 @@ export async function listInventoryItems(
          item.held_quantity,
          item.available_quantity,
          item.acquisition_cost_amount::text AS acquisition_cost_amount,
+         item.acquisition_cost_currency_code,
          item.created_at,
          item.updated_at
        FROM paged_items AS item
@@ -296,6 +301,7 @@ export async function listNativeInventoryExportItems(
       total_quantity: number;
       selected_options: unknown;
       acquisition_cost_amount: string | null;
+      acquisition_cost_currency_code: string | null;
     }>
   >(
     `SELECT
@@ -303,7 +309,8 @@ export async function listNativeInventoryExportItems(
        item.storage_location_id,
        item.total_quantity,
        item.selected_options,
-       item.acquisition_cost_amount::text AS acquisition_cost_amount
+       item.acquisition_cost_amount::text AS acquisition_cost_amount,
+       item.acquisition_cost_currency_code
      FROM inventory_items AS item
      WHERE item.account_id = $1
      ORDER BY item.updated_at DESC, item.item_id ASC`,
@@ -335,6 +342,7 @@ export async function getInventoryItem(db: PgQueryable, itemId: string, accountI
        COALESCE(active_holds.held_quantity, 0) AS held_quantity,
        item.total_quantity - COALESCE(active_holds.held_quantity, 0) AS available_quantity,
        item.acquisition_cost_amount::text AS acquisition_cost_amount,
+       item.acquisition_cost_currency_code,
        item.created_at,
        item.updated_at
      FROM inventory_items AS item

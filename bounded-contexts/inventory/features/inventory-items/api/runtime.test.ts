@@ -71,6 +71,7 @@ describe("inventory item runtime", () => {
       held_quantity: 0,
       available_quantity: 10,
       acquisition_cost_amount: null,
+      acquisition_cost_currency_code: null,
       created_at: "2026-05-28T00:00:00.000Z",
       updated_at: "2026-05-28T00:00:00.000Z",
     };
@@ -537,6 +538,7 @@ describe("inventory item runtime", () => {
       held_quantity: 0,
       available_quantity: 2,
       acquisition_cost_amount: null,
+      acquisition_cost_currency_code: null,
     };
     const toppedUp = await services.ensureListingStock(
       {

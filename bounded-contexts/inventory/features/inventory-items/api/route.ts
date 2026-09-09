@@ -161,6 +161,12 @@ export function inventoryItemRoutes(
           String(body.acquisitionCostAmount).trim() === ""
             ? null
             : String(body.acquisitionCostAmount),
+        acquisitionCostCurrencyCode:
+          body.acquisitionCostCurrencyCode === null ||
+          typeof body.acquisitionCostCurrencyCode === "undefined" ||
+          String(body.acquisitionCostCurrencyCode).trim() === ""
+            ? null
+            : String(body.acquisitionCostCurrencyCode),
         acquisitionOccurrence: sellerSuppliedAcquisitionOccurrence(body.acquisitionOccurredAt),
       },
       c.get("context"),

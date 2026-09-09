@@ -1,10 +1,9 @@
-import type { ChannelProviderIdentity } from "@chase-sets/channels";
 import type { CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { isCanonicalMoneyAmount, normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import type {
   EconomicsFact,
-  EconomicsProvider,
   Money,
+  NativeMarketplaceEconomicsProvider,
   ResolveEconomicsRequest,
   SourceEconomics,
 } from "../../domain/contracts";
@@ -16,16 +15,17 @@ import {
 } from "../../domain/policy";
 import { canonicalSha256 } from "../../domain/revision";
 
-export function createNativeCommercialTermsEconomicsProvider(
+export function createNativeMarketplaceEconomicsProvider(
   input: Readonly<{
-    identity: ChannelProviderIdentity;
     commercialTermsResolver: Pick<CommercialTermsResolver, "resolveListingTerms">;
     resolvePolicy: (effectiveAt: string) => Promise<ResolvedEconomicsPolicy>;
   }>,
-): EconomicsProvider {
+): NativeMarketplaceEconomicsProvider {
   return {
-    identity: input.identity,
     async resolve(request: ResolveEconomicsRequest): Promise<SourceEconomics> {
+      if (request.scope.kind !== "native-marketplace") {
+        throw new Error("Native marketplace Economics requires the native-marketplace scope.");
+      }
       const policy = parseResolvedEconomicsPolicy(await input.resolvePolicy(request.effectiveAt));
       assertEconomicsPolicyEffectiveAt(policy, request.effectiveAt);
       try {
@@ -70,7 +70,6 @@ export function createNativeCommercialTermsEconomicsProvider(
 
         const resolved: SourceEconomics = {
           kind: "resolved",
-          providerIdentity: input.identity,
           policy,
           facts: {
             platformFeeRelativeBps: fact(
@@ -107,7 +106,7 @@ export function createNativeCommercialTermsEconomicsProvider(
         assertSourceEconomics(resolved, currency);
         return resolved;
       } catch {
-        return { kind: "unavailable", providerIdentity: input.identity, reason: "terms-unavailable", policy };
+        return { kind: "unavailable", reason: "terms-unavailable", policy };
       }
     },
   };

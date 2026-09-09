@@ -95,6 +95,7 @@ describeDb("external-channel-sale real event-store authority", () => {
       storageLocationId,
       totalQuantity,
       acquisitionCostAmount: "10.00",
+      acquisitionCostCurrencyCode: "USD",
       acquisitionOccurrence: { kind: "unknown" },
       commandOccurredAt: "2026-09-07T06:00:00Z",
     });

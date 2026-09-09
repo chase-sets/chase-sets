@@ -53,7 +53,10 @@ export type PricingServices = Readonly<{
 }>;
 
 export function createPricingServices(pool: PgTransactionalPool, ports: PricingHostPorts): PricingServices {
-  if (!ports?.commercialTermsResolver || !ports.channelConnectionIdentityReader) {
+  if (
+    typeof ports?.commercialTermsResolver?.resolveListingTerms !== "function" ||
+    typeof ports?.channelConnectionIdentityReader?.resolve !== "function"
+  ) {
     throw new Error("Pricing requires Commercial Terms and Channel Connection Economics host ports.");
   }
   const eventStore = createPostgresEventStore({

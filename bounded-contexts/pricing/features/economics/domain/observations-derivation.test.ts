@@ -45,10 +45,9 @@ function observations(hold: number | null, turnaround: number | null): CapitalCy
 }
 
 describe("one-to-one capital-cycle observations", () => {
-  it("splits quantity without reusing acquisition units and ignores unknown/cancelled/wrong-currency evidence", () => {
+  it("splits quantity without reusing acquisition units and ignores unknown or cancelled evidence", () => {
     const result = observeCapitalCycle({
       accountId: "synthetic-owner-account",
-      currency: "usd",
       effectiveAt: "2026-01-20T00:00:00Z",
       policy: policy({ minimumHoldSamples: 1, minimumTurnaroundSamples: 1 }),
       acquisitions: [
@@ -81,7 +80,6 @@ describe("one-to-one capital-cycle observations", () => {
           saleId: "sale-a",
           quantity: 3,
           soldAt: "2026-01-11T00:00:00Z",
-          currency: "usd",
           excluded: false,
         },
         {
@@ -90,7 +88,6 @@ describe("one-to-one capital-cycle observations", () => {
           saleId: "sale-b",
           quantity: 2,
           soldAt: "2026-01-12T00:00:00Z",
-          currency: "usd",
           excluded: false,
         },
         {
@@ -99,16 +96,14 @@ describe("one-to-one capital-cycle observations", () => {
           saleId: "cancelled",
           quantity: 10,
           soldAt: "2026-01-13T00:00:00Z",
-          currency: "usd",
           excluded: true,
         },
         {
           accountId: "synthetic-owner-account",
           inventoryItemId: "item-1",
-          saleId: "wrong-currency",
+          saleId: "denomination-free-sale",
           quantity: 10,
           soldAt: "2026-01-13T00:00:00Z",
-          currency: "eur",
           excluded: false,
         },
       ],
@@ -126,7 +121,6 @@ describe("one-to-one capital-cycle observations", () => {
   it("matches turnaround across the account one-to-one with stable time/identity ordering", () => {
     const result = observeCapitalCycle({
       accountId: "synthetic-owner-account",
-      currency: "usd",
       effectiveAt: "2026-01-20T00:00:00Z",
       policy: policy({ minimumHoldSamples: 99, minimumTurnaroundSamples: 1 }),
       acquisitions: [
@@ -152,7 +146,6 @@ describe("one-to-one capital-cycle observations", () => {
           saleId: "sale-b",
           quantity: 1,
           soldAt: "2026-01-02T00:00:00Z",
-          currency: "usd",
           excluded: false,
         },
         {
@@ -161,7 +154,6 @@ describe("one-to-one capital-cycle observations", () => {
           saleId: "sale-a",
           quantity: 2,
           soldAt: "2026-01-01T00:00:00Z",
-          currency: "usd",
           excluded: false,
         },
       ],
@@ -177,7 +169,6 @@ describe("one-to-one capital-cycle observations", () => {
   it("uses an inclusive effective boundary and reports duration exclusions even below the threshold", () => {
     const result = observeCapitalCycle({
       accountId: "synthetic-owner-account",
-      currency: "usd",
       effectiveAt: "2026-01-10T00:00:00Z",
       policy: policy({ minimumHoldSamples: 2, maximumObservationDurationDays: 5 }),
       acquisitions: [
@@ -196,7 +187,6 @@ describe("one-to-one capital-cycle observations", () => {
           saleId: "sale-at-boundary",
           quantity: 1,
           soldAt: "2026-01-10T00:00:00Z",
-          currency: "usd",
           excluded: false,
         },
         {
@@ -205,7 +195,6 @@ describe("one-to-one capital-cycle observations", () => {
           saleId: "sale-after-boundary",
           quantity: 1,
           soldAt: "2026-01-10T00:00:00.001Z",
-          currency: "usd",
           excluded: false,
         },
       ],
@@ -218,7 +207,6 @@ describe("one-to-one capital-cycle observations", () => {
   it("rejects malformed matching-account observations, including unknown lots with invalid quantity", () => {
     const base = {
       accountId: "synthetic-owner-account",
-      currency: "usd",
       effectiveAt: "2026-01-20T00:00:00Z",
       policy: policy(),
       sales: [],
@@ -271,13 +259,11 @@ describe("one-to-one capital-cycle observations", () => {
       saleId: "sale-a",
       quantity,
       soldAt: "2026-01-11T00:00:00Z",
-      currency: "usd",
       excluded: false,
     });
     const run = (quantity: number) =>
       observeCapitalCycle({
         accountId: "synthetic-owner-account",
-        currency: "usd",
         effectiveAt: "2026-01-20T00:00:00Z",
         policy: policy({ minimumHoldSamples: 5 }),
         acquisitions: [acquisition(quantity)],

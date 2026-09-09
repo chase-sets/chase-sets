@@ -20,7 +20,7 @@ function app(resolver = { resolve: vi.fn(async () => ({ kind: "unavailable" })) 
 }
 
 const resolveBody = {
-  connectionId: "synthetic-connection-1",
+  scope: { kind: "native-marketplace" },
   catalogItemId: "synthetic-catalog-item",
   inventoryItemId: "synthetic-inventory-item",
   marketUnitPrice: { amount: "100.00", currency: "usd" },
@@ -44,7 +44,7 @@ describe("Economics API routes", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        connectionId: "synthetic-connection-1",
+        scope: { kind: "native-marketplace" },
         currency: "usd",
         expectedVersion: 0,
         clearedAt: "2026-09-07T06:03:00Z",
@@ -94,7 +94,7 @@ describe("Economics API routes", () => {
   it("executes set/clear/clear-all with actor context and explicit versions", async () => {
     const execute = vi.fn(async ({ key }) => initialEconomicsOverridesState(key));
     const target = app(undefined, execute);
-    const common = { connectionId: "synthetic-connection-1", currency: "usd", expectedVersion: 0 };
+    const common = { scope: { kind: "native-marketplace" }, currency: "usd", expectedVersion: 0 };
     for (const [path, body] of [
       ["set", { ...common, factName: "turnaroundDays", value: 14, setAt: "2026-09-07T06:01:00Z" }],
       ["clear", { ...common, factName: "turnaroundDays", clearedAt: "2026-09-07T06:02:00Z" }],
@@ -109,7 +109,7 @@ describe("Economics API routes", () => {
     }
     expect(execute).toHaveBeenCalledTimes(3);
     expect(execute.mock.calls[0]?.[0]).toMatchObject({
-      key: { accountId: "synthetic-owner-account", connectionId: common.connectionId, currency: "usd" },
+      key: { accountId: "synthetic-owner-account", scopeKey: "native-marketplace", currency: "usd" },
       command: { type: "SetEconomicsFactOverride", expectedVersion: 0 },
     });
   });

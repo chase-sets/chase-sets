@@ -40,10 +40,10 @@ export async function readCurrentEconomicsOverrides(
        pricing_economics_overrides.last_stream_version
      FROM pricing_economics_overrides
      WHERE pricing_economics_overrides.account_id = $1
-       AND pricing_economics_overrides.connection_id = $2
+       AND pricing_economics_overrides.scope_key = $2
        AND pricing_economics_overrides.currency_code = $3
      ORDER BY pricing_economics_overrides.last_stream_version ASC`,
-    [key.accountId, key.connectionId, requireCurrency(key.currency, "currency")],
+    [key.accountId, key.scopeKey, requireCurrency(key.currency, "currency")],
   );
 
   const entries: Partial<Record<EconomicsFactName, EconomicsOverrideEntry>> = {};

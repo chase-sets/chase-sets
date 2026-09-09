@@ -318,7 +318,7 @@
     {
       "portName": "channelConnectionIdentityReader",
       "providedBy": "channels",
-      "purpose": "Resolve account-qualified Channel Connection identity before Economics provider selection."
+      "purpose": "Resolve account-qualified Channel Connection identity before provider selection for the channel-connection Economics scope."
     },
     {
       "portName": "tcgplayerMarketTransport",
@@ -568,7 +568,7 @@
   "directoryIntent": {
     "economics": {
       "classification": "slice",
-      "purpose": "Resolve replayable seller-and-Channel Economics facts, evidence, and overrides for Pricing consumers.",
+      "purpose": "Resolve replayable native-marketplace or Channel Connection Economics facts, evidence, and overrides for Pricing consumers.",
       "expectedConsumers": [
         "Internal pricing module composition",
         "Pricing Goal consumers through the Pricing server contract"
@@ -627,7 +627,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by pricing-owned features and composition seams.",
-      "expectedConsumers": ["recommendations"]
+      "expectedConsumers": ["economics", "recommendations"]
     },
     "realtime-support": {
       "classification": "support",

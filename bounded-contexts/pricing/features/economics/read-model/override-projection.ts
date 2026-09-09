@@ -10,7 +10,7 @@ import {
 
 type OverrideProjectionPayload = Readonly<{
   accountId: string;
-  connectionId: string;
+  scopeKey: string;
   currency: string;
   factName: EconomicsFactName;
   value: unknown;
@@ -37,7 +37,7 @@ export function buildEconomicsOverrideProjectionHandlers(db: PgQueryable): Proje
     await db.query(
       `INSERT INTO pricing_economics_overrides (
          account_id,
-         connection_id,
+         scope_key,
          currency_code,
          fact_name,
          override_state,
@@ -53,11 +53,11 @@ export function buildEconomicsOverrideProjectionHandlers(db: PgQueryable): Proje
          SELECT 1
          FROM pricing_economics_overrides AS stream_watermark
          WHERE stream_watermark.account_id = $1
-           AND stream_watermark.connection_id = $2
+           AND stream_watermark.scope_key = $2
            AND stream_watermark.currency_code = $3
            AND stream_watermark.last_stream_version >= $9
        )
-       ON CONFLICT (account_id, connection_id, currency_code, fact_name) DO UPDATE
+       ON CONFLICT (account_id, scope_key, currency_code, fact_name) DO UPDATE
        SET override_state = EXCLUDED.override_state,
            override_value = EXCLUDED.override_value,
            set_at = EXCLUDED.set_at,
@@ -68,7 +68,7 @@ export function buildEconomicsOverrideProjectionHandlers(db: PgQueryable): Proje
        WHERE pricing_economics_overrides.last_stream_version < EXCLUDED.last_stream_version`,
       [
         data.accountId,
-        data.connectionId,
+        data.scopeKey,
         data.currency,
         data.factName,
         kind === "set" ? "active" : "cleared",
@@ -89,13 +89,13 @@ export function buildEconomicsOverrideProjectionHandlers(db: PgQueryable): Proje
 }
 
 function parsePayload(raw: Record<string, unknown>, kind: "set" | "cleared"): OverrideProjectionPayload {
-  const expected = ["accountId", "connectionId", "currency", "factName", "occurredAt", "value"].sort();
+  const expected = ["accountId", "currency", "factName", "occurredAt", "scopeKey", "value"].sort();
   const actual = Object.keys(raw).sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
     throw new Error(`Economics override event data must contain exactly: ${expected.join(", ")}.`);
   }
   const accountId = identity(raw.accountId, "accountId");
-  const connectionId = identity(raw.connectionId, "connectionId");
+  const scopeKey = identity(raw.scopeKey, "scopeKey");
   const currency = requireCurrency(raw.currency, "currency");
   const factName = raw.factName;
   if (typeof factName !== "string" || !(economicsFactNames as readonly string[]).includes(factName)) {
@@ -104,7 +104,7 @@ function parsePayload(raw: Record<string, unknown>, kind: "set" | "cleared"): Ov
   if (kind === "cleared" && raw.value !== null) throw new Error("A cleared Economics override must carry null.");
   return {
     accountId,
-    connectionId,
+    scopeKey,
     currency,
     factName: factName as EconomicsFactName,
     value: raw.value,

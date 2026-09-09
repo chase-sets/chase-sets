@@ -294,7 +294,7 @@ describe("pricing marketplace source projection", () => {
     ]);
   });
 
-  it("stores a null acquisition cost basis when the inventory item omits it", async () => {
+  it("keeps retained amount-only inventory events without an invented denomination", async () => {
     const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
     const handlers = buildPricingInventoryInputProjectionHandlers({
       query: async (sql: string, params?: readonly unknown[]) => {
@@ -313,6 +313,7 @@ describe("pricing marketplace source projection", () => {
         catalogItemId: "cat_1",
         productId: "prod_1",
         totalQuantity: 3,
+        acquisitionCostAmount: "6.50",
       },
       timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
     } as never);
@@ -323,7 +324,7 @@ describe("pricing marketplace source projection", () => {
       "cat_1",
       "prod_1",
       3,
-      null,
+      "6.50",
       null,
       "2026-05-09T00:00:00.000Z",
       1,

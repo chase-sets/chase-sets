@@ -125,7 +125,7 @@ export function createPostgresEconomicsEvidenceReader(db: PgQueryable): Economic
       const checkpoints = parseCheckpoints(checkpointResult.rows, request.effectiveAt);
       return {
         acquisitions: acquisitionResult.rows.map(parseAcquisition),
-        sales: saleResult.rows.map((row) => parseSale(row, request.marketUnitPrice.currency)),
+        sales: saleResult.rows.map(parseSale),
         costLots: costResult.rows.map(parseCost),
         inventoryWatermark: checkpoints.inventory.watermark,
         pricingWatermark: checkpoints.sales.watermark,
@@ -166,7 +166,7 @@ function parseAcquisition(row: AcquisitionRow): AcquisitionLotObservation {
   };
 }
 
-function parseSale(row: SaleRow, currency: string): SaleObservation {
+function parseSale(row: SaleRow): SaleObservation {
   const orderId = identity(row.order_id, "sale order id");
   const lineId = identity(row.line_id, "sale line id");
   if (typeof row.excluded !== "boolean") throw new Error(`Sale ${orderId}:${lineId} excluded must be boolean.`);
@@ -176,7 +176,6 @@ function parseSale(row: SaleRow, currency: string): SaleObservation {
     saleId: `${orderId}:${lineId}`,
     quantity: positiveInteger(row.quantity, `Sale ${orderId}:${lineId} quantity`),
     soldAt: databaseInstant(row.sold_at, `Sale ${orderId}:${lineId} soldAt`),
-    currency,
     excluded: row.excluded,
   };
 }

@@ -11,7 +11,7 @@ import { parseResolveEconomicsRequest } from "./contracts";
 
 const request = {
   accountId: "synthetic-owner-account",
-  connectionId: "synthetic-connection-1",
+  scope: { kind: "native-marketplace" },
   catalogItemId: "synthetic-catalog-item",
   inventoryItemId: "synthetic-inventory-item",
   marketUnitPrice: { amount: "100.00", currency: "usd" },
@@ -29,6 +29,8 @@ describe("Economics closed contracts", () => {
     { ...request, providerKey: "synthetic-forged-provider" },
     { ...request, environment: "production" },
     { ...request, channel: { accountId: "synthetic-forged-account" } },
+    { ...request, scope: { kind: "native-marketplace", connectionId: "synthetic-forged" } },
+    { ...request, scope: { kind: "channel-connection" } },
     { ...request, effectiveAt: "2026-09-07T01:00:00" },
     { ...request, quantity: 0 },
     { ...request, marketUnitPrice: { amount: "100", currency: "usd" } },

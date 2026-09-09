@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { createNoopCommercialTermsResolver, type CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import {
+  createCommercialTermsResolver,
+  createNoopCommercialTermsResolver,
+  type CommercialTermsResolver,
+} from "@chase-sets/commercial-terms/server";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { MoneyAmount } from "@chase-sets/primitives/money";
 import { contextManifest, module as pricingModule } from "../../../index";
 import type { EconomicsServices } from "./services";
@@ -7,11 +13,12 @@ import { createEconomicsServices } from "./services";
 import { economicsFactNames, type ChannelConnectionIdentityReader } from "../domain/contracts";
 import { economicsPolicy, ECONOMICS_LAUNCH_POLICY_VALUE } from "../domain/policy";
 import { toEconomicsForPricingGoal, type EconomicsResolution } from "../domain/resolution";
+import { createPricingServices } from "../../../support/runtime-support/services";
 
 const identity = { providerKey: "synthetic-provider-a", environment: "sandbox" } as const;
 const request = {
-  accountId: "synthetic-owner-account",
-  connectionId: "synthetic-connection-1",
+  accountId: "acc_synthetic_owner",
+  scope: { kind: "native-marketplace" },
   catalogItemId: "synthetic-catalog-item",
   inventoryItemId: "synthetic-inventory-item",
   marketUnitPrice: { amount: "100.00" as MoneyAmount, currency: "usd" },
@@ -32,8 +39,8 @@ const failingCommercialTermsResolver: CommercialTermsResolver = {
 
 function createServices(commercialTermsResolver: CommercialTermsResolver) {
   return createEconomicsServices({
-    eventStore: {} as never,
-    db: { query: vi.fn() } as never,
+    eventStore: createInMemoryEventStore().eventStore,
+    db: { query: vi.fn(async () => ({ rows: [] })) },
     policies: {
       resolvePolicy: vi.fn(async () => ({
         policyKey: "pricing.economics",
@@ -83,6 +90,52 @@ describe("Pricing Economics bounded-context integration", () => {
     );
   });
 
+  it.each([undefined, {}, { kind: "not-mounted" }] as const)(
+    "rejects malformed Commercial Terms authority %# before constructing services",
+    (commercialTermsResolver) => {
+      expect(() =>
+        createEconomicsServices({
+          eventStore: createInMemoryEventStore().eventStore,
+          db: { query: vi.fn(async () => ({ rows: [] })) },
+          policies: {} as never,
+          commercialTermsResolver: commercialTermsResolver as never,
+          channelConnectionIdentityReader: syntheticChannelConnectionIdentityReader,
+        }),
+      ).toThrow("Pricing Economics requires Commercial Terms and Channel Connection host ports.");
+      expect(() =>
+        createPricingServices({} as never, {
+          tcgplayerMarketTransport: { kind: "not-mounted" },
+          tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+          commercialTermsResolver: commercialTermsResolver as never,
+          channelConnectionIdentityReader: syntheticChannelConnectionIdentityReader,
+        }),
+      ).toThrow("Pricing requires Commercial Terms and Channel Connection Economics host ports.");
+    },
+  );
+
+  it.each([undefined, {}, { kind: "not-mounted" }] as const)(
+    "rejects malformed Channel Connection authority %# before constructing services",
+    (channelConnectionIdentityReader) => {
+      expect(() =>
+        createEconomicsServices({
+          eventStore: createInMemoryEventStore().eventStore,
+          db: { query: vi.fn(async () => ({ rows: [] })) },
+          policies: {} as never,
+          commercialTermsResolver: failingCommercialTermsResolver,
+          channelConnectionIdentityReader: channelConnectionIdentityReader as never,
+        }),
+      ).toThrow("Pricing Economics requires Commercial Terms and Channel Connection host ports.");
+      expect(() =>
+        createPricingServices({} as never, {
+          tcgplayerMarketTransport: { kind: "not-mounted" },
+          tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+          commercialTermsResolver: failingCommercialTermsResolver,
+          channelConnectionIdentityReader: channelConnectionIdentityReader as never,
+        }),
+      ).toThrow("Pricing requires Commercial Terms and Channel Connection Economics host ports.");
+    },
+  );
+
   it("publishes the canonical Economics contract without a goal-specific provider fork", () => {
     const compileOnlyPublicSurface: readonly [
       typeof economicsPolicy,
@@ -93,8 +146,8 @@ describe("Pricing Economics bounded-context integration", () => {
     ] = [economicsPolicy, toEconomicsForPricingGoal, economicsFactNames, null, null];
 
     expect(compileOnlyPublicSurface[2]).toHaveLength(12);
-    const compileOnlyRegistration: EconomicsServices["registerNativeCommercialTermsProvider"] | null = null;
-    expect(compileOnlyRegistration).toBeNull();
+    const compileOnlyProviderRegistry: EconomicsServices["providers"] | null = null;
+    expect(compileOnlyProviderRegistry).toBeNull();
     expect(contextManifest.allowedContextDependencies).toEqual(
       expect.arrayContaining(["@chase-sets/channels", "@chase-sets/commercial-terms"]),
     );
@@ -114,7 +167,7 @@ describe("Pricing Economics bounded-context integration", () => {
     );
   });
 
-  it("constructs the root service and registers an exact native adapter without consumer branching", async () => {
+  it("constructs the root service and resolves native marketplace without a registry identity", async () => {
     const services = createServices({
       ...createNoopCommercialTermsResolver(),
       resolveListingTerms: async () => ({
@@ -132,22 +185,138 @@ describe("Pricing Economics bounded-context integration", () => {
         resolvedAt: request.effectiveAt,
       }),
     });
-    services.registerNativeCommercialTermsProvider(identity);
-
-    await expect(services.providers.resolve(identity).resolve(request)).resolves.toMatchObject({
+    await expect(services.resolve(request)).resolves.toMatchObject({
       kind: "resolved",
-      providerIdentity: identity,
+      economics: {
+        channel: { kind: "native-marketplace" },
+        facts: {
+          platformFeeRelativeBps: { sourceValue: 500, source: { kind: "commercial-terms" } },
+          sellerHandlingFixedPerUnitAmount: { source: { kind: "policy-owned" } },
+        },
+      },
     });
-    expect(() => services.registerNativeCommercialTermsProvider(identity)).toThrow(/already registered/);
-  });
-
-  it("keeps an explicit Commercial Terms failure bounded after exact registration", async () => {
-    const services = createServices(failingCommercialTermsResolver);
-    services.registerNativeCommercialTermsProvider(identity);
     await expect(services.providers.resolve(identity).resolve(request)).resolves.toMatchObject({
       kind: "unavailable",
-      providerIdentity: identity,
+      reason: "provider-unavailable",
+    });
+  });
+
+  it("keeps an explicit native Commercial Terms failure bounded", async () => {
+    const services = createServices(failingCommercialTermsResolver);
+    await expect(services.resolve(request)).resolves.toMatchObject({
+      kind: "unavailable",
       reason: "terms-unavailable",
+      channel: { kind: "native-marketplace" },
+    });
+  });
+
+  it("proves native and unregistered channel scopes through production Pricing composition", async () => {
+    const commercialTermsDb: PgQueryable = {
+      query: async <Row>(text: string) => {
+        const rows: readonly Record<string, unknown>[] = text.includes("FROM commercial_terms_account_pages")
+          ? [
+              {
+                account_id: request.accountId,
+                account_type: "business",
+                status: "active",
+                founders_window_started_at: null,
+                founders_window_ends_at: null,
+              },
+            ]
+          : text.includes("AS schedule_id")
+            ? [
+                {
+                  schedule_id: "synthetic-local-schedule",
+                  label: "Synthetic local marketplace terms",
+                  marketplace_sales_fee_percentage_bps: 500,
+                  marketplace_sales_fee_fixed_amount: "0.00",
+                  marketplace_sales_fee_cap_amount: "25.00",
+                  shipping_allowance_percentage_bps: 1_000,
+                  updated_at: "2026-09-01T00:00:00Z",
+                },
+              ]
+            : [];
+        return { rows: rows.map((row) => row as Row) };
+      },
+    };
+    const pricingPool = {
+      query: async <Row>() => ({ rows: [] as Row[] }),
+    } as unknown as PgTransactionalPool;
+    const channelConnectionIdentityReader = {
+      resolve: vi.fn(async ({ accountId, connectionId }) =>
+        accountId === request.accountId && connectionId === "synthetic-connection-1"
+          ? { connectionId, ...identity }
+          : null,
+      ),
+    };
+    const commercialTermsResolver = createCommercialTermsResolver({ db: commercialTermsDb });
+    await expect(
+      commercialTermsResolver.resolveListingTerms({
+        accountId: request.accountId,
+        amount: request.marketUnitPrice.amount,
+        effectiveAt: request.effectiveAt,
+      }),
+    ).resolves.toMatchObject({
+      accountId: request.accountId,
+      scheduleId: "synthetic-local-schedule",
+      marketplaceSalesFeePercentageBps: 500,
+      shippingAllowancePercentageBps: 1_000,
+    });
+    const services = createPricingServices(pricingPool, {
+      tcgplayerMarketTransport: { kind: "not-mounted" },
+      tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+      commercialTermsResolver,
+      channelConnectionIdentityReader,
+    });
+
+    const native = await services.economics.resolve(request);
+    expect(native.kind).toBe("resolved");
+    if (native.kind !== "resolved") throw new Error("Expected native marketplace Economics.");
+    expect(native.economics.channel).toEqual({ kind: "native-marketplace" });
+    expect(channelConnectionIdentityReader.resolve).not.toHaveBeenCalled();
+    const overheadFacts = Object.entries(native.economics.facts).filter(([name]) =>
+      [
+        "platformFeeRelativeBps",
+        "platformFeeFixedPerUnitAmount",
+        "platformFeeCapPerUnitAmount",
+        "sellerHandlingRelativeBps",
+        "sellerHandlingFixedPerUnitAmount",
+        "sellerHandlingCapPerUnitAmount",
+        "shippingAllowanceBps",
+      ].includes(name),
+    );
+    expect(overheadFacts).toHaveLength(7);
+    expect(
+      overheadFacts
+        .filter(([, fact]) => fact.source.kind === "commercial-terms")
+        .map(([name]) => name)
+        .sort(),
+    ).toEqual([
+      "platformFeeCapPerUnitAmount",
+      "platformFeeFixedPerUnitAmount",
+      "platformFeeRelativeBps",
+      "shippingAllowanceBps",
+    ]);
+    expect(
+      overheadFacts
+        .filter(([, fact]) => fact.source.kind === "policy-owned")
+        .map(([name]) => name)
+        .sort(),
+    ).toEqual(["sellerHandlingCapPerUnitAmount", "sellerHandlingFixedPerUnitAmount", "sellerHandlingRelativeBps"]);
+
+    const channel = await services.economics.resolve({
+      ...request,
+      scope: { kind: "channel-connection", connectionId: "synthetic-connection-1" },
+    });
+    expect(channel).toMatchObject({
+      kind: "unavailable",
+      reason: "provider-unavailable",
+      channel: { kind: "channel-connection", connectionId: "synthetic-connection-1" },
+      facts: { dailyReturnHurdle: { effectiveValue: 0.005 } },
+    });
+    expect(channelConnectionIdentityReader.resolve).toHaveBeenCalledWith({
+      accountId: request.accountId,
+      connectionId: "synthetic-connection-1",
     });
   });
 

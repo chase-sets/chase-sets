@@ -52,6 +52,7 @@ type StoredRow = Readonly<{
   total_quantity: number | null;
   acquisition_occurred_at: string | null;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
   seller_sku: string | null;
   listing_price_amount: string | null;
   listing_price_currency_code: string | null;
@@ -84,6 +85,7 @@ type StoredInventoryItem = Readonly<{
   total_quantity: number;
   selected_options: readonly InventorySelectedOptionEntry[];
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
   updated_at: string;
 }>;
 
@@ -233,6 +235,7 @@ class ImportBatchDb implements PgQueryable {
           total_quantity: item.total_quantity,
           selected_options: item.selected_options,
           acquisition_cost_amount: item.acquisition_cost_amount,
+          acquisition_cost_currency_code: item.acquisition_cost_currency_code,
         }));
       return this.result(rows as Row[]);
     }
@@ -293,6 +296,10 @@ class ImportBatchDb implements PgQueryable {
           total_quantity: typeof values[16] === "number" ? values[16] : null,
           acquisition_occurred_at: typeof values[17] === "string" ? new Date(values[17]).toISOString() : null,
           acquisition_cost_amount: typeof values[18] === "string" ? values[18] : null,
+          acquisition_cost_currency_code:
+            typeof (JSON.parse(String(values[4])) as Record<string, unknown>).acquisitionCostCurrencyCode === "string"
+              ? String((JSON.parse(String(values[4])) as Record<string, unknown>).acquisitionCostCurrencyCode)
+              : null,
           seller_sku: typeof values[19] === "string" ? values[19] : null,
           listing_price_amount: typeof values[20] === "string" ? values[20] : null,
           listing_price_currency_code:
@@ -757,7 +764,7 @@ describe("inventory import batch runtime", () => {
     const template = await services.getNativeCsvTemplate({ accountId: "acc_1" as AccountId });
 
     expect(template).toContain(
-      "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
+      "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,option:form,option:condition,acquisitionCostAmount,acquisitionCostCurrencyCode,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
     );
     expect(template).toContain("loc_active");
     expect(template).toContain("Example for Active shelf");
@@ -774,6 +781,7 @@ describe("inventory import batch runtime", () => {
       total_quantity: 6,
       selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
       acquisition_cost_amount: "1.25",
+      acquisition_cost_currency_code: "CAD",
       updated_at: now,
     });
     db.items.set("inv_other", {
@@ -784,6 +792,7 @@ describe("inventory import batch runtime", () => {
       total_quantity: 99,
       selected_options: [],
       acquisition_cost_amount: null,
+      acquisition_cost_currency_code: null,
       updated_at: now,
     });
     const services = runtime(db);
@@ -792,8 +801,8 @@ describe("inventory import batch runtime", () => {
 
     expect(csv).toBe(
       [
-        "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
-        "cat_active,loc_active,6,,near_mint,1.25,,,,,",
+        "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,option:condition,acquisitionCostAmount,acquisitionCostCurrencyCode,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
+        "cat_active,loc_active,6,,near_mint,1.25,CAD,,,,,",
       ].join("\n"),
     );
     expect(csv).not.toContain("cat_other");
@@ -806,28 +815,32 @@ describe("inventory import batch runtime", () => {
         accountId: "acc_1" as AccountId,
         sourceFilename: "stock.csv",
         csvText: [
-          "catalogItemId,storageLocationId,totalQuantity,option:condition,acquisitionCostAmount,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap",
-          "cat_active,loc_active,2,near_mint,1.25,4.50,USD,1",
-          "cat_unknown,loc_active,2,near_mint,,,",
-          "cat_inactive,loc_active,2,near_mint,,,",
-          "cat_active,loc_active,2,bad_option,,,",
-          "cat_active,loc_archived,2,near_mint,,,",
-          "cat_active,loc_active,0,near_mint,,,",
-          "cat_active,loc_active,2,near_mint,bad-money,,",
-          "cat_active,loc_active,2,near_mint,,4.50,",
-          "cat_active,loc_active,2,near_mint,,4.50,US,1",
+          "catalogItemId,storageLocationId,totalQuantity,option:condition,acquisitionCostAmount,acquisitionCostCurrencyCode,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap",
+          "cat_active,loc_active,2,near_mint,1.25,CAD,4.50,USD,1",
+          "cat_unknown,loc_active,2,near_mint,,,,,",
+          "cat_inactive,loc_active,2,near_mint,,,,,",
+          "cat_active,loc_active,2,bad_option,,,,,",
+          "cat_active,loc_archived,2,near_mint,,,,,",
+          "cat_active,loc_active,0,near_mint,,,,,",
+          "cat_active,loc_active,2,near_mint,bad-money,CAD,,,",
+          "cat_active,loc_active,2,near_mint,,,4.50,,",
+          "cat_active,loc_active,2,near_mint,,,4.50,US,1",
+          "cat_active,loc_active,2,near_mint,1.25,,,,",
+          "cat_active,loc_active,2,near_mint,1.25,cad,,,",
         ].join("\n"),
       },
       context,
     );
 
-    expect(batch.total_count).toBe(9);
+    expect(batch.total_count).toBe(11);
     expect(batch.accepted_count).toBe(1);
-    expect(batch.rejected_count).toBe(8);
+    expect(batch.rejected_count).toBe(10);
     expect(batch.rows[0]).toMatchObject({
       status: "accepted",
       product_id: "cat_active::condition:near_mint",
       selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+      acquisition_cost_amount: "1.25",
+      acquisition_cost_currency_code: "CAD",
       listing_price_amount: "4.50",
       listing_price_currency_code: "USD",
       listing_quantity_cap: 1,
@@ -840,6 +853,8 @@ describe("inventory import batch runtime", () => {
         "Storage location is archived.",
         "add imports require totalQuantity to be a non-zero whole number.",
         "acquisitionCostAmount must be a zero-or-greater decimal amount.",
+        "acquisitionCostAmount and acquisitionCostCurrencyCode must be supplied together.",
+        "acquisitionCostCurrencyCode must be an uppercase three-letter ISO-4217 code.",
         "listingQuantityCap is required when listingPriceAmount is set.",
         "listingPriceCurrencyCode is required when listingPriceAmount is set.",
         "listingPriceCurrencyCode must be a three-letter ISO-4217 code.",
@@ -1306,6 +1321,32 @@ describe("inventory import batch runtime", () => {
     });
   });
 
+  it("preserves a native import's source-authored acquisition denomination through inventory creation", async () => {
+    const creations: Array<Parameters<InventoryItemServices["createItem"]>[0]> = [];
+    const services = runtime(dbWithLocations(), [], [], creations);
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: [
+          "catalogItemId,storageLocationId,totalQuantity,option:condition,acquisitionCostAmount,acquisitionCostCurrencyCode",
+          "cat_active,loc_active,2,near_mint,1.25,CAD",
+        ].join("\n"),
+      },
+      context,
+    );
+
+    expect(batch.rows[0]).toMatchObject({
+      status: "accepted",
+      acquisition_cost_amount: "1.25",
+      acquisition_cost_currency_code: "CAD",
+    });
+    await services.commitBatch({ accountId: "acc_1" as AccountId, batchId: batch.batch_id }, context);
+    expect(creations[0]).toMatchObject({
+      acquisitionCostAmount: "1.25",
+      acquisitionCostCurrencyCode: "CAD",
+    });
+  });
+
   it("rejects timezone-less acquisition occurrence input instead of substituting import time", async () => {
     const services = runtime(dbWithLocations());
     const batch = await services.createBatch(
@@ -1351,6 +1392,7 @@ describe("inventory import batch runtime", () => {
       total_quantity: 10,
       selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
       acquisition_cost_amount: null,
+      acquisition_cost_currency_code: null,
       updated_at: now,
     });
 

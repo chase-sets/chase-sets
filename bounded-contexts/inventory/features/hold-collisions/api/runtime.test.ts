@@ -142,6 +142,7 @@ function createRecoveryHarness(
       storageLocationId: "loc_1",
       totalQuantity: 3,
       acquisitionCostAmount: "75.00",
+      acquisitionCostCurrencyCode: "USD",
     });
     await eventStore.appendToStream({
       streamId: "inventory.item-inv_1",

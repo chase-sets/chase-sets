@@ -4,13 +4,13 @@ import { createEconomicsProviderRegistry } from "../domain/provider-registry";
 import { initialEconomicsOverridesState } from "../domain/overrides";
 import { ECONOMICS_LAUNCH_POLICY_VALUE, toResolvedEconomicsPolicy } from "../domain/policy";
 import type { EconomicsFact, FactSource, ResolveEconomicsRequest } from "../domain/contracts";
-import { createEconomicsRuntime } from "./runtime";
+import { createEconomicsRuntime, type EconomicsRuntimeDependencies } from "./runtime";
 import { toEconomicsForPricingGoal } from "../domain/resolution";
-import { createNativeCommercialTermsEconomicsProvider } from "../integrations/native-commercial-terms/provider";
+import { createNativeMarketplaceEconomicsProvider } from "../integrations/native-commercial-terms/provider";
 
 const request: ResolveEconomicsRequest = {
   accountId: "synthetic-owner-account",
-  connectionId: "synthetic-connection-1",
+  scope: { kind: "channel-connection", connectionId: "synthetic-connection-1" },
   catalogItemId: "synthetic-catalog-item",
   inventoryItemId: "synthetic-inventory-item",
   marketUnitPrice: { amount: "100.00" as MoneyAmount, currency: "usd" },
@@ -29,7 +29,7 @@ const policy = toResolvedEconomicsPolicy({
 });
 
 const identity = { providerKey: "synthetic-provider-a", environment: "sandbox" } as const;
-const channel = { connectionId: request.connectionId, ...identity };
+const channel = { connectionId: "synthetic-connection-1", ...identity };
 const money = (amount: string) => ({ amount: amount as MoneyAmount, currency: "usd" });
 const fact = <Value>(value: Value, source: FactSource, observedAt = "2026-09-01T00:00:00Z"): EconomicsFact<Value> => ({
   sourceValue: value,
@@ -72,7 +72,6 @@ function evidence() {
         saleId: "synthetic-sale-1",
         quantity: 5,
         soldAt: "2026-08-04T00:00:00Z",
-        currency: "usd",
         excluded: false,
       },
       {
@@ -81,7 +80,6 @@ function evidence() {
         saleId: "synthetic-sale-2",
         quantity: 5,
         soldAt: "2026-08-20T00:00:00Z",
-        currency: "usd",
         excluded: false,
       },
     ],
@@ -103,19 +101,23 @@ function evidence() {
   };
 }
 
-function baseDependencies(registry = createEconomicsProviderRegistry()) {
+function baseDependencies(
+  registry = createEconomicsProviderRegistry(),
+  nativeMarketplaceProvider: EconomicsRuntimeDependencies["nativeMarketplaceProvider"] = {
+    resolve: vi.fn(async () => {
+      throw new Error("synthetic native marketplace provider must not be called");
+    }),
+  },
+) {
   return {
-    channelConnectionIdentityReader: { resolve: vi.fn(async () => channel) },
+    channelConnectionIdentityReader: {
+      resolve: vi.fn(async ({ connectionId }) => ({ ...channel, connectionId })),
+    },
+    nativeMarketplaceProvider,
     providerRegistry: registry,
     evidenceReader: { resolve: vi.fn(async () => evidence()) },
     overrides: {
-      loadAt: vi.fn(async () =>
-        initialEconomicsOverridesState({
-          accountId: request.accountId,
-          connectionId: request.connectionId,
-          currency: "usd",
-        }),
-      ),
+      loadAt: vi.fn(async (key) => initialEconomicsOverridesState(key)),
     },
     resolvePolicy: vi.fn(async () => policy),
   };
@@ -159,6 +161,32 @@ describe("Economics runtime", () => {
       hurdleStatus: "derived",
     });
     expect(deps.resolvePolicy).not.toHaveBeenCalled();
+
+    const second = await createEconomicsRuntime(deps).resolve({
+      ...request,
+      scope: { kind: "channel-connection", connectionId: "synthetic-connection-2" },
+    });
+    expect(second.kind).toBe("resolved");
+    if (second.kind !== "resolved") throw new Error("Expected resolved Economics for the second connection.");
+    expect(result.economics.channel).toEqual({
+      kind: "channel-connection",
+      connectionId: "synthetic-connection-1",
+    });
+    expect(second.economics.channel).toEqual({
+      kind: "channel-connection",
+      connectionId: "synthetic-connection-2",
+    });
+    expect(second.economics.revision).not.toBe(result.economics.revision);
+    expect(deps.overrides.loadAt).toHaveBeenNthCalledWith(
+      1,
+      { accountId: request.accountId, scopeKey: "synthetic-connection-1", currency: "usd" },
+      request.effectiveAt,
+    );
+    expect(deps.overrides.loadAt).toHaveBeenNthCalledWith(
+      2,
+      { accountId: request.accountId, scopeKey: "synthetic-connection-2", currency: "usd" },
+      request.effectiveAt,
+    );
   });
 
   it("returns a numeric hold input on provider absence without inventing a platform fee", async () => {
@@ -184,23 +212,22 @@ describe("Economics runtime", () => {
     expect(deps.resolvePolicy).toHaveBeenCalledWith(request.effectiveAt);
   });
 
-  it("keeps the registered native Terms-unavailable path numeric without inventing a fee", async () => {
-    const registry = createEconomicsProviderRegistry();
+  it("keeps the native marketplace Terms-unavailable path numeric without inventing a fee", async () => {
     const nativeResolvePolicy = vi.fn(async () => policy);
-    registry.registerExact(
-      createNativeCommercialTermsEconomicsProvider({
-        identity,
-        commercialTermsResolver: {
-          resolveListingTerms: async () => {
-            throw new Error("synthetic unavailable Terms authority");
-          },
+    const nativeMarketplaceProvider = createNativeMarketplaceEconomicsProvider({
+      commercialTermsResolver: {
+        resolveListingTerms: async () => {
+          throw new Error("synthetic unavailable Terms authority");
         },
-        resolvePolicy: nativeResolvePolicy,
-      }),
-    );
-    const deps = baseDependencies(registry);
+      },
+      resolvePolicy: nativeResolvePolicy,
+    });
+    const deps = baseDependencies(createEconomicsProviderRegistry(), nativeMarketplaceProvider);
 
-    const result = await createEconomicsRuntime(deps).resolve(request);
+    const result = await createEconomicsRuntime(deps).resolve({
+      ...request,
+      scope: { kind: "native-marketplace" },
+    });
     expect(result.kind).toBe("unavailable");
     if (result.kind !== "unavailable") throw new Error("Expected unavailable Economics.");
     expect(result.reason).toBe("terms-unavailable");

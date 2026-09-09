@@ -2,12 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { MoneyAmount } from "@chase-sets/primitives/money";
 import { ECONOMICS_LAUNCH_POLICY_VALUE, toResolvedEconomicsPolicy } from "../../domain/policy";
 import type { ResolveEconomicsRequest } from "../../domain/contracts";
-import { createNativeCommercialTermsEconomicsProvider } from "./provider";
+import { createNativeMarketplaceEconomicsProvider } from "./provider";
 
-const identity = { providerKey: "synthetic-provider-a", environment: "sandbox" } as const;
 const request: ResolveEconomicsRequest = {
   accountId: "synthetic-owner-account",
-  connectionId: "synthetic-connection-1",
+  scope: { kind: "native-marketplace" },
   catalogItemId: "synthetic-catalog-item",
   inventoryItemId: "synthetic-inventory-item",
   marketUnitPrice: { amount: "100.00" as MoneyAmount, currency: "usd" },
@@ -46,8 +45,7 @@ describe("native Commercial Terms Economics provider", () => {
   it("binds exactly four facts to Commercial Terms and three handling facts to Pricing policy", async () => {
     const resolveListingTerms = vi.fn(async () => terms());
     const resolvePolicy = vi.fn(async () => resolvedPolicy);
-    const provider = createNativeCommercialTermsEconomicsProvider({
-      identity,
+    const provider = createNativeMarketplaceEconomicsProvider({
       commercialTermsResolver: { resolveListingTerms },
       resolvePolicy,
     });
@@ -83,8 +81,7 @@ describe("native Commercial Terms Economics provider", () => {
 
   it("changes the Commercial Terms revision when a published value changes but not when resolvedAt changes", async () => {
     const run = async (overrides: Record<string, unknown>, effectiveAt = request.effectiveAt) => {
-      const provider = createNativeCommercialTermsEconomicsProvider({
-        identity,
+      const provider = createNativeMarketplaceEconomicsProvider({
         commercialTermsResolver: { resolveListingTerms: async () => terms({ ...overrides, resolvedAt: effectiveAt }) },
         resolvePolicy: async () => resolvedPolicy,
       });
@@ -98,8 +95,7 @@ describe("native Commercial Terms Economics provider", () => {
   });
 
   it("collapses every Commercial Terms domain failure without exposing its text", async () => {
-    const provider = createNativeCommercialTermsEconomicsProvider({
-      identity,
+    const provider = createNativeMarketplaceEconomicsProvider({
       commercialTermsResolver: {
         resolveListingTerms: async () => {
           throw new Error("sensitive database detail");
@@ -109,7 +105,6 @@ describe("native Commercial Terms Economics provider", () => {
     });
     await expect(provider.resolve(request)).resolves.toEqual({
       kind: "unavailable",
-      providerIdentity: identity,
       reason: "terms-unavailable",
       policy: resolvedPolicy,
     });
@@ -124,15 +119,13 @@ describe("native Commercial Terms Economics provider", () => {
     ["different basis amount", { basisAmount: "99.00" }],
     ["different evaluation instant", { resolvedAt: "2026-09-07T06:00:01Z" }],
   ])("collapses %s from a mixed dynamic Terms result to numeric unavailable", async (_name, overrides) => {
-    const provider = createNativeCommercialTermsEconomicsProvider({
-      identity,
+    const provider = createNativeMarketplaceEconomicsProvider({
       commercialTermsResolver: { resolveListingTerms: async () => terms(overrides) as never },
       resolvePolicy: async () => resolvedPolicy,
     });
 
     await expect(provider.resolve(request)).resolves.toEqual({
       kind: "unavailable",
-      providerIdentity: identity,
       reason: "terms-unavailable",
       policy: resolvedPolicy,
     });
@@ -140,8 +133,7 @@ describe("native Commercial Terms Economics provider", () => {
 
   it("rejects malformed dynamic policy before reading or formatting Commercial Terms", async () => {
     const resolveListingTerms = vi.fn(async () => terms());
-    const provider = createNativeCommercialTermsEconomicsProvider({
-      identity,
+    const provider = createNativeMarketplaceEconomicsProvider({
       commercialTermsResolver: { resolveListingTerms },
       resolvePolicy: async () =>
         ({

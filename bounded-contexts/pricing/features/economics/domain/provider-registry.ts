@@ -1,11 +1,11 @@
 import type { ChannelProviderIdentity } from "@chase-sets/channels";
 import {
   assertProviderIdentity,
-  assertSourceEconomics,
+  assertChannelSourceEconomics,
+  type ChannelSourceEconomics,
   type EconomicsProvider,
   type EconomicsProviderRegistry,
   type ResolveEconomicsRequest,
-  type SourceEconomics,
 } from "./contracts";
 
 export function createEconomicsProviderRegistry(): EconomicsProviderRegistry {
@@ -41,9 +41,9 @@ function guardProvider(provider: EconomicsProvider): EconomicsProvider {
   const registeredIdentity = Object.freeze({ ...provider.identity });
   return {
     identity: registeredIdentity,
-    async resolve(request: ResolveEconomicsRequest): Promise<SourceEconomics> {
+    async resolve(request: ResolveEconomicsRequest): Promise<ChannelSourceEconomics> {
       const result = await provider.resolve(request);
-      assertSourceEconomics(result, request.marketUnitPrice.currency);
+      assertChannelSourceEconomics(result, request.marketUnitPrice.currency);
       if (identityKey(result.providerIdentity) !== identityKey(registeredIdentity)) {
         throw new Error("Economics provider returned an identity different from its registration.");
       }

@@ -7,6 +7,64 @@ const unknownAcquisition = {
 };
 
 describe("inventory item domain", () => {
+  it("requires a source-authored uppercase currency alongside every acquisition amount", () => {
+    const create = {
+      type: "CreateInventoryItem" as const,
+      ...unknownAcquisition,
+      itemId: "inv_cost" as never,
+      accountId: "acc_1" as never,
+      catalogItemId: "cat_1" as never,
+      productId: "cat_1::" as never,
+      selectedOptions: [],
+      storageLocationId: "loc_1",
+      totalQuantity: 1,
+    };
+
+    expect(() => decideInventoryItem(initialInventoryItemState, { ...create, acquisitionCostAmount: "4.25" })).toThrow(
+      /amount and currency/,
+    );
+    expect(() =>
+      decideInventoryItem(initialInventoryItemState, {
+        ...create,
+        acquisitionCostAmount: "4.25",
+        acquisitionCostCurrencyCode: "usd",
+      }),
+    ).toThrow(/uppercase three-letter/);
+    expect(() =>
+      decideInventoryItem(initialInventoryItemState, { ...create, acquisitionCostCurrencyCode: "USD" }),
+    ).toThrow(/amount and currency/);
+
+    const [created] = decideInventoryItem(initialInventoryItemState, {
+      ...create,
+      acquisitionCostAmount: "4.25",
+      acquisitionCostCurrencyCode: "CAD",
+    });
+    expect(created?.data).toMatchObject({
+      acquisitionCostAmount: "4.25",
+      acquisitionCostCurrencyCode: "CAD",
+    });
+  });
+
+  it("keeps retained amount-only events ineligible by evolving their currency as null", () => {
+    const retained = evolveInventoryItem(initialInventoryItemState, {
+      type: "inventory.item.created",
+      data: {
+        itemId: "inv_legacy" as never,
+        accountId: "acc_1" as never,
+        catalogItemId: "cat_1" as never,
+        productId: "cat_1::" as never,
+        selectedOptions: [],
+        gradedCard: null,
+        storageLocationId: "loc_1",
+        totalQuantity: 1,
+        acquisitionCostAmount: "4.25",
+      },
+    });
+
+    expect(retained.acquisitionCostAmount).toBe("4.25");
+    expect(retained.acquisitionCostCurrencyCode).toBeNull();
+  });
+
   it("creates and adjusts an inventory item", async () => {
     const created = await decideInventoryItem(initialInventoryItemState, {
       type: "CreateInventoryItem",
@@ -19,6 +77,7 @@ describe("inventory item domain", () => {
       storageLocationId: "loc_1",
       totalQuantity: 12,
       acquisitionCostAmount: "4.25",
+      acquisitionCostCurrencyCode: "USD",
     });
     const createdState = created.reduce(evolveInventoryItem, initialInventoryItemState);
     const adjusted = await decideInventoryItem(createdState, {
@@ -237,6 +296,7 @@ describe("inventory item domain", () => {
       storageLocationId: "loc_1",
       totalQuantity: 5,
       acquisitionCostAmount: "75.00",
+      acquisitionCostCurrencyCode: "USD",
     });
     const createdState = evolveInventoryItem(initialInventoryItemState, created!);
 
@@ -370,6 +430,7 @@ describe("inventory item domain", () => {
       storageLocationId: "loc_1",
       totalQuantity: 1,
       acquisitionCostAmount: "40.00",
+      acquisitionCostCurrencyCode: "USD",
     });
     const createdState = created.reduce(evolveInventoryItem, initialInventoryItemState);
 

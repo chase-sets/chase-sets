@@ -14,7 +14,7 @@ const context: EventStoreContext = {
 
 const key = {
   accountId: "synthetic-owner-account",
-  connectionId: "synthetic-connection-1",
+  scopeKey: "synthetic-connection-1",
   currency: "usd",
 } as const;
 
@@ -56,7 +56,7 @@ function memoryEventStore(): EventStore {
 }
 
 describe("Economics override runtime", () => {
-  it("uses one account/connection/currency stream and replays overrides at effective time", async () => {
+  it("uses one account/scope/currency stream and replays overrides at effective time", async () => {
     const runtime = createEconomicsOverrideRuntime({
       eventStore: memoryEventStore(),
       db: { query: async () => ({ rows: [] }) } as PgQueryable,
@@ -74,6 +74,10 @@ describe("Economics override runtime", () => {
     });
     expect(active.version).toBe(1);
     expect(active.entries.dailyReturnHurdle).toMatchObject({ kind: "active", value: 0.01, revision: 1 });
+    expect(runtime.streamIdForKey(key)).not.toBe(
+      runtime.streamIdForKey({ ...key, scopeKey: "synthetic-connection-2" }),
+    );
+    expect(runtime.streamIdForKey(key)).not.toBe(runtime.streamIdForKey({ ...key, scopeKey: "native-marketplace" }));
 
     const cleared = await runtime.execute({
       key,

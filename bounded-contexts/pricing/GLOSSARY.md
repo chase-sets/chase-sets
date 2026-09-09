@@ -4,7 +4,7 @@ This glossary defines the canonical terminology for the Pricing bounded context.
 
 ## Economics
 
-**Economics** is the replayable seller-and-Channel fact set Pricing resolves at one evaluation instant. It binds account-qualified Channel identity, currency, Commercial Terms, Inventory cost evidence, observed capital-cycle evidence, policy defaults, and seller overrides without changing any authoritative source.
+**Economics** is the replayable seller fact set Pricing resolves at one evaluation instant for either the native marketplace or an account-qualified Channel Connection. The native marketplace binds Commercial Terms directly; a Channel Connection binds its Channels-owned identity before provider selection. Both scopes bind currency, Inventory cost evidence, observed capital-cycle evidence, policy defaults, and seller overrides without changing any authoritative source.
 
 ## Economics Fact
 

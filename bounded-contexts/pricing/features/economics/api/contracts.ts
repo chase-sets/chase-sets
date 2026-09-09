@@ -1,7 +1,9 @@
 import {
   parseResolveEconomicsInput,
   parseResolveEconomicsRequest,
+  economicsScopeKey,
   economicsFactNames,
+  parseEconomicsScope,
   requireClosedRecord,
   requireCurrency,
   requireRfc3339Instant,
@@ -35,7 +37,7 @@ export function parseAuthenticatedSetEconomicsOverrideRequest(
 ): Readonly<{ key: EconomicsOverrideKey; command: SetEconomicsFactOverride }> {
   const input = requireClosedRecord(
     raw,
-    ["connectionId", "currency", "expectedVersion", "factName", "setAt", "value"] as const,
+    ["currency", "expectedVersion", "factName", "scope", "setAt", "value"] as const,
     "Set Economics override request",
   );
   const key = parseOverrideKey(input, authenticatedAccountId);
@@ -57,7 +59,7 @@ export function parseAuthenticatedClearEconomicsOverrideRequest(
 ): Readonly<{ key: EconomicsOverrideKey; command: ClearEconomicsFactOverride }> {
   const input = requireClosedRecord(
     raw,
-    ["clearedAt", "connectionId", "currency", "expectedVersion", "factName"] as const,
+    ["clearedAt", "currency", "expectedVersion", "factName", "scope"] as const,
     "Clear Economics override request",
   );
   return {
@@ -77,7 +79,7 @@ export function parseAuthenticatedClearAllEconomicsOverridesRequest(
 ): Readonly<{ key: EconomicsOverrideKey; command: ClearAllEconomicsFactOverrides }> {
   const input = requireClosedRecord(
     raw,
-    ["clearedAt", "connectionId", "currency", "expectedVersion"] as const,
+    ["clearedAt", "currency", "expectedVersion", "scope"] as const,
     "Clear all Economics overrides request",
   );
   return {
@@ -91,17 +93,14 @@ export function parseAuthenticatedClearAllEconomicsOverridesRequest(
 }
 
 function parseOverrideKey(
-  input: Readonly<{ connectionId: unknown; currency: unknown }>,
+  input: Readonly<{ scope: unknown; currency: unknown }>,
   accountId: string,
 ): EconomicsOverrideKey {
-  if (
-    typeof input.connectionId !== "string" ||
-    input.connectionId.length === 0 ||
-    input.connectionId.trim() !== input.connectionId
-  ) {
-    throw new EconomicsContractError("connectionId must be non-empty and already trimmed.");
-  }
-  return { accountId, connectionId: input.connectionId, currency: requireCurrency(input.currency, "currency") };
+  return {
+    accountId,
+    scopeKey: economicsScopeKey(parseEconomicsScope(input.scope)),
+    currency: requireCurrency(input.currency, "currency"),
+  };
 }
 
 function factName(value: unknown): EconomicsFactName {

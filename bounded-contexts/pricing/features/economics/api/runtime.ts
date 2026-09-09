@@ -1,10 +1,11 @@
 import type {
   ChannelConnectionIdentityReader,
   EconomicsProviderRegistry,
+  NativeMarketplaceEconomicsProvider,
   ResolveEconomicsRequest,
   SourceEconomics,
 } from "../domain/contracts";
-import { parseResolveEconomicsRequest, requireRfc3339Instant } from "../domain/contracts";
+import { economicsScopeKey, parseResolveEconomicsRequest, requireRfc3339Instant } from "../domain/contracts";
 import { deriveCostBasisFacts, deriveCycleFacts, deriveUnavailableCycleFacts } from "../domain/derivation";
 import { buildEconomics } from "../domain/economics";
 import { observeCapitalCycle } from "../domain/observations";
@@ -22,6 +23,7 @@ import type { EconomicsOverrideRuntime } from "./override-runtime";
 
 export type EconomicsRuntimeDependencies = Readonly<{
   channelConnectionIdentityReader: ChannelConnectionIdentityReader;
+  nativeMarketplaceProvider: NativeMarketplaceEconomicsProvider;
   providerRegistry: EconomicsProviderRegistry;
   evidenceReader: EconomicsEvidenceReader;
   overrides: Pick<EconomicsOverrideRuntime, "loadAt">;
@@ -32,9 +34,10 @@ export function createEconomicsRuntime(deps: EconomicsRuntimeDependencies): Econ
   return {
     resolve: async (rawRequest: ResolveEconomicsRequest): Promise<EconomicsResolution> => {
       const request = parseResolveEconomicsRequest(rawRequest);
-      const { channel, source } = await resolveSourceEconomics({
+      const { channel, providerIdentity, source } = await resolveSourceEconomics({
         request,
         channelConnectionIdentityReader: deps.channelConnectionIdentityReader,
+        nativeMarketplaceProvider: deps.nativeMarketplaceProvider,
         providerRegistry: deps.providerRegistry,
       });
       const policy = parseResolvedEconomicsPolicy(source.policy ?? (await deps.resolvePolicy(request.effectiveAt)));
@@ -59,7 +62,6 @@ export function createEconomicsRuntime(deps: EconomicsRuntimeDependencies): Econ
       });
       const observations = observeCapitalCycle({
         accountId: request.accountId,
-        currency: request.marketUnitPrice.currency,
         effectiveAt: request.effectiveAt,
         acquisitions: evidence.acquisitions,
         sales: evidence.sales,
@@ -68,7 +70,7 @@ export function createEconomicsRuntime(deps: EconomicsRuntimeDependencies): Econ
       const overrides = await deps.overrides.loadAt(
         {
           accountId: request.accountId,
-          connectionId: request.connectionId,
+          scopeKey: economicsScopeKey(request.scope),
           currency: request.marketUnitPrice.currency,
         },
         request.effectiveAt,
@@ -101,7 +103,7 @@ export function createEconomicsRuntime(deps: EconomicsRuntimeDependencies): Econ
           revision: canonicalSha256({
             request,
             channel,
-            providerIdentity: source.providerIdentity,
+            providerIdentity,
             reason: source.reason,
             policy,
             facts,
@@ -150,6 +152,7 @@ export function createEconomicsRuntime(deps: EconomicsRuntimeDependencies): Econ
         economics: buildEconomics({
           request,
           channel,
+          providerIdentity,
           sourceEconomics: source,
           costBasis,
           cycle,

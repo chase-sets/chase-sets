@@ -60,6 +60,7 @@ function itemRow(overrides: Record<string, unknown> = {}) {
     held_quantity: 1,
     available_quantity: 3,
     acquisition_cost_amount: "10.00",
+    acquisition_cost_currency_code: "USD",
     created_at: "2026-07-08T00:00:00.000Z",
     updated_at: "2026-07-08T00:00:00.000Z",
     ...overrides,

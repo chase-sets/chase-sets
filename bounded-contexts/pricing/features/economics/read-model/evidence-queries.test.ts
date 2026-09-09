@@ -12,7 +12,7 @@ import {
 
 const request = parseResolveEconomicsRequest({
   accountId: "synthetic-owner-account",
-  connectionId: "synthetic-connection-1",
+  scope: { kind: "native-marketplace" },
   catalogItemId: "synthetic-catalog-item",
   inventoryItemId: "synthetic-inventory-item",
   marketUnitPrice: { amount: "100.00", currency: "usd" },
@@ -116,7 +116,6 @@ describe("Economics evidence queries", () => {
         saleId: "synthetic-order:synthetic-line",
         quantity: 1,
         soldAt: "2026-09-05T10:00:00.000Z",
-        currency: "usd",
         excluded: false,
       },
     ]);
@@ -144,6 +143,7 @@ describe("Economics evidence queries", () => {
     expect(target.calls[0]?.values).toEqual([request.accountId, request.effectiveAt]);
     expect(target.calls[1]?.text).toContain("trade.inventory_item_id");
     expect(target.calls[1]?.text).toContain("trade.sold_at <= $2::timestamptz");
+    expect(target.calls[1]?.text).not.toMatch(/currency/i);
     expect(target.calls[1]?.values).toEqual([request.accountId, request.effectiveAt]);
     expect(target.calls[2]?.text).toContain("inventory_item.catalog_catalog_item_id = $3");
     expect(target.calls[2]?.text).toContain("inventory_item.acquisition_cost_currency_code");
@@ -204,6 +204,21 @@ describe("Economics evidence queries", () => {
     expect(costFacts(mismatchedCurrency, eurRequest)).toMatchObject({ coveredQuantity: 0, selectedQuantity: 1 });
     expect(legacyNullCurrency.costLots[0]?.acquisitionCostPerUnit).toBeNull();
     expect(costFacts(legacyNullCurrency, request)).toMatchObject({ coveredQuantity: 0, selectedQuantity: 1 });
+  });
+
+  it("carries no sale denomination and admits the same sales when only request currency changes", async () => {
+    const reader = createPostgresEconomicsEvidenceReader(dbWithEvidence().value);
+    const usd = await reader.resolve(request);
+    const eur = await reader.resolve(
+      parseResolveEconomicsRequest({
+        ...request,
+        marketUnitPrice: { ...request.marketUnitPrice, currency: "eur" },
+      }),
+    );
+
+    expect(usd.sales).toEqual(eur.sales);
+    expect(usd.sales).toHaveLength(1);
+    expect(usd.sales[0]).not.toHaveProperty("currency");
   });
 });
 

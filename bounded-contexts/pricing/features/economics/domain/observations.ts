@@ -1,6 +1,6 @@
 import type { AcquisitionOccurrence } from "@chase-sets/event-core/public-event-payloads";
 import type { ResolvedEconomicsPolicy } from "./policy";
-import { requireCurrency, requirePositiveInteger, requireRfc3339Instant } from "./contracts";
+import { requirePositiveInteger, requireRfc3339Instant } from "./contracts";
 
 const DAY_MILLISECONDS = 86_400_000;
 
@@ -18,7 +18,6 @@ export type SaleObservation = Readonly<{
   saleId: string;
   quantity: number;
   soldAt: string;
-  currency: string;
   excluded: boolean;
 }>;
 
@@ -54,7 +53,6 @@ type MutableQuantity<T> = T & { remaining: number };
 export function observeCapitalCycle(
   input: Readonly<{
     accountId: string;
-    currency: string;
     effectiveAt: string;
     acquisitions: readonly AcquisitionLotObservation[];
     sales: readonly SaleObservation[];
@@ -62,11 +60,10 @@ export function observeCapitalCycle(
   }>,
 ): CapitalCycleObservations {
   const effectiveAt = requireRfc3339Instant(input.effectiveAt, "effectiveAt");
-  const currency = requireCurrency(input.currency, "currency");
   const effectiveMillis = Date.parse(effectiveAt);
   const windowStart = effectiveMillis - input.policy.value.observationWindowDays * DAY_MILLISECONDS;
   const acquisitions = eligibleAcquisitions(input.acquisitions, input.accountId, windowStart, effectiveMillis);
-  const sales = eligibleSales(input.sales, input.accountId, currency, windowStart, effectiveMillis);
+  const sales = eligibleSales(input.sales, input.accountId, windowStart, effectiveMillis);
 
   const holdSamples = allocateObservedHold(acquisitions, sales);
   const turnaroundSamples = allocateObservedTurnaround(acquisitions, sales);
@@ -119,7 +116,6 @@ function eligibleAcquisitions(
 function eligibleSales(
   rows: readonly SaleObservation[],
   accountId: string,
-  currency: string,
   windowStart: number,
   effectiveAt: number,
 ): readonly MutableQuantity<SaleObservation>[] {
@@ -130,11 +126,10 @@ function eligibleSales(
       if (row.inventoryItemId !== null) requireIdentity(row.inventoryItemId, `Sale ${row.saleId} inventoryItemId`);
       requirePositiveInteger(row.quantity, `Sale ${row.saleId} quantity`, Number.MAX_SAFE_INTEGER);
       requireRfc3339Instant(row.soldAt, `Sale ${row.saleId} soldAt`);
-      requireCurrency(row.currency, `Sale ${row.saleId} currency`);
       if (typeof row.excluded !== "boolean") throw new Error(`Sale ${row.saleId} excluded must be boolean.`);
       return { ...row, remaining: row.quantity };
     })
-    .filter((row) => row.currency === currency && !row.excluded)
+    .filter((row) => !row.excluded)
     .filter((row) => Date.parse(row.soldAt) >= windowStart && Date.parse(row.soldAt) <= effectiveAt)
     .sort((left, right) => compareInstantIdentity(left.soldAt, left.saleId, right.soldAt, right.saleId));
 }

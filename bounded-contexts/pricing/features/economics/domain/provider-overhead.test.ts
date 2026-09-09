@@ -6,9 +6,10 @@ import { quoteSellerOverhead } from "./overhead";
 import { ChannelConnectionNotFoundError, resolveSourceEconomics } from "./source-resolution";
 import type { EconomicsProvider, ResolveEconomicsRequest } from "./contracts";
 
+const ownedConnectionId = "synthetic-connection-1";
 const request: ResolveEconomicsRequest = {
   accountId: "synthetic-owner-account",
-  connectionId: "synthetic-connection-1",
+  scope: { kind: "channel-connection", connectionId: ownedConnectionId },
   catalogItemId: "synthetic-catalog-item",
   inventoryItemId: "synthetic-inventory-item",
   marketUnitPrice: { amount: "100.00" as MoneyAmount, currency: "usd" },
@@ -16,6 +17,11 @@ const request: ResolveEconomicsRequest = {
   effectiveAt: "2026-09-07T06:00:00Z",
 };
 const nativeIdentity = { providerKey: "synthetic-provider-a", environment: "sandbox" } as const;
+const unreachableNativeMarketplaceProvider = {
+  resolve: async () => {
+    throw new Error("synthetic native provider must not be called");
+  },
+};
 
 function unavailableProvider(
   identity: ChannelProviderIdentity,
@@ -110,7 +116,7 @@ describe("account-scoped Channel identity", () => {
     const reader = {
       resolve: vi.fn(async ({ accountId, connectionId }) => {
         calls.push("reader");
-        return accountId === request.accountId && connectionId === request.connectionId
+        return accountId === request.accountId && connectionId === ownedConnectionId
           ? { connectionId, ...nativeIdentity }
           : null;
       }),
@@ -118,11 +124,56 @@ describe("account-scoped Channel identity", () => {
     const result = await resolveSourceEconomics({
       request,
       channelConnectionIdentityReader: reader,
+      nativeMarketplaceProvider: unreachableNativeMarketplaceProvider,
       providerRegistry: registry,
     });
     expect(calls).toEqual(["reader", "provider"]);
-    expect(result.channel).toEqual({ connectionId: request.connectionId, ...nativeIdentity });
-    expect(reader.resolve).toHaveBeenCalledWith({ accountId: request.accountId, connectionId: request.connectionId });
+    expect(result.channel).toEqual(request.scope);
+    expect(result.providerIdentity).toEqual(nativeIdentity);
+    expect(reader.resolve).toHaveBeenCalledWith({
+      accountId: request.accountId,
+      connectionId: ownedConnectionId,
+    });
+  });
+
+  it("routes native marketplace directly without consulting Channels or the registry", async () => {
+    const channelConnectionIdentityReader = { resolve: vi.fn() };
+    const providerRegistry = { registerExact: vi.fn(), registerExternalFallback: vi.fn(), resolve: vi.fn() };
+    const source = { kind: "unavailable", reason: "terms-unavailable" } as const;
+    const nativeMarketplaceProvider = { resolve: vi.fn(async () => source) };
+    const nativeRequest = { ...request, scope: { kind: "native-marketplace" } as const };
+
+    await expect(
+      resolveSourceEconomics({
+        request: nativeRequest,
+        channelConnectionIdentityReader,
+        nativeMarketplaceProvider,
+        providerRegistry,
+      }),
+    ).resolves.toEqual({
+      channel: { kind: "native-marketplace" },
+      providerIdentity: null,
+      source,
+    });
+    expect(channelConnectionIdentityReader.resolve).not.toHaveBeenCalled();
+    expect(providerRegistry.resolve).not.toHaveBeenCalled();
+  });
+
+  it("fails the mutant that routes native marketplace through the channel registry", async () => {
+    const nativeRequest = { ...request, scope: { kind: "native-marketplace" } as const };
+    const registryMutant = vi.fn(() => {
+      throw new Error("native marketplace reached the registry");
+    });
+
+    await expect(
+      resolveSourceEconomics({
+        request: nativeRequest,
+        channelConnectionIdentityReader: { resolve: vi.fn() },
+        nativeMarketplaceProvider: { resolve: async () => ({ kind: "unavailable", reason: "terms-unavailable" }) },
+        providerRegistry: { registerExact: vi.fn(), registerExternalFallback: vi.fn(), resolve: registryMutant },
+      }),
+    ).resolves.toMatchObject({ channel: { kind: "native-marketplace" }, providerIdentity: null });
+    expect(registryMutant).not.toHaveBeenCalled();
   });
 
   it.each(["synthetic-foreign-account", "synthetic-owner-account"])(
@@ -134,9 +185,13 @@ describe("account-scoped Channel identity", () => {
           request: {
             ...request,
             accountId,
-            connectionId: accountId === request.accountId ? "synthetic-absent-connection" : request.connectionId,
+            scope: {
+              kind: "channel-connection",
+              connectionId: accountId === request.accountId ? "synthetic-absent-connection" : ownedConnectionId,
+            },
           },
           channelConnectionIdentityReader: { resolve: async () => null },
+          nativeMarketplaceProvider: unreachableNativeMarketplaceProvider,
           providerRegistry: registry,
         }),
       ).rejects.toEqual(new ChannelConnectionNotFoundError());

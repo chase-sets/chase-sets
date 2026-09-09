@@ -4,7 +4,7 @@ import { readCurrentEconomicsOverrides } from "./override-queries";
 
 const key = {
   accountId: "synthetic-owner-account",
-  connectionId: "synthetic-connection-1",
+  scopeKey: "synthetic-connection-1",
   currency: "usd",
 } as const;
 
@@ -42,6 +42,7 @@ describe("Economics override projection reader", () => {
     expect(state.entries.turnaroundDays).toMatchObject({ kind: "cleared", revision: 2 });
     expect(state.version).toBe(2);
     expect(target.calls[0]?.[0]).toContain("pricing_economics_overrides.account_id = $1");
+    expect(target.calls[0]?.[0]).toContain("pricing_economics_overrides.scope_key = $2");
   });
 
   it("fails closed on unknown fact names and non-monotonic projection versions", async () => {
