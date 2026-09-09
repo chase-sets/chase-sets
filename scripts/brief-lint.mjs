@@ -77,7 +77,6 @@ function scanMarkdown(body) {
       continue;
     }
     if (isInertDeclarationContentLine(line)) {
-      ignoredLines.add(index);
       continue;
     }
 
@@ -207,8 +206,7 @@ function declarationFinding(markdown, declaration) {
       .map((line, index) => ({ index, line: line.trim() }))
       .filter(
         ({ index, line }) =>
-          !markdown.ignoredLines.has(index) &&
-          !/^(?: {4}|\t)/.test(markdown.lines[index]) &&
+          !isInertDeclarationContentLine(markdown.lines[index], markdown.ignoredLines, index) &&
           declaration.candidate.test(line),
       );
     if (declarations.length !== 1) {

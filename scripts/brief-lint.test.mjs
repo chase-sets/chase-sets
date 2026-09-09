@@ -139,6 +139,12 @@ describe("don't-rebuild pointers", () => {
     expect(codes("### Don't-rebuild pointers\n\n- `scripts/a.mjs`\n  because it already exists.")).toContain(
       "BRIEF_DONT_REBUILD_POINTER_FORMAT",
     );
+    expect(codes("### Don't-rebuild pointers\n\n- `scripts/a.mjs`\n    because it already exists.")).toContain(
+      "BRIEF_DONT_REBUILD_POINTER_FORMAT",
+    );
+    expect(codes("### Don't-rebuild pointers\n\n- `scripts/a.mjs`\n\tbecause it already exists.")).toContain(
+      "BRIEF_DONT_REBUILD_POINTER_FORMAT",
+    );
     expect(
       codes(
         "Don't-rebuild pointers:\n\n- `scripts/a.mjs`\n\nScope:\n\n- Add bounded behavior.\n- Non-goal: no provider changes.",
