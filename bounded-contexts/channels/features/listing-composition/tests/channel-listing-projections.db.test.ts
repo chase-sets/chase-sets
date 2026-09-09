@@ -135,7 +135,7 @@ describeDb("channel-projection-concurrent-write", () => {
     });
   });
 
-  it("channel-listing-marketplace-price-source-contract rejects stale amount/currency writes", async () => {
+  it("R1 rejects the quantity-event price-pair overwrite mutant", async () => {
     const handlers = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
     await handlers["marketplace.listing.created"]!(
       event(
@@ -190,14 +190,24 @@ describeDb("channel-projection-concurrent-write", () => {
         1,
       ),
     );
+    await handlers["marketplace.listing.quantity-cap-updated"]!(
+      event("marketplace.listing.quantity-cap-updated", { quantityCap: 5 }, "marketplace.listing-listing-1", 3),
+    );
     const result = await pools.channels.query<{
       price_amount: string;
       price_currency_code: string;
+      quantity_cap: number;
       listing_stream_version: string;
     }>(
-      `SELECT price_amount,price_currency_code,listing_stream_version::text FROM channels_listing_publication_facts WHERE listing_id='listing-1'`,
+      `SELECT price_amount,price_currency_code,quantity_cap,listing_stream_version::text
+       FROM channels_listing_publication_facts WHERE listing_id='listing-1'`,
     );
-    expect(result.rows[0]).toEqual({ price_amount: "20.00", price_currency_code: "EUR", listing_stream_version: "2" });
+    expect(result.rows[0]).toEqual({
+      price_amount: "20.00",
+      price_currency_code: "EUR",
+      quantity_cap: 5,
+      listing_stream_version: "3",
+    });
   });
 
   it("channel-catalog-facts-replay-safety retains category and both reference tombstones", async () => {
@@ -237,7 +247,7 @@ describeDb("channel-projection-concurrent-write", () => {
     ]);
   });
 
-  it("keeps boot SQL and migration ownership aligned for all twelve tables", async () => {
+  it("keeps boot SQL and migration ownership aligned for the twelve projections and operation fence", async () => {
     const result = await pools.channels.query<{ tablename: string }>(
       `SELECT tablename FROM pg_tables WHERE schemaname=current_schema() AND tablename=ANY($1::text[]) ORDER BY tablename`,
       [channelListingCompositionTableNames],
@@ -248,7 +258,7 @@ describeDb("channel-projection-concurrent-write", () => {
       `SELECT COUNT(*)::text AS count FROM pg_tables WHERE schemaname=current_schema() AND tablename=ANY($1::text[])`,
       [channelListingCompositionTableNames],
     );
-    expect(second.rows[0]?.count).toBe("12");
+    expect(second.rows[0]?.count).toBe("13");
   });
 });
 

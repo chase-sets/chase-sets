@@ -235,6 +235,18 @@ export function assertChannelCompositionProfile(value: unknown): asserts value i
     throw new Error("Channel Composition Profile bounds must be positive safe integers.");
   }
   if (
+    profile.title.maxLength > 4_096 ||
+    profile.description.maxLength > 100_000 ||
+    profile.category.maxKeyLength > 256 ||
+    profile.condition.maxKeyLength > 256 ||
+    profile.attributes.maxCount > 200 ||
+    profile.attributes.maxKeyLength > 256 ||
+    profile.attributes.maxValueLength > 4_096 ||
+    profile.quantity.max > 1_000_000
+  ) {
+    throw new Error("Channel Composition Profile bounds exceed the Channel Publication Draft contract.");
+  }
+  if (
     !Array.isArray(profile.price.allowedCurrencies) ||
     profile.price.allowedCurrencies.length === 0 ||
     profile.price.allowedCurrencies.some((code) => !/^[A-Z]{3}$/.test(code)) ||

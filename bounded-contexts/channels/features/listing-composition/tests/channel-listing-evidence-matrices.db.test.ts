@@ -10,6 +10,7 @@ import {
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as channelsModule } from "../../../index";
+import { createChannelCompositionProfileRegistry } from "../domain/canonical";
 import { composeChannelListingPublication } from "../domain/compose";
 import {
   channelPublicationBlockingReasons,
@@ -23,7 +24,11 @@ import {
   buildChannelInventoryFactsProjectionHandlers,
   buildChannelMarketplaceFactsProjectionHandlers,
 } from "../read-model/facts-projection";
-import { readChannelListingCompositionFacts, resolveChannelPublishableQuantity } from "../read-model/queries";
+import {
+  readChannelListingCompositionFacts,
+  readChannelMappingReviewQueue,
+  resolveChannelPublishableQuantity,
+} from "../read-model/queries";
 import { buildChannelListingStateProjectionHandlers } from "../read-model/state-projection";
 import { syntheticProfile } from "./test-support";
 
@@ -449,6 +454,69 @@ describeDb("channel-listing-exhaustive-db-evidence", () => {
     });
   });
 
+  it("R10 rejects the whole-connection read and 1,000-mapping ceiling mutants", async () => {
+    await seedEligibilityFacts();
+    await pools.channels.query(
+      `INSERT INTO channels_channel_mappings
+       (connection_id,dimension,source_key,target_key,confidence_tier,review_status,provenance,evidence,updated_at,last_stream_version)
+       SELECT 'connection-eligibility','attribute','unrelated:' || value,'target:' || value,'manual','accepted',
+         'operator','{"listingId":"unrelated","derivedFrom":"growth control"}'::jsonb,now(),1
+       FROM generate_series(1,1001) AS value`,
+    );
+    const facts = await readChannelListingCompositionFacts(pools.channels, eligibilityIdentity);
+    expect(facts?.mappings.map(({ dimension, sourceKey }) => [dimension, sourceKey])).toEqual([
+      ["category", "catalog-category:cards"],
+      ["condition", "selected-option:condition:near-mint"],
+    ]);
+    const parsed = parseChannelListingCompositionInput({
+      ...facts,
+      profile: { kind: "registered", profile: syntheticProfile },
+    });
+    expect(parsed.kind).toBe("valid");
+    if (parsed.kind === "valid") expect(composeChannelListingPublication(parsed.input).kind).toBe("publishable");
+
+    const snapshotProfile = {
+      ...syntheticProfile,
+      category: { ...syntheticProfile.category, mode: "snapshot-preserved" as const },
+      condition: { ...syntheticProfile.condition, mode: "snapshot-preserved" as const },
+      attributes: { ...syntheticProfile.attributes, mode: "snapshot-preserved" as const },
+    };
+    const snapshotFacts = await readChannelListingCompositionFacts(
+      pools.channels,
+      eligibilityIdentity,
+      createChannelCompositionProfileRegistry([snapshotProfile]),
+    );
+    expect(snapshotFacts?.mappings).toEqual([]);
+  });
+
+  it("returns one-snapshot mapping pages with a total consistent across the cursor", async () => {
+    await pools.channels.query(
+      `INSERT INTO channels_channel_mappings
+       (connection_id,dimension,source_key,target_key,confidence_tier,review_status,provenance,evidence,updated_at,last_stream_version)
+       VALUES
+       ('connection-queue','category','catalog-category:a',NULL,'high','proposed','compose-discovered',
+        '{"listingId":"listing-a","derivedFrom":"queue"}'::jsonb,now(),1),
+       ('connection-queue','category','catalog-category:b',NULL,'high','proposed','compose-discovered',
+        '{"listingId":"listing-b","derivedFrom":"queue"}'::jsonb,now(),1)`,
+    );
+    const first = await readChannelMappingReviewQueue(pools.channels, { connectionId: "connection-queue", limit: 1 });
+    expect(first).toMatchObject({
+      items: [{ sourceKey: "catalog-category:a" }],
+      completeness: { kind: "complete", total: 2 },
+    });
+    expect(first.nextCursor).not.toBeNull();
+    const second = await readChannelMappingReviewQueue(pools.channels, {
+      connectionId: "connection-queue",
+      cursor: first.nextCursor,
+      limit: 1,
+    });
+    expect(second).toMatchObject({
+      items: [{ sourceKey: "catalog-category:b" }],
+      nextCursor: null,
+      completeness: { kind: "complete", total: 2 },
+    });
+  });
+
   it("channel-listing-external-reference-retention keeps external identity across every retained state", async () => {
     const handlers = buildChannelListingStateProjectionHandlers(pools.channels);
     const stream = "channels.channel-listing-cl_retention";
@@ -529,6 +597,56 @@ describeDb("channel-listing-exhaustive-db-evidence", () => {
       ),
     );
     await expectRetained("pending", 0);
+  });
+
+  it("R7 replay rejects the unguarded cross-Link operation projection mutant", async () => {
+    const handlers = buildChannelListingStateProjectionHandlers(pools.channels);
+    for (const [listingId, channelListingId, hashSeed] of [
+      ["listing-operation-a", "cl_operation_a", "a"],
+      ["listing-operation-b", "cl_operation_b", "b"],
+    ] as const) {
+      await handlers["channels.channel-listing.desired-state-changed"]!(
+        event(
+          "channels.channel-listing.desired-state-changed",
+          desired("connection-operation", listingId, channelListingId, 1, hashSeed),
+          `channels.channel-listing-${channelListingId}`,
+          1,
+        ),
+      );
+    }
+    const first = {
+      connectionId: "connection-operation",
+      channelListingId: "cl_operation_a",
+      operationId: "operation-global",
+      reportedDesiredStateSequence: 1,
+      reportedListingRevision: 7,
+      reportedDesiredStateHash: "a".repeat(64),
+      outcome: { kind: "succeeded", externalListingId: "external-a" },
+      adoption: "identity-and-state-applied",
+    };
+    await handlers["channels.channel-listing.publication-recorded"]!(
+      event("channels.channel-listing.publication-recorded", first, "channels.channel-listing-cl_operation_a", 2),
+    );
+    await expect(
+      handlers["channels.channel-listing.publication-recorded"]!(
+        event(
+          "channels.channel-listing.publication-recorded",
+          {
+            ...first,
+            channelListingId: "cl_operation_b",
+            reportedDesiredStateHash: "b".repeat(64),
+            outcome: { kind: "succeeded", externalListingId: "external-b" },
+          },
+          "channels.channel-listing-cl_operation_b",
+          2,
+        ),
+      ),
+    ).rejects.toThrow("operation was rebound");
+    const second = await pools.channels.query<{ publish_state: string; last_stream_version: string }>(
+      `SELECT publish_state,last_stream_version::text FROM channels_channel_listing_links
+       WHERE channel_listing_id='cl_operation_b'`,
+    );
+    expect(second.rows[0]).toEqual({ publish_state: "pending", last_stream_version: "1" });
   });
 });
 

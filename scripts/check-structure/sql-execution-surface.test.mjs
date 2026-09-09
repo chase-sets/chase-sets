@@ -820,8 +820,8 @@ describe("repository-wide SQL execution partition", () => {
     const legacyPartition = partitionFromFiles(repoRoot, legacyModules);
     const partition = partitionFromFiles(repoRoot, governedModules);
 
-    expect(legacyModules).toHaveLength(2341);
-    expect(governedModules).toHaveLength(2336);
+    expect(legacyModules).toHaveLength(2342);
+    expect(governedModules).toHaveLength(2337);
     expect(removedModules).toEqual(exactRemovedModules);
     expect(removedClassification.modules.map(({ file, outcome }) => ({ file, outcome }))).toEqual(
       exactRemovedModules.map((file) => ({ file, outcome: "not-sql" })),
@@ -829,7 +829,7 @@ describe("repository-wide SQL execution partition", () => {
     expect(removedClassification.violations).toEqual([]);
     expect(removedClassification.unresolvedMemberRoots).toEqual({ count: 0, fileList: [] });
 
-    expect(legacyPartition.sqlExecuting).toHaveLength(390);
+    expect(legacyPartition.sqlExecuting).toHaveLength(391);
     expect(legacyPartition.unprovableForm).toHaveLength(3);
     expect(legacyPartition.notSql).toHaveLength(1948);
     expect(legacyPartition.unresolvedMemberRoots.count).toBe(265);

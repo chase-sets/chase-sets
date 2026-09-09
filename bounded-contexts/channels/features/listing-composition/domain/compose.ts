@@ -1,5 +1,6 @@
 import { moneyToCents } from "@chase-sets/primitives/money";
 import type { ChannelPublicationAttribute, ChannelPublicationDraft } from "../../publication-port/domain/contracts";
+import { assertChannelPublicationDraft } from "../../publication-port/domain/validation";
 import {
   buildChannelCategorySourceKeys,
   buildChannelConditionSourceKeys,
@@ -134,6 +135,7 @@ export function composeChannelListingPublication(
     quantity,
     attributes: attributes.value,
   };
+  assertChannelPublicationDraft(draft, "composed Channel Publication Draft");
   const intent = input.link.kind === "existing" && input.link.state.externalListingId !== null ? "update" : "publish";
   return {
     kind: "publishable",

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildChannelCategorySourceKeys,
   buildChannelConditionSourceKeys,
@@ -15,6 +15,7 @@ import {
   type ChannelListingCompositionInput,
 } from "../domain/contracts";
 import { parseChannelListingCompositionInput } from "../domain/parse";
+import { readChannelMappingReviewQueue } from "../read-model/queries";
 import { listingInput, publishedLink, syntheticProfile } from "./test-support";
 
 describe("channel-listing-composition-purity", () => {
@@ -114,6 +115,39 @@ describe("channel-listing-composition-draft-fields", () => {
     );
     expect(tooMany).toEqual({ kind: "blocked", reasons: ["quantity-out-of-range"] });
   });
+
+  it("R8 rejects the unconstrained profile-to-port mutant for every draft ceiling", () => {
+    const invalidProfiles = [
+      { ...syntheticProfile, title: { ...syntheticProfile.title, maxLength: 4_097 } },
+      { ...syntheticProfile, description: { ...syntheticProfile.description, maxLength: 100_001 } },
+      { ...syntheticProfile, category: { ...syntheticProfile.category, maxKeyLength: 257 } },
+      { ...syntheticProfile, condition: { ...syntheticProfile.condition, maxKeyLength: 257 } },
+      { ...syntheticProfile, attributes: { ...syntheticProfile.attributes, maxCount: 201 } },
+      { ...syntheticProfile, attributes: { ...syntheticProfile.attributes, maxKeyLength: 257 } },
+      { ...syntheticProfile, attributes: { ...syntheticProfile.attributes, maxValueLength: 4_097 } },
+      { ...syntheticProfile, quantity: { ...syntheticProfile.quantity, max: 1_000_001 } },
+    ];
+    for (const profile of invalidProfiles) {
+      expect(() => createChannelCompositionProfileRegistry([profile])).toThrow(
+        "bounds exceed the Channel Publication Draft contract",
+      );
+    }
+
+    const listing = present(listingInput());
+    const bypassedRegistration = listingInput({
+      profile: {
+        kind: "registered",
+        profile: { ...syntheticProfile, title: { ...syntheticProfile.title, maxLength: 5_000 } },
+      },
+      listing: {
+        ...listing,
+        identity: { ...listing.identity, itemTitle: { kind: "present", value: "x".repeat(4_097) } },
+      },
+    });
+    expect(() => composeChannelListingPublication(bypassedRegistration)).toThrow(
+      "composed Channel Publication Draft.title must contain 1 to 4096 Unicode scalars",
+    );
+  });
 });
 
 describe("channel-composition-dimension-modes", () => {
@@ -173,6 +207,40 @@ describe("channel-listing-source-key-derivation", () => {
       "graded:condition-descriptor:0",
       "graded:condition-descriptor:1",
     ]);
+  });
+});
+
+describe("channel-mapping-review-snapshot", () => {
+  it("R6 rejects the two-statement snapshot-interleaving mutant", async () => {
+    const query = vi.fn(async (_sql: string) => ({
+      rows: [
+        {
+          page_rows: [
+            {
+              connection_id: "connection-synthetic",
+              dimension: "category",
+              source_key: "catalog-category:cards",
+              target_key: null,
+              confidence_tier: "high",
+              review_status: "proposed",
+              provenance: "compose-discovered",
+              evidence: { listingId: "listing-synthetic", derivedFrom: "snapshot" },
+              last_stream_version: 1,
+            },
+          ],
+          total: 1,
+        },
+      ],
+    }));
+    await expect(
+      readChannelMappingReviewQueue({ query } as never, { connectionId: "connection-synthetic" }),
+    ).resolves.toMatchObject({
+      items: [{ sourceKey: "catalog-category:cards" }],
+      nextCursor: null,
+      completeness: { kind: "complete", total: 1 },
+    });
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0]?.[0]).toContain("WITH queue AS MATERIALIZED");
   });
 });
 

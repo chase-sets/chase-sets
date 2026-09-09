@@ -176,16 +176,9 @@ async function projectListingQuantity(db: PgQueryable, event: Transport): Promis
   const data = record(event.data);
   await db.query(
     `UPDATE channels_listing_publication_facts
-     SET quantity_cap=$2, price_amount=$3, price_currency_code=$4, updated_at=$5, listing_stream_version=$6
-     WHERE listing_id=$1 AND listing_stream_version < $6`,
-    [
-      listingId(event),
-      data.quantityCap,
-      data.priceAmount,
-      typeof data.priceCurrencyCode === "string" ? data.priceCurrencyCode : null,
-      event.timing.recordedAt,
-      event.streamVersion,
-    ],
+     SET quantity_cap=$2, updated_at=$3, listing_stream_version=$4
+     WHERE listing_id=$1 AND listing_stream_version < $4`,
+    [listingId(event), data.quantityCap, event.timing.recordedAt, event.streamVersion],
   );
 }
 

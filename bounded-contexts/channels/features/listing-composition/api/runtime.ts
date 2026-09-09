@@ -1,16 +1,19 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import type { EventStore, EventStoreError } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { deriveChannelListingId, type ChannelListingIdDigest } from "../domain/canonical";
+import type { ChannelListingIdDigest } from "../domain/canonical";
 import {
+  assertChannelMappingCandidatesPayload,
+  assertChannelMappingDecisionCommandPayload,
+  assertChannelPublicationOutcomePayload,
+  assertChannelPublicationSettingsPayload,
   channelListingEventCodec,
   channelListingReconciliationEventCodec,
   channelPublicationConfigurationEventCodec,
 } from "../domain/codecs";
-import { composeChannelListingPublication } from "../domain/compose";
 import {
   decideChannelMappingReview,
   decideRecordChannelMappingCandidates,
@@ -27,7 +30,6 @@ import type {
   ChannelCompositionProfileRegistry,
   ChannelMappingDimension,
   ChannelMappingReviewPage,
-  ChannelListingLinkState,
   ChannelPublicationConnectionDetail,
   ChannelPublicationConnectionSummary,
   ChannelPublicationOutcome,
@@ -35,13 +37,11 @@ import type {
   ChannelReferenceRead,
 } from "../domain/contracts";
 import {
-  decideChannelListingComposition,
   decideChannelListingPublicationOutcome,
   evolveChannelListing,
   initialChannelListingAggregateState,
   type ChannelListingAggregateState,
 } from "../domain/link";
-import { parseChannelListingCompositionInput } from "../domain/parse";
 import {
   evolveChannelListingReconciliation,
   initialChannelListingReconciliationState,
@@ -58,7 +58,6 @@ import {
 import {
   countAffectedListings,
   readAffectedListingIds,
-  readChannelListingCompositionFacts,
   readChannelListingProviderProductReferences,
   readChannelMappingReviewQueue,
   listChannelPublicationConnections,
@@ -66,6 +65,7 @@ import {
   resolveChannelPublishableQuantity,
 } from "../read-model/queries";
 import { buildChannelListingStateProjectionHandlers } from "../read-model/state-projection";
+import { createChannelListingPublicationApplication } from "./listing-publication-application";
 
 export type ChannelListingCompositionRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -76,7 +76,12 @@ export type ChannelListingCompositionRuntimeDeps = Readonly<{
 
 export interface ChannelListingCompositionServices {
   replaceChannelConnectionPublicationSettings(
-    input: Readonly<{ connectionId: string; settings: ChannelPublicationSettings; expectedStreamVersion: number }>,
+    input: Readonly<{
+      accountId: string;
+      connectionId: string;
+      settings: ChannelPublicationSettings;
+      expectedStreamVersion: number;
+    }>,
     context: EventStoreContext,
   ): Promise<ChannelCommandResult>;
   recordChannelMappingCandidates(
@@ -89,6 +94,7 @@ export interface ChannelListingCompositionServices {
   ): Promise<ChannelCommandResult>;
   decideChannelMappingReview(
     input: Readonly<{
+      accountId: string;
       connectionId: string;
       dimension: ChannelMappingDimension;
       sourceKey: string;
@@ -184,6 +190,12 @@ export function createChannelListingCompositionRuntime(
     decide: () => [],
     commitSourceContextName: "channels",
   }).repository;
+  const listingPublication = createChannelListingPublicationApplication({
+    db: deps.db,
+    profiles: deps.profiles,
+    listingIdDigest: deps.listingIdDigest,
+    linkRepository,
+  });
 
   async function enqueue(
     input: Readonly<{ connectionId: string; scope: ChannelListingReconciliationScope; scopeKey: string }>,
@@ -194,28 +206,29 @@ export function createChannelListingCompositionRuntime(
     assertText(input.scopeKey, 128);
     if (!["connection", "account", "catalog-item", "inventory-item"].includes(input.scope))
       throw new Error("Invalid reconciliation scope.");
-    const live = await deps.db.query<{ run_id: string }>(
-      `SELECT run_id FROM channels_listing_reconciliation_runs
-       WHERE connection_id=$1 AND scope=$2 AND scope_key=$3 AND state IN ('pending','draining') LIMIT 1`,
-      [input.connectionId, input.scope, input.scopeKey],
-    );
-    const runId = live.rows[0]?.run_id ?? `clr_${randomUUID()}`;
-    const loaded = await runRepository.load(runStreamId(runId));
-    if (loaded.state.state === "complete" || loaded.state.state === "failed") {
-      return { kind: "unchanged", value: { runId }, streamVersion: loaded.version };
+    const streamId = reconciliationScopeStreamId(input);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const loaded = await runRepository.load(streamId);
+      const live = loaded.state.state === "pending" || loaded.state.state === "draining";
+      const runId = live && loaded.state.runId ? loaded.state.runId : reconciliationRunId(streamId, loaded.version + 1);
+      const event: ChannelListingReconciliationEvent = {
+        type: "channels.channel-listing-reconciliation.run-enqueued",
+        data: { runId, connectionId: input.connectionId, scope: input.scope, scopeKey: input.scopeKey },
+      };
+      try {
+        const stored = await runRepository.append({
+          streamId,
+          expectedVersion: loaded.version === 0 ? "no_stream" : loaded.version,
+          context,
+          wakeSourceContextName: "channels",
+          events: [event],
+        });
+        return { kind: "applied", value: { runId }, streamVersion: stored[0]!.streamVersion };
+      } catch (error) {
+        if (!isConcurrencyConflict(error)) throw error;
+      }
     }
-    const event: ChannelListingReconciliationEvent = {
-      type: "channels.channel-listing-reconciliation.run-enqueued",
-      data: { runId, connectionId: input.connectionId, scope: input.scope, scopeKey: input.scopeKey },
-    };
-    const stored = await runRepository.append({
-      streamId: runStreamId(runId),
-      expectedVersion: loaded.version === 0 ? "no_stream" : loaded.version,
-      context,
-      wakeSourceContextName: "channels",
-      events: [event],
-    });
-    return { kind: "applied", value: { runId }, streamVersion: stored[0]!.streamVersion };
+    return { kind: "refused", code: "stream-version-conflict" };
   }
 
   async function applyConfigurationDecision(
@@ -243,9 +256,14 @@ export function createChannelListingCompositionRuntime(
 
   const services: ChannelListingCompositionServices = {
     replaceChannelConnectionPublicationSettings: async (input, context) => {
-      assertClosed(input, ["connectionId", "settings", "expectedStreamVersion"]);
-      validateSettings(input.settings);
+      assertClosed(input, ["accountId", "connectionId", "settings", "expectedStreamVersion"]);
+      assertText(input.accountId, 128);
+      assertText(input.connectionId, 128);
+      assertChannelPublicationSettingsPayload(input.settings);
       assertVersion(input.expectedStreamVersion);
+      if (!(await ownsConnection(deps.db, input.accountId, input.connectionId))) {
+        return { kind: "refused", code: "unknown-link" };
+      }
       const loaded = await configurationRepository.load(configurationStreamId(input.connectionId));
       if (loaded.version !== input.expectedStreamVersion) return { kind: "refused", code: "stream-version-conflict" };
       return applyConfigurationDecision(
@@ -257,7 +275,11 @@ export function createChannelListingCompositionRuntime(
     },
     recordChannelMappingCandidates: async (input, context) => {
       assertClosed(input, ["connectionId", "provenance", "candidates"]);
-      validateCandidates(input.candidates);
+      assertText(input.connectionId, 128);
+      if (input.provenance !== "compose-discovered" && input.provenance !== "export-discovered") {
+        throw new Error("Candidate provenance is invalid.");
+      }
+      assertChannelMappingCandidatesPayload(input.candidates);
       const loaded = await configurationRepository.load(configurationStreamId(input.connectionId));
       return applyConfigurationDecision(
         input.connectionId,
@@ -267,15 +289,39 @@ export function createChannelListingCompositionRuntime(
       );
     },
     decideChannelMappingReview: async (input, context) => {
-      assertClosed(input, ["connectionId", "dimension", "sourceKey", "decision", "targetKey", "expectedStreamVersion"]);
+      assertClosed(input, [
+        "accountId",
+        "connectionId",
+        "dimension",
+        "sourceKey",
+        "decision",
+        "targetKey",
+        "expectedStreamVersion",
+      ]);
+      assertText(input.accountId, 128);
+      assertText(input.connectionId, 128);
       assertVersion(input.expectedStreamVersion);
-      assertText(input.sourceKey, 512);
+      assertChannelMappingDecisionCommandPayload({
+        dimension: input.dimension,
+        sourceKey: input.sourceKey,
+        decision: input.decision,
+        targetKey: input.targetKey,
+      });
+      if (!(await ownsConnection(deps.db, input.accountId, input.connectionId))) {
+        return { kind: "refused", code: "unknown-link" };
+      }
       const loaded = await configurationRepository.load(configurationStreamId(input.connectionId));
       if (loaded.version !== input.expectedStreamVersion) return { kind: "refused", code: "stream-version-conflict" };
       return applyConfigurationDecision(
         input.connectionId,
         loaded.version,
-        decideChannelMappingReview(loaded.state, input),
+        decideChannelMappingReview(loaded.state, {
+          connectionId: input.connectionId,
+          dimension: input.dimension,
+          sourceKey: input.sourceKey,
+          decision: input.decision,
+          targetKey: input.targetKey,
+        }),
         context,
       );
     },
@@ -283,60 +329,7 @@ export function createChannelListingCompositionRuntime(
       assertClosed(input, ["connectionId", "listingId"]);
       assertText(input.connectionId, 128);
       assertText(input.listingId, 128);
-      const channelListingId = deriveChannelListingId(input.connectionId, input.listingId, deps.listingIdDigest);
-      const collision = await deps.db.query<{ connection_id: string; listing_id: string }>(
-        `SELECT connection_id,listing_id FROM channels_channel_listing_links WHERE channel_listing_id=$1`,
-        [channelListingId],
-      );
-      if (
-        collision.rows[0] &&
-        (collision.rows[0].connection_id !== input.connectionId || collision.rows[0].listing_id !== input.listingId)
-      ) {
-        return { kind: "refused", code: "channel-listing-id-collision" };
-      }
-      const facts = await readChannelListingCompositionFacts(deps.db, input);
-      if (!facts) return { kind: "refused", code: "unknown-link" };
-      const loaded = await linkRepository.load(linkStreamId(channelListingId));
-      const profile = deps.profiles.get({
-        providerKey: facts.connection.providerKey,
-        environment: facts.connection.environment,
-      });
-      const candidate = {
-        ...facts,
-        profile: profile ? { kind: "registered" as const, profile } : { kind: "unregistered" as const },
-        link: loaded.state.exists
-          ? { kind: "existing" as const, state: publicLinkState(loaded.state) }
-          : { kind: "none" as const },
-      };
-      const parsed = parseChannelListingCompositionInput(candidate);
-      if (parsed.kind === "invalid")
-        throw new Error(`Channel Listing Composition input rejected: ${parsed.programmingError}`);
-      const result = composeChannelListingPublication(parsed.input, deps.listingIdDigest);
-      const listingRevision = parsed.input.listing.kind === "present" ? parsed.input.listing.listingRevision : 0;
-      const decision = decideChannelListingComposition(loaded.state, {
-        connectionId: input.connectionId,
-        channelListingId,
-        listingId: input.listingId,
-        listingRevision,
-        nextStreamVersion: loaded.version + 1,
-        result,
-      });
-      if (decision.kind === "unchanged") {
-        return { kind: "unchanged", value: { channelListingId }, streamVersion: loaded.version };
-      }
-      try {
-        const stored = await linkRepository.append({
-          streamId: linkStreamId(channelListingId),
-          expectedVersion: loaded.version === 0 ? "no_stream" : loaded.version,
-          context,
-          wakeSourceContextName: "channels",
-          events: [decision.event],
-        });
-        return { kind: "applied", value: { channelListingId }, streamVersion: stored[0]!.streamVersion };
-      } catch (error) {
-        if (isConcurrencyConflict(error)) return { kind: "refused", code: "stream-version-conflict" };
-        throw error;
-      }
+      return listingPublication.recordDesiredState(input, context);
     },
     recordChannelListingPublicationOutcome: async (input, context) => {
       assertClosed(input, [
@@ -349,30 +342,49 @@ export function createChannelListingCompositionRuntime(
         "outcome",
         "expectedStreamVersion",
       ]);
-      const loaded = await linkRepository.load(linkStreamId(input.channelListingId));
-      if (loaded.version !== input.expectedStreamVersion) return { kind: "refused", code: "stream-version-conflict" };
-      const decision = decideChannelListingPublicationOutcome(loaded.state, input);
-      if (decision.kind === "refused") return decision;
-      if (decision.kind === "unchanged") return { kind: "unchanged", value: undefined, streamVersion: loaded.version };
-      try {
-        const stored = await linkRepository.append({
-          streamId: linkStreamId(input.channelListingId),
-          expectedVersion: loaded.version,
-          context,
-          wakeSourceContextName: "channels",
-          events: [decision.event],
-        });
-        if (decision.recompose) {
-          await services.recordChannelListingDesiredState(
-            { connectionId: input.connectionId, listingId: loaded.state.listingId },
-            context,
-          );
-        }
-        return { kind: "applied", value: undefined, streamVersion: stored[0]!.streamVersion };
-      } catch (error) {
-        if (isConcurrencyConflict(error)) return { kind: "refused", code: "stream-version-conflict" };
-        throw error;
+      assertText(input.connectionId, 128);
+      assertText(input.channelListingId, 128);
+      assertText(input.operationId, 512);
+      assertVersion(input.reportedDesiredStateSequence);
+      assertVersion(input.reportedListingRevision);
+      if (!/^[a-f0-9]{64}$/.test(input.reportedDesiredStateHash)) {
+        throw new Error("Desired-state hash is invalid.");
       }
+      assertChannelPublicationOutcomePayload(input.outcome);
+      assertVersion(input.expectedStreamVersion);
+      if (input.expectedStreamVersion !== input.reportedDesiredStateSequence) {
+        return { kind: "refused", code: "desired-state-mismatch" };
+      }
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const loaded = await linkRepository.load(linkStreamId(input.channelListingId));
+        const decision = decideChannelListingPublicationOutcome(loaded.state, input);
+        if (decision.kind === "refused") return decision;
+        if (!(await reservePublicationOperation(deps.db, input))) {
+          return { kind: "refused", code: "operation-rebound" };
+        }
+        if (decision.kind === "unchanged") {
+          return { kind: "unchanged", value: undefined, streamVersion: loaded.version };
+        }
+        try {
+          const stored = await linkRepository.append({
+            streamId: linkStreamId(input.channelListingId),
+            expectedVersion: loaded.version,
+            context,
+            wakeSourceContextName: "channels",
+            events: [decision.event],
+          });
+          if (decision.recompose) {
+            await listingPublication.recordDesiredState(
+              { connectionId: input.connectionId, listingId: loaded.state.listingId },
+              context,
+            );
+          }
+          return { kind: "applied", value: undefined, streamVersion: stored[0]!.streamVersion };
+        } catch (error) {
+          if (!isConcurrencyConflict(error)) throw error;
+        }
+      }
+      return { kind: "refused", code: "stream-version-conflict" };
     },
     enqueueChannelListingDesiredStateBackfill: (input, context) =>
       enqueue({ connectionId: input.connectionId, scope: "connection", scopeKey: input.connectionId }, context),
@@ -384,7 +396,9 @@ export function createChannelListingCompositionRuntime(
         throw new Error("Drain limit is invalid.");
       const loaded = await runRepository.load(runStreamId(input.runId));
       const state = loaded.state;
-      if (state.runId === null) return { kind: "unchanged", value: undefined, streamVersion: loaded.version };
+      if (state.runId === null || state.runId !== input.runId) {
+        return { kind: "unchanged", value: undefined, streamVersion: loaded.version };
+      }
       if (state.state === "complete" || state.state === "failed") {
         return { kind: "unchanged", value: undefined, streamVersion: loaded.version };
       }
@@ -485,34 +499,27 @@ export function createChannelListingCompositionRuntime(
 function configurationStreamId(connectionId: string): string {
   return `channels.channel-publication-configuration-${connectionId}`;
 }
-function publicLinkState(state: ChannelListingAggregateState): ChannelListingLinkState {
-  return {
-    connectionId: state.connectionId,
-    channelListingId: state.channelListingId,
-    listingId: state.listingId,
-    externalListingId: state.externalListingId,
-    externalOfferId: state.externalOfferId,
-    providerRevision: state.providerRevision,
-    lastDesiredStateSequence: state.lastDesiredStateSequence,
-    lastDesiredListingRevision: state.lastDesiredListingRevision,
-    lastDesiredStateHash: state.lastDesiredStateHash,
-    lastDesiredIntent: state.lastDesiredIntent,
-    lastPushedListingRevision: state.lastPushedListingRevision,
-    lastPushedPriceAmountMinor: state.lastPushedPriceAmountMinor,
-    lastPushedPriceCurrency: state.lastPushedPriceCurrency,
-    lastPushedQuantity: state.lastPushedQuantity,
-    publishState: state.publishState,
-    blockingReasonCodes: state.blockingReasonCodes,
-    failureReason: state.failureReason,
-    driftStatus: state.driftStatus,
-    lastStreamVersion: state.lastStreamVersion,
-  };
-}
 function linkStreamId(channelListingId: string): string {
   return `channels.channel-listing-${channelListingId}`;
 }
 function runStreamId(runId: string): string {
-  return `channels.channel-listing-reconciliation-${runId}`;
+  const match = /^clr_([a-f0-9]{64})_\d+$/.exec(runId);
+  if (!match) throw new Error("Reconciliation run ID is invalid.");
+  return `channels.channel-listing-reconciliation-scope-${match[1]}`;
+}
+function reconciliationScopeStreamId(
+  input: Readonly<{
+    connectionId: string;
+    scope: ChannelListingReconciliationScope;
+    scopeKey: string;
+  }>,
+): string {
+  const framed = JSON.stringify([input.connectionId, input.scope, input.scopeKey]);
+  const digest = createHash("sha256").update(framed, "utf8").digest("hex");
+  return `channels.channel-listing-reconciliation-scope-${digest}`;
+}
+function reconciliationRunId(streamId: string, generationVersion: number): string {
+  return `clr_${streamId.slice(-64)}_${generationVersion}`;
 }
 function isConcurrencyConflict(error: unknown): error is EventStoreError {
   return !!error && typeof error === "object" && "code" in error && error.code === "concurrency_conflict";
@@ -528,25 +535,52 @@ function assertText(value: unknown, max: number): asserts value is string {
 function assertVersion(value: unknown): asserts value is number {
   if (!Number.isSafeInteger(value) || Number(value) < 0) throw new Error("Version is invalid.");
 }
-function validateSettings(settings: ChannelPublicationSettings): void {
-  assertClosed(settings, [
-    "titlePrefix",
-    "titleSuffix",
-    "descriptionFooter",
-    "categoryAllowlist",
-    "excludedListingIds",
-  ]);
-  if (!Array.isArray(settings.categoryAllowlist) || !Array.isArray(settings.excludedListingIds))
-    throw new Error("Settings arrays are invalid.");
+
+async function ownsConnection(db: PgQueryable, accountId: string, connectionId: string): Promise<boolean> {
+  const result = await db.query(
+    `SELECT 1 FROM channels_connection_facts WHERE account_id=$1 AND connection_id=$2 LIMIT 1`,
+    [accountId, connectionId],
+  );
+  return result.rows.length === 1;
 }
-function validateCandidates(candidates: readonly ChannelMappingCandidate[]): void {
-  if (!Array.isArray(candidates) || candidates.length > 500) throw new Error("Candidates are invalid.");
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    assertClosed(candidate, ["dimension", "sourceKey", "proposedTargetKey", "confidenceTier", "evidence"]);
-    assertText(candidate.sourceKey, 512);
-    const key = `${candidate.dimension}\u0000${candidate.sourceKey}`;
-    if (seen.has(key)) throw new Error("Candidate keys must be unique.");
-    seen.add(key);
-  }
+
+async function reservePublicationOperation(
+  db: PgQueryable,
+  input: Readonly<{
+    channelListingId: string;
+    operationId: string;
+    reportedDesiredStateSequence: number;
+    reportedListingRevision: number;
+    reportedDesiredStateHash: string;
+  }>,
+): Promise<boolean> {
+  await db.query(
+    `INSERT INTO channels_channel_publication_operations
+       (operation_id,channel_listing_id,desired_state_sequence,listing_revision,desired_state_hash,bound_at)
+     VALUES ($1,$2,$3,$4,$5,now()) ON CONFLICT (operation_id) DO NOTHING`,
+    [
+      input.operationId,
+      input.channelListingId,
+      input.reportedDesiredStateSequence,
+      input.reportedListingRevision,
+      input.reportedDesiredStateHash,
+    ],
+  );
+  const binding = await db.query<{
+    channel_listing_id: string;
+    desired_state_sequence: string | number;
+    listing_revision: string | number;
+    desired_state_hash: string;
+  }>(
+    `SELECT channel_listing_id,desired_state_sequence,listing_revision,desired_state_hash
+     FROM channels_channel_publication_operations WHERE operation_id=$1`,
+    [input.operationId],
+  );
+  const row = binding.rows[0];
+  return (
+    row?.channel_listing_id === input.channelListingId &&
+    Number(row.desired_state_sequence) === input.reportedDesiredStateSequence &&
+    Number(row.listing_revision) === input.reportedListingRevision &&
+    row.desired_state_hash === input.reportedDesiredStateHash
+  );
 }

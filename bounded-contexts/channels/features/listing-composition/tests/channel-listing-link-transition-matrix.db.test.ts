@@ -78,7 +78,7 @@ describeDb("channel-listing-link-transition-matrix real DB", () => {
         reportedListingRevision: 7,
         reportedDesiredStateHash: String(desired[0]!.payload.desiredStateHash),
         outcome: { kind: "succeeded", externalListingId: "external-listing", externalOfferId: "external-offer" },
-        expectedStreamVersion: 2,
+        expectedStreamVersion: 1,
       },
       testContext,
     );
@@ -96,7 +96,7 @@ describeDb("channel-listing-link-transition-matrix real DB", () => {
     expect(events[3]!.payload.desiredStateSequence).toBe(4);
   });
 
-  it("admits current success after blocked and immediately recomposes to delist", async () => {
+  it("R4 rejects the pre-L4 current-stream-version mutant and recomposes after blocked", async () => {
     const services = runtime();
     const first = await services.recordChannelListingDesiredState(
       { connectionId: "connection-synthetic", listingId: "listing-synthetic" },
@@ -128,7 +128,7 @@ describeDb("channel-listing-link-transition-matrix real DB", () => {
           reportedListingRevision: 7,
           reportedDesiredStateHash: String(initialEvents[0]!.payload.desiredStateHash),
           outcome: { kind: "succeeded", externalListingId: "external-listing" },
-          expectedStreamVersion: 2,
+          expectedStreamVersion: 1,
         },
         testContext,
       ),
@@ -171,6 +171,64 @@ describeDb("channel-listing-link-transition-matrix real DB", () => {
     ).resolves.toEqual({ kind: "refused", code: "channel-listing-id-collision" });
   });
 
+  it("R7 rejects the aggregate-local-only operation binding mutant with zero cross-Link append", async () => {
+    await seedSecondListing(pools.channels);
+    const services = runtime();
+    const first = await services.recordChannelListingDesiredState(
+      { connectionId: "connection-synthetic", listingId: "listing-synthetic" },
+      testContext,
+    );
+    const second = await services.recordChannelListingDesiredState(
+      { connectionId: "connection-synthetic", listingId: "listing-second" },
+      testContext,
+    );
+    if (first.kind === "refused" || second.kind === "refused") throw new Error("Expected both desired states.");
+    const firstEvent = (
+      await pools.channels.query<LinkEventRow>(
+        `SELECT event_type,payload FROM event_store_events WHERE stream_id=$1 ORDER BY stream_version`,
+        [`channels.channel-listing-${first.value.channelListingId}`],
+      )
+    ).rows[0]!;
+    await expect(
+      services.recordChannelListingPublicationOutcome(
+        {
+          connectionId: "connection-synthetic",
+          channelListingId: first.value.channelListingId,
+          operationId: "operation-shared",
+          reportedDesiredStateSequence: 1,
+          reportedListingRevision: 7,
+          reportedDesiredStateHash: String(firstEvent.payload.desiredStateHash),
+          outcome: { kind: "succeeded", externalListingId: "external-first" },
+          expectedStreamVersion: 1,
+        },
+        testContext,
+      ),
+    ).resolves.toMatchObject({ kind: "applied" });
+    const secondDesired = (
+      await pools.channels.query<LinkEventRow>(
+        `SELECT event_type,payload FROM event_store_events WHERE stream_id=$1 ORDER BY stream_version`,
+        [`channels.channel-listing-${second.value.channelListingId}`],
+      )
+    ).rows[0]!;
+    const before = await eventCount();
+    await expect(
+      services.recordChannelListingPublicationOutcome(
+        {
+          connectionId: "connection-synthetic",
+          channelListingId: second.value.channelListingId,
+          operationId: "operation-shared",
+          reportedDesiredStateSequence: 1,
+          reportedListingRevision: 7,
+          reportedDesiredStateHash: String(secondDesired.payload.desiredStateHash),
+          outcome: { kind: "succeeded", externalListingId: "external-second" },
+          expectedStreamVersion: 1,
+        },
+        testContext,
+      ),
+    ).resolves.toEqual({ kind: "refused", code: "operation-rebound" });
+    expect(await eventCount()).toBe(before);
+  });
+
   function runtime() {
     return createChannelListingCompositionRuntime({
       db: pools.channels,
@@ -184,6 +242,12 @@ describeDb("channel-listing-link-transition-matrix real DB", () => {
        WHERE stream_id LIKE 'channels.channel-listing-cl_%' ORDER BY stream_version`,
     );
     return result.rows;
+  }
+  async function eventCount(): Promise<number> {
+    const result = await pools.channels.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM event_store_events WHERE event_type='channels.channel-listing.publication-recorded'`,
+    );
+    return Number(result.rows[0]?.count ?? 0);
   }
 });
 
@@ -214,5 +278,19 @@ async function seedFacts(db: PgTransactionalPool): Promise<void> {
        '{"listingId":"listing-synthetic","derivedFrom":"assigned category cards"}'::jsonb,now(),1),
       ('connection-synthetic','condition','selected-option:condition:near-mint','near-mint','manual','accepted','operator',
        '{"listingId":"listing-synthetic","derivedFrom":"selected condition"}'::jsonb,now(),1);
+  `);
+}
+
+async function seedSecondListing(db: PgTransactionalPool): Promise<void> {
+  await db.query(`
+    INSERT INTO channels_listing_publication_facts
+      (listing_id,account_id,inventory_item_id,catalog_item_id,price_amount,price_currency_code,quantity_cap,
+       selected_options,selected_option_key,listing_status,pause_reason,item_title,item_subtitle,product_summary,graded_card,
+       updated_at,listing_stream_version)
+    VALUES ('listing-second','account-synthetic','item-second','catalog-synthetic','20.00','USD',10,
+      '[{"dimensionId":"condition","optionId":"near-mint"}]'::jsonb,'condition:near-mint','active',NULL,
+      'Synthetic second card',NULL,'Synthetic description',NULL,now(),7);
+    INSERT INTO channels_inventory_item_facts VALUES
+      ('item-second','account-synthetic','catalog-synthetic',3,now(),1);
   `);
 }

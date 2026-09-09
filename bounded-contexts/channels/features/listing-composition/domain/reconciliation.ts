@@ -56,7 +56,7 @@ export const evolveChannelListingReconciliation: AggregateEvolver<
 > = (state, event) => {
   switch (event.type) {
     case "channels.channel-listing-reconciliation.run-enqueued":
-      if (state.runId !== null) return { ...state, restartRequired: true };
+      if (state.state === "pending" || state.state === "draining") return { ...state, restartRequired: true };
       return {
         runId: event.data.runId,
         connectionId: event.data.connectionId,

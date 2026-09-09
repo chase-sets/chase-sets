@@ -103,6 +103,28 @@ describeDb("channel-listing-reconciliation-drain", () => {
     expect(events.at(-1)?.payload).toMatchObject({ outcome: { kind: "failed", code: "affected-count-mismatch" } });
   });
 
+  it("R5 rejects the lagging-projection random-run mutant and permits a later generation", async () => {
+    const requests = await Promise.all([
+      services.enqueueChannelListingDesiredStateBackfill({ connectionId: "connection-synthetic" }, testContext),
+      services.enqueueChannelListingDesiredStateBackfill({ connectionId: "connection-synthetic" }, testContext),
+    ]);
+    const runIds = requests.map((result) => {
+      if (result.kind === "refused") throw new Error("Expected converged enqueue results.");
+      return result.value.runId;
+    });
+    expect(new Set(runIds).size).toBe(1);
+    expect((await runEvents(runIds[0]!)).map((event) => event.payload.runId)).toEqual([runIds[0], runIds[0]]);
+
+    await services.drainChannelListingDesiredStateReconciliation({ runId: runIds[0]!, limit: 2 }, testContext);
+    await drainUntilSettled(runIds[0]!);
+    const later = await services.enqueueChannelListingDesiredStateBackfill(
+      { connectionId: "connection-synthetic" },
+      testContext,
+    );
+    if (later.kind === "refused") throw new Error("Expected later reconciliation generation.");
+    expect(later.value.runId).not.toBe(runIds[0]);
+  });
+
   async function enqueue(): Promise<string> {
     const result = await services.enqueueChannelListingDesiredStateBackfill(
       { connectionId: "connection-synthetic" },
@@ -125,10 +147,12 @@ describeDb("channel-listing-reconciliation-drain", () => {
     throw new Error("Reconciliation run did not settle.");
   }
   async function runEvents(runId: string) {
+    const digest = /^clr_([a-f0-9]{64})_\d+$/.exec(runId)?.[1];
+    if (!digest) throw new Error("Expected deterministic reconciliation run ID.");
     return (
       await pools.channels.query<{ event_type: string; payload: Record<string, unknown> }>(
         `SELECT event_type,payload FROM event_store_events WHERE stream_id=$1 ORDER BY stream_version`,
-        [`channels.channel-listing-reconciliation-${runId}`],
+        [`channels.channel-listing-reconciliation-scope-${digest}`],
       )
     ).rows;
   }

@@ -130,6 +130,35 @@ export function buildChannelListingStateProjectionHandlers(db: PgQueryable): Pro
         listingRevision: data.reportedListingRevision,
         desiredStateHash: data.reportedDesiredStateHash,
       });
+      await db.query(
+        `INSERT INTO channels_channel_publication_operations
+           (operation_id,channel_listing_id,desired_state_sequence,listing_revision,desired_state_hash,bound_at)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (operation_id) DO NOTHING`,
+        [
+          data.operationId,
+          data.channelListingId,
+          data.reportedDesiredStateSequence,
+          data.reportedListingRevision,
+          data.reportedDesiredStateHash,
+          event.timing.recordedAt,
+        ],
+      );
+      const operation = await db.query<{ operation_id: string }>(
+        `SELECT operation_id FROM channels_channel_publication_operations
+         WHERE operation_id=$1 AND channel_listing_id=$2 AND desired_state_sequence=$3
+           AND listing_revision=$4 AND desired_state_hash=$5`,
+        [
+          data.operationId,
+          data.channelListingId,
+          data.reportedDesiredStateSequence,
+          data.reportedListingRevision,
+          data.reportedDesiredStateHash,
+        ],
+      );
+      if (operation.rows.length !== 1) {
+        throw new Error("Channel publication operation was rebound across Listing Links.");
+      }
       if (outcome.kind === "succeeded" && data.adoption === "identity-adopted") {
         await db.query(
           `UPDATE channels_channel_listing_links SET

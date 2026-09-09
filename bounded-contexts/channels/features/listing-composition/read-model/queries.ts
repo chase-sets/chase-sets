@@ -1,6 +1,13 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { parseGradedCardSnapshot } from "@chase-sets/primitives/graded-card-snapshot";
+import {
+  buildChannelCategorySourceKeys,
+  buildChannelConditionSourceKeys,
+  buildChannelGradedAttributeSourceEntries,
+} from "../domain/canonical";
 import type {
+  ChannelCompositionProfile,
+  ChannelCompositionProfileRegistry,
   ChannelListingCompositionInput,
   ChannelListingLinkState,
   ChannelMappingResolution,
@@ -120,6 +127,7 @@ export async function resolveChannelPublishableQuantity(
 export async function readChannelListingCompositionFacts(
   db: PgQueryable,
   input: Readonly<{ connectionId: string; listingId: string }>,
+  profiles?: ChannelCompositionProfileRegistry,
 ): Promise<ChannelListingCompositionInput | null> {
   const connectionResult = await db.query<{
     connection_id: string;
@@ -133,6 +141,10 @@ export async function readChannelListingCompositionFacts(
   );
   const connection = connectionResult.rows[0];
   if (!connection) return null;
+  const profile = profiles?.get({
+    providerKey: connection.provider_key,
+    environment: connection.environment,
+  });
   const listingResult = await db.query<ListingFactRow>(
     `SELECT listing.*,COALESCE(availability.status,'available') AS seller_availability_status
      FROM channels_listing_publication_facts AS listing
@@ -147,7 +159,14 @@ export async function readChannelListingCompositionFacts(
     ? await readReferencesForIdentity(db, connection.provider_key, listing.catalog_item_id, listing.selected_option_key)
     : { productReference: { kind: "unlinked" } as const, catalogItemReference: { kind: "unlinked" } as const };
   const settings = await readSettings(db, input.connectionId);
-  const mappings = await readMappings(db, input.connectionId);
+  const mappings = listing
+    ? await readMappings(db, input.connectionId, {
+        categoryIds,
+        selectedOptions: parseSelections(listing.selected_options),
+        gradedCard: listing.graded_card === null ? null : parseGradedCardSnapshot(listing.graded_card),
+        profile,
+      })
+    : [];
   const link = await readLink(db, input.connectionId, input.listingId);
   return {
     connection: {
@@ -255,29 +274,35 @@ export async function readChannelMappingReviewQueue(
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
   const [cursorDimension, cursorSourceKey] = decodeCursor(input.cursor ?? null);
   const result = await db.query<{
-    connection_id: string;
-    dimension: "category" | "condition" | "attribute";
-    source_key: string;
-    target_key: string | null;
-    confidence_tier: "manual" | "high" | "medium" | "low";
-    review_status: "proposed" | "rejected" | "revoked";
-    provenance: "compose-discovered" | "export-discovered" | "operator";
-    evidence: { listingId: string; derivedFrom: string };
-    last_stream_version: string | number;
+    page_rows: Array<{
+      connection_id: string;
+      dimension: "category" | "condition" | "attribute";
+      source_key: string;
+      target_key: string | null;
+      confidence_tier: "manual" | "high" | "medium" | "low";
+      review_status: "proposed" | "rejected" | "revoked";
+      provenance: "compose-discovered" | "export-discovered" | "operator";
+      evidence: { listingId: string; derivedFrom: string };
+      last_stream_version: string | number;
+    }>;
+    total: string | number;
   }>(
-    `SELECT connection_id,dimension,source_key,target_key,confidence_tier,review_status,provenance,evidence,last_stream_version
-     FROM channels_channel_mappings
-     WHERE connection_id=$1 AND review_status NOT IN ('accepted','auto-accepted')
-       AND (($2::text IS NULL) OR (dimension,source_key)>($2,$3))
-     ORDER BY dimension,source_key LIMIT $4`,
+    `WITH queue AS MATERIALIZED (
+       SELECT connection_id,dimension,source_key,target_key,confidence_tier,review_status,provenance,evidence,last_stream_version
+       FROM channels_channel_mappings
+       WHERE connection_id=$1 AND review_status NOT IN ('accepted','auto-accepted')
+     ), page AS (
+       SELECT * FROM queue
+       WHERE (($2::text IS NULL) OR (dimension,source_key)>($2,$3))
+       ORDER BY dimension,source_key LIMIT $4
+     )
+     SELECT COALESCE(jsonb_agg(page ORDER BY dimension,source_key),'[]'::jsonb) AS page_rows,
+       (SELECT COUNT(*) FROM queue) AS total
+     FROM page`,
     [input.connectionId, cursorDimension, cursorSourceKey, limit + 1],
   );
-  const totalResult = await db.query<{ total: string | number }>(
-    `SELECT COUNT(*) AS total FROM channels_channel_mappings
-     WHERE connection_id=$1 AND review_status NOT IN ('accepted','auto-accepted')`,
-    [input.connectionId],
-  );
-  const pageRows = result.rows.slice(0, limit);
+  const snapshot = result.rows[0] ?? { page_rows: [], total: 0 };
+  const pageRows = snapshot.page_rows.slice(0, limit);
   const items = pageRows.map((row) => ({
     connectionId: row.connection_id,
     dimension: row.dimension,
@@ -292,8 +317,8 @@ export async function readChannelMappingReviewQueue(
   const last = pageRows.at(-1);
   return {
     items,
-    nextCursor: result.rows.length > limit && last ? encodeCursor(last.dimension, last.source_key) : null,
-    completeness: { kind: "complete", total: Number(totalResult.rows[0]?.total ?? 0) },
+    nextCursor: snapshot.page_rows.length > limit && last ? encodeCursor(last.dimension, last.source_key) : null,
+    completeness: { kind: "complete", total: Number(snapshot.total) },
   };
 }
 
@@ -388,7 +413,35 @@ async function readSettings(db: PgQueryable, connectionId: string): Promise<Chan
     : null;
 }
 
-async function readMappings(db: PgQueryable, connectionId: string): Promise<readonly ChannelMappingResolution[]> {
+async function readMappings(
+  db: PgQueryable,
+  connectionId: string,
+  listing: Readonly<{
+    categoryIds: readonly string[];
+    selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
+    gradedCard: ReturnType<typeof parseGradedCardSnapshot>;
+    profile?: ChannelCompositionProfile | null;
+  }>,
+): Promise<readonly ChannelMappingResolution[]> {
+  const categorySourceKeys =
+    !listing.profile || listing.profile.category.mode === "mapped"
+      ? buildChannelCategorySourceKeys(listing.categoryIds)
+      : [];
+  const conditionSourceKeys = !listing.profile
+    ? buildChannelConditionSourceKeys(listing.selectedOptions, listing.gradedCard, null).concat(
+        listing.selectedOptions.map(({ dimensionId, optionId }) => `selected-option:${dimensionId}:${optionId}`),
+      )
+    : listing.profile.condition.mode === "mapped"
+      ? buildChannelConditionSourceKeys(
+          listing.selectedOptions,
+          listing.gradedCard,
+          listing.profile.conditionDimensionId,
+        )
+      : [];
+  const attributeSourceKeys =
+    !listing.profile || listing.profile.attributes.mode === "mapped"
+      ? buildChannelGradedAttributeSourceEntries(listing.gradedCard).map(({ sourceKey }) => sourceKey)
+      : [];
   const result = await db.query<{
     dimension: ChannelMappingResolution["dimension"];
     source_key: string;
@@ -397,8 +450,12 @@ async function readMappings(db: PgQueryable, connectionId: string): Promise<read
     review_status: ChannelMappingResolution["reviewStatus"];
   }>(
     `SELECT dimension,source_key,target_key,confidence_tier,review_status FROM channels_channel_mappings
-      WHERE connection_id=$1 ORDER BY dimension,source_key`,
-    [connectionId],
+      WHERE connection_id=$1 AND (
+        dimension='category' AND source_key=ANY($2::text[])
+        OR dimension='condition' AND source_key=ANY($3::text[])
+        OR dimension='attribute' AND source_key=ANY($4::text[])
+      ) ORDER BY dimension,source_key`,
+    [connectionId, categorySourceKeys, [...new Set(conditionSourceKeys)], attributeSourceKeys],
   );
   return result.rows.map((row) => ({
     dimension: row.dimension,

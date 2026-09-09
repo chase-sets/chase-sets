@@ -78,6 +78,7 @@
     "bounded-contexts/catalog/support/projection-support/read-model-support.ts",
     "bounded-contexts/channels/features/connections/read-model/projection.ts",
     "bounded-contexts/channels/features/connections/read-model/queries.ts",
+    "bounded-contexts/channels/features/listing-composition/api/listing-publication-application.ts",
     "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
     "bounded-contexts/channels/features/listing-composition/integrations/reactions.ts",
     "bounded-contexts/channels/features/listing-composition/read-model/facts-projection.ts",

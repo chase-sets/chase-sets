@@ -226,7 +226,8 @@
         "channels_connection_publication_settings",
         "channels_channel_mappings",
         "channels_channel_listing_links",
-        "channels_listing_reconciliation_runs"
+        "channels_listing_reconciliation_runs",
+        "channels_channel_publication_operations"
       ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"

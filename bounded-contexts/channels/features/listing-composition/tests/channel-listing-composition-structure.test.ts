@@ -78,6 +78,27 @@ describe("channel-listing-composition-export-surface", () => {
     expect(root).not.toContain("@chase-sets/catalog");
     expect(root).not.toContain("@chase-sets/inventory");
   });
+
+  it("R12 rejects the fragmented eight-file entry-to-effect trace mutant", () => {
+    const reaction = source("features/listing-composition/integrations/reactions.ts");
+    const runtime = source("features/listing-composition/api/runtime.ts");
+    const application = source("features/listing-composition/api/listing-publication-application.ts");
+    expect(reaction).toContain("recordChannelListingDesiredState");
+    expect(runtime).toContain("listingPublication.recordDesiredState");
+    expect(runtime).not.toMatch(
+      /readChannelListingCompositionFacts|parseChannelListingCompositionInput|composeChannelListingPublication|decideChannelListingComposition/,
+    );
+    for (const step of [
+      "readChannelListingCompositionFacts",
+      "parseChannelListingCompositionInput",
+      "composeChannelListingPublication",
+      "decideChannelListingComposition",
+      "linkRepository.append",
+    ]) {
+      expect(application, step).toContain(step);
+    }
+    expect([reaction, runtime, application]).toHaveLength(3);
+  });
 });
 
 describe("channel-listing-composition-scope-fence", () => {

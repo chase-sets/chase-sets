@@ -1,5 +1,12 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
+const publicationOperationTable = `CREATE TABLE IF NOT EXISTS channels_channel_publication_operations (
+  operation_id text PRIMARY KEY, channel_listing_id text NOT NULL,
+  desired_state_sequence bigint NOT NULL, listing_revision bigint NOT NULL,
+  desired_state_hash text NOT NULL CHECK (desired_state_hash ~ '^[a-f0-9]{64}$'),
+  bound_at timestamptz NOT NULL
+)`;
+
 const tables = [
   `CREATE TABLE IF NOT EXISTS channels_listing_publication_facts (
     listing_id text PRIMARY KEY, account_id text NOT NULL, inventory_item_id text NOT NULL, catalog_item_id text NOT NULL,
@@ -85,6 +92,7 @@ const tables = [
     failure_code text NULL, attempt_count integer NOT NULL DEFAULT 0,
     updated_at timestamptz NOT NULL, last_stream_version bigint NOT NULL
   )`,
+  publicationOperationTable,
 ] as const;
 
 const indexes = [
@@ -115,7 +123,12 @@ export const channelListingCompositionSchemaMigrations: readonly BcSchemaMigrati
   {
     migrationId: "20260908_channels_listing_desired_state",
     description: "Create the twelve Channel Publication Facts, configuration, Link, and reconciliation projections.",
-    statements: [...tables, ...migrationIndexes],
+    statements: [...tables.filter((table) => table !== publicationOperationTable), ...migrationIndexes],
+  },
+  {
+    migrationId: "20260909_channels_publication_operation_identity",
+    description: "Fence each publication operation ID to one Channel Listing desired-state tuple.",
+    statements: [publicationOperationTable],
   },
 ];
 
@@ -132,4 +145,5 @@ export const channelListingCompositionTableNames = [
   "channels_channel_mappings",
   "channels_channel_listing_links",
   "channels_listing_reconciliation_runs",
+  "channels_channel_publication_operations",
 ] as const;

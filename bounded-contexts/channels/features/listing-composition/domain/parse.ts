@@ -108,7 +108,7 @@ function validateInput(value: unknown): asserts value is ChannelListingCompositi
     if (link.state.connectionId !== connection.connectionId) invalid("link-connection-mismatch");
   } else invalid("bound-violation");
 
-  if (!Array.isArray(input.mappings) || input.mappings.length > 1_000) invalid("bound-violation");
+  if (!Array.isArray(input.mappings)) invalid("bound-violation");
   const identities = new Set<string>();
   for (const value of input.mappings) {
     const mapping = closed(value, ["dimension", "sourceKey", "targetKey", "confidenceTier", "reviewStatus"]);

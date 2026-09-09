@@ -17,16 +17,15 @@ export const channelPublicationConfigurationEventCodec: DomainEventCodec<Channel
     switch (stored.eventType) {
       case "channels.channel-publication-configuration.settings-replaced": {
         closed(data, ["connectionId", "settings"]);
-        text(data.connectionId);
-        settings(data.settings);
+        text(data.connectionId, 128);
+        assertChannelPublicationSettingsPayload(data.settings);
         return event(stored, data);
       }
       case "channels.channel-publication-configuration.mapping-candidate-recorded": {
         closed(data, ["connectionId", "provenance", "candidates"]);
-        text(data.connectionId);
+        text(data.connectionId, 128);
         member(data.provenance, ["compose-discovered", "export-discovered"]);
-        if (!Array.isArray(data.candidates) || data.candidates.length > 500) invalid();
-        for (const value of data.candidates) candidate(value);
+        assertChannelMappingCandidatesPayload(data.candidates);
         return event(stored, data);
       }
       case "channels.channel-publication-configuration.mapping-review-decided": {
@@ -39,13 +38,8 @@ export const channelPublicationConfigurationEventCodec: DomainEventCodec<Channel
           "reviewStatus",
           "evidence",
         ]);
-        text(data.connectionId);
-        member(data.dimension, channelMappingDimensions);
-        text(data.sourceKey);
-        nullableText(data.targetKey);
-        member(data.confidenceTier, channelMappingConfidenceTiers);
-        member(data.reviewStatus, channelMappingReviewStatuses);
-        evidence(data.evidence);
+        text(data.connectionId, 128);
+        assertChannelMappingReviewEventPayload(data);
         return event(stored, data);
       }
       default:
@@ -115,7 +109,7 @@ export const channelListingEventCodec: DomainEventCodec<ChannelListingEvent> = {
         integer(data.reportedDesiredStateSequence);
         integer(data.reportedListingRevision);
         hash(data.reportedDesiredStateHash);
-        outcome(data.outcome);
+        assertChannelPublicationOutcomePayload(data.outcome);
         member(data.adoption, ["none", "identity-adopted", "identity-and-state-applied"]);
         return event(stored, data);
       default:
@@ -215,7 +209,7 @@ function delist(value: unknown): void {
   integer(price.amountMinor);
   text(price.currency);
 }
-function outcome(value: unknown): void {
+export function assertChannelPublicationOutcomePayload(value: unknown): void {
   const data = record(value);
   if (data.kind === "succeeded") {
     closedOptional(data, ["kind", "externalListingId"], ["externalOfferId", "providerRevision"]);
@@ -228,29 +222,64 @@ function outcome(value: unknown): void {
   } else if (data.kind === "outcome-unknown") closed(data, ["kind"]);
   else invalid();
 }
-function settings(value: unknown): void {
+export function assertChannelPublicationSettingsPayload(value: unknown): void {
   const data = record(value);
   closed(data, ["titlePrefix", "titleSuffix", "descriptionFooter", "categoryAllowlist", "excludedListingIds"]);
-  string(data.titlePrefix);
-  string(data.titleSuffix);
-  string(data.descriptionFooter);
-  stringArray(data.categoryAllowlist);
-  stringArray(data.excludedListingIds);
+  text(data.titlePrefix, 1_000, true);
+  text(data.titleSuffix, 1_000, true);
+  text(data.descriptionFooter, 5_000, true);
+  stringArray(data.categoryAllowlist, 1_000, 128);
+  stringArray(data.excludedListingIds, 1_000, 128);
 }
-function candidate(value: unknown): void {
+
+export function assertChannelMappingCandidatesPayload(value: unknown): void {
+  if (!Array.isArray(value) || value.length > 500) invalid();
+  const identities = new Set<string>();
+  for (const candidateValue of value) {
+    const candidateData = assertChannelMappingCandidatePayload(candidateValue);
+    const identity = `${candidateData.dimension}\u0000${candidateData.sourceKey}`;
+    if (identities.has(identity)) invalid();
+    identities.add(identity);
+  }
+}
+
+function assertChannelMappingCandidatePayload(value: unknown): Readonly<{ dimension: string; sourceKey: string }> {
   const data = record(value);
   closed(data, ["dimension", "sourceKey", "proposedTargetKey", "confidenceTier", "evidence"]);
   member(data.dimension, channelMappingDimensions);
-  text(data.sourceKey);
-  nullableText(data.proposedTargetKey);
+  text(data.sourceKey, 512);
+  nullableText(data.proposedTargetKey, 512);
   member(data.confidenceTier, channelMappingConfidenceTiers);
-  evidence(data.evidence);
+  assertChannelMappingEvidencePayload(data.evidence);
+  return { dimension: data.dimension as string, sourceKey: data.sourceKey as string };
 }
-function evidence(value: unknown): void {
+
+export function assertChannelMappingDecisionCommandPayload(value: unknown): void {
+  const data = record(value);
+  closed(data, ["dimension", "sourceKey", "decision", "targetKey"]);
+  member(data.dimension, channelMappingDimensions);
+  text(data.sourceKey, 512);
+  member(data.decision, ["accept", "auto-accept", "reject", "revoke"]);
+  nullableText(data.targetKey, 512);
+  if ((data.decision === "accept" || data.decision === "auto-accept") && data.targetKey === null) invalid();
+}
+
+function assertChannelMappingReviewEventPayload(value: unknown): void {
+  const data = record(value);
+  member(data.dimension, channelMappingDimensions);
+  text(data.sourceKey, 512);
+  nullableText(data.targetKey, 512);
+  member(data.confidenceTier, channelMappingConfidenceTiers);
+  member(data.reviewStatus, channelMappingReviewStatuses);
+  assertChannelMappingEvidencePayload(data.evidence);
+  if ((data.reviewStatus === "accepted" || data.reviewStatus === "auto-accepted") && data.targetKey === null) invalid();
+}
+
+function assertChannelMappingEvidencePayload(value: unknown): void {
   const data = record(value);
   closed(data, ["listingId", "derivedFrom"]);
-  text(data.listingId);
-  text(data.derivedFrom);
+  text(data.listingId, 128);
+  text(data.derivedFrom, 512);
 }
 function reasons(value: unknown): void {
   if (!Array.isArray(value) || value.some((reason) => !channelPublicationBlockingReasons.includes(reason))) invalid();
@@ -276,12 +305,12 @@ function closedOptional(
 function string(value: unknown): asserts value is string {
   if (typeof value !== "string") invalid();
 }
-function text(value: unknown): asserts value is string {
+function text(value: unknown, max = 1_000, empty = false): asserts value is string {
   string(value);
-  if (value.length === 0 || Array.from(value).length > 1_000) invalid();
+  if ((!empty && value.length === 0) || Array.from(value).length > max) invalid();
 }
-function nullableText(value: unknown): void {
-  if (value !== null) text(value);
+function nullableText(value: unknown, max = 1_000): void {
+  if (value !== null) text(value, max);
 }
 function nullableOptionalText(value: unknown): void {
   if (value !== undefined) text(value);
@@ -295,8 +324,14 @@ function hash(value: unknown): void {
 function member(value: unknown, members: readonly unknown[]): void {
   if (!members.includes(value)) invalid();
 }
-function stringArray(value: unknown): void {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) invalid();
+function stringArray(value: unknown, maxCount: number, maxLength: number): void {
+  if (!Array.isArray(value) || value.length > maxCount) invalid();
+  const members = new Set<string>();
+  for (const item of value) {
+    text(item, maxLength);
+    if (members.has(item)) invalid();
+    members.add(item);
+  }
 }
 function invalid(): never {
   throw new Error("Invalid closed Channels desired-state event.");
