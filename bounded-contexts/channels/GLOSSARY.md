@@ -111,3 +111,19 @@ An **Outbound Operation Attempt** is one fenced execution of an operation under 
 ## Claimed Operation Reservation
 
 A **Claimed Operation Reservation** is an atomic, leased, disjoint assignment of claimed-mode operations to one connector or manual claimant.
+
+## Staged Import Batch
+
+A **Staged Import Batch** is the ordered TCGplayer CSV payload composed for one Channel Sync Run against one Snapshot Basis.
+
+## Snapshot Basis
+
+A **Snapshot Basis** is the immutable Staged Channel Inventory Snapshot used to calculate quantity deltas and preserve provider-authored listing fields.
+
+## Channel Export Surface
+
+A **Channel Export Surface** identifies whether a channel export reports Live truth or Staged composition state.
+
+## Mapping Bootstrap Candidate
+
+A **Mapping Bootstrap Candidate** is a real category, condition, or attribute source-key discovery submitted for Channel Mapping review; a local sync refusal is not a candidate.

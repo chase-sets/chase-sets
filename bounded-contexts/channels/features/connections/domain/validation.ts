@@ -7,6 +7,7 @@ import {
 } from "./contracts";
 
 const LOWER_KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const DOTTED_LOWER_KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+$/;
 const RFC_3339_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 const C0_CONTROL = /[\u0000-\u001f\u007f]/;
 const SENSITIVE_REFERENCE =
@@ -50,9 +51,9 @@ export function assertPolicyKey(value: unknown): asserts value is string {
     scalarLength(value) < 1 ||
     scalarLength(value) > 64 ||
     !isScalarString(value) ||
-    !LOWER_KEBAB.test(value)
+    (!LOWER_KEBAB.test(value) && !DOTTED_LOWER_KEBAB.test(value))
   ) {
-    invalid("policyKey must be lower-kebab and contain 1 to 64 Unicode scalars.");
+    invalid("policyKey must be lower-kebab or dotted lower-kebab and contain 1 to 64 Unicode scalars.");
   }
 }
 

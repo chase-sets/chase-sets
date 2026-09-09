@@ -25,10 +25,11 @@ describe("channel-publication-port-scope-fence", () => {
     const registry = readFileSync(path.join(sliceRoot, "api/registry.ts"), "utf8");
     expect(contracts).not.toMatch(/\b(?:register|add|set|remove|clear)\s*\(/);
     expect(registry).toContain(
-      "const productionChannelProviderDescriptors: readonly ChannelProviderDescriptor[] = Object.freeze([]);",
+      "const productionChannelProviderDescriptors: readonly ChannelProviderDescriptor[] = Object.freeze([",
     );
+    expect(registry).toContain("...tcgplayerProviderDescriptors");
     expect(registry).not.toMatch(/export\s+(?:const|\{[^}]*\})\s*productionChannelProviderDescriptors/);
-    expect(registry).not.toMatch(/\b(?:tcgplayer|ebay)\b/i);
+    expect(registry).not.toMatch(/\bebay\b/i);
     expect(relativeFiles.some((file) => /(?:ui|integrations|read-model|runtime-support)\//.test(file))).toBe(false);
   });
 

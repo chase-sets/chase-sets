@@ -23,8 +23,26 @@ const context: EventStoreContext = {
 };
 
 describe("channel-provider-registry-defaults", () => {
-  it("keeps the one production registry empty across both environments and repeated module composition", async () => {
-    expect(channelProviderRegistry.list()).toEqual([]);
+  it("registers exactly the claimed TCGplayer descriptor in both environments across module composition", async () => {
+    expect(channelProviderRegistry.list()).toEqual([
+      { providerKey: "tcgplayer", environment: "production" },
+      { providerKey: "tcgplayer", environment: "sandbox" },
+    ]);
+    for (const environment of ["sandbox", "production"] as const) {
+      expect(channelProviderRegistry.get({ providerKey: "tcgplayer", environment })).toEqual({
+        identity: { providerKey: "tcgplayer", environment },
+        setup: {
+          providerKey: "tcgplayer",
+          environment,
+          requirements: {
+            credential: "not-required",
+            requiredPolicyKeys: ["channels.tcgplayer-staged-import"],
+            binding: "one-or-more-current",
+          },
+        },
+        publication: { execution: "claimed" },
+      });
+    }
     for (const environment of ["sandbox", "production"] as const) {
       const identity = { providerKey: "fixture-unregistered-provider", environment };
       expect(channelProviderRegistry.get(identity)).toBeNull();
@@ -47,7 +65,7 @@ describe("channel-provider-registry-defaults", () => {
         ),
       ).rejects.toMatchObject({ code: "provider-setup-not-registered" });
     }
-    expect(channelProviderRegistry.list()).toEqual([]);
+    expect(channelProviderRegistry.list()).toHaveLength(2);
   });
 
   it("activates only construction-time fixture identities without changing production", () => {
@@ -65,7 +83,7 @@ describe("channel-provider-registry-defaults", () => {
     expect(registry.get(fixtureClaimedIdentity)?.publication).toEqual({ execution: "claimed" });
     expect(registry.get({ ...fixtureInlineIdentity, environment: "production" })).toBeNull();
     expect(providerCalls).toBe(0);
-    expect(channelProviderRegistry.list()).toEqual([]);
+    expect(channelProviderRegistry.list()).toHaveLength(2);
   });
 
   it("keeps all four producer states distinct and makes zero provider calls in the first three", () => {
@@ -186,7 +204,7 @@ describe("channel-provider-registry-defaults", () => {
     expect(Object.isFrozen(registry)).toBe(true);
     expect(Object.isFrozen(registry.list())).toBe(true);
     expect(Object.isFrozen(resolved)).toBe(true);
-    expect(channelProviderRegistry.list()).toEqual([]);
+    expect(channelProviderRegistry.list()).toHaveLength(2);
   });
 
   it("captures all inline publication methods during registry construction", async () => {
@@ -229,7 +247,7 @@ describe("channel-provider-registry-defaults", () => {
     expect(calls).toEqual(["original-publish", "original-update", "original-delist"]);
   });
 
-  it("keeps connect, activate, and resume on the actual production-empty setup resolver", async () => {
+  it("keeps connect, activate, and resume on the actual production setup resolver", async () => {
     const memory = createInMemoryEventStore();
     const db = { query: async () => ({ rows: [] }) };
     const fixtureRegistry = createChannelProviderRegistry([
