@@ -2,6 +2,7 @@ import type {
   BoundClaimedReservationRun,
   ClaimedReservationRunSettlementPort,
 } from "../../outbound-sync/domain/contracts";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { deriveClaimedOperationOutcomes } from "../domain/lifecycle";
 import type { ChannelSyncRun } from "../domain/contracts";
 import { readChannelSyncRunByReservation } from "../read-model/queries";
@@ -9,14 +10,16 @@ import { readChannelSyncRunByReservation } from "../read-model/queries";
 export function createTcgplayerClaimedReservationRunSettlementPort(): ClaimedReservationRunSettlementPort {
   return {
     lockBoundRun: async (transaction, input) => {
-      const run = await readChannelSyncRunByReservation(transaction, input.reservationId, true);
+      const runProjection: PgQueryable = transaction;
+      const run = await readChannelSyncRunByReservation(runProjection, input.reservationId, true);
       if (!run) return null;
       if (input.runId !== undefined && run.runId !== input.runId) return null;
       if (input.expectedRunRevision !== undefined && run.revision !== input.expectedRunRevision) return null;
       return toBoundRun(run);
     },
     settleBoundRun: async (transaction, input) => {
-      const result = await transaction.query(
+      const runProjection: PgQueryable = transaction;
+      const result = await runProjection.query(
         `UPDATE channel_sync_runs
          SET state=$4, revision=revision+1, updated_at=clock_timestamp()
          WHERE run_id=$1 AND revision=$2 AND state=$3`,
