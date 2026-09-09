@@ -32,6 +32,16 @@ function findInlineViolations(source) {
   });
 }
 
+function bootSchemaSource(sql) {
+  return `export const exampleSchemaSql = \`${sql}\`;`;
+}
+
+function retainedUpgradeKeys({ baseSource, currentSource }) {
+  return findBootSchemaRetainedUpgradeViolations({ baseSource, currentSource }).map(
+    ({ tableName, columnName }) => `${tableName}.${columnName}`,
+  );
+}
+
 describe("boot schema DDL discipline", () => {
   it("extracts exported boot schema SQL templates only", () => {
     const source = `
@@ -213,6 +223,55 @@ export const exampleSchemaMigrations = [{
     expect(
       findBootSchemaRetainedUpgradeViolations({ baseSource: retainedSource, currentSource: repairedSource }),
     ).toEqual([]);
+  });
+
+  describe("retained-schema boot expansion SQL recognition", () => {
+    const baseSource = bootSchemaSource("CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY);");
+    const createWithStatus = "CREATE TABLE IF NOT EXISTS example_pages (id text PRIMARY KEY, status text NULL);";
+    const expansion = "ALTER TABLE example_pages ADD COLUMN IF NOT EXISTS status text NULL;";
+
+    it.each([
+      ["line comments", `${createWithStatus} -- ${expansion}`],
+      ["block comments", `${createWithStatus} /* ${expansion} */`],
+      [
+        "single-quoted strings with escaped quotes and comment delimiters",
+        `${createWithStatus} SELECT 'ignored ''quoted'' -- /* ${expansion} */';`,
+      ],
+      ["PostgreSQL escape strings", `${createWithStatus} SELECT E'ignored \\'quoted\\' ${expansion}';`],
+      ["untagged dollar-quoted strings", `${createWithStatus} SELECT $$-- /* ${expansion} */$$;`],
+      ["tagged dollar-quoted strings", `${createWithStatus} SELECT $body$-- /* ${expansion} */$body$;`],
+      ["nested block comments", `${createWithStatus} /* outer /* inner */ ${expansion} */`],
+    ])("does not accept fake expansions inside %s", (_label, sql) => {
+      expect(retainedUpgradeKeys({ baseSource, currentSource: bootSchemaSource(sql) })).toEqual([
+        "example_pages.status",
+      ]);
+    });
+
+    it.each([
+      ["ordinary ALTER TABLE", expansion],
+      ["ALTER TABLE ONLY", "ALTER TABLE ONLY example_pages ADD COLUMN IF NOT EXISTS status text NULL;"],
+      ["ALTER TABLE after a quoted comment delimiter", `SELECT '-- not a comment /* or block */'; ${expansion}`],
+      [
+        "ALTER TABLE after a dollar-quoted comment delimiter",
+        `SELECT $tag$-- not a comment /* or block */$tag$; ${expansion}`,
+      ],
+    ])("accepts executable expansion via %s", (_label, ddl) => {
+      const currentSource = bootSchemaSource(`${createWithStatus} ${ddl}`);
+
+      expect(retainedUpgradeKeys({ baseSource, currentSource })).toEqual([]);
+    });
+
+    it.each([
+      ["missing expansion", createWithStatus],
+      [
+        "same-named expansion on the wrong table",
+        `${createWithStatus} ALTER TABLE other_pages ADD COLUMN IF NOT EXISTS status text NULL;`,
+      ],
+    ])("retains the violation for %s", (_label, sql) => {
+      expect(retainedUpgradeKeys({ baseSource, currentSource: bootSchemaSource(sql) })).toEqual([
+        "example_pages.status",
+      ]);
+    });
   });
 
   it("does not treat a same-named column migration on another table as reachable", () => {

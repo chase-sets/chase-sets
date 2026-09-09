@@ -465,11 +465,13 @@ export async function findBootSchemaDdlDisciplineViolations({ repoRoot, changedF
 
 function extractBootSchemaIdempotentExpansionColumns(source) {
   const columnsByTable = new Map();
-  const alterTablePattern = /\bALTER\s+TABLE(?:\s+IF\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_.]*)\s+([\s\S]*?);/gi;
+  const alterTablePattern =
+    /\bALTER\s+TABLE(?:\s+IF\s+EXISTS)?(?:\s+ONLY)?\s+([A-Za-z_][A-Za-z0-9_.]*)\s+([\s\S]*?);/gi;
   const addColumnPattern = /\bADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+"?([A-Za-z_][A-Za-z0-9_]*)"?/gi;
 
   for (const template of extractExportedBootSchemaSqlTemplates(source)) {
-    for (const alterMatch of template.sql.matchAll(alterTablePattern)) {
+    const executableSql = maskSqlNonExecutableText(template.sql);
+    for (const alterMatch of executableSql.matchAll(alterTablePattern)) {
       const tableName = alterMatch[1].toLowerCase();
       const columns = columnsByTable.get(tableName) ?? new Set();
       for (const columnMatch of alterMatch[2].matchAll(addColumnPattern)) {
@@ -480,6 +482,96 @@ function extractBootSchemaIdempotentExpansionColumns(source) {
   }
 
   return columnsByTable;
+}
+
+function maskSqlNonExecutableText(sql) {
+  const masked = sql.split("");
+  const mask = (index) => {
+    if (sql[index] !== "\n" && sql[index] !== "\r") {
+      masked[index] = " ";
+    }
+  };
+  let index = 0;
+
+  while (index < sql.length) {
+    if (sql.startsWith("--", index)) {
+      while (index < sql.length && sql[index] !== "\n" && sql[index] !== "\r") {
+        mask(index);
+        index += 1;
+      }
+      continue;
+    }
+
+    if (sql.startsWith("/*", index)) {
+      let depth = 0;
+      while (index < sql.length) {
+        if (sql.startsWith("/*", index)) {
+          mask(index);
+          mask(index + 1);
+          depth += 1;
+          index += 2;
+          continue;
+        }
+        if (sql.startsWith("*/", index)) {
+          mask(index);
+          mask(index + 1);
+          depth -= 1;
+          index += 2;
+          if (depth === 0) {
+            break;
+          }
+          continue;
+        }
+        mask(index);
+        index += 1;
+      }
+      continue;
+    }
+
+    if (sql[index] === "'") {
+      const backslashEscapes =
+        /[eE]/.test(sql[index - 1] ?? "") && (index < 2 || !/[A-Za-z0-9_$]/.test(sql[index - 2]));
+      mask(index);
+      index += 1;
+      while (index < sql.length) {
+        mask(index);
+        if (backslashEscapes && sql[index] === "\\" && index + 1 < sql.length) {
+          mask(index + 1);
+          index += 2;
+          continue;
+        }
+        if (sql[index] !== "'") {
+          index += 1;
+          continue;
+        }
+        if (sql[index + 1] === "'") {
+          mask(index + 1);
+          index += 2;
+          continue;
+        }
+        index += 1;
+        break;
+      }
+      continue;
+    }
+
+    if (sql[index] === "$" && (index === 0 || !/[A-Za-z0-9_$]/.test(sql[index - 1]))) {
+      const delimiter = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(index))?.[0];
+      if (delimiter) {
+        const end = sql.indexOf(delimiter, index + delimiter.length);
+        const maskedEnd = end === -1 ? sql.length : end + delimiter.length;
+        while (index < maskedEnd) {
+          mask(index);
+          index += 1;
+        }
+        continue;
+      }
+    }
+
+    index += 1;
+  }
+
+  return masked.join("");
 }
 
 function extractTopLevelSqlConstants(source) {
