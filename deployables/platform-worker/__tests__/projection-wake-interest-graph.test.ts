@@ -1,7 +1,5 @@
 import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
-import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
-import type { PricingHostPorts } from "@chase-sets/pricing/server";
 import { createHash } from "node:crypto";
 import {
   buildProjectionInterestIndex,
@@ -21,13 +19,6 @@ import {
   createFakePaymentProcessorGateway,
   createSandboxPostageLabelProvider,
 } from "../src/test-support/provider-gateways";
-
-const syntheticPricingHostPorts = {
-  tcgplayerMarketTransport: { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
-  commercialTermsResolver: createNoopCommercialTermsResolver(),
-  channelConnectionIdentityReader: { resolve: async () => null },
-} satisfies PricingHostPorts;
 
 const ORDERING_CREATED_INVENTORY_RESERVATION_TARGET = {
   sourceContextName: "ordering",
@@ -128,7 +119,7 @@ describe("platform worker projection wake interest graph", () => {
 
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
       count: 239,
-      sha256: "dc2be59a4db206b5746ca2f6299131f65270f705600ca237358025369ebcc423",
+      sha256: "864af523098e14f53fc18783b5116b079b6e7c50b00380a2eb274672718623e9",
     });
     expect(
       fingerprint(
@@ -138,22 +129,22 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 149,
-      sha256: "1d1f87ddb1da5516da72e0d4605a630d814d3db661701d4a2b67acb539e9c874",
+      count: 150,
+      sha256: "e3ee2e8da78485d04c6029e3faef58201bc19115441ad7cc4e7535f69eed7ac7",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 149,
-      sha256: "c274388cc9c65de9b85f4812573199785e20da927ff5fb765c41b72cd67655eb",
+      count: 150,
+      sha256: "a2ceca5713108c4dc59007685dcadc0f8dc7afafe83bba60a3e5a754c2e11ddd",
     });
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
       count: 239,
-      sha256: "4e850af4d3432547ea669a4ae5ad4e5969840a5088a7e38dbb254bbe7b2d48d3",
+      sha256: "f481ab423cae3255511aab01bb2d5a55e5664e4637c5771cd0774a4b459166e8",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 115,
+      distinctNames: 116,
       distinctSharedNames: 19,
       runnersUsingSharedNames: 53,
     });
@@ -381,7 +372,6 @@ function createPlatformWorkerHost(runtimeProfile: "landing" | "proof" | "public"
         resolveShipmentOrderId: async () => null,
         resolveWebhookTargets: async () => [],
       },
-      ...syntheticPricingHostPorts,
     },
     runtimeProfile,
   });
