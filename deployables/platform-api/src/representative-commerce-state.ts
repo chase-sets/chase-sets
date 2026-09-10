@@ -6,7 +6,7 @@ import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
-import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
+import { drainContextRuntime, getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -430,10 +430,9 @@ export async function runRepresentativeCommerceState(
           enabledDataProfiles: representativeCommerceStateDataProfiles,
           environmentName: execution.deploymentEnvironment,
           runtimeProfile: config?.runtimeProfile ?? "public",
-          // This command runs without projection workers, so retained-state
-          // repeat runs need the full drain for seed reconciliation guards to
-          // observe previously created records.
-          fullBootstrapDrain: true,
+          // Preserve pre-seed visibility and interrupted-state reconciliation
+          // without spending the canary's budget on unrelated runtime drains.
+          seedContextDrain: true,
         }),
       { timeoutMs: MAX_STEP_TIMEOUT_MS },
     );
@@ -513,6 +512,20 @@ export async function runRepresentativeCommerceState(
     );
     await syncProjection("marketplace", "marketplace-listing-projection");
     await syncProjection("discovery", "discovery-market-projection");
+    await runStep("verify repaired Pokemon canary buyer visibility", () =>
+      assertRepresentativeCanaryBuyerVisible(
+        {
+          marketplace: getMarketplaceServices(runtime.services).listings,
+          discovery: getDiscoveryCanaryServices(runtime.services),
+        },
+        listings[0],
+      ),
+    );
+    await runStep(
+      "drain remaining representative projections",
+      () => drainContextRuntime(runtime, { settleIdleCheckpoints: true }),
+      { timeoutMs: MAX_STEP_TIMEOUT_MS },
+    );
     await syncProjection("ordering", "ordering-marketplace-supply-input-projection");
     // Restart safety: drain retained offer events before submitting so a
     // resumed run recognizes offers whose projection sync was interrupted.
