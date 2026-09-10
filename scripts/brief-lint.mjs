@@ -47,6 +47,10 @@ function standaloneLabel(line) {
   return value.length <= 100 ? value : null;
 }
 
+function isInertDeclarationContentLine(line, ignoredLines = new Set(), index = -1) {
+  return ignoredLines.has(index) || /^(?: {4}|\t)/.test(line) || /^\s{0,3}>/.test(line);
+}
+
 function scanMarkdown(body) {
   const lines = String(body).replace(/\r\n?/g, "\n").split("\n");
   const headings = [];
@@ -70,6 +74,9 @@ function scanMarkdown(body) {
     }
     if (fence) {
       ignoredLines.add(index);
+      continue;
+    }
+    if (isInertDeclarationContentLine(line)) {
       continue;
     }
 
@@ -100,6 +107,212 @@ function sectionEnd(headings, headingIndex, lineCount) {
     if (headings[index].level <= heading.level) return headings[index].index;
   }
   return lineCount;
+}
+
+const QUALITY_DECLARATIONS = Object.freeze({
+  profile: {
+    code: "BRIEF_QUALITY_PROFILE",
+    label: "QUALITY_PROFILE",
+    candidate: /^QUALITY_PROFILE\s*:/i,
+    pattern: /^QUALITY_PROFILE:\s*(prototype|product-feature|core-library|hot-path|migration|contract)$/,
+  },
+  intent: {
+    heading: "intent surfaces",
+    code: "BRIEF_QUALITY_INTENT_SURFACES",
+    headers: ["acceptance criterion", "exercised surface"],
+  },
+  ui: {
+    heading: "ui states and design system sources",
+    code: "BRIEF_QUALITY_UI_STATES",
+    headers: ["ui surface", "loading", "empty", "error", "success", "design system component source"],
+    none: "none — no UI surface changes.",
+  },
+  data: {
+    heading: "data path envelope",
+    code: "BRIEF_QUALITY_DATA_PATH",
+    headers: ["data path", "bound", "index expectation", "per item i o"],
+    none: "none — no data path changes.",
+  },
+  glossary: {
+    heading: "glossary impact",
+    code: "BRIEF_QUALITY_GLOSSARY_IMPACT",
+    headers: ["public term", "owning glossary or contract"],
+    none: "none — no new or renamed public names.",
+  },
+  compatibility: {
+    heading: "contract compatibility",
+    code: "BRIEF_QUALITY_CONTRACT_COMPATIBILITY",
+    headers: ["changed contract", "compatibility posture", "removed path"],
+    none: "none — no schema, event, or contract changes.",
+  },
+});
+
+function matchingSections(markdown, normalizedHeading) {
+  return markdown.headings
+    .map((heading, headingIndex) => ({ heading, headingIndex }))
+    .filter(({ heading }) => normalizeHeading(heading.text) === normalizedHeading);
+}
+
+function sectionContentLines(markdown, section) {
+  const end = sectionEnd(markdown.headings, section.headingIndex, markdown.lines.length);
+  const headingLines = new Set(markdown.headings.map((heading) => heading.index));
+  return markdown.lines
+    .slice(section.heading.index + 1, end)
+    .filter((_line, offset) => {
+      const index = section.heading.index + 1 + offset;
+      return (
+        !headingLines.has(index) && !isInertDeclarationContentLine(markdown.lines[index], markdown.ignoredLines, index)
+      );
+    })
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function tableCells(line) {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return null;
+  return trimmed
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function hasCompleteTable(lines, expectedHeaders) {
+  for (let index = 0; index + 2 < lines.length; index += 1) {
+    const headers = tableCells(lines[index]);
+    const separator = tableCells(lines[index + 1]);
+    if (!headers || !separator || headers.length !== expectedHeaders.length || separator.length !== headers.length) {
+      continue;
+    }
+    if (!headers.every((header, cell) => normalizeHeading(header) === expectedHeaders[cell])) continue;
+    if (!separator.every((cell) => /^:?-{3,}:?$/.test(cell))) continue;
+
+    let rowCount = 0;
+    for (let rowIndex = index + 2; rowIndex < lines.length; rowIndex += 1) {
+      const row = tableCells(lines[rowIndex]);
+      if (!row) break;
+      if (row.length !== headers.length || row.some((cell) => !cell)) return false;
+      rowCount += 1;
+    }
+    if (rowCount > 0) return true;
+  }
+  return false;
+}
+
+function declarationFinding(markdown, declaration) {
+  if (declaration.pattern) {
+    const declarations = markdown.lines
+      .map((line, index) => ({ index, line: line.trim() }))
+      .filter(
+        ({ index, line }) =>
+          !isInertDeclarationContentLine(markdown.lines[index], markdown.ignoredLines, index) &&
+          declaration.candidate.test(line),
+      );
+    if (declarations.length !== 1) {
+      return {
+        code: declaration.code,
+        line: declarations[0]?.index + 1,
+        message: `${declaration.label} must appear exactly once as a standalone declaration.`,
+      };
+    }
+    if (!declaration.pattern.test(declarations[0].line)) {
+      return {
+        code: declaration.code,
+        line: declarations[0].index + 1,
+        message: `${declaration.label} must name one installed quality-v2 profile exactly.`,
+      };
+    }
+    return null;
+  }
+
+  const sections = matchingSections(markdown, declaration.heading);
+  if (sections.length !== 1) {
+    return {
+      code: declaration.code,
+      line: sections[0]?.heading.index + 1,
+      message: `The ${declaration.heading} declaration must appear exactly once.`,
+    };
+  }
+
+  const lines = sectionContentLines(markdown, sections[0]);
+  const text = lines.join("\n");
+  if (declaration.none && text === declaration.none) return null;
+  if (declaration.none && lines.some((line) => /^none\b/i.test(line))) {
+    return {
+      code: declaration.code,
+      line: sections[0].heading.index + 1,
+      message: `The ${declaration.heading} explicit none form must be exact and cannot accompany other content.`,
+    };
+  }
+  if (hasCompleteTable(lines, declaration.headers)) return null;
+  return {
+    code: declaration.code,
+    line: sections[0].heading.index + 1,
+    message: declaration.none
+      ? `The ${declaration.heading} declaration needs its complete required table or the exact explicit none form.`
+      : `The ${declaration.heading} declaration needs its complete required table.`,
+  };
+}
+
+function footprintShapeFindings(markdown) {
+  const findings = [];
+  const simplest = matchingSections(markdown, "simplest shape");
+  const notBuilt = matchingSections(markdown, "not built");
+  const simplestLines = simplest.length === 1 ? sectionContentLines(markdown, simplest[0]) : [];
+  const notBuiltLines = notBuilt.length === 1 ? sectionContentLines(markdown, notBuilt[0]) : [];
+  if (
+    simplest.length !== 1 ||
+    simplestLines.length !== 1 ||
+    /^none\b/i.test(simplestLines[0] ?? "") ||
+    notBuilt.length !== 1 ||
+    !hasCompleteTable(notBuiltLines, ["not built", "reason"])
+  ) {
+    findings.push({
+      code: "BRIEF_QUALITY_G0",
+      line: simplest[0]?.heading.index + 1 ?? notBuilt[0]?.heading.index + 1,
+      message: "G0 needs one non-empty simplest-shape line and one complete Not built | Reason table.",
+    });
+  }
+
+  const footprint = matchingSections(markdown, "footprint chain");
+  const scope = matchingSections(markdown, "scope fence");
+  if (footprint.length !== 1 || scope.length !== 1) {
+    findings.push({
+      code: "BRIEF_QUALITY_FOOTPRINT_SHAPE",
+      line: footprint[0]?.heading.index + 1 ?? scope[0]?.heading.index + 1,
+      message: "Footprint & chain and Scope fence must each appear exactly once.",
+    });
+    return findings;
+  }
+
+  const footprintLines = sectionContentLines(markdown, footprint[0]);
+  const scopeEnd = sectionEnd(markdown.headings, scope[0].headingIndex, markdown.lines.length);
+  const scopeLines = markdown.lines.slice(scope[0].heading.index + 1, scopeEnd);
+  const inlineNonGoals = scopeLines.some(
+    (line, offset) =>
+      !isInertDeclarationContentLine(line, markdown.ignoredLines, scope[0].heading.index + 1 + offset) &&
+      /^\s*(?:[-+*]\s*)?(?:\*\*|__)?non-goals?(?:\*\*|__)?\s*:\s*\S/i.test(line),
+  );
+  const labeledNonGoals = markdown.headings.some(
+    (heading, headingIndex) =>
+      heading.index > scope[0].heading.index &&
+      heading.index < scopeEnd &&
+      normalizeHeading(heading.text) === "non goals" &&
+      sectionContentLines(markdown, { heading, headingIndex }).length > 0,
+  );
+  if (
+    footprintLines.length === 0 ||
+    /^none\b/i.test(footprintLines.join(" ")) ||
+    (!inlineNonGoals && !labeledNonGoals)
+  ) {
+    findings.push({
+      code: "BRIEF_QUALITY_FOOTPRINT_SHAPE",
+      line: footprint[0].heading.index + 1,
+      message: "Declare a non-empty footprint and a non-empty Non-goals: fence.",
+    });
+  }
+  return findings;
 }
 
 function pointerFindings(markdown) {
@@ -254,6 +467,17 @@ export function lintBrief(body) {
     }
   }
   findings.push(...pointerFindings(markdown), ...salvageFindings(markdown));
+  findings.push(
+    ...[
+      declarationFinding(markdown, QUALITY_DECLARATIONS.profile),
+      declarationFinding(markdown, QUALITY_DECLARATIONS.intent),
+      ...footprintShapeFindings(markdown),
+      declarationFinding(markdown, QUALITY_DECLARATIONS.ui),
+      declarationFinding(markdown, QUALITY_DECLARATIONS.data),
+      declarationFinding(markdown, QUALITY_DECLARATIONS.compatibility),
+      declarationFinding(markdown, QUALITY_DECLARATIONS.glossary),
+    ].filter(Boolean),
+  );
   return { bytes, findings, maxBytes: BRIEF_MAX_BYTES };
 }
 
