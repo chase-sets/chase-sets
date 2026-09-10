@@ -4,6 +4,7 @@ import {
   Text,
   Heading,
   AppliedFilterChips,
+  BrandFoilText,
   Button,
   CommerceSheet,
   Form,
@@ -29,7 +30,6 @@ import {
   MarketplaceFacetGroup,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
-  MarketplaceLandingHero,
   MarketplaceMobileFilterBar,
   SavedSearchPrompt,
   SearchControlBar,
@@ -56,6 +56,9 @@ const FACET_OPTION_SEARCH_THRESHOLD = 8;
 const PRIORITY_SEARCH_RESULT_IMAGE_COUNT = 3;
 const SEARCH_CARD_IMAGE_WIDTH = 224;
 const SEARCH_CARD_IMAGE_HEIGHT = 314;
+// The one gold-foil word the no-query Home carries under the ratified foil law
+// (epic #6026): the unique brand-bearing literal in the unchanged headline.
+const HERO_FOIL_WORD = "chasing";
 
 type DynamicSearchFilterSelection = Readonly<{
   kind: "field" | "reference" | "dimension";
@@ -110,6 +113,24 @@ function formatPrice(item: DiscoverySearchItem): string | undefined {
   return lowestPrice !== null && lowestPrice !== undefined && lowestPriceCurrencyCode
     ? formatMoney(lowestPrice, lowestPriceCurrencyCode)
     : undefined;
+}
+
+// Splits the shipped locale headline around its one treated word so the landed
+// BrandFoilText wraps only that word: punctuation stays outside and the
+// concatenated visible/accessible text stays byte-identical to the locale value.
+// A zero- or multi-match headline is a contract failure, never a guessed split.
+function heroHeadlineContent(headline: string, treatedWord: string) {
+  const index = headline.indexOf(treatedWord);
+  if (index === -1 || headline.indexOf(treatedWord, index + treatedWord.length) !== -1) {
+    throw new Error(`Expected exactly one "${treatedWord}" in hero headline "${headline}".`);
+  }
+  return (
+    <>
+      {headline.slice(0, index)}
+      <BrandFoilText>{treatedWord}</BrandFoilText>
+      {headline.slice(index + treatedWord.length)}
+    </>
+  );
 }
 
 function formatSearchResultMetadata(item: DiscoverySearchItem): string | undefined {
@@ -427,7 +448,6 @@ export function SearchPage({
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false);
   const exactTotal = data?.total ?? 0;
   const featuredCategories = categories.slice(0, 5);
-  const catalogDepth = categories.reduce((total, current) => total + current.item_count, 0);
   const activeCategoryLabel =
     categories.find((item) => item.slug === category)?.name ??
     t("discovery.features.search.ui.searchPage.all.categories");
@@ -439,17 +459,23 @@ export function SearchPage({
     : t("discovery.features.search.ui.searchPage.any.market.activity");
   const activeDynamicFilterCount = dynamicFilters.length;
   const dynamicFacets = data?.facets ?? [];
-  const resultsSummary =
-    data && data.items.length !== exactTotal
+  // The Result Set count only resolves from an actual payload: while data is
+  // unavailable every count surface is absent rather than a false resolved zero.
+  const resultSetCount = data
+    ? t("discovery.features.search.ui.searchPage.results.summary", {
+        count: exactTotal,
+        category: activeCategoryLabel,
+      })
+    : undefined;
+  const resultsSummary = data
+    ? data.items.length !== exactTotal
       ? t("discovery.features.search.ui.searchPage.results.summary.showing", {
           shown: data.items.length,
           count: exactTotal,
           category: activeCategoryLabel,
         })
-      : t("discovery.features.search.ui.searchPage.results.summary", {
-          count: exactTotal,
-          category: activeCategoryLabel,
-        });
+      : resultSetCount
+    : undefined;
   const focusedResultsHeading = committedSearch.trim()
     ? t("discovery.features.search.ui.searchPage.results.heading.search", { search: committedSearch.trim() })
     : category
@@ -780,51 +806,58 @@ export function SearchPage({
       summary={
         hasFocusedResults ? null : (
           <Stack gap={6}>
-            <MarketplaceLandingHero
-              badges={[
-                { label: t("discovery.features.search.ui.searchPage.marketplace"), tone: "accent" },
-                { label: t("discovery.features.search.ui.searchPage.verified.supply"), tone: "success" },
-              ]}
-              title={t("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and")}
-              description={t("discovery.features.search.ui.searchPage.search.live.supply.compare.active.markets")}
-              search={
-                <Form role="search" spacing="none" onSubmit={handleSearchSubmit}>
-                  <SearchInput
-                    label={t("discovery.features.search.ui.searchPage.marketplace.search")}
-                    hideLabel
-                    placeholder={t("discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage")}
-                    value={search}
-                    onChange={(e) => onSearchChange(e.target.value)}
-                  />
-                </Form>
-              }
-              filters={[
-                {
-                  id: "",
-                  label: t("discovery.features.search.ui.searchPage.all"),
-                  selected: !category,
-                  onSelect: () => onCategoryChange(""),
-                },
-                ...featuredCategories.map((item) => ({
-                  id: item.slug,
-                  label: item.name,
-                  selected: category === item.slug,
-                  onSelect: () => onCategoryChange(item.slug),
-                })),
-              ]}
-              metrics={[
-                {
-                  label: t("discovery.features.search.ui.searchPage.results"),
-                  value: exactTotal,
-                  detail: activeCategoryLabel,
-                },
-                {
-                  label: t("discovery.features.search.ui.searchPage.catalog.depth"),
-                  value: catalogDepth,
-                  detail: t("discovery.features.search.ui.searchPage.tracked.items", { count: catalogDepth }),
-                },
-              ]}
-            />
+            <Stack gap={5} data-search-home-hero="">
+              <Stack gap={3}>
+                <Inline gap={2}>
+                  <Badge tone="accent">{t("discovery.features.search.ui.searchPage.marketplace")}</Badge>
+                  <Badge tone="success">{t("discovery.features.search.ui.searchPage.verified.supply")}</Badge>
+                </Inline>
+                <Heading level={1} balance>
+                  {heroHeadlineContent(
+                    t("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and"),
+                    HERO_FOIL_WORD,
+                  )}
+                </Heading>
+                <Text size={{ base: "md", md: "lg" }} tone="secondary">
+                  {t("discovery.features.search.ui.searchPage.search.live.supply.compare.active.markets")}
+                </Text>
+              </Stack>
+              <Form role="search" spacing="none" onSubmit={handleSearchSubmit}>
+                <SearchInput
+                  label={t("discovery.features.search.ui.searchPage.marketplace.search")}
+                  hideLabel
+                  placeholder={t("discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage")}
+                  value={search}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                />
+              </Form>
+              <Inline gap={2}>
+                <Button
+                  tone={category ? "secondary" : "primary"}
+                  size="sm"
+                  onClick={() => onCategoryChange("")}
+                  leadingIcon="grid"
+                >
+                  {t("discovery.features.search.ui.searchPage.all")}
+                </Button>
+                {featuredCategories.map((item) => (
+                  <Button
+                    key={item.slug}
+                    tone={category === item.slug ? "primary" : "secondary"}
+                    size="sm"
+                    onClick={() => onCategoryChange(item.slug)}
+                    leadingIcon="tag"
+                  >
+                    {item.name}
+                  </Button>
+                ))}
+              </Inline>
+              {resultSetCount ? (
+                <Text size="sm" tone="secondary" data-search-result-set-count="">
+                  {resultSetCount}
+                </Text>
+              ) : null}
+            </Stack>
             <PromoStrip
               icon="shield"
               title={t("discovery.features.search.ui.searchPage.buyer.confidence.is.built.into.discovery")}
@@ -1015,7 +1048,7 @@ export function SearchPage({
                 </LinkButton>
               }
             />
-          ) : data && data.items.length > 0 ? (
+          ) : data && data.items.length > 0 && !showHomeMerchandising ? (
             <>
               {data.retrievalMode === "rescue" ? (
                 <Stack gap={1}>

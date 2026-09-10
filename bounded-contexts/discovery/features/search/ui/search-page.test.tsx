@@ -114,6 +114,219 @@ const searchResponse: DiscoverySearchResponse = {
   resultSetKey: "b".repeat(64),
 };
 
+const heroHeadline = "Find cards, comics, figures, sneakers, and memorabilia worth chasing.";
+const heroDescription =
+  "Search live supply, compare active markets, and move from discovery to item detail with buyer confidence built in.";
+
+const imageBearingNewArrival: DiscoverySearchItem = {
+  ...searchResult,
+  catalog_item_id: "cat_pikachu_arrival",
+  slug: "pikachu-cat_pikachu_arrival",
+  title: "Pikachu",
+  subtitle: "Jungle 60/64 Common",
+  image_urls: ["/pikachu-jungle.webp"],
+};
+
+type RouteStateObservation = Readonly<{
+  hero: boolean;
+  inlineCount: boolean;
+  spinner: boolean;
+  busyTransition: boolean;
+  featuredCategories: boolean;
+  newArrivals: boolean;
+  newArrivalImage: boolean;
+  focusedHeading: boolean;
+  focusedSummary: boolean;
+  mobileFilterBar: boolean;
+  resultGrid: boolean;
+  zeroRecovery: boolean;
+  catalogEmptyCopy: boolean;
+  filteredEmptyCopy: boolean;
+  errorBanner: boolean;
+  rescue: boolean;
+  loadMore: boolean;
+}>;
+
+// Every probe reads owned markup or exact localized copy, never a visibility-
+// dependent role lookup, so a hidden or stale branch cannot satisfy a row.
+function observeRouteState(): RouteStateObservation {
+  const newArrivalsSection = screen.queryByRole("heading", { name: "New arrivals" })?.closest("section") ?? null;
+  const resultCards = Array.from(document.querySelectorAll("article[data-card-layout='search-result']"));
+
+  return {
+    hero: document.querySelectorAll("[data-search-home-hero]").length === 1,
+    inlineCount: document.querySelectorAll("[data-search-result-set-count]").length === 1,
+    spinner: screen.queryByText("Searching...") !== null,
+    busyTransition: screen.queryByText("Updating results...") !== null,
+    featuredCategories: screen.queryByRole("heading", { name: "Featured categories" }) !== null,
+    newArrivals: newArrivalsSection !== null,
+    newArrivalImage: newArrivalsSection?.querySelector("article img") instanceof HTMLImageElement,
+    focusedHeading: screen
+      .queryAllByRole("heading", { level: 1 })
+      .some((heading) => heading.classList.contains("sr-only")),
+    focusedSummary: screen
+      .queryAllByText(/results in All Categories$/)
+      .some((summary) => summary.closest("[data-search-home-hero]") === null),
+    mobileFilterBar: screen.queryByRole("button", { name: "Open filters" }) !== null,
+    resultGrid: resultCards.some((card) => !newArrivalsSection?.contains(card)),
+    zeroRecovery: screen.queryByRole("heading", { name: "No items found" }) !== null,
+    catalogEmptyCopy: screen.queryByText("No catalog items are available yet.") !== null,
+    filteredEmptyCopy: screen.queryByText("Try adjusting your search or filters.") !== null,
+    errorBanner: screen.queryByText("Search failed.") !== null,
+    rescue: screen.queryByRole("heading", { name: "Closest matches" }) !== null,
+    loadMore:
+      screen.queryByText("Loading more results...") !== null ||
+      screen.queryByRole("button", { name: /^(Load more results|Retry loading results)$/ }) !== null,
+  };
+}
+
+const absentRouteState: RouteStateObservation = {
+  hero: false,
+  inlineCount: false,
+  spinner: false,
+  busyTransition: false,
+  featuredCategories: false,
+  newArrivals: false,
+  newArrivalImage: false,
+  focusedHeading: false,
+  focusedSummary: false,
+  mobileFilterBar: false,
+  resultGrid: false,
+  zeroRecovery: false,
+  catalogEmptyCopy: false,
+  filteredEmptyCopy: false,
+  errorBanner: false,
+  rescue: false,
+  loadMore: false,
+};
+
+// The eleven registered #7205 route-state rows, one executable fixture each.
+const inkFoilRouteStateRows: ReadonlyArray<{
+  row: string;
+  props: Partial<Parameters<typeof SearchPage>[0]>;
+  expected: RouteStateObservation;
+}> = [
+  {
+    row: "Initial loading, no data/Home payload",
+    props: { data: null, loading: true, homeMerchandising: null },
+    expected: { ...absentRouteState, hero: true, spinner: true, busyTransition: true },
+  },
+  {
+    row: "Home, both sections",
+    props: {
+      data: { ...searchResponse, total: 352 },
+      homeMerchandising: { featuredCategories: categories.slice(0, 1), newArrivals: [imageBearingNewArrival] },
+    },
+    expected: {
+      ...absentRouteState,
+      hero: true,
+      inlineCount: true,
+      featuredCategories: true,
+      newArrivals: true,
+      newArrivalImage: true,
+    },
+  },
+  {
+    row: "Home, Category only",
+    props: {
+      data: { ...searchResponse, total: 352 },
+      homeMerchandising: { featuredCategories: categories.slice(0, 1), newArrivals: [] },
+    },
+    expected: { ...absentRouteState, hero: true, inlineCount: true, featuredCategories: true },
+  },
+  {
+    row: "Home, New Arrivals only",
+    props: {
+      data: { ...searchResponse, total: 352 },
+      homeMerchandising: { featuredCategories: [], newArrivals: [imageBearingNewArrival] },
+    },
+    expected: { ...absentRouteState, hero: true, inlineCount: true, newArrivals: true, newArrivalImage: true },
+  },
+  {
+    row: "Home, resolved no merchandising",
+    props: {
+      data: { ...searchResponse, items: [], total: 0, count: 0 },
+      homeMerchandising: { featuredCategories: [], newArrivals: [] },
+    },
+    expected: { ...absentRouteState, hero: true, inlineCount: true, zeroRecovery: true, catalogEmptyCopy: true },
+  },
+  {
+    row: "Focused populated Result Set",
+    props: {
+      committedSearch: "abra",
+      data: searchResponse,
+      homeMerchandising: { featuredCategories: categories.slice(0, 1), newArrivals: [imageBearingNewArrival] },
+    },
+    expected: {
+      ...absentRouteState,
+      focusedHeading: true,
+      focusedSummary: true,
+      mobileFilterBar: true,
+      resultGrid: true,
+    },
+  },
+  {
+    row: "Focused zero Result Set",
+    props: {
+      search: "missing",
+      committedSearch: "missing",
+      data: { ...searchResponse, items: [], total: 0, count: 0 },
+    },
+    expected: {
+      ...absentRouteState,
+      focusedHeading: true,
+      focusedSummary: true,
+      mobileFilterBar: true,
+      zeroRecovery: true,
+      filteredEmptyCopy: true,
+    },
+  },
+  {
+    row: "Focused error with no data",
+    props: { committedSearch: "abra", data: null, error: "Search failed." },
+    expected: { ...absentRouteState, focusedHeading: true, mobileFilterBar: true, errorBanner: true },
+  },
+  {
+    row: "Focused Rescue with results",
+    props: {
+      committedSearch: "electric mascot",
+      data: { ...searchResponse, retrievalMode: "rescue", lexicalCount: 0 },
+    },
+    expected: {
+      ...absentRouteState,
+      focusedHeading: true,
+      focusedSummary: true,
+      mobileFilterBar: true,
+      resultGrid: true,
+      rescue: true,
+    },
+  },
+  {
+    row: "Focused updating with retained data",
+    props: { committedSearch: "abra", loading: true, data: searchResponse },
+    expected: {
+      ...absentRouteState,
+      busyTransition: true,
+      focusedHeading: true,
+      focusedSummary: true,
+      mobileFilterBar: true,
+      resultGrid: true,
+    },
+  },
+  {
+    row: "Focused load-more",
+    props: { committedSearch: "abra", loadingMore: true, data: { ...searchResponse, nextCursor: "cursor_2" } },
+    expected: {
+      ...absentRouteState,
+      focusedHeading: true,
+      focusedSummary: true,
+      mobileFilterBar: true,
+      resultGrid: true,
+      loadMore: true,
+    },
+  },
+];
+
 function createCategory(overrides: Partial<DiscoveryCategoryItem>): DiscoveryCategoryItem {
   return {
     category_id: `cat_${overrides.slug ?? "category"}`,
@@ -336,15 +549,90 @@ describe("SearchPage", () => {
     expect(screen.getAllByText("Showing 24 of 352 results in All Categories").length).toBeGreaterThan(0);
   });
 
-  it("uses only Result Set and catalog-depth metrics in the landing hero", () => {
-    renderSearchPage({ data: { ...searchResponse, total: 352 } });
+  it("preserves the complete no-query hero contract while replacing landing metrics", () => {
+    const props = renderSearchPage({ data: { ...searchResponse, total: 352 } });
+    const hero = document.querySelector("[data-search-home-hero]");
+    expect(hero).toBeTruthy();
+    const heroView = within(hero as HTMLElement);
 
-    expect(screen.getByText("Results")).toBeTruthy();
-    expect(screen.getByText("352")).toBeTruthy();
-    expect(screen.getByText("Catalog depth")).toBeTruthy();
-    expect(screen.queryByText("Available Now")).toBeNull();
-    expect(screen.queryByText("Market Only")).toBeNull();
+    // Exactly one display h1 carrying the byte-identical localized headline, with
+    // the landed BrandFoilText wrapping only the treated word and the punctuation outside.
+    const pageHeadings = screen.getAllByRole("heading", { level: 1 });
+    expect(pageHeadings).toHaveLength(1);
+    const headline = pageHeadings[0]!;
+    expect(hero!.contains(headline)).toBe(true);
+    expect(headline.className).toContain("font-display");
+    expect(headline.textContent).toBe(heroHeadline);
+    const foilSites = document.querySelectorAll(".ds-brand-foil-text");
+    expect(foilSites).toHaveLength(1);
+    expect(headline.contains(foilSites[0]!)).toBe(true);
+    expect(foilSites[0]!.textContent).toBe("chasing");
+    expect(Array.from(headline.childNodes).map((node) => [node.nodeType, node.textContent])).toEqual([
+      [Node.TEXT_NODE, "Find cards, comics, figures, sneakers, and memorabilia worth "],
+      [Node.ELEMENT_NODE, "chasing"],
+      [Node.TEXT_NODE, "."],
+    ]);
+
+    // Both badges and the exact description.
+    expect(heroView.getByText("Marketplace")).toBeTruthy();
+    expect(heroView.getByText("Verified supply")).toBeTruthy();
+    expect(heroView.getByText(heroDescription)).toBeTruthy();
+
+    // The hero search form is the existing one-search-input call site.
+    const searchForm = heroView.getByRole("search");
+    fireEvent.change(within(searchForm).getByRole("searchbox", { name: "Marketplace search" }), {
+      target: { value: "charizard" },
+    });
+    expect(props.onSearchChange).toHaveBeenCalledWith("charizard");
+    fireEvent.submit(searchForm);
+    expect(props.onSearchSubmit).toHaveBeenCalledTimes(1);
+
+    // The complete featured-category label set, the selected state, and slug callbacks.
+    const categoryButtons = heroView.getAllByRole("button");
+    expect(categoryButtons.map((button) => button.textContent)).toEqual([
+      "All",
+      "Booster Packs",
+      "Generation I",
+      "Fire",
+      "Singles",
+      "Pokemon TCG",
+    ]);
+    expect(categoryButtons[0]!.className).toContain("bg-accent");
+    for (const button of categoryButtons.slice(1)) {
+      expect(button.className).not.toContain("bg-accent");
+    }
+    fireEvent.click(heroView.getByRole("button", { name: "Fire" }));
+    expect(props.onCategoryChange).toHaveBeenLastCalledWith("fire");
+    fireEvent.click(heroView.getByRole("button", { name: "Pokemon TCG" }));
+    expect(props.onCategoryChange).toHaveBeenLastCalledWith("pokemon-tcg");
+    fireEvent.click(heroView.getByRole("button", { name: "All" }));
+    expect(props.onCategoryChange).toHaveBeenLastCalledWith("");
+
+    // One resolved inline Result Set count replaces the two landing Stat panels.
+    expect(document.querySelectorAll("[data-search-result-set-count]")).toHaveLength(1);
+    expect(heroView.getByText("352 results in All Categories")).toBeTruthy();
+    expect(screen.queryByText("Results")).toBeNull();
+    expect(screen.queryByText("352")).toBeNull();
+    expect(screen.queryByText("Catalog depth")).toBeNull();
+    expect(screen.queryByText(/tracked items/)).toBeNull();
+
+    // The PromoStrip is unchanged.
+    expect(screen.getByText("Order confidence is built into discovery.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Verified supply, transparent pricing, and item-level market history help buyers move with confidence.",
+      ),
+    ).toBeTruthy();
   });
+
+  it.each(inkFoilRouteStateRows)(
+    "renders every Ink & Foil route-state row exclusively: $row",
+    ({ props, expected }) => {
+      renderSearchPage(props);
+
+      expect(observeRouteState()).toEqual(expected);
+    },
+  );
 
   it("marks stale results busy and shows transition feedback", () => {
     renderSearchPage({ committedSearch: "abra", loading: true });

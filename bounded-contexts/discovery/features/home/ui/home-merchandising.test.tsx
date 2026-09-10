@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type { DiscoverySearchItem } from "../../../support/client-support/contracts";
@@ -59,6 +59,67 @@ describe("HomeMerchandising", () => {
     expect(screen.getByRole("link", { name: "Browse all new arrivals" }).getAttribute("href")).toBe(
       "/search?sort=newest",
     );
+  });
+
+  it("keeps Featured Categories authoritative and New Arrivals image-led", () => {
+    const imageBearingArrival: DiscoverySearchItem = { ...newArrival, image_urls: ["/pikachu-jungle.webp"] };
+    const { container } = render(
+      <HomeMerchandising featuredCategories={[category]} newArrivals={[imageBearingArrival]} />,
+    );
+
+    // Featured Categories stay text-led entity navigation from authoritative
+    // Category facts: name, description, item count, and link, with no image.
+    const categoriesSection = screen.getByRole("heading", { name: "Featured categories" }).closest("section");
+    expect(categoriesSection).toBeTruthy();
+    const categoriesView = within(categoriesSection as HTMLElement);
+    expect(categoriesView.getByText("Cards")).toBeTruthy();
+    expect(categoriesView.getByText("Collectible cards across games and eras.")).toBeTruthy();
+    expect(categoriesView.getByText("12 items")).toBeTruthy();
+    expect(categoriesView.getByRole("link", { name: "Browse Cards" }).getAttribute("href")).toBe("/categories/cards");
+    expect(categoriesSection!.querySelector("img")).toBeNull();
+    expect(categoriesSection!.querySelector("article[data-card-layout]")).toBeNull();
+
+    // New Arrivals stay image-led Product ListingCards through the unchanged
+    // landed contract: an actual Product Asset image inside the card.
+    const arrivalsSection = screen.getByRole("heading", { name: "New arrivals" }).closest("section");
+    expect(arrivalsSection).toBeTruthy();
+    const arrivalsView = within(arrivalsSection as HTMLElement);
+    const card = arrivalsView.getByRole("heading", { name: "Pikachu" }).closest("article");
+    expect(card?.getAttribute("data-card-layout")).toBe("search-result");
+    const image = arrivalsView.getByRole("img", { name: "Pikachu — Jungle 60/64 Common" });
+    expect(card?.contains(image)).toBe(true);
+    expect(image.getAttribute("src")).toBe("/pikachu-jungle.webp");
+    expect(
+      arrivalsView.getByRole("link", { name: "View details for Pikachu — Jungle 60/64 Common" }).getAttribute("href"),
+    ).toBe("/items/pikachu-cat_pikachu");
+
+    // Browse all new arrivals lives in the section's actions slot: byte-identical
+    // text and href, rendered in the section header ahead of the card grid.
+    const browseAll = arrivalsView.getByRole("link", { name: "Browse all new arrivals" });
+    expect(browseAll.getAttribute("href")).toBe("/search?sort=newest");
+    expect(browseAll.textContent).toBe("Browse all new arrivals");
+    expect(browseAll.compareDocumentPosition(card as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(browseAll.closest("section")).toBe(arrivalsSection);
+    expect(card?.parentElement?.contains(browseAll)).toBe(false);
+    expect(container.querySelectorAll("a[href='/search?sort=newest']")).toHaveLength(1);
+  });
+
+  it("renders the permanent Product image fallback when a New Arrival has no primary asset", () => {
+    const fallbackArrival: DiscoverySearchItem = {
+      ...newArrival,
+      image_fallback: {
+        url: "/fake-cdn/assets/pokemon-card-back.png",
+        alt: "Pokemon TCG English card back",
+        usage: "permanent",
+        variants: {
+          card: { oneX: "/fake-cdn/assets/pokemon-card-back.png", twoX: "/fake-cdn/assets/pokemon-card-back@2x.png" },
+        },
+      },
+    };
+    render(<HomeMerchandising featuredCategories={[]} newArrivals={[fallbackArrival]} />);
+
+    const image = screen.getByRole("img", { name: "Pikachu — Jungle 60/64 Common" });
+    expect(image.getAttribute("src")).toBe("/fake-cdn/assets/pokemon-card-back.png");
   });
 
   it("keeps whichever section has data when the other section is sparse", () => {

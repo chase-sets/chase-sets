@@ -56,65 +56,65 @@ export function HomeMerchandising({ featuredCategories, newArrivals }: HomeMerch
         <PageSection
           title={t("discovery.features.home.ui.homeMerchandising.new.arrivals")}
           description={t("discovery.features.home.ui.homeMerchandising.new.arrivals.description")}
-        >
-          <Stack gap={3}>
-            <Grid columns={{ base: 1, lg: 2, "2xl": 3 }} gap={4}>
-              {newArrivals.map((item) => {
-                const href = `/items/${item.slug || item.catalog_item_id}`;
-                const displayIdentity = formatDisplayIdentity(item.title, item.subtitle);
-                const productAssetImage = buildDiscoveryProductAssetImage(
-                  item.product_asset_sets,
-                  "search-card",
-                  "(min-width: 768px) 164px, 124px",
-                );
-                const imageSrc =
-                  productAssetImage?.src ??
-                  item.image_urls[0] ??
-                  (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : undefined);
-                const lowestPrice = item.market_summary?.lowest_price_amount ?? null;
-
-                return (
-                  <ListingCard
-                    key={item.catalog_item_id}
-                    cardLayout="search-result"
-                    href={href}
-                    title={item.title}
-                    subtitle={item.subtitle}
-                    image={productAssetImage ?? undefined}
-                    imageSrc={imageSrc}
-                    imageSlot="compact-product"
-                    imageAlt={displayIdentity}
-                    imageFallbackSrc={item.image_fallback?.url}
-                    imageFallbackAlt={displayIdentity}
-                    imageFallbackSrcSet={imageVariantSrcSet(item.image_fallback, "card")}
-                    imageFallbackSizes="(min-width: 768px) 164px, 124px"
-                    imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
-                    detailLinkLabel={t("localization.listingCard.view.details.for", { identity: displayIdentity })}
-                    saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
-                    savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
-                    watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
-                    price={lowestPrice ? formatMoney(lowestPrice) : undefined}
-                    pricePresentation={
-                      lowestPrice
-                        ? {
-                            state: "indicative",
-                            prefix: t("discovery.features.home.ui.homeMerchandising.from"),
-                          }
-                        : undefined
-                    }
-                    primaryAction={
-                      <LinkButton href={href} size="sm">
-                        {t("discovery.features.home.ui.homeMerchandising.view.item")}
-                      </LinkButton>
-                    }
-                  />
-                );
-              })}
-            </Grid>
+          actions={
             <LinkButton href="/search?sort=newest" tone="secondary">
               {t("discovery.features.home.ui.homeMerchandising.browse.all.new.arrivals")}
             </LinkButton>
-          </Stack>
+          }
+        >
+          <Grid columns={{ base: 1, lg: 2, "2xl": 3 }} gap={4}>
+            {newArrivals.map((item) => {
+              const href = `/items/${item.slug || item.catalog_item_id}`;
+              const displayIdentity = formatDisplayIdentity(item.title, item.subtitle);
+              const productAssetImage = buildDiscoveryProductAssetImage(
+                item.product_asset_sets,
+                "search-card",
+                "(min-width: 768px) 164px, 124px",
+              );
+              const imageSrc =
+                productAssetImage?.src ??
+                item.image_urls[0] ??
+                (item.image_fallback?.usage === "permanent" ? item.image_fallback.url : undefined);
+              const lowestPrice = item.market_summary?.lowest_price_amount ?? null;
+
+              return (
+                <ListingCard
+                  key={item.catalog_item_id}
+                  cardLayout="search-result"
+                  href={href}
+                  title={item.title}
+                  subtitle={item.subtitle}
+                  image={productAssetImage ?? undefined}
+                  imageSrc={imageSrc}
+                  imageSlot="compact-product"
+                  imageAlt={displayIdentity}
+                  imageFallbackSrc={item.image_fallback?.url}
+                  imageFallbackAlt={displayIdentity}
+                  imageFallbackSrcSet={imageVariantSrcSet(item.image_fallback, "card")}
+                  imageFallbackSizes="(min-width: 768px) 164px, 124px"
+                  imageFallbackMode={item.image_fallback?.usage ?? "permanent"}
+                  detailLinkLabel={t("localization.listingCard.view.details.for", { identity: displayIdentity })}
+                  saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
+                  savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
+                  watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
+                  price={lowestPrice ? formatMoney(lowestPrice) : undefined}
+                  pricePresentation={
+                    lowestPrice
+                      ? {
+                          state: "indicative",
+                          prefix: t("discovery.features.home.ui.homeMerchandising.from"),
+                        }
+                      : undefined
+                  }
+                  primaryAction={
+                    <LinkButton href={href} size="sm">
+                      {t("discovery.features.home.ui.homeMerchandising.view.item")}
+                    </LinkButton>
+                  }
+                />
+              );
+            })}
+          </Grid>
         </PageSection>
       ) : null}
     </Stack>
