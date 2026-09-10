@@ -24,3 +24,4 @@ export {
   type OutboundOperationSummary,
   type OutboundSyncServices,
 } from "./features/outbound-sync/domain/contracts";
+export { createChannelActionAttentionSourceFromReadModel } from "./features/manual-sync/read-model/attention-source";

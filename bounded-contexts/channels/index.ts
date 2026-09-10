@@ -184,19 +184,31 @@ import type { ChannelsServices } from "./support/runtime-support/services";
 import { createConnectionHealthRuntime } from "./features/connection-health/api/runtime";
 import { resolveChannelHealthPolicy } from "./features/connection-health/api/policy";
 import { channelHealthSchemaMigrations, channelHealthSchemaSql } from "./features/connection-health/read-model/schema";
+import type { MarketplaceChannelInboundClampCapability } from "./support/request-support/marketplace-channel-inbound-clamp";
+import { createManualSyncRuntime, type ManualSyncServices } from "./features/manual-sync/api/runtime";
+import { manualSyncSchemaMigrations, manualSyncSchemaSql } from "./features/manual-sync/read-model/schema";
+import { manualSyncRetentionExemptions } from "./features/manual-sync/read-model/retention-policy";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
+type ChannelsRuntimeServices = ChannelsServices &
+  Readonly<{
+    manualSync: ManualSyncServices;
+  }>;
+type ChannelsHostPorts = ChannelConnectionHostPorts &
+  Readonly<{ marketplaceChannelInboundClamp?: MarketplaceChannelInboundClampCapability }>;
 
-export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelConnectionHostPorts>({
+export const module = defineBoundedContextModule<ChannelsRuntimeServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
     ...outboundSyncSchemaMigrations,
     ...tcgplayerCsvSchemaMigrations,
     ...channelHealthSchemaMigrations,
+    ...manualSyncSchemaMigrations,
   ],
+  retentionExemptions: manualSyncRetentionExemptions,
   createServices: (pool, ports) => {
     const eventStore = createPostgresEventStore({
       pool,
@@ -249,12 +261,20 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       providerRegistry: channelProviderRegistry,
       compositionProfiles,
     });
+    const manualSync = createManualSyncRuntime({
+      db: pool,
+      connections,
+      tcgplayerCsv,
+      policies,
+      marketplaceClamp: ports?.marketplaceChannelInboundClamp ?? { kind: "not-mounted" },
+    });
     return {
       connections,
       connectionHealth,
       listingComposition,
       outboundSync,
       tcgplayerCsv,
+      manualSync,
       db: pool,
       projectors: [
         ...connections.projectors,

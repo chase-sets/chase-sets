@@ -11,7 +11,7 @@ const actor = {
   accountId: "acc_seller",
   membershipId: "mem_1",
   roleKey: "manager",
-  permissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
+  permissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view", "channels.view"],
 } satisfies ResolvedActor;
 
 const protocol = {

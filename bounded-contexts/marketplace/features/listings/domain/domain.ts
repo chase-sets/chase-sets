@@ -349,7 +349,7 @@ export type MarketplaceListingState = Readonly<{
   evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
   evidence: readonly MarketplaceListingPhoto[];
   status: ListingStatus;
-  pauseReason: "seller" | "policy-input-missing" | null;
+  pauseReason: "seller" | "policy-input-missing" | "channel-inbound-dark" | null;
 }>;
 
 export const initialMarketplaceListingState: MarketplaceListingState = {
@@ -484,7 +484,7 @@ export type PublishListingCommand = Readonly<{
 }>;
 export type PauseListingCommand = Readonly<{
   type: "PauseListing";
-  reason?: "seller" | "policy-input-missing";
+  reason?: "seller" | "policy-input-missing" | "channel-inbound-dark";
 }>;
 export type AutoUnlistListingCommand = Readonly<{
   type: "AutoUnlistListing";
@@ -631,7 +631,7 @@ export type ListingPublishedEvent = DomainEvent<
 >;
 export type ListingPausedEvent = DomainEvent<
   "marketplace.listing.paused",
-  Readonly<{ reason: "seller" | "policy-input-missing" }>
+  Readonly<{ reason: "seller" | "policy-input-missing" | "channel-inbound-dark" }>
 >;
 export type ListingAutoUnlistedEvent = DomainEvent<
   "marketplace.listing.auto-unlisted",
@@ -898,7 +898,10 @@ export const decideMarketplaceListing: AggregateDecider<
     case "PauseListing":
       assert(state.listingId !== null, "Listing must be created first.");
       if (state.status === "paused") {
-        return [];
+        const requestedReason = command.reason ?? "seller";
+        return state.pauseReason === requestedReason
+          ? []
+          : [{ type: "marketplace.listing.paused", data: { reason: requestedReason } }];
       }
       assert(state.status === "active", "Only active listings can be paused.");
       return [{ type: "marketplace.listing.paused", data: { reason: command.reason ?? "seller" } }];
