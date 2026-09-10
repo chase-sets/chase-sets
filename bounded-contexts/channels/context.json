@@ -458,6 +458,7 @@
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/compose",
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/ingest",
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/download",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/retry-clamp",
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/release",
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/upload-attempt",
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/validation-cancelled",
