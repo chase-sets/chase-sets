@@ -101,10 +101,12 @@ async function assertInkFoilHero(page: Page, viewport: InkFoilViewport) {
   const headlineNodes = await headline.evaluate((element) =>
     Array.from(element.childNodes).map((node) => [node.nodeType, node.textContent]),
   );
+  // DOM node types as numerals: this assertion runs in the Node.js test process,
+  // where the browser `Node` global does not exist (3 = text, 1 = element).
   expect(headlineNodes, "the foil wraps only the treated word; punctuation stays outside").toEqual([
-    [Node.TEXT_NODE, "Find cards, comics, figures, sneakers, and memorabilia worth "],
-    [Node.ELEMENT_NODE, heroFoilWord],
-    [Node.TEXT_NODE, "."],
+    [3, "Find cards, comics, figures, sneakers, and memorabilia worth "],
+    [1, heroFoilWord],
+    [3, "."],
   ]);
 
   await expect(hero.getByText("Marketplace", { exact: true })).toBeVisible();
