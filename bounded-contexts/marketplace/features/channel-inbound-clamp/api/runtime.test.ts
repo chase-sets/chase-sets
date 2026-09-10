@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { MARKETPLACE_CHANNEL_INBOUND_CLAMP_MAX_LISTINGS } from "../domain/contracts";
 import { createMarketplaceChannelInboundClampRuntime } from "./runtime";
 
 const context: EventStoreContext = {
@@ -8,6 +9,23 @@ const context: EventStoreContext = {
 };
 
 describe("marketplace-channel-inbound-clamp membership reconciliation", () => {
+  it("refuses membership 1000001 before opening a database snapshot", async () => {
+    const database = { connect: vi.fn(), query: vi.fn() };
+    const runtime = createMarketplaceChannelInboundClampRuntime(database as never, unreachableListings());
+
+    await expect(
+      runtime.engage(
+        {
+          ...input(),
+          listingIds: new Array(MARKETPLACE_CHANNEL_INBOUND_CLAMP_MAX_LISTINGS + 1).fill("listing-unread"),
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    expect(database.connect).not.toHaveBeenCalled();
+    expect(database.query).not.toHaveBeenCalled();
+  });
+
   it("fails closed when the independently counted membership drifts from the paged candidates", async () => {
     const client = queryClient({ total: 2, pages: [candidateRows(1)] });
     const listings = unreachableListings();

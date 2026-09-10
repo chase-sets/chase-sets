@@ -26,6 +26,27 @@ describe("channels-manual-sync-design-system", () => {
       expect(markup).not.toContain('type="submit"');
     }
   });
+
+  it("renders clamp recovery as a distinct safe action and suppresses ordinary readiness", () => {
+    const ready = panel("composed");
+    const recovery: ManualSyncPanel = {
+      ...ready,
+      attentionReason: "recovery",
+      actions: resolveManualSyncActions(ready.run, "recovery"),
+    };
+
+    const readyMarkup = renderToStaticMarkup(<ManualSyncPanelView panel={ready} />);
+    const recoveryMarkup = renderToStaticMarkup(<ManualSyncPanelView panel={recovery} />);
+
+    expect(readyMarkup).toContain("Ready to download");
+    expect(readyMarkup).toContain("Clamp and download CSV");
+    expect(readyMarkup).not.toContain('data-testid="manual-sync-recovery"');
+    expect(recoveryMarkup).toContain('data-testid="manual-sync-recovery"');
+    expect(recoveryMarkup).toContain("Inbound clamp recovery needs review");
+    expect(recoveryMarkup).toContain("Retry inbound clamp");
+    expect(recoveryMarkup).not.toContain("Ready to download");
+    expect(recoveryMarkup).not.toContain("Clamp and download CSV");
+  });
 });
 
 function panel(state: ChannelSyncRunState | null): ManualSyncPanel {
