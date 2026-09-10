@@ -10,6 +10,7 @@ import {
   type OutboundOperationLane,
   type OutboundOperationRecord,
   type OutboundSyncRuntimeDependencies,
+  type ReserveClaimedOutboundOperationsInput,
 } from "../domain/contracts";
 import { assertEnqueueOutboundOperation, assertOutboundClaimLeaseMs, payloadDigest } from "../domain/validation";
 
@@ -161,28 +162,45 @@ export function createOutboundOperationStore(
       });
     },
 
-    reserveClaimedOutboundOperations: async (input: {
-      registry: Parameters<typeof resolveConnectionExecutionAdmission>[0];
-      connectionId: string;
-      claimant: { claimantKind: "connector" | "manual"; claimantId: string };
-      maxOperations: number;
-      leaseMs: number;
-    }): Promise<ClaimedOperationReservation | null> => {
-      assertOutboundClaimLeaseMs(input.leaseMs);
-      if (!Number.isSafeInteger(input.maxOperations) || input.maxOperations < 1 || input.maxOperations > 1_000_000) {
-        throw new OutboundSyncError("invalid-input", "maxOperations must be an integer from 1 to 1000000.");
-      }
-      if (!input.claimant.claimantId || !["connector", "manual"].includes(input.claimant.claimantKind)) {
-        throw new OutboundSyncError("invalid-input", "claimant is invalid.");
-      }
-      return withPgTransaction(dependencies.db, async (db) => {
-        const connection = await readConnection(db, input.connectionId, true);
-        if (!connection) throw new OutboundSyncError("connection-not-found");
-        if (connection.status !== "active") throw new OutboundSyncError("connection-not-active");
-        const admission = resolveConnectionExecutionAdmission(input.registry, connection);
-        if (admission.kind !== "claimed") throw new OutboundSyncError("execution-mode-mismatch");
-        const selected = await db.query<OperationRow>(
-          `SELECT ${operationColumns.replaceAll(/\b([a-z][a-z0-9_]*)\b/g, "operation.$1")}
+    reserveClaimedOutboundOperations: async (
+      input: ReserveClaimedOutboundOperationsInput,
+    ): Promise<ClaimedOperationReservation | null> => {
+      assertReserveClaimedOutboundOperationsInput(input);
+      return withPgTransaction(dependencies.db, (db) => reserveClaimedOutboundOperations(db, input, now));
+    },
+
+    reserveClaimedOutboundOperationsInTransaction: async (
+      input: ReserveClaimedOutboundOperationsInput,
+      db: PgQueryable,
+    ): Promise<ClaimedOperationReservation | null> => {
+      assertReserveClaimedOutboundOperationsInput(input);
+      return reserveClaimedOutboundOperations(db, input, now);
+    },
+  };
+}
+
+function assertReserveClaimedOutboundOperationsInput(input: ReserveClaimedOutboundOperationsInput): void {
+  assertOutboundClaimLeaseMs(input.leaseMs);
+  if (!Number.isSafeInteger(input.maxOperations) || input.maxOperations < 1 || input.maxOperations > 1_000_000) {
+    throw new OutboundSyncError("invalid-input", "maxOperations must be an integer from 1 to 1000000.");
+  }
+  if (!input.claimant.claimantId || !["connector", "manual"].includes(input.claimant.claimantKind)) {
+    throw new OutboundSyncError("invalid-input", "claimant is invalid.");
+  }
+}
+
+async function reserveClaimedOutboundOperations(
+  db: PgQueryable,
+  input: ReserveClaimedOutboundOperationsInput,
+  now: () => string,
+): Promise<ClaimedOperationReservation | null> {
+  const connection = await readConnection(db, input.connectionId, true);
+  if (!connection) throw new OutboundSyncError("connection-not-found");
+  if (connection.status !== "active") throw new OutboundSyncError("connection-not-active");
+  const admission = resolveConnectionExecutionAdmission(input.registry, connection);
+  if (admission.kind !== "claimed") throw new OutboundSyncError("execution-mode-mismatch");
+  const selected = await db.query<OperationRow>(
+    `SELECT ${operationColumns.replaceAll(/\b([a-z][a-z0-9_]*)\b/g, "operation.$1")}
            FROM channel_outbound_operations AS operation
            JOIN channel_outbound_lanes AS lane
              ON lane.connection_id = operation.connection_id
@@ -200,64 +218,61 @@ export function createOutboundOperationStore(
            ORDER BY operation.enqueued_at, operation.operation_id
            LIMIT $3
            FOR UPDATE OF operation SKIP LOCKED`,
-          [input.connectionId, now(), input.maxOperations],
-        );
-        if (selected.rows.length === 0) return null;
-        const reservationId = `cor_${randomUUID()}`;
-        const reservedAt = now();
-        const leaseExpiresAt = new Date(Date.parse(reservedAt) + input.leaseMs).toISOString();
-        const operations = [];
-        for (const selectedRow of selected.rows) {
-          const attemptId = `coa_${randomUUID()}`;
-          const updated = await db.query<OperationRow>(
-            `UPDATE channel_outbound_operations
+    [input.connectionId, now(), input.maxOperations],
+  );
+  if (selected.rows.length === 0) return null;
+  const reservationId = `cor_${randomUUID()}`;
+  const reservedAt = now();
+  const leaseExpiresAt = new Date(Date.parse(reservedAt) + input.leaseMs).toISOString();
+  const operations = [];
+  for (const selectedRow of selected.rows) {
+    const attemptId = `coa_${randomUUID()}`;
+    const updated = await db.query<OperationRow>(
+      `UPDATE channel_outbound_operations
              SET status = 'in-flight', revision = revision + 1, attempt_id = $2,
                  claim_generation = claim_generation + 1, claimant_kind = $3,
                  claim_owner_id = $4, reservation_id = $5, claimed_until = $6,
                  attempt_count = attempt_count + 1, first_claimed_at = COALESCE(first_claimed_at, $7)
              WHERE operation_id = $1 AND status = 'pending' AND revision = $8
              RETURNING ${operationColumns}`,
-            [
-              selectedRow.operation_id,
-              attemptId,
-              input.claimant.claimantKind,
-              input.claimant.claimantId,
-              reservationId,
-              leaseExpiresAt,
-              reservedAt,
-              selectedRow.revision,
-            ],
-          );
-          const row = updated.rows[0];
-          if (!row) throw new OutboundSyncError("stale-fence");
-          operations.push({
-            operationId: row.operation_id,
-            attemptId: row.attempt_id!,
-            claimGeneration: Number(row.claim_generation),
-            connectionId: row.connection_id,
-            providerIdentity: admission.providerIdentity,
-            channelListingId: row.channel_listing_id,
-            listingId: row.listing_id,
-            operationKind: row.operation_kind,
-            listingRevision: Number(row.listing_revision),
-            desiredStateSequence: Number(row.source_desired_state_sequence),
-            payload: row.payload as never,
-            payloadDigest: row.payload_digest,
-            sourceOccurredAt: timestamp(row.source_occurred_at)!,
-            enqueuedAt: timestamp(row.enqueued_at)!,
-          });
-        }
-        return {
-          reservationId,
-          connectionId: input.connectionId,
-          providerIdentity: admission.providerIdentity,
-          claimant: input.claimant,
-          reservedAt,
-          leaseExpiresAt,
-          operations,
-        };
-      });
-    },
+      [
+        selectedRow.operation_id,
+        attemptId,
+        input.claimant.claimantKind,
+        input.claimant.claimantId,
+        reservationId,
+        leaseExpiresAt,
+        reservedAt,
+        selectedRow.revision,
+      ],
+    );
+    const row = updated.rows[0];
+    if (!row) throw new OutboundSyncError("stale-fence");
+    operations.push({
+      operationId: row.operation_id,
+      attemptId: row.attempt_id!,
+      claimGeneration: Number(row.claim_generation),
+      connectionId: row.connection_id,
+      providerIdentity: admission.providerIdentity,
+      channelListingId: row.channel_listing_id,
+      listingId: row.listing_id,
+      operationKind: row.operation_kind,
+      listingRevision: Number(row.listing_revision),
+      desiredStateSequence: Number(row.source_desired_state_sequence),
+      payload: row.payload as never,
+      payloadDigest: row.payload_digest,
+      sourceOccurredAt: timestamp(row.source_occurred_at)!,
+      enqueuedAt: timestamp(row.enqueued_at)!,
+    });
+  }
+  return {
+    reservationId,
+    connectionId: input.connectionId,
+    providerIdentity: admission.providerIdentity,
+    claimant: input.claimant,
+    reservedAt,
+    leaseExpiresAt,
+    operations,
   };
 }
 

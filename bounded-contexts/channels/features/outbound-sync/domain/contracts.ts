@@ -118,6 +118,14 @@ export type ClaimedOperationReservation = Readonly<{
   operations: readonly ClaimedOutboundOperation[];
 }>;
 
+export type ReserveClaimedOutboundOperationsInput = Readonly<{
+  registry: ChannelProviderRegistry;
+  connectionId: string;
+  claimant: ClaimedOperationClaimant;
+  maxOperations: number;
+  leaseMs: number;
+}>;
+
 export type ClaimedOperationOutcome = Readonly<{
   operationId: string;
   attemptId: string;
@@ -242,13 +250,11 @@ export type OutboundOperationSummary = Readonly<{
 export interface OutboundSyncServices {
   enqueueDesiredState(input: EnqueueOutboundOperation): Promise<OutboundOperationRecord | null>;
   reserveClaimedOutboundOperations(
-    input: Readonly<{
-      registry: ChannelProviderRegistry;
-      connectionId: string;
-      claimant: ClaimedOperationClaimant;
-      maxOperations: number;
-      leaseMs: number;
-    }>,
+    input: ReserveClaimedOutboundOperationsInput,
+  ): Promise<ClaimedOperationReservation | null>;
+  reserveClaimedOutboundOperationsInTransaction(
+    input: ReserveClaimedOutboundOperationsInput,
+    db: PgQueryable,
   ): Promise<ClaimedOperationReservation | null>;
   reportClaimedOperationOutcomes(
     input: Readonly<{

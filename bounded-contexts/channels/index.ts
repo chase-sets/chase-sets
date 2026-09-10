@@ -239,6 +239,7 @@ export const module = defineBoundedContextModule<
     const tcgplayerCsv = createTcgplayerCsvRuntime({
       db: pool,
       eventStore,
+      transactionalEventStore: eventStore,
       outboundSync,
       listingComposition,
       providerRegistry: channelProviderRegistry,

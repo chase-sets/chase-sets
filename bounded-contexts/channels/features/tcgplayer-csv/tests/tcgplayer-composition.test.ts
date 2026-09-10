@@ -306,6 +306,37 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
     });
     expect(accepted.members[0]).toMatchObject({ memberKind: "composed", conditionText: "Near Mint" });
   });
+
+  it("owns an omitted target only as one local refusal with no CSV row or invented mapping candidate", () => {
+    const omitted = composeTcgplayerReservation({
+      runId: "run-omitted-target",
+      reservation: { ...reservation, operations: [reservation.operations[0]!] },
+      basisSnapshotId: "snapshot-staged",
+      basisSnapshotGeneration: 7,
+      basisRows: [],
+      header: ["TCGplayer Id", "Total Quantity", "Add to Quantity", "TCG Marketplace Price"],
+      references: [
+        reference("channel-listing-composed", {
+          kind: "linked",
+          providerKey: "tcgplayer",
+          externalKey: "product:90000001",
+        }),
+      ],
+      conditionMappings: [],
+      profile: tcgplayerProfile,
+      maxRowsPerBatch: 500,
+    });
+    expect(omitted.batch).toBeNull();
+    expect(omitted.members).toEqual([
+      expect.objectContaining({
+        memberKind: "refused",
+        refusalReason: "staged-basis-row-absent",
+        csvRow: null,
+        mappingDimension: null,
+        mappingSourceKey: null,
+      }),
+    ]);
+  });
 });
 
 function operation(

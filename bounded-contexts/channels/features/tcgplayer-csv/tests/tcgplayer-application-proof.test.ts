@@ -153,28 +153,38 @@ describe("tcgplayer-application-proof", () => {
     expect(parsed.rows[0]).toMatchObject({ priceAmountText: "0.2600", priceAmountMinor: 26 });
   });
 
-  it("uses only a newer snapshot's quantity and minor-unit aggregate", () => {
-    const rows = [
-      {
-        externalKey: "product:90000001",
-        conditionText: "Near Mint",
-        totalQuantity: 1,
-        priceAmountMinor: 26,
-        priceAmountText: "0.2600",
-      },
-    ];
-    const row = rows[0];
-    if (!row) throw new Error("Synthetic verification row is unavailable.");
-    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows })).toBe(true);
-    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 1, rows })).toBe(false);
-    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [{ ...row, priceAmountMinor: null }] })).toBe(
+  it.each([
+    ["missing member", 2, []],
+    ["wrong identity", 2, [verificationRow({ externalKey: "product:90000099" })]],
+    ["wrong quantity", 2, [verificationRow({ totalQuantity: 2 })]],
+    ["null price", 2, [verificationRow({ priceAmountMinor: null })]],
+    ["wrong price", 2, [verificationRow({ priceAmountMinor: 27 })]],
+    ["old generation", 1, [verificationRow()]],
+    ["duplicate identity", 2, [verificationRow(), verificationRow()]],
+  ] as const)("keeps application unknown for %s", (_name, snapshotGeneration, rows) => {
+    expect(applicationMatchesSnapshot(run, { snapshotGeneration, rows })).toBe(false);
+  });
+
+  it("accepts the exact newer identity/quantity/minor aggregate and rejects a complete middle-row omission", () => {
+    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [verificationRow()] })).toBe(true);
+    const second = {
+      ...firstComposedMember,
+      operationId: "operation-middle-two",
+      attemptId: "attempt-middle-two",
+      channelListingId: "channel-listing-middle-two",
+      listingId: "listing-middle-two",
+      desiredStateSequence: 45,
+      ordinal: 1,
+      externalKey: "product:90000002",
+    };
+    const completeTwoMemberRun: ChannelSyncRun = {
+      ...run,
+      membershipCompleteness: { kind: "complete", total: 2 },
+      members: [firstComposedMember, second],
+    };
+    expect(applicationMatchesSnapshot(completeTwoMemberRun, { snapshotGeneration: 2, rows: [verificationRow()] })).toBe(
       false,
     );
-    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [{ ...row, totalQuantity: 2 }] })).toBe(
-      false,
-    );
-    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [] })).toBe(false);
-    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 2, rows: [row, row] })).toBe(false);
   });
 
   it("settles the mixed immutable partition without copying run state to every member", () => {
@@ -198,5 +208,27 @@ describe("tcgplayer-application-proof", () => {
     expect(applicationMatchesImportSummary(run, summary)).toBe(true);
     expect(applicationMatchesImportSummary(run, { ...summary, fileName: "other.csv" })).toBe(false);
     expect(applicationMatchesImportSummary(run, { ...summary, numberOfProducts: 2 })).toBe(false);
+    expect(applicationMatchesImportSummary(run, { ...summary, fileName: "" })).toBe(false);
+    expect(applicationMatchesImportSummary(run, summary)).toBe(true);
+    expect(applicationMatchesSnapshot(run, { snapshotGeneration: 1, rows: [verificationRow()] })).toBe(false);
   });
 });
+
+function verificationRow(
+  overrides: Partial<{
+    externalKey: string;
+    conditionText: string | null;
+    totalQuantity: number;
+    priceAmountMinor: number | null;
+    priceAmountText: string;
+  }> = {},
+) {
+  return {
+    externalKey: "product:90000001",
+    conditionText: "Near Mint",
+    totalQuantity: 1,
+    priceAmountMinor: 26,
+    priceAmountText: "0.2600",
+    ...overrides,
+  };
+}

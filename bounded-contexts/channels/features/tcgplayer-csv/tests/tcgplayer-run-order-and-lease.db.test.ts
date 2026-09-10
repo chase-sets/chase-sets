@@ -43,7 +43,9 @@ describeDb("tcgplayer-run-order-and-lease", () => {
     await bootstrapContextDatabase(channelsModule, pools.channels);
   });
 
-  afterAll(async () => closeMultiContextTestPools(pools));
+  afterAll(async () => {
+    if (pools) await closeMultiContextTestPools(pools);
+  });
 
   it("boots twice and admits only one non-terminal run per connection", async () => {
     await pools.channels.query(tcgplayerCsvSchemaSql);
@@ -124,6 +126,102 @@ describeDb("tcgplayer-run-order-and-lease", () => {
     expect(counts.rows[0]).toEqual({ runs: "1", members: "1" });
   });
 
+  it("atomically rolls back reservation and composed event failures before restart, expiry, and a two-claimant race", async () => {
+    const base = createOwnedRuntime("2026-09-09T03:00:00Z");
+    await seedProductionCompositionFacts([
+      {
+        listingId: "listing-atomic",
+        channelListingId: "channel-listing-atomic",
+        catalogItemId: "catalog-atomic",
+        externalKey: "product:90000010",
+        gradedCard: null,
+      },
+    ]);
+    await base.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+      snapshotId: "snapshot-atomic-basis",
+      connectionId: "connection-production",
+      surface: "staged",
+      csv: stagedCsv([["90000010", "Near Mint", "2", "0", "0.2600"]]),
+      limits: { maxRecords: 1 },
+      ingestedAt: "2026-09-09T03:00:00Z",
+      capturedAt: "2026-09-09T03:00:00Z",
+      capturedAtSource: "operator-declared",
+    });
+    await base.outboundSync.enqueueDesiredState(desiredState("listing-atomic", "channel-listing-atomic", 1, 1, 27));
+
+    await installInitialCompositionFailure("event");
+    await expect(
+      base.tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("run-atomic-event-failure", "connector", "connector-atomic"),
+        testContext,
+      ),
+    ).rejects.toThrow("Failed to append events in a caller-owned Postgres transaction.");
+    await removeInitialCompositionFailure("event");
+    expect(await initialCompositionState("run-atomic-event-failure")).toEqual({
+      events: "0",
+      runs: "0",
+      pending: "1",
+      inFlight: "0",
+    });
+
+    await installInitialCompositionFailure("projection");
+    await expect(
+      base.tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("run-atomic-projection-failure", "connector", "connector-atomic"),
+        testContext,
+      ),
+    ).rejects.toThrow("injected composed projection failure");
+    await removeInitialCompositionFailure("projection");
+    expect(await initialCompositionState("run-atomic-projection-failure")).toEqual({
+      events: "0",
+      runs: "0",
+      pending: "1",
+      inFlight: "0",
+    });
+
+    const committed = await createOwnedRuntime("2026-09-09T03:00:00Z").tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("run-atomic-committed", "connector", "connector-atomic"),
+      testContext,
+    );
+    expect(committed?.run).toMatchObject({ state: "composed", membershipCompleteness: { kind: "complete", total: 1 } });
+    expect(await initialCompositionState("run-atomic-committed")).toEqual({
+      events: "1",
+      runs: "1",
+      pending: "0",
+      inFlight: "1",
+    });
+
+    const expired = createOwnedRuntime("2026-09-09T03:02:00Z");
+    await expect(expired.outboundSync.recoverExpiredClaimedOperations()).resolves.toBe(1);
+    expect(await readRun(pools.channels, "run-atomic-committed")).toMatchObject({ state: "abandoned" });
+    expect(await pools.channels.query("SELECT status FROM channel_outbound_operations")).toMatchObject({
+      rows: [{ status: "pending" }],
+    });
+
+    const claimantOne = createOwnedRuntime("2026-09-09T03:03:00Z");
+    const claimantTwo = createOwnedRuntime("2026-09-09T03:03:00Z");
+    const raced = await Promise.allSettled([
+      claimantOne.tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("run-atomic-race-one", "manual", "manual-race"),
+        testContext,
+      ),
+      claimantTwo.tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("run-atomic-race-two", "connector", "connector-race"),
+        testContext,
+      ),
+    ]);
+    expect(raced.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(raced.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(raced.find((result) => result.status === "rejected")).toMatchObject({
+      reason: expect.objectContaining({ code: "run-outstanding" }),
+    });
+    expect(
+      await pools.channels.query(
+        "SELECT count(*)::text AS count FROM channel_sync_runs WHERE state IN ('composed','claimed','awaiting-verification')",
+      ),
+    ).toMatchObject({ rows: [{ count: "1" }] });
+  });
+
   it("discovers one canonical graded condition mapping through the production reservation boundary", async () => {
     const services = createOwnedRuntime();
     await seedProductionCompositionFacts([
@@ -195,6 +293,93 @@ describeDb("tcgplayer-run-order-and-lease", () => {
         }),
       },
     ]);
+  });
+
+  it("refuses every ingest grammar arm with zero snapshot, row, or schema-pin persistence", async () => {
+    const services = createOwnedRuntime();
+    await seedProductionCompositionFacts([]);
+    await services.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+      snapshotId: "snapshot-ingest-pin",
+      connectionId: "connection-production",
+      surface: "staged",
+      csv: stagedCsv([["90000020", "Near Mint", "2", "0", "0.2600"]]),
+      limits: { maxRecords: 1 },
+      ingestedAt: "2026-09-09T04:00:00Z",
+      capturedAt: "2026-09-09T04:00:00Z",
+      capturedAtSource: "operator-declared",
+    });
+    const pinnedCounts = await snapshotPersistenceCounts("connection-production");
+    const header = "TCGplayer Id,Condition,Total Quantity,Add to Quantity,TCG Marketplace Price";
+    const refusals = [
+      ["invalid-input", `${header}\n90000021,Near Mint,1,0,1.00`, { maxRecords: 0 }],
+      ["header-mismatch", `${header},Unknown\n90000021,Near Mint,1,0,1.00,x`, { maxRecords: 10 }],
+      [
+        "header-missing-required-column",
+        "TCGplayer Id,Condition,Total Quantity,Add to Quantity\n1,Near Mint,1,0",
+        { maxRecords: 10 },
+      ],
+      [
+        "header-duplicate-column",
+        "TCGplayer Id,TCGplayer Id,Total Quantity,Add to Quantity,TCG Marketplace Price\n1,1,1,0,1.00",
+        { maxRecords: 10 },
+      ],
+      ["row-width-mismatch", `${header}\n90000021,Near Mint,1,0`, { maxRecords: 10 }],
+      ["unterminated-quoted-field", `${header}\n90000021,"Near Mint,1,0,1.00`, { maxRecords: 10 }],
+      ["empty-export", header, { maxRecords: 10 }],
+      [
+        "duplicate-row-identity",
+        `${header}\n90000021,Near Mint,1,0,1.00\n90000021,Near Mint,2,0,2.00`,
+        { maxRecords: 10 },
+      ],
+      ["invalid-integer", `${header}\n90000021,Near Mint,1.5,0,1.00`, { maxRecords: 10 }],
+      [
+        "record-limit-exceeded",
+        `${header}\n90000021,Near Mint,1,0,1.00\n90000022,Near Mint,1,0,1.00`,
+        { maxRecords: 1 },
+      ],
+    ] as const;
+    for (const [reason, csv, limits] of refusals) {
+      await expect(
+        services.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+          snapshotId: `snapshot-refused-${reason}`,
+          connectionId: "connection-production",
+          surface: "staged",
+          csv,
+          limits,
+          ingestedAt: "2026-09-09T04:01:00Z",
+          capturedAt: "2026-09-09T04:01:00Z",
+          capturedAtSource: "ingest",
+        }),
+      ).resolves.toEqual({ kind: "refused", reason });
+      expect(await snapshotPersistenceCounts("connection-production")).toEqual(pinnedCounts);
+    }
+
+    await cloneConnection("connection-condition-absent");
+    const conditionAbsentHeader = "TCGplayer Id,Total Quantity,Add to Quantity,TCG Marketplace Price";
+    await services.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+      snapshotId: "snapshot-condition-absent-pin",
+      connectionId: "connection-condition-absent",
+      surface: "staged",
+      csv: `${conditionAbsentHeader}\n90000023,1,0,1.00`,
+      limits: { maxRecords: 1 },
+      ingestedAt: "2026-09-09T04:02:00Z",
+      capturedAt: "2026-09-09T04:02:00Z",
+      capturedAtSource: "ingest",
+    });
+    const absentCounts = await snapshotPersistenceCounts("connection-condition-absent");
+    await expect(
+      services.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+        snapshotId: "snapshot-condition-absent-duplicate",
+        connectionId: "connection-condition-absent",
+        surface: "staged",
+        csv: `${conditionAbsentHeader}\n90000024,1,0,1.00\n90000024,2,0,2.00`,
+        limits: { maxRecords: 2 },
+        ingestedAt: "2026-09-09T04:03:00Z",
+        capturedAt: "2026-09-09T04:03:00Z",
+        capturedAtSource: "ingest",
+      }),
+    ).resolves.toEqual({ kind: "refused", reason: "duplicate-row-identity" });
+    expect(await snapshotPersistenceCounts("connection-condition-absent")).toEqual(absentCounts);
   });
 
   it("proves two-row application and cap mismatch behavior through the real database runtime", async () => {
@@ -491,6 +676,461 @@ describeDb("tcgplayer-run-order-and-lease", () => {
       expect.objectContaining({ listingId: "listing-restart", desiredStateSequence: 1 }),
     ]);
   });
+
+  it("drives missing, first, never-verified, equal, and newer Staged basis generations", async () => {
+    const services = createOwnedRuntime();
+    await seedProductionCompositionFacts([
+      {
+        listingId: "listing-freshness",
+        channelListingId: "channel-listing-freshness",
+        catalogItemId: "catalog-freshness",
+        externalKey: "product:90000301",
+        gradedCard: null,
+      },
+    ]);
+    await services.outboundSync.enqueueDesiredState(
+      desiredState("listing-freshness", "channel-listing-freshness", 1, 1, 27),
+    );
+    const beforeMissing = await totalWriteCounts();
+    await expect(
+      services.tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("run-basis-missing", "connector", "connector-basis"),
+        testContext,
+      ),
+    ).rejects.toMatchObject({ code: "staged-basis-unavailable" });
+    expect(await totalWriteCounts()).toEqual(beforeMissing);
+
+    await ingestStaged(services, "snapshot-basis-first", [["90000301", "Near Mint", "2", "0", "0.2600"]], 5);
+    const first = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("run-basis-first", "connector", "connector-basis"),
+      testContext,
+    );
+    const firstClaimed = await services.tcgplayerCsv.claimRun(
+      { runId: first!.run.runId, expectedRevision: first!.run.revision },
+      testContext,
+    );
+    await services.tcgplayerCsv.recordValidationCancellation(
+      { runId: firstClaimed.runId, expectedRevision: firstClaimed.revision },
+      testContext,
+    );
+
+    await services.outboundSync.enqueueDesiredState(
+      desiredState("listing-freshness", "channel-listing-freshness", 2, 1, 27, 2),
+    );
+    const neverVerified = await createOwnedRuntime().tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("run-basis-never-verified", "connector", "connector-basis"),
+      testContext,
+    );
+    expect(neverVerified?.run.basisSnapshotGeneration).toBe(1);
+    const claimed = await services.tcgplayerCsv.claimRun(
+      { runId: neverVerified!.run.runId, expectedRevision: neverVerified!.run.revision },
+      testContext,
+    );
+    const awaiting = await services.tcgplayerCsv.recordUploadAttempt(
+      {
+        runId: claimed.runId,
+        expectedRevision: claimed.revision,
+        uploadAttemptedAt: "2026-09-09T05:01:00Z",
+        fileName: "basis-freshness.csv",
+      },
+      testContext,
+    );
+    await ingestStaged(services, "snapshot-basis-verified", [["90000301", "Near Mint", "1", "0", "0.2700"]], 6);
+    const verified = await services.tcgplayerCsv.verifyRun(
+      {
+        runId: awaiting.runId,
+        expectedRevision: awaiting.revision,
+        verificationSnapshotId: "snapshot-basis-verified",
+        importSummary: {
+          fileName: "basis-freshness.csv",
+          dateImportedText: "9/9/2026 5:02 AM",
+          numberOfProducts: 1,
+          recordedAt: "2026-09-09T05:02:30Z",
+        },
+      },
+      testContext,
+    );
+    expect(verified).toMatchObject({ state: "applied", verificationSnapshotGeneration: 2 });
+
+    await services.outboundSync.enqueueDesiredState(
+      desiredState("listing-freshness", "channel-listing-freshness", 3, 0, 27, 3),
+    );
+    const beforeStale = await totalWriteCounts();
+    await expect(
+      createOwnedRuntime().tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("run-basis-equal", "connector", "connector-basis"),
+        testContext,
+      ),
+    ).rejects.toMatchObject({ code: "staged-basis-stale" });
+    expect(await totalWriteCounts()).toEqual(beforeStale);
+    await ingestStaged(services, "snapshot-basis-newer", [["90000301", "Near Mint", "1", "0", "0.2700"]], 7);
+    await expect(
+      createOwnedRuntime().tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("run-basis-newer", "connector", "connector-basis"),
+        testContext,
+      ),
+    ).resolves.toMatchObject({ run: { basisSnapshotGeneration: 3 } });
+  });
+
+  it("splits repeated N+1 reservations into ordered N then one without in-flight residue", async () => {
+    const services = createOwnedRuntime();
+    const listings = [1, 2, 3].map((ordinal) => ({
+      listingId: `listing-split-${ordinal}`,
+      channelListingId: `channel-listing-split-${ordinal}`,
+      catalogItemId: `catalog-split-${ordinal}`,
+      externalKey: `product:9000040${ordinal}`,
+      gradedCard: null,
+    }));
+    await seedProductionCompositionFacts(listings);
+    await ingestStaged(
+      services,
+      "snapshot-split-basis",
+      listings.map((_, index) => [`9000040${index + 1}`, "Near Mint", "2", "0", "0.2600"]),
+      8,
+    );
+    for (const [index, listing] of listings.entries()) {
+      await services.outboundSync.enqueueDesiredState(
+        desiredState(listing.listingId, listing.channelListingId, 1, 1, 27, index + 1),
+      );
+    }
+    const expectedOrder = await pools.channels.query<{ operation_id: string }>(
+      "SELECT operation_id FROM channel_outbound_operations ORDER BY enqueued_at,operation_id",
+    );
+    const memberOrder: string[] = [];
+    for (const [ordinal, expectedSize] of [2, 1].entries()) {
+      const composed = await createOwnedRuntime().tcgplayerCsv.composeTcgplayerSyncRun(
+        {
+          ...composeInput(`run-split-${ordinal + 1}`, "connector", "connector-split"),
+          resolvedPolicy: { maxRowsPerBatch: 2 },
+        },
+        testContext,
+      );
+      expect(composed?.run.members).toHaveLength(expectedSize);
+      memberOrder.push(...composed!.run.members.map((member) => member.operationId));
+      const claimed = await services.tcgplayerCsv.claimRun(
+        { runId: composed!.run.runId, expectedRevision: composed!.run.revision },
+        testContext,
+      );
+      await services.tcgplayerCsv.recordValidationCancellation(
+        { runId: claimed.runId, expectedRevision: claimed.revision },
+        testContext,
+      );
+    }
+    expect(memberOrder).toEqual(expectedOrder.rows.map((row) => row.operation_id));
+    expect(
+      await pools.channels.query(
+        "SELECT status,count(*)::text AS count FROM channel_outbound_operations GROUP BY status ORDER BY status",
+      ),
+    ).toMatchObject({ rows: [{ status: "failed", count: "3" }] });
+  });
+
+  it("serializes two claimant families across three cap-sized sets and restarts", async () => {
+    const initial = createOwnedRuntime();
+    const listings = Array.from({ length: 6 }, (_, index) => ({
+      listingId: `listing-race-${index + 1}`,
+      channelListingId: `channel-listing-race-${index + 1}`,
+      catalogItemId: `catalog-race-${index + 1}`,
+      externalKey: `product:9000050${index + 1}`,
+      gradedCard: null,
+    }));
+    await seedProductionCompositionFacts(listings);
+    await ingestStaged(
+      initial,
+      "snapshot-race-basis",
+      listings.map((_, index) => [`9000050${index + 1}`, "Near Mint", "2", "0", "0.2600"]),
+      9,
+    );
+    for (const [index, listing] of listings.entries()) {
+      await initial.outboundSync.enqueueDesiredState(
+        desiredState(listing.listingId, listing.channelListingId, 1, 1, 27, index + 1),
+      );
+    }
+
+    for (let batch = 1; batch <= 3; batch += 1) {
+      const manual = createOwnedRuntime();
+      const connector = createOwnedRuntime();
+      const results = await Promise.allSettled([
+        manual.tcgplayerCsv.composeTcgplayerSyncRun(
+          {
+            ...composeInput(`run-race-${batch}-manual`, "manual", `manual-${batch}`),
+            resolvedPolicy: { maxRowsPerBatch: 2 },
+          },
+          testContext,
+        ),
+        connector.tcgplayerCsv.composeTcgplayerSyncRun(
+          {
+            ...composeInput(`run-race-${batch}-connector`, "connector", `connector-${batch}`),
+            resolvedPolicy: { maxRowsPerBatch: 2 },
+          },
+          testContext,
+        ),
+      ]);
+      const fulfilled = results.filter((result) => result.status === "fulfilled");
+      expect(fulfilled).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+      const winner = fulfilled[0];
+      if (!winner || winner.status !== "fulfilled" || winner.value === null) {
+        throw new Error("Claimant race did not produce one composed run.");
+      }
+      expect(winner.value.run.members).toHaveLength(2);
+      const claimed = await createOwnedRuntime().tcgplayerCsv.claimRun(
+        { runId: winner.value.run.runId, expectedRevision: winner.value.run.revision },
+        testContext,
+      );
+      await createOwnedRuntime().tcgplayerCsv.recordValidationCancellation(
+        { runId: claimed.runId, expectedRevision: claimed.revision },
+        testContext,
+      );
+    }
+    expect(
+      await pools.channels.query(
+        `SELECT count(*)::text AS count FROM channel_sync_runs
+         WHERE state IN ('composed','claimed','awaiting-verification')`,
+      ),
+    ).toMatchObject({ rows: [{ count: "0" }] });
+    expect(await pools.channels.query("SELECT member_count FROM channel_sync_runs ORDER BY sequence")).toMatchObject({
+      rows: [{ member_count: 2 }, { member_count: 2 }, { member_count: 2 }],
+    });
+  });
+
+  it("settles claimed and upload-verify lease boundaries once through the genuine run port", async () => {
+    const initial = createOwnedRuntime("2026-09-09T06:00:00Z");
+    await seedProductionCompositionFacts([
+      {
+        listingId: "listing-expiry",
+        channelListingId: "channel-listing-expiry",
+        catalogItemId: "catalog-expiry",
+        externalKey: "product:90000601",
+        gradedCard: null,
+      },
+    ]);
+    await ingestStaged(initial, "snapshot-expiry-basis", [["90000601", "Near Mint", "2", "0", "0.2600"]], 10);
+    await initial.outboundSync.enqueueDesiredState(desiredState("listing-expiry", "channel-listing-expiry", 1, 1, 27));
+    const manualRun = await initial.tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("run-expiry-claimed", "manual", "manual-expiry"),
+      testContext,
+    );
+    await initial.tcgplayerCsv.claimRun(
+      { runId: manualRun!.run.runId, expectedRevision: manualRun!.run.revision },
+      testContext,
+    );
+    await expect(
+      createOwnedRuntime("2026-09-09T06:02:00Z").outboundSync.recoverExpiredClaimedOperations(),
+    ).resolves.toBe(1);
+    expect(await readRun(pools.channels, "run-expiry-claimed")).toMatchObject({ state: "abandoned" });
+    expect(await pools.channels.query("SELECT status FROM channel_outbound_operations")).toMatchObject({
+      rows: [{ status: "pending" }],
+    });
+
+    const connector = createOwnedRuntime("2026-09-09T06:03:00Z");
+    const uploadRun = await connector.tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("run-expiry-awaiting", "connector", "connector-expiry"),
+      testContext,
+    );
+    const claimed = await connector.tcgplayerCsv.claimRun(
+      { runId: uploadRun!.run.runId, expectedRevision: uploadRun!.run.revision },
+      testContext,
+    );
+    await connector.tcgplayerCsv.recordUploadAttempt(
+      {
+        runId: claimed.runId,
+        expectedRevision: claimed.revision,
+        uploadAttemptedAt: "2026-09-09T06:03:30Z",
+        fileName: "expiry-boundary.csv",
+      },
+      testContext,
+    );
+    await expect(
+      createOwnedRuntime("2026-09-09T06:05:00Z").outboundSync.recoverExpiredClaimedOperations(),
+    ).resolves.toBe(1);
+    expect(await readRun(pools.channels, "run-expiry-awaiting")).toMatchObject({ state: "application-unknown" });
+    expect(await pools.channels.query("SELECT status,terminal_reason FROM channel_outbound_operations")).toMatchObject({
+      rows: [{ status: "failed", terminal_reason: "outcome-unknown" }],
+    });
+    const terminalCounts = await totalWriteCounts();
+    await expect(
+      createOwnedRuntime("2026-09-09T06:06:00Z").outboundSync.recoverExpiredClaimedOperations(),
+    ).resolves.toBe(0);
+    expect(await totalWriteCounts()).toEqual(terminalCounts);
+    await initial.outboundSync.enqueueDesiredState(
+      desiredState("listing-expiry", "channel-listing-expiry", 2, 0, 27, 2),
+    );
+    await expect(
+      createOwnedRuntime().tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("run-expiry-no-redelivery", "connector", "connector-expiry"),
+        testContext,
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("settles a genuine composed, refused, and already-satisfied member partition by member proof", async () => {
+    const services = createOwnedRuntime();
+    const listings: readonly ProductionListingFixture[] = [
+      {
+        listingId: "listing-mixed-composed",
+        channelListingId: "channel-listing-mixed-composed",
+        catalogItemId: "catalog-mixed-composed",
+        externalKey: "product:90000701",
+        gradedCard: null,
+      },
+      {
+        listingId: "listing-mixed-refused",
+        channelListingId: "channel-listing-mixed-refused",
+        catalogItemId: "catalog-mixed-refused",
+        externalKey: null,
+        gradedCard: null,
+      },
+      {
+        listingId: "listing-mixed-noop",
+        channelListingId: "channel-listing-mixed-noop",
+        catalogItemId: "catalog-mixed-noop",
+        externalKey: "product:90000703",
+        gradedCard: null,
+      },
+    ];
+    await seedProductionCompositionFacts(listings);
+    await ingestStaged(
+      services,
+      "snapshot-mixed-basis",
+      [
+        ["90000701", "Near Mint", "2", "0", "0.2600"],
+        ["90000702", "Near Mint", "2", "0", "0.2600"],
+        ["90000703", "Near Mint", "3", "0", "0.3000"],
+      ],
+      11,
+    );
+    await services.outboundSync.enqueueDesiredState(
+      desiredState("listing-mixed-composed", "channel-listing-mixed-composed", 1, 1, 27, 1),
+    );
+    await services.outboundSync.enqueueDesiredState(
+      desiredState("listing-mixed-refused", "channel-listing-mixed-refused", 1, 1, 27, 2),
+    );
+    await services.outboundSync.enqueueDesiredState(
+      desiredState("listing-mixed-noop", "channel-listing-mixed-noop", 1, 3, 30, 3),
+    );
+    const composed = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("run-mixed-members", "connector", "connector-mixed"),
+      testContext,
+    );
+    expect(composed?.composition.batch?.rows).toHaveLength(1);
+    expect(composed?.run.members.map((member) => member.memberKind).sort()).toEqual([
+      "already-satisfied",
+      "composed",
+      "refused",
+    ]);
+    expect(composed?.run.members.find((member) => member.memberKind === "already-satisfied")).toMatchObject({
+      providerAction: "not-attempted-already-satisfied",
+    });
+    const claimed = await services.tcgplayerCsv.claimRun(
+      { runId: composed!.run.runId, expectedRevision: composed!.run.revision },
+      testContext,
+    );
+    const awaiting = await services.tcgplayerCsv.recordUploadAttempt(
+      {
+        runId: claimed.runId,
+        expectedRevision: claimed.revision,
+        uploadAttemptedAt: "2026-09-09T07:01:00Z",
+        fileName: "mixed-members.csv",
+      },
+      testContext,
+    );
+    await ingestStaged(
+      services,
+      "snapshot-mixed-proof",
+      [
+        ["90000701", "Near Mint", "1", "0", "0.2700"],
+        ["90000702", "Near Mint", "2", "0", "0.2600"],
+        ["90000703", "Near Mint", "3", "0", "0.3000"],
+      ],
+      12,
+    );
+    const applied = await services.tcgplayerCsv.verifyRun(
+      {
+        runId: awaiting.runId,
+        expectedRevision: awaiting.revision,
+        verificationSnapshotId: "snapshot-mixed-proof",
+        importSummary: {
+          fileName: "mixed-members.csv",
+          dateImportedText: "9/9/2026 7:02 AM",
+          numberOfProducts: 1,
+          recordedAt: "2026-09-09T07:02:30Z",
+        },
+      },
+      testContext,
+    );
+    expect(applied.state).toBe("applied");
+    expect(
+      await pools.channels.query(
+        "SELECT channel_listing_id,status FROM channel_outbound_operations ORDER BY channel_listing_id",
+      ),
+    ).toMatchObject({
+      rows: [
+        { channel_listing_id: "channel-listing-mixed-composed", status: "succeeded" },
+        { channel_listing_id: "channel-listing-mixed-noop", status: "succeeded" },
+        { channel_listing_id: "channel-listing-mixed-refused", status: "failed" },
+      ],
+    });
+    const receipt = await pools.channels.query<{ outcomes: readonly { outcome: { kind: string } }[] }>(
+      "SELECT outcomes FROM channel_outbound_reservation_settlements WHERE reservation_id=$1",
+      [applied.reservationId],
+    );
+    expect(receipt.rows[0]?.outcomes.map((outcome) => outcome.outcome.kind).sort()).toEqual([
+      "applied",
+      "applied",
+      "rejected",
+    ]);
+  });
+
+  it("recomposes superseded and stale-basis work on the day after without mutating terminal audit", async () => {
+    const services = createOwnedRuntime();
+    await seedProductionCompositionFacts([
+      {
+        listingId: "listing-terminal-day-after",
+        channelListingId: "channel-listing-terminal-day-after",
+        catalogItemId: "catalog-terminal-day-after",
+        externalKey: "product:90000811",
+        gradedCard: null,
+      },
+    ]);
+    await ingestStaged(services, "snapshot-terminal-basis", [["90000811", "Near Mint", "2", "0", "0.2600"]], 13);
+    await services.outboundSync.enqueueDesiredState(
+      desiredState("listing-terminal-day-after", "channel-listing-terminal-day-after", 1, 1, 27),
+    );
+    const supersededRun = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("run-terminal-superseded", "connector", "connector-terminal"),
+      testContext,
+    );
+    const superseded = await services.tcgplayerCsv.supersedeRun(
+      { runId: supersededRun!.run.runId, expectedRevision: supersededRun!.run.revision },
+      testContext,
+    );
+    expect(superseded.state).toBe("superseded");
+    const terminalCounts = await totalWriteCounts();
+    await expect(
+      services.tcgplayerCsv.supersedeRun(
+        { runId: superseded.runId, expectedRevision: superseded.revision },
+        testContext,
+      ),
+    ).rejects.toMatchObject({ code: "terminal" });
+    expect(await totalWriteCounts()).toEqual(terminalCounts);
+
+    const staleRun = await createOwnedRuntime().tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("run-terminal-stale", "connector", "connector-terminal"),
+      testContext,
+    );
+    await ingestStaged(services, "snapshot-terminal-newer-basis", [["90000811", "Near Mint", "2", "0", "0.2600"]], 14);
+    const stale = await services.tcgplayerCsv.observeNewerBasis(
+      { runId: staleRun!.run.runId, expectedRevision: staleRun!.run.revision },
+      testContext,
+    );
+    expect(stale.state).toBe("stale-basis");
+    await expect(
+      createOwnedRuntime().tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("run-terminal-recomposed", "connector", "connector-terminal"),
+        testContext,
+      ),
+    ).resolves.toMatchObject({ run: { basisSnapshotGeneration: 2, state: "composed" } });
+  });
 });
 
 function replayRun(): ChannelSyncRun {
@@ -592,11 +1232,11 @@ type ProductionListingFixture = Readonly<{
   listingId: string;
   channelListingId: string;
   catalogItemId: string;
-  externalKey: string;
+  externalKey: string | null;
   gradedCard: ReturnType<typeof gradedCard> | null;
 }>;
 
-function createOwnedRuntime() {
+function createOwnedRuntime(now?: string) {
   const eventStore = createPostgresEventStore({ pool: pools.channels });
   const compositionProfiles = createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles);
   const listingComposition = createChannelListingCompositionRuntime({
@@ -608,6 +1248,7 @@ function createOwnedRuntime() {
   const outboundSync = createOutboundSyncRuntime(
     {
       db: pools.channels,
+      ...(now ? { clock: { now: () => new Date(now) } } : {}),
       recordOutcome: async () => "applied",
       claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(eventStore),
     },
@@ -618,12 +1259,83 @@ function createOwnedRuntime() {
     tcgplayerCsv: createTcgplayerCsvRuntime({
       db: pools.channels,
       eventStore,
+      transactionalEventStore: eventStore,
       outboundSync,
       listingComposition,
       providerRegistry: channelProviderRegistry,
       compositionProfiles,
     }),
   };
+}
+
+function composeInput(runId: string, claimantKind: "connector" | "manual", claimantId: string) {
+  return {
+    runId,
+    connectionId: "connection-production",
+    claimant: { claimantKind, claimantId },
+    leaseMs: 60_000,
+    manualClaimLeasePolicySnapshot: claimantKind === "manual" ? manualLeaseSnapshot(60_000) : null,
+    resolvedPolicy: { maxRowsPerBatch: 500 },
+    composedAt: "2026-09-09T03:00:00Z",
+  } as const;
+}
+
+async function ingestStaged(
+  services: ReturnType<typeof createOwnedRuntime>,
+  snapshotId: string,
+  rows: readonly (readonly string[])[],
+  minute: number,
+): Promise<void> {
+  await expect(
+    services.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+      snapshotId,
+      connectionId: "connection-production",
+      surface: "staged",
+      csv: stagedCsv(rows),
+      limits: { maxRecords: rows.length },
+      ingestedAt: `2026-09-09T05:${String(minute).padStart(2, "0")}:00Z`,
+      capturedAt: `2026-09-09T05:${String(minute).padStart(2, "0")}:00Z`,
+      capturedAtSource: "operator-declared",
+    }),
+  ).resolves.toMatchObject({ kind: "parsed", parsedRowCount: rows.length });
+}
+
+async function installInitialCompositionFailure(phase: "event" | "projection"): Promise<void> {
+  const target = phase === "event" ? "event_store_events" : "channel_sync_runs";
+  const condition = phase === "event" ? "NEW.event_type = 'channels.tcgplayer-sync-run.composed'" : "TRUE";
+  await pools.channels.query(`CREATE FUNCTION reject_initial_${phase}() RETURNS trigger AS $$
+    BEGIN
+      IF ${condition} THEN RAISE EXCEPTION 'injected composed ${phase} failure'; END IF;
+      RETURN NEW;
+    END;
+  $$ LANGUAGE plpgsql`);
+  await pools.channels.query(`CREATE TRIGGER reject_initial_${phase}
+    BEFORE INSERT ON ${target} FOR EACH ROW EXECUTE FUNCTION reject_initial_${phase}()`);
+}
+
+async function removeInitialCompositionFailure(phase: "event" | "projection"): Promise<void> {
+  const target = phase === "event" ? "event_store_events" : "channel_sync_runs";
+  await pools.channels.query(`DROP TRIGGER reject_initial_${phase} ON ${target}`);
+  await pools.channels.query(`DROP FUNCTION reject_initial_${phase}()`);
+}
+
+async function initialCompositionState(runId: string) {
+  const result = await pools.channels.query<{
+    events: string;
+    runs: string;
+    pending: string;
+    in_flight: string;
+  }>(
+    `SELECT
+       (SELECT count(*)::text FROM event_store_events WHERE stream_id=$1) AS events,
+       (SELECT count(*)::text FROM channel_sync_runs WHERE run_id=$2) AS runs,
+       (SELECT count(*)::text FROM channel_outbound_operations WHERE status='pending') AS pending,
+       (SELECT count(*)::text FROM channel_outbound_operations WHERE status='in-flight') AS in_flight`,
+    [`channels.tcgplayer-sync-run-${runId}`, runId],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("Initial composition state was unavailable.");
+  return { events: row.events, runs: row.runs, pending: row.pending, inFlight: row.in_flight };
 }
 
 async function seedProductionCompositionFacts(listings: readonly ProductionListingFixture[]): Promise<void> {
@@ -658,13 +1370,45 @@ async function seedProductionCompositionFacts(listings: readonly ProductionListi
        VALUES ('connection-production',$1,$2,'pending','[]'::jsonb,'{}'::jsonb,'2026-09-09T00:00:00Z',1)`,
       [listing.listingId, listing.channelListingId],
     );
-    await pools.channels.query(
-      `INSERT INTO channels_external_catalog_item_reference_facts
-       (provider_key,external_key,catalog_item_id,link_state,updated_at,reference_stream_version)
-       VALUES ('tcgplayer',$1,$2,'linked','2026-09-09T00:00:00Z',1)`,
-      [listing.externalKey, listing.catalogItemId],
-    );
+    if (listing.externalKey !== null) {
+      await pools.channels.query(
+        `INSERT INTO channels_external_catalog_item_reference_facts
+         (provider_key,external_key,catalog_item_id,link_state,updated_at,reference_stream_version)
+         VALUES ('tcgplayer',$1,$2,'linked','2026-09-09T00:00:00Z',1)`,
+        [listing.externalKey, listing.catalogItemId],
+      );
+    }
   }
+}
+
+async function cloneConnection(connectionId: string): Promise<void> {
+  await pools.channels.query(
+    `INSERT INTO channel_connections
+     (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,bindings,projection_updated_at,last_stream_version)
+     SELECT $1,account_id,provider_key,environment,status,created_at,created_at_instant,bindings,projection_updated_at,last_stream_version
+     FROM channel_connections WHERE connection_id='connection-production'`,
+    [connectionId],
+  );
+  await pools.channels.query(
+    `INSERT INTO channels_connection_facts
+     (connection_id,account_id,provider_key,environment,status,updated_at,connection_stream_version)
+     SELECT $1,account_id,provider_key,environment,status,updated_at,connection_stream_version
+     FROM channels_connection_facts WHERE connection_id='connection-production'`,
+    [connectionId],
+  );
+}
+
+async function snapshotPersistenceCounts(connectionId: string) {
+  const result = await pools.channels.query<{ pins: string; snapshots: string; rows: string }>(
+    `SELECT
+       (SELECT count(*)::text FROM channel_export_schema_pins WHERE connection_id=$1) AS pins,
+       (SELECT count(*)::text FROM channel_inventory_snapshots WHERE connection_id=$1) AS snapshots,
+       (SELECT count(*)::text FROM channel_inventory_snapshot_rows WHERE connection_id=$1) AS rows`,
+    [connectionId],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("Snapshot persistence counts were unavailable.");
+  return row;
 }
 
 function gradedCard(gradingCompany: string, grade: string) {

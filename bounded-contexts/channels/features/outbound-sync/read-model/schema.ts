@@ -118,13 +118,17 @@ ${createOutboundIndexes.map((statement) => `${statement};`).join("\n")}
 export const outboundSyncSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260907_channels_outbound_sync",
-    description: "Create durable outbound operations, settlement receipts, lane isolation, and provider rate state.",
+    description: "Create durable latest-state outbound operations, lane isolation, and provider rate state.",
     statements: [
       createOutboundOperationsTable,
-      createReservationSettlementsTable,
       createProviderRateStateTable,
       createOutboundLanesTable,
       ...createOutboundIndexes,
     ],
+  },
+  {
+    migrationId: "20260910_channels_outbound_reservation_settlements",
+    description: "Create durable claimed-reservation settlement receipts.",
+    statements: [createReservationSettlementsTable],
   },
 ];

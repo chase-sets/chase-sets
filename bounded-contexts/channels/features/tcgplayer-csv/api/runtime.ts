@@ -1,4 +1,9 @@
-import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  withPgTransaction,
+  type PgQueryable,
+  type PgTransactionalPool,
+  type PostgresEventStore,
+} from "@chase-sets/event-core-postgres";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext, ExpectedStreamVersion, StoredEvent } from "@chase-sets/event-core/storage";
@@ -52,7 +57,11 @@ import {
 export type TcgplayerCsvRuntimeDependencies = Readonly<{
   db: PgTransactionalPool;
   eventStore: EventStore;
-  outboundSync: Pick<OutboundSyncServices, "reserveClaimedOutboundOperations" | "reportClaimedOperationOutcomes">;
+  transactionalEventStore: Pick<PostgresEventStore, "appendToStreamInTransaction">;
+  outboundSync: Pick<
+    OutboundSyncServices,
+    "reserveClaimedOutboundOperationsInTransaction" | "reportClaimedOperationOutcomes"
+  >;
   listingComposition: Pick<ChannelListingCompositionServices, "recordChannelMappingCandidates">;
   providerRegistry: ChannelProviderRegistry;
   compositionProfiles: ChannelCompositionProfileRegistry;
@@ -245,90 +254,111 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
         `tcgplayer-run:${input.connectionId}`,
       ]);
       lockHeld = true;
-      const outstanding = await lockClient.query(
-        "SELECT 1 FROM channel_sync_runs WHERE connection_id=$1 AND state IN ('composed','claimed','awaiting-verification') LIMIT 1",
-        [input.connectionId],
-      );
-      if (outstanding.rows.length > 0) throw new ChannelSyncRunError("run-outstanding");
-      const basis = await readLatestSnapshotRows(lockClient, { connectionId: input.connectionId, surface: "staged" });
-      if (!basis) throw new ChannelSyncRunError("staged-basis-unavailable");
-      if (basis.membershipCompleteness.kind !== "complete") {
-        throw new ChannelSyncRunError("staged-basis-unavailable", "Staged basis membership is incomplete.");
+      const result = await withTransaction(lockClient, async (db) => {
+        const outstanding = await db.query(
+          "SELECT 1 FROM channel_sync_runs WHERE connection_id=$1 AND state IN ('composed','claimed','awaiting-verification') LIMIT 1",
+          [input.connectionId],
+        );
+        if (outstanding.rows.length > 0) throw new ChannelSyncRunError("run-outstanding");
+        const basis = await readLatestSnapshotRows(db, { connectionId: input.connectionId, surface: "staged" });
+        if (!basis) throw new ChannelSyncRunError("staged-basis-unavailable");
+        if (basis.membershipCompleteness.kind !== "complete") {
+          throw new ChannelSyncRunError("staged-basis-unavailable", "Staged basis membership is incomplete.");
+        }
+        await assertFreshBasis(db, input.connectionId, basis.snapshot.snapshotGeneration);
+        const identity = {
+          providerKey: "tcgplayer",
+          environment: await readEnvironment(db, input.connectionId),
+        } as const;
+        const provider = dependencies.providerRegistry.get(identity);
+        if (!provider || provider.publication?.execution !== "claimed")
+          throw new Error("TCGplayer claimed provider is not registered.");
+        const profile = dependencies.compositionProfiles.get(identity);
+        if (!profile) throw new Error("TCGplayer composition profile is not registered.");
+        const reservation = await dependencies.outboundSync.reserveClaimedOutboundOperationsInTransaction(
+          {
+            registry: dependencies.providerRegistry,
+            connectionId: input.connectionId,
+            claimant: input.claimant,
+            maxOperations: input.resolvedPolicy.maxRowsPerBatch,
+            leaseMs: input.leaseMs,
+          },
+          db,
+        );
+        if (!reservation) return null;
+        const references = await readChannelListingProviderProductReferences(db, {
+          connectionId: input.connectionId,
+          channelListingIds: reservation.operations.map((operation) => operation.channelListingId),
+        });
+        const conditionMappings = await readTcgplayerConditionMappingInputs(db, {
+          connectionId: input.connectionId,
+          channelListingIds: reservation.operations.map((operation) => operation.channelListingId),
+        });
+        const pin = await readSchemaPin(db, input.connectionId);
+        if (!pin) throw new ChannelSyncRunError("staged-basis-unavailable", "Staged schema is not pinned.");
+        const composition = composeTcgplayerReservation({
+          runId: input.runId,
+          reservation,
+          basisSnapshotId: basis.snapshot.snapshotId,
+          basisSnapshotGeneration: basis.snapshot.snapshotGeneration,
+          basisRows: basis.rows,
+          header: pin.header,
+          references,
+          conditionMappings,
+          profile,
+          maxRowsPerBatch: input.resolvedPolicy.maxRowsPerBatch,
+        });
+        const sequence = await readNextRunSequence(db, input.connectionId);
+        const initialRun: ChannelSyncRun = {
+          runId: input.runId,
+          revision: 0,
+          sequence,
+          connectionId: input.connectionId,
+          providerKey: "tcgplayer",
+          reservationId: reservation.reservationId,
+          claimant: reservation.claimant,
+          leaseExpiresAt: reservation.leaseExpiresAt,
+          manualClaimLeasePolicySnapshot: input.manualClaimLeasePolicySnapshot,
+          state: "composed",
+          basisSnapshotId: basis.snapshot.snapshotId,
+          basisSnapshotGeneration: basis.snapshot.snapshotGeneration,
+          verificationSnapshotId: null,
+          verificationSnapshotGeneration: null,
+          uploadAttemptedAt: null,
+          uploadFileName: null,
+          importSummary: null,
+          createdAt: input.composedAt,
+          updatedAt: input.composedAt,
+          membershipCompleteness: { kind: "complete", total: composition.members.length },
+          members: composition.members,
+        };
+        const event: ChannelSyncRunEvent = {
+          type: "channels.tcgplayer-sync-run.composed",
+          data: { run: initialRun, csvHeader: pin.header },
+        };
+        const stored = await dependencies.transactionalEventStore.appendToStreamInTransaction(db, {
+          streamId: `channels.tcgplayer-sync-run-${input.runId}`,
+          wakeSourceContextName: "channels",
+          expectedVersion: "no_stream",
+          context,
+          events: [channelSyncRunEventCodec.encode(event)],
+        });
+        const committed = stored[0];
+        if (!committed || stored.length !== 1) throw new Error("Channel Sync Run event append returned no receipt.");
+        await projectChannelSyncRunComposed(db, event.data, committed.streamVersion);
+        const run = await readRun(db, input.runId);
+        if (!run) throw new Error("Projected Channel Sync Run was not readable.");
+        return { run, composition };
+      });
+      if (result) {
+        await recordMappingCandidates(
+          dependencies.listingComposition,
+          input.connectionId,
+          result.composition.members,
+          context,
+        );
       }
-      await assertFreshBasis(lockClient, input.connectionId, basis.snapshot.snapshotGeneration);
-      const identity = {
-        providerKey: "tcgplayer",
-        environment: await readEnvironment(lockClient, input.connectionId),
-      } as const;
-      const provider = dependencies.providerRegistry.get(identity);
-      if (!provider || provider.publication?.execution !== "claimed")
-        throw new Error("TCGplayer claimed provider is not registered.");
-      const profile = dependencies.compositionProfiles.get(identity);
-      if (!profile) throw new Error("TCGplayer composition profile is not registered.");
-      const reservation = await dependencies.outboundSync.reserveClaimedOutboundOperations({
-        registry: dependencies.providerRegistry,
-        connectionId: input.connectionId,
-        claimant: input.claimant,
-        maxOperations: input.resolvedPolicy.maxRowsPerBatch,
-        leaseMs: input.leaseMs,
-      });
-      if (!reservation) return null;
-      const references = await readChannelListingProviderProductReferences(lockClient, {
-        connectionId: input.connectionId,
-        channelListingIds: reservation.operations.map((operation) => operation.channelListingId),
-      });
-      const conditionMappings = await readTcgplayerConditionMappingInputs(lockClient, {
-        connectionId: input.connectionId,
-        channelListingIds: reservation.operations.map((operation) => operation.channelListingId),
-      });
-      const pin = await readSchemaPin(lockClient, input.connectionId);
-      if (!pin) throw new ChannelSyncRunError("staged-basis-unavailable", "Staged schema is not pinned.");
-      const composition = composeTcgplayerReservation({
-        runId: input.runId,
-        reservation,
-        basisSnapshotId: basis.snapshot.snapshotId,
-        basisSnapshotGeneration: basis.snapshot.snapshotGeneration,
-        basisRows: basis.rows,
-        header: pin.header,
-        references,
-        conditionMappings,
-        profile,
-        maxRowsPerBatch: input.resolvedPolicy.maxRowsPerBatch,
-      });
-      await recordMappingCandidates(dependencies.listingComposition, input.connectionId, composition.members, context);
-      const sequence = await readNextRunSequence(lockClient, input.connectionId);
-      const initialRun: ChannelSyncRun = {
-        runId: input.runId,
-        revision: 0,
-        sequence,
-        connectionId: input.connectionId,
-        providerKey: "tcgplayer",
-        reservationId: reservation.reservationId,
-        claimant: reservation.claimant,
-        leaseExpiresAt: reservation.leaseExpiresAt,
-        manualClaimLeasePolicySnapshot: input.manualClaimLeasePolicySnapshot,
-        state: "composed",
-        basisSnapshotId: basis.snapshot.snapshotId,
-        basisSnapshotGeneration: basis.snapshot.snapshotGeneration,
-        verificationSnapshotId: null,
-        verificationSnapshotGeneration: null,
-        uploadAttemptedAt: null,
-        uploadFileName: null,
-        importSummary: null,
-        createdAt: input.composedAt,
-        updatedAt: input.composedAt,
-        membershipCompleteness: { kind: "complete", total: composition.members.length },
-        members: composition.members,
-      };
-      const event: ChannelSyncRunEvent = {
-        type: "channels.tcgplayer-sync-run.composed",
-        data: { run: initialRun, csvHeader: pin.header },
-      };
-      const stored = await appendRunEvent(dependencies.eventStore, input.runId, "no_stream", event, context);
-      await withTransaction(lockClient, (db) => projectChannelSyncRunComposed(db, event.data, stored.streamVersion));
-      const run = await readRun(lockClient, input.runId);
-      if (!run) throw new Error("Projected Channel Sync Run was not readable.");
-      return { run, composition };
+      return result;
     } finally {
       if (lockHeld)
         await lockClient.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [
@@ -625,11 +655,12 @@ async function appendRunEvent(
   return committed;
 }
 
-async function withTransaction(db: PgQueryable, action: (transaction: PgQueryable) => Promise<void>): Promise<void> {
+async function withTransaction<T>(db: PgQueryable, action: (transaction: PgQueryable) => Promise<T>): Promise<T> {
   await db.query("BEGIN");
   try {
-    await action(db);
+    const result = await action(db);
     await db.query("COMMIT");
+    return result;
   } catch (error) {
     await db.query("ROLLBACK");
     throw error;

@@ -83,6 +83,16 @@ describe("tcgplayer-export-parse-fail-closed", () => {
     expect(formatTcgplayerMinorUnits(259)).toBe("2.59");
   });
 
+  it("keeps a syntactically complete export with a missing middle member explicitly unverified", () => {
+    const csv = [stagedHeader.join(","), "90000031,Near Mint,1,0,1.00", "90000033,Near Mint,1,0,1.00"].join("\n");
+    expect(parseTcgplayerFullExport({ csv, surface: "staged" }, { maxRecords: 2 })).toMatchObject({
+      kind: "parsed",
+      completeness: "unverified",
+      parsedRowCount: 2,
+      rows: [{ externalKey: "product:90000031" }, { externalKey: "product:90000033" }],
+    });
+  });
+
   it.each([
     [
       "duplicate header",

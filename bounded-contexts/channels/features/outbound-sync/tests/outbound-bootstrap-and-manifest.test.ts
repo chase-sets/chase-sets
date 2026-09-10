@@ -20,5 +20,15 @@ describe("outbound-bootstrap-and-manifest", () => {
       expect(outboundSyncSchemaSql).toContain(expected);
       expect(migrationSql).toContain(expected);
     }
+    expect(outboundSyncSchemaMigrations.map((migration) => migration.migrationId)).toEqual([
+      "20260907_channels_outbound_sync",
+      "20260910_channels_outbound_reservation_settlements",
+    ]);
+    expect(outboundSyncSchemaMigrations[0]?.statements.join("\n")).not.toContain(
+      "channel_outbound_reservation_settlements",
+    );
+    expect(outboundSyncSchemaMigrations[1]?.statements.join("\n")).toContain(
+      "channel_outbound_reservation_settlements",
+    );
   });
 });
