@@ -24,7 +24,8 @@ export async function seedManualSyncScenario(pool: PgTransactionalPool): Promise
   const connectionStreamId = `channels.connection-${manualSyncScenarioSeed.connectionId}`;
   // @stream-read-contract bounded-contexts/channels/features/manual-sync/api/seed.db.test.ts
   const existingConnectionEvents = await eventStore.readStream({ streamId: connectionStreamId, limit: 1 });
-  if (existingConnectionEvents.length === 0) {
+  const hasExistingConnection = existingConnectionEvents.length > 0;
+  if (!hasExistingConnection) {
     await eventStore.appendToStream({
       streamId: connectionStreamId,
       expectedVersion: "no_stream",
@@ -51,7 +52,8 @@ export async function seedManualSyncScenario(pool: PgTransactionalPool): Promise
   const runStreamId = `channels.tcgplayer-sync-run-${manualSyncScenarioSeed.runId}`;
   // @stream-read-contract bounded-contexts/channels/features/manual-sync/api/seed.db.test.ts
   const existingRunEvents = await eventStore.readStream({ streamId: runStreamId, limit: 1 });
-  if (existingRunEvents.length === 0) {
+  const hasExistingRun = existingRunEvents.length > 0;
+  if (!hasExistingRun) {
     const createdAt = new Date().toISOString();
     const run = scenarioRun(createdAt);
     await eventStore.appendToStream({
