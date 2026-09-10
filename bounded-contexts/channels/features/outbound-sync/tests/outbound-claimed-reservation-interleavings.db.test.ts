@@ -7,9 +7,15 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { parseGlobalPosition } from "@chase-sets/event-core/storage";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-core/storage";
 import { module as channelsModule } from "../../../index";
+import { createChannelListingCompositionRuntime } from "../../listing-composition/api/runtime";
+import { createChannelCompositionProfileRegistry } from "../../listing-composition/domain/canonical";
+import { assertChannelListingDelistDirectivePayload } from "../../listing-composition/domain/codecs";
+import { buildChannelListingStateProjectionHandlers } from "../../listing-composition/read-model/state-projection";
+import { syntheticProfile } from "../../listing-composition/tests/test-support";
 import { createChannelProviderRegistry } from "../../publication-port/api/registry";
 import type {
   ChannelProviderDescriptor,
@@ -19,16 +25,28 @@ import type {
   UpdatePriceQuantityInput,
 } from "../../publication-port/domain/contracts";
 import { createOutboundSyncRuntime } from "../api/runtime";
+import { mapOutboundOperationRow, outboundOperationSqlColumns } from "../api/store";
 import type {
   BoundClaimedReservationRun,
   ClaimedOperationOutcome,
   ClaimedReservationRunSettlementPort,
 } from "../domain/contracts";
+import {
+  buildChannelOutboundOperationReactionHandlers,
+  createChannelListingPublicationOutcomeRecorder,
+} from "../integrations/listing-composition";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 let pools: Readonly<Record<"channels", PgTransactionalPool>>;
+const productionCompositionContext: EventStoreContext = {
+  tenantId: "tnt_channels_production_composition" as never,
+  audit: {
+    performedByUserId: "usr_channels_production_composition" as never,
+    forAccountId: "acc_owner" as never,
+  },
+};
 
 const claimedRegistry = createChannelProviderRegistry([descriptor("synthetic-claimed", "claimed")]);
 
@@ -181,6 +199,273 @@ describeDb(
           },
         },
       ]);
+    });
+
+    it("outbound-stale-success-sequence-adoption", async () => {
+      await pools.channels.query(
+        "UPDATE channel_connections SET account_id='acc_owner', provider_key='synthetic-provider' WHERE connection_id='connection-a'",
+      );
+      await seedProductionCompositionFacts(pools.channels);
+
+      const listingComposition = createChannelListingCompositionRuntime({
+        db: pools.channels,
+        eventStore: createPostgresEventStore({ pool: pools.channels }),
+        profiles: createChannelCompositionProfileRegistry([syntheticProfile]),
+      });
+      const recordOutcome = createChannelListingPublicationOutcomeRecorder(listingComposition);
+      const outbound = createOutboundSyncRuntime(
+        { db: pools.channels, recordOutcome },
+        { assertDelistDirective: assertChannelListingDelistDirectivePayload },
+      );
+      const reaction = buildChannelOutboundOperationReactionHandlers(outbound);
+
+      let markPublishEntered!: () => void;
+      let releasePublish!: () => void;
+      const publishEntered = new Promise<void>((resolve) => {
+        markPublishEntered = resolve;
+      });
+      const publishRelease = new Promise<void>((resolve) => {
+        releasePublish = resolve;
+      });
+      const providerCalls: Array<Readonly<{ kind: "publish" | "update" | "delist"; operationId: string }>> = [];
+      const registry = createChannelProviderRegistry([
+        {
+          ...descriptorWithoutPublication("synthetic-provider"),
+          publication: {
+            execution: "inline",
+            publishListing: async (input) => {
+              providerCalls.push({ kind: "publish", operationId: input.operationId });
+              markPublishEntered();
+              await publishRelease;
+              return {
+                kind: "succeeded",
+                externalListingId: "synthetic-external-listing",
+                externalOfferId: "synthetic-external-offer",
+                providerRevision: "synthetic-provider-r1",
+              };
+            },
+            updatePriceQuantity: async (input) => {
+              providerCalls.push({ kind: "update", operationId: input.operationId });
+              return {
+                kind: "succeeded",
+                externalListingId: "synthetic-external-listing",
+                externalOfferId: "synthetic-external-offer",
+                providerRevision: "synthetic-provider-r2",
+              };
+            },
+            delistListing: async (input) => {
+              providerCalls.push({ kind: "delist", operationId: input.operationId });
+              return {
+                kind: "succeeded",
+                externalListingId: "synthetic-external-listing",
+                externalOfferId: "synthetic-external-offer",
+                providerRevision: "synthetic-provider-r3",
+              };
+            },
+          },
+        },
+      ]);
+
+      const source = { connectionId: "connection-a", listingId: "listing-production-composed" };
+      const q1 = await listingComposition.recordChannelListingDesiredState(source, productionCompositionContext);
+      expect(q1).toMatchObject({ kind: "applied", streamVersion: 1 });
+      if (q1.kind === "refused") throw new Error("Expected Q1 desired state.");
+      const streamId = `channels.channel-listing-${q1.value.channelListingId}`;
+      const q1Event = await desiredStateEvent(pools.channels, streamId, 1);
+      await dispatchDesiredState(reaction, q1Event);
+
+      const q1Execution = outbound.processNextInlineOperation({ registry, claimOwnerId: "synthetic-worker-q1" });
+      await publishEntered;
+      const q1Operation = await outboundOperation(pools.channels, q1Event.event_id);
+      expect(q1Operation).toMatchObject({
+        operationKind: "publish",
+        listingRevision: 7,
+        sourceDesiredStateSequence: 1,
+        sourceDesiredStateHash: q1Event.payload.desiredStateHash,
+        sourceStreamVersion: 1,
+        sourceEventId: q1Event.event_id,
+        sourceStreamId: streamId,
+      });
+      expect(q1Operation.operationId).not.toBe(q1Operation.sourceEventId);
+      expect(q1Operation.payloadDigest).not.toBe(q1Operation.sourceDesiredStateHash);
+
+      await pools.channels.query(
+        "UPDATE channels_inventory_item_facts SET total_quantity=2, item_stream_version=2 WHERE item_id='item-production-composed'",
+      );
+      const q2 = await listingComposition.recordChannelListingDesiredState(source, productionCompositionContext);
+      expect(q2).toMatchObject({ kind: "applied", streamVersion: 2 });
+      const q2Event = await desiredStateEvent(pools.channels, streamId, 2);
+      expect(q2Event.payload).toMatchObject({
+        intent: "publish",
+        listingRevision: 7,
+        desiredStateSequence: 2,
+        draft: { quantity: 2 },
+      });
+      expect(q2Event.payload.desiredStateHash).not.toBe(q1Event.payload.desiredStateHash);
+      await dispatchDesiredState(reaction, q2Event);
+      const q2Operation = await outboundOperation(pools.channels, q2Event.event_id);
+      expect(q2Operation).toMatchObject({
+        operationKind: "publish",
+        listingRevision: 7,
+        sourceDesiredStateSequence: 2,
+        sourceDesiredStateHash: q2Event.payload.desiredStateHash,
+        sourceStreamVersion: 2,
+        status: "pending",
+      });
+      expect(q2Operation.operationId).not.toBe(q1Operation.operationId);
+      expect(q2Operation.payloadDigest).not.toBe(q2Operation.sourceDesiredStateHash);
+
+      releasePublish();
+      await expect(q1Execution).resolves.toBe(1);
+      const q1Terminal = await outboundOperation(pools.channels, q1Event.event_id);
+      expect(q1Terminal).toMatchObject({
+        operationId: q1Operation.operationId,
+        payloadDigest: q1Operation.payloadDigest,
+        status: "succeeded",
+        linkWriteState: "applied",
+        sourceDesiredStateSequence: 1,
+        listingRevision: 7,
+        sourceDesiredStateHash: q1Event.payload.desiredStateHash,
+        sourceStreamVersion: 1,
+      });
+      expect(await laneBlockState(pools.channels, q1.value.channelListingId)).toEqual({ blocked_operation_id: null });
+
+      const afterQ1 = await producerEvents(pools.channels, streamId);
+      expect(afterQ1.map((row) => [row.stream_version, row.event_type])).toEqual([
+        [1, "channels.channel-listing.desired-state-changed"],
+        [2, "channels.channel-listing.desired-state-changed"],
+        [3, "channels.channel-listing.publication-recorded"],
+        [4, "channels.channel-listing.desired-state-changed"],
+      ]);
+      expect(afterQ1[2]!.payload).toMatchObject({
+        operationId: q1Operation.operationId,
+        reportedDesiredStateSequence: 1,
+        reportedListingRevision: 7,
+        reportedDesiredStateHash: q1Event.payload.desiredStateHash,
+        adoption: "identity-adopted",
+        outcome: { kind: "succeeded", externalListingId: "synthetic-external-listing" },
+      });
+      expect(afterQ1[3]!.payload).toMatchObject({
+        intent: "update",
+        desiredStateSequence: 4,
+        listingRevision: 7,
+        draft: { quantity: 2 },
+      });
+
+      await projectProducerEvents(pools.channels, afterQ1);
+      expect(await linkProjection(pools.channels, q1.value.channelListingId)).toMatchObject({
+        last_desired_state_sequence: "4",
+        last_desired_listing_revision: "7",
+        last_desired_state_hash: afterQ1[3]!.payload.desiredStateHash,
+        last_desired_intent: "update",
+        last_pushed_listing_revision: null,
+        last_pushed_quantity: null,
+        external_listing_id: "synthetic-external-listing",
+        publish_state: "pending",
+      });
+
+      const successorEvent = await desiredStateEvent(pools.channels, streamId, 4);
+      await dispatchDesiredState(reaction, successorEvent);
+      const successor = await outboundOperation(pools.channels, successorEvent.event_id);
+      expect(successor).toMatchObject({
+        operationKind: "update",
+        sourceDesiredStateSequence: 4,
+        listingRevision: 7,
+        sourceDesiredStateHash: successorEvent.payload.desiredStateHash,
+        sourceStreamVersion: 4,
+        status: "pending",
+      });
+      expect(successor.operationId).not.toBe(q2Operation.operationId);
+      expect(successor.payloadDigest).toBe(q2Operation.payloadDigest);
+      expect(successor.sourceDesiredStateHash).not.toBe(q2Operation.sourceDesiredStateHash);
+      expect(successor.payloadDigest).not.toBe(successor.sourceDesiredStateHash);
+      await expect(
+        outbound.processNextInlineOperation({ registry, claimOwnerId: "synthetic-worker-successor" }),
+      ).resolves.toBe(1);
+      expect(providerCalls.map((call) => call.kind)).toEqual(["publish", "update"]);
+      expect(new Set(providerCalls.map((call) => call.operationId)).size).toBe(2);
+      expect(await outboundOperation(pools.channels, successorEvent.event_id)).toMatchObject({
+        operationId: successor.operationId,
+        payloadDigest: successor.payloadDigest,
+        status: "succeeded",
+        linkWriteState: "applied",
+        sourceDesiredStateSequence: 4,
+        listingRevision: 7,
+        sourceDesiredStateHash: successorEvent.payload.desiredStateHash,
+        sourceStreamVersion: 4,
+      });
+      expect(await laneBlockState(pools.channels, q1.value.channelListingId)).toEqual({ blocked_operation_id: null });
+
+      const finalEvents = await producerEvents(pools.channels, streamId);
+      expect(finalEvents.map((row) => [row.stream_version, row.event_type])).toEqual([
+        [1, "channels.channel-listing.desired-state-changed"],
+        [2, "channels.channel-listing.desired-state-changed"],
+        [3, "channels.channel-listing.publication-recorded"],
+        [4, "channels.channel-listing.desired-state-changed"],
+        [5, "channels.channel-listing.publication-recorded"],
+      ]);
+      expect(finalEvents[4]!.payload).toMatchObject({
+        operationId: successor.operationId,
+        reportedDesiredStateSequence: 4,
+        reportedListingRevision: 7,
+        reportedDesiredStateHash: successorEvent.payload.desiredStateHash,
+        adoption: "identity-and-state-applied",
+      });
+      await projectProducerEvents(pools.channels, finalEvents);
+      expect(await linkProjection(pools.channels, q1.value.channelListingId)).toMatchObject({
+        last_desired_state_sequence: "4",
+        last_desired_listing_revision: "7",
+        last_desired_state_hash: successorEvent.payload.desiredStateHash,
+        last_desired_intent: "update",
+        last_pushed_listing_revision: "7",
+        last_pushed_price_amount_minor: "2000",
+        last_pushed_price_currency: "USD",
+        last_pushed_quantity: 2,
+        external_listing_id: "synthetic-external-listing",
+        publish_state: "published",
+      });
+
+      await insertConnection(pools.channels, "connection-account-mismatch", "synthetic-provider");
+      const producerOutcome = vi.spyOn(listingComposition, "recordChannelListingPublicationOutcome");
+      const negativeRecorder = createChannelListingPublicationOutcomeRecorder(listingComposition);
+      const publicationCountBefore = await publicationRecordedCount(pools.channels, streamId);
+      await expect(
+        negativeRecorder(
+          pools.channels,
+          { ...q1Terminal, operationId: "synthetic-missing-source", sourceEventId: "synthetic-event-missing" },
+          { kind: "succeeded", externalListingId: "synthetic-missing-source-result" },
+        ),
+      ).resolves.toBe("link-write-refused");
+      await expect(
+        negativeRecorder(
+          pools.channels,
+          { ...q1Terminal, operationId: "synthetic-account-mismatch", connectionId: "connection-account-mismatch" },
+          { kind: "succeeded", externalListingId: "synthetic-account-mismatch-result" },
+        ),
+      ).resolves.toBe("link-write-refused");
+      expect(producerOutcome).not.toHaveBeenCalled();
+      expect(await publicationRecordedCount(pools.channels, streamId)).toBe(publicationCountBefore);
+      expect(
+        await pools.channels.query(
+          `SELECT source.tenant_id AS source_tenant_id,
+                  source.performed_by_user_id AS source_user_id,
+                  source.for_account_id AS source_account_id,
+                  connection.account_id AS connection_account_id
+           FROM event_store_events AS source
+           CROSS JOIN channel_connections AS connection
+           WHERE source.event_id=$1 AND connection.connection_id='connection-account-mismatch'`,
+          [q1Event.event_id],
+        ),
+      ).toMatchObject({
+        rows: [
+          {
+            source_tenant_id: "tnt_channels_production_composition",
+            source_user_id: "usr_channels_production_composition",
+            source_account_id: "acc_owner",
+            connection_account_id: "acc-owner",
+          },
+        ],
+      });
     });
 
     it("outbound-coalescing-latest-state-wins gives a pending replacement its own full retry budget", async () => {
@@ -1051,6 +1336,168 @@ describeDb(
     });
   },
 );
+
+type ProducerEventRow = Readonly<{
+  event_id: string;
+  event_type: string;
+  payload: Readonly<
+    Record<string, unknown> & {
+      desiredStateHash?: string;
+      draft?: Readonly<{ quantity?: number }>;
+    }
+  >;
+  metadata: Readonly<Record<string, unknown>>;
+  stream_id: string;
+  stream_version: number;
+  global_position: string;
+  tenant_id: string;
+  occurred_at: Date | string;
+  recorded_at: Date | string;
+  performed_by_user_id: string;
+  for_account_id: string;
+}>;
+
+async function desiredStateEvent(
+  db: PgTransactionalPool,
+  streamId: string,
+  streamVersion: number,
+): Promise<ProducerEventRow> {
+  const result = await db.query<ProducerEventRow>(
+    `SELECT event_id,event_type,payload,metadata,stream_id,stream_version::integer AS stream_version,global_position::text,
+            tenant_id,occurred_at,recorded_at,performed_by_user_id,for_account_id
+     FROM event_store_events
+     WHERE stream_id=$1 AND stream_version=$2 AND event_type='channels.channel-listing.desired-state-changed'`,
+    [streamId, streamVersion],
+  );
+  expect(result.rows).toHaveLength(1);
+  return result.rows[0]!;
+}
+
+async function producerEvents(db: PgTransactionalPool, streamId: string): Promise<readonly ProducerEventRow[]> {
+  const result = await db.query<ProducerEventRow>(
+    `SELECT event_id,event_type,payload,metadata,stream_id,stream_version::integer AS stream_version,global_position::text,
+            tenant_id,occurred_at,recorded_at,performed_by_user_id,for_account_id
+     FROM event_store_events
+     WHERE stream_id=$1
+     ORDER BY stream_version`,
+    [streamId],
+  );
+  return result.rows;
+}
+
+async function dispatchDesiredState(
+  handlers: ReturnType<typeof buildChannelOutboundOperationReactionHandlers>,
+  row: ProducerEventRow,
+): Promise<void> {
+  await handlers["channels.channel-listing.desired-state-changed"]!(transportEvent(row));
+}
+
+async function projectProducerEvents(db: PgTransactionalPool, rows: readonly ProducerEventRow[]): Promise<void> {
+  const handlers = buildChannelListingStateProjectionHandlers(db);
+  for (const row of rows) await handlers[row.event_type]!(transportEvent(row));
+}
+
+function transportEvent(row: ProducerEventRow) {
+  return buildTransportEvent(row.event_type, row.payload, {
+    id: row.event_id as never,
+    streamId: row.stream_id,
+    streamVersion: Number(row.stream_version),
+    globalPosition: parseGlobalPosition(row.global_position),
+    tenantId: row.tenant_id as never,
+    metadata: row.metadata,
+    audit: {
+      performedByUserId: row.performed_by_user_id,
+      forAccountId: row.for_account_id,
+    },
+    timing: {
+      occurredAt: instant(row.occurred_at),
+      recordedAt: instant(row.recorded_at),
+    },
+  });
+}
+
+function instant(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+async function outboundOperation(db: PgTransactionalPool, sourceEventId: string) {
+  const result = await db.query<Parameters<typeof mapOutboundOperationRow>[0]>(
+    `SELECT ${outboundOperationSqlColumns}
+     FROM channel_outbound_operations
+     WHERE source_event_id=$1`,
+    [sourceEventId],
+  );
+  expect(result.rows).toHaveLength(1);
+  return mapOutboundOperationRow(result.rows[0]!);
+}
+
+async function linkProjection(db: PgTransactionalPool, channelListingId: string) {
+  const result = await db.query<{
+    last_desired_state_sequence: string;
+    last_desired_listing_revision: string;
+    last_desired_state_hash: string;
+    last_desired_intent: string;
+    last_pushed_listing_revision: string | null;
+    last_pushed_price_amount_minor: string | null;
+    last_pushed_price_currency: string | null;
+    last_pushed_quantity: number | null;
+    external_listing_id: string | null;
+    publish_state: string;
+  }>(
+    `SELECT last_desired_state_sequence::text,last_desired_listing_revision::text,last_desired_state_hash,
+            last_desired_intent,last_pushed_listing_revision::text,last_pushed_price_amount_minor::text,
+            last_pushed_price_currency,last_pushed_quantity,external_listing_id,publish_state
+     FROM channels_channel_listing_links
+     WHERE channel_listing_id=$1`,
+    [channelListingId],
+  );
+  expect(result.rows).toHaveLength(1);
+  return result.rows[0]!;
+}
+
+async function publicationRecordedCount(db: PgTransactionalPool, streamId: string): Promise<number> {
+  const result = await db.query<{ count: number }>(
+    `SELECT COUNT(*)::integer AS count
+     FROM event_store_events
+     WHERE stream_id=$1 AND event_type='channels.channel-listing.publication-recorded'`,
+    [streamId],
+  );
+  return result.rows[0]?.count ?? 0;
+}
+
+async function seedProductionCompositionFacts(db: PgTransactionalPool): Promise<void> {
+  await db.query(`
+    INSERT INTO channels_connection_facts VALUES
+      ('connection-a','acc_owner','synthetic-provider','sandbox','active',now(),2);
+    INSERT INTO channels_listing_publication_facts
+      (listing_id,account_id,inventory_item_id,catalog_item_id,price_amount,price_currency_code,quantity_cap,
+       selected_options,selected_option_key,listing_status,pause_reason,item_title,item_subtitle,product_summary,graded_card,
+       updated_at,listing_stream_version)
+    VALUES ('listing-production-composed','acc_owner','item-production-composed','catalog-production-composed',
+      '20.00','USD',10,
+      '[{"dimensionId":"condition","optionId":"near-mint"}]'::jsonb,'condition:near-mint','active',NULL,
+      'Synthetic production composition card',NULL,'Synthetic production composition fixture',NULL,now(),7);
+    INSERT INTO channels_inventory_item_facts VALUES
+      ('item-production-composed','acc_owner','catalog-production-composed',3,now(),1);
+    INSERT INTO channels_catalog_item_category_facts VALUES
+      ('catalog-production-composed','cards',true,now(),1);
+    INSERT INTO channels_external_product_reference_facts VALUES
+      ('synthetic-provider','sku:production-composed','catalog-production-composed',
+       '[{"dimensionId":"condition","optionId":"near-mint"}]'::jsonb,
+       'condition:near-mint','linked',now(),1);
+    INSERT INTO channels_external_catalog_item_reference_facts VALUES
+      ('synthetic-provider','product:production-composed','catalog-production-composed','linked',now(),1);
+    INSERT INTO channels_connection_publication_settings VALUES
+      ('connection-a','','','','["cards"]'::jsonb,'[]'::jsonb,now(),1);
+    INSERT INTO channels_channel_mappings VALUES
+      ('connection-a','category','catalog-category:cards','trading-cards','manual','accepted','operator',
+       '{"listingId":"listing-production-composed","derivedFrom":"synthetic production composition fixture"}'::jsonb,
+       now(),1),
+      ('connection-a','condition','selected-option:condition:near-mint','near-mint','manual','accepted','operator',
+       '{"listingId":"listing-production-composed","derivedFrom":"synthetic production composition fixture"}'::jsonb,
+       now(),1);
+  `);
+}
 
 function descriptor(providerKey: string, execution: "claimed"): ChannelProviderDescriptor {
   return {
