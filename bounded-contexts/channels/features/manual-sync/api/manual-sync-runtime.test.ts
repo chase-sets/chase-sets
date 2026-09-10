@@ -359,6 +359,71 @@ describe("manual-sync runtime binding", () => {
       context,
     );
   });
+
+  it("keeps every stale composed, claimed, and awaiting action zero-write", async () => {
+    const composed = run();
+    const tcgplayerCsv = producer(composed);
+    const engage = vi.fn();
+    const recover = vi.fn();
+    const runtime = createManualSyncRuntime({
+      db: db() as never,
+      connections: connections(activeConnection()),
+      tcgplayerCsv,
+      policies: { resolvePolicy: vi.fn() },
+      marketplaceClamp: { kind: "available", port: { engage, recover } },
+    });
+    const fence = {
+      accountId: "account-owner",
+      connectionId: composed.connectionId,
+      runId: composed.runId,
+      expectedRevision: composed.revision + 1,
+    };
+    await expect(runtime.claimAndDownload(fence, context)).rejects.toMatchObject({ code: "invalid-action" });
+    await expect(runtime.retryClamp(fence, context)).rejects.toMatchObject({ code: "invalid-action" });
+
+    tcgplayerCsv.readRun = vi.fn(async () => ({ ...composed, state: "claimed", revision: 2 }));
+    const claimedFence = { ...fence, expectedRevision: 3 };
+    await expect(runtime.release(claimedFence, context)).rejects.toMatchObject({ code: "invalid-action" });
+    await expect(runtime.recordValidationCancellation(claimedFence, context)).rejects.toMatchObject({
+      code: "invalid-action",
+    });
+    await expect(
+      runtime.recordUploadAttempt(
+        {
+          ...claimedFence,
+          uploadAttemptedAt: "2026-09-10T12:10:00.000Z",
+          fileName: "staged.csv",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid-action" });
+
+    tcgplayerCsv.readRun = vi.fn(async () => ({ ...composed, state: "awaiting-verification", revision: 3 }));
+    await expect(
+      runtime.verify(
+        {
+          ...fence,
+          expectedRevision: 4,
+          verificationSnapshotId: "snapshot-newer-staged",
+          importSummary: {
+            fileName: "staged.csv",
+            dateImportedText: "09/10/2026",
+            numberOfProducts: 1,
+            recordedAt: "2026-09-10T12:12:00.000Z",
+          },
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid-action" });
+
+    expect(engage).not.toHaveBeenCalled();
+    expect(recover).not.toHaveBeenCalled();
+    expect(tcgplayerCsv.claimRun).not.toHaveBeenCalled();
+    expect(tcgplayerCsv.releaseRun).not.toHaveBeenCalled();
+    expect(tcgplayerCsv.recordValidationCancellation).not.toHaveBeenCalled();
+    expect(tcgplayerCsv.recordUploadAttempt).not.toHaveBeenCalled();
+    expect(tcgplayerCsv.verifyRun).not.toHaveBeenCalled();
+  });
 });
 
 function activeConnection() {
