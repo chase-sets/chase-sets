@@ -467,15 +467,14 @@ export function SearchPage({
         category: activeCategoryLabel,
       })
     : undefined;
-  const resultsSummary = data
-    ? data.items.length !== exactTotal
+  const resultsSummary =
+    data && data.items.length !== exactTotal
       ? t("discovery.features.search.ui.searchPage.results.summary.showing", {
           shown: data.items.length,
           count: exactTotal,
           category: activeCategoryLabel,
         })
-      : resultSetCount
-    : undefined;
+      : resultSetCount;
   const focusedResultsHeading = committedSearch.trim()
     ? t("discovery.features.search.ui.searchPage.results.heading.search", { search: committedSearch.trim() })
     : category

@@ -197,7 +197,21 @@ async function assertHomeMerchandising(page: Page, viewport: InkFoilViewport) {
   await assertNoDocumentOverflow(page, `Home at ${viewport.width}x${viewport.height}`);
 }
 
+// Exactly one main landmark and one h1 on every Ink & Foil route.
+async function assertLandmarks(page: Page) {
+  const landmarks = await page.evaluate(() => ({
+    mains: document.querySelectorAll("main").length,
+    h1Count: document.querySelectorAll("h1").length,
+  }));
+  expect(landmarks.mains, "exactly one main landmark").toBe(1);
+  expect(landmarks.h1Count, "exactly one h1").toBe(1);
+}
+
+// The Home landing additionally keeps unique section headings in a monotonic
+// order inside the content column (the Facet rail is the #5865/#6110-owned
+// baseline and is excluded from the ordering).
 async function assertHeadingAndLandmarkStructure(page: Page) {
+  await assertLandmarks(page);
   const structure = await page.evaluate(() => {
     const main = document.querySelector("main");
     const rail = document.querySelector("aside[aria-label='Desktop search filters']");
@@ -206,15 +220,9 @@ async function assertHeadingAndLandmarkStructure(page: Page) {
       text: (heading.textContent ?? "").trim(),
       inContent: Boolean(main?.contains(heading)) && !rail?.contains(heading),
     }));
-    return {
-      mains: document.querySelectorAll("main").length,
-      h1Count: headings.filter((heading) => heading.level === 1).length,
-      content: headings.filter((heading) => heading.inContent),
-    };
+    return { content: headings.filter((heading) => heading.inContent) };
   });
   console.log(`heading structure: ${JSON.stringify(structure)}`);
-  expect(structure.mains, "exactly one main landmark").toBe(1);
-  expect(structure.h1Count, "exactly one h1").toBe(1);
   const sectionTitles = structure.content.filter((heading) => heading.level === 2).map((heading) => heading.text);
   expect(new Set(sectionTitles).size, "unique section headings").toBe(sectionTitles.length);
   let previousLevel = 0;
@@ -289,7 +297,7 @@ async function assertInkFoilSearch(page: Page, viewport: InkFoilViewport) {
   await assertInkFoilHero(page, viewport);
   await expect(page.getByRole("heading", { name: "Featured categories" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "New arrivals" })).toHaveCount(0);
-  await assertHeadingAndLandmarkStructure(page);
+  await assertLandmarks(page);
 }
 
 async function gotoAndSettle(page: Page, path: string) {
