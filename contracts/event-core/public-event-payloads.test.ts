@@ -347,6 +347,11 @@ const marketplaceListingPriceCurrencyContract = {
   >,
 } as const;
 
+const externalChannelSaleLineMoneyContract = {
+  shippingCollectedAmount: "4.50",
+  channelFeeAmount: "1.25",
+} as const satisfies Pick<InventoryExternalChannelSaleRecordedPayload, "shippingCollectedAmount" | "channelFeeAmount">;
+
 const historicalFulfillmentShipmentDispatchedPayload = {
   shipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
   dispatchedAt: "2026-04-01T00:00:00.000Z",
@@ -454,6 +459,13 @@ describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
     expect(Object.keys(aggregateTypeIdentity)).toHaveLength(31);
+  });
+
+  it("publishes optional External Channel Sale line money on the existing v1 payload", () => {
+    expect(externalChannelSaleLineMoneyContract).toEqual({
+      shippingCollectedAmount: "4.50",
+      channelFeeAmount: "1.25",
+    });
   });
 
   it("preserves the historical optionality of the unversioned dispatch fact", () => {

@@ -82,7 +82,7 @@ describe("external-channel-sale-public-contract", () => {
     ).toHaveLength(128);
   });
 
-  it("recursively rejects unknown keys and enforces quantity, reference, money, and pair bounds", () => {
+  it("recursively rejects unknown keys and enforces quantity, reference, money, and currency bounds", () => {
     const unknownTop = { ...command(), fingerprint: "caller-controlled" };
     const unknownNested = { ...command(), saleKey: { ...command().saleKey, providerEventId: "evt_provider" } };
     for (const invalid of [
@@ -93,8 +93,12 @@ describe("external-channel-sale-public-contract", () => {
       command({ accountId: "a".repeat(129) }),
       command({ connectionAuditReference: "a".repeat(129) }),
       command({ unitPriceAmount: "1.00" }),
-      command({ currencyCode: "USD" }),
+      command({ shippingCollectedAmount: "1.00" }),
+      command({ channelFeeAmount: "1.00" }),
       command({ unitPriceAmount: "1", currencyCode: "USD" }),
+      command({ shippingCollectedAmount: "125", currencyCode: "USD" }),
+      command({ channelFeeAmount: "-1.00", currencyCode: "USD" }),
+      command({ shippingCollectedAmount: "1e5", currencyCode: "USD" }),
       command({ unitPriceAmount: "10000000000.00", currencyCode: "USD" }),
       command({ unitPriceAmount: "1.00", currencyCode: "usd" }),
     ]) {
@@ -112,6 +116,37 @@ describe("external-channel-sale-public-contract", () => {
         }),
       ),
     ).toMatchObject({ requestedQuantity: 2_147_483_647, unitPriceAmount: "9999999999.99", currencyCode: "USD" });
+    expect(normalizeExternalChannelSaleCommand(command({ currencyCode: "USD" }))).toMatchObject({
+      currencyCode: "USD",
+    });
+    const normalizedLineMoney = normalizeExternalChannelSaleCommand(
+      command({
+        unitPriceAmount: "12.34",
+        shippingCollectedAmount: "3.50",
+        channelFeeAmount: "1.25",
+        currencyCode: "USD",
+        soldAt: "2026-09-06T21:04:05-05:00",
+        connectionAuditReference: "connection-a",
+      }),
+    );
+    expect(normalizedLineMoney).toMatchObject({
+      shippingCollectedAmount: "3.50",
+      channelFeeAmount: "1.25",
+      currencyCode: "USD",
+    });
+    expect(Object.keys(normalizedLineMoney)).toEqual([
+      "accountId",
+      "inventoryItemId",
+      "storageLocationId",
+      "saleKey",
+      "requestedQuantity",
+      "unitPriceAmount",
+      "currencyCode",
+      "soldAt",
+      "shippingCollectedAmount",
+      "channelFeeAmount",
+      "connectionAuditReference",
+    ]);
   });
 
   it("requires strict timezone-bearing instants and fingerprints their canonical UTC value", () => {
@@ -139,7 +174,125 @@ describe("external-channel-sale-public-contract", () => {
     );
   });
 
-  it("rejects unknown event payload fields through the registered codec", () => {
+  it("preserves existing fingerprints and adds each line amount as an independent present-only fact", () => {
+    const unpriced = normalizeExternalChannelSaleCommand(command());
+    const priced = normalizeExternalChannelSaleCommand(
+      command({
+        unitPriceAmount: "12.34",
+        currencyCode: "USD",
+        soldAt: "2026-09-06T21:04:05-05:00",
+      }),
+    );
+    expect(externalChannelSaleCommandFingerprint(unpriced)).toBe(
+      "286715d368e8974255238323cb54e79ea19fb63730ee431b5de2e131c2e8c56c",
+    );
+    expect(externalChannelSaleCommandFingerprint(priced)).toBe(
+      "501faf2b69ec910ce010fdd38e69d76f4003cb306ba828c728fde33c2c5bbcbe",
+    );
+
+    const shipping = externalChannelSaleCommandFingerprint({ ...priced, shippingCollectedAmount: "4.00" });
+    const fee = externalChannelSaleCommandFingerprint({ ...priced, channelFeeAmount: "2.00" });
+    const both = externalChannelSaleCommandFingerprint({
+      ...priced,
+      shippingCollectedAmount: "4.00",
+      channelFeeAmount: "2.00",
+    });
+    const zeroShipping = externalChannelSaleCommandFingerprint({ ...priced, shippingCollectedAmount: "0.00" });
+    const zeroFee = externalChannelSaleCommandFingerprint({ ...priced, channelFeeAmount: "0.00" });
+    expect({ shipping, fee, both, zeroShipping, zeroFee }).toEqual({
+      shipping: "5db4a8cc2ceabcca08e0f77482563eaf3cbaae859f2ac4fd90a014034108286d",
+      fee: "f6141c6164839123c97fde15acff02906525175afea9575750654f6ad579a521",
+      both: "abe7302a94f3ebcacf50238142f6abe3f6e7817eb78a9bcc67b7beae2fced267",
+      zeroShipping: "cb50627e9973fe6c8a274c434e467728639b78ff851e2e571488b3c20b93a458",
+      zeroFee: "06005089fac20aaf21b8dad7767cc37791a6698b85e5ac8125cbe6be0637039c",
+    });
+  });
+
+  it("accepts the complete money-bearing v1 event and rejects closed-schema violations through the codec", () => {
+    const saleKey = command().saleKey;
+    const saleStreamId = externalChannelSaleStreamId(saleKey);
+    const payload = {
+      eventVersion: 1,
+      saleKey,
+      commandFingerprint: "a".repeat(64),
+      accountId: "acc_seller",
+      inventoryItemId: "inv_item",
+      storageLocationId: "loc_main",
+      requestedQuantity: 2,
+      unitPriceAmount: "12.34",
+      currencyCode: "USD",
+      soldAt: "2026-09-07T02:04:05.000Z",
+      shippingCollectedAmount: "4.00",
+      channelFeeAmount: "2.00",
+      connectionAuditReference: "connection-a",
+      collisionMode: EXTERNAL_CHANNEL_SALE_COLLISION_MODE,
+      collisionPolicyRef: EXTERNAL_CHANNEL_SALE_COLLISION_POLICY_REF,
+      collisionPolicyRevision: EXTERNAL_CHANNEL_SALE_COLLISION_POLICY_REVISION,
+      reasonCode: EXTERNAL_CHANNEL_SALE_REASON_CODE,
+      result: {
+        saleKey,
+        saleStreamId,
+        saleEventId: "evt_sale",
+        accountId: "acc_seller",
+        inventoryItemId: "inv_item",
+        storageLocationId: "loc_main",
+        requestedQuantity: 2,
+        appliedQuantity: 2,
+        refusedQuantity: 0,
+        protectedOrderIds: [],
+        collisionPolicyRef: EXTERNAL_CHANNEL_SALE_COLLISION_POLICY_REF,
+        collisionPolicyRevision: EXTERNAL_CHANNEL_SALE_COLLISION_POLICY_REVISION,
+        inventoryAdjustmentEventId: "evt_adjustment",
+        saleShortfallKey: null,
+        committedAt: "2026-09-07T02:05:00.000Z",
+      },
+    } as const;
+    const decoded = externalChannelSaleEventCodec.decode({
+      eventType: "inventory.external-channel-sale.recorded",
+      payload,
+    });
+    expect(Object.keys(decoded.data)).toEqual([
+      "eventVersion",
+      "saleKey",
+      "commandFingerprint",
+      "accountId",
+      "inventoryItemId",
+      "storageLocationId",
+      "requestedQuantity",
+      "unitPriceAmount",
+      "currencyCode",
+      "soldAt",
+      "shippingCollectedAmount",
+      "channelFeeAmount",
+      "connectionAuditReference",
+      "collisionMode",
+      "collisionPolicyRef",
+      "collisionPolicyRevision",
+      "reasonCode",
+      "result",
+    ]);
+
+    const { currencyCode: _currencyCode, ...withoutCurrency } = payload;
+    const invalidPayloads = [
+      { ...payload, unexpected: true },
+      { ...payload, saleKey: { ...payload.saleKey, unexpected: true } },
+      { ...payload, result: { ...payload.result, unexpected: true } },
+      { ...payload, shippingCollectedAmount: "125" },
+      withoutCurrency,
+      { ...payload, result: { ...payload.result, protectedOrderIds: [1] } },
+      { ...payload, result: { ...payload.result, appliedQuantity: 2_147_483_648 } },
+      { ...payload, result: { ...payload.result, committedAt: "2026-09-07" } },
+    ];
+    expect(_currencyCode).toBe("USD");
+    for (const invalid of invalidPayloads) {
+      expect(() =>
+        externalChannelSaleEventCodec.decode({
+          eventType: "inventory.external-channel-sale.recorded",
+          payload: invalid as never,
+        }),
+      ).toThrow(InventoryDomainError);
+    }
+
     expect(() =>
       externalChannelSaleEventCodec.decode({
         eventType: "inventory.external-channel-sale.recorded",

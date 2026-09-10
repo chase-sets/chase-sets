@@ -124,16 +124,28 @@ describeDb("external-channel-sale real event-store authority", () => {
   }
 
   it("external-channel-sale-idempotency preserves one terminal fact and typed conflicts", async () => {
-    const first = await services.channelSales.record(command("idempotency"), context);
+    const moneyCommand = command("idempotency", {
+      requestedQuantity: 3,
+      shippingCollectedAmount: "4.50",
+      channelFeeAmount: "1.25",
+    });
+    const first = await services.channelSales.record(moneyCommand, context);
     const replay = await services.channelSales.record(
-      command("idempotency", { connectionAuditReference: "another-connection" }),
+      { ...moneyCommand, connectionAuditReference: "another-connection" },
       context,
     );
-    const conflict = await services.channelSales.record(command("idempotency", { requestedQuantity: 2 }), context);
+    const conflict = await services.channelSales.record({ ...moneyCommand, shippingCollectedAmount: "4.51" }, context);
     expect(replay).toEqual(first);
     expect(conflict).toMatchObject({
       code: "external-channel-sale-conflict",
-      differingFields: ["requestedQuantity"],
+      differingFields: ["shippingCollectedAmount"],
+    });
+    const stored = await eventStore.readStream({ streamId: externalChannelSaleStreamId(moneyCommand.saleKey) });
+    expect(stored[0]?.payload).toMatchObject({
+      requestedQuantity: 3,
+      shippingCollectedAmount: "4.50",
+      channelFeeAmount: "1.25",
+      currencyCode: "USD",
     });
     expect(await countEvents("inventory.external-channel-sale.recorded")).toBe(1);
     expect(await countEvents("inventory.item.adjusted")).toBe(1);

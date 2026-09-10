@@ -80,6 +80,48 @@ describe("inventory adjustment idempotency", () => {
     ).not.toBe(omittedMode);
   });
 
+  it("keeps sold-offline fingerprints byte-identical while line money changes only external sales", () => {
+    const offlineSale = inventoryAdjustmentCommandFingerprint({
+      ...baseInput,
+      quantityDelta: -3,
+      reason: "Offline sale",
+      reasonCode: "sold-offline",
+      salePriceAmount: "125.00",
+      channel: "in-store",
+    });
+    expect(offlineSale).toBe("49e7b73e6c41049d76b60318b55992b3727bdae1e87163a8117c7f818a11be35");
+
+    const externalSale = {
+      externalChannelSale: {
+        saleKeyVersion: "v1",
+        accountId: "acc_seller",
+        inventoryItemId: "inv_item",
+        storageLocationId: "loc_main",
+        requestedQuantity: 2,
+        unitPriceAmount: "12.34",
+        currencyCode: "USD",
+        soldAt: "2026-09-07T02:04:05.000Z",
+        collisionMode: "protect-orders",
+        collisionPolicyRef: "https://github.com/chase-sets/chase-sets/issues/7354#issuecomment-5381318708",
+        collisionPolicyRevision: 1,
+        reasonCode: "sold-external-channel",
+      },
+    } as const;
+    expect(inventoryAdjustmentCommandFingerprint(externalSale)).toBe(
+      "501faf2b69ec910ce010fdd38e69d76f4003cb306ba828c728fde33c2c5bbcbe",
+    );
+    expect(
+      inventoryAdjustmentCommandFingerprint({
+        externalChannelSale: { ...externalSale.externalChannelSale, shippingCollectedAmount: "4.00" },
+      }),
+    ).not.toBe(inventoryAdjustmentCommandFingerprint(externalSale));
+    expect(
+      inventoryAdjustmentCommandFingerprint({
+        externalChannelSale: { ...externalSale.externalChannelSale, channelFeeAmount: "2.00" },
+      }),
+    ).not.toBe(inventoryAdjustmentCommandFingerprint(externalSale));
+  });
+
   it("guards completion by in-progress status and the claimed fingerprint", async () => {
     const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
 

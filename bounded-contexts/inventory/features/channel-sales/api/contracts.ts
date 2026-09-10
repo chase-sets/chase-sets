@@ -12,6 +12,8 @@ export type RecordExternalChannelSaleCommand = Readonly<{
   saleKey: ExternalChannelSaleKeyV1;
   requestedQuantity: number;
   unitPriceAmount?: string;
+  shippingCollectedAmount?: string;
+  channelFeeAmount?: string;
   currencyCode?: string;
   soldAt?: string;
   connectionAuditReference?: string;
@@ -23,6 +25,8 @@ export type ExternalChannelSaleConflictField =
   | "storageLocationId"
   | "requestedQuantity"
   | "unitPriceAmount"
+  | "shippingCollectedAmount"
+  | "channelFeeAmount"
   | "currencyCode"
   | "soldAt"
   | "collisionPolicyRef"

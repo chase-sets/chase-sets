@@ -30,6 +30,8 @@ type ExternalChannelSaleCommandFingerprintInput = Readonly<{
     unitPriceAmount?: string;
     currencyCode?: string;
     soldAt?: string;
+    shippingCollectedAmount?: string;
+    channelFeeAmount?: string;
     collisionMode: "protect-orders";
     collisionPolicyRef: string;
     collisionPolicyRevision: number;
@@ -80,6 +82,10 @@ export function inventoryAdjustmentCommandFingerprint(input: InventoryAdjustment
           requestedQuantity: sale.requestedQuantity,
           ...price,
           ...soldAt,
+          ...(sale.shippingCollectedAmount !== undefined
+            ? { shippingCollectedAmount: sale.shippingCollectedAmount }
+            : {}),
+          ...(sale.channelFeeAmount !== undefined ? { channelFeeAmount: sale.channelFeeAmount } : {}),
           collisionMode: sale.collisionMode,
           collisionPolicyRef: sale.collisionPolicyRef,
           collisionPolicyRevision: sale.collisionPolicyRevision,

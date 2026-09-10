@@ -225,6 +225,8 @@ export type InventoryExternalChannelSaleRecordedPayload = Readonly<{
   unitPriceAmount?: string;
   currencyCode?: string;
   soldAt?: string;
+  shippingCollectedAmount?: string;
+  channelFeeAmount?: string;
   connectionAuditReference?: string;
   collisionMode: "protect-orders";
   collisionPolicyRef: string;
