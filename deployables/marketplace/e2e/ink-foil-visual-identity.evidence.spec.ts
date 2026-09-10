@@ -54,6 +54,244 @@ const populatedSearchPriceProof = {
   valueText: "$389.00",
 } as const;
 
+// #7205 Ink & Foil Home/browse hierarchy. The no-query hero renders on both the
+// Home landing (`/`) and the browse Result Set (`/search`); only the Home landing
+// carries the Featured Categories / New Arrivals payload (the route loader binds
+// it to pathname `/`), so Home-section anchors are proven on `/` and the two
+// registered `/search` claims capture the hero, count, rail branch, and the
+// unchanged populated Search card.
+const heroHeadline = "Find cards, comics, figures, sneakers, and memorabilia worth chasing.";
+const heroFoilWord = "chasing";
+const heroDescription =
+  "Search live supply, compare active markets, and move from discovery to item detail with buyer confidence built in.";
+// SearchResultsLayout shows the desktop Facet rail from Tailwind `lg` upward.
+const desktopRailMinWidth = 1024;
+
+type InkFoilViewport = Readonly<{ width: number; height: number }>;
+
+function homeHero(page: Page) {
+  return page.locator("[data-search-home-hero]");
+}
+
+function desktopFacetRail(page: Page) {
+  return page.locator("aside[aria-label='Desktop search filters']");
+}
+
+async function assertNoDocumentOverflow(page: Page, label: string) {
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow, `${label}: horizontal document overflow in px`).toBeLessThanOrEqual(0);
+}
+
+async function assertInkFoilHero(page: Page, viewport: InkFoilViewport) {
+  const hero = homeHero(page);
+  await expect(hero, "the no-query hero must render exactly once").toHaveCount(1);
+  await expect(hero).toBeVisible();
+
+  const headline = page.locator("h1");
+  await expect(headline, "exactly one page h1").toHaveCount(1);
+  await expect(headline).toHaveClass(/font-display/);
+  await expect(headline).toBeVisible();
+  await expect(headline).toHaveText(heroHeadline);
+  const foilSites = page.locator(".ds-brand-foil-text");
+  await expect(foilSites, "exactly one brand-foil site on the page").toHaveCount(1);
+  await expect(headline.locator(".ds-brand-foil-text")).toHaveText(heroFoilWord);
+  await expect(foilSites).toBeVisible();
+  const headlineNodes = await headline.evaluate((element) =>
+    Array.from(element.childNodes).map((node) => [node.nodeType, node.textContent]),
+  );
+  expect(headlineNodes, "the foil wraps only the treated word; punctuation stays outside").toEqual([
+    [Node.TEXT_NODE, "Find cards, comics, figures, sneakers, and memorabilia worth "],
+    [Node.ELEMENT_NODE, heroFoilWord],
+    [Node.TEXT_NODE, "."],
+  ]);
+
+  await expect(hero.getByText("Marketplace", { exact: true })).toBeVisible();
+  await expect(hero.getByText("Verified supply", { exact: true })).toBeVisible();
+  await expect(hero.getByText(heroDescription, { exact: true })).toBeVisible();
+  await expect(hero.getByRole("searchbox", { name: "Marketplace search" })).toBeVisible();
+
+  const categoryActions = hero.getByRole("button");
+  await expect(categoryActions.first()).toHaveText("All");
+  expect(await categoryActions.count(), "featured Category actions beside All").toBeGreaterThan(1);
+  for (const action of await categoryActions.all()) {
+    await expect(action).toBeVisible();
+  }
+
+  const count = page.locator("[data-search-result-set-count]");
+  await expect(count, "one resolved inline Result Set count").toHaveCount(1);
+  await expect(count).toBeVisible();
+  await expect(count).toHaveText(/^\d+ results in All Categories$/);
+
+  // The retired Stat surface is absent as markup, not merely hidden.
+  await expect(page.getByText("Catalog depth", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/\d+ tracked items/)).toHaveCount(0);
+  await expect(page.getByText("Results", { exact: true })).toHaveCount(0);
+
+  // Desktop rail versus focused-only mobile Filter bar: the hidden sibling is
+  // named explicitly rather than inferred from a visibility-dependent role.
+  const rail = desktopFacetRail(page);
+  await expect(rail, "one desktop Facet rail in the DOM").toHaveCount(1);
+  if (viewport.width >= desktopRailMinWidth) {
+    await expect(rail, `desktop Facet rail visible at ${viewport.width}px`).toBeVisible();
+    const railSections = rail.locator("h3");
+    expect(await railSections.count(), "canonical desktop Facet section list").toBeGreaterThan(0);
+    await expect(railSections.first()).toBeVisible();
+  } else {
+    await expect(rail, `desktop Facet rail hidden at ${viewport.width}px`).toBeHidden();
+  }
+  await expect(page.getByRole("button", { name: "Open filters" }), "focused-only mobile Filter bar").toHaveCount(0);
+
+  await assertNoDocumentOverflow(page, `hero at ${viewport.width}x${viewport.height}`);
+}
+
+async function assertHomeMerchandising(page: Page, viewport: InkFoilViewport) {
+  const categoriesHeading = page.getByRole("heading", { level: 2, name: "Featured categories" });
+  await expect(categoriesHeading).toBeVisible();
+  const categoriesSection = categoriesHeading.locator("xpath=ancestor::section[1]");
+  const categoryLinks = categoriesSection.getByRole("link", { name: /^Browse / });
+  expect(await categoryLinks.count(), "authoritative Category links").toBeGreaterThan(0);
+  await expect(categoryLinks.first()).toBeVisible();
+  await expect(categoriesSection.locator("img"), "Featured Categories stay text-led").toHaveCount(0);
+
+  const arrivalsHeading = page.getByRole("heading", { level: 2, name: "New arrivals" });
+  await expect(arrivalsHeading).toBeVisible();
+  const arrivalsSection = arrivalsHeading.locator("xpath=ancestor::section[1]");
+  const arrivalCards = arrivalsSection.locator("article[data-card-layout='search-result']");
+  expect(await arrivalCards.count(), "New Arrival Product cards").toBeGreaterThan(0);
+  await arrivalCards.first().scrollIntoViewIfNeeded();
+  await expect(arrivalCards.first()).toBeVisible();
+  const arrivalImages = arrivalsSection.locator("article img");
+  expect(await arrivalImages.count(), "an image-bearing New Arrival").toBeGreaterThan(0);
+  const firstImage = arrivalImages.first();
+  await firstImage.scrollIntoViewIfNeeded();
+  await expect(firstImage).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        firstImage.evaluate((element) => {
+          const image = element as HTMLImageElement;
+          return image.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+        }),
+      { message: "the New Arrival image must actually load" },
+    )
+    .toBe(true);
+
+  const browseAll = arrivalsSection.getByRole("link", { name: "Browse all new arrivals" });
+  await expect(browseAll).toHaveCount(1);
+  await browseAll.scrollIntoViewIfNeeded();
+  await expect(browseAll).toBeVisible();
+  await expect(browseAll).toHaveAttribute("href", "/search?sort=newest");
+  const browseAllBox = await browseAll.boundingBox();
+  const firstCardBox = await arrivalCards.first().boundingBox();
+  expect(
+    browseAllBox && firstCardBox && browseAllBox.y + browseAllBox.height <= firstCardBox.y + 1,
+    "Browse all new arrivals sits in the section header ahead of the grid",
+  ).toBe(true);
+
+  // On the Home landing the Product cards are the New Arrivals alone: no
+  // headless browse grid trails the merchandising sections.
+  const allCards = page.locator("main article[data-card-layout='search-result']");
+  expect(await allCards.count()).toBe(await arrivalCards.count());
+  await assertNoDocumentOverflow(page, `Home at ${viewport.width}x${viewport.height}`);
+}
+
+async function assertHeadingAndLandmarkStructure(page: Page) {
+  const structure = await page.evaluate(() => {
+    const main = document.querySelector("main");
+    const rail = document.querySelector("aside[aria-label='Desktop search filters']");
+    const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6")).map((heading) => ({
+      level: Number(heading.tagName.slice(1)),
+      text: (heading.textContent ?? "").trim(),
+      inContent: Boolean(main?.contains(heading)) && !rail?.contains(heading),
+    }));
+    return {
+      mains: document.querySelectorAll("main").length,
+      h1Count: headings.filter((heading) => heading.level === 1).length,
+      content: headings.filter((heading) => heading.inContent),
+    };
+  });
+  console.log(`heading structure: ${JSON.stringify(structure)}`);
+  expect(structure.mains, "exactly one main landmark").toBe(1);
+  expect(structure.h1Count, "exactly one h1").toBe(1);
+  const sectionTitles = structure.content.filter((heading) => heading.level === 2).map((heading) => heading.text);
+  expect(new Set(sectionTitles).size, "unique section headings").toBe(sectionTitles.length);
+  let previousLevel = 0;
+  for (const heading of structure.content) {
+    expect(heading.level, `heading "${heading.text}" must not skip a level`).toBeLessThanOrEqual(previousLevel + 1);
+    previousLevel = heading.level;
+  }
+}
+
+async function assertVisibleFocus(page: Page) {
+  const searchbox = homeHero(page).getByRole("searchbox", { name: "Marketplace search" });
+  const restingShadow = await searchbox.evaluate((element) => getComputedStyle(element).boxShadow);
+  await searchbox.focus();
+  const focused = await searchbox.evaluate((element) => ({
+    active: document.activeElement === element,
+    focusVisible: element.matches(":focus-visible"),
+    boxShadow: getComputedStyle(element).boxShadow,
+    outlineStyle: getComputedStyle(element).outlineStyle,
+  }));
+  console.log(`visible focus: ${JSON.stringify({ restingShadow, focused })}`);
+  expect(focused.active).toBe(true);
+  expect(focused.focusVisible).toBe(true);
+  expect(
+    focused.boxShadow !== restingShadow || focused.outlineStyle !== "none",
+    "focus must paint a visible ring",
+  ).toBe(true);
+  await page.keyboard.press("Tab");
+}
+
+async function assertForcedColorsContinuity(page: Page, viewport: InkFoilViewport) {
+  await page.emulateMedia({ forcedColors: "active" });
+  await gotoAndSettle(page, "/");
+  await expect(page.locator("h1")).toHaveText(heroHeadline);
+  const foil = page.locator("h1 .ds-brand-foil-text");
+  await expect(foil).toHaveCount(1);
+  await expect(foil).toBeVisible();
+  const paint = await foil.evaluate((element) => ({
+    color: getComputedStyle(element).color,
+    backgroundImage: getComputedStyle(element).backgroundImage,
+  }));
+  console.log(`forced-colors foil paint: ${JSON.stringify(paint)}`);
+  expect(paint.backgroundImage).toBe("none");
+  expect(paint.color).toMatch(/^rgb\(/);
+  expect(paint.color).not.toBe("rgba(0, 0, 0, 0)");
+  await assertHomeMerchandising(page, viewport);
+  await page.emulateMedia({ forcedColors: "none" });
+}
+
+async function assertReducedMotionContinuity(page: Page, viewport: InkFoilViewport) {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await gotoAndSettle(page, "/");
+  await assertInkFoilHero(page, viewport);
+  await assertHomeMerchandising(page, viewport);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+}
+
+// The exact seeded Home state, asserted at the lifecycle moment before any
+// geometry or capture: hero, count, Category and New Arrival anchors, image,
+// rail branch, structure, focus, and layout.
+async function assertInkFoilHome(page: Page, viewport: InkFoilViewport) {
+  await gotoAndSettle(page, "/");
+  await assertInkFoilHero(page, viewport);
+  await assertHomeMerchandising(page, viewport);
+  await assertHeadingAndLandmarkStructure(page);
+  await assertVisibleFocus(page);
+}
+
+// The registered `/search` claim state: the same hero and count over the
+// unchanged populated browse Result Set, with no Home merchandising payload.
+async function assertInkFoilSearch(page: Page, viewport: InkFoilViewport) {
+  await gotoAndSettle(page, "/search");
+  await assertInkFoilHero(page, viewport);
+  await expect(page.getByRole("heading", { name: "Featured categories" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "New arrivals" })).toHaveCount(0);
+  await assertHeadingAndLandmarkStructure(page);
+}
+
 async function gotoAndSettle(page: Page, path: string) {
   const response = await page.goto(path, { waitUntil: "load" });
   expect(response, `${path} did not return a page response`).not.toBeNull();
@@ -289,9 +527,11 @@ test.describe("Ink & Foil rendered visual identity", () => {
   });
 
   test("records search Ink & Foil evidence at 390x844 dark @marketplace-browse", async ({ page }, testInfo) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+    const viewport = { width: 390, height: 844 };
+    await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme: "dark" });
-    await gotoAndSettle(page, "/search");
+    await assertInkFoilHome(page, viewport);
+    await assertInkFoilSearch(page, viewport);
     await assertFontsInstalled(page);
     await assertFoilStops(page, "dark");
     await assertCandidatePalette(page, "dark");
@@ -301,9 +541,11 @@ test.describe("Ink & Foil rendered visual identity", () => {
   });
 
   test("records search Ink & Foil evidence at 1280x900 light @marketplace-browse", async ({ page }, testInfo) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
+    const viewport = { width: 1280, height: 900 };
+    await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme: "light" });
-    await gotoAndSettle(page, "/search");
+    await assertInkFoilHome(page, viewport);
+    await assertInkFoilSearch(page, viewport);
     await assertFontsInstalled(page);
     await assertFoilStops(page, "light");
     await assertCandidatePalette(page, "light");
@@ -344,6 +586,28 @@ test.describe("Ink & Foil rendered visual identity", () => {
     await expect(
       captureResponsiveEvidence({ page, testInfo, claimId: "ink-foil-search-empty-control" }),
     ).rejects.toThrow("target-population-empty");
+  });
+
+  test("asserts search Ink & Foil geometry at 360x800 light @marketplace-browse", async ({ page }) => {
+    const viewport = { width: 360, height: 800 };
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ colorScheme: "light" });
+    await assertInkFoilHome(page, viewport);
+    await assertInkFoilSearch(page, viewport);
+    await assertPopulatedSearchPriceRole(page);
+    await assertForcedColorsContinuity(page, viewport);
+    await assertReducedMotionContinuity(page, viewport);
+  });
+
+  test("asserts search Ink & Foil geometry at 820x1180 light @marketplace-browse", async ({ page }) => {
+    const viewport = { width: 820, height: 1180 };
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ colorScheme: "light" });
+    await assertInkFoilHome(page, viewport);
+    await assertInkFoilSearch(page, viewport);
+    await assertPopulatedSearchPriceRole(page);
+    await assertForcedColorsContinuity(page, viewport);
+    await assertReducedMotionContinuity(page, viewport);
   });
 
   test("records browse Ink & Foil evidence at 360x800 light @marketplace-browse", async ({ page }, testInfo) => {
