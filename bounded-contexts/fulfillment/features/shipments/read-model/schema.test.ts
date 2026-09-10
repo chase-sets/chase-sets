@@ -5,6 +5,11 @@ describe("fulfillment shipment schema", () => {
   it("keeps one-time shipment read-model reshapes out of boot schema SQL", () => {
     expect(fulfillmentShipmentSchemaSql).toContain("CREATE TABLE IF NOT EXISTS fulfillment_shipment_pages");
     expect(fulfillmentShipmentSchemaSql).toContain("CREATE TABLE IF NOT EXISTS fulfillment_shipment_line_pages");
+    expect(fulfillmentShipmentSchemaSql).toContain(
+      "CREATE TABLE IF NOT EXISTS fulfillment_channel_fulfillment_record_tenant_resolutions",
+    );
+    expect(fulfillmentShipmentSchemaSql).toContain("subject_kind text NOT NULL");
+    expect(fulfillmentShipmentSchemaSql).toContain("subject_id text NOT NULL");
     expect(fulfillmentShipmentSchemaSql).not.toContain("UPDATE fulfillment_shipment_line_pages");
     expect(fulfillmentShipmentSchemaSql).not.toContain("UPDATE fulfillment_postage_label_operations");
     expect(fulfillmentShipmentSchemaSql).not.toContain("DROP CONSTRAINT IF EXISTS");
@@ -48,6 +53,15 @@ describe("fulfillment shipment schema", () => {
         ],
       }),
       expect.objectContaining({
+        migrationId: "20260910_fulfillment_postage_operation_subject_v1",
+        statements: expect.arrayContaining([
+          expect.stringContaining("SET subject_id = shipment_id"),
+          expect.stringContaining("DROP COLUMN shipment_id"),
+          expect.stringContaining("SET subject_kind = 'shipment'"),
+          expect.stringContaining("fulfillment_channel_fulfillment_record_tenant_resolutions"),
+        ]),
+      }),
+      expect.objectContaining({
         migrationId: "20260823_fulfillment_shipment_mutation_authority_v1",
         statements: expect.arrayContaining([
           expect.stringContaining("fulfillment_shipment_tenant_resolutions"),
@@ -55,7 +69,19 @@ describe("fulfillment shipment schema", () => {
           expect.stringContaining(
             "DROP INDEX CONCURRENTLY IF EXISTS fulfillment_postage_label_operations_active_kind_idx",
           ),
-          expect.stringContaining("fulfillment_postage_label_operations_active_target_v1_idx"),
+          expect.stringContaining("fulfillment_postage_label_operations_active_target_v2_idx"),
+        ]),
+      }),
+      expect.objectContaining({
+        migrationId: "20260910_fulfillment_postage_operation_subject_indexes_v1",
+        statements: expect.arrayContaining([
+          expect.stringContaining(
+            "DROP INDEX CONCURRENTLY IF EXISTS fulfillment_postage_label_operations_active_target_v1_idx",
+          ),
+          expect.stringContaining("fulfillment_postage_label_operations_active_target_v2_idx"),
+          expect.stringContaining("fulfillment_postage_provider_events_subject_idx"),
+          expect.stringContaining("fulfillment_postage_label_operations_subject_tracking_idx"),
+          expect.stringContaining("fulfillment_postage_label_operations_subject_provider_shipment_idx"),
         ]),
       }),
     ]);

@@ -8,8 +8,8 @@ import {
 } from ".";
 
 const sampleRequest = {
-  shipmentId: "shp_1",
-  orderId: "ord_1",
+  subjectKind: "shipment" as const,
+  subjectId: "shp_1",
   idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
   serviceLevel: "USPS_GROUND_ADVANTAGE",
   sender: {

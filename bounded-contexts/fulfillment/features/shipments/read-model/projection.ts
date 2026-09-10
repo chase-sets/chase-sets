@@ -20,6 +20,32 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
   }
 
   return {
+    "fulfillment.channel-fulfillment-record.created": async (event) => {
+      const data = event.data as {
+        channelFulfillmentRecordId: string;
+        sellerAccountId: string;
+        createdAt: string;
+      };
+
+      await db.query(
+        `INSERT INTO fulfillment_channel_fulfillment_record_tenant_resolutions (
+           channel_fulfillment_record_id, tenant_id, seller_account_id, status, reason_code, resolved_at
+         ) VALUES ($1, $2, $3, 'resolved', 'authoritative-history', $4)
+         ON CONFLICT (channel_fulfillment_record_id) DO UPDATE
+         SET tenant_id = EXCLUDED.tenant_id,
+             seller_account_id = EXCLUDED.seller_account_id,
+             status = CASE
+               WHEN fulfillment_channel_fulfillment_record_tenant_resolutions.tenant_id = EXCLUDED.tenant_id
+                AND fulfillment_channel_fulfillment_record_tenant_resolutions.seller_account_id = EXCLUDED.seller_account_id
+               THEN 'resolved' ELSE 'quarantined' END,
+             reason_code = CASE
+               WHEN fulfillment_channel_fulfillment_record_tenant_resolutions.tenant_id = EXCLUDED.tenant_id
+                AND fulfillment_channel_fulfillment_record_tenant_resolutions.seller_account_id = EXCLUDED.seller_account_id
+               THEN 'authoritative-history' ELSE 'projection-identity-mismatch' END,
+             resolved_at = EXCLUDED.resolved_at`,
+        [data.channelFulfillmentRecordId, event.tenantId, data.sellerAccountId, data.createdAt],
+      );
+    },
     ...defineProjectorHandlers<
       Pick<ChaseSetsEventPayloads, "fulfillment.shipment.created" | "fulfillment.shipment.packing-started">
     >({

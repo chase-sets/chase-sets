@@ -4,7 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { FulfillmentApiEnv } from "../../../api";
 import type { FulfillmentShipmentServices } from "./runtime";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
-import { assertCanonicalShipmentMutationId } from "../domain/mutation-attempt";
+import { assertCanonicalFulfillmentMutationId } from "../domain/mutation-attempt";
 
 const providerWebhookContext = {
   tenantId: "tnt_identity" as TenantId,
@@ -113,7 +113,7 @@ function parseShipmentIds(value: string | undefined) {
 
 function readMutationAttemptId(c: { req: { header(name: string): string | undefined } }) {
   const value = c.req.header("Idempotency-Key");
-  assertCanonicalShipmentMutationId(value);
+  assertCanonicalFulfillmentMutationId(value);
   return value;
 }
 

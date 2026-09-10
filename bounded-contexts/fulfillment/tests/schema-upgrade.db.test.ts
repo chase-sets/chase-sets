@@ -84,7 +84,7 @@ describeDb("fulfillment schema upgrades", () => {
     const freshFence = await pool.query<{ indexdef: string }>(
       `SELECT indexdef FROM pg_indexes
        WHERE schemaname = current_schema()
-         AND indexname = 'fulfillment_postage_label_operations_active_target_v1_idx'`,
+         AND indexname = 'fulfillment_postage_label_operations_active_target_v2_idx'`,
     );
     const freshStatusConstraint = await pool.query<{ definition: string }>(
       `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
@@ -226,22 +226,48 @@ describeDb("fulfillment schema upgrades", () => {
          ('legacy-pending', 'purchase-usps-label', 'shp_pending', 'fake', 'test', 'legacy-pending', '{}', 'pending', now(), now(), NULL),
          ('legacy-provider-succeeded', 'purchase-usps-label', 'shp_provider', 'fake', 'test', 'legacy-provider', '{}', 'provider-succeeded', now(), now(), NULL)`,
     );
+    await pool.query(
+      `INSERT INTO fulfillment_postage_provider_events (
+         provider_event_id, provider_name, provider_mode, event_kind, provider_object_reference,
+         shipment_id, tracking_identifier, occurred_at, received_at, processing_result
+       ) VALUES
+         ('legacy-matched-event', 'fake', 'test', 'tracking-status', 'legacy-matched', 'shp_history', 'trk_history', now(), now(), 'recorded'),
+         ('legacy-unresolved-event', 'fake', 'test', 'provider-event', 'legacy-unresolved', NULL, NULL, now(), now(), 'unmatched')`,
+    );
 
     await pool.query(
       `DELETE FROM bounded_context_schema_migrations
-       WHERE migration_id = '20260823_fulfillment_shipment_mutation_authority_v1'`,
+       WHERE migration_id IN (
+         '20260823_fulfillment_shipment_mutation_authority_v1',
+         '20260910_fulfillment_postage_operation_subject_v1',
+         '20260910_fulfillment_postage_operation_subject_indexes_v1'
+       )`,
     );
     await bootstrapContextDatabase(fulfillmentModule, pool);
 
-    const retained = await pool.query<{ operation_key: string; status: string; target_key: string }>(
-      `SELECT operation_key, status, target_key
+    const retained = await pool.query<{
+      operation_key: string;
+      status: string;
+      subject_kind: string;
+      subject_id: string;
+      target_key: string;
+    }>(
+      `SELECT operation_key, status, subject_kind, subject_id, target_key
        FROM fulfillment_postage_label_operations ORDER BY operation_key`,
     );
     expect(retained.rows).toEqual([
-      expect.objectContaining({ operation_key: "legacy-failed", status: "ambiguous" }),
-      expect.objectContaining({ operation_key: "legacy-pending", status: "reserved" }),
-      expect.objectContaining({ operation_key: "legacy-provider-succeeded", status: "provider-succeeded" }),
-      expect.objectContaining({ operation_key: "legacy-succeeded", status: "effect-applied" }),
+      expect.objectContaining({ operation_key: "legacy-failed", status: "ambiguous", subject_kind: "shipment" }),
+      expect.objectContaining({ operation_key: "legacy-pending", status: "reserved", subject_kind: "shipment" }),
+      expect.objectContaining({
+        operation_key: "legacy-provider-succeeded",
+        status: "provider-succeeded",
+        subject_kind: "shipment",
+      }),
+      expect.objectContaining({
+        operation_key: "legacy-succeeded",
+        status: "effect-applied",
+        subject_kind: "shipment",
+      }),
     ]);
     expect(new Set(retained.rows.map((row) => row.target_key)).size).toBe(retained.rows.length);
     const indexes = await pool.query<{ indexname: string; indexdef: string }>(
@@ -249,13 +275,16 @@ describeDb("fulfillment schema upgrades", () => {
        WHERE schemaname = current_schema()
          AND indexname IN (
            'fulfillment_postage_label_operations_active_kind_idx',
-           'fulfillment_postage_label_operations_active_target_v1_idx'
+           'fulfillment_postage_label_operations_active_target_v1_idx',
+           'fulfillment_postage_label_operations_active_target_v2_idx'
          ) ORDER BY indexname`,
     );
     expect(indexes.rows).toEqual([
       expect.objectContaining({
-        indexname: "fulfillment_postage_label_operations_active_target_v1_idx",
-        indexdef: expect.stringContaining("tenant_id, seller_account_id, shipment_id, operation_kind, target_key"),
+        indexname: "fulfillment_postage_label_operations_active_target_v2_idx",
+        indexdef: expect.stringContaining(
+          "tenant_id, seller_account_id, subject_kind, subject_id, operation_kind, target_key",
+        ),
       }),
     ]);
     expect(indexes.rows[0]?.indexdef).toBe(freshFence.rows[0]?.indexdef);
@@ -265,6 +294,38 @@ describeDb("fulfillment schema upgrades", () => {
          AND conname = 'fulfillment_postage_label_operations_status_check'`,
     );
     expect(retainedStatusConstraint.rows).toEqual(freshStatusConstraint.rows);
+    const providerEvents = await pool.query<{
+      provider_event_id: string;
+      subject_kind: string;
+      subject_id: string | null;
+    }>(
+      `SELECT provider_event_id, subject_kind, subject_id
+       FROM fulfillment_postage_provider_events
+       WHERE provider_event_id LIKE 'legacy-%'
+       ORDER BY provider_event_id`,
+    );
+    expect(providerEvents.rows).toEqual([
+      { provider_event_id: "legacy-matched-event", subject_kind: "shipment", subject_id: "shp_history" },
+      { provider_event_id: "legacy-unresolved-event", subject_kind: "shipment", subject_id: null },
+    ]);
+    const subjectNullability = await pool.query<{
+      table_name: string;
+      column_name: string;
+      is_nullable: "YES" | "NO";
+    }>(
+      `SELECT table_name, column_name, is_nullable
+       FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name IN ('fulfillment_postage_label_operations', 'fulfillment_postage_provider_events')
+         AND column_name IN ('subject_kind', 'subject_id')
+       ORDER BY table_name, column_name`,
+    );
+    expect(subjectNullability.rows).toEqual([
+      { table_name: "fulfillment_postage_label_operations", column_name: "subject_id", is_nullable: "NO" },
+      { table_name: "fulfillment_postage_label_operations", column_name: "subject_kind", is_nullable: "NO" },
+      { table_name: "fulfillment_postage_provider_events", column_name: "subject_id", is_nullable: "YES" },
+      { table_name: "fulfillment_postage_provider_events", column_name: "subject_kind", is_nullable: "YES" },
+    ]);
     const emptyTenant = await pool.query<{ status: string; reason_code: string; tenant_id: string | null }>(
       `SELECT status, reason_code, tenant_id FROM fulfillment_shipment_tenant_resolutions
        WHERE shipment_id = 'shp_empty_tenant'`,
@@ -274,8 +335,17 @@ describeDb("fulfillment schema upgrades", () => {
     ]);
     const ledger = await pool.query<{ migration_id: string }>(
       `SELECT migration_id FROM bounded_context_schema_migrations
-       WHERE migration_id = '20260823_fulfillment_shipment_mutation_authority_v1'`,
+       WHERE migration_id IN (
+         '20260823_fulfillment_shipment_mutation_authority_v1',
+         '20260910_fulfillment_postage_operation_subject_v1',
+         '20260910_fulfillment_postage_operation_subject_indexes_v1'
+       )
+       ORDER BY migration_id`,
     );
-    expect(ledger.rows).toEqual([{ migration_id: "20260823_fulfillment_shipment_mutation_authority_v1" }]);
+    expect(ledger.rows).toEqual([
+      { migration_id: "20260823_fulfillment_shipment_mutation_authority_v1" },
+      { migration_id: "20260910_fulfillment_postage_operation_subject_indexes_v1" },
+      { migration_id: "20260910_fulfillment_postage_operation_subject_v1" },
+    ]);
   });
 });

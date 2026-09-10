@@ -13,6 +13,7 @@ import {
   PostageLabelProviderError,
   type PostageAddress,
   type PostageLabelProvider,
+  type PostageOperationSubjectKind,
   type PostagePackage,
   type PostageProviderWebhookEvent,
   type PostageProviderWebhookGateway,
@@ -66,11 +67,11 @@ import {
 } from "../domain/domain";
 import {
   assertCompleteHistoryTenant,
-  executeShipmentMutationAttempt,
-  readShipmentMutationAttempt,
-  shipmentMutationKeyDigest,
-  shipmentMutationRequestHash,
-  type ShipmentMutationAttemptReceipt,
+  executeFulfillmentMutationAttempt,
+  readFulfillmentMutationAttempt,
+  fulfillmentMutationKeyDigest,
+  fulfillmentMutationRequestHash,
+  type FulfillmentMutationAttemptReceipt,
   ShipmentHistoryPoisonedError,
 } from "../domain/mutation-attempt";
 import {
@@ -109,6 +110,8 @@ type ShipmentRuntimeDeps = Readonly<{
 }>;
 
 type ShipmentForPostageProviderEvent = Readonly<{
+  subject_kind: "shipment";
+  subject_id: string;
   shipment_id: string;
   tenant_id: string;
   seller_account_id: string;
@@ -122,11 +125,24 @@ type ShipmentForPostageProviderEvent = Readonly<{
   matched_void_operation_status: string | null;
 }>;
 
+type ChannelFulfillmentRecordForPostageProviderEvent = Readonly<{
+  subject_kind: "channel-fulfillment-record";
+  subject_id: string;
+  tenant_id: string;
+  seller_account_id: string;
+  tracking_identifier: string | null;
+  postage_provider_shipment_id: string | null;
+}>;
+
+type PostageSubjectForProviderEvent = ShipmentForPostageProviderEvent | ChannelFulfillmentRecordForPostageProviderEvent;
+
 export type PostageProviderWebhookProcessingResult = Readonly<{
   status: "ignored" | "recorded" | "duplicate";
   providerEventId?: string;
   eventKind?: string;
   shipmentId?: string | null;
+  subjectKind?: PostageOperationSubjectKind | null;
+  subjectId?: string | null;
   processingResult?: string;
 }>;
 
@@ -237,7 +253,7 @@ export type FulfillmentShipmentServices = Readonly<{
     }>,
   ) => Promise<readonly PostageOperationLocator[]>;
   reconcilePostageOperationLocator: (
-    locator: Pick<PostageOperationLocator, "operationId" | "tenantId" | "shipmentId">,
+    locator: Pick<PostageOperationLocator, "operationId" | "tenantId" | "subjectKind" | "subjectId">,
   ) => Promise<{ outcome: "effect-applied" | "ambiguous" | "pending" | "quarantined" | "missing" }>;
   voidLabel: (
     params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId?: string }>,
@@ -296,7 +312,7 @@ export type FulfillmentShipmentServices = Readonly<{
       status: string;
       receiptKind: "shipment-attempt" | "postage-operation" | "absent";
       commandKind: string | null;
-      result: ShipmentMutationAttemptReceipt["response"] | null;
+      result: FulfillmentMutationAttemptReceipt["response"] | null;
       actions: readonly string[];
     }>
   >;
@@ -429,20 +445,22 @@ async function hasActivePaymentFraudReviewHold(db: PgQueryable, orderId: string)
   return result.rows.length > 0;
 }
 
-async function findShipmentForPostageProviderEvent(
+async function findSubjectForPostageProviderEvent(
   db: PgQueryable,
   event: PostageProviderWebhookEvent,
-): Promise<Readonly<{ shipment: ShipmentForPostageProviderEvent | null; ambiguous: boolean }>> {
+): Promise<Readonly<{ subject: PostageSubjectForProviderEvent | null; ambiguous: boolean }>> {
   const trackingIdentifier = event.trackingIdentifier?.trim() || null;
   const providerShipmentId = event.providerShipmentId?.trim() || null;
   const matchHistoricalVoidOperations = event.eventKind === "refund-status";
   if (!trackingIdentifier && !providerShipmentId) {
-    return { shipment: null, ambiguous: false };
+    return { subject: null, ambiguous: false };
   }
 
-  const result = await db.query<ShipmentForPostageProviderEvent>(
-    `WITH candidate_shipments AS (
+  const result = await db.query<PostageSubjectForProviderEvent>(
+    `WITH candidate_subjects AS (
        SELECT
+         'shipment'::text AS subject_kind,
+         page.shipment_id AS subject_id,
          page.shipment_id,
          authority.tenant_id,
          page.seller_account_id,
@@ -466,6 +484,8 @@ async function findShipmentForPostageProviderEvent(
           OR ($2::text IS NOT NULL AND page.postage_provider_shipment_id = $2)
        UNION ALL
        SELECT
+         'shipment'::text AS subject_kind,
+         page.shipment_id AS subject_id,
          page.shipment_id,
          authority.tenant_id,
          page.seller_account_id,
@@ -481,7 +501,8 @@ async function findShipmentForPostageProviderEvent(
          operation.updated_at
        FROM fulfillment_postage_label_operations AS operation
        JOIN fulfillment_shipment_pages AS page
-         ON page.shipment_id = operation.shipment_id
+         ON page.shipment_id = operation.subject_id
+        AND operation.subject_kind = 'shipment'
        JOIN fulfillment_shipment_tenant_resolutions AS authority
          ON authority.shipment_id = page.shipment_id
         AND authority.status = 'resolved'
@@ -498,9 +519,39 @@ async function findShipmentForPostageProviderEvent(
              operation.provider_shipment_id = $2
              OR operation.request_json #>> '{providerShipmentId}' = $2
            ))
+          )
+       UNION ALL
+       SELECT
+         operation.subject_kind,
+         operation.subject_id,
+         NULL::text AS shipment_id,
+         authority.tenant_id,
+         authority.seller_account_id,
+         NULL::text AS status,
+         NULL::text AS label_status,
+         NULL::text AS label_refund_status,
+         NULL::timestamptz AS label_voided_at,
+         operation.tracking_identifier,
+         operation.provider_shipment_id AS postage_provider_shipment_id,
+         NULL::text AS matched_void_operation_key,
+         NULL::text AS matched_void_operation_status,
+         0 AS match_priority,
+         operation.updated_at
+       FROM fulfillment_postage_label_operations AS operation
+       JOIN fulfillment_channel_fulfillment_record_tenant_resolutions AS authority
+         ON authority.channel_fulfillment_record_id = operation.subject_id
+        AND authority.status = 'resolved'
+        AND authority.tenant_id = operation.tenant_id
+        AND authority.seller_account_id = operation.seller_account_id
+       WHERE operation.subject_kind = 'channel-fulfillment-record'
+         AND (
+           ($1::text IS NOT NULL AND operation.tracking_identifier = $1)
+           OR ($2::text IS NOT NULL AND operation.provider_shipment_id = $2)
          )
      )
-     SELECT DISTINCT ON (shipment_id)
+     SELECT DISTINCT ON (subject_kind, subject_id)
+       subject_kind,
+       subject_id,
        shipment_id,
        tenant_id,
        seller_account_id,
@@ -512,17 +563,17 @@ async function findShipmentForPostageProviderEvent(
        postage_provider_shipment_id,
        matched_void_operation_key,
        matched_void_operation_status
-     FROM candidate_shipments
-     ORDER BY shipment_id, match_priority ASC, updated_at DESC
+     FROM candidate_subjects
+     ORDER BY subject_kind, subject_id, match_priority ASC, updated_at DESC
      LIMIT 2`,
     [trackingIdentifier, providerShipmentId, matchHistoricalVoidOperations],
   );
 
-  return { shipment: result.rows.length === 1 ? result.rows[0]! : null, ambiguous: result.rows.length > 1 };
+  return { subject: result.rows.length === 1 ? result.rows[0]! : null, ambiguous: result.rows.length > 1 };
 }
 
 async function reservePostageProviderEvent(db: PgQueryable, event: PostageProviderWebhookEvent) {
-  const payloadHash = shipmentMutationRequestHash({
+  const payloadHash = fulfillmentMutationRequestHash({
     providerName: event.providerName,
     providerMode: event.providerMode,
     eventKind: event.eventKind,
@@ -543,9 +594,9 @@ async function reservePostageProviderEvent(db: PgQueryable, event: PostageProvid
     `WITH inserted AS (
        INSERT INTO fulfillment_postage_provider_events (
          provider_event_id, provider_name, provider_mode, event_kind, provider_object_reference,
-         shipment_id, tracking_identifier, status, status_detail, occurred_at, received_at,
+         subject_kind, subject_id, tracking_identifier, status, status_detail, occurred_at, received_at,
          processing_result, payload_json, payload_hash, handoff_state, receipt_version
-       ) VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10,'reserved',$11::jsonb,$12,'reserved',1)
+       ) VALUES ($1,$2,$3,$4,$5,NULL,NULL,$6,$7,$8,$9,$10,'reserved',$11::jsonb,$12,'reserved',1)
        ON CONFLICT (provider_event_id) DO NOTHING
        RETURNING provider_event_id, payload_hash, handoff_state, processing_result, true AS inserted
      )
@@ -577,7 +628,11 @@ async function reservePostageProviderEvent(db: PgQueryable, event: PostageProvid
 async function recordProcessedPostageProviderEvent(
   db: PgQueryable,
   event: PostageProviderWebhookEvent,
-  shipment: ShipmentForPostageProviderEvent | null,
+  subject: Readonly<{
+    subject_kind: PostageOperationSubjectKind;
+    subject_id: string;
+    tracking_identifier?: string | null;
+  }> | null,
   processingResult: string,
   claimToken?: string,
 ) {
@@ -588,7 +643,8 @@ async function recordProcessedPostageProviderEvent(
        provider_mode,
        event_kind,
        provider_object_reference,
-       shipment_id,
+       subject_kind,
+       subject_id,
        tracking_identifier,
        status,
        status_detail,
@@ -600,30 +656,32 @@ async function recordProcessedPostageProviderEvent(
        handoff_state,
        receipt_version
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz, $12, $13::jsonb, $14,
-       CASE WHEN $12 = 'unmatched' THEN 'unmatched' ELSE 'completed' END, 1)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12::timestamptz, $13, $14::jsonb, $15,
+       CASE WHEN $13 = 'unmatched' THEN 'unmatched' ELSE 'completed' END, 1)
      ON CONFLICT (provider_event_id) DO UPDATE
-     SET shipment_id = EXCLUDED.shipment_id,
+     SET subject_kind = EXCLUDED.subject_kind,
+         subject_id = EXCLUDED.subject_id,
          processing_result = EXCLUDED.processing_result,
          handoff_state = CASE WHEN EXCLUDED.processing_result = 'unmatched' THEN 'unmatched' ELSE 'completed' END,
          receipt_version = fulfillment_postage_provider_events.receipt_version + 1
      WHERE fulfillment_postage_provider_events.payload_hash = EXCLUDED.payload_hash
-       AND ($15::text IS NULL OR fulfillment_postage_provider_events.claim_token = $15)`,
+       AND ($16::text IS NULL OR fulfillment_postage_provider_events.claim_token = $16)`,
     [
       event.providerEventId,
       event.providerName,
       event.providerMode,
       event.eventKind,
       event.providerObjectReference,
-      shipment?.shipment_id ?? null,
-      event.trackingIdentifier ?? shipment?.tracking_identifier ?? null,
+      subject?.subject_kind ?? null,
+      subject?.subject_id ?? null,
+      event.trackingIdentifier ?? subject?.tracking_identifier ?? null,
       event.status ?? null,
       event.statusDetail ?? null,
       event.occurredAt,
       event.receivedAt ?? new Date().toISOString(),
       processingResult,
       JSON.stringify(event.payload ?? {}),
-      shipmentMutationRequestHash({
+      fulfillmentMutationRequestHash({
         providerName: event.providerName,
         providerMode: event.providerMode,
         eventKind: event.eventKind,
@@ -957,8 +1015,8 @@ function assertPostagePolicyCompliance(
 
 function postageLabelOperationRequest(
   input: Readonly<{
-    shipmentId: string;
-    orderId: string;
+    subjectKind: "shipment";
+    subjectId: string;
     serviceLevel: string;
     deliveryConfirmation: "signature" | null;
     insuranceAmount: string | null;
@@ -977,8 +1035,8 @@ function postageLabelOperationRequest(
 ) {
   const policySnapshot = input.shippingPlanSnapshot?.postagePolicySnapshot ?? null;
   return {
-    shipmentId: input.shipmentId,
-    orderId: input.orderId,
+    subjectKind: input.subjectKind,
+    subjectId: input.subjectId,
     serviceLevel: input.serviceLevel,
     deliveryConfirmation: input.deliveryConfirmation,
     insuranceAmount: input.insuranceAmount,
@@ -1050,12 +1108,13 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     }>,
     context: EventStoreContext,
   ) {
-    const receipt = await executeShipmentMutationAttempt({
+    const receipt = await executeFulfillmentMutationAttempt({
       eventStore: deps.eventStore,
       loadShipment: repository.load,
       context,
       mutationAttemptId: params.mutationAttemptId,
-      shipmentId: params.shipmentId,
+      subjectKind: "shipment",
+      subjectId: params.shipmentId,
       sellerAccountId: params.sellerAccountId,
       commandKind: params.commandKind,
       target: params.target,
@@ -1066,7 +1125,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     if (receipt.resultClass === "failed-safe") {
       throw new FulfillmentDomainError(`Shipment mutation was refused safely (${receipt.reason}).`);
     }
-    return { shipmentId: params.shipmentId, version: receipt.shipmentVersion };
+    return { shipmentId: params.shipmentId, version: receipt.subjectVersion };
   }
 
   function buildPurchaseUspsLabelOperationKey(shipment: FulfillmentShipmentDetailRow) {
@@ -1124,7 +1183,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     addressOverrideAudit: ShipmentLabelAddressOverrideAudit | null,
     context: EventStoreContext,
   ) {
-    const loaded = await repository.load(`fulfillment.shipment-${operation.shipment_id}`);
+    const loaded = await repository.load(`fulfillment.shipment-${operation.subject_id}`);
     if (
       loaded.state.postageProviderLabelId === label.providerLabelId ||
       loaded.state.trackingIdentifier === label.trackingIdentifier
@@ -1137,7 +1196,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         completedAt: label.purchasedAt,
       });
       return {
-        shipmentId: operation.shipment_id,
+        shipmentId: operation.subject_id,
         version: loaded.version,
         trackingIdentifier: label.trackingIdentifier,
       };
@@ -1148,7 +1207,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     }
 
     const result = await commandHandler({
-      streamId: `fulfillment.shipment-${operation.shipment_id}`,
+      streamId: `fulfillment.shipment-${operation.subject_id}`,
       command: {
         type: "AttachShipmentLabel",
         shippingMethod: "standard",
@@ -1178,7 +1237,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     });
 
     return {
-      shipmentId: operation.shipment_id,
+      shipmentId: operation.subject_id,
       version: result.version,
       trackingIdentifier: label.trackingIdentifier,
     };
@@ -1212,7 +1271,10 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     claim: NonNullable<Awaited<ReturnType<typeof claimPostageOperationForFinalization>>>,
   ) {
     const context = systemContextForOperation(operation);
-    const loaded = await repository.load(`fulfillment.shipment-${operation.shipment_id}`);
+    if (operation.subject_kind !== "shipment") {
+      throw new ShipmentHistoryPoisonedError("postage-operation-subject-kind-mismatch");
+    }
+    const loaded = await repository.load(`fulfillment.shipment-${operation.subject_id}`);
     assertCompleteHistoryTenant(loaded.storedEvents, operation.tenant_id);
     if (String(loaded.state.sellerAccountId) !== operation.seller_account_id) {
       throw new ShipmentHistoryPoisonedError("shipment-seller-mismatch");
@@ -1243,7 +1305,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
             ? (addressOverride as ShipmentLabelAddressOverrideAudit)
             : null;
         await commandHandler({
-          streamId: `fulfillment.shipment-${operation.shipment_id}`,
+          streamId: `fulfillment.shipment-${operation.subject_id}`,
           command: {
             type: "AttachShipmentLabel",
             shippingMethod: "standard",
@@ -1286,7 +1348,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       }
       if (loaded.state.labelStatus !== "voided" && loaded.state.labelStatus !== "void-rejected") {
         await commandHandler({
-          streamId: `fulfillment.shipment-${operation.shipment_id}`,
+          streamId: `fulfillment.shipment-${operation.subject_id}`,
           command: {
             type: "VoidShipmentLabel",
             refundStatus: result.refundStatus,
@@ -1330,8 +1392,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const providerResult =
         operation.operation_kind === "purchase-usps-label"
           ? await postageLabelProvider.purchaseUspsLabel({
-              shipmentId: operation.shipment_id,
-              orderId: String(request.orderId),
+              subjectKind: operation.subject_kind,
+              subjectId: operation.subject_id,
               idempotencyKey: operation.provider_idempotency_key!,
               serviceLevel: String(request.serviceLevel),
               deliveryConfirmation: (request.deliveryConfirmation ?? null) as "signature" | null,
@@ -1432,7 +1494,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         };
       }
 
-      const match = await findShipmentForPostageProviderEvent(deps.db, event);
+      const match = await findSubjectForPostageProviderEvent(deps.db, event);
       if (match.ambiguous) {
         await deps.db.query(
           `UPDATE fulfillment_postage_provider_events
@@ -1449,19 +1511,32 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           processingResult: "quarantined",
         };
       }
-      const shipment = match.shipment;
+      const subject = match.subject;
+      const shipment = subject?.subject_kind === "shipment" ? subject : null;
 
       let processingResult = "recorded";
       let returnShipmentId: string | null = null;
-      if (!shipment) {
+      let processedSubject: Readonly<{
+        subject_kind: PostageOperationSubjectKind;
+        subject_id: string;
+        tracking_identifier?: string | null;
+      }> | null = subject;
+      if (!subject) {
         if (event.eventKind === "tracking-status" && deps.returnTrackingFallback) {
           const fallback = await deps.returnTrackingFallback(event, context);
           returnShipmentId = fallback.returnShipmentId;
+          processedSubject = fallback.returnShipmentId
+            ? {
+                subject_kind: "return-shipment",
+                subject_id: fallback.returnShipmentId,
+                tracking_identifier: event.trackingIdentifier ?? null,
+              }
+            : null;
           processingResult = `return:${fallback.processingResult}`;
         } else {
           processingResult = "unmatched";
         }
-      } else {
+      } else if (shipment) {
         try {
           const loaded = await repository.load(`fulfillment.shipment-${shipment.shipment_id}`);
           assertCompleteHistoryTenant(loaded.storedEvents, shipment.tenant_id);
@@ -1507,13 +1582,15 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         }
       }
 
-      await recordProcessedPostageProviderEvent(deps.db, event, shipment, processingResult, claimToken);
+      await recordProcessedPostageProviderEvent(deps.db, event, processedSubject, processingResult, claimToken);
 
       return {
         status: "recorded",
         providerEventId: event.providerEventId,
         eventKind: event.eventKind,
         shipmentId: shipment?.shipment_id ?? returnShipmentId,
+        subjectKind: processedSubject?.subject_kind ?? null,
+        subjectId: processedSubject?.subject_id ?? null,
         processingResult,
       };
     },
@@ -1884,8 +1961,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         throw new FulfillmentDomainError(error instanceof Error ? error.message : "Label purchase failed.");
       }
       const authoritativeRequest = postageLabelOperationRequest({
-        shipmentId: params.shipmentId,
-        orderId: shipment.order_id,
+        subjectKind: "shipment",
+        subjectId: params.shipmentId,
         serviceLevel: params.serviceLevel,
         deliveryConfirmation,
         insuranceAmount,
@@ -1899,13 +1976,14 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
 
       if (params.mutationAttemptId) {
         const tenantId = String(context.tenantId);
-        const keyDigest = shipmentMutationKeyDigest({
+        const keyDigest = fulfillmentMutationKeyDigest({
           tenantId,
           sellerAccountId: params.sellerAccountId,
+          subjectKind: "shipment",
           key: params.mutationAttemptId,
         });
         const targetKey = `purchase:${params.shipmentId}:${shipment.label_voided_at ?? "initial"}`;
-        const requestHash = shipmentMutationRequestHash({
+        const requestHash = fulfillmentMutationRequestHash({
           commandKind: "purchase-usps-label",
           tenantId,
           sellerAccountId: params.sellerAccountId,
@@ -1916,7 +1994,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         const reservation = await reservePostageOperation(deps.db, {
           tenantId,
           sellerAccountId: params.sellerAccountId,
-          shipmentId: params.shipmentId,
+          subjectKind: "shipment",
+          subjectId: params.shipmentId,
           keyDigest,
           requestHash,
           targetKey,
@@ -1970,7 +2049,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
             const current = await findPostageOperationByDigest(deps.db, {
               tenantId,
               sellerAccountId: params.sellerAccountId,
-              shipmentId: params.shipmentId,
+              subjectKind: "shipment",
+              subjectId: params.shipmentId,
               keyDigest,
             });
             if (current?.claim_token && current.claim_expires_at) {
@@ -2007,8 +2087,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         let purchasedLabel: PurchasedPostageLabel;
         try {
           purchasedLabel = await postageLabelProvider.purchaseUspsLabel({
-            shipmentId: params.shipmentId,
-            orderId: shipment.order_id,
+            subjectKind: "shipment",
+            subjectId: params.shipmentId,
             idempotencyKey: operation.provider_idempotency_key!,
             serviceLevel: params.serviceLevel,
             deliveryConfirmation,
@@ -2089,13 +2169,14 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const operation = await recordFulfillmentPostageLabelOperationPending(deps.db, {
         operationKey,
         operationKind: "purchase-usps-label",
-        shipmentId: params.shipmentId,
+        subjectKind: "shipment",
+        subjectId: params.shipmentId,
         providerName: postageLabelProvider.providerName,
         providerMode: postageLabelProvider.providerMode,
         idempotencyKey: operationKey,
         request: postageLabelOperationRequest({
-          shipmentId: params.shipmentId,
-          orderId: shipment.order_id,
+          subjectKind: "shipment",
+          subjectId: params.shipmentId,
           serviceLevel: params.serviceLevel,
           deliveryConfirmation,
           insuranceAmount,
@@ -2144,8 +2225,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       let purchasedLabel;
       try {
         purchasedLabel = await postageLabelProvider.purchaseUspsLabel({
-          shipmentId: params.shipmentId,
-          orderId: shipment.order_id,
+          subjectKind: "shipment",
+          subjectId: params.shipmentId,
           idempotencyKey: operationKey,
           serviceLevel: params.serviceLevel,
           deliveryConfirmation,
@@ -2185,12 +2266,16 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const operation = await findPostageOperationByLocator(deps.db, locator);
       if (!operation) return { outcome: "missing" };
       try {
-        const loaded = await repository.load(`fulfillment.shipment-${operation.shipment_id}`);
+        if (operation.subject_kind !== "shipment") {
+          throw new ShipmentHistoryPoisonedError("postage-operation-subject-kind-mismatch");
+        }
+        const loaded = await repository.load(`fulfillment.shipment-${operation.subject_id}`);
         assertCompleteHistoryTenant(loaded.storedEvents, operation.tenant_id);
         if (
-          operation.operation_key !== locator.operationId ||
+          operation.operation_id !== locator.operationId ||
           operation.tenant_id !== locator.tenantId ||
-          operation.shipment_id !== locator.shipmentId ||
+          operation.subject_kind !== locator.subjectKind ||
+          operation.subject_id !== locator.subjectId ||
           String(loaded.state.sellerAccountId) !== operation.seller_account_id
         ) {
           throw new ShipmentHistoryPoisonedError("postage-operation-authority-mismatch");
@@ -2219,7 +2304,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       } catch (error) {
         if (error instanceof ShipmentHistoryPoisonedError) {
           await quarantineShipmentTenantBinding(deps.db, {
-            shipmentId: operation.shipment_id,
+            shipmentId: operation.subject_id,
             tenantId: operation.tenant_id,
             reasonCode: "postage-operation-authority-mismatch",
           });
@@ -2243,7 +2328,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       };
 
       for (const operation of operations) {
-        const shipment = await getShipmentForPostageRecovery(deps.db, operation.shipment_id);
+        const shipment = await getShipmentForPostageRecovery(deps.db, operation.subject_id);
         if (!shipment) {
           await recordFulfillmentPostageLabelOperationFailed(deps.db, {
             operationKey: operation.operation_key,
@@ -2337,9 +2422,10 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       if (params.mutationAttemptId) {
         const tenantId = String(context.tenantId);
         assertCompleteHistoryTenant(loaded.storedEvents, tenantId);
-        const keyDigest = shipmentMutationKeyDigest({
+        const keyDigest = fulfillmentMutationKeyDigest({
           tenantId,
           sellerAccountId: params.sellerAccountId,
+          subjectKind: "shipment",
           key: params.mutationAttemptId,
         });
         const targetKey = `void:${params.shipmentId}:${shipment.postage_provider_label_id}`;
@@ -2348,7 +2434,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           providerLabelId: shipment.postage_provider_label_id,
           trackingIdentifier: shipment.tracking_identifier,
         };
-        const requestHash = shipmentMutationRequestHash({
+        const requestHash = fulfillmentMutationRequestHash({
           commandKind: "void-label",
           tenantId,
           sellerAccountId: params.sellerAccountId,
@@ -2359,7 +2445,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         const reservation = await reservePostageOperation(deps.db, {
           tenantId,
           sellerAccountId: params.sellerAccountId,
-          shipmentId: params.shipmentId,
+          subjectKind: "shipment",
+          subjectId: params.shipmentId,
           keyDigest,
           requestHash,
           targetKey,
@@ -2466,7 +2553,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       await recordFulfillmentPostageLabelOperationPending(deps.db, {
         operationKey,
         operationKind: "void-label",
-        shipmentId: params.shipmentId,
+        subjectKind: "shipment",
+        subjectId: params.shipmentId,
         providerName: postageLabelProvider.providerName,
         providerMode: postageLabelProvider.providerMode,
         idempotencyKey: operationKey,
@@ -2667,11 +2755,12 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       } catch {
         throw new FulfillmentDomainError("Shipment mutation recovery is unavailable.");
       }
-      const attempt = await readShipmentMutationAttempt({
+      const attempt = await readFulfillmentMutationAttempt({
         eventStore: deps.eventStore,
         context,
         key: params.mutationAttemptId,
-        shipmentId: params.shipmentId,
+        subjectKind: "shipment",
+        subjectId: params.shipmentId,
         sellerAccountId: params.sellerAccountId,
       });
       if (attempt) {
@@ -2687,15 +2776,17 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           actions: attempt.resultClass === "failed-safe" ? ["correct-and-new-attempt"] : ["read-current-shipment"],
         };
       }
-      const keyDigest = shipmentMutationKeyDigest({
+      const keyDigest = fulfillmentMutationKeyDigest({
         tenantId,
         sellerAccountId: params.sellerAccountId,
+        subjectKind: "shipment",
         key: params.mutationAttemptId,
       });
       const operation = await findPostageOperationByDigest(deps.db, {
         tenantId,
         sellerAccountId: params.sellerAccountId,
-        shipmentId: params.shipmentId,
+        subjectKind: "shipment",
+        subjectId: params.shipmentId,
         keyDigest,
       });
       if (operation) {

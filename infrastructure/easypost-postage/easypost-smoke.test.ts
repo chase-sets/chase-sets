@@ -16,8 +16,8 @@ describeWithEasyPostTestKey("EasyPost USPS sandbox smoke", () => {
     });
 
     const label = await provider.purchaseUspsLabel({
-      shipmentId: `smoke-${Date.now()}`,
-      orderId: `order-${Date.now()}`,
+      subjectKind: "shipment",
+      subjectId: `smoke-${Date.now()}`,
       idempotencyKey: `smoke:${Date.now()}:purchase-usps-label:initial`,
       serviceLevel: "GroundAdvantage",
       sender: {

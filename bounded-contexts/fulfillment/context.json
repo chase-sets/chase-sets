@@ -107,7 +107,8 @@
         "fulfillment_label_address_override_audit_pages",
         "fulfillment_postage_label_operations",
         "fulfillment_postage_provider_events",
-        "fulfillment_shipment_tenant_resolutions"
+        "fulfillment_shipment_tenant_resolutions",
+        "fulfillment_channel_fulfillment_record_tenant_resolutions"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"

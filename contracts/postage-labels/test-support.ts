@@ -26,7 +26,7 @@ export function createSandboxPostageLabelProvider(): PostageLabelProvider {
         carrierName: "USPS",
         serviceLevel: request.serviceLevel,
         labelReference: `sandbox_label_${suffix}`,
-        labelDocumentUrl: `https://sandbox.chasesets.test/labels/${request.shipmentId}.pdf`,
+        labelDocumentUrl: `https://sandbox.chasesets.test/labels/${request.subjectId}.pdf`,
         trackingIdentifier: `9400${suffix.padStart(18, "0").slice(0, 18)}`,
         postageAmountCents: 499,
         postageCurrency: "USD",

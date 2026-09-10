@@ -3,6 +3,7 @@ import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { LoadedAggregate } from "@chase-sets/event-core/aggregate-repository";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
+import type { PostageOperationSubjectKind } from "@chase-sets/postage-labels";
 import { FulfillmentDomainError } from "./common";
 import {
   decideFulfillmentShipment,
@@ -11,33 +12,34 @@ import {
   type FulfillmentShipmentState,
 } from "./domain";
 
-export const SHIPMENT_MUTATION_ATTEMPT_SCHEMA_VERSION = 1;
+export const FULFILLMENT_MUTATION_ATTEMPT_SCHEMA_VERSION = 1;
 export const CANONICAL_UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-export type ShipmentMutationResultClass = "succeeded" | "unchanged" | "failed-safe";
+export type FulfillmentMutationResultClass = "succeeded" | "unchanged" | "failed-safe";
 
-export type ShipmentMutationAttemptReceipt = Readonly<{
+export type FulfillmentMutationAttemptReceipt = Readonly<{
   schemaVersion: 1;
-  receiptKind: "shipment-attempt";
+  receiptKind: "fulfillment-attempt";
   commandKind: string;
-  shipmentId: string;
+  subjectKind: PostageOperationSubjectKind;
+  subjectId: string;
   target: string | null;
   requestHash: string;
-  resultClass: ShipmentMutationResultClass;
+  resultClass: FulfillmentMutationResultClass;
   reason: string;
-  shipmentVersion: number;
+  subjectVersion: number;
   response: Readonly<{ shipmentId: string; version: number; status: string }>;
 }>;
 
-export type ShipmentMutationAttemptEvent = Readonly<{
-  type: "fulfillment.shipment.mutation-attempt-closed.v1";
-  data: ShipmentMutationAttemptReceipt;
+export type FulfillmentMutationAttemptEvent = Readonly<{
+  type: "fulfillment.mutation-attempt-closed.v1";
+  data: FulfillmentMutationAttemptReceipt;
 }>;
 
-export class ShipmentMutationConflictError extends Error {
-  public constructor(message = "Shipment mutation attempt conflicts with its immutable receipt.") {
+export class FulfillmentMutationConflictError extends Error {
+  public constructor(message = "Fulfillment mutation attempt conflicts with its immutable receipt.") {
     super(message);
-    this.name = "ShipmentMutationConflictError";
+    this.name = "FulfillmentMutationConflictError";
   }
 }
 
@@ -48,7 +50,7 @@ export class ShipmentHistoryPoisonedError extends Error {
   }
 }
 
-export function assertCanonicalShipmentMutationId(value: unknown): asserts value is string {
+export function assertCanonicalFulfillmentMutationId(value: unknown): asserts value is string {
   if (typeof value !== "string" || !CANONICAL_UUID_V4_PATTERN.test(value)) {
     throw new FulfillmentDomainError("A canonical UUIDv4 Idempotency-Key is required.");
   }
@@ -82,24 +84,36 @@ function sha256(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-export function shipmentMutationKeyDigest(input: Readonly<{ tenantId: string; sellerAccountId: string; key: string }>) {
-  assertCanonicalShipmentMutationId(input.key);
-  return sha256(`shipment-mutation-key/v1\n${input.tenantId}\n${input.sellerAccountId}\n${input.key}`);
-}
-
-export function shipmentMutationRequestHash(input: Readonly<Record<string, unknown>>) {
-  return sha256(JSON.stringify(canonicalize({ schemaVersion: 1, ...input })));
-}
-
-export function shipmentMutationAttemptStreamId(
+export function fulfillmentMutationKeyDigest(
   input: Readonly<{
     tenantId: string;
     sellerAccountId: string;
+    subjectKind: PostageOperationSubjectKind;
     key: string;
   }>,
 ) {
-  const digest = shipmentMutationKeyDigest(input);
-  return `fulfillment.shipment-mutation-attempt-${input.tenantId}-${input.sellerAccountId}-${digest}`;
+  assertCanonicalFulfillmentMutationId(input.key);
+  const scope =
+    input.subjectKind === "shipment" ? "shipment-mutation-key/v1" : `fulfillment-${input.subjectKind}-mutation-key/v1`;
+  return sha256(`${scope}\n${input.tenantId}\n${input.sellerAccountId}\n${input.key}`);
+}
+
+export function fulfillmentMutationRequestHash(input: Readonly<Record<string, unknown>>) {
+  return sha256(JSON.stringify(canonicalize({ schemaVersion: 1, ...input })));
+}
+
+export function fulfillmentMutationAttemptStreamId(
+  input: Readonly<{
+    tenantId: string;
+    sellerAccountId: string;
+    subjectKind: PostageOperationSubjectKind;
+    subjectId: string;
+    key: string;
+  }>,
+) {
+  const digest = fulfillmentMutationKeyDigest(input);
+  const streamNoun = input.subjectKind === "shipment" ? "shipment" : input.subjectKind;
+  return `fulfillment.${streamNoun}-mutation-attempt-${input.tenantId}-${input.sellerAccountId}-${digest}`;
 }
 
 export function assertCompleteHistoryTenant(
@@ -124,34 +138,66 @@ function stableFailureReason(error: unknown) {
   return "validation-failed";
 }
 
+type LegacyShipmentMutationAttemptReceipt = Readonly<{
+  schemaVersion: 1;
+  receiptKind: "shipment-attempt";
+  commandKind: string;
+  shipmentId: string;
+  target: string | null;
+  requestHash: string;
+  resultClass: FulfillmentMutationResultClass;
+  reason: string;
+  shipmentVersion: number;
+  response: Readonly<{ shipmentId: string; version: number; status: string }>;
+}>;
+
 function parseAttemptReceipt(
   storedEvents: readonly StoredEvent[],
   expected: Readonly<{
     tenantId: string;
     commandKind: string;
-    shipmentId: string;
+    subjectKind: PostageOperationSubjectKind;
+    subjectId: string;
     target: string | null;
     requestHash: string;
   }>,
-): ShipmentMutationAttemptReceipt | null {
+): FulfillmentMutationAttemptReceipt | null {
   if (storedEvents.length === 0) return null;
   assertCompleteHistoryTenant(storedEvents, expected.tenantId);
-  if (storedEvents.length !== 1 || storedEvents[0]?.eventType !== "fulfillment.shipment.mutation-attempt-closed.v1") {
+  if (
+    storedEvents.length !== 1 ||
+    !["fulfillment.shipment.mutation-attempt-closed.v1", "fulfillment.mutation-attempt-closed.v1"].includes(
+      storedEvents[0]?.eventType ?? "",
+    )
+  ) {
     throw new ShipmentHistoryPoisonedError();
   }
-  const receipt = storedEvents[0].payload as unknown as ShipmentMutationAttemptReceipt;
+  const storedReceipt = storedEvents[0].payload as unknown as
+    | FulfillmentMutationAttemptReceipt
+    | LegacyShipmentMutationAttemptReceipt;
+  const receipt: FulfillmentMutationAttemptReceipt =
+    storedReceipt.receiptKind === "shipment-attempt"
+      ? {
+          ...storedReceipt,
+          receiptKind: "fulfillment-attempt",
+          subjectKind: "shipment",
+          subjectId: storedReceipt.shipmentId,
+          subjectVersion: storedReceipt.shipmentVersion,
+        }
+      : storedReceipt;
   if (
-    receipt.schemaVersion !== SHIPMENT_MUTATION_ATTEMPT_SCHEMA_VERSION ||
-    receipt.receiptKind !== "shipment-attempt" ||
+    receipt.schemaVersion !== FULFILLMENT_MUTATION_ATTEMPT_SCHEMA_VERSION ||
+    receipt.receiptKind !== "fulfillment-attempt" ||
     receipt.commandKind !== expected.commandKind ||
-    receipt.shipmentId !== expected.shipmentId ||
+    receipt.subjectKind !== expected.subjectKind ||
+    receipt.subjectId !== expected.subjectId ||
     receipt.target !== expected.target ||
     receipt.requestHash !== expected.requestHash ||
     !["succeeded", "unchanged", "failed-safe"].includes(receipt.resultClass) ||
-    receipt.response?.shipmentId !== expected.shipmentId ||
-    receipt.response?.version !== receipt.shipmentVersion
+    receipt.response?.shipmentId !== expected.subjectId ||
+    receipt.response?.version !== receipt.subjectVersion
   ) {
-    throw new ShipmentMutationConflictError();
+    throw new FulfillmentMutationConflictError();
   }
   return receipt;
 }
@@ -160,13 +206,14 @@ type ShipmentLoader = (
   streamId: string,
 ) => Promise<LoadedAggregate<FulfillmentShipmentState, FulfillmentShipmentEvent>>;
 
-export async function executeShipmentMutationAttempt(
+export async function executeFulfillmentMutationAttempt(
   input: Readonly<{
     eventStore: EventStore;
     loadShipment: ShipmentLoader;
     context: EventStoreContext;
     mutationAttemptId: string;
-    shipmentId: string;
+    subjectKind: "shipment";
+    subjectId: string;
     sellerAccountId: string;
     commandKind: string;
     target?: string | null;
@@ -174,25 +221,27 @@ export async function executeShipmentMutationAttempt(
     createCommand: () => FulfillmentShipmentCommand;
     successStatus: string;
   }>,
-): Promise<ShipmentMutationAttemptReceipt & Readonly<{ replayed: boolean }>> {
-  assertCanonicalShipmentMutationId(input.mutationAttemptId);
+): Promise<FulfillmentMutationAttemptReceipt & Readonly<{ replayed: boolean }>> {
+  assertCanonicalFulfillmentMutationId(input.mutationAttemptId);
   if (!input.eventStore.appendToStreams) {
     throw new Error("Atomic multi-stream append is required for Shipment mutation receipts.");
   }
 
   const tenantId = String(input.context.tenantId);
-  const shipmentStreamId = `fulfillment.shipment-${input.shipmentId}`;
-  const attemptStreamId = shipmentMutationAttemptStreamId({
+  const shipmentStreamId = `fulfillment.shipment-${input.subjectId}`;
+  const attemptStreamId = fulfillmentMutationAttemptStreamId({
     tenantId,
     sellerAccountId: input.sellerAccountId,
+    subjectKind: input.subjectKind,
+    subjectId: input.subjectId,
     key: input.mutationAttemptId,
   });
   const target = input.target ?? null;
-  const requestHash = shipmentMutationRequestHash({
+  const requestHash = fulfillmentMutationRequestHash({
     commandKind: input.commandKind,
     tenantId,
     sellerAccountId: input.sellerAccountId,
-    shipmentId: input.shipmentId,
+    shipmentId: input.subjectId,
     target,
     ...input.request,
   });
@@ -208,14 +257,15 @@ export async function executeShipmentMutationAttempt(
     const replay = parseAttemptReceipt(attemptEvents, {
       tenantId,
       commandKind: input.commandKind,
-      shipmentId: input.shipmentId,
+      subjectKind: input.subjectKind,
+      subjectId: input.subjectId,
       target,
       requestHash,
     });
     if (replay) return { ...replay, replayed: true };
 
     let shipmentEvents: readonly FulfillmentShipmentEvent[] = [];
-    let resultClass: ShipmentMutationResultClass = "succeeded";
+    let resultClass: FulfillmentMutationResultClass = "succeeded";
     let reason = "applied";
     try {
       shipmentEvents = decideFulfillmentShipment(loaded.state, input.createCommand());
@@ -229,20 +279,21 @@ export async function executeShipmentMutationAttempt(
       reason = stableFailureReason(error);
     }
 
-    const shipmentVersion = loaded.version + shipmentEvents.length;
-    const receipt: ShipmentMutationAttemptReceipt = {
+    const subjectVersion = loaded.version + shipmentEvents.length;
+    const receipt: FulfillmentMutationAttemptReceipt = {
       schemaVersion: 1,
-      receiptKind: "shipment-attempt",
+      receiptKind: "fulfillment-attempt",
       commandKind: input.commandKind,
-      shipmentId: input.shipmentId,
+      subjectKind: input.subjectKind,
+      subjectId: input.subjectId,
       target,
       requestHash,
       resultClass,
       reason,
-      shipmentVersion,
+      subjectVersion,
       response: {
-        shipmentId: input.shipmentId,
-        version: shipmentVersion,
+        shipmentId: input.subjectId,
+        version: subjectVersion,
         status: resultClass === "succeeded" ? input.successStatus : resultClass,
       },
     };
@@ -264,7 +315,7 @@ export async function executeShipmentMutationAttempt(
           context: input.context,
           events: [
             {
-              eventType: "fulfillment.shipment.mutation-attempt-closed.v1",
+              eventType: "fulfillment.mutation-attempt-closed.v1",
               payload: receipt as never,
             },
           ],
@@ -276,38 +327,59 @@ export async function executeShipmentMutationAttempt(
       if (code !== "concurrency_conflict" || retry === 2) throw error;
     }
   }
-  throw new ShipmentMutationConflictError();
+  throw new FulfillmentMutationConflictError();
 }
 
-export async function readShipmentMutationAttempt(
+export async function readFulfillmentMutationAttempt(
   input: Readonly<{
     eventStore: EventStore;
     context: EventStoreContext;
     key: string;
-    shipmentId: string;
+    subjectKind: PostageOperationSubjectKind;
+    subjectId: string;
     sellerAccountId: string;
   }>,
 ) {
-  assertCanonicalShipmentMutationId(input.key);
+  assertCanonicalFulfillmentMutationId(input.key);
   const tenantId = String(input.context.tenantId);
-  const streamId = shipmentMutationAttemptStreamId({
+  const streamId = fulfillmentMutationAttemptStreamId({
     tenantId,
     sellerAccountId: input.sellerAccountId,
+    subjectKind: input.subjectKind,
+    subjectId: input.subjectId,
     key: input.key,
   });
   const events = await readCompleteStream(input.eventStore, { streamId });
   if (events.length === 0) return null;
   assertCompleteHistoryTenant(events, tenantId);
-  if (events.length !== 1 || events[0]?.eventType !== "fulfillment.shipment.mutation-attempt-closed.v1") {
+  if (
+    events.length !== 1 ||
+    !["fulfillment.shipment.mutation-attempt-closed.v1", "fulfillment.mutation-attempt-closed.v1"].includes(
+      events[0]?.eventType ?? "",
+    )
+  ) {
     throw new ShipmentHistoryPoisonedError();
   }
-  const receipt = events[0].payload as unknown as ShipmentMutationAttemptReceipt;
+  const storedReceipt = events[0].payload as unknown as
+    | FulfillmentMutationAttemptReceipt
+    | LegacyShipmentMutationAttemptReceipt;
+  const receipt: FulfillmentMutationAttemptReceipt =
+    storedReceipt.receiptKind === "shipment-attempt"
+      ? {
+          ...storedReceipt,
+          receiptKind: "fulfillment-attempt",
+          subjectKind: "shipment",
+          subjectId: storedReceipt.shipmentId,
+          subjectVersion: storedReceipt.shipmentVersion,
+        }
+      : storedReceipt;
   if (
     receipt.schemaVersion !== 1 ||
-    receipt.shipmentId !== input.shipmentId ||
-    receipt.receiptKind !== "shipment-attempt"
+    receipt.subjectKind !== input.subjectKind ||
+    receipt.subjectId !== input.subjectId ||
+    receipt.receiptKind !== "fulfillment-attempt"
   ) {
-    throw new ShipmentMutationConflictError();
+    throw new FulfillmentMutationConflictError();
   }
   return receipt;
 }

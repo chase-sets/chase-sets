@@ -48,7 +48,7 @@ const fulfillmentPostageLabelOperationsDuplicateActiveBackfillSql = `WITH duplic
   SELECT
     operation_key,
     ROW_NUMBER() OVER (
-      PARTITION BY shipment_id, operation_kind
+      PARTITION BY subject_kind, subject_id, operation_kind
       ORDER BY updated_at ASC, operation_key ASC
     ) AS duplicate_rank
   FROM fulfillment_postage_label_operations
@@ -67,11 +67,11 @@ WHERE operation.operation_key = duplicate.operation_key
   AND duplicate.duplicate_rank > 1;`;
 
 const fulfillmentPostageLabelOperationsLegacyActiveKindIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_label_operations_active_kind_idx
-  ON fulfillment_postage_label_operations (shipment_id, operation_kind)
+  ON fulfillment_postage_label_operations (subject_kind, subject_id, operation_kind)
   WHERE status IN ('pending', 'provider-succeeded');`;
 
-const fulfillmentPostageLabelOperationsActiveTargetIndexV1Sql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_label_operations_active_target_v1_idx
-  ON fulfillment_postage_label_operations (tenant_id, seller_account_id, shipment_id, operation_kind, target_key)
+const fulfillmentPostageLabelOperationsActiveTargetIndexV2Sql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_label_operations_active_target_v2_idx
+  ON fulfillment_postage_label_operations (tenant_id, seller_account_id, subject_kind, subject_id, operation_kind, target_key)
   WHERE status IN ('reserved', 'invoking', 'ambiguous', 'provider-succeeded', 'effect-applied');`;
 
 const fulfillmentPostageLabelOperationsDropSupersededActiveKindIndexSql = `DROP INDEX CONCURRENTLY IF EXISTS fulfillment_postage_label_operations_active_kind_idx;`;
@@ -191,13 +191,14 @@ SET tenant_id = resolution.tenant_id,
     seller_account_id = resolution.seller_account_id,
     target_key = COALESCE(
       operation.target_key,
-      operation.shipment_id || ':' || operation.operation_kind || ':retained:' || operation.operation_key
+      operation.subject_id || ':' || operation.operation_kind || ':retained:' || operation.operation_key
     ),
     key_digest = COALESCE(operation.key_digest, operation.operation_key),
     request_hash = COALESCE(operation.request_hash, md5(operation.request_json::text)),
     provider_idempotency_key = COALESCE(operation.provider_idempotency_key, operation.idempotency_key)
 FROM fulfillment_shipment_tenant_resolutions AS resolution
-WHERE resolution.shipment_id = operation.shipment_id
+WHERE operation.subject_kind = 'shipment'
+  AND resolution.shipment_id = operation.subject_id
   AND resolution.status = 'resolved';
 
 `;
@@ -229,6 +230,115 @@ ALTER TABLE fulfillment_postage_provider_events
 ALTER TABLE fulfillment_postage_provider_events
   VALIDATE CONSTRAINT fulfillment_postage_provider_events_handoff_present;
 `;
+
+const fulfillmentPostageSubjectColumnsSql = `SET LOCAL lock_timeout = '5s';
+
+ALTER TABLE fulfillment_postage_label_operations
+  ADD COLUMN IF NOT EXISTS subject_kind text NULL,
+  ADD COLUMN IF NOT EXISTS subject_id text NULL;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'fulfillment_postage_label_operations'
+      AND column_name = 'shipment_id'
+  ) THEN
+    UPDATE fulfillment_postage_label_operations
+    SET subject_id = shipment_id
+    WHERE subject_id IS NULL;
+
+    ALTER TABLE fulfillment_postage_label_operations DROP COLUMN shipment_id;
+  END IF;
+END $$;
+
+UPDATE fulfillment_postage_label_operations
+SET subject_kind = 'shipment'
+WHERE subject_kind IS NULL;
+
+ALTER TABLE fulfillment_postage_label_operations
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_subject_kind_not_null,
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_subject_id_not_null,
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_label_operations_subject_kind_check;
+
+ALTER TABLE fulfillment_postage_label_operations
+  ADD CONSTRAINT fulfillment_postage_label_operations_subject_kind_not_null
+  CHECK (subject_kind IS NOT NULL) NOT VALID,
+  ADD CONSTRAINT fulfillment_postage_label_operations_subject_id_not_null
+  CHECK (subject_id IS NOT NULL) NOT VALID,
+  ADD CONSTRAINT fulfillment_postage_label_operations_subject_kind_check
+  CHECK (subject_kind IN ('shipment', 'return-shipment', 'channel-fulfillment-record')) NOT VALID;
+
+ALTER TABLE fulfillment_postage_label_operations
+  VALIDATE CONSTRAINT fulfillment_postage_label_operations_subject_kind_not_null,
+  VALIDATE CONSTRAINT fulfillment_postage_label_operations_subject_id_not_null,
+  VALIDATE CONSTRAINT fulfillment_postage_label_operations_subject_kind_check;
+
+ALTER TABLE fulfillment_postage_label_operations
+  ALTER COLUMN subject_kind SET NOT NULL,
+  ALTER COLUMN subject_id SET NOT NULL,
+  DROP CONSTRAINT fulfillment_postage_label_operations_subject_kind_not_null,
+  DROP CONSTRAINT fulfillment_postage_label_operations_subject_id_not_null;
+
+ALTER TABLE fulfillment_postage_provider_events
+  ADD COLUMN IF NOT EXISTS subject_kind text NULL,
+  ADD COLUMN IF NOT EXISTS subject_id text NULL;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'fulfillment_postage_provider_events'
+      AND column_name = 'shipment_id'
+  ) THEN
+    UPDATE fulfillment_postage_provider_events
+    SET subject_id = shipment_id
+    WHERE subject_id IS NULL;
+
+    ALTER TABLE fulfillment_postage_provider_events DROP COLUMN shipment_id;
+  END IF;
+END $$;
+
+UPDATE fulfillment_postage_provider_events
+SET subject_kind = 'shipment'
+WHERE subject_kind IS NULL;
+
+ALTER TABLE fulfillment_postage_provider_events
+  DROP CONSTRAINT IF EXISTS fulfillment_postage_provider_events_subject_kind_check;
+
+ALTER TABLE fulfillment_postage_provider_events
+  ADD CONSTRAINT fulfillment_postage_provider_events_subject_kind_check
+  CHECK (subject_kind IS NULL OR subject_kind IN ('shipment', 'return-shipment', 'channel-fulfillment-record')) NOT VALID;
+
+ALTER TABLE fulfillment_postage_provider_events
+  VALIDATE CONSTRAINT fulfillment_postage_provider_events_subject_kind_check;
+
+CREATE TABLE IF NOT EXISTS fulfillment_channel_fulfillment_record_tenant_resolutions (
+  channel_fulfillment_record_id text PRIMARY KEY,
+  tenant_id text NULL,
+  seller_account_id text NULL,
+  status text NOT NULL CHECK (status IN ('resolved', 'quarantined')),
+  reason_code text NOT NULL,
+  resolved_at timestamptz NOT NULL
+);`;
+
+const fulfillmentPostageLabelOperationsDropActiveTargetV1IndexSql = `DROP INDEX CONCURRENTLY IF EXISTS fulfillment_postage_label_operations_active_target_v1_idx;`;
+
+const fulfillmentPostageProviderEventsDropShipmentIndexSql = `DROP INDEX CONCURRENTLY IF EXISTS fulfillment_postage_provider_events_shipment_idx;`;
+
+const fulfillmentPostageProviderEventsSubjectIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_provider_events_subject_idx
+  ON fulfillment_postage_provider_events (subject_kind, subject_id, occurred_at DESC)
+  WHERE subject_id IS NOT NULL;`;
+
+const fulfillmentPostageOperationsSubjectTrackingIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_label_operations_subject_tracking_idx
+  ON fulfillment_postage_label_operations (subject_kind, tracking_identifier)
+  WHERE tracking_identifier IS NOT NULL;`;
+
+const fulfillmentPostageOperationsSubjectProviderShipmentIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS fulfillment_postage_label_operations_subject_provider_shipment_idx
+  ON fulfillment_postage_label_operations (subject_kind, provider_shipment_id)
+  WHERE provider_shipment_id IS NOT NULL;`;
 
 const fulfillmentShipmentPostageLabelDuplicateBackfillSql = `WITH duplicate_postage_labels AS (
   SELECT
@@ -379,7 +489,9 @@ CREATE TABLE IF NOT EXISTS fulfillment_postage_label_operations (
   operation_key text PRIMARY KEY,
   operation_id text NOT NULL UNIQUE,
   operation_kind text NOT NULL CHECK (operation_kind IN ('purchase-usps-label', 'void-label', 'orphan-label-void')),
-  shipment_id text NOT NULL,
+  subject_kind text NOT NULL CONSTRAINT fulfillment_postage_label_operations_subject_kind_check
+    CHECK (subject_kind IN ('shipment', 'return-shipment', 'channel-fulfillment-record')),
+  subject_id text NOT NULL,
   tenant_id text NULL,
   seller_account_id text NULL,
   key_digest text NULL,
@@ -406,11 +518,24 @@ CREATE TABLE IF NOT EXISTS fulfillment_postage_label_operations (
   completed_at timestamptz NULL
 );
 
+ALTER TABLE fulfillment_postage_label_operations
+  ADD COLUMN IF NOT EXISTS subject_kind text NULL,
+  ADD COLUMN IF NOT EXISTS subject_id text NULL;
+
 CREATE INDEX IF NOT EXISTS fulfillment_postage_label_operations_status_idx
   ON fulfillment_postage_label_operations (status, updated_at);
 
 CREATE TABLE IF NOT EXISTS fulfillment_shipment_tenant_resolutions (
   shipment_id text PRIMARY KEY,
+  tenant_id text NULL,
+  seller_account_id text NULL,
+  status text NOT NULL CHECK (status IN ('resolved', 'quarantined')),
+  reason_code text NOT NULL,
+  resolved_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS fulfillment_channel_fulfillment_record_tenant_resolutions (
+  channel_fulfillment_record_id text PRIMARY KEY,
   tenant_id text NULL,
   seller_account_id text NULL,
   status text NOT NULL CHECK (status IN ('resolved', 'quarantined')),
@@ -424,7 +549,9 @@ CREATE TABLE IF NOT EXISTS fulfillment_postage_provider_events (
   provider_mode text NOT NULL,
   event_kind text NOT NULL,
   provider_object_reference text NOT NULL,
-  shipment_id text NULL,
+  subject_kind text NULL CONSTRAINT fulfillment_postage_provider_events_subject_kind_check
+    CHECK (subject_kind IS NULL OR subject_kind IN ('shipment', 'return-shipment', 'channel-fulfillment-record')),
+  subject_id text NULL,
   tracking_identifier text NULL,
   status text NULL,
   status_detail text NULL,
@@ -440,9 +567,9 @@ CREATE TABLE IF NOT EXISTS fulfillment_postage_provider_events (
   ,claim_expires_at timestamptz NULL
 );
 
-CREATE INDEX IF NOT EXISTS fulfillment_postage_provider_events_shipment_idx
-  ON fulfillment_postage_provider_events (shipment_id, occurred_at DESC)
-  WHERE shipment_id IS NOT NULL;
+ALTER TABLE fulfillment_postage_provider_events
+  ADD COLUMN IF NOT EXISTS subject_kind text NULL,
+  ADD COLUMN IF NOT EXISTS subject_id text NULL;
 
 CREATE INDEX IF NOT EXISTS fulfillment_postage_provider_events_received_idx
   ON fulfillment_postage_provider_events (received_at DESC);
@@ -482,6 +609,12 @@ export const fulfillmentShipmentSchemaMigrations: readonly BcSchemaMigration[] =
     statements: [`SET lock_timeout = '5s'`, fulfillmentShipmentDisplayReferenceUniqueIndexSql],
   },
   {
+    migrationId: "20260910_fulfillment_postage_operation_subject_v1",
+    description:
+      "Generalize postage operations and provider-event receipts to immutable Fulfillment subject identities.",
+    statements: [fulfillmentPostageSubjectColumnsSql],
+  },
+  {
     migrationId: "20260823_fulfillment_shipment_mutation_authority_v1",
     description: "Bind Shipment and postage mutation receipts to tenant authority and install fenced lifecycles.",
     statements: [
@@ -496,7 +629,20 @@ export const fulfillmentShipmentSchemaMigrations: readonly BcSchemaMigration[] =
       fulfillmentPostageLabelOperationsOperationKindConstraintSql,
       `SET lock_timeout = '5s'`,
       fulfillmentPostageLabelOperationsDropSupersededActiveKindIndexSql,
-      fulfillmentPostageLabelOperationsActiveTargetIndexV1Sql,
+      fulfillmentPostageLabelOperationsActiveTargetIndexV2Sql,
+    ],
+  },
+  {
+    migrationId: "20260910_fulfillment_postage_operation_subject_indexes_v1",
+    description: "Replace shipment-only postage indexes with subject-aware operation and provider-event indexes.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      fulfillmentPostageLabelOperationsDropActiveTargetV1IndexSql,
+      fulfillmentPostageLabelOperationsActiveTargetIndexV2Sql,
+      fulfillmentPostageProviderEventsDropShipmentIndexSql,
+      fulfillmentPostageProviderEventsSubjectIndexSql,
+      fulfillmentPostageOperationsSubjectTrackingIndexSql,
+      fulfillmentPostageOperationsSubjectProviderShipmentIndexSql,
     ],
   },
 ];

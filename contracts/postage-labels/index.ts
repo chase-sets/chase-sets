@@ -74,9 +74,11 @@ export type PostagePackage = Readonly<{
   weightOunces: number;
 }>;
 
+export type PostageOperationSubjectKind = "shipment" | "return-shipment" | "channel-fulfillment-record";
+
 export type PurchaseUspsLabelRequest = Readonly<{
-  shipmentId: string;
-  orderId: string;
+  subjectKind: PostageOperationSubjectKind;
+  subjectId: string;
   idempotencyKey: string;
   serviceLevel: string;
   deliveryConfirmation?: "signature" | null;
