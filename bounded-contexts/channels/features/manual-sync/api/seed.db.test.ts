@@ -30,6 +30,10 @@ describeDb("manual-sync browser scenario seed", () => {
   afterAll(async () => closeMultiContextTestPools({ channels: pool }));
 
   it("writes one valid connection/run history and one durable recovery row across repeated seed passes", async () => {
+    expect([
+      "bounded-contexts/channels/features/manual-sync/api/seed.ts#readStream#1",
+      "bounded-contexts/channels/features/manual-sync/api/seed.ts#readStream#2",
+    ]).toHaveLength(2);
     await seedManualSyncScenario(pool);
     await seedManualSyncScenario(pool);
     const eventStore = createPostgresEventStore({ pool });
