@@ -44,6 +44,7 @@
     "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/product-selection": "workspace:*",
     "@chase-sets/review-eligibility": "workspace:*",
+    "@chase-sets/seller-desk": "workspace:*",
     "hono": "^4.12.12",
     "sharp": "^0.34.5",
     "zod": "^4.4.3"

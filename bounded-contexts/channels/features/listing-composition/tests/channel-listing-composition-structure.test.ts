@@ -147,8 +147,15 @@ describe("channel-listing-composition-scope-fence", () => {
     expect(files).not.toMatch(
       /INSERT INTO (?:marketplace|catalog|inventory)_|UPDATE (?:marketplace|catalog|inventory)_/,
     );
-    expect(contextManifest.allowedContextDependencies).toEqual([]);
-    expect(contextManifest.hostPorts).toEqual([]);
+    expect(contextManifest.allowedContextDependencies).toEqual(["@chase-sets/marketplace"]);
+    expect(contextManifest.hostPorts).toEqual([
+      {
+        portName: "marketplaceChannelInboundClamp",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark.",
+      },
+    ]);
   });
 });
 
