@@ -40,6 +40,10 @@ An **Anonymous Capture Seller Ordinal** is a sequential, non-identifying groupin
 
 A **Market Price Snapshot** is the recorded fair-value output for a resolved product over a defined time window, tied to the source signals used to calculate it.
 
+## Own-Sale Observation
+
+An **Own-Sale Observation** is Pricing's seller-scoped record of one Inventory external-channel or offline sale event. It preserves requested and applied quantities plus the event's available denomination facts without proration or currency invention; item and Product resolution may remain absent when the Inventory input was unavailable. Own-Sale Observations are seller evidence for pricing workflows and never enter the published Market-Value Estimate. Offline observations remain undenominated and are therefore inert for currency-keyed price reads while remaining available to count-and-quantity consumers.
+
 ## Market Price
 
 **Market Price** is the wire noun for Pricing's published current fair-value estimate for one resolved Product. `MarketPriceEstimated` (`pricing.market-price.estimated`) publishes that derived answer -- one event-sourced stream per product, carrying the estimate amount, its Confidence Band, input counts, the previous published amount (so downstream tolerance filtering needs no read), and a freshness horizon; a Market Price Snapshot remains a recorded market-state input rather than the estimate itself.
