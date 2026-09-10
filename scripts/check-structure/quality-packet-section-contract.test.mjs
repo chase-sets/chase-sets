@@ -123,6 +123,11 @@ describe("delivery Quality Packet section contract", () => {
       "empty or placeholder payload for G0 not-built list",
     ],
     [
+      "G0 without separator space",
+      (value) => replaceLine(value, "G0:", "G0: PASS —not built: none."),
+      "malformed G0",
+    ],
+    [
       "placeholder G0 payload",
       (value) => replaceLine(value, "G0:", "G0: PASS — <not built, one reason each>"),
       "empty or placeholder payload for G0 not-built list",
@@ -262,6 +267,19 @@ describe("delivery Quality Packet section contract", () => {
     const extracted = extractQualityPacketSection(arbitrarySkill);
     expect(extracted).toBe("");
     expect(errorsFor(extracted)).not.toEqual([]);
+  });
+
+  it("does not cross a following heading to find the worked-example fence", () => {
+    const crossHeadingSkill = `### Quality Packet snippet
+
+The required worked example is missing here.
+
+## Unrelated section
+
+\`\`\`markdown
+${section}
+\`\`\``;
+    expect(extractQualityPacketSection(crossHeadingSkill)).toBe("");
   });
 
   it("does not treat an inline snippet-name mention as the structural selector", () => {

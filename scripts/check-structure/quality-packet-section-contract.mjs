@@ -29,9 +29,32 @@ const TEMPLATE_TOKENS = new Set([
 export const MAX_QUALITY_PACKET_SECTION_BYTES = 2048;
 
 export function extractQualityPacketSection(skill) {
-  const match = /^### Quality Packet snippet[ \t]*\r?\n[\s\S]*?^```markdown[ \t]*\r?\n([\s\S]*?)\r?\n^```[ \t]*$/m.exec(
-    skill,
-  );
+  const lines = skill.match(/.*(?:\r\n|\n|$)/g)?.filter(Boolean) ?? [];
+  const headingIndex = lines.findIndex((line) => /^### Quality Packet snippet[ \t]*(?:\r?\n|$)/.test(line));
+  if (headingIndex === -1) return "";
+
+  let inFence = false;
+  let fenceCharacter = "";
+  const subsectionLines = [];
+  for (const line of lines.slice(headingIndex + 1)) {
+    const fence = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      const character = fence[1][0];
+      if (!inFence) {
+        inFence = true;
+        fenceCharacter = character;
+      } else if (character === fenceCharacter) {
+        inFence = false;
+        fenceCharacter = "";
+      }
+    } else if (!inFence && /^(#{1,3})[ \t]+/.test(line)) {
+      break;
+    }
+    subsectionLines.push(line);
+  }
+
+  const subsection = subsectionLines.join("");
+  const match = /^```markdown[ \t]*\r?\n([\s\S]*?)\r?\n^```[ \t]*(?:\r?\n|$)/m.exec(subsection);
   return match?.[1] ?? "";
 }
 
@@ -62,7 +85,7 @@ export function qualityPacketSectionErrors(section) {
   if (g0Lines.length === 0) errors.push("missing required field: G0");
   if (g0Lines.length > 1) errors.push("duplicate required field: G0");
   if (g0Lines.length === 1) {
-    const match = /^G0: (\S+) —(.*)$/.exec(g0Lines[0]);
+    const match = /^G0: (\S+) — (.*)$/.exec(g0Lines[0]);
     if (!match) errors.push("malformed G0");
     else {
       if (match[1] !== "PASS") errors.push(`invalid G0 verdict: ${match[1]}`);

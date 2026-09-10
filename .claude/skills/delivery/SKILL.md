@@ -168,7 +168,7 @@ READABILITY [Med]: little=PASS trace SKILL.md â†’ extractQualityPacketSection â†
 TESTS [High]: little=PASS both exports and both mirrors pinned ; much=PASS asserts returned error strings, not internals
 OBSERVABILITY [High]: little=PASS each rejection names its key and reason ; much=PASS accept path is silent
 SECURITY [High]: N/A no input, authorization, secret, or personal-data boundary in the diff
-PERFORMANCE [Low]: N/A no query, loop, or per-item I/O; one file read, bounded section
+PERFORMANCE [Low]: N/A no query or per-item I/O; bounded linear scan and two test-only mirror reads
 ROLLOUT [High]: little=PASS retired headings deleted, not left beside ; much=PASS no legacy branch or flag kept
 CONSISTENCY [High]: little=PASS follows scripts/check-structure conventions ; much=PASS no unstated departure
 EXPERIENCE [Low]: N/A no UI surface in the diff
