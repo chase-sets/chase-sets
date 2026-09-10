@@ -181,9 +181,7 @@ describe("payments terms artifact", () => {
     expect(paymentsTermsPolicyArtifact.metadata.version).toBe("v2");
     expect(requiredPaymentsTermsSubjectIds).toContain("prepaid-balance");
 
-    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find(
-      (candidate) => candidate.id === "prepaid-balance",
-    );
+    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "prepaid-balance");
     expect(prepaidBalance).toBeDefined();
     expect(prepaidBalance?.title).toBe("Prepaid Balance");
     expect(prepaidBalance?.draftText.trim().length ?? 0).toBeGreaterThan(0);
@@ -196,16 +194,12 @@ describe("payments terms artifact", () => {
   });
 
   it("payments-terms-v2-subject-citations", () => {
-    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find(
-      (candidate) => candidate.id === "prepaid-balance",
-    );
+    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "prepaid-balance");
     expect(prepaidBalance).toBeDefined();
 
     // Every material assertion in the section cites the ruled decisions it
     // states, not an invented Stripe or counsel position.
-    expect(prepaidBalance?.reviewManifest.decisionRefs).toEqual(
-      expect.arrayContaining([7807, 7808]),
-    );
+    expect(prepaidBalance?.reviewManifest.decisionRefs).toEqual(expect.arrayContaining([7807, 7808]));
     expect(prepaidBalance?.reviewManifest.productTruthRefs.length ?? 0).toBeGreaterThan(0);
     for (const assumption of prepaidBalance?.reviewManifest.assumptions ?? []) {
       expect(assumption.evidenceRef.length).toBeGreaterThan(0);
