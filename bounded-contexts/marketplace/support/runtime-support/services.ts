@@ -22,6 +22,7 @@ import type { SellerAttentionSource } from "@chase-sets/seller-attention-queue";
 import { createSellerAttentionQueueRuntime } from "../../features/seller-desk/read-model/runtime";
 import { createListingActionAttentionSourceFromReadModel } from "../../features/listings/read-model/seller-attention-source";
 import { createOfferResponseAttentionSourceFromReadModel } from "../../features/offers/read-model/seller-attention-source";
+import { createMarketplaceChannelInboundClampRuntime } from "../../features/channel-inbound-clamp/api/runtime";
 
 export type MarketplaceServiceOptions = Readonly<{
   commercialTermsResolver?: CommercialTermsResolver;
@@ -48,6 +49,7 @@ export type MarketplaceServices = Readonly<{
   pool: PgTransactionalPool;
   db: PgQueryable;
   sellerAttentionQueue: ReturnType<typeof createSellerAttentionQueueRuntime>;
+  channelInboundClamp: ReturnType<typeof createMarketplaceChannelInboundClampRuntime>;
 }>;
 
 export function createMarketplaceServices(
@@ -91,6 +93,7 @@ export function createMarketplaceServices(
     createOfferResponseAttentionSourceFromReadModel(db),
     createListingActionAttentionSourceFromReadModel(db),
   ]);
+  const channelInboundClamp = createMarketplaceChannelInboundClampRuntime(pool, listings);
   return {
     listings,
     offers,
@@ -106,5 +109,6 @@ export function createMarketplaceServices(
     pool,
     db,
     sellerAttentionQueue,
+    channelInboundClamp,
   };
 }

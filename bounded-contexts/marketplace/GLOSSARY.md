@@ -378,3 +378,6 @@ Seller Reliability, On-Time Shipment Rate, the Seller-Responsible Issue Rate, an
 Scheduled Restore moved out of this Planned section (m127 seller time-away audit's auto-resume sweep): it is shipped behavior now -- see the main glossary body above. Away Window also moved out of this Planned section (m127 seller time-away audit's scheduled-window feature): it is shipped behavior now -- see the main glossary body above.
 
 Authenticity terminology (Authenticity Case, Authenticity Verdict, Verdict Reason Code, and related concepts) moved to the [Authenticity](../authenticity/GLOSSARY.md) bounded context ahead of the m109 Authenticity Check milestone (epic #4284); Marketplace does not own that vocabulary.
+## Channel Inbound Clamp
+
+A **Channel Inbound Clamp** is Marketplace's revision-fenced ownership record for Listings paused while a Channel cannot observe inbound sales; recovery restores only an unchanged, solely clamp-owned pause.

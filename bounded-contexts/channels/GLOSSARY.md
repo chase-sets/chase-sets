@@ -127,3 +127,15 @@ A **Channel Export Surface** identifies whether a channel export reports Live tr
 ## Mapping Bootstrap Candidate
 
 A **Mapping Bootstrap Candidate** is a real category, condition, or attribute source-key discovery submitted for Channel Mapping review; a local sync refusal is not a candidate.
+
+## Manual Sync Panel
+
+The **Manual Sync Panel** is the authorized Channel Connection surface for composing, downloading, recording, and verifying one manual Staged Import Batch round trip.
+
+## Channel Inbound Coverage
+
+**Channel Inbound Coverage** states whether a Sales Channel currently supplies authoritative inbound sales visibility; missing or unknown authority is dark.
+
+## Channel Inbound Clamp
+
+A **Channel Inbound Clamp** is the Marketplace-owned, revision-fenced pause of every active account Listing represented by a genuine Channel Sync Run while Channel Inbound Coverage is dark.

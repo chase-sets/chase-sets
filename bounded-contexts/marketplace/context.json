@@ -3,6 +3,7 @@
   "packageName": "@chase-sets/marketplace",
   "localeCatalogs": ["contracts/localization/locales/en/marketplace.ts"],
   "ownedNouns": [
+    "channel-inbound-clamp",
     "listing",
     "listing-evidence-policy",
     "offer",
@@ -15,7 +16,16 @@
   ],
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["listing-evidence-policy", "listings", "offers", "reports", "reviews", "seller-desk", "seller-metrics"],
+  "slices": [
+    "channel-inbound-clamp",
+    "listing-evidence-policy",
+    "listings",
+    "offers",
+    "reports",
+    "reviews",
+    "seller-desk",
+    "seller-metrics"
+  ],
   "allowedSupportDirectories": [
     "request-support",
     "realtime-support",
@@ -341,6 +351,7 @@
       "sourceContextNames": ["catalog", "marketplace"],
       "ownedTables": [
         "marketplace_listing_pages",
+        "marketplace_channel_inbound_clamps",
         "marketplace_seller_listing_availability_pages",
         "marketplace_seller_order_capacity_pages"
       ],
@@ -2070,6 +2081,11 @@
     }
   ],
   "directoryIntent": {
+    "channel-inbound-clamp": {
+      "classification": "slice",
+      "purpose": "Own the account-wide, revision-fenced Listing clamp and conservative recovery used while Channel inbound coverage is dark.",
+      "expectedConsumers": ["Channels manual sync through the Marketplace host port"]
+    },
     "listing-evidence-policy": {
       "classification": "slice",
       "purpose": "Own the versioned Marketplace Listing Evidence Policy domain model, shared platform-policy runtime integration, guided administration, and audit history.",
@@ -2132,7 +2148,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by marketplace-owned features and composition seams.",
-      "expectedConsumers": ["listings", "offers"]
+      "expectedConsumers": ["channel-inbound-clamp", "listings", "offers"]
     },
     "seed-support": {
       "classification": "support",

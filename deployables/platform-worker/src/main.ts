@@ -30,7 +30,11 @@ import type {
   InventoryAccountSellerSkuItemResolution,
   InventoryDraftListingCreator,
 } from "@chase-sets/inventory/server";
-import type { MarketplaceListingServices } from "@chase-sets/marketplace/server";
+import type {
+  MarketplaceChannelInboundClampCapability,
+  MarketplaceListingServices,
+  MarketplaceServices,
+} from "@chase-sets/marketplace/server";
 import type {
   BulkRepriceIngestionServices,
   PricingRecommendationServices,
@@ -228,6 +232,23 @@ const tcgplayerAutomationCatalogClient = tcgplayerAutomationHttpClients
   : undefined;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
+const marketplaceChannelInboundClamp: MarketplaceChannelInboundClampCapability = pools.marketplace
+  ? {
+      kind: "available",
+      port: {
+        engage: (input, context) => {
+          const services = runtime?.services.marketplace as MarketplaceServices | undefined;
+          if (!services) throw new Error("Marketplace Channel Inbound Clamp service is unavailable.");
+          return services.channelInboundClamp.engage(input, context);
+        },
+        recover: (input, context) => {
+          const services = runtime?.services.marketplace as MarketplaceServices | undefined;
+          if (!services) throw new Error("Marketplace Channel Inbound Clamp service is unavailable.");
+          return services.channelInboundClamp.recover(input, context);
+        },
+      },
+    }
+  : { kind: "not-mounted" };
 const commercialTermsResolver = pools["commercial-terms"]
   ? createCommercialTermsResolver({
       db: pools["commercial-terms"],
@@ -306,6 +327,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       // serves N8. The variant is stated explicitly rather than omitted, so an
       // unsupplied nonoptional port can never masquerade as "mounted".
       inventoryCleanupAuthority: { kind: "not-mounted" },
+      marketplaceChannelInboundClamp,
       searchEmbeddingConfig: config.discoverySearchEmbeddings,
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
     },

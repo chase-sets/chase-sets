@@ -67,6 +67,15 @@ describe("Channels outbound worker wiring", () => {
       "worker-1:job:channels.outbound-operations.lane-2",
     ]);
   });
+
+  it("mounts the real Marketplace-owned inbound clamp capability for Channels", () => {
+    const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+    expect(source).toContain("MarketplaceChannelInboundClampCapability");
+    expect(source).toContain("services.channelInboundClamp.engage(input, context)");
+    expect(source).toContain("services.channelInboundClamp.recover(input, context)");
+    expect(source).toContain("marketplaceChannelInboundClamp,");
+    expect(source).not.toContain("listingIds.slice(0, 500)");
+  });
 });
 
 function validChannelsCandidate(
