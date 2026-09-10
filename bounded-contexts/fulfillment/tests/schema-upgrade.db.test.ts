@@ -194,7 +194,11 @@ describeDb("fulfillment schema upgrades", () => {
       error_message text NULL,
       created_at timestamptz NOT NULL,
       updated_at timestamptz NOT NULL,
-      completed_at timestamptz NULL
+      completed_at timestamptz NULL,
+      CONSTRAINT fulfillment_postage_label_operations_lifecycle_present
+        CHECK (lifecycle_generation IS NOT NULL AND provider_invoked IS NOT NULL),
+      CONSTRAINT fulfillment_postage_label_operations_operation_id_present
+        CHECK (operation_id IS NOT NULL)
     )`);
     await pool.query(`CREATE INDEX fulfillment_postage_label_operations_status_idx
       ON fulfillment_postage_label_operations (status, updated_at)`);
@@ -235,7 +239,9 @@ describeDb("fulfillment schema upgrades", () => {
       receipt_version integer NOT NULL DEFAULT 1,
       claim_token text NULL,
       claim_generation integer NOT NULL DEFAULT 0,
-      claim_expires_at timestamptz NULL
+      claim_expires_at timestamptz NULL,
+      CONSTRAINT fulfillment_postage_provider_events_handoff_present
+        CHECK (handoff_state IS NOT NULL AND receipt_version IS NOT NULL AND claim_generation IS NOT NULL)
     )`);
     await pool.query(`CREATE INDEX fulfillment_postage_provider_events_shipment_idx
       ON fulfillment_postage_provider_events (shipment_id, occurred_at DESC)
@@ -332,6 +338,29 @@ describeDb("fulfillment schema upgrades", () => {
     );
     expect(baseLedger.rows).toEqual([
       expect.objectContaining({ migration_id: "20260823_fulfillment_shipment_mutation_authority_v1" }),
+    ]);
+    const baseAuthorityConstraints = await pool.query<{
+      conname: string;
+      convalidated: boolean;
+      definition: string;
+    }>(
+      `SELECT conname, convalidated, pg_get_constraintdef(oid) AS definition
+       FROM pg_constraint
+       WHERE conrelid IN (
+         'fulfillment_postage_label_operations'::regclass,
+         'fulfillment_postage_provider_events'::regclass
+       )
+         AND conname IN (
+           'fulfillment_postage_label_operations_lifecycle_present',
+           'fulfillment_postage_label_operations_operation_id_present',
+           'fulfillment_postage_provider_events_handoff_present'
+         )
+       ORDER BY conname`,
+    );
+    expect(baseAuthorityConstraints.rows.map(({ conname, convalidated }) => ({ conname, convalidated }))).toEqual([
+      { conname: "fulfillment_postage_label_operations_lifecycle_present", convalidated: true },
+      { conname: "fulfillment_postage_label_operations_operation_id_present", convalidated: true },
+      { conname: "fulfillment_postage_provider_events_handoff_present", convalidated: true },
     ]);
 
     await bootstrapContextDatabase(fulfillmentModule, pool);
@@ -437,6 +466,25 @@ describeDb("fulfillment schema upgrades", () => {
       { migration_id: "20260910_fulfillment_postage_operation_subject_v1" },
     ]);
     expect(upgradedLedger.rows[0]?.applied_at).toBe(baseLedger.rows[0]?.applied_at);
+    const upgradedAuthorityConstraints = await pool.query<{
+      conname: string;
+      convalidated: boolean;
+      definition: string;
+    }>(
+      `SELECT conname, convalidated, pg_get_constraintdef(oid) AS definition
+       FROM pg_constraint
+       WHERE conrelid IN (
+         'fulfillment_postage_label_operations'::regclass,
+         'fulfillment_postage_provider_events'::regclass
+       )
+         AND conname IN (
+           'fulfillment_postage_label_operations_lifecycle_present',
+           'fulfillment_postage_label_operations_operation_id_present',
+           'fulfillment_postage_provider_events_handoff_present'
+         )
+       ORDER BY conname`,
+    );
+    expect(upgradedAuthorityConstraints.rows).toEqual(baseAuthorityConstraints.rows);
   });
 
   it("keeps pre-7171 compatibility coverage for every legacy postage status", async () => {
