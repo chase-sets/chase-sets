@@ -6,7 +6,11 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { rebuildProjectionGroup, resolveModuleProjectionGroups } from "@chase-sets/bounded-context-runtime";
+import {
+  composeModuleSchemaSql,
+  rebuildProjectionGroup,
+  resolveModuleProjectionGroups,
+} from "@chase-sets/bounded-context-runtime";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as marketplaceModule } from "../../../index";
@@ -29,7 +33,7 @@ describeDb("channel-inbound-clamp command ownership survives the actual Marketpl
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas({ marketplace: pool });
-    await pool.query(marketplaceModule.schemaSql);
+    await pool.query(composeModuleSchemaSql(marketplaceModule));
   });
   afterAll(async () => closeMultiContextTestPools({ marketplace: pool }));
 
@@ -83,10 +87,42 @@ describeDb("channel-inbound-clamp command ownership survives the actual Marketpl
     expect(events.at(-1)?.data).toEqual({ reason: "channel-inbound-dark" });
   });
 
-  function actualProjectionGroup(projectionName: string, replay: () => Promise<void>) {
+  it("makes the survivor guard fail when the durable command table is restored to projection ownership", async () => {
+    const project = buildMarketplaceListingProjectionHandlers(pool);
+    const events = listingEvents();
+    for (const event of events) await project[event.type]?.(event);
+    await pool.query(
+      `INSERT INTO marketplace_channel_inbound_clamps
+       (account_id,connection_id,run_id,listing_id,inventory_item_id,state,observed_stream_version,
+        paused_stream_version,observed_updated_at,created_at,updated_at)
+       VALUES ('account-command-owner','connection-command-owner','run-command-owner','listing-rebuild',
+               'inventory-rebuild','engaged',2,3,'2026-09-10T12:01:00.000Z',now(),now())`,
+    );
+    const declared = marketplaceModule.projectionGroups?.find(
+      (group) => group.projectionName === "marketplace-listing-projection",
+    );
+    if (!declared) throw new Error("Missing actual Marketplace Listing projection group.");
+    const group = actualProjectionGroup(
+      declared.projectionName,
+      async () => {
+        for (const event of events) await project[event.type]?.(event);
+      },
+      [...declared.ownedTables, "marketplace_channel_inbound_clamps"],
+    );
+    await rebuildProjectionGroup(group);
+    await expect(
+      pool.query("SELECT 1 FROM marketplace_channel_inbound_clamps WHERE run_id='run-command-owner'"),
+    ).resolves.toMatchObject({ rows: [] });
+  });
+
+  function actualProjectionGroup(projectionName: string, replay: () => Promise<void>, ownedTables?: readonly string[]) {
     const declared = marketplaceModule.projectionGroups?.find((group) => group.projectionName === projectionName);
     if (!declared) throw new Error(`Missing actual Marketplace projection group ${projectionName}.`);
-    const module = { ...marketplaceModule, buildProjectionGroups: undefined, projectionGroups: [declared] };
+    const module = {
+      ...marketplaceModule,
+      buildProjectionGroups: undefined,
+      projectionGroups: [{ ...declared, ownedTables: ownedTables ?? declared.ownedTables }],
+    };
     const runners = ["catalog", "marketplace"].map((sourceContextName, index) => {
       let replayed = false;
       const status = {

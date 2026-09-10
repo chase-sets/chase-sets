@@ -225,7 +225,7 @@ describe("bounded context projection groups", () => {
     );
   });
 
-  it("only truncates owned read-model tables when the projection declares truncate reset", async () => {
+  it("truncates the complete validated owned-table closure in one statement without cascade", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
     const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
@@ -245,7 +245,7 @@ describe("bounded context projection groups", () => {
         {
           projectionName: "inventory-catalog-item-projection",
           sourceContextNames: ["catalog"],
-          ownedTables: ["inventory_catalog_items"],
+          ownedTables: ["inventory_catalog_items", "inventory_catalog_blueprints"],
           resetStrategy: "truncate-owned-tables",
           requiredDuringBootstrap: true,
         },
@@ -253,9 +253,15 @@ describe("bounded context projection groups", () => {
       [runner],
     );
 
+    const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    await group.reset(undefined, { db: { query } as never });
+
+    expect(query).toHaveBeenCalledOnce();
+    expect(query).toHaveBeenCalledWith("TRUNCATE TABLE inventory_catalog_items, inventory_catalog_blueprints");
+
     const revisionSyncToken = await resetProjectionGroup(group);
 
-    expect(getTruncateLog(targetPool)).toEqual([["inventory_catalog_items"]]);
+    expect(getTruncateLog(targetPool)).toEqual([["inventory_catalog_items", "inventory_catalog_blueprints"]]);
     expect(revisionSyncToken).toMatchObject({ generation: "2" });
     await expect(
       loadProjectionGroupGeneration(targetPool as never, {

@@ -6,7 +6,11 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { rebuildProjectionGroup, resolveModuleProjectionGroups } from "@chase-sets/bounded-context-runtime";
+import {
+  composeModuleSchemaSql,
+  rebuildProjectionGroup,
+  resolveModuleProjectionGroups,
+} from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as channelsModule } from "../../../index";
 import { projectChannelSyncRunComposed } from "../../tcgplayer-csv/read-model/projection";
@@ -25,7 +29,7 @@ describeDb("manual-sync command ownership survives the actual TCGplayer CSV proj
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas({ channels: pool });
-    await pool.query(channelsModule.schemaSql);
+    await pool.query(composeModuleSchemaSql(channelsModule));
   });
   afterAll(async () => closeMultiContextTestPools({ channels: pool }));
 
@@ -77,10 +81,56 @@ describeDb("manual-sync command ownership survives the actual TCGplayer CSV proj
     });
   });
 
-  function actualProjectionGroup(projectionName: string, replay: () => Promise<void>) {
+  it("refuses a reset declaration that omits the projection-owned snapshot-row FK child", async () => {
+    const declared = channelsModule.projectionGroups?.find(
+      (group) => group.projectionName === "tcgplayer-csv-projection",
+    );
+    if (!declared) throw new Error("Missing actual Channels TCGplayer CSV projection group.");
+    const mutant = {
+      ...declared,
+      ownedTables: declared.ownedTables.filter((tableName) => tableName !== "channel_inventory_snapshot_rows"),
+    };
+    const module = { ...channelsModule, buildProjectionGroups: undefined, projectionGroups: [mutant] };
+    const [group] = resolveModuleProjectionGroups(
+      [{ contextName: "channels", module, services: {}, pool, projectionHandlerSets: [] }] as never,
+      [] as never,
+    );
+
+    await expect(group!.reset()).rejects.toThrow(/foreign key constraint|referenced in a foreign key/i);
+  });
+
+  it("makes the survivor guard fail when the durable command table is restored to projection ownership", async () => {
+    const run = composedRun();
+    await projectChannelSyncRunComposed(pool, { run, csvHeader: Object.keys(run.members[0]!.csvRow!) }, 1);
+    await pool.query(
+      `INSERT INTO channels_manual_sync_clamp_status
+       (run_id,connection_id,account_id,run_revision,state,requested_listing_count,affected_listing_count,updated_at)
+       VALUES ($1,$2,$3,7,'recovery',1,2,'2026-09-10T12:05:00.000Z')`,
+      [run.runId, run.connectionId, "account-command-owner"],
+    );
+    const declared = channelsModule.projectionGroups?.find(
+      (group) => group.projectionName === "tcgplayer-csv-projection",
+    );
+    if (!declared) throw new Error("Missing actual Channels TCGplayer CSV projection group.");
+    const group = actualProjectionGroup(
+      declared.projectionName,
+      async () => projectChannelSyncRunComposed(pool, { run, csvHeader: Object.keys(run.members[0]!.csvRow!) }, 1),
+      [...declared.ownedTables, "channels_manual_sync_clamp_status"],
+    );
+    await rebuildProjectionGroup(group);
+    await expect(
+      pool.query("SELECT 1 FROM channels_manual_sync_clamp_status WHERE run_id=$1", [run.runId]),
+    ).resolves.toMatchObject({ rows: [] });
+  });
+
+  function actualProjectionGroup(projectionName: string, replay: () => Promise<void>, ownedTables?: readonly string[]) {
     const declared = channelsModule.projectionGroups?.find((group) => group.projectionName === projectionName);
     if (!declared) throw new Error(`Missing actual Channels projection group ${projectionName}.`);
-    const module = { ...channelsModule, buildProjectionGroups: undefined, projectionGroups: [declared] };
+    const module = {
+      ...channelsModule,
+      buildProjectionGroups: undefined,
+      projectionGroups: [{ ...declared, ownedTables: ownedTables ?? declared.ownedTables }],
+    };
     let replayed = false;
     const status = {
       checkpointKey: "channels-test-rebuild",

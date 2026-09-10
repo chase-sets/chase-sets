@@ -220,7 +220,7 @@
       "projectionName": "channel-connection-projection",
       "sourceContextNames": ["channels"],
       "ownedTables": ["channel_connections"],
-      "requiredDuringBootstrap": false,
+      "requiredDuringBootstrap": true,
       "resetStrategy": "truncate-owned-tables"
     },
     {
@@ -292,7 +292,7 @@
         "channel_sync_runs",
         "channel_sync_run_rows"
       ],
-      "requiredDuringBootstrap": false,
+      "requiredDuringBootstrap": true,
       "resetStrategy": "truncate-owned-tables"
     }
   ],
