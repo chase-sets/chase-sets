@@ -14,6 +14,7 @@ import { createChannelListingCompositionRuntime } from "../api/runtime";
 import { createChannelCompositionProfileRegistry } from "../domain/canonical";
 import { buildChannelOwnedDesiredStateReactionHandlers } from "../integrations/reactions";
 import { channelProviderRegistry } from "../../publication-port/api/registry";
+import { buildChannelConnectionProjectionHandlers } from "../../connections/read-model/projection";
 import {
   buildChannelCatalogFactsProjectionHandlers,
   buildChannelConnectionFactsProjectionHandlers,
@@ -185,6 +186,34 @@ describeDb("channel-listing-desired-state-production-path", () => {
       );
     }
 
+    const connectionProjection = buildChannelConnectionProjectionHandlers(pools.channels);
+    await connectionProjection["channels.connection.connected"]!(
+      event(
+        "channels.connection.connected",
+        {
+          connectionId: "connection-production",
+          accountId: "account-production",
+          providerKey: "tcgplayer",
+          environment: "sandbox",
+          createdAt: "2026-09-09T12:00:00.000Z",
+        },
+        "channels.connection-connection-production",
+        1,
+      ),
+    );
+    await connectionProjection["channels.connection.activated"]!(
+      event(
+        "channels.connection.activated",
+        {
+          connectionId: "connection-production",
+          credentialReference: "credential-production",
+          bindings: [{ storageLocationId: "location-production", revision: 1 }],
+        },
+        "channels.connection-connection-production",
+        2,
+      ),
+    );
+
     const services = createChannelListingCompositionRuntime({
       db: pools.channels,
       eventStore: createPostgresEventStore({ pool: pools.channels }),
@@ -263,9 +292,6 @@ describeDb("channel-listing-desired-state-production-path", () => {
     expect(queued.rows).toEqual([
       expect.objectContaining({ operation_kind: "publish", source_event_id: origin.event_id }),
     ]);
-    await pools.channels.query(
-      "UPDATE channel_connections SET provider_key='tcgplayer' WHERE connection_id='connection-production'",
-    );
     const reservation = await rootServices.outboundSync.reserveClaimedOutboundOperations({
       registry: channelProviderRegistry,
       connectionId: "connection-production",
