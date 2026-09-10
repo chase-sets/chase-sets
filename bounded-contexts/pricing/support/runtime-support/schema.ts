@@ -29,6 +29,7 @@ import {
   pricingBulkRepriceIngestionSchemaMigrations,
   pricingBulkRepriceIngestionSchemaSql,
 } from "../../features/bulk-reprice-ingestion/read-model/schema";
+import { pricingOwnSaleObservationsSchemaSql } from "../../features/own-sale-observations/read-model/schema";
 
 export const pricingFeatureSchemaMigrations = [
   ...pricingProviderObservationsSchemaMigrations,
@@ -46,6 +47,8 @@ export const pricingSchemaSql = [
   // for bulk reprice ingestion's dials -- see ../../features/bulk-reprice-ingestion/domain/policy.
   platformPolicySchemaSql,
   pricingRecommendationSourceSchemaSql,
+  // Resolves item/product identity from the Inventory input projection at sale-event replay time.
+  pricingOwnSaleObservationsSchemaSql,
   pricingPriceSignalSchemaSql,
   pricingProviderObservationsSchemaSql,
   pricingRecommendationSchemaSql,

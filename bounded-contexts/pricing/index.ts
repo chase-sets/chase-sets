@@ -17,6 +17,7 @@ import {
   buildPricingMarketplaceInputProjectionHandlers,
   buildPricingOrderingInputProjectionHandlers,
 } from "./features/recommendations/integrations/source/source-projection";
+import { buildPricingOwnSaleObservationProjectionHandlers } from "./features/own-sale-observations/integrations/inventory/projection";
 import { buildPricingMarketTradesProjectionHandlers } from "./features/market-trades/integrations/source/source-projection";
 import {
   buildPricingMarketTradesAuthenticityIntegrityProjectionHandlers,
@@ -59,8 +60,10 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
             ...buildPricingCatalogInputProjectionHandlers(services.db),
             ...buildPricingPriceSignalCatalogProjectionHandlers(services.db),
           }),
-          "inventory.pricing-inventory-input-projection": () =>
-            buildPricingInventoryInputProjectionHandlers(services.db),
+          "inventory.pricing-inventory-input-projection": () => ({
+            ...buildPricingInventoryInputProjectionHandlers(services.db),
+            ...buildPricingOwnSaleObservationProjectionHandlers(services.db),
+          }),
           "marketplace.pricing-market-input-projection": () =>
             buildPricingMarketplaceInputProjectionHandlers(services.db),
           "ordering.pricing-order-input-projection": () => buildPricingOrderingInputProjectionHandlers(services.db),

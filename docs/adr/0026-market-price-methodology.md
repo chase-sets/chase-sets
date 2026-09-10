@@ -11,6 +11,8 @@ does not reopen either decision; see those closed issues for the option analysis
 Pricing publishes two different kinds of market-price answer from the same underlying Trades Tape, and
 callers, seller-facing surfaces, and the public `/market/{slug}` pages must not confuse them:
 
+Seller-scoped Own-Sale Observations are a separate evidence concept and never enter either published answer; see [ADR 0028](./0028-own-sale-evidence-boundary.md).
+
 - **Recorded stats** -- Daily Product Rollups, Platform Daily Rollups, the Product Market Aggregate, and
   the Market-State Snapshot -- are computed entirely from already-recorded facts (trades, listings,
   offers) and are never estimates. See `bounded-contexts/pricing/GLOSSARY.md` "Daily Product Rollup",

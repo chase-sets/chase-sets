@@ -20,7 +20,8 @@
     "weekly-sale-bucket",
     "listing-snapshot",
     "listing-ask-depth",
-    "anonymous-capture-seller-ordinal"
+    "anonymous-capture-seller-ordinal",
+    "own-sale-observation"
   ],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
@@ -33,7 +34,8 @@
     "repricing-policies",
     "repricing-engine",
     "public-market-pages",
-    "bulk-reprice-ingestion"
+    "bulk-reprice-ingestion",
+    "own-sale-observations"
   ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
@@ -73,10 +75,12 @@
     {
       "sourceContextName": "inventory",
       "projectionName": "pricing-inventory-input-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "eventTypes": [
         "inventory.item.created",
         "inventory.item.adjusted",
+        "inventory.external-channel-sale.recorded",
+        "inventory.item.offline-sale-recorded",
         "inventory.hold.placed",
         "inventory.hold.converted",
         "inventory.hold.extended",
@@ -232,7 +236,11 @@
     {
       "projectionName": "pricing-inventory-input-projection",
       "sourceContextNames": ["inventory"],
-      "ownedTables": ["pricing_inventory_item_inputs", "pricing_inventory_hold_inputs"],
+      "ownedTables": [
+        "pricing_inventory_item_inputs",
+        "pricing_inventory_hold_inputs",
+        "pricing_own_sale_observations"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -537,6 +545,11 @@
       "classification": "slice",
       "purpose": "Own the removable bulk reprice ingestion on-ramp (m113 #4328): diff-first CSV/API upload, seller-SKU/listingId resolution, chunked apply through Marketplace's bulk price-update port, per-row outcome tracking, and the results-CSV export. Deletable as one directory plus the mount lines documented in docs/bulk-reprice-ingestion.md -- nothing outside this directory (besides the documented mount points) imports from it.",
       "expectedConsumers": ["Internal pricing module composition"]
+    },
+    "own-sale-observations": {
+      "classification": "slice",
+      "purpose": "Own seller-scoped observations of external-channel and offline sales projected from Inventory as pricing evidence that remains isolated from the published Market-Value Estimate.",
+      "expectedConsumers": ["Internal pricing module composition", "Future Pricing-owned seller analytics"]
     },
     "runtime-support": {
       "classification": "support",

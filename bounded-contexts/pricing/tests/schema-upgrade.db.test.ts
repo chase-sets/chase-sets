@@ -35,6 +35,9 @@ describeDb("pricing schema upgrades", () => {
   it("upgrades deployed pricing schema idempotently across two boots", async () => {
     const pool = pools.pricing;
     await bootstrapContextDatabase(pricingModule, pool);
+    // The deployed schema predates Own-Sale Observations. The current boot SQL
+    // owns this additive table and must recreate it without a ledgered migration.
+    await pool.query("DROP TABLE pricing_own_sale_observations");
     await pool.query("ALTER TABLE pricing_daily_product_rollups DROP COLUMN stat_hygiene_policy_revision_id");
     await pool.query(
       "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260720_pricing_daily_rollup_policy_revision_binding'",
@@ -64,6 +67,11 @@ describeDb("pricing schema upgrades", () => {
         rederive_queue: "pricing_market_trade_rollup_rederive_queue",
       },
     ]);
+
+    const ownSaleTable = await pool.query<{ own_sale_observations: string }>(
+      `SELECT to_regclass('pricing_own_sale_observations')::text AS own_sale_observations`,
+    );
+    expect(ownSaleTable.rows).toEqual([{ own_sale_observations: "pricing_own_sale_observations" }]);
 
     const queueGeneration = await pool.query<{ generation_default: string; nullable: string }>(
       `SELECT column_default AS generation_default, is_nullable AS nullable

@@ -1,4 +1,13 @@
 export { getAccountRecommendation, listAccountRecommendations } from "./features/recommendations/read-model/queries";
+export { getOwnSaleLows, listOwnSaleObservations } from "./features/own-sale-observations/read-model/queries";
+export type {
+  GetOwnSaleLowsParams,
+  ListOwnSaleObservationsParams,
+  OwnSaleLow,
+  OwnSaleObservation,
+  OwnSaleObservationSource,
+  OwnSaleSellerCurrency,
+} from "./features/own-sale-observations/read-model/queries";
 export { createPricingRequestApiClient } from "./support/request-support/api-client";
 export type { PricingHostPorts, PricingServices } from "./support/runtime-support/services";
 export type {
