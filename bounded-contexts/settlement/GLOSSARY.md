@@ -149,6 +149,16 @@ Notes:
 - Creating or increasing a Negative Balance, a high-value credit or debit, a reversal after the original entry's funds were already spent or paid out, and any self-benefiting target all require elevated, separation-of-duties approval; a self-benefiting target is blocked outright rather than merely elevated.
 - The full lifecycle, approval matrix, policy schema, and legacy `workflow`-string retirement decision are recorded in [ADR 0020: Wallet Adjustment Authority And Balance Types](../../docs/adr/0020-wallet-adjustment-authority-and-balance-types.md). The lifecycle, permissions, and typed API are implemented by #4998, #4999, and #5000; this term records the ratified vocabulary ahead of that implementation.
 
+## Label Postage Debit
+
+A **Label Postage Debit** is the Settlement-owned `platform-purchase` Wallet Ledger Entry that charges a seller the provider-reported cost of one marketplace shipment label. It is linked to the shipment and its order, may create a Negative Balance so that the order's later proceeds offset the charge, and is posted at most once for each shipment and provider label identity.
+
+Notes:
+
+- A successful provider refund creates one linked, opposite-direction `platform-purchase` entry; a void request or non-successful refund status never moves Wallet funds.
+- Facts without an amount are typed skips. Facts whose currency differs from the Wallet currency are typed refusals recorded for operator review; Settlement never converts label postage.
+- The Settlement-owned, policy-versioned cutover uses the fact's recorded time, so replay does not charge historical labels or choose a new boundary from a worker clock.
+
 ## Negative Balance
 
 A **Negative Balance** is a Wallet state where chargeback, refund, or payout recovery obligations exceed the account's available balance.

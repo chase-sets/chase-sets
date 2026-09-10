@@ -12,6 +12,10 @@ import { module as settlementModule } from "../index";
 import { queryLiabilitySnapshot } from "../features/liability-reconciliation/read-model/liability-reconciliation";
 import { getPayout, listPayouts } from "../features/payouts/read-model/queries";
 import { lookupPayoutBySupportId, lookupPayoutBySupportReference } from "../features/payouts/read-model/support-lookup";
+import {
+  settlementFulfillmentSourceSchemaMigrations,
+  settlementFulfillmentSourceSchemaSql,
+} from "../features/wallets/integrations/fulfillment-source/fulfillment-source-schema";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -203,5 +207,60 @@ describeDb("settlement schema upgrades", () => {
        WHERE payout_id = 'pyo_synthetic_current_fee'`,
     );
     expect(current.rows).toEqual([{ requested_amount: "50.00", fee_amount: "1.00", net_amount: "49.00" }]);
+  });
+
+  it("creates the marketplace label postage table identically from boot SQL and its ledgered migration", async () => {
+    const pool = pools.settlement;
+    const migration = settlementFulfillmentSourceSchemaMigrations.find(
+      (candidate) => candidate.migrationId === "20260910_settlement_marketplace_label_postage",
+    );
+    expect(migration).toBeDefined();
+    expect(settlementModule.schemaMigrations.map((candidate) => candidate.migrationId)).toContain(
+      "20260910_settlement_marketplace_label_postage",
+    );
+
+    async function readShape() {
+      const [columns, indexes, persistence] = await Promise.all([
+        pool.query<{ column_name: string; data_type: string; is_nullable: string }>(
+          `SELECT column_name, data_type, is_nullable
+           FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'settlement_marketplace_label_postage'
+           ORDER BY ordinal_position`,
+        ),
+        pool.query<{ indexname: string; indexdef: string }>(
+          `SELECT indexname, indexdef
+           FROM pg_indexes
+           WHERE schemaname = current_schema()
+             AND tablename = 'settlement_marketplace_label_postage'
+           ORDER BY indexname`,
+        ),
+        pool.query<{ relpersistence: string }>(
+          `SELECT relpersistence
+           FROM pg_class
+           WHERE oid = 'settlement_marketplace_label_postage'::regclass`,
+        ),
+      ]);
+      return { columns: columns.rows, indexes: indexes.rows, persistence: persistence.rows };
+    }
+
+    for (const statement of migration!.statements) {
+      await pool.query(statement);
+    }
+    const migrationShape = await readShape();
+
+    await resetMultiContextTestSchemas(pools);
+    await pool.query(settlementFulfillmentSourceSchemaSql);
+    const bootShape = await readShape();
+
+    expect(migrationShape).toEqual(bootShape);
+    expect(bootShape.persistence).toEqual([{ relpersistence: "u" }]);
+    expect(bootShape.indexes.map((index) => index.indexname)).toEqual(
+      expect.arrayContaining([
+        "settlement_marketplace_label_postage_pkey",
+        "settlement_marketplace_label_postage_provider_identity_idx",
+        "settlement_marketplace_label_postage_operator_review_idx",
+      ]),
+    );
   });
 });
