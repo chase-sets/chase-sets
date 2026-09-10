@@ -122,11 +122,7 @@ describe("delivery Quality Packet section contract", () => {
       (value) => replaceLine(value, "G0:", "G0: PASS — "),
       "empty or placeholder payload for G0 not-built list",
     ],
-    [
-      "G0 without separator space",
-      (value) => replaceLine(value, "G0:", "G0: PASS —not built: none."),
-      "malformed G0",
-    ],
+    ["G0 without separator space", (value) => replaceLine(value, "G0:", "G0: PASS —not built: none."), "malformed G0"],
     [
       "placeholder G0 payload",
       (value) => replaceLine(value, "G0:", "G0: PASS — <not built, one reason each>"),
