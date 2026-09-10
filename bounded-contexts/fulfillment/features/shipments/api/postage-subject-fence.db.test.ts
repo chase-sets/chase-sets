@@ -102,7 +102,7 @@ function gatedProvider(pool: PgTransactionalPool, gate: ReturnType<typeof deferr
     }),
     voidLabel: vi.fn(async () => ({
       providerName: "synthetic-postage",
-      providerMode: "test",
+      providerMode: "test" as const,
       refundReference: "refund_synthetic",
       refundStatus: "submitted",
       voidedAt: "2026-09-10T00:10:00.000Z",
