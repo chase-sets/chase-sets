@@ -66,7 +66,6 @@ import {
   MarketStatusBadge,
   MarketplaceFacetRail,
   MarketplaceFacetStrip,
-  MarketplaceLandingHero,
   MarketplaceMarketSummary,
   MarketplaceProductCard,
   MarketplaceShell,
@@ -1915,7 +1914,7 @@ describe("design system components", () => {
     expect(markup).toContain("Pokemon TCG");
   });
 
-  it("renders marketplace facet rails and landing heroes from design-system patterns", () => {
+  it("renders marketplace facet rails from design-system patterns", () => {
     const facetMarkup = renderToString(
       <MarketplaceFacetRail
         items={[
@@ -1941,16 +1940,6 @@ describe("design system components", () => {
         onSelect={() => {}}
       />,
     );
-    const heroMarkup = renderToString(
-      <MarketplaceLandingHero
-        badges={[{ label: "Verified supply", tone: "success" }]}
-        title="Find collectibles worth chasing."
-        description="Search live supply and compare active markets."
-        search={<SearchInput hideLabel label="Search" />}
-        filters={[{ id: "", label: "All", selected: true, onSelect: () => {} }]}
-        metrics={[{ label: "Available Now", value: 3, detail: "With active listings" }]}
-      />,
-    );
     const statusMarkup = renderToString(<MarketStatusBadge status="marketOnly" />);
 
     expect(facetMarkup).toContain("Browse Categories");
@@ -1963,8 +1952,6 @@ describe("design system components", () => {
     expect(facetMarkup).not.toContain("overflow-y-auto");
     expect(facetStripMarkup).toContain("Condition");
     expect(facetStripMarkup).toContain("Near Mint (3)");
-    expect(heroMarkup).toContain("Find collectibles worth chasing.");
-    expect(heroMarkup).toContain("Available Now");
     expect(statusMarkup).toContain("Market only");
   });
 
