@@ -25,6 +25,7 @@ import {
   externalChannelSaleStreamId,
   isCanonicalUtcInstant,
   isClosedExternalChannelSaleEventPayload,
+  isStructurallyValidCommittedExternalChannelSale,
   isValidReference,
   normalizeExternalChannelSaleCommand,
   parseExternalChannelSaleKey,
@@ -206,6 +207,10 @@ export function externalChannelSaleCommandFingerprint(command: NormalizedExterna
       ...(command.unitPriceAmount !== undefined ? { unitPriceAmount: command.unitPriceAmount } : {}),
       ...(command.currencyCode !== undefined ? { currencyCode: command.currencyCode } : {}),
       ...(command.soldAt !== undefined ? { soldAt: command.soldAt } : {}),
+      ...(command.shippingCollectedAmount !== undefined
+        ? { shippingCollectedAmount: command.shippingCollectedAmount }
+        : {}),
+      ...(command.channelFeeAmount !== undefined ? { channelFeeAmount: command.channelFeeAmount } : {}),
       collisionMode: EXTERNAL_CHANNEL_SALE_COLLISION_MODE,
       collisionPolicyRef: EXTERNAL_CHANNEL_SALE_COLLISION_POLICY_REF,
       collisionPolicyRevision: EXTERNAL_CHANNEL_SALE_COLLISION_POLICY_REVISION,
@@ -230,6 +235,10 @@ function eventPayload(
     ...(command.unitPriceAmount !== undefined ? { unitPriceAmount: command.unitPriceAmount } : {}),
     ...(command.currencyCode !== undefined ? { currencyCode: command.currencyCode } : {}),
     ...(command.soldAt !== undefined ? { soldAt: command.soldAt } : {}),
+    ...(command.shippingCollectedAmount !== undefined
+      ? { shippingCollectedAmount: command.shippingCollectedAmount }
+      : {}),
+    ...(command.channelFeeAmount !== undefined ? { channelFeeAmount: command.channelFeeAmount } : {}),
     ...(command.connectionAuditReference !== undefined
       ? { connectionAuditReference: command.connectionAuditReference }
       : {}),
@@ -356,6 +365,8 @@ function conflict(
     ["storageLocationId", stored.storageLocationId, incoming.storageLocationId],
     ["requestedQuantity", stored.requestedQuantity, incoming.requestedQuantity],
     ["unitPriceAmount", stored.unitPriceAmount, incoming.unitPriceAmount],
+    ["shippingCollectedAmount", stored.shippingCollectedAmount, incoming.shippingCollectedAmount],
+    ["channelFeeAmount", stored.channelFeeAmount, incoming.channelFeeAmount],
     ["currencyCode", stored.currencyCode, incoming.currencyCode],
     ["soldAt", stored.soldAt, incoming.soldAt],
     ["collisionPolicyRef", stored.collisionPolicyRef, EXTERNAL_CHANNEL_SALE_COLLISION_POLICY_REF],
@@ -401,6 +412,10 @@ function normalizedCommandFromPayload(
     ...(Object.hasOwn(payload, "unitPriceAmount") ? { unitPriceAmount: payload.unitPriceAmount! } : {}),
     ...(Object.hasOwn(payload, "currencyCode") ? { currencyCode: payload.currencyCode! } : {}),
     ...(Object.hasOwn(payload, "soldAt") ? { soldAt: payload.soldAt! } : {}),
+    ...(Object.hasOwn(payload, "shippingCollectedAmount")
+      ? { shippingCollectedAmount: payload.shippingCollectedAmount! }
+      : {}),
+    ...(Object.hasOwn(payload, "channelFeeAmount") ? { channelFeeAmount: payload.channelFeeAmount! } : {}),
     ...(Object.hasOwn(payload, "connectionAuditReference")
       ? { connectionAuditReference: payload.connectionAuditReference! }
       : {}),
@@ -408,31 +423,7 @@ function normalizedCommandFromPayload(
 }
 
 function validResultShape(result: CommittedExternalChannelSale): boolean {
-  return (
-    typeof result.saleStreamId === "string" &&
-    isValidReference(result.saleEventId) &&
-    /^evt_/.test(result.saleEventId) &&
-    typeof result.accountId === "string" &&
-    typeof result.inventoryItemId === "string" &&
-    typeof result.storageLocationId === "string" &&
-    Number.isInteger(result.requestedQuantity) &&
-    Number.isInteger(result.appliedQuantity) &&
-    Number.isInteger(result.refusedQuantity) &&
-    Array.isArray(result.protectedOrderIds) &&
-    result.protectedOrderIds.length <= 10_000 &&
-    result.protectedOrderIds.every(isValidReference) &&
-    result.protectedOrderIds.every((value, index) => index === 0 || result.protectedOrderIds[index - 1]! < value) &&
-    Number.isSafeInteger(result.collisionPolicyRevision) &&
-    result.collisionPolicyRevision > 0 &&
-    (result.inventoryAdjustmentEventId === null ||
-      (isValidReference(result.inventoryAdjustmentEventId) &&
-        /^evt_/.test(result.inventoryAdjustmentEventId) &&
-        result.inventoryAdjustmentEventId !== result.saleEventId)) &&
-    (result.saleShortfallKey === null ||
-      (typeof result.saleShortfallKey === "string" &&
-        /^inventory\.sale-shortfall-v1-[A-Za-z0-9_-]{43}$/.test(result.saleShortfallKey))) &&
-    isCanonicalUtcInstant(result.committedAt)
-  );
+  return isStructurallyValidCommittedExternalChannelSale(result);
 }
 
 function validQuantityLaw(payload: InventoryExternalChannelSaleRecordedPayload): boolean {

@@ -4,6 +4,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import { describe, expect, it, vi } from "vitest";
 import { decideInventoryItem, initialInventoryItemState } from "../../inventory-items/domain/domain";
 import { createInventoryHoldCollisionRuntime } from "../../hold-collisions/api/runtime";
+import { InventoryDomainError } from "../../../support/runtime-support/common";
 import { externalChannelSaleStreamId } from "../domain/validation";
 import type { RecordExternalChannelSaleCommand } from "./contracts";
 import { createInventoryExternalChannelSaleRuntime, externalChannelSaleCommandFingerprint } from "./runtime";
@@ -161,6 +162,7 @@ function createHarness(options: Readonly<{ total?: number; activeHolds?: readonl
     ...memory,
     context,
     holdCollisions,
+    db,
     journal,
     record: sales.bind(context),
     sales,
@@ -225,6 +227,118 @@ describe("external-channel-sale-idempotency", () => {
     expect(
       harness.readAllEvents().filter((event) => event.eventType === "inventory.external-channel-sale.recorded"),
     ).toHaveLength(1);
+  });
+
+  it("commits provider line totals unchanged, replays them, and names a shipping-only conflict", async () => {
+    const harness = createHarness({ total: 5, activeHolds: [orderHold("ord_b", 4)] });
+    await harness.seedItem();
+    const command = baseCommand("line-money", {
+      requestedQuantity: 3,
+      shippingCollectedAmount: "4.50",
+      channelFeeAmount: "1.25",
+    });
+    const first = await harness.record(command);
+    const replay = await harness.record(command);
+    const conflict = await harness.record(baseCommand("line-money", { ...command, shippingCollectedAmount: "4.51" }));
+    const recorded = harness
+      .readAllEvents()
+      .find((event) => event.eventType === "inventory.external-channel-sale.recorded");
+
+    expect(first).toMatchObject({ status: "committed", sale: { appliedQuantity: 1, refusedQuantity: 2 } });
+    expect(replay).toEqual(first);
+    expect(conflict).toMatchObject({
+      code: "external-channel-sale-conflict",
+      differingFields: ["shippingCollectedAmount"],
+    });
+    expect(recorded?.payload).toMatchObject({
+      requestedQuantity: 3,
+      shippingCollectedAmount: "4.50",
+      channelFeeAmount: "1.25",
+      currencyCode: "USD",
+    });
+    expect(
+      harness.readAllEvents().filter((event) => event.eventType === "inventory.external-channel-sale.recorded"),
+    ).toHaveLength(1);
+  });
+
+  it("rejects malformed money before reads, claims, or reductions and accepts shipping without item price", async () => {
+    const harness = createHarness();
+    await harness.seedItem();
+    const readStream = vi.spyOn(harness.eventStore, "readStream");
+    const appendToStream = vi.spyOn(harness.eventStore, "appendToStream");
+    const reduceItem = vi.spyOn(harness.holdCollisions, "reduceItem");
+    harness.db.query.mockClear();
+
+    const moneyless = (line: string): RecordExternalChannelSaleCommand => ({
+      accountId: "acc_seller",
+      inventoryItemId: "inv_item",
+      storageLocationId: "loc_main",
+      saleKey: {
+        version: "v1",
+        providerKey: "synthetic-provider",
+        sellerEnvironmentLineage: "seller-production",
+        orderLineIdentity: line,
+      },
+      requestedQuantity: 1,
+      soldAt: "2026-09-06T12:00:00-05:00",
+      connectionAuditReference: "connection-a",
+    });
+    const invalid = [
+      { ...moneyless("shipping-no-currency"), shippingCollectedAmount: "1.00" },
+      { ...moneyless("fee-no-currency"), channelFeeAmount: "1.00" },
+      baseCommand("non-canonical-whole", { shippingCollectedAmount: "125" }),
+      baseCommand("negative-fee", { channelFeeAmount: "-1.00" }),
+      baseCommand("exponent-price", { unitPriceAmount: "1e5" }),
+    ];
+    for (const command of invalid) {
+      await expect(harness.record(command)).rejects.toBeInstanceOf(InventoryDomainError);
+    }
+    expect(readStream).not.toHaveBeenCalled();
+    expect(appendToStream).not.toHaveBeenCalled();
+    expect(harness.db.query).not.toHaveBeenCalled();
+    expect(reduceItem).not.toHaveBeenCalled();
+
+    const shippingOnly = { ...moneyless("shipping-only"), shippingCollectedAmount: "4.50", currencyCode: "USD" };
+    await expect(harness.record(shippingOnly)).resolves.toMatchObject({ status: "committed" });
+    expect(reduceItem).toHaveBeenCalledTimes(1);
+    const recorded = harness
+      .readAllEvents()
+      .find(
+        (event) =>
+          event.eventType === "inventory.external-channel-sale.recorded" &&
+          (event.payload as Record<string, unknown>).shippingCollectedAmount === "4.50",
+      );
+    expect(recorded?.payload).not.toHaveProperty("unitPriceAmount");
+    expect(recorded?.payload).toMatchObject({ shippingCollectedAmount: "4.50", currencyCode: "USD" });
+  });
+
+  it("preserves the existing money-omission event shape", async () => {
+    const harness = createHarness();
+    await harness.seedItem();
+    await harness.record(baseCommand("omission"));
+    const payload = harness
+      .readAllEvents()
+      .find((event) => event.eventType === "inventory.external-channel-sale.recorded")!.payload;
+    expect(Object.keys(payload)).toEqual([
+      "eventVersion",
+      "saleKey",
+      "commandFingerprint",
+      "accountId",
+      "inventoryItemId",
+      "storageLocationId",
+      "requestedQuantity",
+      "unitPriceAmount",
+      "currencyCode",
+      "soldAt",
+      "connectionAuditReference",
+      "collisionMode",
+      "collisionPolicyRef",
+      "collisionPolicyRevision",
+      "reasonCode",
+      "result",
+    ]);
+    expect(payload).not.toHaveProperty("shippingCollectedAmount");
+    expect(payload).not.toHaveProperty("channelFeeAmount");
   });
 });
 

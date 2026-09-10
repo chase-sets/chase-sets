@@ -204,6 +204,18 @@ Notes:
 - Inventory protects active order commitments, applies only currently available stock, and preserves any refused quantity as a stable shortfall reference.
 - Provider events, connection identity, paging state, and delivery path are never the durable sale identity.
 
+## Unit Price Amount
+
+**Unit Price Amount** is the optional gross per-unit item price recorded on an External Channel Sale line. It is sale provenance in the line's Currency Code, without payment, settlement, or provider-receipt meaning.
+
+## Shipping Collected Amount
+
+**Shipping Collected Amount** is the optional shipping total collected for the provider's ordered External Channel Sale line. It is line-level sale provenance in the line's Currency Code and is never prorated to the quantity Inventory can apply. It has no payment, settlement, or provider-receipt meaning.
+
+## Channel Fee Amount
+
+**Channel Fee Amount** is the optional channel-fee total for the provider's ordered External Channel Sale line. It is line-level sale provenance in the line's Currency Code and is never prorated to the quantity Inventory can apply. It has no payment, settlement, or provider-receipt meaning.
+
 ## Sale Price Amount
 
 **Sale Price Amount** is the optional canonical per-unit amount recorded on an Offline Sale. It is sales provenance without currency, payment, settlement, or provider-receipt meaning.

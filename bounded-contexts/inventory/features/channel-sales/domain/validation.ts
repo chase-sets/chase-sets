@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import type { InventoryExternalChannelSaleRecordedPayload } from "@chase-sets/event-core/public-event-payloads";
+import type {
+  CommittedExternalChannelSalePayload,
+  InventoryExternalChannelSaleRecordedPayload,
+} from "@chase-sets/event-core/public-event-payloads";
 import { isCanonicalMoneyAmount } from "@chase-sets/primitives/money";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
 import type { ExternalChannelSaleKeyV1, RecordExternalChannelSaleCommand } from "../api/contracts";
@@ -19,6 +22,8 @@ const COMMAND_KEYS = [
   "saleKey",
   "requestedQuantity",
   "unitPriceAmount",
+  "shippingCollectedAmount",
+  "channelFeeAmount",
   "currencyCode",
   "soldAt",
   "connectionAuditReference",
@@ -35,6 +40,8 @@ const EVENT_KEYS = [
   "unitPriceAmount",
   "currencyCode",
   "soldAt",
+  "shippingCollectedAmount",
+  "channelFeeAmount",
   "connectionAuditReference",
   "collisionMode",
   "collisionPolicyRef",
@@ -67,6 +74,8 @@ export type NormalizedExternalChannelSaleCommand = Readonly<{
   saleKey: ExternalChannelSaleKeyV1;
   requestedQuantity: number;
   unitPriceAmount?: string;
+  shippingCollectedAmount?: string;
+  channelFeeAmount?: string;
   currencyCode?: string;
   soldAt?: string;
   connectionAuditReference?: string;
@@ -92,20 +101,36 @@ export function normalizeExternalChannelSaleCommand(
     );
   }
 
-  const hasAmount = Object.hasOwn(command, "unitPriceAmount");
+  const moneyFields = ["unitPriceAmount", "shippingCollectedAmount", "channelFeeAmount"] as const;
+  const hasAmount = moneyFields.some((field) => Object.hasOwn(command, field));
   const hasCurrency = Object.hasOwn(command, "currencyCode");
-  if (hasAmount !== hasCurrency) {
-    throw new InventoryDomainError(
-      "External channel sale unitPriceAmount and currencyCode must both be present or both be absent.",
-    );
+  if (hasAmount && !hasCurrency) {
+    throw new InventoryDomainError("External channel sale currencyCode is required when any money amount is present.");
   }
   let unitPriceAmount: string | undefined;
+  let shippingCollectedAmount: string | undefined;
+  let channelFeeAmount: string | undefined;
   let currencyCode: string | undefined;
-  if (hasAmount) {
+  if (Object.hasOwn(command, "unitPriceAmount")) {
     if (typeof command.unitPriceAmount !== "string" || !isCanonicalMoneyAmount(command.unitPriceAmount)) {
       throw new InventoryDomainError("External channel sale unitPriceAmount must be a canonical MoneyAmount.");
     }
     unitPriceAmount = command.unitPriceAmount;
+  }
+  if (Object.hasOwn(command, "shippingCollectedAmount")) {
+    if (
+      typeof command.shippingCollectedAmount !== "string" ||
+      !isCanonicalMoneyAmount(command.shippingCollectedAmount)
+    ) {
+      throw new InventoryDomainError("External channel sale shippingCollectedAmount must be a canonical MoneyAmount.");
+    }
+    shippingCollectedAmount = command.shippingCollectedAmount;
+  }
+  if (Object.hasOwn(command, "channelFeeAmount")) {
+    if (typeof command.channelFeeAmount !== "string" || !isCanonicalMoneyAmount(command.channelFeeAmount)) {
+      throw new InventoryDomainError("External channel sale channelFeeAmount must be a canonical MoneyAmount.");
+    }
+    channelFeeAmount = command.channelFeeAmount;
   }
   if (hasCurrency) {
     if (typeof command.currencyCode !== "string" || !/^[A-Z]{3}$/.test(command.currencyCode)) {
@@ -128,6 +153,8 @@ export function normalizeExternalChannelSaleCommand(
     ...(unitPriceAmount !== undefined ? { unitPriceAmount } : {}),
     ...(currencyCode !== undefined ? { currencyCode } : {}),
     ...(soldAt !== undefined ? { soldAt } : {}),
+    ...(shippingCollectedAmount !== undefined ? { shippingCollectedAmount } : {}),
+    ...(channelFeeAmount !== undefined ? { channelFeeAmount } : {}),
     ...(connectionAuditReference !== undefined ? { connectionAuditReference } : {}),
   };
 }
@@ -189,15 +216,89 @@ export function isClosedExternalChannelSaleEventPayload(
   ) {
     return false;
   }
-  if (!Array.isArray(value.result.protectedOrderIds)) {
+  if (
+    value.eventVersion !== EXTERNAL_CHANNEL_SALE_EVENT_VERSION ||
+    typeof value.commandFingerprint !== "string" ||
+    !/^[a-f0-9]{64}$/.test(value.commandFingerprint) ||
+    !isValidReference(value.collisionMode) ||
+    !isValidReference(value.collisionPolicyRef) ||
+    !Number.isSafeInteger(value.collisionPolicyRevision) ||
+    (value.collisionPolicyRevision as number) <= 0 ||
+    !isValidReference(value.reasonCode) ||
+    !isStructurallyValidCommittedExternalChannelSale(value.result)
+  ) {
     return false;
   }
+  try {
+    const saleKey = parseExternalChannelSaleKey(value.saleKey);
+    normalizeExternalChannelSaleCommand({
+      accountId: value.accountId as string,
+      inventoryItemId: value.inventoryItemId as string,
+      storageLocationId: value.storageLocationId as string,
+      saleKey,
+      requestedQuantity: value.requestedQuantity as number,
+      ...(Object.hasOwn(value, "unitPriceAmount") ? { unitPriceAmount: value.unitPriceAmount as string } : {}),
+      ...(Object.hasOwn(value, "currencyCode") ? { currencyCode: value.currencyCode as string } : {}),
+      ...(Object.hasOwn(value, "soldAt") ? { soldAt: value.soldAt as string } : {}),
+      ...(Object.hasOwn(value, "shippingCollectedAmount")
+        ? { shippingCollectedAmount: value.shippingCollectedAmount as string }
+        : {}),
+      ...(Object.hasOwn(value, "channelFeeAmount") ? { channelFeeAmount: value.channelFeeAmount as string } : {}),
+      ...(Object.hasOwn(value, "connectionAuditReference")
+        ? { connectionAuditReference: value.connectionAuditReference as string }
+        : {}),
+    });
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+export function isStructurallyValidCommittedExternalChannelSale(
+  value: unknown,
+): value is CommittedExternalChannelSalePayload {
+  if (!isClosedRecord(value, RESULT_KEYS) || !isClosedRecord(value.saleKey, KEY_KEYS)) {
+    return false;
+  }
+  const protectedOrderIds = value.protectedOrderIds;
+  if (!Array.isArray(protectedOrderIds)) return false;
   try {
     parseExternalChannelSaleKey(value.saleKey);
   } catch {
     return false;
   }
-  return true;
+  return (
+    typeof value.saleStreamId === "string" &&
+    /^inventory\.external-channel-sale-v1-[A-Za-z0-9_-]{43}$/.test(value.saleStreamId) &&
+    isValidReference(value.saleEventId) &&
+    /^evt_/.test(value.saleEventId) &&
+    isValidReference(value.accountId) &&
+    isValidReference(value.inventoryItemId) &&
+    isValidReference(value.storageLocationId) &&
+    Number.isInteger(value.requestedQuantity) &&
+    (value.requestedQuantity as number) >= 1 &&
+    (value.requestedQuantity as number) <= 2_147_483_647 &&
+    Number.isInteger(value.appliedQuantity) &&
+    (value.appliedQuantity as number) >= 0 &&
+    (value.appliedQuantity as number) <= 2_147_483_647 &&
+    Number.isInteger(value.refusedQuantity) &&
+    (value.refusedQuantity as number) >= 0 &&
+    (value.refusedQuantity as number) <= 2_147_483_647 &&
+    protectedOrderIds.length <= 10_000 &&
+    protectedOrderIds.every(isValidReference) &&
+    protectedOrderIds.every((orderId, index) => index === 0 || protectedOrderIds[index - 1]! < orderId) &&
+    isValidReference(value.collisionPolicyRef) &&
+    Number.isSafeInteger(value.collisionPolicyRevision) &&
+    (value.collisionPolicyRevision as number) > 0 &&
+    (value.inventoryAdjustmentEventId === null ||
+      (isValidReference(value.inventoryAdjustmentEventId) &&
+        /^evt_/.test(value.inventoryAdjustmentEventId) &&
+        value.inventoryAdjustmentEventId !== value.saleEventId)) &&
+    (value.saleShortfallKey === null ||
+      (typeof value.saleShortfallKey === "string" &&
+        /^inventory\.sale-shortfall-v1-[A-Za-z0-9_-]{43}$/.test(value.saleShortfallKey))) &&
+    isCanonicalUtcInstant(value.committedAt)
+  );
 }
 
 export function isCanonicalUtcInstant(value: unknown): value is string {

@@ -35,6 +35,12 @@ const materializedMcpArtifacts = [
   "infrastructure/platform-runtime/mcp-contracts.test.ts",
 ] as const;
 
+const fingerprintCallers = [
+  "bounded-contexts/inventory/features/channel-sales/api/runtime.ts",
+  "bounded-contexts/inventory/features/hold-collisions/api/runtime.ts",
+  "bounded-contexts/inventory/features/inventory-items/api/runtime.ts",
+] as const;
+
 describe("external channel sale caller and generated-surface inventory", () => {
   it("retains all twelve direct adjustment-reason bearers and the transitive item-detail bearer", () => {
     expect(directReasonBearers).toHaveLength(12);
@@ -86,5 +92,12 @@ describe("external channel sale caller and generated-surface inventory", () => {
     expect(source("bounded-contexts/inventory/features/inventory-items/read-model/schema.ts")).not.toMatch(
       /CREATE TABLE[^;]*external[_-]channel[_-]sale/is,
     );
+  });
+
+  it("enumerates all three production callers of the shared adjustment fingerprint", () => {
+    expect(fingerprintCallers).toHaveLength(3);
+    for (const file of fingerprintCallers) {
+      expect(source(file), file).toContain("inventoryAdjustmentCommandFingerprint(");
+    }
   });
 });
