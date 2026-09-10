@@ -30,10 +30,10 @@ import type {
   InventoryAccountSellerSkuItemResolution,
   InventoryDraftListingCreator,
 } from "@chase-sets/inventory/server";
-import type {
-  MarketplaceChannelInboundClampCapability,
-  MarketplaceListingServices,
-  MarketplaceServices,
+import {
+  createMarketplaceChannelInboundClampCapability,
+  type MarketplaceListingServices,
+  type MarketplaceServices,
 } from "@chase-sets/marketplace/server";
 import type {
   BulkRepriceIngestionServices,
@@ -232,23 +232,10 @@ const tcgplayerAutomationCatalogClient = tcgplayerAutomationHttpClients
   : undefined;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
-const marketplaceChannelInboundClamp: MarketplaceChannelInboundClampCapability = pools.marketplace
-  ? {
-      kind: "available",
-      port: {
-        engage: (input, context) => {
-          const services = runtime?.services.marketplace as MarketplaceServices | undefined;
-          if (!services) throw new Error("Marketplace Channel Inbound Clamp service is unavailable.");
-          return services.channelInboundClamp.engage(input, context);
-        },
-        recover: (input, context) => {
-          const services = runtime?.services.marketplace as MarketplaceServices | undefined;
-          if (!services) throw new Error("Marketplace Channel Inbound Clamp service is unavailable.");
-          return services.channelInboundClamp.recover(input, context);
-        },
-      },
-    }
-  : { kind: "not-mounted" };
+const marketplaceChannelInboundClamp = createMarketplaceChannelInboundClampCapability(
+  Boolean(pools.marketplace),
+  () => runtime?.services.marketplace as MarketplaceServices | undefined,
+);
 const commercialTermsResolver = pools["commercial-terms"]
   ? createCommercialTermsResolver({
       db: pools["commercial-terms"],

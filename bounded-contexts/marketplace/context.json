@@ -351,7 +351,6 @@
       "sourceContextNames": ["catalog", "marketplace"],
       "ownedTables": [
         "marketplace_listing_pages",
-        "marketplace_channel_inbound_clamps",
         "marketplace_seller_listing_availability_pages",
         "marketplace_seller_order_capacity_pages"
       ],

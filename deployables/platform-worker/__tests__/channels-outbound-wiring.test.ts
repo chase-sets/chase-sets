@@ -70,10 +70,12 @@ describe("Channels outbound worker wiring", () => {
 
   it("mounts the real Marketplace-owned inbound clamp capability for Channels", () => {
     const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-    expect(source).toContain("MarketplaceChannelInboundClampCapability");
-    expect(source).toContain("services.channelInboundClamp.engage(input, context)");
-    expect(source).toContain("services.channelInboundClamp.recover(input, context)");
+    expect(source).toContain("createMarketplaceChannelInboundClampCapability(");
+    expect(source).toContain("Boolean(pools.marketplace)");
+    expect(source).toContain("runtime?.services.marketplace as MarketplaceServices | undefined");
     expect(source).toContain("marketplaceChannelInboundClamp,");
+    expect(source).not.toContain("services.channelInboundClamp.engage(input, context)");
+    expect(source).not.toContain("services.channelInboundClamp.recover(input, context)");
     expect(source).not.toContain("listingIds.slice(0, 500)");
   });
 });

@@ -183,6 +183,7 @@ import {
 import type { ChannelsServices } from "./support/runtime-support/services";
 import type { MarketplaceChannelInboundClampCapability } from "./support/request-support/marketplace-channel-inbound-clamp";
 import { createManualSyncRuntime, type ManualSyncServices } from "./features/manual-sync/api/runtime";
+import { seedManualSyncScenario } from "./features/manual-sync/api/seed";
 import { manualSyncSchemaMigrations, manualSyncSchemaSql } from "./features/manual-sync/read-model/schema";
 import { manualSyncRetentionExemptions } from "./features/manual-sync/read-model/retention-policy";
 
@@ -205,6 +206,8 @@ export const module = defineBoundedContextModule<ChannelsRuntimeServices, PgTran
     ...manualSyncSchemaMigrations,
   ],
   retentionExemptions: manualSyncRetentionExemptions,
+  seedProfiles: ["scenario-seed"],
+  seed: seedManualSyncScenario,
   createServices: (pool, ports) => {
     const eventStore = createPostgresEventStore({
       pool,

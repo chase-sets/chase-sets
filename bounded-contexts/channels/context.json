@@ -290,8 +290,7 @@
         "channel_inventory_snapshots",
         "channel_inventory_snapshot_rows",
         "channel_sync_runs",
-        "channel_sync_run_rows",
-        "channels_manual_sync_clamp_status"
+        "channel_sync_run_rows"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
