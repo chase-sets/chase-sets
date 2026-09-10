@@ -358,7 +358,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
       "bounded-contexts/payments/package.json:42",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "deployables/marketplace/package.json:34",
+      "deployables/marketplace/package.json:35",
     ],
     factualSummary:
       "The payment confirmation card calls the Stripe.js loader, so Stripe's own browser script loads on /checkout/buy/session/:sessionId, /account/payments/:paymentId, and /checkout/payments/:paymentId. Payments and the Marketplace deployable declare @stripe/stripe-js@9.9.0, and the committed embedded-component CSP permits https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on those surfaces and may use provider-controlled client-side storage.",
@@ -383,7 +383,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
       "bounded-contexts/payments/package.json:42",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "deployables/marketplace/package.json:34",
+      "deployables/marketplace/package.json:35",
     ],
     factualSummary:
       "The payment-method setup card calls the Stripe.js loader, so Stripe's own browser script loads on /account/payment-methods. Payments and the Marketplace deployable declare @stripe/stripe-js@9.9.0, and the committed embedded-component CSP permits https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",

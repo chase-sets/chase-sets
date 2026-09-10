@@ -9,6 +9,10 @@ export const channelsWakeRegistryEntry = registryEntry({
   priorityLane: "bulk",
   expectedEventVolume: "low",
   wakeStoreLoadEstimate: "none",
-  affectedProjectionNames: ["channels:channel-connection-projection"],
+  affectedProjectionNames: [
+    "channels:channel-connection-projection",
+    "channels:channel-listing-desired-state-reaction",
+    "channels:channel-owned-publication-state",
+  ],
   routeDependencyIds: [],
 });

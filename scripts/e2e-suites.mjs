@@ -147,6 +147,7 @@ const browserRuntimePatterns = [
 const contextSuiteOwnership = new Map([
   ["auth", ["marketplace_account", "admin_auth"]],
   ["catalog", ["marketplace_browse", "catalog_admin_integrations"]],
+  ["channels", ["marketplace_account", "marketplace_seller"]],
   ["checkout", ["marketplace_checkout"]],
   ["commercial-terms", ["marketplace_browse", "marketplace_seller"]],
   ["discovery", ["marketplace_browse"]],
@@ -165,6 +166,7 @@ const contextSuiteOwnership = new Map([
 
 const marketplaceContextRouteSuiteOwnership = new Map([
   ["auth", ["marketplace_account"]],
+  ["channels", ["marketplace_account", "marketplace_seller"]],
   ["discovery", ["marketplace_browse"]],
   ["fulfillment", ["marketplace_account"]],
   ["identity", ["marketplace_account"]],

@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (151)
+## Projection Groups (156)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -51,7 +51,12 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `catalog:catalog-provider-scope-mapping-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-scope-registry-projection` | Catalog | **catalog** | push-enabled | 1/1 |
 | `catalog:catalog-source-observation-projection` | Catalog | **catalog** | push-enabled | 1/1 |
+| `channels:channel-catalog-publication-facts` | Channels | **catalog** | push-enabled | 1/1 |
 | `channels:channel-connection-projection` | Channels | channels | push-eligible | 0/1 |
+| `channels:channel-inventory-publication-facts` | Channels | **inventory** | push-enabled | 1/1 |
+| `channels:channel-listing-desired-state-reaction` | Channels | **catalog**, channels, **inventory**, **marketplace** | push-eligible | 3/4 |
+| `channels:channel-marketplace-publication-facts` | Channels | **marketplace** | push-enabled | 1/1 |
+| `channels:channel-owned-publication-state` | Channels | channels | push-eligible | 0/1 |
 | `checkout:checkout-catalog-item-projection` | Checkout | **catalog** | push-enabled | 1/1 |
 | `checkout:checkout-marketplace-listing-options-projection` | Checkout | **catalog**, **marketplace**, **ordering** | push-enabled | 3/3 |
 | `checkout:checkout-inventory-supply-projection` | Checkout | **inventory** | push-enabled | 1/1 |
@@ -189,7 +194,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-support-hold-lifecycle-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
 
-Totals: 118 `push-enabled`, 33 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 121 `push-enabled`, 35 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (80)
 

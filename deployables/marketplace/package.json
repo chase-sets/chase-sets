@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@chase-sets/auth": "workspace:*",
+    "@chase-sets/channels": "workspace:*",
     "@chase-sets/checkout": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/discovery": "workspace:*",

@@ -4,6 +4,7 @@ import { adminWebEnglishTranslations } from "./en/admin-web";
 import { authEnglishTranslations } from "./en/auth";
 import { authenticityEnglishTranslations } from "./en/authenticity";
 import { catalogEnglishTranslations } from "./en/catalog";
+import { channelsMessages } from "./en/channels";
 import { checkoutEnglishTranslations } from "./en/checkout";
 import { collectionsEnglishTranslations } from "./en/collections";
 import { commercialTermsEnglishTranslations } from "./en/commercial-terms";
@@ -30,6 +31,7 @@ export const englishTranslations = {
   ...authEnglishTranslations,
   ...authenticityEnglishTranslations,
   ...catalogEnglishTranslations,
+  ...channelsMessages,
   ...checkoutEnglishTranslations,
   ...collectionsEnglishTranslations,
   ...commercialTermsEnglishTranslations,

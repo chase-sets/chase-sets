@@ -45,6 +45,24 @@
       "noun": "connection",
       "terms": ["Channel Connection"],
       "reason": "Channels events use the bounded connection stream noun while the ubiquitous term is the qualified Channel Connection."
+    },
+    {
+      "contextName": "channels",
+      "noun": "channel-listing",
+      "terms": ["Channel Listing Link"],
+      "reason": "Channel Listing events record the desired-state and publication lifecycle of the Channel Listing Link aggregate."
+    },
+    {
+      "contextName": "channels",
+      "noun": "channel-listing-reconciliation",
+      "terms": ["Channel Listing Reconciliation Run"],
+      "reason": "The reconciliation stream noun abbreviates the complete Channel Listing Reconciliation Run term."
+    },
+    {
+      "contextName": "channels",
+      "noun": "channel-publication-configuration",
+      "terms": ["Channel Publication Settings", "Channel Mapping"],
+      "reason": "The configuration aggregate records both Channel Publication Settings and Channel Mapping review decisions."
     }
   ],
   "allowlist": [

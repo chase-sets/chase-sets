@@ -18,6 +18,8 @@ export const marketplaceWakeRegistryEntry = registryEntry({
   expectedEventVolume: "high",
   wakeStoreLoadEstimate: "high",
   affectedProjectionNames: [
+    "channels:channel-listing-desired-state-reaction",
+    "channels:channel-marketplace-publication-facts",
     "checkout:checkout-marketplace-listing-options-projection",
     "checkout:checkout-seller-accounts-projection",
     "checkout:checkout.sell-list-projection",

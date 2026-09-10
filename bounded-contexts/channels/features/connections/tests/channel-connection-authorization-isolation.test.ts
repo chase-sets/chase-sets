@@ -5,6 +5,7 @@ import type { ChannelConnectionServices } from "../domain/contracts";
 import { AUTH_ROLE_PERMISSIONS } from "../../../../auth/support/auth-support/constants";
 import { ROLE_PERMISSIONS } from "../../../../identity/features/memberships/read-model/constants";
 import { testContext } from "./test-support";
+import { createUnavailableListingCompositionServices } from "../../listing-composition/tests/service-stub";
 
 describe("channel-connection-authorization-isolation and channel-connection-grant-parity", () => {
   it("uses shared 403 behavior and keeps the Identity/Auth grant mirrors exact", async () => {
@@ -14,7 +15,14 @@ describe("channel-connection-authorization-isolation and channel-connection-gran
       c.set("context", testContext);
       await next();
     });
-    app.route("/api/channels", buildChannelsApi({ connections: services(), projectors: [] }));
+    app.route(
+      "/api/channels",
+      buildChannelsApi({
+        connections: services(),
+        listingComposition: createUnavailableListingCompositionServices(),
+        projectors: [],
+      }),
+    );
     const response = await app.request("http://local/api/channels/connections");
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
