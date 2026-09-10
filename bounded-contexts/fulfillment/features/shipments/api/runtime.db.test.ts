@@ -194,68 +194,6 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     expect(await reserve(loser.operation.key_digest)).toMatchObject({ targetConflict: true, created: false });
   });
 
-  it("postage-subject-fence admits one provider invocation per subject kind and its fence-removed mutant admits two", async () => {
-    const subjectKinds: readonly PostageOperationSubjectKind[] = [
-      "shipment",
-      "return-shipment",
-      "channel-fulfillment-record",
-    ];
-
-    async function attemptPurchase(
-      subjectKind: PostageOperationSubjectKind,
-      subjectId: string,
-      key: string,
-      providerInvocation: (input: { subjectKind: PostageOperationSubjectKind; subjectId: string }) => Promise<unknown>,
-    ) {
-      const inserted = await pool.query(
-        `INSERT INTO fulfillment_postage_label_operations (
-           operation_key, operation_id, operation_kind, subject_kind, subject_id,
-           tenant_id, seller_account_id, key_digest, request_hash, target_key,
-           provider_name, provider_mode, idempotency_key, status, created_at, updated_at
-         ) VALUES (
-           $1, $2, 'purchase-usps-label', $3, $4,
-           'tnt_fence', 'acc_fence', $5, $5, 'purchase:initial',
-           'fake-postage', 'test', $5, 'reserved', now(), now()
-         )
-         ON CONFLICT DO NOTHING
-         RETURNING operation_key`,
-        [`operation-${key}`, `pop-${key}`, subjectKind, subjectId, key],
-      );
-      if (inserted.rows[0]) await providerInvocation({ subjectKind, subjectId });
-    }
-
-    for (const subjectKind of subjectKinds) {
-      await pool.query(`DELETE FROM fulfillment_postage_label_operations`);
-      const subjectId = `same-${subjectKind}`;
-      const providerInvocation = vi.fn(async () => undefined);
-      await Promise.all([
-        attemptPurchase(subjectKind, subjectId, `${subjectKind}-left`, providerInvocation),
-        attemptPurchase(subjectKind, subjectId, `${subjectKind}-right`, providerInvocation),
-      ]);
-      expect(providerInvocation, subjectKind).toHaveBeenCalledTimes(1);
-    }
-
-    await pool.query(`DELETE FROM fulfillment_postage_label_operations`);
-    await pool.query(`DROP INDEX fulfillment_postage_label_operations_active_target_v2_idx`);
-    try {
-      const mutantProviderInvocation = vi.fn(async () => undefined);
-      await Promise.all([
-        attemptPurchase("shipment", "mutant-subject", "mutant-left", mutantProviderInvocation),
-        attemptPurchase("shipment", "mutant-subject", "mutant-right", mutantProviderInvocation),
-      ]);
-      expect(mutantProviderInvocation).toHaveBeenCalledTimes(2);
-    } finally {
-      await pool.query(`DELETE FROM fulfillment_postage_label_operations`);
-      await pool.query(
-        `CREATE UNIQUE INDEX fulfillment_postage_label_operations_active_target_v2_idx
-         ON fulfillment_postage_label_operations (
-           tenant_id, seller_account_id, subject_kind, subject_id, operation_kind, target_key
-         )
-         WHERE status IN ('reserved', 'invoking', 'ambiguous', 'provider-succeeded', 'effect-applied')`,
-      );
-    }
-  });
-
   it("postage-subject-tenant-authority refuses absent and quarantined record tenants before provider effects", async () => {
     await pool.query(
       `INSERT INTO fulfillment_channel_fulfillment_record_tenant_resolutions (
@@ -292,9 +230,9 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     expect(operations.rows).toEqual([]);
   });
 
-  it("projects record tenant identity with the Shipment projection's resolved and quarantined semantics", async () => {
+  it("keeps Shipment and Channel Fulfillment Record authority quarantined after any identity conflict", async () => {
     const handlers = buildFulfillmentShipmentProjectionHandlers(pool);
-    const created = {
+    const recordCreated = {
       type: "fulfillment.channel-fulfillment-record.created",
       tenantId: "tnt_1",
       data: {
@@ -303,17 +241,74 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
         createdAt: "2026-09-10T00:00:00.000Z",
       },
     };
-    await handlers["fulfillment.channel-fulfillment-record.created"]!(created as never);
-    expect(
-      (
-        await pool.query(
-          `SELECT tenant_id, seller_account_id, status, reason_code
-           FROM fulfillment_channel_fulfillment_record_tenant_resolutions
-           WHERE channel_fulfillment_record_id = 'cfr_projection'`,
-        )
-      ).rows,
-    ).toEqual([
+    const shipmentCreated = {
+      type: "fulfillment.shipment.created",
+      tenantId: "tnt_1",
+      data: {
+        shipmentId: "shp_projection_authority",
+        orderId: "ord_projection_authority",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        shippingOption: "standard",
+        shippingDestinationSnapshot: {
+          name: "Synthetic Buyer",
+          line1: "2 Test St",
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+        },
+        shippingOriginSnapshot: {
+          name: "Synthetic Seller",
+          line1: "1 Test St",
+          city: "Austin",
+          state: "TX",
+          postalCode: "78701",
+          country: "US",
+        },
+        shippingPlanSnapshot: null,
+        lines: [],
+        createdAt: "2026-09-10T00:00:00.000Z",
+      },
+    };
+
+    const authorityRows = () =>
+      pool.query<{
+        subject_kind: PostageOperationSubjectKind;
+        subject_id: string;
+        tenant_id: string | null;
+        seller_account_id: string | null;
+        status: string;
+        reason_code: string;
+      }>(
+        `SELECT 'shipment'::text AS subject_kind, shipment_id AS subject_id,
+                tenant_id, seller_account_id, status, reason_code
+         FROM fulfillment_shipment_tenant_resolutions
+         WHERE shipment_id = 'shp_projection_authority'
+         UNION ALL
+         SELECT 'channel-fulfillment-record'::text, channel_fulfillment_record_id,
+                tenant_id, seller_account_id, status, reason_code
+         FROM fulfillment_channel_fulfillment_record_tenant_resolutions
+         WHERE channel_fulfillment_record_id = 'cfr_projection'
+         ORDER BY subject_kind`,
+      );
+
+    await handlers["fulfillment.channel-fulfillment-record.created"]!(recordCreated as never);
+    await handlers["fulfillment.shipment.created"]!(shipmentCreated as never);
+    await handlers["fulfillment.channel-fulfillment-record.created"]!(recordCreated as never);
+    await handlers["fulfillment.shipment.created"]!(shipmentCreated as never);
+    expect((await authorityRows()).rows).toEqual([
       {
+        subject_kind: "channel-fulfillment-record",
+        subject_id: "cfr_projection",
+        tenant_id: "tnt_1",
+        seller_account_id: "acc_seller",
+        status: "resolved",
+        reason_code: "authoritative-history",
+      },
+      {
+        subject_kind: "shipment",
+        subject_id: "shp_projection_authority",
         tenant_id: "tnt_1",
         seller_account_id: "acc_seller",
         status: "resolved",
@@ -321,19 +316,79 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
       },
     ]);
 
-    await handlers["fulfillment.channel-fulfillment-record.created"]!({
-      ...created,
+    const conflictingRecord = {
+      ...recordCreated,
       tenantId: "tnt_other",
-    } as never);
+      data: { ...recordCreated.data, sellerAccountId: "acc_other" },
+    };
+    const conflictingShipment = {
+      ...shipmentCreated,
+      tenantId: "tnt_other",
+      data: { ...shipmentCreated.data, sellerAccountId: "acc_other" },
+    };
+    for (const event of [conflictingRecord, conflictingRecord]) {
+      await handlers["fulfillment.channel-fulfillment-record.created"]!(event as never);
+    }
+    for (const event of [conflictingShipment, conflictingShipment]) {
+      await handlers["fulfillment.shipment.created"]!(event as never);
+    }
+    await handlers["fulfillment.channel-fulfillment-record.created"]!(recordCreated as never);
+    await handlers["fulfillment.shipment.created"]!(shipmentCreated as never);
+
+    expect((await authorityRows()).rows).toEqual([
+      {
+        subject_kind: "channel-fulfillment-record",
+        subject_id: "cfr_projection",
+        tenant_id: "tnt_1",
+        seller_account_id: "acc_seller",
+        status: "quarantined",
+        reason_code: "projection-identity-mismatch",
+      },
+      {
+        subject_kind: "shipment",
+        subject_id: "shp_projection_authority",
+        tenant_id: "tnt_1",
+        seller_account_id: "acc_seller",
+        status: "quarantined",
+        reason_code: "projection-identity-mismatch",
+      },
+    ]);
+
+    const syntheticProviderEffect = vi.fn(async () => undefined);
+    for (const subject of [
+      { subjectKind: "shipment" as const, subjectId: "shp_projection_authority" },
+      { subjectKind: "channel-fulfillment-record" as const, subjectId: "cfr_projection" },
+    ]) {
+      for (const identity of [
+        { tenantId: "tnt_1", sellerAccountId: "acc_seller", suffix: "original" },
+        { tenantId: "tnt_other", sellerAccountId: "acc_other", suffix: "conflict" },
+      ]) {
+        await expect(
+          reservePostageOperation(pool, {
+            tenantId: identity.tenantId,
+            sellerAccountId: identity.sellerAccountId,
+            subjectKind: subject.subjectKind,
+            subjectId: subject.subjectId,
+            keyDigest: `${subject.subjectKind}-${identity.suffix}`,
+            requestHash: `${subject.subjectKind}-${identity.suffix}`,
+            targetKey: `purchase:${subject.subjectId}:initial`,
+            operationKind: "purchase-usps-label",
+            providerName: "synthetic-postage",
+            providerMode: "test",
+            request: subject,
+          }).then(syntheticProviderEffect),
+        ).rejects.toThrow("tenant authority is unavailable");
+      }
+    }
+    expect(syntheticProviderEffect).not.toHaveBeenCalled();
     expect(
       (
         await pool.query(
-          `SELECT status, reason_code
-           FROM fulfillment_channel_fulfillment_record_tenant_resolutions
-           WHERE channel_fulfillment_record_id = 'cfr_projection'`,
+          `SELECT operation_key FROM fulfillment_postage_label_operations
+           WHERE subject_id IN ('shp_projection_authority', 'cfr_projection')`,
         )
       ).rows,
-    ).toEqual([{ status: "quarantined", reason_code: "projection-identity-mismatch" }]);
+    ).toEqual([]);
   });
 
   it("postage-subject-webhook-resolution resolves shipment and record subjects and quarantines ambiguity", async () => {

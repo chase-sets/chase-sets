@@ -4,6 +4,48 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ShipmentId } from "@chase-sets/primitives/typed-ids";
 import { withShipmentDisplayReference } from "./display-reference";
 
+type PostageSubjectAuthorityInput = Readonly<{
+  subjectKind: "shipment" | "channel-fulfillment-record";
+  subjectId: string;
+  tenantId: string;
+  sellerAccountId: string;
+  resolvedAt: string;
+}>;
+
+async function upsertPostageSubjectAuthority(db: PgQueryable, input: PostageSubjectAuthorityInput) {
+  const authority =
+    input.subjectKind === "shipment"
+      ? {
+          tableName: "fulfillment_shipment_tenant_resolutions",
+          idColumn: "shipment_id",
+        }
+      : {
+          tableName: "fulfillment_channel_fulfillment_record_tenant_resolutions",
+          idColumn: "channel_fulfillment_record_id",
+        };
+  const identityMatches = `${authority.tableName}.tenant_id = EXCLUDED.tenant_id
+                AND ${authority.tableName}.seller_account_id = EXCLUDED.seller_account_id`;
+  const remainsAuthoritative = `${authority.tableName}.status = 'resolved'
+                AND ${identityMatches}`;
+
+  await db.query(
+    `INSERT INTO ${authority.tableName} (
+       ${authority.idColumn}, tenant_id, seller_account_id, status, reason_code, resolved_at
+     ) VALUES ($1, $2, $3, 'resolved', 'authoritative-history', $4)
+     ON CONFLICT (${authority.idColumn}) DO UPDATE
+     SET status = CASE
+           WHEN ${remainsAuthoritative}
+           THEN 'resolved' ELSE 'quarantined' END,
+         reason_code = CASE
+           WHEN ${remainsAuthoritative}
+           THEN 'authoritative-history' ELSE 'projection-identity-mismatch' END,
+         resolved_at = CASE
+           WHEN ${remainsAuthoritative}
+           THEN EXCLUDED.resolved_at ELSE ${authority.tableName}.resolved_at END`,
+    [input.subjectId, input.tenantId, input.sellerAccountId, input.resolvedAt],
+  );
+}
+
 export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   function labelStatusFromRefundStatus(refundStatus: string) {
     if (refundStatus === "refunded") {
@@ -27,24 +69,13 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
         createdAt: string;
       };
 
-      await db.query(
-        `INSERT INTO fulfillment_channel_fulfillment_record_tenant_resolutions (
-           channel_fulfillment_record_id, tenant_id, seller_account_id, status, reason_code, resolved_at
-         ) VALUES ($1, $2, $3, 'resolved', 'authoritative-history', $4)
-         ON CONFLICT (channel_fulfillment_record_id) DO UPDATE
-         SET tenant_id = EXCLUDED.tenant_id,
-             seller_account_id = EXCLUDED.seller_account_id,
-             status = CASE
-               WHEN fulfillment_channel_fulfillment_record_tenant_resolutions.tenant_id = EXCLUDED.tenant_id
-                AND fulfillment_channel_fulfillment_record_tenant_resolutions.seller_account_id = EXCLUDED.seller_account_id
-               THEN 'resolved' ELSE 'quarantined' END,
-             reason_code = CASE
-               WHEN fulfillment_channel_fulfillment_record_tenant_resolutions.tenant_id = EXCLUDED.tenant_id
-                AND fulfillment_channel_fulfillment_record_tenant_resolutions.seller_account_id = EXCLUDED.seller_account_id
-               THEN 'authoritative-history' ELSE 'projection-identity-mismatch' END,
-             resolved_at = EXCLUDED.resolved_at`,
-        [data.channelFulfillmentRecordId, event.tenantId, data.sellerAccountId, data.createdAt],
-      );
+      await upsertPostageSubjectAuthority(db, {
+        subjectKind: "channel-fulfillment-record",
+        subjectId: data.channelFulfillmentRecordId,
+        tenantId: event.tenantId,
+        sellerAccountId: data.sellerAccountId,
+        resolvedAt: data.createdAt,
+      });
     },
     ...defineProjectorHandlers<
       Pick<ChaseSetsEventPayloads, "fulfillment.shipment.created" | "fulfillment.shipment.packing-started">
@@ -129,24 +160,13 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
           ),
         );
 
-        await db.query(
-          `INSERT INTO fulfillment_shipment_tenant_resolutions (
-             shipment_id, tenant_id, seller_account_id, status, reason_code, resolved_at
-           ) VALUES ($1, $2, $3, 'resolved', 'authoritative-history', $4)
-           ON CONFLICT (shipment_id) DO UPDATE
-           SET tenant_id = EXCLUDED.tenant_id,
-               seller_account_id = EXCLUDED.seller_account_id,
-               status = CASE
-                 WHEN fulfillment_shipment_tenant_resolutions.tenant_id = EXCLUDED.tenant_id
-                  AND fulfillment_shipment_tenant_resolutions.seller_account_id = EXCLUDED.seller_account_id
-                 THEN 'resolved' ELSE 'quarantined' END,
-               reason_code = CASE
-                 WHEN fulfillment_shipment_tenant_resolutions.tenant_id = EXCLUDED.tenant_id
-                  AND fulfillment_shipment_tenant_resolutions.seller_account_id = EXCLUDED.seller_account_id
-                 THEN 'authoritative-history' ELSE 'projection-identity-mismatch' END,
-               resolved_at = EXCLUDED.resolved_at`,
-          [data.shipmentId, event.tenantId, data.sellerAccountId, data.createdAt],
-        );
+        await upsertPostageSubjectAuthority(db, {
+          subjectKind: "shipment",
+          subjectId: data.shipmentId,
+          tenantId: event.tenantId,
+          sellerAccountId: data.sellerAccountId,
+          resolvedAt: data.createdAt,
+        });
 
         await db.query(`DELETE FROM fulfillment_shipment_line_pages WHERE shipment_id = $1`, [data.shipmentId]);
 

@@ -23,6 +23,8 @@ describe("Fulfillment postage subject tenant projection", () => {
       ["cfr_1", "tnt_1", "acc_seller", "2026-09-10T00:00:00.000Z"],
     );
     const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("fulfillment_channel_fulfillment_record_tenant_resolutions.status = 'resolved'");
+    expect(sql).not.toMatch(/SET\s+(?:tenant_id|seller_account_id)\s*=/);
     expect(sql).toContain("THEN 'resolved' ELSE 'quarantined' END");
     expect(sql).toContain("THEN 'authoritative-history' ELSE 'projection-identity-mismatch' END");
   });
