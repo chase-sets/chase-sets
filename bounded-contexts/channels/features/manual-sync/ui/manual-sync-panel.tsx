@@ -27,13 +27,26 @@ export function ManualSyncPanelView({ panel }: Readonly<{ panel: ManualSyncPanel
   const [selectionProbe, setSelectionProbe] = useState<FounderSelectionProbe | null>(null);
   const run = panel.run;
   const state = run?.state ?? "none";
+  const recovery = panel.attentionReason === "recovery";
   return (
     <WorkflowModule
       data-testid="manual-sync-panel"
       title={t("channels.manualSync.title")}
       description={t("channels.manualSync.description")}
-      status={<Badge tone={stateTone(state)}>{stateLabel(state)}</Badge>}
+      status={
+        <Badge tone={recovery ? "warning" : stateTone(state)}>
+          {recovery ? t("channels.manualSync.recovery.badge") : stateLabel(state)}
+        </Badge>
+      }
     >
+      {recovery ? (
+        <OperationalStatusBanner
+          data-testid="manual-sync-recovery"
+          tone="warning"
+          title={t("channels.manualSync.recovery.title")}
+          description={t("channels.manualSync.recovery.description")}
+        />
+      ) : null}
       <OperationalStatusBanner
         tone="warning"
         title={t("channels.manualSync.coverage.dark")}
@@ -49,6 +62,14 @@ export function ManualSyncPanelView({ panel }: Readonly<{ panel: ManualSyncPanel
       <Inline gap={2} wrap>
         {panel.actions.includes("compose") ? (
           <EmptyAction intent="compose" labelKey="channels.manualSync.action.compose" />
+        ) : null}
+        {panel.actions.includes("retry-clamp") && run ? (
+          <RunAction
+            intent="retry-clamp"
+            labelKey="channels.manualSync.action.retryClamp"
+            runId={run.runId}
+            revision={run.revision}
+          />
         ) : null}
         {panel.actions.includes("download") && run ? (
           <RunAction
