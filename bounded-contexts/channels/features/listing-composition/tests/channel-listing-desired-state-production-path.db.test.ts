@@ -24,7 +24,7 @@ import {
 } from "../read-model/facts-projection";
 import { buildChannelListingStateProjectionHandlers } from "../read-model/state-projection";
 import { syntheticProfile } from "./test-support";
-import { testContext } from "../../connections/tests/test-support";
+import { createConnectionHarness, testContext } from "../../connections/tests/test-support";
 import { deriveClaimedOperationOutcomes } from "../../tcgplayer-csv/domain/lifecycle";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -396,11 +396,11 @@ describeDb("channel-listing-desired-state-production-path", () => {
   it("drives the canonical TCGplayer connection aggregate through both projections, reservation settlement, replay, and malformed delist", async () => {
     const connectionId = "connection-boundary";
     const accountId = "account-boundary";
+    const policyAuthority = createConnectionHarness().ports.policyAuthority;
+    if (!policyAuthority) throw new Error("The canonical policy authority fixture is unavailable.");
     const rootServices = channelsModule.createServices(pools.channels, {
       clock: { now: () => "2026-09-09T12:00:00.000Z" },
-      policyAuthority: {
-        resolve: async ({ policyKey }) => ({ accountId, connectionId, policyKey, revision: 1, status: "complete" }),
-      },
+      policyAuthority,
       storageLocationAuthority: {
         resolve: async ({ storageLocationId }) => ({ accountId, storageLocationId, revision: 1, status: "active" }),
       },

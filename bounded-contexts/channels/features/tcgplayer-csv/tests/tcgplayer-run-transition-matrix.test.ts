@@ -33,6 +33,12 @@ describe("tcgplayer-run-transition-matrix", () => {
       "application-unknown",
     );
   });
+
+  it("makes a repeated upload attempt irreversibly unknown", () => {
+    expect(decideChannelSyncRunTransition("awaiting-verification", "report-upload-attempted")).toBe(
+      "application-unknown",
+    );
+  });
 });
 
 function key(state: ChannelSyncRunState, trigger: ChannelSyncRunTrigger): string {

@@ -25,6 +25,7 @@ export const channelSyncRunTransitions: readonly ChannelSyncRunTransition[] = Ob
   { from: "claimed", trigger: "release", to: "abandoned" },
   { from: "claimed", trigger: "observe-newer-basis", to: "stale-basis" },
   { from: "claimed", trigger: "reservation-lease-expired", to: "abandoned" },
+  { from: "awaiting-verification", trigger: "report-upload-attempted", to: "application-unknown" },
   { from: "awaiting-verification", trigger: "verify", to: "applied" },
   { from: "awaiting-verification", trigger: "reservation-lease-expired", to: "application-unknown" },
 ]);

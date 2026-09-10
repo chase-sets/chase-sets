@@ -974,66 +974,88 @@ describeDb("tcgplayer-run-order-and-lease", () => {
     ).resolves.toBeNull();
   });
 
-  it("settles a genuine composed, refused, and already-satisfied member partition by member proof", async () => {
-    const services = createOwnedRuntime();
-    const listings: readonly ProductionListingFixture[] = [
-      {
-        listingId: "listing-mixed-composed",
-        channelListingId: "channel-listing-mixed-composed",
-        catalogItemId: "catalog-mixed-composed",
-        externalKey: "product:90000701",
-        gradedCard: null,
-      },
-      {
-        listingId: "listing-mixed-refused",
-        channelListingId: "channel-listing-mixed-refused",
-        catalogItemId: "catalog-mixed-refused",
-        externalKey: null,
-        gradedCard: null,
-      },
-      {
-        listingId: "listing-mixed-noop",
-        channelListingId: "channel-listing-mixed-noop",
-        catalogItemId: "catalog-mixed-noop",
-        externalKey: "product:90000703",
-        gradedCard: null,
-      },
-    ];
-    await seedProductionCompositionFacts(listings);
-    await ingestStaged(
-      services,
-      "snapshot-mixed-basis",
-      [
-        ["90000701", "Near Mint", "2", "0", "0.2600"],
-        ["90000702", "Near Mint", "2", "0", "0.2600"],
-        ["90000703", "Near Mint", "3", "0", "0.3000"],
-      ],
-      11,
-    );
-    await services.outboundSync.enqueueDesiredState(
-      desiredState("listing-mixed-composed", "channel-listing-mixed-composed", 1, 1, 27, 1),
-    );
-    await services.outboundSync.enqueueDesiredState(
-      desiredState("listing-mixed-refused", "channel-listing-mixed-refused", 1, 1, 27, 2),
-    );
-    await services.outboundSync.enqueueDesiredState(
-      desiredState("listing-mixed-noop", "channel-listing-mixed-noop", 1, 3, 30, 3),
-    );
-    const composed = await services.tcgplayerCsv.composeTcgplayerSyncRun(
-      composeInput("run-mixed-members", "connector", "connector-mixed"),
+  it("settles every member durably when an awaiting run reports a second upload attempt", async () => {
+    const services = createOwnedRuntime("2026-09-09T08:00:00Z");
+    const composed = await composeMixedMemberRun(services, "run-mixed-duplicate-upload", "connector-mixed-duplicate");
+    const claimed = await services.tcgplayerCsv.claimRun(
+      { runId: composed.run.runId, expectedRevision: composed.run.revision },
       testContext,
     );
-    expect(composed?.composition.batch?.rows).toHaveLength(1);
-    expect(composed?.run.members.map((member) => member.memberKind).sort()).toEqual([
-      "already-satisfied",
-      "composed",
-      "refused",
-    ]);
-    expect(composed?.run.members.find((member) => member.memberKind === "already-satisfied")).toMatchObject({
-      providerAction: "not-attempted-already-satisfied",
-    });
+    const awaiting = await services.tcgplayerCsv.recordUploadAttempt(
+      {
+        runId: claimed.runId,
+        expectedRevision: claimed.revision,
+        uploadAttemptedAt: "2026-09-09T08:00:20Z",
+        fileName: "mixed-members.csv",
+      },
+      testContext,
+    );
+    const unknown = await services.tcgplayerCsv.recordUploadAttempt(
+      {
+        runId: awaiting.runId,
+        expectedRevision: awaiting.revision,
+        uploadAttemptedAt: "2026-09-09T08:00:40Z",
+        fileName: "mixed-members.csv",
+      },
+      testContext,
+    );
+
+    expect(unknown.state).toBe("application-unknown");
+    await expectMixedMemberDurableSettlement(unknown);
+    const terminalCounts = await totalWriteCounts();
+    await expect(
+      createOwnedRuntime("2026-09-09T08:02:00Z").outboundSync.recoverExpiredClaimedOperations(),
+    ).resolves.toBe(0);
+    expect(await totalWriteCounts()).toEqual(terminalCounts);
+    await expect(
+      createOwnedRuntime().tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("run-mixed-duplicate-no-redelivery", "connector", "connector-mixed-duplicate"),
+        testContext,
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("settles the mixed member partition through upload-to-verify expiry exactly once", async () => {
+    const services = createOwnedRuntime("2026-09-09T09:00:00Z");
+    const composed = await composeMixedMemberRun(services, "run-mixed-expiry", "connector-mixed-expiry");
     const claimed = await services.tcgplayerCsv.claimRun(
-      { runId: composed!.run.runId, expectedRevision: composed!.run.revision },
+      { runId: composed.run.runId, expectedRevision: composed.run.revision },
+      testContext,
+    );
+    await services.tcgplayerCsv.recordUploadAttempt(
+      {
+        runId: claimed.runId,
+        expectedRevision: claimed.revision,
+        uploadAttemptedAt: "2026-09-09T09:00:30Z",
+        fileName: "mixed-members.csv",
+      },
+      testContext,
+    );
+
+    await expect(
+      createOwnedRuntime("2026-09-09T09:02:00Z").outboundSync.recoverExpiredClaimedOperations(),
+    ).resolves.toBe(3);
+    const unknown = await readRun(pools.channels, composed.run.runId);
+    if (!unknown) throw new Error("The expired mixed member run was unavailable.");
+    await expectMixedMemberDurableSettlement(unknown);
+    const terminalCounts = await totalWriteCounts();
+    await expect(
+      createOwnedRuntime("2026-09-09T09:03:00Z").outboundSync.recoverExpiredClaimedOperations(),
+    ).resolves.toBe(0);
+    expect(await totalWriteCounts()).toEqual(terminalCounts);
+    await expect(
+      createOwnedRuntime().tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("run-mixed-expiry-no-redelivery", "connector", "connector-mixed-expiry"),
+        testContext,
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("settles a genuine composed, refused, and already-satisfied member partition by member proof", async () => {
+    const services = createOwnedRuntime();
+    const composed = await composeMixedMemberRun(services, "run-mixed-members", "connector-mixed");
+    const claimed = await services.tcgplayerCsv.claimRun(
+      { runId: composed.run.runId, expectedRevision: composed.run.revision },
       testContext,
     );
     const awaiting = await services.tcgplayerCsv.recordUploadAttempt(
@@ -1309,6 +1331,135 @@ async function ingestStaged(
       capturedAtSource: "operator-declared",
     }),
   ).resolves.toMatchObject({ kind: "parsed", parsedRowCount: rows.length });
+}
+
+async function composeMixedMemberRun(
+  services: ReturnType<typeof createOwnedRuntime>,
+  runId: string,
+  claimantId: string,
+) {
+  await seedProductionCompositionFacts([
+    {
+      listingId: "listing-mixed-composed",
+      channelListingId: "channel-listing-mixed-composed",
+      catalogItemId: "catalog-mixed-composed",
+      externalKey: "product:90000701",
+      gradedCard: null,
+    },
+    {
+      listingId: "listing-mixed-refused",
+      channelListingId: "channel-listing-mixed-refused",
+      catalogItemId: "catalog-mixed-refused",
+      externalKey: null,
+      gradedCard: null,
+    },
+    {
+      listingId: "listing-mixed-noop",
+      channelListingId: "channel-listing-mixed-noop",
+      catalogItemId: "catalog-mixed-noop",
+      externalKey: "product:90000703",
+      gradedCard: null,
+    },
+  ]);
+  await ingestStaged(
+    services,
+    "snapshot-mixed-basis",
+    [
+      ["90000701", "Near Mint", "2", "0", "0.2600"],
+      ["90000702", "Near Mint", "2", "0", "0.2600"],
+      ["90000703", "Near Mint", "3", "0", "0.3000"],
+    ],
+    11,
+  );
+  await services.outboundSync.enqueueDesiredState(
+    desiredState("listing-mixed-composed", "channel-listing-mixed-composed", 1, 1, 27, 1),
+  );
+  await services.outboundSync.enqueueDesiredState(
+    desiredState("listing-mixed-refused", "channel-listing-mixed-refused", 1, 1, 27, 2),
+  );
+  await services.outboundSync.enqueueDesiredState(
+    desiredState("listing-mixed-noop", "channel-listing-mixed-noop", 1, 3, 30, 3),
+  );
+  const composed = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+    composeInput(runId, "connector", claimantId),
+    testContext,
+  );
+  if (!composed) throw new Error("The mixed member run was not composed.");
+  expect(composed.composition.batch?.rows).toHaveLength(1);
+  expect(composed.run.members.map((member) => member.memberKind).sort()).toEqual([
+    "already-satisfied",
+    "composed",
+    "refused",
+  ]);
+  return composed;
+}
+
+async function expectMixedMemberDurableSettlement(run: ChannelSyncRun): Promise<void> {
+  expect(run).toMatchObject({
+    state: "application-unknown",
+    membershipCompleteness: { kind: "complete", total: 3 },
+  });
+  expect(run.members.find((member) => member.memberKind === "already-satisfied")).toMatchObject({
+    providerAction: "not-attempted-already-satisfied",
+  });
+  const outcomes = deriveClaimedOperationOutcomes(run);
+  const outcomesByMemberKind = run.members
+    .map((member) => {
+      const outcome = outcomes.find((candidate) => candidate.operationId === member.operationId)?.outcome;
+      if (!outcome) throw new Error(`Outcome for '${member.operationId}' was unavailable.`);
+      return {
+        memberKind: member.memberKind,
+        outcomeKind: outcome.kind,
+        rejectionCode: outcome.kind === "rejected" ? outcome.code : null,
+      };
+    })
+    .sort((left, right) => left.memberKind.localeCompare(right.memberKind));
+  expect(outcomesByMemberKind).toEqual([
+    { memberKind: "already-satisfied", outcomeKind: "applied", rejectionCode: null },
+    { memberKind: "composed", outcomeKind: "outcome-unknown", rejectionCode: null },
+    { memberKind: "refused", outcomeKind: "rejected", rejectionCode: "validation" },
+  ]);
+  const receipt = await pools.channels.query<{ outcomes: unknown; run_settlement: unknown }>(
+    `SELECT outcomes,run_settlement FROM channel_outbound_reservation_settlements WHERE reservation_id=$1`,
+    [run.reservationId],
+  );
+  expect(receipt.rows).toHaveLength(1);
+  expect(receipt.rows[0]).toMatchObject({
+    outcomes,
+    run_settlement: {
+      runId: run.runId,
+      fromState: "awaiting-verification",
+      toState: "application-unknown",
+    },
+  });
+  expect(
+    await pools.channels.query(
+      `SELECT channel_listing_id,status,terminal_reason,last_rejection_code
+       FROM channel_outbound_operations WHERE reservation_id=$1 ORDER BY channel_listing_id`,
+      [run.reservationId],
+    ),
+  ).toMatchObject({
+    rows: [
+      {
+        channel_listing_id: "channel-listing-mixed-composed",
+        status: "failed",
+        terminal_reason: "outcome-unknown",
+        last_rejection_code: null,
+      },
+      {
+        channel_listing_id: "channel-listing-mixed-noop",
+        status: "succeeded",
+        terminal_reason: null,
+        last_rejection_code: null,
+      },
+      {
+        channel_listing_id: "channel-listing-mixed-refused",
+        status: "failed",
+        terminal_reason: "validation",
+        last_rejection_code: "validation",
+      },
+    ],
+  });
 }
 
 async function installInitialCompositionFailure(phase: "event" | "projection"): Promise<void> {
