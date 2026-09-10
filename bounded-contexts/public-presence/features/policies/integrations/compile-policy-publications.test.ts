@@ -191,6 +191,18 @@ describe("public policy corpus compiler", () => {
     expect(index?.content).toContain("publicPolicyPublicationRecords");
   });
 
+  it("payments-terms-v2-publication-record", async () => {
+    const modules = await renderPublicPolicyPublicationContracts();
+    const paymentsTerms = modules.find((module) => module.relativePath === "payments-terms-publication.ts");
+
+    expect(paymentsTerms?.content).toContain('policyKey: "payments-terms"');
+    expect(paymentsTerms?.content).toContain('version: "v2"');
+    expect(paymentsTerms?.content).toContain('publicationStatus: "counsel-review-required"');
+    expect(paymentsTerms?.content).toContain("effectiveAt: null");
+    expect(paymentsTerms?.content).toContain("counselApprovalReference: null");
+    expect(paymentsTerms?.content).toContain("consentActivatable: false");
+  });
+
   it("changes only the owned document module for a content-only edit with no metadata bump", async () => {
     const baseline = await renderPublicPolicyPublicationContracts();
     const editedRegistry = withEditedArtifact("seller-agreement");

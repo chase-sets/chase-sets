@@ -16,6 +16,7 @@ export const requiredPaymentsTermsSubjectIds = [
   "tax-form-delivery",
   "errors-and-unauthorized-transactions",
   "termination-and-residual-obligations",
+  "prepaid-balance",
 ] as const;
 
 export type PaymentsTermsSubjectId = (typeof requiredPaymentsTermsSubjectIds)[number];
@@ -48,7 +49,7 @@ const agreementSpecificGateAssumption = {
 export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms", PaymentsTermsSubjectId> = {
   metadata: {
     policyKey: "payments-terms",
-    version: "v1",
+    version: "v2",
     locale: "en",
     href: "/payments-terms",
     publicationStatus: "counsel-review-required",
@@ -401,6 +402,77 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
               "fund treatment at suspension or closure, so this document limits itself to residual " +
               "Payments-feature obligations rather than restating the Wallet's terms.",
             evidenceRef: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts",
+          },
+        ],
+      },
+    },
+    {
+      id: "prepaid-balance",
+      title: "Prepaid Balance",
+      draftText:
+        "You can add funds to your Wallet by card to create a Prepaid Balance. Adding funds charges your card " +
+        "the amount you request plus the processing fee that applies to a card payment under the Marketplace's " +
+        "checkout processing-fee terms; your account is credited the amount you requested, and the fee is not " +
+        "refundable. A Prepaid Balance is spent before any other available Wallet balance, so sale proceeds you " +
+        "are owed stay available for payout. You can spend a Prepaid Balance at checkout, on channel labels, " +
+        "and on other features that draw on your Wallet balance. You may request a refund of the unspent " +
+        "portion of your Prepaid Balance back to the card used to add it at any time within the refund window " +
+        "Stripe's processor rules allow; the processing fee charged when you added the funds is not part of " +
+        "that refund. Withdrawing older unspent Prepaid Balance to a bank account is not available in this " +
+        "version; Chase Sets may enable a bank-withdrawal option in the future, subject to conditions Chase " +
+        "Sets discloses when that option becomes available, and an amount that remains past the refund-to-card " +
+        "window stays spendable in the meantime. If a card charge that added funds is later disputed and the " +
+        "dispute is resolved against your account, Chase Sets recovers the disputed amount and the processor's " +
+        "dispute fee from your account, consistent with the chargeback and dispute terms above; if a " +
+        "bank-withdrawal option is enabled, a withdrawal carries the processor's payout cost as a fee. Chase " +
+        "Sets does not pay interest on a Prepaid Balance, and it does not expire in this version. Adding funds " +
+        "is available only to accounts in the United States, requires your card to complete 3D Secure " +
+        "authentication, requires your account to be in good standing, and requires you to have accepted the " +
+        "current Payments Terms. Chase Sets may set and change the minimum, per-funding, and rolling-period " +
+        "maximum amounts for adding funds; the amounts in effect when the funding feature launches are a " +
+        "minimum of $5.00 and a maximum of $500.00 per funding, and a maximum of $2,000.00 within any rolling " +
+        "thirty-day period. A Prepaid Balance is not Marketplace Credit: Marketplace Credit stays promotional, " +
+        "usage-scoped value, while a Prepaid Balance is value you added with your own card.",
+      reviewStatus: "counsel-required",
+      reviewManifest: {
+        scopeNote:
+          "State that Prepaid Balance is funded by card, spends before available balance, refunds unspent " +
+          "value to the source card within the processor refund window with the funding fee non-refundable, " +
+          "parks bank withdrawal behind a future disclosure, and states the ruled limits and eligibility " +
+          "gates, without inventing a refund-window duration, a bank-withdrawal launch date, or a Stripe/" +
+          "counsel position, and without describing Prepaid Balance as Marketplace Credit.",
+        decisionRefs: [7807, 7808],
+        productTruthRefs: [
+          "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts:42-53",
+          "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:27-35",
+        ],
+        openQuestions: [
+          "Bank withdrawal of older unspent Prepaid Balance is parked: it stays gated behind a written Stripe " +
+            "permission-probe answer and qualified counsel's money-transmitter read per the ruled Prepaid " +
+            "Balance decision (#7807, " +
+            "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930). This draft does " +
+            "not assert when, or under what conditions, that option will become available.",
+          "The exact duration of the processor refund window Stripe permits for a card is not yet confirmed by " +
+            "repository evidence; this draft states only that a refund is available within whatever window the " +
+            "processor's own rules allow, pending the wallet funding lifecycle probe's confirmed value.",
+        ],
+        assumptions: [
+          {
+            assertion:
+              "The ruled Prepaid Balance decision and the ruled terms/consent-key decision together establish " +
+              "that prepaid funding is drafted in place into Payments Terms v2, staying counsel-review-required: " +
+              "spent before available balance, refunded to source for the unspent portion with the funding fee " +
+              "non-refundable, bank withdrawal parked, no interest, no expiry in v1, US-only, a minimum of " +
+              "$5.00 and maximum of $500.00 per funding and $2,000.00 per rolling thirty-day period, 3D Secure " +
+              "requested, good standing and current Payments Terms acceptance required.",
+            evidenceRef: "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930",
+          },
+          {
+            assertion:
+              "The funding charge's processing fee is the same processing fee a card checkout payment already " +
+              "incurs under the Commercial Terms checkout-processing-fee policy, not a separately invented " +
+              "rate.",
+            evidenceRef: "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts:42-53",
           },
         ],
       },

@@ -6,6 +6,7 @@ import {
   type PublicPolicyArtifact,
 } from "./policy-artifact";
 import { paymentsTermsPolicyArtifact, requiredPaymentsTermsSubjectIds } from "./payments-terms";
+import { publicPolicyRegistry } from "./policy-registry";
 
 function approvedPaymentsTermsArtifact(): PublicPolicyArtifact {
   return {
@@ -174,5 +175,49 @@ describe("payments terms artifact", () => {
     expect(readiness.ready).toBe(true);
     expect(readiness.errors).toEqual([]);
     expect(isConsentActivatable(approved, requiredPaymentsTermsSubjectIds)).toBe(true);
+  });
+
+  it("payments-terms-v2-registry", () => {
+    expect(paymentsTermsPolicyArtifact.metadata.version).toBe("v2");
+    expect(requiredPaymentsTermsSubjectIds).toContain("prepaid-balance");
+
+    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find(
+      (candidate) => candidate.id === "prepaid-balance",
+    );
+    expect(prepaidBalance).toBeDefined();
+    expect(prepaidBalance?.title).toBe("Prepaid Balance");
+    expect(prepaidBalance?.draftText.trim().length ?? 0).toBeGreaterThan(0);
+    expect(prepaidBalance?.reviewStatus).toBe("counsel-required");
+
+    // The revision stays an in-place edit of the existing seven-document
+    // corpus: no new registry entry, key, or artifact for Prepaid Balance.
+    expect(publicPolicyRegistry).toHaveLength(7);
+    expect(new Set(publicPolicyRegistry.map((entry) => entry.artifact.metadata.policyKey)).size).toBe(7);
+  });
+
+  it("payments-terms-v2-subject-citations", () => {
+    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find(
+      (candidate) => candidate.id === "prepaid-balance",
+    );
+    expect(prepaidBalance).toBeDefined();
+
+    // Every material assertion in the section cites the ruled decisions it
+    // states, not an invented Stripe or counsel position.
+    expect(prepaidBalance?.reviewManifest.decisionRefs).toEqual(
+      expect.arrayContaining([7807, 7808]),
+    );
+    expect(prepaidBalance?.reviewManifest.productTruthRefs.length ?? 0).toBeGreaterThan(0);
+    for (const assumption of prepaidBalance?.reviewManifest.assumptions ?? []) {
+      expect(assumption.evidenceRef.length).toBeGreaterThan(0);
+    }
+
+    // No invented refund-window duration or fabricated processing-fee rate:
+    // the draft defers to the processor's own rules and the live fee policy.
+    expect(prepaidBalance?.draftText).not.toMatch(/\d+\s*(?:day|month|year)s?\b.{0,20}(refund|window)/i);
+    expect(prepaidBalance?.draftText).not.toMatch(/\d+(\.\d+)?\s*%|\bbps\b/i);
+
+    // Prepaid Balance is drafted as distinct from the pre-existing,
+    // promotional Marketplace Credit concept, never as a kind of it.
+    expect(prepaidBalance?.draftText).toContain("is not Marketplace Credit");
   });
 });
