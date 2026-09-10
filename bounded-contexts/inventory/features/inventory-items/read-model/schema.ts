@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS inventory_items (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE inventory_items
+  ADD COLUMN IF NOT EXISTS acquisition_cost_currency_code text NULL;
+
 CREATE INDEX IF NOT EXISTS inventory_items_account_idx
   ON inventory_items (account_id, updated_at DESC);
 
