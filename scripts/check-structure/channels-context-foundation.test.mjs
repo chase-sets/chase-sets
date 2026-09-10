@@ -137,7 +137,16 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (!relativeFiles.some((file) => file.startsWith("features/connection-health/")))
     violations.push("connection-health-files");
-  const emptyArrayFields = ["allowedContextDependencies", "seedRequirements", "hostPorts"];
+  if (
+    relativeFiles.some(
+      (file) =>
+        file.startsWith("features/manual-sync/") &&
+        !/^features\/manual-sync\/(?:api|domain|read-model|ui)\//.test(file),
+    )
+  ) {
+    violations.push("manual-sync-buckets");
+  }
+  const emptyArrayFields = ["seedRequirements"];
   const absentManifestFields = [
     "sourceRuntimeDeployables",
     "sourceRuntimeProfiles",
@@ -152,6 +161,22 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   for (const field of absentManifestFields) {
     if (field in candidate) violations.push(field);
   }
+  if (JSON.stringify(candidate.allowedContextDependencies) !== JSON.stringify(["@chase-sets/marketplace"])) {
+    violations.push("allowedContextDependencies");
+  }
+  if (
+    JSON.stringify(candidate.hostPorts) !==
+    JSON.stringify([
+      {
+        portName: "marketplaceChannelInboundClamp",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark.",
+      },
+    ])
+  ) {
+    violations.push("hostPorts");
+  }
   if (
     JSON.stringify(candidate.slices) !==
     JSON.stringify([
@@ -161,6 +186,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
       "tcgplayer-csv",
       "outbound-sync",
       "connection-health",
+      "manual-sync",
     ])
   ) {
     violations.push("slices");
@@ -229,6 +255,8 @@ describe("channels-context-foundation", () => {
         "channel-publication-eligibility",
         "channel-listing-desired-state",
         "channel-listing-reconciliation-run",
+        "channel-inventory-snapshot",
+        "channel-sync-run",
       ]),
       slices: [
         "connections",
@@ -237,11 +265,19 @@ describe("channels-context-foundation", () => {
         "tcgplayer-csv",
         "outbound-sync",
         "connection-health",
+        "manual-sync",
       ],
       allowedSupportDirectories: ["request-support", "runtime-support"],
       publicExports: [".", "./context", "./server", "./routes/*"],
-      allowedContextDependencies: [],
-      hostPorts: [],
+      allowedContextDependencies: ["@chase-sets/marketplace"],
+      hostPorts: [
+        {
+          portName: "marketplaceChannelInboundClamp",
+          providedBy: "platform-api, platform-worker",
+          purpose:
+            "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark.",
+        },
+      ],
     });
     expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([10, 20, 30, 40, 50]);
     expect(manifest.eventSubscriptions.map((entry) => entry.sourceContextName)).toEqual([
@@ -437,6 +473,8 @@ describe("channels-context-foundation", () => {
         "features/listing-composition/read-model/schema.ts",
         "routes/marketplace/account-channels-publication.tsx",
         "support/request-support/api-client.ts",
+        "features/manual-sync/api/runtime.ts",
+        "features/manual-sync/read-model/schema.ts",
         "tests/vitest.config.mjs",
       ]),
     );

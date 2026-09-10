@@ -381,7 +381,7 @@ describe("manual-sync runtime binding", () => {
     await expect(runtime.claimAndDownload(fence, context)).rejects.toMatchObject({ code: "invalid-action" });
     await expect(runtime.retryClamp(fence, context)).rejects.toMatchObject({ code: "invalid-action" });
 
-    tcgplayerCsv.readRun = vi.fn(async () => ({ ...composed, state: "claimed", revision: 2 }));
+    tcgplayerCsv.readRun = vi.fn(async () => ({ ...composed, state: "claimed" as const, revision: 2 }));
     const claimedFence = { ...fence, expectedRevision: 3 };
     await expect(runtime.release(claimedFence, context)).rejects.toMatchObject({ code: "invalid-action" });
     await expect(runtime.recordValidationCancellation(claimedFence, context)).rejects.toMatchObject({
@@ -398,7 +398,11 @@ describe("manual-sync runtime binding", () => {
       ),
     ).rejects.toMatchObject({ code: "invalid-action" });
 
-    tcgplayerCsv.readRun = vi.fn(async () => ({ ...composed, state: "awaiting-verification", revision: 3 }));
+    tcgplayerCsv.readRun = vi.fn(async () => ({
+      ...composed,
+      state: "awaiting-verification" as const,
+      revision: 3,
+    }));
     await expect(
       runtime.verify(
         {

@@ -240,6 +240,9 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
+      '@chase-sets/identity-seed':
+        specifier: workspace:*
+        version: link:../../contracts/identity-seed
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization

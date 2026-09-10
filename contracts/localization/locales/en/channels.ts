@@ -122,6 +122,10 @@ export const channelsEnglishTranslations = {
   "channels.manualSync.state.superseded": "Superseded",
   "channels.manualSync.state.stale-basis": "Stale basis",
   "channels.manualSync.state.abandoned": "Abandoned",
+  "channels.manualSync.recovery.badge": "Recovery",
+  "channels.manualSync.recovery.title": "Inbound clamp recovery needs review",
+  "channels.manualSync.recovery.description":
+    "Some Marketplace Listings may still be paused. Retry only re-establishes complete clamp ownership; download returns after every affected Listing is safely owned.",
   "channels.manualSync.metric.requested": "Requested listings",
   "channels.manualSync.metric.composed": "Composed listings",
   "channels.manualSync.metric.lease": "Lease remaining",
@@ -129,6 +133,7 @@ export const channelsEnglishTranslations = {
   "channels.manualSync.lease.value": "{minutes}m {seconds}s",
   "channels.manualSync.action.compose": "Compose Staged batch",
   "channels.manualSync.action.download": "Clamp and download CSV",
+  "channels.manualSync.action.retryClamp": "Retry inbound clamp",
   "channels.manualSync.action.uploadAttempt": "Record upload attempt",
   "channels.manualSync.action.cancel": "Record validation cancellation",
   "channels.manualSync.action.release": "Release before submission",

@@ -1,4 +1,5 @@
 export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
+export { createMarketplaceChannelInboundClampCapability } from "./features/channel-inbound-clamp/api/capability";
 export type { MarketplaceListingServices } from "./features/listings/api/runtime";
 export {
   MARKETPLACE_CHANNEL_INBOUND_CLAMP_MAX_LISTINGS,

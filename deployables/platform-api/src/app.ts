@@ -188,7 +188,10 @@ import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import { createChannelActionAttentionSourceFromReadModel } from "@chase-sets/channels/server";
-import type { MarketplaceChannelInboundClampCapability, MarketplaceServices } from "@chase-sets/marketplace/server";
+import {
+  createMarketplaceChannelInboundClampCapability,
+  type MarketplaceServices,
+} from "@chase-sets/marketplace/server";
 
 export type PlatformIdentityServices = Readonly<{
   auth: ReturnType<typeof authModule.createServices>;
@@ -257,23 +260,10 @@ export function createPlatformApiHost(
     ...(settlementPool ? [createBlockedPayoutAttentionSourceFromReadModel(settlementPool)] : []),
     ...(channelsPool ? [createChannelActionAttentionSourceFromReadModel(channelsPool)] : []),
   ];
-  const marketplaceChannelInboundClamp: MarketplaceChannelInboundClampCapability = marketplacePool
-    ? {
-        kind: "available",
-        port: {
-          engage: (input, context) => {
-            const services = runtime?.services.marketplace as MarketplaceServices | undefined;
-            if (!services) throw new Error("Marketplace Channel Inbound Clamp service is unavailable.");
-            return services.channelInboundClamp.engage(input, context);
-          },
-          recover: (input, context) => {
-            const services = runtime?.services.marketplace as MarketplaceServices | undefined;
-            if (!services) throw new Error("Marketplace Channel Inbound Clamp service is unavailable.");
-            return services.channelInboundClamp.recover(input, context);
-          },
-        },
-      }
-    : { kind: "not-mounted" };
+  const marketplaceChannelInboundClamp = createMarketplaceChannelInboundClampCapability(
+    Boolean(marketplacePool),
+    () => runtime?.services.marketplace as MarketplaceServices | undefined,
+  );
   const opsMarketAnalyticsCrossContext: OpsMarketAnalyticsCrossContextPort | undefined = pricingPool
     ? {
         getPlatformGmvSeries: (params) => getPlatformGmvSeries(pricingPool, params),
