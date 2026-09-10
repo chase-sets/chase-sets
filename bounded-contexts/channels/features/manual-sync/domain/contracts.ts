@@ -19,6 +19,7 @@ export type ChannelInboundCoverage =
 export const manualSyncActionIds = [
   "compose",
   "download",
+  "retry-clamp",
   "record-upload-attempt",
   "record-validation-cancellation",
   "release",
@@ -77,9 +78,13 @@ export class ManualSyncError extends Error {
   }
 }
 
-export function resolveManualSyncActions(run: ChannelSyncRun | null): readonly ManualSyncActionId[] {
+export function resolveManualSyncActions(
+  run: ChannelSyncRun | null,
+  attentionReason: ManualSyncPanel["attentionReason"] = null,
+): readonly ManualSyncActionId[] {
   if (!run) return ["ingest-live", "ingest-staged", "compose"];
   if (run.claimant.claimantKind !== "manual") return [];
+  if (attentionReason === "recovery") return run.state === "composed" ? ["retry-clamp"] : [];
   switch (run.state) {
     case "composed":
       return ["download"];

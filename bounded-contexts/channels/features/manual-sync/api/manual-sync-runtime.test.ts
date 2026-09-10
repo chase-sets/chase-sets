@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
 import type { TcgplayerCsvServices } from "../../tcgplayer-csv/api/runtime";
-import type { ChannelSyncRun } from "../../tcgplayer-csv/domain/contracts";
+import type { ChannelSyncRun, ChannelSyncRunMember } from "../../tcgplayer-csv/domain/contracts";
 import { createManualSyncRuntime } from "./runtime";
 
 const context: EventStoreContext = {
@@ -76,6 +76,7 @@ describe("manual-sync runtime binding", () => {
       }),
       context,
     );
+    expect(resolvePolicy).toHaveBeenCalledBefore(tcgplayerCsv.composeTcgplayerSyncRun as never);
   });
 
   it("uses genuine unique run listingIds without a captured-cap read before claim", async () => {
@@ -112,6 +113,113 @@ describe("manual-sync runtime binding", () => {
     expect(tcgplayerCsv.claimRun).toHaveBeenCalledWith({ runId: composed.runId, expectedRevision: 1 }, context);
   });
 
+  it("refuses foreign and duplicate run membership before clamp or producer claim", async () => {
+    const genuine = run();
+    const duplicate = { ...genuine, members: [genuine.members[0]!, genuine.members[0]!] };
+    const tcgplayerCsv = producer(duplicate);
+    const engage = vi.fn();
+    const runtime = createManualSyncRuntime({
+      db: db() as never,
+      connections: connections(activeConnection()),
+      tcgplayerCsv,
+      policies: { resolvePolicy: vi.fn() },
+      marketplaceClamp: { kind: "available", port: { engage, recover: vi.fn() } },
+    });
+    await expect(
+      runtime.claimAndDownload(
+        { accountId: "account-owner", connectionId: genuine.connectionId, runId: genuine.runId, expectedRevision: 1 },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid-action" });
+    expect(engage).not.toHaveBeenCalled();
+    expect(tcgplayerCsv.claimRun).not.toHaveBeenCalled();
+
+    tcgplayerCsv.readRun = vi.fn(async () => ({ ...genuine, connectionId: "connection-foreign" }));
+    await expect(
+      runtime.claimAndDownload(
+        { accountId: "account-owner", connectionId: genuine.connectionId, runId: genuine.runId, expectedRevision: 1 },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "invalid-action" });
+    expect(engage).not.toHaveBeenCalled();
+  });
+
+  it("uses all 501 genuine run members after a later batch-cap revision lowers the producer cap to 500", async () => {
+    const first = run();
+    const template = first.members[0];
+    if (!template || template.memberKind !== "composed") throw new Error("Expected a composed member fixture.");
+    const members: ChannelSyncRunMember[] = Array.from({ length: 501 }, (_, index) => ({
+      ...template,
+      operationId: `operation-${index}`,
+      attemptId: `attempt-${index}`,
+      channelListingId: `channel-listing-${index}`,
+      listingId: `listing-${index}`,
+      externalKey: `product:${index}`,
+      csvRow: {
+        "TCGplayer Id": String(index),
+        "Add to Quantity": "-1",
+        "TCG Marketplace Price": "1.25",
+      },
+      ordinal: index,
+    }));
+    const composed: ChannelSyncRun = {
+      ...first,
+      membershipCompleteness: { kind: "complete" as const, total: members.length },
+      members,
+    };
+    const tcgplayerCsv = producer(composed);
+    const engage = vi.fn(async (_input: Readonly<{ listingIds: readonly string[] }>, _context: EventStoreContext) => ({
+      kind: "engaged" as const,
+      requestedListingCount: members.length,
+      affectedListingCount: members.length,
+      clampedListingCount: members.length,
+      recoveryListingCount: 0,
+    }));
+    const resolvePolicy = vi.fn(async () => ({ value: { maxRowsPerBatch: 500 } }));
+    const runtime = createManualSyncRuntime({
+      db: db() as never,
+      connections: connections(activeConnection()),
+      tcgplayerCsv,
+      policies: { resolvePolicy: resolvePolicy as never },
+      marketplaceClamp: { kind: "available", port: { engage, recover: vi.fn() } },
+    });
+
+    await expect(
+      runtime.claimAndDownload(
+        { accountId: "account-owner", connectionId: composed.connectionId, runId: composed.runId, expectedRevision: 1 },
+        context,
+      ),
+    ).resolves.toMatchObject({ batch: { rows: expect.any(Array) } });
+    expect(engage.mock.calls[0]?.[0].listingIds).toHaveLength(501);
+    expect(resolvePolicy).not.toHaveBeenCalled();
+  });
+
+  it("refuses UTF-8 and logical-record bounds before the imported producer writes", async () => {
+    const tcgplayerCsv = producer();
+    const runtime = createManualSyncRuntime({
+      db: db() as never,
+      connections: connections(activeConnection()),
+      tcgplayerCsv,
+      policies: { resolvePolicy: vi.fn() },
+      marketplaceClamp: { kind: "not-mounted" },
+    });
+    const input = {
+      accountId: "account-owner",
+      connectionId: "connection-tcg",
+      surface: "staged" as const,
+      fileName: "staged.csv",
+      capturedAt: "2026-09-10T12:00:00.000Z",
+      capturedAtSource: "ingest" as const,
+    };
+    await expect(runtime.ingest({ ...input, bytes: Uint8Array.of(0xff) })).rejects.toMatchObject({
+      code: "invalid-input",
+    });
+    await expect(
+      runtime.ingest({ ...input, bytes: new TextEncoder().encode(`id\n${"1\n".repeat(100_001)}`) }),
+    ).rejects.toMatchObject({ code: "export-record-limit-exceeded" });
+    expect(tcgplayerCsv.ingestTcgplayerExportSnapshot).not.toHaveBeenCalled();
+  });
+
   it("settles a pre-submission producer release before revision-fenced clamp recovery", async () => {
     const claimed = { ...run(), state: "claimed" as const, revision: 2 };
     const tcgplayerCsv = producer(claimed);
@@ -146,6 +254,110 @@ describe("manual-sync runtime binding", () => {
       context,
     );
     expect(released).toMatchObject({ state: "composed", revision: 3 });
+  });
+
+  it("keeps recovery explicit until retry establishes complete ownership, then restores composed download", async () => {
+    const composed = run();
+    const tcgplayerCsv = producer(composed);
+    const database = statefulPanelDb(composed.runId);
+    const engage = vi
+      .fn()
+      .mockResolvedValueOnce({
+        kind: "recovery",
+        requestedListingCount: 1,
+        affectedListingCount: 2,
+        clampedListingCount: 1,
+        recoveryListingCount: 1,
+      })
+      .mockResolvedValueOnce({
+        kind: "engaged",
+        requestedListingCount: 1,
+        affectedListingCount: 2,
+        clampedListingCount: 2,
+        recoveryListingCount: 0,
+      });
+    const runtime = createManualSyncRuntime({
+      db: database as never,
+      connections: connections(activeConnection()),
+      tcgplayerCsv,
+      policies: { resolvePolicy: vi.fn() },
+      marketplaceClamp: { kind: "available", port: { engage, recover: vi.fn() } },
+      now: () => "2026-09-10T12:00:00.000Z",
+    });
+    const input = {
+      accountId: "account-owner",
+      connectionId: composed.connectionId,
+      runId: composed.runId,
+      expectedRevision: composed.revision,
+    } as const;
+
+    await expect(runtime.retryClamp(input, context)).rejects.toMatchObject({ code: "inbound-clamp-recovery" });
+    await expect(runtime.readPanel(input)).resolves.toMatchObject({
+      attentionReason: "recovery",
+      actions: ["retry-clamp"],
+    });
+
+    await expect(runtime.retryClamp(input, context)).resolves.toMatchObject({
+      attentionReason: "ready",
+      actions: ["download"],
+    });
+    expect(engage).toHaveBeenCalledTimes(2);
+    expect(tcgplayerCsv.claimRun).not.toHaveBeenCalled();
+  });
+
+  it("passes the exact Summary receipt and snapshot fence to the producer-owned application proof", async () => {
+    const awaiting = {
+      ...run(),
+      state: "awaiting-verification" as const,
+      revision: 3,
+      uploadAttemptedAt: "2026-09-10T12:10:00.000Z",
+      uploadFileName: "staged-import.csv",
+    };
+    const tcgplayerCsv = producer(awaiting);
+    const verifyRun = vi.fn(
+      async (): Promise<ChannelSyncRun> => ({
+        ...awaiting,
+        state: "applied",
+        revision: 4,
+      }),
+    );
+    tcgplayerCsv.verifyRun = verifyRun;
+    const runtime = createManualSyncRuntime({
+      db: db() as never,
+      connections: connections(activeConnection()),
+      tcgplayerCsv,
+      policies: { resolvePolicy: vi.fn() },
+      marketplaceClamp: { kind: "not-mounted" },
+    });
+    const importSummary = {
+      fileName: "staged-import.csv",
+      dateImportedText: "09/10/2026 7:12 AM CDT",
+      numberOfProducts: 1,
+      recordedAt: "2026-09-10T12:12:00.000Z",
+    };
+
+    await expect(
+      runtime.verify(
+        {
+          accountId: "account-owner",
+          connectionId: awaiting.connectionId,
+          runId: awaiting.runId,
+          expectedRevision: awaiting.revision,
+          verificationSnapshotId: "snapshot-newer-staged",
+          importSummary,
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ state: "applied", revision: 4 });
+    expect(verifyRun).toHaveBeenCalledWith(
+      {
+        runId: awaiting.runId,
+        expectedRevision: awaiting.revision,
+        verificationSnapshotId: "snapshot-newer-staged",
+        importSummary,
+      },
+      context,
+    );
   });
 });
 
@@ -199,6 +411,26 @@ function db() {
     query: vi.fn(async (sql: string) => {
       if (sql.includes("SELECT csv_header"))
         return { rows: [{ csv_header: ["TCGplayer Id", "Add to Quantity", "TCG Marketplace Price"] }] };
+      return { rows: [], rowCount: 1 };
+    }),
+  };
+}
+
+function statefulPanelDb(runId: string) {
+  let clampState: string | null = null;
+  return {
+    query: vi.fn(async (sql: string, parameters?: readonly unknown[]) => {
+      if (sql.includes("SELECT run_id FROM channel_sync_runs")) return { rows: [{ run_id: runId }] };
+      if (sql.includes("SELECT state FROM channels_manual_sync_clamp_status")) {
+        return { rows: clampState ? [{ state: clampState }] : [] };
+      }
+      if (sql.includes("INSERT INTO channels_manual_sync_clamp_status")) {
+        clampState = String(parameters?.[4]);
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes("SELECT csv_header")) {
+        return { rows: [{ csv_header: ["TCGplayer Id", "Add to Quantity", "TCG Marketplace Price"] }] };
+      }
       return { rows: [], rowCount: 1 };
     }),
   };
