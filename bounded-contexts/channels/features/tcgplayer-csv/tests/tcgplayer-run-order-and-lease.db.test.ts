@@ -717,6 +717,17 @@ describeDb("tcgplayer-run-order-and-lease", () => {
     await services.outboundSync.enqueueDesiredState(
       desiredState("listing-freshness", "channel-listing-freshness", 2, 1, 27, 2),
     );
+    const blockedLane = await pools.channels.query<{ revision: string | number }>(
+      `SELECT revision FROM channel_outbound_lanes
+       WHERE connection_id='connection-production' AND channel_listing_id='channel-listing-freshness'`,
+    );
+    const blockedLaneRevision = blockedLane.rows[0]?.revision;
+    if (blockedLaneRevision === undefined) throw new Error("Expected the validation-rejected lane to remain blocked.");
+    await services.outboundSync.clearOutboundOperationLane({
+      connectionId: "connection-production",
+      channelListingId: "channel-listing-freshness",
+      expectedRevision: Number(blockedLaneRevision),
+    });
     const neverVerified = await createOwnedRuntime().tcgplayerCsv.composeTcgplayerSyncRun(
       composeInput("run-basis-never-verified", "connector", "connector-basis"),
       testContext,

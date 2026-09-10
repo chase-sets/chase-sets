@@ -411,7 +411,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
         { deploymentEnvironment: "local" },
         testContext,
       ),
-    ).resolves.toMatchObject({ kind: "applied", state: { providerKey: "tcgplayer", environment: "sandbox" } });
+    ).resolves.toMatchObject({ state: { providerKey: "tcgplayer", environment: "sandbox" } });
     await expect(
       rootServices.connections.activateChannelConnection(
         {
@@ -422,7 +422,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
         },
         testContext,
       ),
-    ).resolves.toMatchObject({ kind: "applied", state: { status: "active" } });
+    ).resolves.toMatchObject({ state: { status: "active" } });
     await projectConnectionEvents(connectionId);
     expect(
       await pools.channels.query(

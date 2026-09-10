@@ -116,13 +116,11 @@ async function readRunOriginContext(db: PgQueryable, runId: string): Promise<Eve
   }>(
     `SELECT event.tenant_id,event.performed_by_user_id,event.for_account_id,
             event.trace_id,event.span_id,event.parent_span_id,event.trace_state
-     FROM channel_sync_run_rows AS member
-     JOIN channel_outbound_operations AS operation ON operation.operation_id=member.operation_id
-     JOIN event_store_events AS event ON event.event_id=operation.source_event_id
-     WHERE member.run_id=$1
-     ORDER BY member.ordinal
+     FROM event_store_events AS event
+     WHERE event.stream_id=$1 AND event.event_type='channels.tcgplayer-sync-run.composed'
+     ORDER BY event.stream_version
      LIMIT 1`,
-    [runId],
+    [`channels.tcgplayer-sync-run-${runId}`],
   );
   const row = result.rows[0];
   if (!row) throw new Error("Channel Sync Run origin context is unavailable.");
