@@ -30,11 +30,7 @@ import type {
   InventoryAccountSellerSkuItemResolution,
   InventoryDraftListingCreator,
 } from "@chase-sets/inventory/server";
-import {
-  createMarketplaceChannelInboundClampCapability,
-  type MarketplaceListingServices,
-  type MarketplaceServices,
-} from "@chase-sets/marketplace/server";
+import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
 import type {
   BulkRepriceIngestionServices,
   PricingRecommendationServices,
@@ -130,6 +126,7 @@ import {
 } from "./config";
 import { createAgentWebhookDispatchRunners, createOrderingAgentWebhookOrderResolvers } from "./agent-webhook-runners";
 import { createChannelsOutboundRunners } from "./channels-outbound-runners";
+import { createPlatformWorkerMarketplaceChannelInboundClampBinding } from "./channels-outbound-runners";
 import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
@@ -232,7 +229,7 @@ const tcgplayerAutomationCatalogClient = tcgplayerAutomationHttpClients
   : undefined;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
-const marketplaceChannelInboundClamp = createMarketplaceChannelInboundClampCapability(
+const marketplaceChannelInboundClamp = createPlatformWorkerMarketplaceChannelInboundClampBinding(
   Boolean(pools.marketplace),
   () => runtime?.services.marketplace as MarketplaceServices | undefined,
 );

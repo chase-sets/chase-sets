@@ -201,8 +201,55 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
       retainedListingCount: 0,
       recoveryListingCount: 0,
     });
-    expect(await streamVersion(pools.marketplace, "lst_shared_owner")).toBe(pausedVersion + 1);
+    expect(await streamVersion(pools.marketplace, "lst_shared_owner")).toBe(pausedVersion + 2);
     expect((await services.listings.loadListingState("lst_shared_owner")).status).toBe("active");
+    await expect(listingEventTypes(pools.marketplace, "lst_shared_owner")).resolves.toEqual([
+      "marketplace.listing.created",
+      "marketplace.listing.published",
+      "marketplace.listing.paused",
+      "marketplace.listing.evidence-requirements-refreshed",
+      "marketplace.listing.published",
+    ]);
+  });
+
+  it("keeps the final owner in recovery when the production publication adapter fails", async () => {
+    const services = createMarketplaceServices(pools.marketplace);
+    await seedActiveListing(pools.marketplace, services, "lst_publication_failure", "itm_publication_failure");
+    const publishListing = vi.fn(async () => {
+      throw new Error("synthetic publication failure");
+    });
+    const clamp = createMarketplaceChannelInboundClampRuntime(pools.marketplace, {
+      commandHandler: services.listings.commandHandler,
+      loadListingState: services.listings.loadListingState,
+      publishListing,
+    });
+    const input = {
+      accountId: "acc_seller",
+      connectionId: "connection-publication-failure",
+      runId: "run-publication-failure",
+      listingIds: ["lst_publication_failure"],
+    } as const;
+
+    await expect(clamp.engage(input, context)).resolves.toMatchObject({ kind: "engaged", clampedListingCount: 1 });
+    await expect(clamp.recover(input, context)).resolves.toEqual({
+      kind: "recovery",
+      examinedListingCount: 1,
+      releasedListingCount: 0,
+      retainedListingCount: 0,
+      recoveryListingCount: 1,
+    });
+    expect(publishListing).toHaveBeenCalledOnce();
+    expect(await services.listings.loadListingState("lst_publication_failure")).toMatchObject({
+      status: "paused",
+      pauseReason: "channel-inbound-dark",
+    });
+    await expect(
+      pools.marketplace.query(
+        `SELECT state,paused_stream_version FROM marketplace_channel_inbound_clamps
+          WHERE connection_id=$1 AND run_id=$2 AND listing_id=$3`,
+        [input.connectionId, input.runId, input.listingIds[0]],
+      ),
+    ).resolves.toMatchObject({ rows: [{ state: "recovery", paused_stream_version: null }] });
   });
 
   it("refuses duplicate and foreign requested membership without pausing either account", async () => {
@@ -376,6 +423,22 @@ async function seedActiveListing(
   inventoryItemId: string,
   accountId = "acc_seller",
 ) {
+  const storageLocationId = `loc_channel_clamp_fixture_${accountId}`;
+  await pool.query(
+    `INSERT INTO marketplace_supply_locations
+      (storage_location_id,account_id,name,ship_from_code,ship_from_address,is_archived,updated_at)
+     VALUES ($1,$2,'Channel clamp fixture','CHI','{}'::jsonb,false,now())
+     ON CONFLICT (storage_location_id) DO NOTHING`,
+    [storageLocationId, accountId],
+  );
+  await pool.query(
+    `INSERT INTO marketplace_supply_items
+      (item_id,account_id,catalog_catalog_item_id,product_id,selected_options,graded_card,storage_location_id,
+       total_quantity,acquisition_cost_amount,last_stream_version,updated_at)
+     VALUES ($1,$2,'cat_test','cat_test::','[]'::jsonb,NULL,$3,100,NULL,1,now())
+     ON CONFLICT (item_id) DO NOTHING`,
+    [inventoryItemId, accountId, storageLocationId],
+  );
   const created = await services.listings.commandHandler({
     streamId: `marketplace.listing-${listingId}`,
     command: createListingCommand(listingId, inventoryItemId, accountId),
@@ -403,6 +466,14 @@ async function streamVersion(pool: PgTransactionalPool, listingId: string) {
     [`marketplace.listing-${listingId}`],
   );
   return Number(result.rows[0]?.current_version);
+}
+
+async function listingEventTypes(pool: PgTransactionalPool, listingId: string) {
+  const result = await pool.query<{ event_type: string }>(
+    "SELECT event_type FROM event_store_events WHERE stream_id=$1 ORDER BY stream_version",
+    [`marketplace.listing-${listingId}`],
+  );
+  return result.rows.map((row) => row.event_type);
 }
 
 const evidenceRequirements = {

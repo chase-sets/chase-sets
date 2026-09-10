@@ -1,9 +1,14 @@
+import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { canonicalManualClaimLeasePolicySnapshotDigest } from "../../tcgplayer-csv/domain/validation";
 import type { ChannelSyncRun } from "../../tcgplayer-csv/domain/contracts";
+import { channelSyncRunEventCodec } from "../../tcgplayer-csv/domain/codec";
+import { channelConnectionEventCodec } from "../../connections/domain/codec";
+import { evolveChannelConnection, initialChannelConnectionState } from "../../connections/domain/domain";
 
 export const manualSyncScenarioSeed = Object.freeze({
   connectionId: "connection-seed-tcgplayer-manual",
@@ -79,6 +84,65 @@ export async function seedManualSyncScenario(pool: PgTransactionalPool): Promise
      ON CONFLICT (run_id) DO NOTHING`,
     [manualSyncScenarioSeed.runId, manualSyncScenarioSeed.connectionId, demoIdentitySeedIds.accountId],
   );
+}
+
+export async function inspectManualSyncSeedState(
+  pool: PgTransactionalPool,
+): Promise<readonly BcSeedAggregateStateReport[]> {
+  const eventStore = createPostgresEventStore({ pool });
+  const connectionStreamId = `channels.connection-${manualSyncScenarioSeed.connectionId}`;
+  const connectionEvents = await readCompleteStream(eventStore, { streamId: connectionStreamId });
+  const connection = connectionEvents
+    .map((event) => channelConnectionEventCodec.decode({ eventType: event.eventType, payload: event.payload }))
+    .reduce(evolveChannelConnection, initialChannelConnectionState);
+  const connectionComplete =
+    connection.connectionId === manualSyncScenarioSeed.connectionId &&
+    connection.accountId === demoIdentitySeedIds.accountId &&
+    connection.providerKey === "tcgplayer" &&
+    connection.status === "active";
+
+  const runStreamId = `channels.tcgplayer-sync-run-${manualSyncScenarioSeed.runId}`;
+  const runEvents = await readCompleteStream(eventStore, { streamId: runStreamId });
+  const decodedRunEvents = runEvents.map((event) =>
+    channelSyncRunEventCodec.decode({ eventType: event.eventType, payload: event.payload }),
+  );
+  const composed = decodedRunEvents.find((event) => event.type === "channels.tcgplayer-sync-run.composed");
+  const runStatus = decodedRunEvents.reduce<string | null>((status, event) => {
+    if (event.type === "channels.tcgplayer-sync-run.composed") return event.data.run.state;
+    return event.data.toState;
+  }, null);
+  const runComplete =
+    composed?.type === "channels.tcgplayer-sync-run.composed" &&
+    composed.data.run.runId === manualSyncScenarioSeed.runId &&
+    composed.data.run.connectionId === manualSyncScenarioSeed.connectionId &&
+    composed.data.run.claimant.claimantKind === "manual" &&
+    composed.data.run.state === "composed" &&
+    composed.data.run.membershipCompleteness.total === 1 &&
+    composed.data.run.members[0]?.listingId === manualSyncScenarioSeed.listingId &&
+    decodedRunEvents.length === 1;
+
+  return [
+    {
+      contextName: "channels",
+      aggregateName: "Channel Connection",
+      id: manualSyncScenarioSeed.connectionId,
+      key: "tcgplayer-manual-recovery",
+      streamId: connectionStreamId,
+      kind: connectionEvents.length === 0 ? "absent" : connectionComplete ? "active" : "draft",
+      status: connection.status,
+      eventCount: connectionEvents.length,
+    },
+    {
+      contextName: "channels",
+      aggregateName: "Channel Sync Run",
+      id: manualSyncScenarioSeed.runId,
+      key: "manual-recovery",
+      streamId: runStreamId,
+      kind: runEvents.length === 0 ? "absent" : runComplete ? "active" : "draft",
+      status: runStatus,
+      eventCount: runEvents.length,
+    },
+  ];
 }
 
 function scenarioRun(createdAt: string): ChannelSyncRun {

@@ -190,6 +190,8 @@ import { apiContextRegistry } from "./generated/api-context-registry";
 import { createChannelActionAttentionSourceFromReadModel } from "@chase-sets/channels/server";
 import {
   createMarketplaceChannelInboundClampCapability,
+  type MarketplaceChannelInboundClampCapability,
+  type MarketplaceChannelInboundClampPort,
   type MarketplaceServices,
 } from "@chase-sets/marketplace/server";
 
@@ -197,6 +199,13 @@ export type PlatformIdentityServices = Readonly<{
   auth: ReturnType<typeof authModule.createServices>;
   identity: ReturnType<typeof identityModule.createServices>;
 }>;
+
+export function createPlatformApiMarketplaceChannelInboundClampBinding(
+  mounted: boolean,
+  getServices: () => Readonly<{ channelInboundClamp: MarketplaceChannelInboundClampPort }> | undefined,
+): MarketplaceChannelInboundClampCapability {
+  return createMarketplaceChannelInboundClampCapability(mounted, getServices);
+}
 
 export type BuildPlatformApiOptions = Readonly<{
   runtimeProfile?: PlatformApiRuntimeProfile;
@@ -260,7 +269,7 @@ export function createPlatformApiHost(
     ...(settlementPool ? [createBlockedPayoutAttentionSourceFromReadModel(settlementPool)] : []),
     ...(channelsPool ? [createChannelActionAttentionSourceFromReadModel(channelsPool)] : []),
   ];
-  const marketplaceChannelInboundClamp = createMarketplaceChannelInboundClampCapability(
+  const marketplaceChannelInboundClamp = createPlatformApiMarketplaceChannelInboundClampBinding(
     Boolean(marketplacePool),
     () => runtime?.services.marketplace as MarketplaceServices | undefined,
   );

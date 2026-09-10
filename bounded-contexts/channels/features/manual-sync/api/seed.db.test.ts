@@ -6,11 +6,12 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
+import { composeModuleSchemaSql } from "@chase-sets/bounded-context-runtime";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as channelsModule } from "../../../index";
 import { channelConnectionEventCodec } from "../../connections/domain/codec";
 import { channelSyncRunEventCodec } from "../../tcgplayer-csv/domain/codec";
-import { manualSyncScenarioSeed, seedManualSyncScenario } from "./seed";
+import { inspectManualSyncSeedState, manualSyncScenarioSeed, seedManualSyncScenario } from "./seed";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
@@ -25,7 +26,7 @@ describeDb("manual-sync browser scenario seed", () => {
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas({ channels: pool });
-    await pool.query(channelsModule.schemaSql);
+    await pool.query(composeModuleSchemaSql(channelsModule));
   });
   afterAll(async () => closeMultiContextTestPools({ channels: pool }));
 
@@ -34,8 +35,34 @@ describeDb("manual-sync browser scenario seed", () => {
       "bounded-contexts/channels/features/manual-sync/api/seed.ts#readStream#1",
       "bounded-contexts/channels/features/manual-sync/api/seed.ts#readStream#2",
     ]).toHaveLength(2);
+    await expect(inspectManualSyncSeedState(pool)).resolves.toEqual([
+      expect.objectContaining({ aggregateName: "Channel Connection", kind: "absent", status: null, eventCount: 0 }),
+      expect.objectContaining({ aggregateName: "Channel Sync Run", kind: "absent", status: null, eventCount: 0 }),
+    ]);
     await seedManualSyncScenario(pool);
     await seedManualSyncScenario(pool);
+    await expect(inspectManualSyncSeedState(pool)).resolves.toEqual([
+      {
+        contextName: "channels",
+        aggregateName: "Channel Connection",
+        id: manualSyncScenarioSeed.connectionId,
+        key: "tcgplayer-manual-recovery",
+        streamId: `channels.connection-${manualSyncScenarioSeed.connectionId}`,
+        kind: "active",
+        status: "active",
+        eventCount: 2,
+      },
+      {
+        contextName: "channels",
+        aggregateName: "Channel Sync Run",
+        id: manualSyncScenarioSeed.runId,
+        key: "manual-recovery",
+        streamId: `channels.tcgplayer-sync-run-${manualSyncScenarioSeed.runId}`,
+        kind: "active",
+        status: "composed",
+        eventCount: 1,
+      },
+    ]);
     const eventStore = createPostgresEventStore({ pool });
     const connectionEvents = await eventStore.readStream({
       streamId: `channels.connection-${manualSyncScenarioSeed.connectionId}`,
