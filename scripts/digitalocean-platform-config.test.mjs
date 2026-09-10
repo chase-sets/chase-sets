@@ -2309,7 +2309,84 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformRepresentativeWorkflow).toContain(
       "pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",
     );
-    expect(platformProductionWorkflow).not.toContain("representative-commerce-state:production");
+    expect(workflowJob(platformProductionWorkflow, "deploy-production")).not.toContain(
+      "representative-commerce-state:production",
+    );
+  });
+
+  it("runs representative commerce state in the exact staging release before Buy Now and retains fail-closed evidence", () => {
+    const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const deployProductionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const deployStep = workflowStep(platformProductionWorkflow, "Deploy staging Kubernetes release");
+    const representativeStep = workflowStep(platformProductionWorkflow, "Await staging projection convergence");
+    const uploadStep = workflowStep(platformProductionWorkflow, "Upload staging Buy Now probe evidence");
+    const buyNowStep = workflowStep(platformProductionWorkflow, "Staging Buy Now freshness probes");
+
+    expect(representativeStep).toContain("set -euo pipefail");
+    expect(representativeStep).not.toContain("continue-on-error");
+    expect(representativeStep).not.toContain("|| true");
+    expect(representativeStep).toContain("KUBECONFIG: ${{ runner.temp }}/chase-sets-staging.kubeconfig");
+    expect(representativeStep).toContain('[ -z "${KUBECONFIG:-}" ] || [ ! -s "$KUBECONFIG" ]');
+    expect(representativeStep).toContain(
+      "EXPECTED_RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}",
+    );
+    expect(representativeStep).toContain("EXPECTED_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}");
+    expect(representativeStep).toContain("app.kubernetes.io/component=platform-api");
+    expect(representativeStep).toContain('name == "platform-api" and .ready == true');
+    expect(representativeStep).toContain(".imageID | endswith($image_digest)");
+    expect(representativeStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(representativeStep).toContain("--container platform-api");
+    expect(representativeStep).toContain("DEPLOYMENT_ENVIRONMENT=staging");
+    expect(representativeStep).toContain("REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce'");
+    expect(representativeStep).toContain(
+      "pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",
+    );
+    expect(representativeStep).toContain("kubectl cp");
+    expect(representativeStep).toContain('test -s "$evidence_path"');
+    expect(representativeStep).toContain("representative-commerce-state.evidence/v2");
+    expect(representativeStep).toContain('.type == "representative-commerce-state.complete"');
+    expect(representativeStep).toContain('.environmentName == "staging"');
+    expect(representativeStep).toContain('representative-commerce-state"\n            ]');
+    expect(representativeStep).toContain("staging-representative-commerce-state-release-binding/v1");
+    expect(representativeStep).toContain("evidenceSha256: $evidenceSha256");
+    expect(uploadStep).toContain("if: always()");
+    expect(uploadStep).toContain("steps.projection_convergence_gate.conclusion != 'skipped'");
+    expect(uploadStep).toContain("artifacts/release-health/staging-representative-commerce-state");
+    expect(uploadStep).toContain("if-no-files-found: error");
+
+    expect(deployStagingJob.indexOf(deployStep)).toBeLessThan(deployStagingJob.indexOf(representativeStep));
+    expect(deployStagingJob.indexOf(representativeStep)).toBeLessThan(deployStagingJob.indexOf(buyNowStep));
+    expect(deployProductionJob).not.toContain("representative-commerce-state:production");
+
+    const propagatesCommandFailure = (source) =>
+      source.includes("set -euo pipefail") && !source.includes("continue-on-error") && !source.includes("|| true");
+    const threadsKubernetesCredential = (source) =>
+      source.includes("KUBECONFIG: ${{ runner.temp }}/chase-sets-staging.kubeconfig") &&
+      source.includes('[ -z "${KUBECONFIG:-}" ] || [ ! -s "$KUBECONFIG" ]');
+    const validatesEvidence = (source) =>
+      source.includes('test -s "$evidence_path"') &&
+      source.includes("representative-commerce-state.evidence/v2") &&
+      source.includes('.type == "representative-commerce-state.complete"') &&
+      source.includes('.environmentName == "staging"');
+    expect(propagatesCommandFailure(representativeStep)).toBe(true);
+    expect(propagatesCommandFailure(representativeStep.replace("set -euo pipefail", "set +e"))).toBe(false);
+    expect(threadsKubernetesCredential(representativeStep)).toBe(true);
+    expect(
+      threadsKubernetesCredential(
+        representativeStep.replace("KUBECONFIG: ${{ runner.temp }}/chase-sets-staging.kubeconfig", ""),
+      ),
+    ).toBe(false);
+    expect(validatesEvidence(representativeStep)).toBe(true);
+    expect(validatesEvidence(representativeStep.replace('test -s "$evidence_path"', "true"))).toBe(false);
+    expect(
+      validatesEvidence(representativeStep.replace("representative-commerce-state.evidence/v2", "malformed")),
+    ).toBe(false);
+    expect(deployProductionJob.includes("representative-commerce-state:production")).toBe(false);
+    expect(
+      `${deployProductionJob}\n pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production`.includes(
+        "representative-commerce-state:production",
+      ),
+    ).toBe(true);
   });
 
   it("records the DOKS release and namespace in emergency and rollback-readiness evidence", () => {
@@ -2880,7 +2957,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowProbesStep).toContain("--flow account");
     expect(stagingBuyNowProbesStep).toContain("PLATFORM_ADMIN_EMAIL");
     expect(stagingBuyNowEvidenceStep).toContain(
-      "if: always() && env.SHOULD_DEPLOY != 'false' && steps.buy_now_probes.conclusion != 'skipped'",
+      "if: always() && env.SHOULD_DEPLOY != 'false' && (steps.projection_convergence_gate.conclusion != 'skipped' || steps.buy_now_probes.conclusion != 'skipped')",
     );
     expect(stagingBuyNowEvidenceStep).toContain("staging-buy-now-freshness-probes");
     expect(stagingBuyNowEvidenceStep).toContain("artifacts/release-health/account-buy-now-freshness-probe.json");

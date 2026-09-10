@@ -172,6 +172,9 @@ describe("FeeCalculatorSection", () => {
     const { container } = render(<FeeCalculatorSection schedule={ratifiedSchedule} />);
     const section = container.querySelector('[data-public-presence-section="fee_calculator"]');
     if (!section) throw new Error("Expected the fee calculator to render with a live schedule.");
+    // The twelfth landing anchor: id, not just presence, since it is the
+    // in-page jump target named in the fee-calculator share link (#7741 AC7).
+    expect(section.getAttribute("id")).toBe("fee-calculator");
 
     // Default $50 example.
     expect(section.textContent).toContain("$47.50");
@@ -288,5 +291,22 @@ describe("named competitors on the landing page (#3953 decision)", () => {
     expect(container.querySelector('[data-public-presence-section="fee_comparison"]')?.textContent).toContain(
       "TCGplayer",
     );
+  });
+
+  it("still carries exactly one gold-foil word page-wide once the truth-gated calculator renders", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(
+      <PublicPresenceHomePage actionData={null} source={source} feeSchedule={ratifiedSchedule} />,
+    );
+
+    expect(container.querySelector('[data-public-presence-section="fee_calculator"]')).not.toBeNull();
+    expect(container.querySelectorAll(".ds-brand-foil-text")).toHaveLength(1);
   });
 });

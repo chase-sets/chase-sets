@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 364
-- Source modules covered: 127
+- Runtime exports indexed: 365
+- Source modules covered: 128
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -41,6 +41,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `BottomNav` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Bottom Nav. | `No production consumer yet.` |
 | `BottomSheet` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Mobile-band modal panel anchored to the bottom edge. | `No production consumer yet.` |
 | `Box` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name only: Box. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/provider-detail/section-dirty-summary.tsx` |
+| `BrandFoilText` | `packages/design-system/src/brand/brand-foil-text.tsx` | The one gold-foil treatment permitted per rendered page (epic #6026, ratified 2026-07-23): an inline phrasing span consuming the canonical `--chase-logo-*` stops via the `ds-brand-foil-text` recipe. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `BrandLink` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Brand Link. | `bounded-contexts/discovery/support/shell-support/layout.tsx` |
 | `Breadcrumbs` | `packages/design-system/src/components/actions/breadcrumbs.tsx` | Purpose not documented; symbol name suggests: Breadcrumbs. | `bounded-contexts/catalog/support/shell-support/ui/entity-detail-page.tsx` |
 | `BulkActionBar` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Bulk Action Bar. | `bounded-contexts/catalog/features/catalog-items/ui/catalog-item-list-page.tsx` |

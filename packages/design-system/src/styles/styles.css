@@ -604,6 +604,25 @@
     background-image: none;
   }
 
+  .ds-brand-foil-text {
+    background-image: linear-gradient(
+      119deg,
+      var(--chase-logo-start) 0%,
+      var(--chase-logo-mid) 52%,
+      var(--chase-logo-end) 100%
+    );
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  @media (forced-colors: active) {
+    .ds-brand-foil-text {
+      background-image: none;
+      color: CanvasText;
+    }
+  }
+
   .ds-glow {
     box-shadow: var(--shadow-md);
   }

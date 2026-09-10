@@ -317,8 +317,12 @@ export function getApiHostSeedOrder(
   return orderedNames;
 }
 
-function shouldRunFullBootstrapDrain(options: BcSeedOptions & Readonly<{ fullBootstrapDrain?: boolean }>): boolean {
-  return options.fullBootstrapDrain === true || options.enabledDataProfiles.includes("scenario-seed");
+function shouldRunBootstrapDrain(options: ApiHostSeedOptions): boolean {
+  return (
+    options.fullBootstrapDrain === true ||
+    options.seedContextDrain === true ||
+    options.enabledDataProfiles.includes("scenario-seed")
+  );
 }
 
 function shouldRunContextSeed(context: Pick<MountedContextRuntimeEntry, "module">, options: BcSeedOptions): boolean {
@@ -342,6 +346,8 @@ export type ApiHostSeedOptions = BcSeedOptions &
      * repeat run's seed reconciliation guards observe what earlier runs created.
      */
     fullBootstrapDrain?: boolean;
+    /** Converge seed owners before/after reconciliation; the caller owns the remaining runtime drain. */
+    seedContextDrain?: boolean;
   }>;
 
 async function runSeedSubstep<T>(label: string, timeoutMs: number | undefined, action: () => Promise<T>): Promise<T> {
@@ -425,7 +431,8 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
   lockAcquisition: SchemaBootstrapLockAcquisition,
 ): Promise<void> {
   const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
-  const runFullDrain = shouldRunFullBootstrapDrain(options);
+  const runBootstrapDrain = shouldRunBootstrapDrain(options);
+  const seedContextDrain = options.seedContextDrain === true;
   const substepTimeoutMs = options.substepTimeoutMs;
   const schemaBootstrap: SchemaBootstrapOptions = {
     ...options.schemaBootstrap,
@@ -464,29 +471,31 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
       continue;
     }
 
-    if (runFullDrain) {
+    if (runBootstrapDrain) {
       await runSeedSubstep(`projection-sync:${contextName}`, substepTimeoutMs, () =>
         syncContextProjectionGroups(runtime, contextName, {
-          requiredOnly: true,
+          requiredOnly: !seedContextDrain,
         }),
       );
     }
     await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
       seedApiModuleForHostBootstrap(context, options, lockAcquisition),
     );
-    if (runFullDrain) {
+    if (runBootstrapDrain) {
       await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
         await syncContextProjectionGroups(runtime, contextName);
-        await drainContextRuntime(runtime);
+        if (!seedContextDrain) await drainContextRuntime(runtime);
         await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
         await syncContextProjectionGroups(runtime, contextName);
-        await drainContextRuntime(runtime);
+        if (!seedContextDrain) await drainContextRuntime(runtime);
       });
     }
   }
 
-  if (runFullDrain) {
-    await runSeedSubstep("projection-drain:all", substepTimeoutMs, () => drainContextRuntime(runtime));
+  if (runBootstrapDrain) {
+    if (!seedContextDrain) {
+      await runSeedSubstep("projection-drain:all", substepTimeoutMs, () => drainContextRuntime(runtime));
+    }
 
     // A final reconciliation pass lets seeds that depend on downstream facts
     // (for example marketplace review seeds that need delivered fulfillment
@@ -499,7 +508,7 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
       await runSeedSubstep(`seed-reconcile:${contextName}`, substepTimeoutMs, async () => {
         await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
         await syncContextProjectionGroups(runtime, contextName);
-        await drainContextRuntime(runtime);
+        if (!seedContextDrain) await drainContextRuntime(runtime);
       });
     }
 
@@ -508,9 +517,11 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
     // otherwise leave cross-context projections that subscribe to a subset of a
     // source's event types reporting a false tail lag whenever the source seeds
     // trailing non-subscribed events.
-    await runSeedSubstep("projection-settle:all", substepTimeoutMs, () =>
-      drainContextRuntime(runtime, { settleIdleCheckpoints: true }),
-    );
+    if (!seedContextDrain) {
+      await runSeedSubstep("projection-settle:all", substepTimeoutMs, () =>
+        drainContextRuntime(runtime, { settleIdleCheckpoints: true }),
+      );
+    }
   }
 }
 
@@ -547,7 +558,7 @@ async function seedApiModuleForHostBootstrap(
     context.mountRole === "active" &&
     shouldRunContextSeed(context, options) &&
     context.module.reconcileBootstrapState &&
-    !shouldRunFullBootstrapDrain(options)
+    !shouldRunBootstrapDrain(options)
   ) {
     console.log(`${context.contextName} seed completed. Reconciling required state before readiness.`);
     await reconcileRequiredBootstrapState(context, options);

@@ -205,9 +205,8 @@ const lightSelector =
 const darkSelector =
   '[data-theme="dark"],body:has([data-theme-choice="dark"]:checked),[data-chase-theme][data-color-mode="dark"],[data-chase-theme-scope][data-color-mode="dark"]';
 function styleExpressions(source) {
-  return cssExpressions(
-    source,
-    lexicalLaw.stops.flatMap((stop, index) => [
+  return cssExpressions(source, [
+    ...lexicalLaw.stops.flatMap((stop, index) => [
       nodeRule(`light.${stop}`, `@layer base/${lightSelector}`, `${property(stop)}: ${lexicalLaw.light[index]};`),
       nodeRule(`dark.${stop}`, "@layer base/:root", `${property(stop, true)}: ${lexicalLaw.dark[index]};`),
       ...[darkSelector, '@media (prefers-color-scheme: dark)/:root:not([data-theme="light"])'].map((selector, alias) =>
@@ -218,7 +217,12 @@ function styleExpressions(source) {
         ),
       ),
     ]),
-  );
+    nodeRule(
+      "brandFoilText.gradient",
+      "@layer utilities/.ds-brand-foil-text",
+      `background-image: linear-gradient(119deg, var(${property("start")}) 0%, var(${property("mid")}) 52%, var(${property("end")}) 100%);`,
+    ),
+  ]);
 }
 function tokenExpressions(source) {
   return nodeExpressions(
@@ -520,7 +524,7 @@ export const brandFoilRegistry = [
   {
     path: "packages/design-system/src/styles/styles.css",
     role: "value-authority",
-    counts: [18, 6, 0],
+    counts: [21, 6, 0],
     validate: styleExpressions,
   },
   {

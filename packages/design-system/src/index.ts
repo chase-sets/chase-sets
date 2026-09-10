@@ -1,3 +1,4 @@
+export * from "./brand/brand-foil-text";
 export * from "./brand/chase-sets-logo";
 export * from "./components/actions";
 export * from "./components/checkout";

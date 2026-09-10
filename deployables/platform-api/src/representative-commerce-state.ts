@@ -6,7 +6,7 @@ import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
-import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
+import { drainContextRuntime, getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -26,9 +26,10 @@ import {
   submitRepresentativeOffers,
   ensureRepresentativeInventoryStock,
   reconcileRepresentativeInventoryCatalogItems,
-  reconcileRepresentativeDiscoveryMarketState,
+  observeRepresentativeDiscoveryMarketState,
   reconcileRepresentativeOrderingSupplyState,
   type CatalogRepresentativeServices,
+  type MarketplaceRepresentativeListingResult,
   type RepresentativeInventoryServices,
 } from "@chase-sets/catalog-seed";
 import { apiContextRegistry } from "./generated/api-context-registry";
@@ -94,6 +95,87 @@ export function assertRepresentativeProductContentsReconciled(reconciled: boolea
   if (!reconciled) {
     throw new Error(
       "Representative Product Contents reconciliation requires both fixture Catalog Items to be projected.",
+    );
+  }
+}
+
+type RepresentativeCanarySellerListing = Pick<
+  NonNullable<Awaited<ReturnType<MarketplaceServices["listings"]["getSellerListing"]>>>,
+  "listing_id" | "product_id" | "price_amount" | "price_currency_code" | "listing_stream_version"
+>;
+type RepresentativeCanaryMarketplaceListing = Pick<
+  Awaited<ReturnType<MarketplaceServices["listings"]["listItemListings"]>>[number],
+  "listing_id" | "price_amount" | "price_currency_code" | "listing_stream_version" | "visible_quantity"
+>;
+type RepresentativeCanaryMarketplaceReadServices = Readonly<{
+  getSellerListing: (listingId: string, accountId: string) => Promise<RepresentativeCanarySellerListing | null>;
+  getMarketSummaryForItem: (
+    productId: string,
+  ) => Promise<Readonly<{ active_listing_count: number; total_visible_quantity: number }>>;
+  listItemListings: (productId: string) => Promise<readonly RepresentativeCanaryMarketplaceListing[]>;
+}>;
+
+type RepresentativeCanaryDiscoveryReadServices = Readonly<{
+  getItemDetail: (catalogItemId: string) => Promise<Readonly<{
+    market_summary: Readonly<{
+      active_listing_count: number;
+      total_visible_quantity: number;
+    }> | null;
+    market_listings: readonly Readonly<{
+      listing_id: string;
+      price_amount: string;
+      price_currency_code: string | null;
+      listing_stream_version: number;
+      visible_quantity: number;
+    }>[];
+  }> | null>;
+}>;
+
+export async function assertRepresentativeCanaryBuyerVisible(
+  services: Readonly<{
+    marketplace: RepresentativeCanaryMarketplaceReadServices;
+    discovery: RepresentativeCanaryDiscoveryReadServices;
+  }>,
+  canary: MarketplaceRepresentativeListingResult | undefined,
+): Promise<void> {
+  if (!canary) {
+    throw new Error("Representative Pokemon canary Listing is missing.");
+  }
+
+  const sellerListing = await services.marketplace.getSellerListing(canary.listingId, canary.accountId);
+  if (!sellerListing) {
+    throw new Error("Representative Pokemon canary Listing is missing from the Marketplace read model.");
+  }
+
+  const [marketplaceSummary, marketplaceListings, discoveryItem] = await Promise.all([
+    services.marketplace.getMarketSummaryForItem(sellerListing.product_id),
+    services.marketplace.listItemListings(sellerListing.product_id),
+    services.discovery.getItemDetail(canary.catalogItemId),
+  ]);
+  const marketplaceListing = marketplaceListings.find((listing) => listing.listing_id === canary.listingId);
+  const discoveryListing = discoveryItem?.market_listings.find((listing) => listing.listing_id === canary.listingId);
+  const expectedAmount = sellerListing.price_amount;
+  const marketplaceBuyerVisible =
+    sellerListing.price_currency_code === "USD" &&
+    (sellerListing.listing_stream_version ?? 0) > 0 &&
+    marketplaceSummary.active_listing_count > 0 &&
+    marketplaceSummary.total_visible_quantity > 0 &&
+    marketplaceListing?.price_amount === expectedAmount &&
+    marketplaceListing.price_currency_code === "USD" &&
+    (marketplaceListing.listing_stream_version ?? 0) > 0 &&
+    marketplaceListing.visible_quantity > 0;
+  const discoveryBuyerVisible =
+    discoveryItem?.market_summary !== null &&
+    (discoveryItem?.market_summary.active_listing_count ?? 0) > 0 &&
+    (discoveryItem?.market_summary.total_visible_quantity ?? 0) > 0 &&
+    discoveryListing?.price_amount === expectedAmount &&
+    discoveryListing.price_currency_code === "USD" &&
+    discoveryListing.listing_stream_version > 0 &&
+    discoveryListing.visible_quantity > 0;
+
+  if (!marketplaceBuyerVisible || !discoveryBuyerVisible) {
+    throw new Error(
+      "Representative Pokemon canary Listing must be buyer-visible in Marketplace and Discovery with explicit USD and positive quantity.",
     );
   }
 }
@@ -348,10 +430,9 @@ export async function runRepresentativeCommerceState(
           enabledDataProfiles: representativeCommerceStateDataProfiles,
           environmentName: execution.deploymentEnvironment,
           runtimeProfile: config?.runtimeProfile ?? "public",
-          // This command runs without projection workers, so retained-state
-          // repeat runs need the full drain for seed reconciliation guards to
-          // observe previously created records.
-          fullBootstrapDrain: true,
+          // Preserve pre-seed visibility and interrupted-state reconciliation
+          // without spending the canary's budget on unrelated runtime drains.
+          seedContextDrain: true,
         }),
       { timeoutMs: MAX_STEP_TIMEOUT_MS },
     );
@@ -430,6 +511,21 @@ export async function runRepresentativeCommerceState(
       publishRepresentativeListings(getMarketplaceServices(runtime.services), inventoryStock),
     );
     await syncProjection("marketplace", "marketplace-listing-projection");
+    await syncProjection("discovery", "discovery-market-projection");
+    await runStep("verify repaired Pokemon canary buyer visibility", () =>
+      assertRepresentativeCanaryBuyerVisible(
+        {
+          marketplace: getMarketplaceServices(runtime.services).listings,
+          discovery: getDiscoveryCanaryServices(runtime.services),
+        },
+        listings[0],
+      ),
+    );
+    await runStep(
+      "drain remaining representative projections",
+      () => drainContextRuntime(runtime, { settleIdleCheckpoints: true }),
+      { timeoutMs: MAX_STEP_TIMEOUT_MS },
+    );
     await syncProjection("ordering", "ordering-marketplace-supply-input-projection");
     // Restart safety: drain retained offer events before submitting so a
     // resumed run recognizes offers whose projection sync was interrupted.
@@ -450,6 +546,7 @@ export async function runRepresentativeCommerceState(
     await syncProjection("inventory", "inventory-hold-projection");
     await syncProjection("marketplace", "marketplace-inventory-supply-projection");
     await syncProjection("marketplace", "marketplace-listing-projection");
+    await syncProjection("discovery", "discovery-market-projection");
     await syncProjection("ordering", "ordering-marketplace-supply-input-projection");
     await syncProjection("ordering", "ordering-inventory-reservation-outcomes");
     await syncProjection("ordering", "ordering-order-projection");
@@ -466,16 +563,21 @@ export async function runRepresentativeCommerceState(
         },
       ),
     );
-    const discoveryMarketState = await runStep("reconcile representative discovery market state", () =>
-      reconcileRepresentativeDiscoveryMarketState(
+    await runStep("verify representative Pokemon canary buyer visibility", () =>
+      assertRepresentativeCanaryBuyerVisible(
         {
-          discoveryDb: getDiscoveryDb(runtime.services),
-          marketplaceDb: getMarketplaceDb(runtime.services),
+          marketplace: getMarketplaceServices(runtime.services).listings,
+          discovery: getDiscoveryCanaryServices(runtime.services),
         },
+        listings[0],
+      ),
+    );
+    const discoveryMarketState = await runStep("observe representative discovery market state", () =>
+      observeRepresentativeDiscoveryMarketState(
+        { discoveryDb: getDiscoveryDb(runtime.services) },
         {
           listingIds: listings.map((listing) => listing.listingId),
           offerIds: offers.map((offer) => offer.offerId),
-          existingRepresentativeLimit: readCandidateLimit(),
         },
       ),
     );
@@ -908,6 +1010,28 @@ function getMarketplaceServices(services: Readonly<Record<string, unknown>>): Ma
   }
 
   return marketplace as MarketplaceServices;
+}
+
+function getDiscoveryCanaryServices(
+  services: Readonly<Record<string, unknown>>,
+): RepresentativeCanaryDiscoveryReadServices {
+  const discovery = services.discovery;
+  if (
+    !discovery ||
+    typeof discovery !== "object" ||
+    !("items" in discovery) ||
+    !discovery.items ||
+    typeof discovery.items !== "object" ||
+    !("detail" in discovery.items) ||
+    !discovery.items.detail ||
+    typeof discovery.items.detail !== "object" ||
+    !("getItemDetail" in discovery.items.detail) ||
+    typeof discovery.items.detail.getItemDetail !== "function"
+  ) {
+    throw new Error("Representative commerce state requires mounted Discovery item-detail services.");
+  }
+
+  return discovery.items.detail as RepresentativeCanaryDiscoveryReadServices;
 }
 
 function getInventoryServices(services: Readonly<Record<string, unknown>>): RepresentativeInventoryServices {
