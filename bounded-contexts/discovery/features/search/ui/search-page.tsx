@@ -56,8 +56,8 @@ const FACET_OPTION_SEARCH_THRESHOLD = 8;
 const PRIORITY_SEARCH_RESULT_IMAGE_COUNT = 3;
 const SEARCH_CARD_IMAGE_WIDTH = 224;
 const SEARCH_CARD_IMAGE_HEIGHT = 314;
-// The one gold-foil word the no-query Home carries under the ratified foil law
-// (epic #6026): the unique brand-bearing literal in the unchanged headline.
+// The one gold-foil word the no-query Home carries under the ratified foil law:
+// the unique brand-bearing literal in the unchanged headline.
 const HERO_FOIL_WORD = "chasing";
 
 type DynamicSearchFilterSelection = Readonly<{
