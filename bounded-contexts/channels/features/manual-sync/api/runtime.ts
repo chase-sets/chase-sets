@@ -53,6 +53,10 @@ export interface ManualSyncServices {
     input: Readonly<{ accountId: string; connectionId: string; runId: string; expectedRevision: number }>,
     context: EventStoreContext,
   ): Promise<Readonly<{ run: ChannelSyncRun; batch: StagedImportBatch; fileName: string }>>;
+  retryClamp(
+    input: Readonly<{ accountId: string; connectionId: string; runId: string; expectedRevision: number }>,
+    context: EventStoreContext,
+  ): Promise<ManualSyncPanel>;
   release(
     input: Readonly<{ accountId: string; connectionId: string; runId: string; expectedRevision: number }>,
     context: EventStoreContext,
@@ -101,10 +105,10 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
   }
 
   async function authorizeRun(input: Readonly<{ accountId: string; connectionId: string; runId: string }>) {
-    await authorize(input);
+    const connection = await authorize(input);
     const run = await dependencies.tcgplayerCsv.readRun(input.runId);
     if (!run || run.connectionId !== input.connectionId) throw new ManualSyncError("invalid-action");
-    return run;
+    return { connection, run };
   }
 
   async function readPanel(input: Readonly<{ accountId: string; connectionId: string }>) {
@@ -140,22 +144,9 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
       return buildPanel(dependencies.db, connection, composed.run, now());
     },
     claimAndDownload: async (input, context) => {
-      const run = await authorizeRun(input);
+      const { run } = await authorizeRun(input);
       assertManualRunAction(run, input.expectedRevision, "composed");
-      if (run.membershipCompleteness.kind !== "complete") throw new ManualSyncError("invalid-action");
-      const listingIds = run.members.map((member) => member.listingId);
-      if (listingIds.length < 1 || new Set(listingIds).size !== listingIds.length) {
-        throw new ManualSyncError("invalid-action", "Channel Sync Run listing membership is not exact and unique.");
-      }
-      if (dependencies.marketplaceClamp.kind !== "available") {
-        throw new ManualSyncError("inbound-clamp-recovery", "Marketplace inbound clamp is not mounted.");
-      }
-      const clamp = await dependencies.marketplaceClamp.port.engage(
-        { accountId: input.accountId, connectionId: input.connectionId, runId: input.runId, listingIds },
-        context,
-      );
-      await recordClampStatus(dependencies.db, input, run.revision, clamp);
-      if (clamp.kind !== "engaged") throw new ManualSyncError("inbound-clamp-recovery");
+      await engageRunClamp(dependencies, input, run, context);
       const header = await readRunHeader(dependencies.db, run.runId);
       const batch = planStagedImportBatches({
         runId: run.runId,
@@ -170,8 +161,14 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
       );
       return { run: claimed, batch, fileName: `tcgplayer-staged-${run.runId}.csv` };
     },
+    retryClamp: async (input, context) => {
+      const { connection, run } = await authorizeRun(input);
+      assertManualRunAction(run, input.expectedRevision, "composed");
+      await engageRunClamp(dependencies, input, run, context);
+      return buildPanel(dependencies.db, connection, run, now());
+    },
     release: async (input, context) => {
-      const run = await authorizeRun(input);
+      const { run } = await authorizeRun(input);
       assertManualRunAction(run, input.expectedRevision, "claimed");
       if (run.uploadAttemptedAt !== null) throw new ManualSyncError("invalid-action");
       const clamp = requireClamp(dependencies.marketplaceClamp);
@@ -185,7 +182,7 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
       return released;
     },
     recordUploadAttempt: async (input, context) => {
-      const run = await authorizeRun(input);
+      const { run } = await authorizeRun(input);
       assertManualRunAction(run, input.expectedRevision, "claimed");
       return dependencies.tcgplayerCsv.recordUploadAttempt(
         {
@@ -198,7 +195,7 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
       );
     },
     recordValidationCancellation: async (input, context) => {
-      const run = await authorizeRun(input);
+      const { run } = await authorizeRun(input);
       assertManualRunAction(run, input.expectedRevision, "claimed");
       if (run.uploadAttemptedAt !== null) throw new ManualSyncError("invalid-action");
       const clamp = requireClamp(dependencies.marketplaceClamp);
@@ -238,7 +235,7 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
       return { result: ingested, probe };
     },
     verify: async (input, context) => {
-      const run = await authorizeRun(input);
+      const { run } = await authorizeRun(input);
       assertManualRunAction(run, input.expectedRevision, "awaiting-verification");
       return dependencies.tcgplayerCsv.verifyRun(
         {
@@ -291,12 +288,32 @@ async function buildPanel(
     connection,
     inboundCoverage: { state: "dark", reason: "no-inbound-authority" },
     run,
-    actions: available ? resolveManualSyncActions(run) : [],
+    actions: available ? resolveManualSyncActions(run, attentionReason) : [],
     leaseCountdownMs: run ? Math.max(0, Date.parse(run.leaseExpiresAt) - Date.parse(currentAt)) : null,
     requestedListingCount: run?.members.length ?? 0,
     composedListingCount: run?.members.filter((member) => member.memberKind === "composed").length ?? 0,
     attentionReason,
   };
+}
+
+async function engageRunClamp(
+  dependencies: ManualSyncRuntimeDependencies,
+  input: Readonly<{ accountId: string; connectionId: string; runId: string }>,
+  run: ChannelSyncRun,
+  context: EventStoreContext,
+) {
+  if (run.membershipCompleteness.kind !== "complete") throw new ManualSyncError("invalid-action");
+  const listingIds = run.members.map((member) => member.listingId);
+  if (listingIds.length < 1 || new Set(listingIds).size !== listingIds.length) {
+    throw new ManualSyncError("invalid-action", "Channel Sync Run listing membership is not exact and unique.");
+  }
+  const clamp = requireClamp(dependencies.marketplaceClamp);
+  const result = await clamp.engage(
+    { accountId: input.accountId, connectionId: input.connectionId, runId: input.runId, listingIds },
+    context,
+  );
+  await recordClampStatus(dependencies.db, input, run.revision, result);
+  if (result.kind !== "engaged") throw new ManualSyncError("inbound-clamp-recovery");
 }
 
 async function readAttentionReason(db: PgQueryable, run: ChannelSyncRun) {

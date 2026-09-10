@@ -10,14 +10,21 @@ describe("channels-manual-sync-design-system", () => {
     ["composed", ["Clamp and download CSV"]],
     ["claimed", ["Record upload attempt", "Record validation cancellation", "Release before submission"]],
     ["awaiting-verification", ["Ingest Staged export", "Verify newer Staged snapshot"]],
+    ["applied", []],
+    ["validation-rejected", []],
     ["application-unknown", []],
+    ["superseded", []],
+    ["stale-basis", []],
+    ["abandoned", []],
   ] as const)("renders the registered %s state without orphan actions", (state, labels) => {
     const markup = renderToStaticMarkup(<ManualSyncPanelView panel={panel(state)} />);
     expect(markup).toContain('data-testid="manual-sync-panel"');
     expect(markup).toContain("Inbound sales visibility is dark");
     for (const label of labels) expect(markup).toContain(label);
     if (state === "claimed") expect(markup).toContain("30m 0s");
-    if (state === "application-unknown") expect(markup).not.toContain('type="submit"');
+    if (state && !["composed", "claimed", "awaiting-verification"].includes(state)) {
+      expect(markup).not.toContain('type="submit"');
+    }
   });
 });
 

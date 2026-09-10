@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ResolvedPolicy } from "@chase-sets/platform-policy/resolver";
 import type { ChannelSyncRun, ChannelSyncRunState } from "../../tcgplayer-csv/domain/contracts";
+import {
+  assertManualClaimLeasePolicySnapshot,
+  canonicalManualClaimLeasePolicySnapshotDigest,
+} from "../../tcgplayer-csv/domain/validation";
 import { resolveManualSyncActions } from "./contracts";
 import { founderExportIngestProbe, inspectTcgplayerExportBytes } from "./ingest";
 import { decodeTcgplayerManualClaimLeasePolicyValue, freezeManualClaimLeasePolicySnapshot } from "./policy";
@@ -25,6 +29,8 @@ describe("manual-sync-panel-state-action-matrix", () => {
     expect(
       resolveManualSyncActions({ ...run("composed"), claimant: { claimantKind: "connector", claimantId: "worker" } }),
     ).toEqual([]);
+    expect(resolveManualSyncActions(run("composed"), "recovery")).toEqual(["retry-clamp"]);
+    expect(resolveManualSyncActions(run("claimed"), "recovery")).toEqual([]);
   });
 });
 
@@ -52,6 +58,65 @@ describe("manual-sync-claim-policy", () => {
     expect(snapshot).toMatchObject(resolution);
     expect(snapshot.digest).toMatch(/^[a-f0-9]{64}$/);
   });
+
+  it("freezes a covered policy source tuple and makes every tuple member digest-significant", () => {
+    const resolution: ResolvedPolicy<{ leaseMs: number }> = {
+      policyKey: "channels.tcgplayer-manual-claim-lease",
+      value: { leaseMs: 120_000 },
+      source: "policy",
+      documentId: "policy-document-110",
+      effectiveFrom: "2026-09-10T11:00:00.000Z",
+      effectiveUntil: "2026-09-10T13:00:00.000Z",
+      resolvedAt: "2026-09-10T12:00:00.000Z",
+    };
+    const snapshot = freezeManualClaimLeasePolicySnapshot(resolution);
+    expect(snapshot).toEqual({
+      ...resolution,
+      digest: canonicalManualClaimLeasePolicySnapshotDigest(resolution as never),
+    });
+    for (const mutation of [
+      { ...snapshot, value: { leaseMs: 120_001 } },
+      { ...snapshot, documentId: "policy-document-mutant" },
+      { ...snapshot, effectiveFrom: "2026-09-10T11:00:01.000Z" },
+      { ...snapshot, resolvedAt: "2026-09-10T12:00:01.000Z" },
+    ]) {
+      expect(() => assertManualClaimLeasePolicySnapshot(mutation)).toThrow(/digest/i);
+    }
+  });
+
+  it.each([
+    {
+      source: "policy",
+      documentId: null,
+      effectiveFrom: "2026-09-10T11:00:00.000Z",
+      effectiveUntil: null,
+    },
+    {
+      source: "policy",
+      documentId: "policy-document-110",
+      effectiveFrom: "2026-09-10T12:00:00.000Z",
+      effectiveUntil: "2026-09-10T12:00:00.000Z",
+    },
+    {
+      source: "fallback",
+      documentId: "policy-document-mutant",
+      effectiveFrom: null,
+      effectiveUntil: null,
+    },
+  ])("rejects an invalid source/window tuple %#", (mutation) => {
+    const tuple = {
+      policyKey: "channels.tcgplayer-manual-claim-lease" as const,
+      value: { leaseMs: 120_000 },
+      resolvedAt: "2026-09-10T12:00:00.000Z",
+      ...mutation,
+    };
+    expect(() =>
+      assertManualClaimLeasePolicySnapshot({
+        ...tuple,
+        digest: canonicalManualClaimLeasePolicySnapshotDigest(tuple as never),
+      }),
+    ).toThrow();
+  });
 });
 
 describe("manual-sync-export-ingest-bounds-and-completeness", () => {
@@ -70,6 +135,15 @@ describe("manual-sync-export-ingest-bounds-and-completeness", () => {
     const csv = `id\n${"1\n".repeat(100_001)}`;
     expect(() => inspectTcgplayerExportBytes(new TextEncoder().encode(csv))).toThrowError(
       expect.objectContaining({ code: "export-record-limit-exceeded" }),
+    );
+  });
+
+  it("rejects fatal UTF-8 and an unterminated logical record without returning partial CSV", () => {
+    expect(() => inspectTcgplayerExportBytes(Uint8Array.of(0xff))).toThrowError(
+      expect.objectContaining({ code: "invalid-input" }),
+    );
+    expect(() => inspectTcgplayerExportBytes(new TextEncoder().encode('id,name\n1,"unterminated'))).toThrowError(
+      expect.objectContaining({ code: "invalid-input" }),
     );
   });
 });

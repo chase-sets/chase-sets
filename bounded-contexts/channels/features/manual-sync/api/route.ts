@@ -1,6 +1,8 @@
 import { Hono, type Context } from "hono";
 import type { ChannelsApiEnv } from "../../../api";
 import { ChannelSyncRunError } from "../../tcgplayer-csv/domain/contracts";
+import type { TcgplayerImportSummary } from "../../tcgplayer-csv/domain/contracts";
+import { assertTcgplayerImportSummary } from "../../tcgplayer-csv/domain/validation";
 import { ManualSyncError, manualSyncIngestContract } from "../domain/contracts";
 import type { ManualSyncServices } from "./runtime";
 
@@ -47,6 +49,8 @@ export function createManualSyncRoutes(services: ManualSyncServices) {
       });
     });
   });
+
+  app.post("/:connectionId/manual-sync/runs/:runId/retry-clamp", async (c) => runFence(c, services.retryClamp));
 
   app.post("/:connectionId/manual-sync/runs/:runId/release", async (c) => runFence(c, services.release));
   app.post("/:connectionId/manual-sync/runs/:runId/validation-cancelled", async (c) =>
@@ -99,7 +103,7 @@ export function createManualSyncRoutes(services: ManualSyncServices) {
           runId: c.req.param("runId"),
           expectedRevision: safeRevision(body.expectedRevision),
           verificationSnapshotId: requiredText(body.verificationSnapshotId),
-          importSummary: body.importSummary as never,
+          importSummary: parseImportSummary(body.importSummary),
         },
         c.get("context"),
       );
@@ -111,7 +115,10 @@ export function createManualSyncRoutes(services: ManualSyncServices) {
 
 async function runFence(
   c: Context<ChannelsApiEnv>,
-  action: ManualSyncServices["release"] | ManualSyncServices["recordValidationCancellation"],
+  action:
+    | ManualSyncServices["release"]
+    | ManualSyncServices["recordValidationCancellation"]
+    | ManualSyncServices["retryClamp"],
 ) {
   if (!(await hasEmptyBody(c.req.raw))) return invalid(c);
   return execute(c, () =>
@@ -233,6 +240,15 @@ function safeRevision(value: unknown): number {
 function requiredText(value: unknown): string {
   if (typeof value !== "string" || value.length < 1 || value.length > 512) throw new ManualSyncError("invalid-input");
   return value;
+}
+
+function parseImportSummary(value: unknown): TcgplayerImportSummary {
+  try {
+    assertTcgplayerImportSummary(value);
+    return value;
+  } catch {
+    throw new ManualSyncError("invalid-input");
+  }
 }
 
 async function hasEmptyBody(request: Request) {
