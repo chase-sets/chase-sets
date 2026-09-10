@@ -424,28 +424,28 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         "window stays spendable in the meantime. If a card charge that added funds is later disputed and the " +
         "dispute is resolved against your account, Chase Sets recovers the disputed amount and the processor's " +
         "dispute fee from your account, consistent with the chargeback and dispute terms above; if a " +
-        "bank-withdrawal option is enabled, a withdrawal carries the processor's payout cost as a fee. Chase " +
-        "Sets does not pay interest on a Prepaid Balance, and it does not expire in this version. Adding funds " +
-        "is available only to accounts in the United States, requires your card to complete 3D Secure " +
-        "authentication, requires your account to be in good standing, and requires you to have accepted the " +
-        "current Payments Terms. Chase Sets may set and change the minimum, per-funding, and rolling-period " +
-        "maximum amounts for adding funds; the amounts in effect when the funding feature launches are a " +
-        "minimum of $5.00 and a maximum of $500.00 per funding, and a maximum of $2,000.00 within any rolling " +
-        "thirty-day period. A Prepaid Balance is not Marketplace Credit: Marketplace Credit stays promotional, " +
-        "usage-scoped value, while a Prepaid Balance is value you added with your own card.",
+        "bank-withdrawal option is enabled, a withdrawal carries the processor's payout cost as a fee. A " +
+        "Prepaid Balance does not expire in this version. Adding funds is available only to accounts in the " +
+        "United States, requests 3D Secure authentication on every funding, requires your account to be in " +
+        "good standing, and requires you to have accepted the current Payments Terms. Chase Sets may set and " +
+        "change the minimum, per-funding, and rolling-period maximum amounts for adding funds; the amounts in " +
+        "effect when the funding feature launches are a minimum of $5.00 and a maximum of $500.00 per funding, " +
+        "and a maximum of $2,000.00 within any rolling thirty-day period. A Prepaid Balance is not Marketplace " +
+        "Credit: it is value you added with your own card, and Marketplace Credit, if offered, is governed by " +
+        "its own terms.",
       reviewStatus: "counsel-required",
+      claimDisclosures: [{ claimId: "wallet-no-interest" }],
       reviewManifest: {
         scopeNote:
           "State that Prepaid Balance is funded by card, spends before available balance, refunds unspent " +
           "value to the source card within the processor refund window with the funding fee non-refundable, " +
           "parks bank withdrawal behind a future disclosure, and states the ruled limits and eligibility " +
           "gates, without inventing a refund-window duration, a bank-withdrawal launch date, or a Stripe/" +
-          "counsel position, and without describing Prepaid Balance as Marketplace Credit.",
+          "counsel position, without describing Prepaid Balance as Marketplace Credit, and without restating " +
+          "or resolving the sibling Wallet no-interest posture, which stays a corpus-wide unresolved claim " +
+          "rendered through the structural claimDisclosures segment, not free-form prose.",
         decisionRefs: [7807, 7808],
-        productTruthRefs: [
-          "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts:42-53",
-          "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:27-35",
-        ],
+        productTruthRefs: ["bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts:42-53"],
         openQuestions: [
           "Bank withdrawal of older unspent Prepaid Balance is parked: it stays gated behind a written Stripe " +
             "permission-probe answer and qualified counsel's money-transmitter read per the ruled Prepaid " +
@@ -455,6 +455,18 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "The exact duration of the processor refund window Stripe permits for a card is not yet confirmed by " +
             "repository evidence; this draft states only that a refund is available within whatever window the " +
             "processor's own rules allow, pending the wallet funding lifecycle probe's confirmed value.",
+          "ADR 0020:29, terms-of-service.ts cash-equivalent-and-marketplace-credit, and settlement/GLOSSARY.md:144 " +
+            "still define Marketplace Credit as 'promotional or prepaid'; #7807 rules 'prepaid' struck by a " +
+            "separate Prepaid Balance ADR that has not yet landed. This draft does not restate Marketplace " +
+            "Credit's definition.",
+          "Whether the funding fee (the card checkout processing fee charged on top of the requested amount and " +
+            "non-refundable, including when the unspent portion is refunded to the source card) is adequately " +
+            "disclosed in this section and at the Add-funds surface, and whether any jurisdiction requires a " +
+            "specific fee-disclosure form, is a counsel question; this draft states the fee rule from #7807 " +
+            "only.",
+          "Whether Chase Sets pays interest on a Prepaid Balance is not addressed by this section's draftText: " +
+            "it is the corpus-wide unresolved wallet-no-interest claim (canonical-claims.ts), rendered here " +
+            "through the structural claimDisclosures segment, not asserted as settled fact.",
         ],
         assumptions: [
           {
@@ -473,6 +485,13 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
               "incurs under the Commercial Terms checkout-processing-fee policy, not a separately invented " +
               "rate.",
             evidenceRef: "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts:42-53",
+          },
+        ],
+        canonicalClaims: [
+          { claimId: "wallet-no-interest", productTruthRefs: [] },
+          {
+            claimId: "payment-chargeback-recovery-mechanism",
+            productTruthRefs: paymentChargebackRecoveryProductTruthRefs,
           },
         ],
       },

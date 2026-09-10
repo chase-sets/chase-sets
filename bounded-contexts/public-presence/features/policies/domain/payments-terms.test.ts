@@ -213,5 +213,20 @@ describe("payments terms artifact", () => {
     // Prepaid Balance is drafted as distinct from the pre-existing,
     // promotional Marketplace Credit concept, never as a kind of it.
     expect(prepaidBalance?.draftText).toContain("is not Marketplace Credit");
+
+    // The section does not restate Marketplace Credit's own (contested)
+    // definition, and does not assert Wallet-balance interest as settled
+    // fact while the corpus-wide wallet-no-interest claim stays unresolved.
+    expect(prepaidBalance?.draftText).not.toContain("Marketplace Credit stays promotional");
+    expect(prepaidBalance?.draftText).not.toMatch(/does not pay (you )?interest/i);
+    expect(prepaidBalance?.claimDisclosures).toEqual(expect.arrayContaining([{ claimId: "wallet-no-interest" }]));
+    expect(prepaidBalance?.reviewManifest.canonicalClaims).toEqual(
+      expect.arrayContaining([expect.objectContaining({ claimId: "wallet-no-interest" })]),
+    );
+
+    // Scope item 3's fee-disclosure counsel question sits alongside the
+    // existing bank-permission and refund-window questions.
+    const openQuestions = prepaidBalance?.reviewManifest.openQuestions ?? [];
+    expect(openQuestions.some((question) => /fee/i.test(question) && /disclos/i.test(question))).toBe(true);
   });
 });
