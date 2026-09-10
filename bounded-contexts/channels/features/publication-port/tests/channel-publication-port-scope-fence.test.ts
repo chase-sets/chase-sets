@@ -17,8 +17,16 @@ describe("channel-publication-port-scope-fence", () => {
       "tcgplayer-csv",
       "outbound-sync",
       "connection-health",
+      "manual-sync",
     ]);
-    expect(manifest.hostPorts).toEqual([]);
+    expect(manifest.hostPorts).toEqual([
+      {
+        portName: "marketplaceChannelInboundClamp",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark.",
+      },
+    ]);
     expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support"]);
     expect(manifest.publicExports).toEqual([".", "./context", "./server", "./routes/*"]);
     expect(packageJson.exports).toEqual({
