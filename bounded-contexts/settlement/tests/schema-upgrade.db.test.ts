@@ -215,7 +215,7 @@ describeDb("settlement schema upgrades", () => {
       (candidate) => candidate.migrationId === "20260910_settlement_marketplace_label_postage",
     );
     expect(migration).toBeDefined();
-    expect(settlementModule.schemaMigrations.map((candidate) => candidate.migrationId)).toContain(
+    expect((settlementModule.schemaMigrations ?? []).map((candidate) => candidate.migrationId)).toContain(
       "20260910_settlement_marketplace_label_postage",
     );
 
