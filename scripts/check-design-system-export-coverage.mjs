@@ -35,6 +35,7 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "BottomNav",
   "BottomSheet",
   "Box",
+  "BrandFoilText",
   "BrandLink",
   "Breadcrumbs",
   "BulkActionBar",
