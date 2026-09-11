@@ -900,6 +900,7 @@
     "bounded-contexts/channels/features/outbound-sync/domain/rejection.ts",
     "bounded-contexts/channels/features/outbound-sync/domain/validation.ts",
     "bounded-contexts/channels/features/outbound-sync/read-model/schema.ts",
+    "bounded-contexts/channels/features/outbound-sync/ui/operation-log-loader.ts",
     "bounded-contexts/channels/features/outbound-sync/ui/operation-log-navigation.ts",
     "bounded-contexts/channels/features/publication-port/api/registry.ts",
     "bounded-contexts/channels/features/publication-port/domain/contracts.ts",

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -16,7 +17,7 @@ vi.mock("react-router", async (importOriginal) => {
 vi.mock("@chase-sets/design-system/react-router", async () => {
   const React = await import("react");
   return {
-    RouterForm: (props: { children?: unknown; [key: string]: unknown }) =>
+    RouterForm: (props: { children?: ReactNode; [key: string]: unknown }) =>
       React.createElement("form", props, props.children),
   };
 });
