@@ -182,4 +182,35 @@ describe("Seller Agreement policy artifact", () => {
 
     expect(readiness).toEqual({ ready: true, errors: [] });
   });
+
+  it("seller-agreement-payout-fee-reference", () => {
+    const feesAndDeductions = sellerAgreementPolicyArtifact.sections.find(
+      (section) => section.id === "fees-and-deductions",
+    );
+    expect(feesAndDeductions).toBeDefined();
+
+    // Names the Payout Fee policy document and the sales-fees article by
+    // reference, with no numeral anywhere in this subject's prose.
+    expect(feesAndDeductions?.draftText).toMatch(/payout fee policy document/i);
+    expect(feesAndDeductions?.draftText).toMatch(/deducted from the amount you request/i);
+    expect(feesAndDeductions?.draftText).not.toMatch(/\d/);
+
+    expect(feesAndDeductions?.reviewManifest.decisionRefs).toEqual(expect.arrayContaining([7818, 7819]));
+    expect(feesAndDeductions?.reviewManifest.productTruthRefs.some((ref) => ref.includes("sales-fees.en.md"))).toBe(
+      true,
+    );
+    expect(
+      feesAndDeductions?.reviewManifest.openQuestions.some(
+        (question) => /disclos/i.test(question) && /sufficient/i.test(question),
+      ),
+    ).toBe(true);
+    expect(
+      feesAndDeductions?.reviewManifest.openQuestions.some((question) => /not yet implemented/i.test(question)),
+    ).toBe(true);
+    expect(
+      feesAndDeductions?.reviewManifest.openQuestions.some(
+        (question) => /help article/i.test(question) && /not yet|absent|built by/i.test(question),
+      ),
+    ).toBe(true);
+  });
 });

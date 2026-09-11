@@ -9,6 +9,7 @@ export const requiredPaymentsTermsSubjectIds = [
   "processor-pass-through-and-collection-agent-role",
   "charge-timing-and-statement-descriptor",
   "payout-timing-and-clearance",
+  "payout-fee",
   "holds-freezes-and-offsets",
   "chargebacks-and-disputes",
   "kyc-and-verification",
@@ -169,6 +170,60 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
               "Chase Sets already models a payout-readiness status distinguishing account clearance, " +
               "outstanding provider requirements, and active holds, without publishing a numeric clearance SLA.",
             evidenceRef: "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:609-634",
+          },
+        ],
+      },
+    },
+    {
+      id: "payout-fee",
+      title: "Payout fee",
+      draftText:
+        "Each payout you request carries a payout fee, published in the current Payout Fee policy document and " +
+        "deducted from the requested amount before Chase Sets sends the remainder toward your payout " +
+        "destination. Chase Sets shows you the fee before you confirm a payout request. If the Payout Fee " +
+        "policy document also sets a separate monthly active-account amount, that amount applies only once, on " +
+        "your account's first payout of each calendar month, and does not apply again to a later payout in " +
+        "that same month. This document does not restate the payout fee's rate or amount; " +
+        "the figures in effect are published in the Payout Fee policy document.",
+      reviewStatus: "counsel-required",
+      reviewManifest: {
+        scopeNote:
+          "State that a payout fee applies to every requested payout, is deducted from the requested amount, " +
+          "is shown before confirmation, and that an optional monthly active-account component in the same " +
+          "policy document applies once per calendar month on the account's first payout, without stating a " +
+          "rate, a fixed amount, or any other numeral, and without asserting the Payout Fee policy document is " +
+          "already populated with a live value or that a payout fee is charged in production today.",
+        decisionRefs: [7818, 7819],
+        productTruthRefs: [],
+        openQuestions: [
+          "Whether disclosing a payout fee that is deducted from the requested amount, by reference to the " +
+            "Payout Fee policy document rather than by stating a rate in this document, is sufficient disclosure " +
+            "is reserved for counsel.",
+          "The settlement.payout-fee policy document this section names is ruled (#7818: percentage plus fixed " +
+            "per payout, deducted from the requested amount, pass-through of the payment processor's own " +
+            "per-payout pricing with no added premium, plus an optional monthly active-account amount charged " +
+            "only on an account's first payout of a calendar month) but not yet implemented; its policy module " +
+            "and compiled value are built by #7819, which this draft cites for the pending policy shape rather " +
+            "than asserting the document is already live or populated. This draft does not assert a payout fee " +
+            "is charged today.",
+        ],
+        assumptions: [
+          {
+            assertion:
+              "Todd's #7818 ruling (with its addendum) establishes the payout fee as a Settlement-owned policy " +
+              "document, deducted from the requested payout amount, with an optional monthly active-account " +
+              "component defaulting to absorbed and applying only to an account's first payout of a calendar " +
+              "month, and this draft states that shape without restating the ruled percentage, fixed amount, or " +
+              "default value as prose.",
+            evidenceRef: "https://github.com/chase-sets/chase-sets/issues/7818#issuecomment-5623255030",
+          },
+          {
+            assertion:
+              "The monthly active-account amount's first-payout-of-the-calendar-month mechanic, including that a " +
+              "failed first payout does not count, is Todd's ruling addendum, not a live product behavior this " +
+              "draft observed in code; the policy document and its determination logic are built by #7819 and " +
+              "#7820, which this draft does not restate beyond the ruled shape.",
+            evidenceRef: "https://github.com/chase-sets/chase-sets/issues/7818#issuecomment-5623500011",
           },
         ],
       },
