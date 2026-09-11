@@ -338,6 +338,11 @@ const aggregateTypeIdentity = {
   >,
 } as const;
 
+const aggregateTypeIdentityCoversEveryRegisteredEvent = true satisfies IsExactly<
+  keyof typeof aggregateTypeIdentity,
+  keyof ChaseSetsEventPayloads
+>;
+
 const inventoryItemCreatedAcquisitionCurrencyContract = {
   currentCurrency: true satisfies IsExactly<
     NonNullable<InventoryItemCreatedPayload["acquisitionCostCurrencyCode"]>,
@@ -479,7 +484,7 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(32);
+    expect(aggregateTypeIdentityCoversEveryRegisteredEvent).toBe(true);
     expect(Object.values(inventoryItemCreatedAcquisitionCurrencyContract).every(Boolean)).toBe(true);
   });
 
