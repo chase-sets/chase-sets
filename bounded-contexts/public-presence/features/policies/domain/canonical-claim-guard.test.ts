@@ -223,6 +223,7 @@ const registeredCorpusSectionIds = {
     "processor-pass-through-and-collection-agent-role",
     "charge-timing-and-statement-descriptor",
     "payout-timing-and-clearance",
+    "payout-fee",
     "holds-freezes-and-offsets",
     "chargebacks-and-disputes",
     "kyc-and-verification",
@@ -1040,7 +1041,7 @@ describe("finite authorized-agent semantic adjudication matrix", () => {
     const matrixKeys = registeredCorpusAdjudicationMatrix.map((row) => row.row);
 
     expect(matrixKeys).toEqual(projectedKeys);
-    expect(matrixKeys).toHaveLength(80);
+    expect(matrixKeys).toHaveLength(81);
     expect(new Set(matrixKeys).size).toBe(matrixKeys.length);
     for (const row of registeredCorpusAdjudicationMatrix) {
       expect(row.principalResponsibility, row.row).toBe("green");

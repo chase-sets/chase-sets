@@ -256,4 +256,46 @@ describe("payments terms artifact", () => {
     expect(readiness.ready).toBe(false);
     expect(isConsentActivatable(paymentsTermsPolicyArtifact, requiredPaymentsTermsSubjectIds)).toBe(false);
   });
+
+  it("payments-terms-payout-fee-subject", () => {
+    expect(requiredPaymentsTermsSubjectIds).toContain("payout-fee");
+
+    const payoutFee = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "payout-fee");
+    expect(payoutFee).toBeDefined();
+    expect(payoutFee?.title).toBe("Payout fee");
+    expect(payoutFee?.reviewStatus).toBe("counsel-required");
+    expect(payoutFee?.draftText.trim().length ?? 0).toBeGreaterThan(0);
+
+    // Names the policy document and the deduction/monthly mechanics, never a
+    // number: the rate, fixed amount, and monthly default stay in the policy
+    // document, not in operative disclosure prose.
+    expect(payoutFee?.draftText).toMatch(/payout fee/i);
+    expect(payoutFee?.draftText).toMatch(/payout fee policy document/i);
+    expect(payoutFee?.draftText).toMatch(/deducted from the requested amount/i);
+    expect(payoutFee?.draftText).toMatch(/first payout .* calendar month/i);
+    expect(payoutFee?.draftText).not.toMatch(/\d/);
+
+    // Cites the ruling decision and the implementation slice, not fabricated
+    // product-truth line numbers for a policy module that does not exist yet.
+    expect(payoutFee?.reviewManifest.decisionRefs).toEqual(expect.arrayContaining([7818, 7819]));
+    expect(payoutFee?.reviewManifest.productTruthRefs).toEqual([]);
+    expect(
+      payoutFee?.reviewManifest.openQuestions.some(
+        (question) => /disclos/i.test(question) && /sufficient/i.test(question),
+      ),
+    ).toBe(true);
+    expect(
+      payoutFee?.reviewManifest.openQuestions.some((question) => /not yet implemented/i.test(question)),
+    ).toBe(true);
+    for (const assumption of payoutFee?.reviewManifest.assumptions ?? []) {
+      expect(assumption.evidenceRef.length).toBeGreaterThan(0);
+    }
+
+    // Stays non-operative like every other subject.
+    const readiness = evaluatePublicPolicyPublicationReadiness(
+      paymentsTermsPolicyArtifact,
+      requiredPaymentsTermsSubjectIds,
+    );
+    expect(readiness.ready).toBe(false);
+  });
 });
