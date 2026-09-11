@@ -105,7 +105,7 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
   }
 
   async function authorizeRun(input: Readonly<{ accountId: string; connectionId: string; runId: string }>) {
-    const connection = await authorize(input);
+    const connection = await authorize({ accountId: input.accountId, connectionId: input.connectionId });
     const run = await dependencies.tcgplayerCsv.readRun(input.runId);
     if (!run || run.connectionId !== input.connectionId) throw new ManualSyncError("invalid-action");
     return { connection, run };
