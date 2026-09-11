@@ -102,8 +102,7 @@
       "sourceContextName": "channels",
       "projectionName": "tcgplayer-csv-projection",
       "subscriptionVersion": 1,
-      "filterToEventTypes": true,
-      "eventTypes": ["channels.tcgplayer-sync-run.composed", "channels.tcgplayer-sync-run.transitioned"],
+      "streamPrefixes": ["channels.tcgplayer-sync-run-"],
       "order": 50,
       "projectionHandlerSetNames": ["tcgplayer-csv-projection"]
     }
