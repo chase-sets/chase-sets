@@ -32,8 +32,10 @@ const CHECKED_AT = new Date("2026-07-29T19:04:00.000Z");
 const CHECKER_SHA = "a".repeat(40);
 const LABELS = ["priority:p1", "area:ops", "kind:tech-debt"];
 const MILESTONE = {
+  id: "MI_kwDORKgVcc4AAAAABaseMilestone",
   number: 136,
   title: "Wave 1 — Platform Foundation & Representative Staging",
+  description: null,
   state: "open",
 };
 
@@ -44,7 +46,7 @@ const GOLDEN_READINESS_METADATA = Object.freeze({
   number: 6749,
   state: "open",
   issueType: Object.freeze({ nodeId: "synthetic-slice-type", name: "Slice", isEnabled: true }),
-  milestone: Object.freeze({ number: 136, title: MILESTONE.title, state: "open" }),
+  milestone: Object.freeze({ ...MILESTONE }),
   labels: Object.freeze(["priority:p1", "area:ops", "kind:tech-debt"]),
   parentNumber: null,
   dependencies: Object.freeze([]),
@@ -419,6 +421,18 @@ function createHarness(scenario, { comments = [] } = {}) {
     return issueReads >= 2 && scenario.finalUpdatedAt ? scenario.finalUpdatedAt : authorityUpdatedAt;
   }
 
+  function currentMilestone() {
+    const milestone =
+      issueReads >= 2 && scenario.finalMilestone ? { ...MILESTONE, ...scenario.finalMilestone } : MILESTONE;
+    return {
+      node_id: milestone.id,
+      number: milestone.number,
+      title: milestone.title,
+      description: milestone.description,
+      state: milestone.state,
+    };
+  }
+
   function issuePayload() {
     return {
       node_id: ISSUE_NODE_ID,
@@ -427,7 +441,7 @@ function createHarness(scenario, { comments = [] } = {}) {
       updated_at: currentUpdatedAt(),
       body: scenarioBody(scenario),
       type: issueType,
-      milestone: MILESTONE,
+      milestone: currentMilestone(),
       comments: commentState.length,
       issue_dependencies_summary: {
         blocked_by: dependencies.filter((item) => item.state === "open").length,
@@ -928,6 +942,13 @@ describe("issue-readiness/v1 receipt and rule contract", () => {
   it("keeps the JSON schema rule IDs exact and versioned", () => {
     expect(schema.properties.schemaVersion.const).toBe(ISSUE_READINESS_SCHEMA_VERSION);
     expect(schema.properties.claim.const).toBe("structural-only");
+    expect(schema.properties.facts.properties.milestone.oneOf[1].required).toEqual([
+      "id",
+      "number",
+      "title",
+      "description",
+      "state",
+    ]);
     expect(schema.properties.checkedRules.items.properties.id.enum).toEqual(ISSUE_READINESS_RULES.map(({ id }) => id));
     expect(schema.properties.checkedRules.minItems).toBe(ISSUE_READINESS_RULES.length);
     expect(schema.properties.checkedRules.maxItems).toBe(ISSUE_READINESS_RULES.length);
@@ -1086,6 +1107,23 @@ describe("bounded complete GitHub authority collection", () => {
     });
   });
 
+  it("returns unknown when milestone policy changes without moving issue updatedAt", async () => {
+    const candidateDescription = '<!-- outcome: {"version":1,"track":"commerce","order":100,"status":"candidate"} -->';
+    const { result } = await runScenario({
+      ...fixtureScenario("ready"),
+      finalMilestone: { description: candidateDescription },
+    });
+
+    expect(result.receipt.status).toBe("unknown");
+    expect(result.receipt.reasonCodes).toContain("ISSUE_REVISION_MOVED");
+    expect(result.receipt.subject.updatedAt).toBe(UPDATED_AT);
+    expect(result.receipt.coverage.issue).toEqual({
+      initialRead: true,
+      finalRead: true,
+      revisionStable: false,
+    });
+  });
+
   it("returns unknown when the selected issue authority has moved repositories", async () => {
     const { result } = await runScenario(fixtureScenario("issue-moved"));
 
@@ -1222,6 +1260,37 @@ describe("prospective issue readiness", () => {
     expect(prospective.reasonCodes).toEqual(live.reasonCodes);
   });
 
+  it("accepts legacy Mobile and managed renamed outcomes while excluding candidates", () => {
+    const mobile = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({ milestone: { number: 200, title: "Mobile 3 — App delivery", state: "open" } }),
+    );
+    expect(mobile.status).toBe("ready");
+
+    const managedDescription = '<!-- outcome: {"version":1,"track":"commerce","order":100,"status":"committed"} -->';
+    const managed = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({
+        milestone: { number: 900, title: "Renamed checkout outcome", description: managedDescription, state: "open" },
+      }),
+    );
+    expect(managed.status).toBe("ready");
+
+    const candidate = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({
+        milestone: {
+          number: 901,
+          title: "Candidate checkout idea",
+          description: managedDescription.replace('"committed"', '"candidate"'),
+          state: "open",
+        },
+      }),
+    );
+    expect(candidate.status).toBe("not-ready");
+    expect(candidate.reasonCodes).toEqual(expect.arrayContaining(["MILESTONE_CANDIDATE", "MILESTONE_NOT_EXECUTABLE"]));
+  });
+
   it("advisory decomposition facts never change readiness status", () => {
     const threeCriteria = prospectiveResult(bodyWithAcceptanceCriteria(3));
     const twelveCriteria = prospectiveResult(bodyWithAcceptanceCriteria(12));
@@ -1248,6 +1317,7 @@ describe("prospective issue readiness", () => {
       number: ISSUE_NUMBER,
       nodeId: ISSUE_NODE_ID,
       updatedAt: UPDATED_AT,
+      milestone: MILESTONE,
     };
 
     expect(retrospectiveRecord).not.toHaveProperty("decompositionFacts");
@@ -1399,6 +1469,7 @@ describe("stable comment state machine", () => {
           number: rebound.subject.number,
           nodeId: rebound.subject.nodeId,
           updatedAt: "2026-07-29T19:05:00.000Z",
+          milestone: rebound.facts.milestone,
         },
         trustedCheckerSha: CHECKER_SHA,
         semanticPressureTest: "pass",
@@ -1481,6 +1552,7 @@ describe("runnable-set receipt consumer", () => {
       number: ISSUE_NUMBER,
       nodeId: ISSUE_NODE_ID,
       updatedAt: UPDATED_AT,
+      milestone: MILESTONE,
     };
 
     expect(
@@ -1531,6 +1603,84 @@ describe("runnable-set receipt consumer", () => {
     ).toMatchObject({ decision: "dispatch-planning-repair", reasonCode: "STRUCTURAL_NOT_READY" });
   });
 
+  it("rejects legacy receipts that do not bind milestone identity and description", async () => {
+    const receipt = (await runScenario(fixtureScenario("ready"))).result.receipt;
+    const legacyReceipt = {
+      ...receipt,
+      facts: {
+        ...receipt.facts,
+        milestone: {
+          number: receipt.facts.milestone.number,
+          title: receipt.facts.milestone.title,
+          state: receipt.facts.milestone.state,
+        },
+      },
+    };
+
+    expect(validateIssueReadinessReceipt(legacyReceipt)).toContain("facts");
+    expect(
+      consumeIssueReadinessReceipt({
+        receipt: legacyReceipt,
+        currentRevision: {
+          repository: REPOSITORY,
+          number: ISSUE_NUMBER,
+          nodeId: ISSUE_NODE_ID,
+          updatedAt: UPDATED_AT,
+          milestone: MILESTONE,
+        },
+        trustedCheckerSha: CHECKER_SHA,
+        semanticPressureTest: "pass",
+      }),
+    ).toMatchObject({ decision: "reject", reasonCode: "RECEIPT_MALFORMED" });
+  });
+
+  it.each([
+    ["identity", { ...MILESTONE, id: "MI_changed" }],
+    [
+      "description",
+      {
+        ...MILESTONE,
+        description: '<!-- outcome: {"version":1,"track":"commerce","order":100,"status":"candidate"} -->',
+      },
+    ],
+    ["state", { ...MILESTONE, state: "closed" }],
+  ])("rejects a ready receipt after milestone %s changes with stable issue updatedAt", async (_field, milestone) => {
+    const receipt = (await runScenario(fixtureScenario("ready"))).result.receipt;
+
+    expect(
+      consumeIssueReadinessReceipt({
+        receipt,
+        currentRevision: {
+          repository: REPOSITORY,
+          number: ISSUE_NUMBER,
+          nodeId: ISSUE_NODE_ID,
+          updatedAt: UPDATED_AT,
+          milestone,
+        },
+        trustedCheckerSha: CHECKER_SHA,
+        semanticPressureTest: "pass",
+      }),
+    ).toEqual({ decision: "reject", reasonCode: "RECEIPT_STALE", structuralStatus: "ready" });
+  });
+
+  it("rejects a caller that omits current milestone authority", async () => {
+    const receipt = (await runScenario(fixtureScenario("ready"))).result.receipt;
+
+    expect(
+      consumeIssueReadinessReceipt({
+        receipt,
+        currentRevision: {
+          repository: REPOSITORY,
+          number: ISSUE_NUMBER,
+          nodeId: ISSUE_NODE_ID,
+          updatedAt: UPDATED_AT,
+        },
+        trustedCheckerSha: CHECKER_SHA,
+        semanticPressureTest: "pass",
+      }),
+    ).toEqual({ decision: "reject", reasonCode: "RECEIPT_STALE", structuralStatus: "ready" });
+  });
+
   it("keeps semantic pressure-test rejection representable beside a structurally ready receipt", async () => {
     const receipt = (await runScenario(fixtureScenario("ready"))).result.receipt;
     const currentRevision = {
@@ -1538,6 +1688,7 @@ describe("runnable-set receipt consumer", () => {
       number: ISSUE_NUMBER,
       nodeId: ISSUE_NODE_ID,
       updatedAt: UPDATED_AT,
+      milestone: MILESTONE,
     };
 
     expect(receipt.status).toBe("ready");

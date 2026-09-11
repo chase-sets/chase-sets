@@ -48,4 +48,7 @@ jobs:
           # milestone due date. GitHub cannot plot the built-in Milestone field,
           # so the board carries a real Date field instead.
           TARGET_DATE_FIELD_ID: ${{ vars.DELIVERY_TARGET_DATE_FIELD_ID }}
+          # Optional during rollout; an agent configures this Number field once.
+          # Values are derived from milestone descriptions, never hand-ranked.
+          OUTCOME_ORDER_FIELD_ID: ${{ vars.DELIVERY_OUTCOME_ORDER_FIELD_ID }}
         run: node ./scripts/project-status-sync.mjs

@@ -13,7 +13,8 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { classified, isEpic as classifiedEpic, isTrackingOnly } from "./backlog-classify.mjs";
-import { derivePullWindow, seriesIdentity } from "./dispatch-window.mjs";
+import { derivePullWindow } from "./dispatch-window.mjs";
+import { compareOutcomeMilestones, isExecutableOutcome, readOutcomePolicy } from "./milestone-policy.mjs";
 
 // Generated status for the program roadmap issue. The contract this reports
 // against lives in docs/contributing/backlog-model.md. Numbers are generated
@@ -73,7 +74,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const TIMELINE_CONCURRENCY = 8;
 const EPIC_SUB_ISSUE_CAPACITY = 100;
 const EPIC_SUB_ISSUE_WARNING_THRESHOLD = 90;
-const NON_EXECUTABLE_MILESTONES = new Set(["Deferred / Incubation", "Operations"]);
 const MILESTONE_EVENTS = new Set(["milestoned", "demilestoned"]);
 const FORECAST_WINDOW_DAYS = 14;
 const FORECAST_SCHEMA_VERSION = "roadmap-forecast-inputs/v1";
@@ -632,7 +632,10 @@ export function buildForecastMilestoneCatalog(openMilestones, closedMilestones) 
     }
   }
   const catalog = [...openMilestones, ...closedMilestones]
-    .filter((milestone) => throughputIdentity(milestone.title) !== null)
+    // Forecast v1 is calibrated only for the legacy provider-number sequence.
+    // Managed ordering is deliberately reported as unavailable until the
+    // gate-chain forecast owns a stable-ID representation.
+    .filter((milestone) => readOutcomePolicy(milestone)?.source === "legacy-title")
     .map(({ number, title, state }) => ({ number, title, state }))
     .sort((left, right) => left.number - right.number);
   assertCatalogOrder(catalog);
@@ -752,7 +755,7 @@ function utcDayStart(nowMs) {
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }
 
-export function deriveForecastInputs({ catalog, normalizedIssues, nowMs }) {
+export function deriveForecastInputs({ catalog, normalizedIssues, nowMs, managedMilestoneNumbers = [] }) {
   const todayUtcMs = utcDayStart(nowMs);
   const catalogByNumber = new Map(catalog.map((milestone) => [milestone.number, milestone]));
   const identitiesByMilestone = new Map(
@@ -800,7 +803,11 @@ export function deriveForecastInputs({ catalog, normalizedIssues, nowMs }) {
     closureDays14,
     milestones,
   };
-  return { record, estimator };
+  return {
+    record,
+    estimator,
+    managedMilestoneNumbers: [...new Set(managedMilestoneNumbers)].sort((left, right) => left - right),
+  };
 }
 
 function validateForecastRecord(record, nowMs) {
@@ -937,10 +944,12 @@ export function classifyForecastDrift({ current, priorAuthority, normalizedIssue
   }
 
   const prior = priorAuthority.record;
+  const managedMilestoneNumbers = new Set(current.managedMilestoneNumbers ?? []);
   const currentByNumber = new Map(current.record.milestones.map((milestone) => [milestone.number, milestone]));
   const priorByNumber = new Map(prior.milestones.map((milestone) => [milestone.number, milestone]));
   for (const priorMilestone of prior.milestones) {
     const currentMilestone = currentByNumber.get(priorMilestone.number);
+    if (!currentMilestone && managedMilestoneNumbers.has(priorMilestone.number)) continue;
     if (!currentMilestone || currentMilestone.title !== priorMilestone.title) {
       throw authorityError("MILESTONE_CATALOG_DRIFT", "A retained Wave/Mobile milestone changed title or disappeared.");
     }
@@ -952,6 +961,7 @@ export function classifyForecastDrift({ current, priorAuthority, normalizedIssue
   const currentIssues = new Map(normalizedIssues.map((entry) => [entry.issue.number, entry]));
 
   for (const [number, priorIdentity] of priorIdentities) {
+    if (managedMilestoneNumbers.has(priorIdentity.milestoneNumber)) continue;
     const currentEntry = currentIssues.get(number);
     if (!currentEntry) {
       unknownThresholds.set(number, priorIdentity.milestoneNumber);
@@ -981,6 +991,7 @@ export function classifyForecastDrift({ current, priorAuthority, normalizedIssue
   }
   for (const priorMilestone of prior.milestones) {
     const currentMilestone = currentByNumber.get(priorMilestone.number);
+    if (!currentMilestone) continue;
     if (
       priorMilestone.state === "open" &&
       currentMilestone.state === "closed" &&
@@ -1142,10 +1153,12 @@ async function collectWindowConnection({ loadPage, firstPage = null, validateNod
 
 function validMilestone(node) {
   return (
-    hasOnlyKeys(node, ["id", "number", "title", "state"]) &&
+    (hasOnlyKeys(node, ["id", "number", "title", "description", "state"]) ||
+      hasOnlyKeys(node, ["id", "number", "title", "state"])) &&
     requiredString(node.id) &&
     isPositiveSafeInteger(node.number) &&
     requiredString(node.title) &&
+    (node.description === undefined || node.description === null || typeof node.description === "string") &&
     node.state === "OPEN"
   );
 }
@@ -1210,7 +1223,13 @@ function canonicalWindowAuthority({ milestones, issues }) {
     milestones: {
       totalCount: milestones.totalCount,
       nodes: milestones.nodes
-        .map((node) => ({ id: node.id, number: node.number, title: node.title, state: node.state }))
+        .map((node) => ({
+          id: node.id,
+          number: node.number,
+          title: node.title,
+          description: node.description ?? null,
+          state: node.state,
+        }))
         .sort((left, right) => left.id.localeCompare(right.id)),
     },
     issues: {
@@ -1339,15 +1358,20 @@ function authorityFacts(authority) {
 
 export function summarizePrioritizationHygiene(authority) {
   const facts = authorityFacts(authority);
+  const milestonesById = new Map(facts.milestones.map((milestone) => [milestone.id, milestone]));
   const selected = derivePullWindow(facts);
-  const selectedByFamily = new Map(selected.map((milestone) => [seriesIdentity(milestone.title).family, milestone.id]));
+  const selectedByFamily = new Map(
+    selected.map((milestone) => [readOutcomePolicy(milestonesById.get(milestone.id)).track, milestone.id]),
+  );
   const noWindowFamilies = facts.milestones
-    .map((milestone) => seriesIdentity(milestone.title)?.family)
+    .filter(isExecutableOutcome)
+    .map((milestone) => readOutcomePolicy(milestone).track)
     .filter((family) => family && !selectedByFamily.has(family));
   const candidates = [];
   for (const issue of facts.issues) {
-    const series = seriesIdentity(issue.milestone?.title);
-    if (!series || issue.milestone?.state !== "open") continue;
+    const milestone = milestonesById.get(issue.milestone?.id);
+    if (!milestone || !isExecutableOutcome(milestone)) continue;
+    const policy = readOutcomePolicy(milestone);
     const labels = issue.labels.map((label) => label.name);
     const priorityLabels = labels.filter((label) => label === "priority:p0" || label === "priority:p1");
     const input = {
@@ -1356,11 +1380,14 @@ export function summarizePrioritizationHygiene(authority) {
       labels,
       issueTypeName: issue.issueTypeName,
       milestoneTitle: issue.milestone.title,
+      milestoneDescription: milestone.description ?? null,
+      milestoneNumber: milestone.number,
+      milestoneState: milestone.state,
       blockedByCount: issue.blockedBy.filter((node) => node.state === "open").length,
       hasParent: false,
     };
     if (classifiedEpic(input) || priorityLabels.length !== 1) continue;
-    const selectedMilestoneId = selectedByFamily.get(series.family);
+    const selectedMilestoneId = selectedByFamily.get(policy.track);
     if (!selectedMilestoneId) {
       continue;
     }
@@ -1385,6 +1412,9 @@ export function toBacklogInput(issue) {
       ? issue.issueTypeName
       : (issue.type?.name ?? issue.issueType?.name ?? null),
     milestoneTitle: issue.milestone?.title ?? null,
+    milestoneDescription: issue.milestone?.description ?? null,
+    milestoneNumber: issue.milestone?.number ?? null,
+    milestoneState: issue.milestone?.state ?? null,
     blockedByCount: issue.blockedByCount,
     hasParent: issue.hasParent,
   };
@@ -1482,13 +1512,9 @@ function pct(part, total) {
   return total === 0 ? 0 : Math.round((part / total) * 100);
 }
 
-function isExecutableMilestone(title) {
-  return typeof title === "string" && title.length > 0 && !NON_EXECUTABLE_MILESTONES.has(title);
-}
-
 function isGrowthScopeIssue(issue) {
   const input = toBacklogInput(issue);
-  return !classifiedEpic(input) && !isTrackingOnly(input) && isExecutableMilestone(input.milestoneTitle);
+  return !classifiedEpic(input) && !isTrackingOnly(input) && isExecutableOutcome(issue.milestone);
 }
 
 export function timelineFetchRequired(issue, cutoffMs) {
@@ -1514,22 +1540,20 @@ function unknownEntry(reason) {
 }
 
 export function resolveCurrentMilestoneEntry(issue, timeline) {
-  const currentTitle = issue.milestone?.title;
   const milestoneEvents = timeline.filter((event) => MILESTONE_EVENTS.has(event?.event));
-  const matchingEntries = milestoneEvents.filter(
-    (event) => event.event === "milestoned" && event.milestone?.title === currentTitle,
-  );
-
-  if (matchingEntries.length > 0) {
-    const timestamps = matchingEntries.map((event) => Date.parse(event.created_at));
-    if (timestamps.some((timestamp) => !Number.isFinite(timestamp))) {
-      return unknownEntry("matching milestone entry has an invalid timestamp");
-    }
-    return knownEntry(Math.max(...timestamps), "latest-milestoned-event");
-  }
-
   if (milestoneEvents.length > 0) {
-    return unknownEntry(`milestone history has no entry titled "${currentTitle}"`);
+    const timestamps = milestoneEvents.map((event) => Date.parse(event.created_at));
+    if (timestamps.some((timestamp) => !Number.isFinite(timestamp))) {
+      return unknownEntry("milestone history has an invalid timestamp");
+    }
+    let latestIndex = 0;
+    for (let index = 1; index < milestoneEvents.length; index += 1) {
+      if (timestamps[index] > timestamps[latestIndex]) latestIndex = index;
+    }
+    if (milestoneEvents[latestIndex].event !== "milestoned") {
+      return unknownEntry("current milestone has no final milestoned transition");
+    }
+    return knownEntry(timestamps[latestIndex], "latest-milestoned-event");
   }
 
   const createdAtMs = Date.parse(issue.created_at);
@@ -1667,28 +1691,29 @@ export function summarizeWaves({
   const epics = entries.filter(({ input }) => classifiedEpic(input));
   const cutoff = nowMs - windowDays * DAY_MS;
 
-  // An epic's wave is the earliest-dated wave among its children: epics are
-  // unmilestoned by contract, so they have no wave of their own.
-  const milestoneOrder = new Map(milestones.map((milestone, index) => [milestone.title, index]));
-  const epicWave = new Map();
+  // Epics contribute through their children in each outcome.
+  const orderedMilestones = milestones.slice().sort(compareOutcomeMilestones);
+  const milestoneByNumber = new Map(orderedMilestones.map((milestone) => [milestone.number, milestone]));
+  const epicOutcomes = new Map();
   for (const { issue: epic } of epics) {
     const children = epicChildren.get(epic.number)?.children ?? [];
-    let best = null;
+    const contributions = new Set();
     for (const child of children) {
-      const title = child.milestone?.title;
-      if (!title || !milestoneOrder.has(title)) continue;
-      if (best === null || milestoneOrder.get(title) < milestoneOrder.get(best)) best = title;
+      const number = child.milestone?.number;
+      if (milestoneByNumber.has(number)) contributions.add(number);
     }
-    if (best) epicWave.set(epic.number, best);
+    if (contributions.size > 0) epicOutcomes.set(epic.number, contributions);
   }
 
-  const rows = milestones.map((milestone) => {
-    const waveSlices = slices.filter(({ issue }) => issue.milestone?.title === milestone.title);
+  const rows = orderedMilestones.map((milestone) => {
+    const policy = readOutcomePolicy(milestone);
+    const candidate = policy?.status === "candidate";
+    const waveSlices = slices.filter(({ issue }) => issue.milestone?.number === milestone.number);
     const tracking = waveSlices.filter(({ input }) => isTrackingOnly(input));
     const mine = waveSlices.filter(({ input }) => !isTrackingOnly(input));
     const closed = mine.filter(({ input }) => input.state === "closed");
     const open = mine.filter(({ input }) => input.state === "open");
-    const executable = isExecutableMilestone(milestone.title);
+    const executable = isExecutableOutcome(milestone);
     let addedRecently = 0;
     let growthUnknown = 0;
 
@@ -1704,10 +1729,12 @@ export function summarizeWaves({
     }
 
     const classifiedOpen = open.filter(({ input }) => classified(input));
-    const waveEpics = epics.filter(({ issue: epic }) => epicWave.get(epic.number) === milestone.title);
+    const waveEpics = candidate
+      ? []
+      : epics.filter(({ issue: epic }) => epicOutcomes.get(epic.number)?.has(milestone.number));
     const completeEpics = waveEpics.filter(({ issue: epic }) => {
       const collection = epicChildren.get(epic.number);
-      const children = collection?.children ?? [];
+      const children = (collection?.children ?? []).filter((child) => child.milestone?.number === milestone.number);
       if (collection?.capacity?.state === "saturated") return false;
       return children.length > 0 && children.every((child) => child.state === "closed");
     });
@@ -1717,6 +1744,8 @@ export function summarizeWaves({
 
     return {
       title: milestone.title,
+      milestoneNumber: milestone.number,
+      managedOrder: policy?.source === "description",
       dueOn: milestone.due_on ? milestone.due_on.slice(0, 10) : "—",
       executable,
       total: mine.length,
@@ -1784,7 +1813,7 @@ export function renderRoadmapStatus(summary) {
           ? `+${row.addedRecently}`
           : "0";
     const forecastRow = forecast.rows.get(row.title);
-    const forecastCell = forecastRow?.forecastCell ?? "—";
+    const forecastCell = forecastRow?.forecastCell ?? (row.managedOrder ? "unavailable (managed order)" : "—");
     const driftCell = forecastRow?.driftCell ?? "—";
     lines.push(
       `| ${label} | ${forecastCell} | ${driftCell} | ${row.total} | ${row.closed} (${row.percent}%) | ${row.open} | ${refinedRatio} | ${parentless} | ${row.tracking} | ${growth} | ${epics} |`,
@@ -2006,7 +2035,7 @@ query($owner:String!, $name:String!, $after:String) {
     milestones(first:100, after:$after, states:[OPEN]) {
       totalCount
       pageInfo { hasNextPage endCursor }
-      nodes { id number title state }
+      nodes { id number title description state }
     }
   }
 }`;
@@ -2146,11 +2175,7 @@ export async function main({
 
   const openMilestones = await paginate(`/repos/${repo}/milestones?state=open&per_page=100`, token, request);
   const closedMilestones = await paginate(`/repos/${repo}/milestones?state=closed&per_page=100`, token, request);
-  const milestones = openMilestones.slice().sort((a, b) => {
-    if (!a.due_on) return 1;
-    if (!b.due_on) return -1;
-    return a.due_on.localeCompare(b.due_on);
-  });
+  const milestones = openMilestones.slice().sort(compareOutcomeMilestones);
   const raw = await paginate(`/repos/${repo}/issues?state=all&per_page=100`, token, request);
   const [owner, name, extra] = repo.split("/");
   if (!owner || !name || extra) {
@@ -2215,7 +2240,10 @@ export async function main({
     scopeGrowthByIssue: scopeGrowth.byIssue,
     nowMs,
   });
-  const currentForecast = deriveForecastInputs({ catalog, normalizedIssues, nowMs });
+  const managedMilestoneNumbers = [...openMilestones, ...closedMilestones]
+    .filter((milestone) => readOutcomePolicy(milestone)?.source === "description")
+    .map((milestone) => milestone.number);
+  const currentForecast = deriveForecastInputs({ catalog, normalizedIssues, nowMs, managedMilestoneNumbers });
   const priorAuthority = readPriorForecastRecord(currentRoadmap?.body ?? "", nowMs);
   let drift;
   try {

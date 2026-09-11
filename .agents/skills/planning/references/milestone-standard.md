@@ -1,50 +1,53 @@
-# Milestone Standard — the outcome container
+# Milestone Standard — a finite outcome
 
-Milestones are few and **outcome-oriented**: each states a user- or
-operator-visible outcome and a date. A milestone is a **time horizon** — never a
-theme, a component list, or a parallel track. Prefer placing new work into an
-existing milestone; mint a new one only when no current milestone owns the
-outcome.
+Use `docs/contributing/backlog-model.md` for the authority and ordering contract.
+Agents own milestone creation, placement, promotion, splitting and priority.
+Todd supplies steering overrides; never ask him to classify routine work.
 
-Structure contract: `docs/contributing/backlog-model.md`.
+Prefer an existing outcome only when it actually requires the issue's
+acceptance. A shared theme or bounded context is not sufficient. Create a new
+committed milestone when a distinct, approved, independently usable outcome
+needs its own finish line. Keep future themes in candidate milestones until an
+agent selects a bounded deliverable. Do not park implementation recovery.
 
-Three milestones are not waves and never enter the executable queue:
-`Deferred / Incubation` (explicitly parked), `Operations` (machine-generated
-incidents, ops alerts, delivery-health signals), and — by absence — **no
-milestone at all, which means exactly one thing: needs triage**. Never leave
-real work unmilestoned to mean "later"; that is what `Deferred / Incubation` is
-for.
+## Description
 
-## Description fields
+Include:
 
-- **Outcome.** One or two sentences: what is true for users/operators when this
-  closes. If you can't state it without listing components, it's a theme, not a
-  milestone — recut it.
-- **Scope boundary.** What this milestone explicitly does NOT cover, and which
-  milestone covers it instead.
-- **Entry gates.** Milestones/decisions that must land first.
-- **Exit criteria.** The evidence that proves the outcome (beyond "all issues
-  closed") — a verifier, a UAT flow, a metric.
-- **Track placement.** Where it sits in the program order (tracking issue),
-  and any deadline.
+- **Outcome and owner:** what becomes true for users/operators and which
+  capability owns acceptance.
+- **Scope boundary:** required behavior and explicit exclusions, with a named
+  destination for future work.
+- **Entry conditions:** genuine prerequisites represented by native issue
+  dependencies, including provider and operator lifecycle conditions.
+- **Exit gates:** current terminal evidence issue references in an `Exit gates:`
+  clause ending before `Canonical sequencing:`. Put history and decision
+  references outside the clause. A percentage or an empty issue list is not
+  evidence of the outcome.
+- **Order:** one valid `outcome` metadata comment with agent-selected track,
+  sparse order and committed/candidate status, per the shared policy.
+- **Placement reason:** why this outcome is selected now, any scope tradeoff,
+  and applicable steering, recorded on the program roadmap.
 
-## Rules
+Keep open milestone due dates null. Put an actual external date on its owning
+gate issue; never create dates to force display or dispatch order.
 
-- One epic per coherent feature inside the milestone. Attach slices to the Epic
-  that owns their acceptance whenever one exists. Parent attachment is reported,
-  not gating, under the current `refined ≡ classified` contract. A future
-  parent-or-standalone gate (and any `status:standalone` label) would require a
-  new fixed-scope change; [#6174](https://github.com/chase-sets/chase-sets/issues/6174)
-  records that it is not current behavior.
-- A milestone closes when all non-parked children close AND exit-criteria
-  evidence is linked from the closing comment.
-- Reprioritization is a tracking-issue comment plus milestone description
-  update — parked children move out (to a parked milestone or closed
-  as-superseded) rather than lingering.
-- A milestone that cannot finish inside its horizon is **split at planning
-  time**, not at the deadline. If the split lines are not real, move the date
-  instead — renaming buckets is not scheduling. Watch for the dumping-ground
-  shape: one wave holding a third of the backlog under a single date.
-- Never hand-maintain issue counts in a milestone description or roadmap issue.
-  `scripts/roadmap-status.mjs` generates them; a hand-typed rollup drifted on
-  5 of 12 rows in two weeks.
+## Lifecycle
+
+At intake, identify observable acceptance, attach the owning Epic when one
+exists, and place the slice in the committed outcome that needs it. Epics stay
+unmilestoned. Parent attachment is reported, not a dispatch gate.
+
+Promote candidate work only as a bounded usable outcome with explicit gates.
+Rank by steering, correctness, gate-unblocking value, evidenced complete-outcome
+benefit/effort, readiness and age. Missing evidence does not require a Todd
+placement decision and must not become an invented impact score.
+
+Close a committed milestone only after its admitted acceptance and terminal
+evidence pass. Reconcile required tracking records and give optional remainder
+an explicit destination before closure. Preserve successor links and active
+work; closing a gate never silently cancels other admitted acceptance.
+
+Register material changes in the roadmap. Never hand-maintain progress counts;
+`scripts/roadmap-status.mjs` owns generated status. Refresh finite commitments
+rather than repeatedly appending adjacent improvements to the earliest wave.

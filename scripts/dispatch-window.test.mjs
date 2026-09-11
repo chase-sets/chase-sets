@@ -20,6 +20,29 @@ function issue(number, milestone, labels, overrides = {}) {
 }
 
 describe("dispatch pull window", () => {
+  it("uses managed order across insertion and rename while excluding candidates", () => {
+    const outcome = (id, number, title, order, status = "committed") => ({
+      id,
+      number,
+      title,
+      state: "open",
+      description: `<!-- outcome: ${JSON.stringify({ version: 1, track: "commerce", order, status })} -->`,
+    });
+    const first = outcome("managed-created-later", 900, "Renamed launch outcome", 100);
+    const second = outcome("managed-created-first", 100, "Any title", 200);
+    const candidate = outcome("managed-candidate", 50, "Candidate", 50, "candidate");
+    expect(
+      derivePullWindow({
+        milestones: [second, candidate, first],
+        issues: [
+          issue(10, second, ["priority:p1", "area:ops", "kind:ops"]),
+          issue(11, candidate, ["priority:p1", "area:ops", "kind:ops"]),
+          issue(12, first, ["priority:p1", "area:ops", "kind:ops"]),
+        ],
+      }),
+    ).toEqual([{ id: first.id, number: first.number, title: first.title }]);
+  });
+
   it("derives the per-series pull window from runnable refined facts", () => {
     const facts = {
       milestones: [

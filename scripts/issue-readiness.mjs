@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { classified } from "./backlog-classify.mjs";
 import { canonicalLabelNames, ENABLED_NATIVE_ISSUE_TYPES } from "./label-registry.mjs";
+import { isExecutableOutcome, readOutcomePolicy } from "./milestone-policy.mjs";
 
 export const ISSUE_READINESS_SCHEMA_VERSION = "issue-readiness/v1";
 export const ISSUE_READINESS_RUN_SCHEMA_VERSION = "issue-readiness-run/v1";
@@ -150,9 +151,12 @@ function projectIssue(raw, repository, expectedNumber) {
   if (
     raw.milestone !== null &&
     (typeof raw.milestone !== "object" ||
+      typeof raw.milestone.node_id !== "string" ||
+      raw.milestone.node_id.length === 0 ||
       typeof raw.milestone.title !== "string" ||
       !nonNegativeInteger(raw.milestone.number) ||
-      !["open", "closed"].includes(raw.milestone.state))
+      !["open", "closed"].includes(raw.milestone.state) ||
+      (raw.milestone.description !== null && typeof raw.milestone.description !== "string"))
   ) {
     fail("ISSUE_MILESTONE_SHAPE_INVALID");
   }
@@ -164,7 +168,13 @@ function projectIssue(raw, repository, expectedNumber) {
     body: raw.body ?? "",
     issueType: raw.type ? { nodeId: raw.type.node_id, name: raw.type.name, isEnabled: raw.type.is_enabled } : null,
     milestone: raw.milestone
-      ? { number: raw.milestone.number, title: raw.milestone.title, state: raw.milestone.state }
+      ? {
+          id: raw.milestone.node_id ?? null,
+          number: raw.milestone.number,
+          title: raw.milestone.title,
+          description: raw.milestone.description ?? null,
+          state: raw.milestone.state,
+        }
       : null,
     commentsTotal: raw.comments,
     dependenciesTotal: raw.issue_dependencies_summary.total_blocked_by,
@@ -537,8 +547,10 @@ export async function collectIssueAuthority({ repository, number, token, client 
       finalIssue.issueType?.nodeId === issue.issueType?.nodeId &&
       finalIssue.issueType?.name === issue.issueType?.name &&
       finalIssue.issueType?.isEnabled === issue.issueType?.isEnabled &&
+      finalIssue.milestone?.id === issue.milestone?.id &&
       finalIssue.milestone?.number === issue.milestone?.number &&
       finalIssue.milestone?.title === issue.milestone?.title &&
+      finalIssue.milestone?.description === issue.milestone?.description &&
       finalIssue.milestone?.state === issue.milestone?.state &&
       finalIssue.commentsTotal === issue.commentsTotal &&
       finalIssue.dependenciesTotal === issue.dependenciesTotal &&
@@ -829,7 +841,15 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
     facts: {
       state: authority.issue?.state ?? null,
       issueType: authority.issue?.issueType ?? null,
-      milestone: authority.issue?.milestone ?? null,
+      milestone: authority.issue?.milestone
+        ? {
+            id: authority.issue.milestone.id,
+            number: authority.issue.milestone.number,
+            title: authority.issue.milestone.title,
+            description: authority.issue.milestone.description,
+            state: authority.issue.milestone.state,
+          }
+        : null,
       labels: [...(authority.labels ?? [])].sort(),
       hasParent: authority.graph?.hasParent ?? null,
       parentNumber: authority.graph?.parentNumber ?? null,
@@ -886,6 +906,9 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
     labels,
     issueTypeName,
     milestoneTitle: authority.issue.milestone?.title ?? null,
+    milestoneDescription: authority.issue.milestone?.description ?? null,
+    milestoneNumber: authority.issue.milestone?.number ?? null,
+    milestoneState: authority.issue.milestone?.state ?? null,
     blockedByCount: authority.dependencies.filter((dependency) => dependency.state === "open").length,
     hasParent: authority.graph.hasParent,
   };
@@ -898,8 +921,11 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
   ) {
     classificationFailures.push("ISSUE_TYPE_NOT_DISPATCHABLE");
   }
-  if (!/^Wave\s+\d+\b/.test(authority.issue.milestone?.title ?? "")) {
-    classificationFailures.push("MILESTONE_NOT_WAVE");
+  const outcomePolicy = readOutcomePolicy(authority.issue.milestone);
+  if (outcomePolicy === null) classificationFailures.push("MILESTONE_NOT_OUTCOME");
+  if (outcomePolicy?.status === "candidate") classificationFailures.push("MILESTONE_CANDIDATE");
+  if (authority.issue.milestone && !isExecutableOutcome(authority.issue.milestone)) {
+    classificationFailures.push("MILESTONE_NOT_EXECUTABLE");
   }
   if (authority.issue.milestone?.state !== "open") classificationFailures.push("MILESTONE_NOT_OPEN");
   if (labels.some((label) => NON_RUNNABLE_LABELS.has(label))) {
@@ -1117,10 +1143,13 @@ export function validateIssueReadinessReceipt(receipt) {
   const milestoneFactValid =
     receipt.facts?.milestone === null ||
     (receipt.facts?.milestone &&
-      hasExactKeys(receipt.facts.milestone, ["number", "title", "state"]) &&
+      hasExactKeys(receipt.facts.milestone, ["id", "number", "title", "description", "state"]) &&
+      typeof receipt.facts.milestone.id === "string" &&
+      receipt.facts.milestone.id.length > 0 &&
       Number.isInteger(receipt.facts.milestone.number) &&
       receipt.facts.milestone.number > 0 &&
       typeof receipt.facts.milestone.title === "string" &&
+      (receipt.facts.milestone.description === null || typeof receipt.facts.milestone.description === "string") &&
       ["open", "closed"].includes(receipt.facts.milestone.state));
   const dependencyFactsValid =
     Array.isArray(receipt.facts?.dependencies) &&
@@ -1436,6 +1465,20 @@ export async function upsertIssueReadinessComment({
   });
 }
 
+function sameMilestoneRevision(receiptMilestone, currentMilestone) {
+  if (receiptMilestone === null || currentMilestone === null) return receiptMilestone === currentMilestone;
+  return (
+    currentMilestone !== undefined &&
+    typeof currentMilestone === "object" &&
+    !Array.isArray(currentMilestone) &&
+    receiptMilestone.id === currentMilestone.id &&
+    receiptMilestone.number === currentMilestone.number &&
+    receiptMilestone.title === currentMilestone.title &&
+    receiptMilestone.description === currentMilestone.description &&
+    receiptMilestone.state === currentMilestone.state
+  );
+}
+
 export function consumeIssueReadinessReceipt({
   receipt,
   currentRevision,
@@ -1463,7 +1506,8 @@ export function consumeIssueReadinessReceipt({
     receipt.subject.repository !== currentRevision.repository ||
     receipt.subject.number !== currentRevision.number ||
     receipt.subject.nodeId !== currentRevision.nodeId ||
-    receipt.subject.updatedAt !== currentRevision.updatedAt
+    receipt.subject.updatedAt !== currentRevision.updatedAt ||
+    !sameMilestoneRevision(receipt.facts.milestone, currentRevision.milestone)
   ) {
     return { decision: "reject", reasonCode: "RECEIPT_STALE", structuralStatus: receipt.status };
   }

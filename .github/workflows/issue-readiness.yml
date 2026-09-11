@@ -51,6 +51,7 @@ jobs:
             const trustedRoot = path.join(process.env.RUNNER_TEMP, "issue-readiness-trusted-base");
             const sourcePaths = [
               "scripts/backlog-classify.mjs",
+              "scripts/milestone-policy.mjs",
               "scripts/label-registry.mjs",
               "scripts/issue-readiness.mjs",
               "scripts/issue-readiness-v1.schema.json",
