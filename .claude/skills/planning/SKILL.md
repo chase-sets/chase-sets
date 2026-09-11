@@ -51,6 +51,8 @@ superseded. Never ask Todd which milestone to use, make him supply routine
 ranks, or turn missing priority evidence into a Decision. Continue routing
 actual unresolved product, legal and provider-authority choices as before.
 Do not use candidate placement to hide stopped implementation or active lanes.
+Planning recovery queries `status:needs-replan` across all milestones, including
+candidates; candidate status only excludes ordinary implementation dispatch.
 
 ## Bounded brief contract
 

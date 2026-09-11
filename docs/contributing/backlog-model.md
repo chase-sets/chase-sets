@@ -143,6 +143,10 @@ acceptance or directly covered by steering. Record the gate it serves and the
 scope/sequence tradeoff. Useful unrelated work competes for the next outcome.
 Never use candidate placement to hide failed implementation, unresolved recovery,
 or an active lane; preserve its existing acceptance and recovery disposition.
+Candidate controls implementation selection only: query `status:needs-replan`
+across every milestone for planning recovery. A candidate recovery record stays
+in that planning queue until repaired or explicitly dispositioned; promotion of
+its implementation still requires a selected finite outcome.
 
 ### Epic = a capability, and the parent of its slices
 
