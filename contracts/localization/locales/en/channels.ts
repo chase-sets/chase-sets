@@ -109,6 +109,8 @@ export const channelsEnglishTranslations = {
   "channels.manualSync.title": "Manual TCGplayer sync",
   "channels.manualSync.description":
     "Download the exact Staged batch, upload it in TCGplayer, then ingest the resulting export for verification.",
+  "channels.manualSync.error.title": "Manual TCGplayer sync is unavailable",
+  "channels.manualSync.error.description": "We could not load this connection's manual sync. Try again in a moment.",
   "channels.manualSync.coverage.dark": "Inbound sales visibility is dark",
   "channels.manualSync.coverage.dark.description":
     "TCGplayer provides no inbound seller authority. Active Marketplace listings represented by a claimed run stay non-sellable until recovery is proven safe.",

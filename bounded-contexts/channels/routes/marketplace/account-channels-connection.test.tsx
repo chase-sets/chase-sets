@@ -1,11 +1,19 @@
+// @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { cleanup, render, screen } from "@testing-library/react";
+import { ChaseRoot } from "@chase-sets/design-system";
+import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { action, loader, readActionError } from "./account-channels-connection";
+import AccountChannelsConnectionRoute, { action, loader, readActionError } from "./account-channels-connection";
 import { action as downloadAction } from "./account-channel-connection-manual-sync-download";
 
 describe("Channels account connection route contribution", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   it("declares the canonical authenticated account contribution and separate download resource", () => {
     const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../context.json"), "utf8"));
@@ -39,40 +47,92 @@ describe("Channels account connection route contribution", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("loads auth first and maps a later read failure to the no-table error state", async () => {
+  it("preserves a loaded Manual Sync panel when the operation-log transport fails", async () => {
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ actor: actor() }))
-      .mockResolvedValueOnce(Response.json({ connection: actorConnection() }))
-      .mockRejectedValueOnce(new Error("synthetic channels read failure"))
-      .mockRejectedValueOnce(new Error("synthetic manual sync read failure"));
+      .mockResolvedValueOnce(Response.json(actorConnection()))
+      .mockRejectedValueOnce(new Error("synthetic operation-log transport failure"))
+      .mockResolvedValueOnce(Response.json(manualSyncPanel()));
     vi.stubGlobal("fetch", fetch);
-    const request = new Request("http://localhost/account/channels/connection-a");
-    await expect(loader(loaderArgs(request))).resolves.toMatchObject({
+    await expect(loader(loaderArgs(routeRequest()))).resolves.toMatchObject({
       kind: "ready",
+      manualSync: { kind: "loaded", data: manualSyncPanel() },
       operationLog: { kind: "read-error" },
     });
     expect(fetch).toHaveBeenCalledTimes(4);
   });
 
+  it("renders the valid Manual Sync panel with the named operation-log error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      auxiliaryFetch({
+        operation: () => Promise.reject(new Error("synthetic operation-log transport failure")),
+        manualSync: () => Response.json(manualSyncPanel()),
+      }),
+    );
+
+    renderRoute();
+
+    expect(await screen.findByRole("button", { name: "Compose Staged batch" })).toBeTruthy();
+    expect(await screen.findByText("Publication activity is unavailable")).toBeTruthy();
+  });
+
+  it("preserves a loaded operation log when Manual Sync returns 503", async () => {
+    const fetch = auxiliaryFetch({
+      operation: () => Response.json(operationLogBody()),
+      manualSync: () => new Response("synthetic manual-sync unavailable", { status: 503 }),
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(loader(loaderArgs(routeRequest()))).resolves.toMatchObject({
+      kind: "ready",
+      manualSync: { kind: "read-error" },
+      operationLog: { kind: "loaded", log: { items: [] } },
+    });
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("renders the named Manual Sync error with the valid operation log", async () => {
+    vi.stubGlobal(
+      "fetch",
+      auxiliaryFetch({
+        operation: () => Response.json(operationLogBody()),
+        manualSync: () => new Response("synthetic manual-sync unavailable", { status: 503 }),
+      }),
+    );
+
+    renderRoute();
+
+    expect(await screen.findByText("Manual TCGplayer sync is unavailable")).toBeTruthy();
+    expect(await screen.findByText("No publication activity")).toBeTruthy();
+  });
+
+  it("contains auxiliary status and JSON decoding failures without losing the successful sibling", async () => {
+    const operationStatus = auxiliaryFetch({
+      operation: () => new Response("unavailable", { status: 503 }),
+      manualSync: () => Response.json(manualSyncPanel()),
+    });
+    vi.stubGlobal("fetch", operationStatus);
+    await expect(loader(loaderArgs(routeRequest()))).resolves.toMatchObject({
+      manualSync: { kind: "loaded", data: manualSyncPanel() },
+      operationLog: { kind: "read-error" },
+    });
+
+    const manualDecode = auxiliaryFetch({
+      operation: () => Response.json(operationLogBody()),
+      manualSync: () => new Response("not-json", { headers: { "content-type": "application/json" } }),
+    });
+    vi.stubGlobal("fetch", manualDecode);
+    await expect(loader(loaderArgs(routeRequest()))).resolves.toMatchObject({
+      manualSync: { kind: "read-error" },
+      operationLog: { kind: "loaded", log: { items: [] } },
+    });
+  });
+
   it("loads the manual panel and operation log from the same authorized connection surface", async () => {
-    const connection = {
-      connectionId: "connection-a",
-      providerKey: "tcgplayer",
-      environment: "production",
-      status: "active",
-      createdAt: "2026-09-10T12:00:00.000Z",
-    };
-    const manualSync = {
-      connection,
-      inboundCoverage: { state: "dark", reason: "no-inbound-authority" },
-      run: null,
-      actions: ["ingest-live", "ingest-staged", "compose"],
-      leaseCountdownMs: null,
-      requestedListingCount: 0,
-      composedListingCount: 0,
-      attentionReason: null,
-    };
+    const connection = actorConnection();
+    const manualSync = manualSyncPanel();
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ actor: actor() }))
@@ -96,7 +156,7 @@ describe("Channels account connection route contribution", () => {
       .mockResolvedValueOnce(Response.json(manualSync));
     vi.stubGlobal("fetch", fetch);
     await expect(loader(loaderArgs(new Request("http://localhost/account/channels/connection-a")))).resolves.toEqual(
-      expect.objectContaining({ kind: "ready", connection, manualSync }),
+      expect.objectContaining({ kind: "ready", connection, manualSync: { kind: "loaded", data: manualSync } }),
     );
   });
 
@@ -153,7 +213,7 @@ describe("Channels account connection route contribution", () => {
     expect(response.headers.get("content-disposition")).toBe(
       'attachment; filename="tcgplayer-staged-run-resource.csv"',
     );
-    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new TextEncoder().encode(csv));
+    expect(Array.from(new Uint8Array(await response.arrayBuffer()))).toEqual(Array.from(new TextEncoder().encode(csv)));
   });
 
   it("reads only object error results for the account-route banner", () => {
@@ -183,6 +243,72 @@ function actorConnection() {
     status: "active",
     createdAt: "2026-09-10T12:00:00.000Z",
   };
+}
+
+function manualSyncPanel() {
+  return {
+    connection: actorConnection(),
+    inboundCoverage: { state: "dark", reason: "no-inbound-authority" },
+    run: null,
+    actions: ["ingest-live", "ingest-staged", "compose"],
+    leaseCountdownMs: null,
+    requestedListingCount: 0,
+    composedListingCount: 0,
+    attentionReason: null,
+  };
+}
+
+function operationLogBody() {
+  return {
+    connection: actorConnection(),
+    log: { items: [], completeness: { kind: "complete", total: 0 } },
+    summary: {
+      completeness: { kind: "complete", total: 0 },
+      succeeded: 0,
+      failed: 0,
+      pending: 0,
+      inFlight: 0,
+      blocked: 0,
+      inlineEventToProviderAckMs: { p50: null, p95: null, p99: null },
+      claimedEventToProviderAckMs: { p50: null, p95: null, p99: null },
+    },
+  };
+}
+
+function auxiliaryFetch(
+  responses: Readonly<{
+    operation: () => Response | Promise<Response>;
+    manualSync: () => Response | Promise<Response>;
+  }>,
+) {
+  return vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ actor: actor() }))
+    .mockResolvedValueOnce(Response.json(actorConnection()))
+    .mockImplementationOnce(responses.operation)
+    .mockImplementationOnce(responses.manualSync);
+}
+
+function renderRoute() {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/account/channels/:connectionId",
+        loader,
+        Component: AccountChannelsConnectionRoute,
+      },
+    ],
+    { initialEntries: ["/account/channels/connection-a"] },
+  );
+  render(
+    <ChaseRoot linkComponent={RouterLinkAdapter}>
+      <RouterProvider router={router} />
+    </ChaseRoot>,
+  );
+}
+
+function routeRequest() {
+  return new Request("http://localhost/account/channels/connection-a");
 }
 
 function loaderArgs(request: Request) {
