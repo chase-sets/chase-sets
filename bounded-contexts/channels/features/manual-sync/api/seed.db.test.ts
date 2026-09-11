@@ -3,11 +3,10 @@ import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
-  drainLocalProjectionHandlerSets,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { composeModuleSchemaSql } from "@chase-sets/bounded-context-runtime";
+import { composeModuleSchemaSql, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
