@@ -383,6 +383,54 @@ export async function transitionPostageOperation(
   return result.rows[0] ?? null;
 }
 
+export async function recordPostageVoidOperationTerminal(
+  db: PgQueryable,
+  input: Readonly<{
+    operationId: string;
+    tenantId: string;
+    shipmentId: string;
+    expectedStatus: PostageOperationStatus;
+    expectedLifecycleGeneration: number;
+    expectedUpdatedAt: string;
+    refundStatus: "refunded" | "rejected";
+    refundReference: string | null;
+    resolvedAt: string;
+  }>,
+) {
+  const result = await db.query<PostageOperationAuthority>(
+    `UPDATE fulfillment_postage_label_operations
+     SET status = CASE WHEN $7 = 'refunded' THEN 'effect-applied' ELSE 'failed-safe' END,
+         provider_result_json = jsonb_build_object(
+           'refundStatus', $7::text,
+           'refundReference', $8::text,
+           'voidedAt', $9::text
+         ),
+         closed_reason = CASE WHEN $7 = 'rejected' THEN 'provider-refund-rejected' ELSE NULL END,
+         completed_at = $9::timestamptz,
+         updated_at = GREATEST(updated_at, $9::timestamptz)
+     WHERE operation_id = $1
+       AND tenant_id = $2
+       AND shipment_id = $3
+       AND operation_kind = 'void-label'
+       AND status = $4
+       AND lifecycle_generation = $5
+       AND updated_at = $6::timestamptz
+     RETURNING ${operationColumns}`,
+    [
+      input.operationId,
+      input.tenantId,
+      input.shipmentId,
+      input.expectedStatus,
+      input.expectedLifecycleGeneration,
+      input.expectedUpdatedAt,
+      input.refundStatus,
+      input.refundReference,
+      input.resolvedAt,
+    ],
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function expireInvokingPostageOperation(db: PgQueryable, operationId: string, tenantId: string) {
   const result = await db.query<PostageOperationAuthority>(
     `UPDATE fulfillment_postage_label_operations

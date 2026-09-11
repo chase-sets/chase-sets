@@ -444,6 +444,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
     "fulfillment.shipment.label-refund-status-recorded": async (event) => {
       const data = event.data as {
         shipmentId: string;
+        postageProviderLabelId?: string;
         refundStatus: string;
         refundReference: string | null;
         resolvedAt: string;
@@ -459,8 +460,17 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              label_refund_reference = $5,
              updated_at = $6
          WHERE shipment_id = $1
-           AND label_status = 'void-requested'`,
-        [data.shipmentId, shipmentStatus, labelStatus, data.refundStatus, data.refundReference, data.resolvedAt],
+           AND label_status = 'void-requested'
+           AND ($7::text IS NULL OR postage_provider_label_id = $7)`,
+        [
+          data.shipmentId,
+          shipmentStatus,
+          labelStatus,
+          data.refundStatus,
+          data.refundReference,
+          data.resolvedAt,
+          data.postageProviderLabelId ?? null,
+        ],
       );
     },
     ...defineProjectorHandlers<

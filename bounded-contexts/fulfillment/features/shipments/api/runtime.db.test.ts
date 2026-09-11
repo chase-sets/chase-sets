@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PostageOperationSubjectKind, PostageProviderWebhookEvent } from "@chase-sets/postage-labels";
@@ -13,6 +14,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PostageProviderWebhookGateway } from "@chase-sets/postage-labels";
 import { module as fulfillmentModule } from "../../../index";
 import { processReturnShipmentTrackingEvent } from "../../return-shipments/api/tracking-ingestion";
 import {
@@ -30,6 +32,7 @@ import {
   claimReservedPostageOperation,
   findPostageOperationByDigest,
   listStalePostageOperationLocators,
+  recordPostageVoidOperationTerminal,
   reservePostageOperation,
   transitionPostageOperation,
 } from "../read-model/postage-operation-authority";
@@ -137,6 +140,180 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
       },
     });
     return { eventStore, repository: aggregate.repository };
+  }
+
+  async function refundProducerHarness(webhookEvents: PostageProviderWebhookGateway) {
+    const eventStore = createPostgresEventStore({ pool });
+    const runtime = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: {
+        loadCheckpoint: async () => 0n as never,
+        saveCheckpoint: async () => undefined,
+      },
+      db: pool,
+      postageWebhookGateway: webhookEvents,
+    });
+    const shipmentId = "shp_7829";
+    await runtime.commandHandler({
+      streamId: `fulfillment.shipment-${shipmentId}`,
+      context,
+      command: {
+        type: "CreateShipment",
+        shipmentId: shipmentId as never,
+        orderId: "ord_7829" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot: {
+          name: "Synthetic Buyer",
+          line1: "2 Test St",
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+        },
+        shippingOriginSnapshot: {
+          name: "Synthetic Seller",
+          line1: "1 Test St",
+          city: "Austin",
+          state: "TX",
+          postalCode: "78701",
+          country: "US",
+        },
+        lines: [
+          {
+            lineId: "spl_7829" as never,
+            orderLineId: "oli_7829",
+            catalogItemId: "cat_7829",
+            productId: "cat_7829::",
+            itemTitle: "Synthetic card",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-09-10T00:00:00.000Z",
+      },
+    });
+    for (const command of [
+      { type: "StartShipmentPacking", startedAt: "2026-09-10T00:00:10.000Z" },
+      { type: "ConfirmShipmentPackingLine", lineId: "spl_7829", confirmedAt: "2026-09-10T00:00:20.000Z" },
+      { type: "PrepareShipmentPackage", packageCount: 1, preparedAt: "2026-09-10T00:00:30.000Z" },
+    ] as const) {
+      await runtime.commandHandler({
+        streamId: `fulfillment.shipment-${shipmentId}`,
+        context,
+        command: command as never,
+      });
+    }
+    await runtime.commandHandler({
+      streamId: `fulfillment.shipment-${shipmentId}`,
+      context,
+      command: {
+        type: "AttachShipmentLabel",
+        shippingMethod: "standard",
+        carrierName: "USPS",
+        labelReference: "synthetic_label_A",
+        trackingIdentifier: "synthetic_tracking_A",
+        postageProviderName: "synthetic-postage",
+        postageProviderMode: "test",
+        postageProviderShipmentId: "synthetic_shipment_A",
+        postageProviderLabelId: "synthetic_label_A",
+        postageAmountCents: 499,
+        postageCurrency: "USD",
+        attachedAt: "2026-09-10T00:01:00.000Z",
+      },
+    });
+    await runtime.commandHandler({
+      streamId: `fulfillment.shipment-${shipmentId}`,
+      context,
+      command: {
+        type: "VoidShipmentLabel",
+        postageProviderLabelId: "synthetic_label_A",
+        refundStatus: "submitted",
+        refundReference: "synthetic_refund_A",
+        voidedAt: "2026-09-10T00:02:00.000Z",
+      },
+    });
+    await runtime.commandHandler({
+      streamId: `fulfillment.shipment-${shipmentId}`,
+      context,
+      command: {
+        type: "AttachShipmentLabel",
+        shippingMethod: "standard",
+        carrierName: "USPS",
+        labelReference: "synthetic_label_B",
+        trackingIdentifier: "synthetic_tracking_B",
+        postageProviderName: "synthetic-postage",
+        postageProviderMode: "test",
+        postageProviderShipmentId: "synthetic_shipment_B",
+        postageProviderLabelId: "synthetic_label_B",
+        postageAmountCents: 599,
+        postageCurrency: "USD",
+        attachedAt: "2026-09-10T00:03:00.000Z",
+      },
+    });
+    await pool.query(
+      `INSERT INTO fulfillment_shipment_pages (
+         shipment_id, tenant_id, order_id, buyer_account_id, seller_account_id, shipping_option,
+         status, package_status, label_status, tracking_identifier, postage_provider_shipment_id,
+         postage_provider_label_id, created_at, updated_at
+       ) VALUES (
+         $1,'tnt_1','ord_7829','acc_buyer','acc_seller','standard',
+         'label-attached','packed','purchased','synthetic_tracking_B','synthetic_shipment_B',
+         'synthetic_label_B',$2,$3
+       )`,
+      [shipmentId, "2026-09-10T00:00:00.000Z", "2026-09-10T00:03:00.000Z"],
+    );
+    await pool.query(
+      `INSERT INTO fulfillment_shipment_tenant_resolutions
+       (shipment_id, tenant_id, seller_account_id, status, reason_code, resolved_at)
+       VALUES ($1,'tnt_1','acc_seller','resolved','authoritative-history',$2)`,
+      [shipmentId, "2026-09-10T00:03:00.000Z"],
+    );
+    const reserved = await reservePostageOperation(pool, {
+      tenantId: "tnt_1",
+      sellerAccountId: "acc_seller",
+      shipmentId,
+      keyDigest: "synthetic_void_digest_A",
+      requestHash: "synthetic_void_request_A",
+      targetKey: `void:${shipmentId}:synthetic_label_A`,
+      operationKind: "void-label",
+      providerName: "synthetic-postage",
+      providerMode: "test",
+      request: {
+        providerShipmentId: "synthetic_shipment_A",
+        providerLabelId: "synthetic_label_A",
+        trackingIdentifier: "synthetic_tracking_A",
+      },
+      now: "2026-09-10T00:02:00.000Z",
+    });
+    const claim = await claimReservedPostageOperation(pool, reserved.operation);
+    const invoking = await transitionPostageOperation(pool, {
+      claim: claim!,
+      from: "reserved",
+      to: "invoking",
+      providerInvoked: true,
+      now: "2026-09-10T00:02:01.000Z",
+    });
+    const providerSucceeded = await transitionPostageOperation(pool, {
+      claim: claim!,
+      from: "invoking",
+      to: "provider-succeeded",
+      providerInvoked: true,
+      providerShipmentId: "synthetic_shipment_A",
+      providerLabelId: "synthetic_label_A",
+      trackingIdentifier: "synthetic_tracking_A",
+      providerResult: {
+        refundStatus: "submitted",
+        refundReference: "synthetic_refund_A",
+        voidedAt: "2026-09-10T00:02:00.000Z",
+      },
+      now: "2026-09-10T00:02:02.000Z",
+    });
+    expect(invoking?.status).toBe("invoking");
+    expect(providerSucceeded?.status).toBe("provider-succeeded");
+    return { eventStore, runtime, shipmentId, operation: providerSucceeded! };
   }
 
   function executeAtomic(
@@ -554,6 +731,144 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     );
     expect(receipt.rows).toEqual([
       { subject_kind: null, subject_id: null, processing_result: "unmatched", handoff_state: "unmatched" },
+    ]);
+  });
+
+  it("shipment-label-refund-after-rebuy stores original A, keeps B current, and makes replay/conflict terminal", async () => {
+    const refundEvent = (providerEventId: string, status: "refunded" | "rejected") => ({
+      providerEventId,
+      providerName: "synthetic-postage",
+      providerMode: "test" as const,
+      eventKind: "refund-status" as const,
+      providerObjectReference: "synthetic_refund_A",
+      providerShipmentId: "synthetic_shipment_A",
+      trackingIdentifier: "synthetic_tracking_A",
+      status,
+      occurredAt: "2026-09-10T00:04:00.000Z",
+      receivedAt: "2026-09-10T00:04:01.000Z",
+      payload: { synthetic: true, providerEventId, status },
+    });
+    const providerEvents = [
+      refundEvent("synthetic_event_A_refunded", "refunded"),
+      refundEvent("synthetic_event_A_refunded", "refunded"),
+      refundEvent("synthetic_event_A_refunded_replay", "refunded"),
+      refundEvent("synthetic_event_A_conflict", "rejected"),
+    ];
+    const harness = await refundProducerHarness({
+      processPostageProviderWebhook: async () => providerEvents.shift() ?? null,
+    });
+    const webhookInput = {
+      rawBody: "{}",
+      method: "POST",
+      path: "/api/fulfillment/provider/postage/webhooks",
+      headers: new Headers(),
+    };
+
+    await expect(harness.runtime.processPostageProviderWebhook(webhookInput, context)).resolves.toMatchObject({
+      status: "recorded",
+      processingResult: "refund-resolved-after-rebuy",
+    });
+    const stream = await harness.eventStore.readStream({
+      streamId: `fulfillment.shipment-${harness.shipmentId}`,
+    });
+    const storedRefunds = stream.filter(
+      (event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded",
+    );
+    expect(storedRefunds).toHaveLength(1);
+    expect(toTransportEvent(storedRefunds[0]!)).toMatchObject({
+      type: "fulfillment.shipment.label-refund-status-recorded",
+      data: {
+        shipmentId: harness.shipmentId,
+        postageProviderLabelId: "synthetic_label_A",
+        refundStatus: "refunded",
+        refundReference: "synthetic_refund_A",
+        resolvedAt: "2026-09-10T00:04:00.000Z",
+      },
+    });
+
+    const projection = buildFulfillmentShipmentProjectionHandlers(pool);
+    await projection["fulfillment.shipment.label-refund-status-recorded"]!(toTransportEvent(storedRefunds[0]!));
+    const currentLabel = await pool.query<{
+      status: string;
+      label_status: string;
+      postage_provider_label_id: string;
+      tracking_identifier: string;
+    }>(
+      `SELECT status, label_status, postage_provider_label_id, tracking_identifier
+       FROM fulfillment_shipment_pages WHERE shipment_id = $1`,
+      [harness.shipmentId],
+    );
+    expect(currentLabel.rows).toEqual([
+      {
+        status: "label-attached",
+        label_status: "purchased",
+        postage_provider_label_id: "synthetic_label_B",
+        tracking_identifier: "synthetic_tracking_B",
+      },
+    ]);
+
+    await expect(harness.runtime.processPostageProviderWebhook(webhookInput, context)).resolves.toMatchObject({
+      status: "duplicate",
+      processingResult: "refund-resolved-after-rebuy",
+    });
+    await expect(harness.runtime.processPostageProviderWebhook(webhookInput, context)).resolves.toMatchObject({
+      status: "recorded",
+      processingResult: "terminal-refund-status-ignored",
+    });
+    await expect(harness.runtime.processPostageProviderWebhook(webhookInput, context)).resolves.toMatchObject({
+      status: "recorded",
+      shipmentId: harness.shipmentId,
+      processingResult: "terminal-refund-status-conflict",
+    });
+    expect(
+      (await harness.eventStore.readStream({ streamId: `fulfillment.shipment-${harness.shipmentId}` })).filter(
+        (event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded",
+      ),
+    ).toHaveLength(1);
+    const conflictReceipt = await pool.query<{ handoff_state: string; processing_result: string }>(
+      `SELECT handoff_state, processing_result FROM fulfillment_postage_provider_events
+       WHERE provider_event_id = 'synthetic_event_A_conflict'`,
+    );
+    expect(conflictReceipt.rows).toEqual([
+      { handoff_state: "quarantined", processing_result: "terminal-refund-status-conflict" },
+    ]);
+  });
+
+  it("shipment-label-refund-terminal-idempotency rejects a stale operation write after an interleaving", async () => {
+    const harness = await refundProducerHarness({ processPostageProviderWebhook: async () => null });
+    await pool.query(
+      `UPDATE fulfillment_postage_label_operations
+       SET status = 'ambiguous', lifecycle_generation = lifecycle_generation + 1,
+           closed_reason = 'synthetic-interleaving', updated_at = '2026-09-10T00:03:30.000Z'
+       WHERE operation_id = $1`,
+      [harness.operation.operation_id],
+    );
+
+    await expect(
+      recordPostageVoidOperationTerminal(pool, {
+        operationId: harness.operation.operation_id,
+        tenantId: harness.operation.tenant_id,
+        subjectKind: harness.operation.subject_kind,
+        subjectId: harness.operation.subject_id,
+        expectedStatus: harness.operation.status,
+        expectedLifecycleGeneration: harness.operation.lifecycle_generation,
+        expectedUpdatedAt: harness.operation.updated_at,
+        refundStatus: "refunded",
+        refundReference: "synthetic_refund_A",
+        resolvedAt: "2026-09-10T00:04:00.000Z",
+      }),
+    ).resolves.toBeNull();
+    const preserved = await pool.query<{ status: string; lifecycle_generation: number; closed_reason: string }>(
+      `SELECT status, lifecycle_generation, closed_reason FROM fulfillment_postage_label_operations
+       WHERE operation_id = $1`,
+      [harness.operation.operation_id],
+    );
+    expect(preserved.rows).toEqual([
+      {
+        status: "ambiguous",
+        lifecycle_generation: harness.operation.lifecycle_generation + 1,
+        closed_reason: "synthetic-interleaving",
+      },
     ]);
   });
 

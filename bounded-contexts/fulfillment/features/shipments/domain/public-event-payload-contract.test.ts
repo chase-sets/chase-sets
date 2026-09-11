@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type {
   FulfillmentShipmentCancelledPayload,
   FulfillmentShipmentCreatedPayload,
   FulfillmentShipmentDeliveredPayload,
   FulfillmentShipmentDispatchedPayload,
   FulfillmentShipmentLabelAttachedPayload,
+  FulfillmentShipmentLabelRefundStatusRecordedPayload,
   FulfillmentShipmentPackagePreparedPayload,
   FulfillmentShipmentPackingStartedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
@@ -14,6 +16,7 @@ import type {
   ShipmentDeliveredEvent,
   ShipmentDispatchedEvent,
   ShipmentLabelAttachedEvent,
+  ShipmentLabelRefundStatusRecordedEvent,
   ShipmentPackagePreparedEvent,
   ShipmentPackingStartedEvent,
 } from "./domain";
@@ -65,6 +68,16 @@ const publisherToPublicPayloadType = {
       FulfillmentShipmentLabelAttachedPayload
     >,
   },
+  "fulfillment.shipment.label-refund-status-recorded": {
+    publisherAssignable: true satisfies IsAssignable<
+      EventData<ShipmentLabelRefundStatusRecordedEvent>,
+      FulfillmentShipmentLabelRefundStatusRecordedPayload
+    >,
+    sameKeys: true satisfies HasSameKeys<
+      EventData<ShipmentLabelRefundStatusRecordedEvent>,
+      FulfillmentShipmentLabelRefundStatusRecordedPayload
+    >,
+  },
   "fulfillment.shipment.dispatched": {
     publisherAssignable: true satisfies IsAssignable<
       EventData<ShipmentDispatchedEvent>,
@@ -92,5 +105,28 @@ describe("fulfillment public event payload contract", () => {
   it("keeps every covered publisher shape assignable with the same field names", () => {
     expect(Object.values(publisherToPublicPayloadType).every((mapping) => mapping.publisherAssignable)).toBe(true);
     expect(Object.values(publisherToPublicPayloadType).every((mapping) => mapping.sameKeys)).toBe(true);
+  });
+});
+
+describe("shipment-label-refund-public-contract", () => {
+  it("decodes retained payloads without an original label identity", () => {
+    const codec = createPassthroughDomainEventCodec<ShipmentLabelRefundStatusRecordedEvent>();
+    const retained = codec.decode({
+      eventType: "fulfillment.shipment.label-refund-status-recorded",
+      payload: {
+        shipmentId: "shp_retained",
+        refundStatus: "refunded",
+        refundReference: "refund_retained",
+        resolvedAt: "2026-09-09T00:00:00.000Z",
+      },
+    });
+
+    expect(retained.data).toEqual({
+      shipmentId: "shp_retained",
+      refundStatus: "refunded",
+      refundReference: "refund_retained",
+      resolvedAt: "2026-09-09T00:00:00.000Z",
+    });
+    expect("postageProviderLabelId" in retained.data).toBe(false);
   });
 });

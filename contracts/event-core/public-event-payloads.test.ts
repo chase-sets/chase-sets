@@ -19,6 +19,7 @@ import type {
   FulfillmentShipmentDeliveredPayload,
   FulfillmentShipmentDispatchedPayload,
   FulfillmentShipmentLabelAttachedPayload,
+  FulfillmentShipmentLabelRefundStatusRecordedPayload,
   FulfillmentShipmentPackagePreparedPayload,
   FulfillmentShipmentPackingStartedPayload,
   IdentityAccountClosedPayload,
@@ -286,6 +287,10 @@ const aggregateTypeIdentity = {
   "fulfillment.shipment.label-attached": true satisfies IsExactly<
     ChaseSetsEventPayloads["fulfillment.shipment.label-attached"],
     FulfillmentShipmentLabelAttachedPayload
+  >,
+  "fulfillment.shipment.label-refund-status-recorded": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.label-refund-status-recorded"],
+    FulfillmentShipmentLabelRefundStatusRecordedPayload
   >,
   "fulfillment.shipment.dispatched": true satisfies IsExactly<
     ChaseSetsEventPayloads["fulfillment.shipment.dispatched"],

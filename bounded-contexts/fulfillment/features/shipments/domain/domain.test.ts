@@ -473,10 +473,11 @@ describe("fulfillment shipment domain", () => {
     ).toThrow("Postage amount must be known before a label can be attached.");
   });
 
-  it("records terminal refund statuses for requested label voids without resurrecting terminal states", () => {
+  it("converges identical terminal refund statuses and rejects conflicting observations", () => {
     const labeledState = attachPurchasedLabel(createPackedShipmentState());
     const voidRequestedState = decideFulfillmentShipment(labeledState, {
       type: "VoidShipmentLabel",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "submitted",
       refundReference: "rfnd_1",
       voidedAt: "2026-04-02T00:15:00.000Z",
@@ -487,6 +488,7 @@ describe("fulfillment shipment domain", () => {
 
     const voidedState = decideFulfillmentShipment(voidRequestedState, {
       type: "RecordShipmentLabelRefundStatus",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "refunded",
       refundReference: "rfnd_1",
       resolvedAt: "2026-04-02T00:20:00.000Z",
@@ -497,17 +499,112 @@ describe("fulfillment shipment domain", () => {
     expect(
       decideFulfillmentShipment(voidedState, {
         type: "RecordShipmentLabelRefundStatus",
-        refundStatus: "rejected",
+        postageProviderLabelId: "plbl_123",
+        refundStatus: "refunded",
         refundReference: "rfnd_1",
         resolvedAt: "2026-04-02T00:21:00.000Z",
       }),
     ).toEqual([]);
+    expect(() =>
+      decideFulfillmentShipment(voidedState, {
+        type: "RecordShipmentLabelRefundStatus",
+        postageProviderLabelId: "plbl_123",
+        refundStatus: "rejected",
+        refundReference: "rfnd_conflict",
+        resolvedAt: "2026-04-02T00:22:00.000Z",
+      }),
+    ).toThrow("Shipment label refund already has a different terminal status.");
+  });
+
+  it("appends label-voided plus the original-label fact only for immediate terminal outcomes", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+
+    expect(
+      decideFulfillmentShipment(labeledState, {
+        type: "VoidShipmentLabel",
+        postageProviderLabelId: "plbl_123",
+        refundStatus: "refunded",
+        refundReference: "rfnd_immediate",
+        voidedAt: "2026-04-02T00:15:00.000Z",
+      }),
+    ).toEqual([
+      {
+        type: "fulfillment.shipment.label-voided",
+        data: {
+          shipmentId: "shp_1",
+          refundStatus: "refunded",
+          refundReference: "rfnd_immediate",
+          voidedAt: "2026-04-02T00:15:00.000Z",
+        },
+      },
+      {
+        type: "fulfillment.shipment.label-refund-status-recorded",
+        data: {
+          shipmentId: "shp_1",
+          postageProviderLabelId: "plbl_123",
+          refundStatus: "refunded",
+          refundReference: "rfnd_immediate",
+          resolvedAt: "2026-04-02T00:15:00.000Z",
+        },
+      },
+    ]);
+
+    expect(
+      decideFulfillmentShipment(labeledState, {
+        type: "VoidShipmentLabel",
+        postageProviderLabelId: "plbl_123",
+        refundStatus: "submitted",
+        refundReference: "rfnd_submitted",
+        voidedAt: "2026-04-02T00:16:00.000Z",
+      }).map((event) => event.type),
+    ).toEqual(["fulfillment.shipment.label-voided"]);
+  });
+
+  it("records late terminal A after replacement B without changing B", () => {
+    const labeledA = attachPurchasedLabel(createPackedShipmentState());
+    const voidRequestedA = decideFulfillmentShipment(labeledA, {
+      type: "VoidShipmentLabel",
+      postageProviderLabelId: "plbl_123",
+      refundStatus: "submitted",
+      voidedAt: "2026-04-02T00:15:00.000Z",
+    }).reduce(evolveFulfillmentShipment, labeledA);
+    const labeledB = decideFulfillmentShipment(voidRequestedA, {
+      type: "AttachShipmentLabel",
+      shippingMethod: "priority",
+      carrierName: "USPS",
+      labelReference: "lbl_456",
+      trackingIdentifier: "trk_456",
+      postageProviderName: "synthetic-postage",
+      postageProviderMode: "test",
+      postageProviderShipmentId: "synthetic_shipment_B",
+      postageProviderLabelId: "synthetic_label_B",
+      postageAmountCents: 599,
+      postageCurrency: "USD",
+      attachedAt: "2026-04-02T00:16:00.000Z",
+    }).reduce(evolveFulfillmentShipment, voidRequestedA);
+    const [lateA] = decideFulfillmentShipment(labeledB, {
+      type: "RecordShipmentLabelRefundStatus",
+      postageProviderLabelId: "plbl_123",
+      refundStatus: "refunded",
+      refundReference: "synthetic_refund_A",
+      resolvedAt: "2026-04-02T00:20:00.000Z",
+    });
+    const afterLateA = evolveFulfillmentShipment(labeledB, lateA!);
+
+    expect(lateA?.data).toMatchObject({ postageProviderLabelId: "plbl_123", refundStatus: "refunded" });
+    expect(afterLateA).toMatchObject({
+      postageProviderLabelId: "synthetic_label_B",
+      trackingIdentifier: "trk_456",
+      labelStatus: "purchased",
+      status: "label-attached",
+    });
   });
 
   it("marks rejected label refund requests without opening a replacement-label path", () => {
     const labeledState = attachPurchasedLabel(createPackedShipmentState());
     const voidRequestedState = decideFulfillmentShipment(labeledState, {
       type: "VoidShipmentLabel",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "submitted",
       refundReference: "rfnd_1",
       voidedAt: "2026-04-02T00:15:00.000Z",
@@ -515,6 +612,7 @@ describe("fulfillment shipment domain", () => {
 
     const rejectedState = decideFulfillmentShipment(voidRequestedState, {
       type: "RecordShipmentLabelRefundStatus",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "rejected",
       refundReference: "rfnd_1",
       resolvedAt: "2026-04-02T00:20:00.000Z",
@@ -530,12 +628,14 @@ describe("fulfillment shipment domain", () => {
 
     const voidRequestedState = decideFulfillmentShipment(labeledState, {
       type: "VoidShipmentLabel",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "submitted",
       refundReference: "rfnd_1",
       voidedAt: "2026-04-02T00:15:00.000Z",
     }).reduce(evolveFulfillmentShipment, labeledState);
     const voidedState = decideFulfillmentShipment(voidRequestedState, {
       type: "RecordShipmentLabelRefundStatus",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "refunded",
       refundReference: "rfnd_1",
       resolvedAt: "2026-04-02T00:20:00.000Z",

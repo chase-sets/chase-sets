@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
@@ -233,6 +234,31 @@ async function seedPackedShipmentAggregate(
   });
 }
 
+async function seedAttachedShipmentAggregate(
+  services: ReturnType<typeof createFulfillmentShipmentRuntime>,
+  context: Parameters<ReturnType<typeof createFulfillmentShipmentRuntime>["commandHandler"]>[0]["context"],
+) {
+  await seedPackedShipmentAggregate(services, context);
+  await services.commandHandler({
+    streamId: "fulfillment.shipment-shp_1",
+    command: {
+      type: "AttachShipmentLabel",
+      shippingMethod: "standard",
+      carrierName: "USPS",
+      labelReference: "synthetic_label_A",
+      trackingIdentifier: "synthetic_tracking_A",
+      postageProviderName: "synthetic-postage",
+      postageProviderMode: "test",
+      postageProviderShipmentId: "synthetic_shipment_A",
+      postageProviderLabelId: "synthetic_label_A",
+      postageAmountCents: 499,
+      postageCurrency: "USD",
+      attachedAt: "2026-09-10T00:01:00.000Z",
+    },
+    context,
+  });
+}
+
 function createPackedShipmentRow(overrides: Record<string, unknown> = {}) {
   return {
     shipment_id: "shp_1",
@@ -363,6 +389,118 @@ function createPostageOperationDb(shipmentRow = createPackedShipmentRow()) {
       return { rows: [] };
     }),
     readOperation: () => operation,
+  };
+  return db;
+}
+
+function createAuthoritativeVoidOperationDb(
+  input: Readonly<{
+    status: "reserved" | "provider-succeeded";
+    providerResult: Readonly<{ refundStatus: "refunded" | "rejected"; refundReference: string; voidedAt: string }>;
+    reserveAsExisting?: boolean;
+  }>,
+) {
+  let operation = {
+    operation_key: "postage-operation/v1:tnt_test:acc_seller:synthetic_digest_A",
+    operation_id: "pop_synthetic_void_A",
+    operation_kind: "void-label",
+    shipment_id: "shp_1",
+    tenant_id: "tnt_test",
+    seller_account_id: "acc_seller",
+    key_digest: "synthetic_digest_A",
+    request_hash: "synthetic_request_hash_A",
+    target_key: "void:shp_1:synthetic_label_A",
+    provider_name: "synthetic-postage",
+    provider_mode: "test",
+    provider_idempotency_key: "synthetic_idempotency_A",
+    provider_result_json: input.status === "provider-succeeded" ? input.providerResult : null,
+    request_json: {
+      providerShipmentId: "synthetic_shipment_A",
+      providerLabelId: "synthetic_label_A",
+      trackingIdentifier: "synthetic_tracking_A",
+    },
+    status: input.status as string,
+    lifecycle_generation: 0,
+    claim_token: null as string | null,
+    claim_expires_at: null as string | null,
+    closed_reason: null,
+    provider_invoked: input.status === "provider-succeeded",
+    provider_shipment_id: "synthetic_shipment_A",
+    provider_label_id: "synthetic_label_A",
+    tracking_identifier: "synthetic_tracking_A",
+    created_at: "2026-09-10T00:01:00.000Z",
+    updated_at: "2026-09-10T00:02:00.000Z",
+    completed_at: null,
+  };
+  let inserted = false;
+  const db = {
+    query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+      if (sql.includes("FROM fulfillment_shipment_pages AS page")) {
+        return {
+          rows: [
+            createPackedShipmentRow({
+              tenant_id: "tnt_test",
+              status: "label-attached",
+              label_status: "purchased",
+              tracking_identifier: "synthetic_tracking_A",
+              postage_provider_shipment_id: "synthetic_shipment_A",
+              postage_provider_label_id: "synthetic_label_A",
+            }),
+          ],
+        };
+      }
+      if (sql.includes("INSERT INTO fulfillment_postage_label_operations")) {
+        if (input.reserveAsExisting || inserted) {
+          operation = {
+            ...operation,
+            operation_key: String(values[0]),
+            operation_kind: String(values[2]),
+            shipment_id: String(values[3]),
+            tenant_id: String(values[4]),
+            seller_account_id: String(values[5]),
+            key_digest: String(values[6]),
+            request_hash: String(values[7]),
+            target_key: String(values[8]),
+          };
+          return { rows: [] };
+        }
+        inserted = true;
+        return { rows: [operation] };
+      }
+      if (sql.includes("FROM fulfillment_postage_label_operations AS operation")) {
+        return { rows: [operation] };
+      }
+      if (sql.includes("SET claim_token = $4") && sql.includes("status = 'reserved'")) {
+        if (operation.status !== "reserved") return { rows: [] };
+        operation = {
+          ...operation,
+          lifecycle_generation: operation.lifecycle_generation + 1,
+          claim_token: String(values[3]),
+          claim_expires_at: String(values[4]),
+        };
+        return { rows: [operation] };
+      }
+      if (sql.includes("SET claim_token = $4") && sql.includes("status = 'provider-succeeded'")) {
+        if (operation.status !== "provider-succeeded") return { rows: [] };
+        operation = {
+          ...operation,
+          lifecycle_generation: operation.lifecycle_generation + 1,
+          claim_token: String(values[3]),
+          claim_expires_at: String(values[4]),
+        };
+        return { rows: [operation] };
+      }
+      if (sql.includes("SET status = $6")) {
+        operation = {
+          ...operation,
+          status: String(values[5]) as typeof operation.status,
+          provider_result_json: values[10] == null ? operation.provider_result_json : JSON.parse(String(values[10])),
+          updated_at: String(values[4]),
+        };
+        return { rows: [operation] };
+      }
+      return { rows: [], rowCount: 0 };
+    }),
   };
   return db;
 }
@@ -1305,7 +1443,7 @@ describe("fulfillment shipment runtime", () => {
   });
 
   it("uses the original shipping plan snapshot when a voided label is re-bought", async () => {
-    const { eventStore } = createInMemoryEventStore();
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
     let purchaseCount = 0;
     const postageLabelProvider: PostageLabelProvider = {
       providerName: "sandbox-usps",
@@ -1441,6 +1579,10 @@ describe("fulfillment shipment runtime", () => {
       context,
     );
     await services.voidLabel({ shipmentId: "shp_1", sellerAccountId: "acc_seller" }, context);
+    expect(readAllEvents().at(-1)?.eventType).toBe("fulfillment.shipment.label-voided");
+    expect(
+      readAllEvents().filter((event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded"),
+    ).toEqual([]);
     await expect(
       services.purchaseUspsLabel(
         {
@@ -1561,6 +1703,176 @@ describe("fulfillment shipment runtime", () => {
       expect.stringContaining("INSERT INTO fulfillment_postage_label_operations"),
       expect.anything(),
     );
+  });
+
+  describe("shipment-label-refund-producer-callers", () => {
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+    const terminalResult = {
+      refundStatus: "refunded" as const,
+      refundReference: "synthetic_refund_A",
+      voidedAt: "2026-09-10T00:02:00.000Z",
+    };
+
+    function expectStoredOriginalLabelFact(
+      readAllEvents: () => readonly StoredEvent[],
+      expected: Readonly<{
+        refundStatus: "refunded" | "rejected";
+        refundReference: string;
+        voidedAt: string;
+      }> = terminalResult,
+    ) {
+      const stored = readAllEvents().find(
+        (event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded",
+      );
+      expect(stored).toBeDefined();
+      expect(toTransportEvent(stored!)).toMatchObject({
+        type: "fulfillment.shipment.label-refund-status-recorded",
+        data: {
+          shipmentId: "shp_1",
+          postageProviderLabelId: "synthetic_label_A",
+          refundStatus: expected.refundStatus,
+          refundReference: expected.refundReference,
+          resolvedAt: expected.voidedAt,
+        },
+      });
+    }
+
+    it("stores the terminal fact from the non-attempt void runtime after its aggregate preflight", async () => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const db = createPostageOperationDb(
+        createPackedShipmentRow({
+          tenant_id: "tnt_test",
+          status: "label-attached",
+          label_status: "purchased",
+          tracking_identifier: "synthetic_tracking_A",
+          postage_provider_shipment_id: "synthetic_shipment_A",
+          postage_provider_label_id: "synthetic_label_A",
+        }),
+      );
+      const services = createFulfillmentShipmentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        postageLabelProvider: {
+          providerName: "synthetic-postage",
+          providerMode: "test",
+          purchaseUspsLabel: vi.fn(),
+          voidLabel: vi.fn(async () => ({
+            providerName: "synthetic-postage",
+            providerMode: "test" as const,
+            ...terminalResult,
+          })),
+        },
+      });
+      await seedAttachedShipmentAggregate(services, context);
+
+      await services.voidLabel({ shipmentId: "shp_1", sellerAccountId: "acc_seller" }, context);
+
+      expect(
+        readAllEvents()
+          .slice(-2)
+          .map((event) => event.eventType),
+      ).toEqual(["fulfillment.shipment.label-voided", "fulfillment.shipment.label-refund-status-recorded"]);
+      expectStoredOriginalLabelFact(readAllEvents);
+    });
+
+    it("stores the terminal fact from a newly reserved authoritative void attempt", async () => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const rejectedResult = {
+        refundStatus: "rejected" as const,
+        refundReference: "synthetic_refund_A_rejected",
+        voidedAt: "2026-09-10T00:02:01.000Z",
+      };
+      const db = createAuthoritativeVoidOperationDb({ status: "reserved", providerResult: rejectedResult });
+      const services = createFulfillmentShipmentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        postageLabelProvider: {
+          providerName: "synthetic-postage",
+          providerMode: "test",
+          purchaseUspsLabel: vi.fn(),
+          voidLabel: vi.fn(async () => ({
+            providerName: "synthetic-postage",
+            providerMode: "test" as const,
+            ...rejectedResult,
+          })),
+        },
+      });
+      await seedAttachedShipmentAggregate(services, context);
+
+      await services.voidLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c7829a",
+        },
+        context,
+      );
+
+      expectStoredOriginalLabelFact(readAllEvents, rejectedResult);
+    });
+
+    it("stores the terminal fact when a retry finds the provider-succeeded void operation", async () => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const db = createAuthoritativeVoidOperationDb({
+        status: "provider-succeeded",
+        providerResult: terminalResult,
+        reserveAsExisting: true,
+      });
+      const providerVoid = vi.fn();
+      const services = createFulfillmentShipmentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        postageLabelProvider: {
+          providerName: "synthetic-postage",
+          providerMode: "test",
+          purchaseUspsLabel: vi.fn(),
+          voidLabel: providerVoid,
+        },
+      });
+      await seedAttachedShipmentAggregate(services, context);
+
+      await services.voidLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          mutationAttemptId: "118f47d2-9d2a-4d68-8f33-6fb718c7829b",
+        },
+        context,
+      );
+
+      expect(providerVoid).not.toHaveBeenCalled();
+      expectStoredOriginalLabelFact(readAllEvents);
+    });
+
+    it("stores the terminal fact when operation reconciliation finalizes the provider result", async () => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const db = createAuthoritativeVoidOperationDb({ status: "provider-succeeded", providerResult: terminalResult });
+      const services = createFulfillmentShipmentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+      });
+      await seedAttachedShipmentAggregate(services, context);
+
+      await expect(
+        services.reconcilePostageOperationLocator({
+          operationId: "pop_synthetic_void_A",
+          tenantId: "tnt_test",
+          shipmentId: "shp_1",
+        }),
+      ).resolves.toEqual({ outcome: "effect-applied" });
+
+      expectStoredOriginalLabelFact(readAllEvents);
+    });
   });
 
   it("purchases Letter Mail postage from the committed package plan weight", async () => {
@@ -1966,6 +2278,8 @@ describe("fulfillment shipment runtime", () => {
                 subject_id: "shp_1",
                 tracking_identifier: "940000000000000000",
                 postage_provider_shipment_id: "shp_provider_1",
+                postage_provider_label_id: "pl_1",
+                refund_postage_provider_label_id: "pl_1",
               },
             ],
           };
@@ -2123,6 +2437,8 @@ describe("fulfillment shipment runtime", () => {
                 label_voided_at: "2026-05-30T11:58:00.000Z",
                 tracking_identifier: "940000000000000000",
                 postage_provider_shipment_id: "shp_provider_1",
+                postage_provider_label_id: "pl_1",
+                refund_postage_provider_label_id: "pl_1",
                 matched_void_operation_key: "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
                 matched_void_operation_status: "provider-succeeded",
               },
@@ -2172,6 +2488,7 @@ describe("fulfillment shipment runtime", () => {
       streamId: "fulfillment.shipment-shp_1",
       command: {
         type: "VoidShipmentLabel",
+        postageProviderLabelId: "pl_1",
         refundStatus: "submitted",
         refundReference: "rfnd_provider_1",
         voidedAt: "2026-05-30T11:58:00.000Z",
@@ -2197,9 +2514,19 @@ describe("fulfillment shipment runtime", () => {
       processingResult: "refund-refunded",
     });
 
-    expect(readAllEvents().map((event) => event.eventType)).toContain(
-      "fulfillment.shipment.label-refund-status-recorded",
+    const storedRefund = readAllEvents().find(
+      (event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded",
     );
+    expect(toTransportEvent(storedRefund!)).toMatchObject({
+      type: "fulfillment.shipment.label-refund-status-recorded",
+      data: {
+        shipmentId: "shp_1",
+        postageProviderLabelId: "pl_1",
+        refundStatus: "refunded",
+        refundReference: "rfnd_provider_1",
+        resolvedAt: "2026-05-30T12:00:02.000Z",
+      },
+    });
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO fulfillment_postage_provider_events"),
       expect.arrayContaining([
@@ -2252,6 +2579,8 @@ describe("fulfillment shipment runtime", () => {
                 label_voided_at: "2026-05-30T11:58:00.000Z",
                 tracking_identifier: "940000000000000000",
                 postage_provider_shipment_id: "shp_provider_1",
+                postage_provider_label_id: "pl_1",
+                refund_postage_provider_label_id: "pl_1",
                 matched_void_operation_key: "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
                 matched_void_operation_status: "provider-succeeded",
               },
@@ -2301,6 +2630,7 @@ describe("fulfillment shipment runtime", () => {
       streamId: "fulfillment.shipment-shp_1",
       command: {
         type: "VoidShipmentLabel",
+        postageProviderLabelId: "pl_1",
         refundStatus: "submitted",
         refundReference: "rfnd_provider_1",
         voidedAt: "2026-05-30T11:58:00.000Z",
@@ -2330,6 +2660,7 @@ describe("fulfillment shipment runtime", () => {
       (event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded",
     );
     expect(refundEvent?.payload).toMatchObject({
+      postageProviderLabelId: "pl_1",
       refundStatus: "rejected",
       refundReference: "rfnd_provider_1",
     });
@@ -2371,6 +2702,8 @@ describe("fulfillment shipment runtime", () => {
                 label_voided_at: null,
                 tracking_identifier: "940000000000000001",
                 postage_provider_shipment_id: "new_provider_shipment_1",
+                postage_provider_label_id: "new_pl_1",
+                refund_postage_provider_label_id: "old_pl_1",
                 matched_void_operation_key: "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
                 matched_void_operation_status: "provider-succeeded",
               },
@@ -2417,6 +2750,7 @@ describe("fulfillment shipment runtime", () => {
       streamId: "fulfillment.shipment-shp_1",
       command: {
         type: "VoidShipmentLabel",
+        postageProviderLabelId: "old_pl_1",
         refundStatus: "submitted",
         refundReference: "rfnd_provider_1",
         voidedAt: "2026-05-30T11:58:00.000Z",
@@ -2459,14 +2793,36 @@ describe("fulfillment shipment runtime", () => {
       processingResult: "refund-rejected-after-rebuy",
     });
 
-    expect(readAllEvents()).toHaveLength(eventCountBeforeWebhook);
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE fulfillment_postage_label_operations"),
-      expect.arrayContaining([
-        "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
-        "Postage label refund was rejected after a replacement label was purchased.",
-      ]),
-    );
+    expect(readAllEvents()).toHaveLength(eventCountBeforeWebhook + 1);
+    const storedRefund = readAllEvents().at(-1)!;
+    expect(toTransportEvent(storedRefund)).toMatchObject({
+      type: "fulfillment.shipment.label-refund-status-recorded",
+      data: {
+        shipmentId: "shp_1",
+        postageProviderLabelId: "old_pl_1",
+        refundStatus: "rejected",
+        refundReference: "rfnd_provider_1",
+        resolvedAt: "2026-05-30T12:10:00.000Z",
+      },
+    });
+    const replay = await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "RecordShipmentLabelRefundStatus",
+        postageProviderLabelId: "old_pl_1",
+        refundStatus: "rejected",
+        refundReference: "rfnd_provider_1",
+        resolvedAt: "2026-05-30T12:10:00.000Z",
+      },
+      context,
+    });
+    expect(replay.newEvents).toEqual([]);
+    expect(replay.state).toMatchObject({
+      postageProviderLabelId: "new_pl_1",
+      trackingIdentifier: "940000000000000001",
+      labelStatus: "purchased",
+      status: "label-attached",
+    });
   });
 
   it("blocks dispatch while a Stripe Radar review hold is open for the order", async () => {

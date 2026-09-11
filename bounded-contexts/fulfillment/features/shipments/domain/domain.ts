@@ -17,6 +17,7 @@ import {
   normalizeRequiredText,
   normalizeShipmentExceptionType,
   normalizeShippingMethod,
+  ShipmentLabelRefundTerminalConflictError,
   type PackageStatus,
   type PostageLabelStatus,
   type ShipmentExceptionType,
@@ -79,6 +80,7 @@ export type FulfillmentShipmentState = Readonly<{
   postageProviderMode: string | null;
   postageProviderShipmentId: string | null;
   postageProviderLabelId: string | null;
+  postageProviderLabelIds: readonly string[];
   postageRateId: string | null;
   postageServiceLevel: string | null;
   postageAmountCents: number | null;
@@ -88,6 +90,7 @@ export type FulfillmentShipmentState = Readonly<{
   labelErrorMessage: string | null;
   labelRefundStatus: string | null;
   labelRefundReference: string | null;
+  labelRefundStatusesByPostageProviderLabelId: Readonly<Record<string, string>>;
   status: ShipmentStatus | null;
   packageStatus: PackageStatus | null;
   packageCount: number | null;
@@ -126,6 +129,7 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   postageProviderMode: null,
   postageProviderShipmentId: null,
   postageProviderLabelId: null,
+  postageProviderLabelIds: [],
   postageRateId: null,
   postageServiceLevel: null,
   postageAmountCents: null,
@@ -135,6 +139,7 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   labelErrorMessage: null,
   labelRefundStatus: null,
   labelRefundReference: null,
+  labelRefundStatusesByPostageProviderLabelId: {},
   status: null,
   packageStatus: null,
   packageCount: null,
@@ -243,6 +248,7 @@ export type RecordShipmentLabelPurchaseFailedCommand = Readonly<{
 
 export type VoidShipmentLabelCommand = Readonly<{
   type: "VoidShipmentLabel";
+  postageProviderLabelId: string;
   refundStatus: string;
   refundReference?: string | null;
   voidedAt: string;
@@ -250,6 +256,7 @@ export type VoidShipmentLabelCommand = Readonly<{
 
 export type RecordShipmentLabelRefundStatusCommand = Readonly<{
   type: "RecordShipmentLabelRefundStatus";
+  postageProviderLabelId: string;
   refundStatus: string;
   refundReference?: string | null;
   resolvedAt: string;
@@ -413,11 +420,56 @@ export type ShipmentLabelRefundStatusRecordedEvent = DomainEvent<
   "fulfillment.shipment.label-refund-status-recorded",
   Readonly<{
     shipmentId: ShipmentId;
+    postageProviderLabelId: string;
     refundStatus: string;
     refundReference: string | null;
     resolvedAt: string;
   }>
 >;
+
+function isTerminalLabelRefundStatus(refundStatus: string): refundStatus is "refunded" | "rejected" {
+  return refundStatus === "refunded" || refundStatus === "rejected";
+}
+
+function recordedLabelRefundStatus(state: FulfillmentShipmentState, postageProviderLabelId: string) {
+  const recorded = state.labelRefundStatusesByPostageProviderLabelId[postageProviderLabelId];
+  if (recorded) return recorded;
+  if (
+    state.postageProviderLabelId === postageProviderLabelId &&
+    state.labelRefundStatus &&
+    isTerminalLabelRefundStatus(state.labelRefundStatus)
+  ) {
+    return state.labelRefundStatus;
+  }
+  return null;
+}
+
+function decideTerminalLabelRefundStatus(
+  state: FulfillmentShipmentState,
+  command: Readonly<{
+    postageProviderLabelId: string;
+    refundStatus: "refunded" | "rejected";
+    refundReference?: string | null;
+    resolvedAt: string;
+  }>,
+): readonly ShipmentLabelRefundStatusRecordedEvent[] {
+  const existingStatus = recordedLabelRefundStatus(state, command.postageProviderLabelId);
+  if (existingStatus === command.refundStatus) return [];
+  if (existingStatus) throw new ShipmentLabelRefundTerminalConflictError();
+
+  return [
+    {
+      type: "fulfillment.shipment.label-refund-status-recorded",
+      data: {
+        shipmentId: state.shipmentId!,
+        postageProviderLabelId: command.postageProviderLabelId,
+        refundStatus: command.refundStatus,
+        refundReference: normalizeOptionalText(command.refundReference),
+        resolvedAt: ensureIsoTimestamp(command.resolvedAt, "Label refund status must record a timestamp."),
+      },
+    },
+  ];
+}
 
 export type ShipmentCancelledEvent = DomainEvent<
   "fulfillment.shipment.cancelled",
@@ -761,43 +813,74 @@ export const decideFulfillmentShipment: AggregateDecider<
           },
         },
       ];
-    case "VoidShipmentLabel":
+    case "VoidShipmentLabel": {
       assert(state.shipmentId !== null, "Shipment must be created first.");
+      const postageProviderLabelId = normalizeRequiredText(
+        command.postageProviderLabelId,
+        "Postage provider label identity is required.",
+      );
+      assert(
+        state.postageProviderLabelIds.includes(postageProviderLabelId),
+        "Postage provider label identity was not attached to this shipment.",
+      );
+      const refundStatus = normalizeRequiredText(command.refundStatus, "Label refund status is required.");
+      assert(
+        refundStatus === "submitted" || isTerminalLabelRefundStatus(refundStatus),
+        "Label refund status must be submitted, refunded, or rejected.",
+      );
+      const terminalEvents = isTerminalLabelRefundStatus(refundStatus)
+        ? decideTerminalLabelRefundStatus(state, {
+            postageProviderLabelId,
+            refundStatus,
+            refundReference: command.refundReference,
+            resolvedAt: command.voidedAt,
+          })
+        : [];
+      if (terminalEvents.length === 0 && isTerminalLabelRefundStatus(refundStatus)) return [];
+      if (state.postageProviderLabelId !== postageProviderLabelId) return terminalEvents;
+      if (state.labelStatus === "void-requested") {
+        return refundStatus === "submitted" ? [] : terminalEvents;
+      }
       assert(state.status === "label-attached", "Only attached labels can be voided before dispatch.");
       assert(state.labelStatus === "purchased", "Only purchased labels can be voided.");
-      return [
-        {
-          type: "fulfillment.shipment.label-voided",
-          data: {
-            shipmentId: state.shipmentId,
-            refundStatus: normalizeRequiredText(command.refundStatus, "Label refund status is required."),
-            refundReference: normalizeOptionalText(command.refundReference),
-            voidedAt: ensureIsoTimestamp(command.voidedAt, "Label void must record a timestamp."),
-          },
+      const labelVoidedEvent: ShipmentLabelVoidedEvent = {
+        type: "fulfillment.shipment.label-voided",
+        data: {
+          shipmentId: state.shipmentId,
+          refundStatus,
+          refundReference: normalizeOptionalText(command.refundReference),
+          voidedAt: ensureIsoTimestamp(command.voidedAt, "Label void must record a timestamp."),
         },
-      ];
+      };
+      return [labelVoidedEvent, ...terminalEvents];
+    }
     case "RecordShipmentLabelRefundStatus": {
       assert(state.shipmentId !== null, "Shipment must be created first.");
-      if (state.labelStatus === "voided" || state.labelStatus === "void-rejected") {
-        return [];
-      }
-      assert(state.labelStatus === "void-requested", "Only requested label voids can record refund status.");
+      const postageProviderLabelId = normalizeRequiredText(
+        command.postageProviderLabelId,
+        "Postage provider label identity is required.",
+      );
+      assert(
+        state.postageProviderLabelIds.includes(postageProviderLabelId),
+        "Postage provider label identity was not attached to this shipment.",
+      );
       const refundStatus = normalizeRequiredText(command.refundStatus, "Label refund status is required.");
       assert(
         refundStatus === "refunded" || refundStatus === "rejected",
         "Label refund status must be refunded or rejected.",
       );
-      return [
-        {
-          type: "fulfillment.shipment.label-refund-status-recorded",
-          data: {
-            shipmentId: state.shipmentId,
-            refundStatus,
-            refundReference: normalizeOptionalText(command.refundReference),
-            resolvedAt: ensureIsoTimestamp(command.resolvedAt, "Label refund status must record a timestamp."),
-          },
-        },
-      ];
+      const existingStatus = recordedLabelRefundStatus(state, postageProviderLabelId);
+      if (existingStatus === refundStatus) return [];
+      if (existingStatus) throw new ShipmentLabelRefundTerminalConflictError();
+      if (state.postageProviderLabelId === postageProviderLabelId) {
+        assert(state.labelStatus === "void-requested", "Only requested label voids can record refund status.");
+      }
+      return decideTerminalLabelRefundStatus(state, {
+        postageProviderLabelId,
+        refundStatus,
+        refundReference: command.refundReference,
+        resolvedAt: command.resolvedAt,
+      });
     }
     case "CancelShipment":
       assert(state.shipmentId !== null, "Shipment must be created first.");
@@ -945,6 +1028,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         postageProviderMode: null,
         postageProviderShipmentId: null,
         postageProviderLabelId: null,
+        postageProviderLabelIds: [],
         postageRateId: null,
         postageServiceLevel: null,
         postageAmountCents: null,
@@ -954,6 +1038,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         labelErrorMessage: null,
         labelRefundStatus: null,
         labelRefundReference: null,
+        labelRefundStatusesByPostageProviderLabelId: {},
         status: "awaiting-package",
         packageStatus: "awaiting-package",
         packageCount: null,
@@ -1030,6 +1115,11 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         postageProviderMode: event.data.postageProviderMode,
         postageProviderShipmentId: event.data.postageProviderShipmentId,
         postageProviderLabelId: event.data.postageProviderLabelId,
+        postageProviderLabelIds:
+          event.data.postageProviderLabelId &&
+          !state.postageProviderLabelIds.includes(event.data.postageProviderLabelId)
+            ? [...state.postageProviderLabelIds, event.data.postageProviderLabelId]
+            : state.postageProviderLabelIds,
         postageRateId: event.data.postageRateId,
         postageServiceLevel: event.data.postageServiceLevel,
         postageAmountCents: event.data.postageAmountCents,
@@ -1063,14 +1153,31 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         labelRefundReference: event.data.refundReference,
         labelVoidedAt: event.data.voidedAt,
       };
-    case "fulfillment.shipment.label-refund-status-recorded":
+    case "fulfillment.shipment.label-refund-status-recorded": {
+      const postageProviderLabelId =
+        "postageProviderLabelId" in event.data && typeof event.data.postageProviderLabelId === "string"
+          ? event.data.postageProviderLabelId
+          : state.postageProviderLabelId;
+      const appliesToCurrentLabel =
+        postageProviderLabelId === null || postageProviderLabelId === state.postageProviderLabelId;
       return {
         ...state,
-        status: shipmentStatusFromRefundStatus(event.data.refundStatus),
-        labelStatus: labelStatusFromRefundStatus(event.data.refundStatus),
-        labelRefundStatus: event.data.refundStatus,
-        labelRefundReference: event.data.refundReference,
+        ...(appliesToCurrentLabel
+          ? {
+              status: shipmentStatusFromRefundStatus(event.data.refundStatus),
+              labelStatus: labelStatusFromRefundStatus(event.data.refundStatus),
+              labelRefundStatus: event.data.refundStatus,
+              labelRefundReference: event.data.refundReference,
+            }
+          : {}),
+        labelRefundStatusesByPostageProviderLabelId: postageProviderLabelId
+          ? {
+              ...state.labelRefundStatusesByPostageProviderLabelId,
+              [postageProviderLabelId]: event.data.refundStatus,
+            }
+          : state.labelRefundStatusesByPostageProviderLabelId,
       };
+    }
     case "fulfillment.shipment.cancelled":
       return {
         ...state,
