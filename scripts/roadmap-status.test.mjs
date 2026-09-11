@@ -1678,7 +1678,7 @@ describe("gate-stable forecast contract", () => {
 });
 
 describe("roadmap status classification and preserved rollups", () => {
-  it("orders and joins managed outcomes by policy and stable milestone number, excluding candidate totals", () => {
+  it("orders managed outcomes and preserves candidate inventory without execution authority", () => {
     const first = {
       number: 900,
       title: "Renamed first outcome",
@@ -1703,6 +1703,8 @@ describe("roadmap status classification and preserved rollups", () => {
     const issues = [
       slice(1, { ...first, title: "Old first title" }, "open", ["priority:p1", "area:ops", "kind:ops"]),
       slice(2, candidate, "open", ["priority:p1", "area:ops", "kind:ops"]),
+      slice(4, candidate, "closed", ["priority:p1", "area:ops", "kind:ops"]),
+      slice(5, candidate, "open", ["status:tracking-only"]),
       slice(3, later, "open", ["priority:p1", "area:ops", "kind:ops"]),
     ];
     const summary = summarizeWaves({
@@ -1716,7 +1718,21 @@ describe("roadmap status classification and preserved rollups", () => {
     });
     expect(summary.rows.map(({ title }) => title)).toEqual([first.title, candidate.title, later.title]);
     expect(summary.rows[0]).toMatchObject({ total: 1, open: 1, refinedOpen: 1, executable: true });
-    expect(summary.rows[1]).toMatchObject({ total: 0, open: 0, refinedOpen: 0, tracking: 0, executable: false });
+    expect(summary.rows[1]).toMatchObject({
+      total: 2,
+      open: 1,
+      closed: 1,
+      refinedOpen: 0,
+      tracking: 1,
+      executable: false,
+      addedRecently: 0,
+      growthUnknown: 0,
+      epicsComplete: 0,
+    });
+    expect(renderRoadmapStatus(summary)).toContain(`${candidate.title} _(not executable)_`);
+    expect(renderRoadmapStatus(summary)).toContain(
+      `| ${candidate.title} _(not executable)_ | unavailable (managed order) | — | 2 | 1 (50%) | 1 | — | — | 1 | — | — |`,
+    );
     expect(renderRoadmapStatus(summary)).toContain(`| ${first.title} | unavailable (managed order) | — |`);
     expect(buildForecastMilestoneCatalog([first, later], [])).toEqual([]);
   });

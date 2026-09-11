@@ -294,6 +294,12 @@ repository release; activate candidate/reordered metadata only after those
 consumers are available. Record the exact release and live migration on the
 program roadmap. Existing active lane ownership survives a portfolio update.
 
+Readiness receipts bind the milestone's node identity, number, title, description,
+and state as well as the issue revision. A receipt consumer supplies those live
+milestone values in `currentRevision.milestone`; a metadata-only change makes the
+receipt stale. Regenerate older receipts that lack the milestone authority fields
+before dispatch. Editing a milestone does not reliably change an issue revision.
+
 ## Rollup and progress
 
 Two numbers per wave, both generated:

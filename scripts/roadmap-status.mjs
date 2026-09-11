@@ -1691,8 +1691,7 @@ export function summarizeWaves({
   const epics = entries.filter(({ input }) => classifiedEpic(input));
   const cutoff = nowMs - windowDays * DAY_MS;
 
-  // An epic's wave is the earliest-dated wave among its children: epics are
-  // unmilestoned by contract, so they have no wave of their own.
+  // Epics contribute through their children in each outcome.
   const orderedMilestones = milestones.slice().sort(compareOutcomeMilestones);
   const milestoneByNumber = new Map(orderedMilestones.map((milestone) => [milestone.number, milestone]));
   const epicOutcomes = new Map();
@@ -1710,8 +1709,8 @@ export function summarizeWaves({
     const policy = readOutcomePolicy(milestone);
     const candidate = policy?.status === "candidate";
     const waveSlices = slices.filter(({ issue }) => issue.milestone?.number === milestone.number);
-    const tracking = candidate ? [] : waveSlices.filter(({ input }) => isTrackingOnly(input));
-    const mine = candidate ? [] : waveSlices.filter(({ input }) => !isTrackingOnly(input));
+    const tracking = waveSlices.filter(({ input }) => isTrackingOnly(input));
+    const mine = waveSlices.filter(({ input }) => !isTrackingOnly(input));
     const closed = mine.filter(({ input }) => input.state === "closed");
     const open = mine.filter(({ input }) => input.state === "open");
     const executable = isExecutableOutcome(milestone);

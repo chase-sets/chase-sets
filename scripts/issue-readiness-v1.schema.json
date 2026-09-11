@@ -58,10 +58,12 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["number", "title", "state"],
+              "required": ["id", "number", "title", "description", "state"],
               "properties": {
+                "id": { "type": "string", "minLength": 1 },
                 "number": { "type": "integer", "minimum": 1 },
                 "title": { "type": "string" },
+                "description": { "type": ["string", "null"] },
                 "state": { "enum": ["open", "closed"] }
               }
             }

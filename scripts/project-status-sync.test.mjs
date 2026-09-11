@@ -143,6 +143,50 @@ function mutationRequests(requests) {
 }
 
 describe("project status derivation", () => {
+  it.each([false, true])("projects outcome set, clear and unchanged through main (dryRun=%s)", async (dryRun) => {
+    const milestone = (number, order, status = "committed") => ({
+      number,
+      title: `Outcome ${number}`,
+      state: "OPEN",
+      dueOn: null,
+      description: `<!-- outcome: {"version":1,"track":"commerce","order":${order},"status":"${status}"} -->`,
+    });
+    const nodes = [
+      { ...boardNode({ id: "set", number: 1, milestone: milestone(100, 20) }), outcomeOrder: null },
+      { ...boardNode({ id: "keep", number: 2, milestone: milestone(200, 10) }), outcomeOrder: { number: 1 } },
+      {
+        ...boardNode({ id: "clear", number: 3, milestone: milestone(300, 30, "candidate"), status: "Backlog" }),
+        outcomeOrder: { number: 3 },
+      },
+    ];
+    const { request, requests } = scriptedRequest(({ query }) =>
+      query === ITEMS_QUERY ? itemPage(nodes) : { mutation: { ok: true } },
+    );
+    const result = await main({
+      env: validEnv({ OUTCOME_ORDER_FIELD_ID: "outcome-field-id" }),
+      request,
+      logger: { log: vi.fn() },
+      dryRun,
+    });
+    expect(result.outcomeOrderUpdates).toEqual([
+      { type: "set", itemId: "set", number: 1, from: null, to: 2 },
+      { type: "clear", itemId: "clear", number: 3, from: 3, to: null },
+    ]);
+    expect(mutationRequests(requests)).toEqual(
+      dryRun
+        ? []
+        : [
+            expect.objectContaining({
+              query: expect.stringContaining("number: $n"),
+              variables: { p: "project-id", i: "set", f: "outcome-field-id", n: 2 },
+            }),
+            expect.objectContaining({
+              query: expect.stringContaining("clearProjectV2ItemFieldValue"),
+              variables: { p: "project-id", i: "clear", f: "outcome-field-id" },
+            }),
+          ],
+    );
+  });
   it("projects shared outcome order independently of creation number and clears non-executable rows", () => {
     const milestone = (number, order, status = "committed") => ({
       number,

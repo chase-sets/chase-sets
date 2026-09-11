@@ -151,15 +151,12 @@ function projectIssue(raw, repository, expectedNumber) {
   if (
     raw.milestone !== null &&
     (typeof raw.milestone !== "object" ||
+      typeof raw.milestone.node_id !== "string" ||
+      raw.milestone.node_id.length === 0 ||
       typeof raw.milestone.title !== "string" ||
       !nonNegativeInteger(raw.milestone.number) ||
       !["open", "closed"].includes(raw.milestone.state) ||
-      (raw.milestone.description !== undefined &&
-        raw.milestone.description !== null &&
-        typeof raw.milestone.description !== "string") ||
-      (raw.milestone.node_id !== undefined &&
-        raw.milestone.node_id !== null &&
-        typeof raw.milestone.node_id !== "string"))
+      (raw.milestone.description !== null && typeof raw.milestone.description !== "string"))
   ) {
     fail("ISSUE_MILESTONE_SHAPE_INVALID");
   }
@@ -846,8 +843,10 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
       issueType: authority.issue?.issueType ?? null,
       milestone: authority.issue?.milestone
         ? {
+            id: authority.issue.milestone.id,
             number: authority.issue.milestone.number,
             title: authority.issue.milestone.title,
+            description: authority.issue.milestone.description,
             state: authority.issue.milestone.state,
           }
         : null,
@@ -1144,10 +1143,13 @@ export function validateIssueReadinessReceipt(receipt) {
   const milestoneFactValid =
     receipt.facts?.milestone === null ||
     (receipt.facts?.milestone &&
-      hasExactKeys(receipt.facts.milestone, ["number", "title", "state"]) &&
+      hasExactKeys(receipt.facts.milestone, ["id", "number", "title", "description", "state"]) &&
+      typeof receipt.facts.milestone.id === "string" &&
+      receipt.facts.milestone.id.length > 0 &&
       Number.isInteger(receipt.facts.milestone.number) &&
       receipt.facts.milestone.number > 0 &&
       typeof receipt.facts.milestone.title === "string" &&
+      (receipt.facts.milestone.description === null || typeof receipt.facts.milestone.description === "string") &&
       ["open", "closed"].includes(receipt.facts.milestone.state));
   const dependencyFactsValid =
     Array.isArray(receipt.facts?.dependencies) &&
@@ -1463,6 +1465,20 @@ export async function upsertIssueReadinessComment({
   });
 }
 
+function sameMilestoneRevision(receiptMilestone, currentMilestone) {
+  if (receiptMilestone === null || currentMilestone === null) return receiptMilestone === currentMilestone;
+  return (
+    currentMilestone !== undefined &&
+    typeof currentMilestone === "object" &&
+    !Array.isArray(currentMilestone) &&
+    receiptMilestone.id === currentMilestone.id &&
+    receiptMilestone.number === currentMilestone.number &&
+    receiptMilestone.title === currentMilestone.title &&
+    receiptMilestone.description === currentMilestone.description &&
+    receiptMilestone.state === currentMilestone.state
+  );
+}
+
 export function consumeIssueReadinessReceipt({
   receipt,
   currentRevision,
@@ -1490,7 +1506,8 @@ export function consumeIssueReadinessReceipt({
     receipt.subject.repository !== currentRevision.repository ||
     receipt.subject.number !== currentRevision.number ||
     receipt.subject.nodeId !== currentRevision.nodeId ||
-    receipt.subject.updatedAt !== currentRevision.updatedAt
+    receipt.subject.updatedAt !== currentRevision.updatedAt ||
+    !sameMilestoneRevision(receipt.facts.milestone, currentRevision.milestone)
   ) {
     return { decision: "reject", reasonCode: "RECEIPT_STALE", structuralStatus: receipt.status };
   }
