@@ -70,7 +70,7 @@ describe("authoritative seed resume", () => {
     expect(frozenSeedIdentityCorpus, "the pinned corpus literal must be in canonical sorted order").toEqual(
       [...frozenSeedIdentityCorpus].sort(),
     );
-    expect(frozenSeedIdentityCorpus, "the frozen corpus cardinality must remain exact").toHaveLength(285);
+    expect(frozenSeedIdentityCorpus, "the frozen corpus cardinality must remain exact").toHaveLength(288);
 
     const runtime = createHost();
     await ordinaryBoot(runtime);
