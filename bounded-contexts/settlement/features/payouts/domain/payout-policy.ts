@@ -87,7 +87,7 @@ export type PayoutFeeQuote = Readonly<{
 export const SETTLEMENT_PAYOUT_FEE_POLICY_KEY = "settlement.payout-fee";
 
 /**
- * Compiled payout-fee fallback until #7810 captures the provider pricing.
+ * Compiled payout-fee fallback until the provider pricing capture is applied.
  * The monthly component ships absorbed and can be revised through the policy console.
  */
 export const SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE: SettlementPayoutFeePolicyValue = {
