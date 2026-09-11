@@ -54,9 +54,9 @@ describe("channel-connection-actions", () => {
     const gate = new Promise<void>((resolve) => {
       releasePause = resolve;
     });
-    harness.services.pauseChannelConnection = vi.fn(async (input) => {
+    harness.services.pauseChannelConnection = vi.fn(async (input, context) => {
       await gate;
-      return originalPause(input);
+      return originalPause(input, context);
     });
     const { apiRequests } = mountConnectionRouteHarness(harness.services);
     const router = renderDetail();
