@@ -367,8 +367,8 @@ describe("run e2e suite", () => {
 
   it("routes the Channels account connection detail to marketplace account coverage", () => {
     expect(
-      e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/marketplace/account-channel-connection.tsx"),
-    ).toEqual(["marketplace_account"]);
+      e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx"),
+    ).toEqual(["marketplace_account", "marketplace_seller"]);
     expect(
       e2eSuiteIdsForChangedFile(
         "bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx",

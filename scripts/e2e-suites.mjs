@@ -290,8 +290,8 @@ const marketplaceRouteSuiteOwnership = [
 
 const boundedContextRouteSuiteOwnership = [
   {
-    pattern: /^bounded-contexts\/channels\/routes\/marketplace\/account-channel-connection\./,
-    suites: ["marketplace_account"],
+    pattern: /^bounded-contexts\/channels\/routes\/marketplace\/account-channels-connection\./,
+    suites: ["marketplace_account", "marketplace_seller"],
   },
   {
     pattern:

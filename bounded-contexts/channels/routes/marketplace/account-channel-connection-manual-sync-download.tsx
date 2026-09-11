@@ -1,3 +1,3 @@
-import { downloadAction } from "../../features/outbound-sync/ui/account-channel-connection-route";
+import { downloadAction } from "./account-channels-connection";
 
 export const action = downloadAction;

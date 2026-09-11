@@ -1,23 +1,22 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readActionError } from "../../features/outbound-sync/ui/account-channel-connection-route";
-import { action, loader } from "./account-channel-connection";
+import { action, loader, readActionError } from "./account-channels-connection";
 import { action as downloadAction } from "./account-channel-connection-manual-sync-download";
 
 describe("Channels account connection route contribution", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("declares the exact authenticated account contribution", () => {
+  it("declares the canonical authenticated account contribution and separate download resource", () => {
     const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../context.json"), "utf8"));
     expect(manifest.deployableContributions).toEqual([
       expect.objectContaining({
         deployable: "marketplace-web",
         routes: expect.arrayContaining([
           expect.objectContaining({
-            routeId: "account-channel-connection",
+            routeId: "channels-connection-detail",
             routePath: "account/channels/:connectionId",
-            fileExport: "./routes/marketplace/account-channel-connection",
+            fileExport: "./routes/marketplace/account-channels-connection",
             authorization: { kind: "authenticated", requiredPermissions: ["channels.view"] },
           }),
           expect.objectContaining({
@@ -44,11 +43,16 @@ describe("Channels account connection route contribution", () => {
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ actor: actor() }))
-      .mockRejectedValueOnce(new Error("synthetic channels read failure"));
+      .mockResolvedValueOnce(Response.json({ connection: actorConnection() }))
+      .mockRejectedValueOnce(new Error("synthetic channels read failure"))
+      .mockRejectedValueOnce(new Error("synthetic manual sync read failure"));
     vi.stubGlobal("fetch", fetch);
     const request = new Request("http://localhost/account/channels/connection-a");
-    await expect(loader(loaderArgs(request))).resolves.toEqual({ kind: "read-error" });
-    expect(fetch).toHaveBeenCalledTimes(3);
+    await expect(loader(loaderArgs(request))).resolves.toMatchObject({
+      kind: "ready",
+      operationLog: { kind: "read-error" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(4);
   });
 
   it("loads the manual panel and operation log from the same authorized connection surface", async () => {
@@ -72,6 +76,7 @@ describe("Channels account connection route contribution", () => {
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ actor: actor() }))
+      .mockResolvedValueOnce(Response.json(connection))
       .mockResolvedValueOnce(
         Response.json({
           connection,
@@ -91,7 +96,7 @@ describe("Channels account connection route contribution", () => {
       .mockResolvedValueOnce(Response.json(manualSync));
     vi.stubGlobal("fetch", fetch);
     await expect(loader(loaderArgs(new Request("http://localhost/account/channels/connection-a")))).resolves.toEqual(
-      expect.objectContaining({ kind: "loaded", connection, manualSync }),
+      expect.objectContaining({ kind: "ready", connection, manualSync }),
     );
   });
 
@@ -167,6 +172,16 @@ function actor() {
     membershipId: "membership-a",
     roleKey: "owner",
     permissions: ["channels.view"],
+  };
+}
+
+function actorConnection() {
+  return {
+    connectionId: "connection-a",
+    providerKey: "tcgplayer",
+    environment: "production",
+    status: "active",
+    createdAt: "2026-09-10T12:00:00.000Z",
   };
 }
 

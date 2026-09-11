@@ -500,11 +500,10 @@
         "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#3",
         "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#4",
         "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#5",
-        "route-action:bounded-contexts/channels/features/outbound-sync/ui/account-channel-connection-route.tsx",
-        "route-action:bounded-contexts/channels/routes/marketplace/account-channel-connection.tsx"
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx"
       ],
       "visibleDestination": {
-        "routeId": "account-channel-connection",
+        "routeId": "channels-connection-detail",
         "description": "The connection page exposes only actions admitted by the exact loaded run revision, keeps action errors visible, and revalidates the account-scoped panel after successful writes."
       },
       "proof": {
