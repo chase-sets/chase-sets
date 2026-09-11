@@ -58,6 +58,22 @@ describe("validated backlog classification contract", () => {
 });
 
 describe("classification behavior", () => {
+  it("uses the description authority to exclude candidates and admit renamed committed outcomes", () => {
+    const metadata = (status) => `<!-- outcome: {"version":1,"track":"commerce","order":10,"status":"${status}"} -->`;
+    const candidate = input({
+      milestoneNumber: 200,
+      milestoneTitle: "Seller pilot",
+      milestoneDescription: metadata("candidate"),
+    });
+    expect(classified(candidate)).toBe(false);
+    expect(classified({ ...candidate, milestoneDescription: metadata("committed") })).toBe(true);
+    expect(classified({ ...candidate, milestoneDescription: metadata("committed"), milestoneState: "closed" })).toBe(
+      false,
+    );
+    expect(() => classified({ ...candidate, milestoneDescription: "<!-- outcome: broken -->" })).toThrow(
+      "OUTCOME_METADATA_MALFORMED",
+    );
+  });
   it("defines refined as exactly classified", () => {
     for (const candidate of [
       input(),

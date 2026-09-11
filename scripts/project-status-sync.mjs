@@ -1,5 +1,6 @@
 import process from "node:process";
 import { classified, isEpic as classifiedEpic, isTrackingOnly } from "./backlog-classify.mjs";
+import { compareOutcomeMilestones, isExecutableOutcome } from "./milestone-policy.mjs";
 
 // Recomputes the delivery board's Status and Target date fields from facts that
 // already exist on each issue. Collection is deliberately completed and
@@ -85,7 +86,8 @@ export function readConfiguration(env = process.env) {
     optionIds[status] = optionIds[status].trim();
   }
 
-  return { token, project, statusFieldId, optionIds, dateFieldId };
+  const outcomeOrderFieldId = env.OUTCOME_ORDER_FIELD_ID?.trim() || null;
+  return { token, project, statusFieldId, optionIds, dateFieldId, outcomeOrderFieldId };
 }
 
 export function toBacklogInput(issue) {
@@ -105,6 +107,13 @@ export function toBacklogInput(issue) {
     labels: Array.isArray(issue.labels) ? issue.labels.map((label) => label.name ?? label) : issue.labels,
     issueTypeName,
     milestoneTitle: issue.milestone?.title ?? null,
+    ...(issue.milestone && Object.hasOwn(issue.milestone, "description")
+      ? {
+          milestoneDescription: issue.milestone.description,
+          milestoneNumber: issue.milestone.number,
+          milestoneState: issue.milestone.state,
+        }
+      : {}),
     blockedByCount,
     hasParent,
   };
@@ -175,6 +184,46 @@ export function planDateUpdates(items) {
   return updates;
 }
 
+// Project order is a projection of the same milestone policy the controller
+// and report consume. It is never a second editable priority authority.
+export function planOutcomeOrderUpdates(items) {
+  const milestones = new Map();
+  for (const { issue } of items) {
+    const milestone = issue.milestone;
+    if (!milestone) continue;
+    const prior = milestones.get(milestone.number);
+    if (prior && JSON.stringify(prior) !== JSON.stringify(milestone)) {
+      throw new ProjectStatusSyncIssueError(issue.number, "milestone description changed during collection");
+    }
+    milestones.set(milestone.number, milestone);
+  }
+  const ordered = [...milestones.values()].filter(isExecutableOutcome).sort(compareOutcomeMilestones);
+  const ranks = new Map(ordered.map((milestone, index) => [milestone.number, index + 1]));
+  return items.flatMap((item) => {
+    const input = toBacklogInput(item.issue);
+    const next =
+      input.state === "open" && !classifiedEpic(input) && !isTrackingOnly(input)
+        ? (ranks.get(item.issue.milestone?.number) ?? null)
+        : null;
+    const previous = item.outcomeOrder ?? null;
+    return previous === next
+      ? []
+      : [
+          {
+            type: next === null ? "clear" : "set",
+            itemId: item.itemId,
+            number: item.issue.number,
+            from: previous,
+            to: next,
+          },
+        ];
+  });
+}
+
+const SET_OUTCOME_ORDER_MUTATION = `mutation SetOutcomeOrder($p:ID!, $i:ID!, $f:ID!, $n:Float!) {
+  updateProjectV2ItemFieldValue(input:{projectId:$p, itemId:$i, fieldId:$f, value:{number:$n}}) { projectV2Item { id } }
+}`;
+
 export function planStatusUpdates(items) {
   const updates = [];
   for (const item of items) {
@@ -226,6 +275,7 @@ query($project:ID!, $after:String) {
           id
           status: fieldValueByName(name:"Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
           targetDate: fieldValueByName(name:"Target date") { ... on ProjectV2ItemFieldDateValue { date } }
+          outcomeOrder: fieldValueByName(name:"Outcome order") { ... on ProjectV2ItemFieldNumberValue { number } }
           content {
             ... on Issue {
               id
@@ -234,7 +284,7 @@ query($project:ID!, $after:String) {
               stateReason
               issueType { name }
               parent { number }
-              milestone { title dueOn }
+              milestone { number title description state dueOn }
               labels(first:30) {
                 totalCount
                 pageInfo { hasNextPage endCursor }
@@ -395,6 +445,7 @@ export function projectItemFromNode(node, completeLabels) {
     itemId: node.id,
     status: node.status?.name ?? null,
     targetDate: node.targetDate?.date ? String(node.targetDate.date).slice(0, 10) : null,
+    outcomeOrder: node.outcomeOrder?.number ?? null,
     issue: {
       number: node.content.number,
       state: typeof node.content.state === "string" ? node.content.state.toLowerCase() : node.content.state,
@@ -449,14 +500,15 @@ function display(value) {
 }
 
 export async function main({ env = process.env, request = graphql, logger = console, dryRun = false } = {}) {
-  const { token, project, statusFieldId, optionIds, dateFieldId } = readConfiguration(env);
+  const { token, project, statusFieldId, optionIds, dateFieldId, outcomeOrderFieldId } = readConfiguration(env);
   const { items, totalCount } = await collectProjectItems({ request, project, token });
   const statusUpdates = planStatusUpdates(items);
   const dateUpdates = planDateUpdates(items);
+  const outcomeOrderUpdates = outcomeOrderFieldId ? planOutcomeOrderUpdates(items) : [];
 
   logger.log(
     `${dryRun ? "DRY RUN: " : ""}${totalCount} project items verified; ${items.length} issue items scanned; ` +
-      `${statusUpdates.length} status changes; ${dateUpdates.length} target-date changes.`,
+      `${statusUpdates.length} status changes; ${dateUpdates.length} target-date changes; ${outcomeOrderUpdates.length} outcome-order changes.`,
   );
 
   for (const update of statusUpdates) {
@@ -481,7 +533,17 @@ export async function main({ env = process.env, request = graphql, logger = cons
     logger.log(`  target-date:${update.type} #${update.number}: ${display(update.from)} -> ${display(update.to)}`);
   }
 
-  return { totalCount, issueCount: items.length, statusUpdates, dateUpdates, dryRun };
+  for (const update of outcomeOrderUpdates) {
+    if (!dryRun) {
+      await request(
+        update.type === "set" ? SET_OUTCOME_ORDER_MUTATION : CLEAR_TARGET_DATE_MUTATION,
+        { p: project, i: update.itemId, f: outcomeOrderFieldId, ...(update.type === "set" ? { n: update.to } : {}) },
+        token,
+      );
+    }
+    logger.log(`  outcome-order:${update.type} #${update.number}: ${display(update.from)} -> ${display(update.to)}`);
+  }
+  return { totalCount, issueCount: items.length, statusUpdates, dateUpdates, outcomeOrderUpdates, dryRun };
 }
 
 if (process.argv[1] && process.argv[1].endsWith("project-status-sync.mjs")) {

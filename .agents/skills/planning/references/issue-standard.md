@@ -137,9 +137,9 @@ Stable rule IDs map to the checklist:
 0. **`ready-00-placed-classified` — placed and classified
    (`refined ≡ classified`):** an open issue with a
    native **issue type** (`Slice`, `Bug`,
-   `Decision`, `Probe` — `Epic` is never dispatchable), one wave milestone,
+   `Decision`, `Probe` — `Epic` is never dispatchable), one committed outcome milestone,
    `priority:*`, `area:*`, and `kind:*`; it is neither
-   `status:tracking-only` nor in `Deferred / Incubation` / `Operations`. The
+   `status:tracking-only` nor in a candidate outcome, `Deferred / Incubation`, or `Operations`. The
    slice form applies the labels from its dropdowns
    (`scripts/issue-form-labels.mjs`); issues created by API must set type and
    labels explicitly. An unclassified slice is backlog, not a dispatch

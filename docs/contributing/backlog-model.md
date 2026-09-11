@@ -59,25 +59,90 @@ attributed; they are not a work container and never appear as labels.
 
 ## What each GitHub primitive means
 
-### Milestone = outcome-set membership and exit-gate closure
+### Milestone = finite outcome membership and exit-gate closure
 
-A milestone states a user- or operator-visible outcome set. Its description
-names the exit gates that authorize closure. Milestones measure progress and
-scope; they are never a date commitment, theme, component list, or track.
+A committed milestone states one independently usable user- or operator-visible
+outcome. Its description names the acceptance boundary and terminal evidence
+issues that authorize closure. An improvement theme or an indefinitely growing
+pool is candidate work, not a completion commitment.
 
-- Every executable slice belongs to exactly one milestone.
-- Epics are **unmilestoned** — they span waves by design.
-- `Deferred / Incubation` means explicitly parked with no delivery commitment.
-- `Operations` holds machine-generated incidents, ops alerts, and delivery-health
-  signals. These are not backlog: they are never refined, never dispatched from
-  the wave queue, and close when the condition clears.
-- **No milestone at all** means exactly one thing: *needs triage*.
+- Every executable slice belongs to exactly one committed outcome milestone.
+- Epics are **unmilestoned**; their children can contribute to different outcomes.
+- Candidate milestones hold triaged future capabilities. They remain visible,
+  but are not refined, dispatched, forecast as committed delivery, or included
+  in the controller's completion condition. Candidate does not mean canceled.
+- `Deferred / Incubation` means deliberately parked with an activation trigger.
+- `Operations` holds machine-generated incidents and delivery-health signals;
+  these close when the condition clears, outside the product queue.
+- An unmilestoned non-Epic needs triage. An agent must place it; Todd is not the
+  default triage owner.
 
-Every open milestone has `due_on: null`, including `Deferred / Incubation` and
-`Operations`. An externally committed date belongs on the specific gate issue
-that owns the commitment, never on an open milestone. Split an outcome set only
-when its exit gates or independently usable result divide cleanly; renaming
-buckets is not scheduling.
+Open milestones have `due_on: null`. A genuine external commitment belongs on
+its owning gate issue. Forecasts are derived evidence, never ordering keys.
+
+A milestone description carries one machine-readable ordering comment:
+
+```html
+<!-- outcome: {"version":1,"track":"commerce","order":100,"status":"committed"} -->
+```
+
+The four keys are exactly `version`, `track`, `order`, and `status`. Version is
+`1`; track is a lowercase slug; order is a non-negative safe integer; status is
+`committed` or `candidate`. Agents own these values. Sparse orders allow
+insertion without renaming outcomes. The stable GitHub milestone identity owns
+membership; titles, due dates and creation numbers do not determine priority.
+The shared parser and comparator in `scripts/milestone-policy.mjs` own this
+contract. Malformed or duplicate metadata is an explicit error, never a
+fallback to title interpretation. Untagged `Wave N` and `Mobile N` are temporary
+migration compatibility; new outcomes always carry metadata.
+
+Terminal gate references remain in the description's `Exit gates:` clause,
+ending at `Canonical sequencing:`. List current terminal evidence issues there;
+put history, predecessor links, and decision references outside that clause.
+Native dependencies carry each gate's prerequisites and native sub-issues carry
+capability structure. Neither milestone order nor a prose chain is a correctness
+edge.
+
+### Agents own placement and priority
+
+Todd's steering is an override, not a required approval queue. Planning and the
+controller select outcomes, assign issues, split independently usable outcomes,
+re-sequence work, and promote or defer ordinary candidate work themselves.
+Record a compact reason for a material change on the program roadmap, naming
+the affected outcome and issues. Never ask Todd which milestone a routine
+issue belongs in or require him to maintain ranks.
+
+Apply this placement test at intake:
+
+1. Identify the issue's observable acceptance and the capability that owns it.
+2. If a committed outcome requires that acceptance, place the issue there and
+   wire its genuine gate/prerequisite relationship.
+3. If it independently delivers another approved outcome, create or select a
+   bounded outcome with its own acceptance, gate, and agent-chosen order.
+4. Otherwise keep the triaged capability in a candidate milestone. Promote only
+   a bounded, usable subset when the delivery frontier can consume it.
+
+Choose routine outcome order from existing steering, correctness and external
+obligations, gate-unblocking value, complete-outcome benefit relative to evidenced
+remaining effort, readiness, and aging. Count a benefit once and compare effort
+for the same complete outcome. Missing effort/adoption evidence is uncertainty,
+not an invented score. The experimental impact rubric is not dispatch authority.
+Favor finishing the current usable outcome over starting adjacent improvements.
+Do not starve product work with general delivery-tooling improvements.
+
+Record explicit Todd steering in the roadmap with its scope and stated end
+condition. If no end condition is stated, preserve it until the requested
+outcome is achieved or Todd supersedes it. Agents translate that steering into
+outcome order and issue Dispatch rank; they do not ask Todd to edit either.
+A later calculated score or routine review cannot silently reverse steering.
+Only genuinely new product, legal, provider-authority, or similarly consequential
+choices outside accepted scope use the existing decision route.
+
+A new issue changes an active commitment only when it is required for its
+acceptance or directly covered by steering. Record the gate it serves and the
+scope/sequence tradeoff. Useful unrelated work competes for the next outcome.
+Never use candidate placement to hide failed implementation, unresolved recovery,
+or an active lane; preserve its existing acceptance and recovery disposition.
 
 ### Epic = a capability, and the parent of its slices
 
@@ -148,8 +213,8 @@ classified only when all of these hold:
 - native issue type is not `Epic` (an untyped legacy `kind:epic` label is the
   fallback; a native type always wins);
 - it has none of `status:tracking-only`;
-- it has an executable wave milestone (not `Deferred / Incubation` or
-  `Operations`); and
+- it has an executable committed outcome milestone (not a candidate,
+  `Deferred / Incubation`, or `Operations`); and
 - it has at least one label from each of `priority:*`, `area:*`, and `kind:*`.
 
 Unknown or malformed inputs fail closed. `status:tracking-only` issues are
@@ -217,25 +282,21 @@ controller-alignment work.
 Refinement is pulled forward wave by wave, not applied to the whole corpus
 (anti-ratchet). Do not mass-refine; refine the next wave's worth.
 
-### Out-of-band dispatch consumer
+### Controller consumer
 
-The installed host-scope
-`C:\Users\ToddS\.claude\skills\milestone-orchestrator\SKILL.md` is an
-out-of-band consumer of the refined predicate. This repository change is inert
-for its dispatch semantics: until the aligned controller release is
-independently reviewed and installed under
-[#6174](https://github.com/chase-sets/chase-sets/issues/6174), that installed
-skill still uses its own milestone + `priority:*` + `area:*` + `kind:*`
-definition and can consider a fully labelled `status:tracking-only` issue a
-candidate. The roadmap and board jobs exclude that issue now; the controller
-will align only after the future operator action.
+The reviewed installed milestone-orchestrator is an out-of-band consumer of the
+same shared outcome policy. Ship its contract update with a consumer-compatible
+repository release; activate candidate/reordered metadata only after those
+consumers are available. Record the exact release and live migration on the
+program roadmap. Existing active lane ownership survives a portfolio update.
 
 ## Rollup and progress
 
 Two numbers per wave, both generated:
 
-1. **Epic completion** — share of the wave's epics whose children are closed.
-   Capability progress.
+1. **Epic contribution completion** — share of the outcome's contributing
+   epics whose children in that outcome are closed. Full capability completion
+   remains on the Epic; later-outcome children do not hold this contribution open.
 2. **Slice burn-up** — closed vs. total *including newly added*. This makes
    scope growth visible; a raw "issues remaining" count hides it, which is how
    one wave grew 29% unnoticed.
@@ -245,7 +306,13 @@ size.
 
 ### Derived completion forecast
 
-The roadmap status generator reports a derived forecast, not a commitment.
+Managed outcomes report `unavailable (managed order)` until the gate-chain
+forecast owned by #7465 can represent their ordering and evidence. Candidate
+outcomes receive no delivery forecast. Never use the legacy global inventory
+rate to invent a date for an agent-managed or reordered outcome.
+
+For untagged migration-compatible milestones only, the roadmap status generator
+reports the existing derived forecast, not a commitment.
 Milestone exit gates remain the sole closure authority. It counts eligible
 terminal completions across the complete open and closed Wave/Mobile catalog in
 the 14 completed UTC days immediately before the current UTC day. A raw
@@ -268,46 +335,55 @@ unobservable-identity counts.
 
 ## Scheduling mechanisms
 
-The pull model uses four mechanisms with separate meanings:
+- **Milestone** owns finite acceptance, membership, terminal evidence and scope.
+- **Outcome order** is agent-owned order within a named track, with Todd steering
+  taking precedence. It is independent of title, creation order and dates. The
+  board's `Outcome order` Number field is a sync-owned display projection of the
+  shared comparator (track, order, stable identity); configure its field ID in
+  `DELIVERY_OUTCOME_ORDER_FIELD_ID`. Agents edit the milestone authority, never
+  this projection. Sort the execution view by Outcome order, then Dispatch rank.
+- **Blocker** is a native correctness edge, never a scheduling opinion.
+- **Dispatch rank** is agent-maintained issue order inside the selected outcome.
+  Agents refresh it when steering, blockers, or gate progress materially changes.
+  Closed and tracking-only records are not ranking candidates. The proposed
+  derived scorer remains owned by #7450; it must preserve current steering
+  before becoming the writer of this field.
+- **Priority** expresses operational urgency: p0 interrupts an active lane only
+  for an evidenced emergency; p1 wins an otherwise equal next-lane choice; p2
+  is ordinary work; p3 is opportunistic. A future acceptance requirement is not
+  p0 merely because the future outcome needs it.
 
-- **Milestone** controls outcome-set membership, exit-gate closure, progress,
-  and scope measurement.
-- **Blocker** is a correctness edge only, never a scheduling opinion. An open
-  native blocking dependency makes the dependent slice unrunnable.
-- **Priority** is a lane-contention tiebreaker, never a statement of business
-  importance: `priority:p0` preempts an active lane; `priority:p1` wins the next
-  free-lane tie; `priority:p2` is normal work; and `priority:p3` is
-  opportunistic filler.
-- **Dispatch rank** is a sparse within-wave fine order evaluated before
-  priority.
-
-`dispatch:flush-window` is a scheduling constraint: dispatch its slice only
-into a drained merge queue with no sibling pull request against the file being
-split.
+`dispatch:flush-window` requires a drained merge queue with no sibling pull
+request against the file being split.
 
 ## Selection (the orchestrator contract)
 
-1. Exclude issue type **Epic**, `Deferred / Incubation`, and `Operations` from
-   the executable queue.
-2. Work the earliest wave with runnable refined slices.
-3. Within a wave, evaluate sparse `Dispatch rank` first, then use priority as
-   the lane-contention tiebreaker defined above.
-4. A slice with an open blocking dependency is not runnable. Work-conserving:
-   never idle a lane while any safe slice is runnable.
-5. Spread concurrent lanes across `area:*` footprints. Same-context page,
-   schema, contract, event, localization-fingerprint, and deployment changes
-   land serially.
-6. One shared deploy lane; deployment contention never idles implementation.
-7. Human-in-the-loop, credential, and provider-approval blockers are queued
-   with their blocker recorded — they never occupy an implementation lane.
-8. Terminal evidence gates are not pulled forward past their prerequisites.
-9. Do not pull later-wave work forward while runnable earlier-wave work exists,
-   unless it is a small enabling slice that removes a documented blocker.
-10. A newly discovered requirement becomes a **new** fixed-scope slice in the
-    appropriate wave. Never expand an existing slice or epic silently.
+1. Exclude Epics, tracking-only records, candidates, Deferred / Incubation and
+   Operations. Preserve existing ownership for active lanes.
+2. Apply current Todd steering and actual emergency interrupts. Then consume
+   the per-track committed pull window from `scripts/dispatch-window.mjs`.
+   That helper uses the shared milestone policy; never derive title order again.
+3. Within the selected outcome, work Dispatch rank, then priority and native
+   dependency topology. Agents update ranks; Todd never has to supply them.
+4. Open native blockers make a slice unrunnable. Entry and terminal evidence
+   gates cannot run before the state they observe exists. External operator
+   windows are queued outside implementation lanes.
+5. Be work-conserving across safe committed outcomes and eligible tracks. A
+   necessary enabling slice can run ahead with its blocker relationship named.
+   Candidate scope becomes eligible only after the agent explicitly promotes a
+   finite outcome with its gate and placement recorded.
+6. Spread concurrent lanes across disjoint footprints. Serialize conflicting
+   page, schema, contract, event, localization and deployment changes. Use the
+   shared deploy lane without idling independent implementation.
+7. Finish and close a committed outcome when all admitted required work and
+   terminal evidence are accepted. Reconcile tracking predecessors and give
+   optional remainder an explicit destination; never silently drop acceptance
+   or close a milestone merely because its forecast or percentage looks done.
 
 ## Replanning
 
-Re-date or move slices only when evidence changes the dependency graph,
-delivery target, or priority. Review at most weekly, and every review must
-close, deliver, promote, defer, or re-sequence something concrete.
+Agents handle intake and genuine new blockers immediately. Re-rank the whole
+portfolio at most weekly, and make each review finish, promote, defer or
+re-sequence something concrete. No new ceremony is required for ordinary
+placement. Record material scope changes, preserve native links and steering,
+and refine only the near-term work the delivery frontier can consume.

@@ -1222,6 +1222,37 @@ describe("prospective issue readiness", () => {
     expect(prospective.reasonCodes).toEqual(live.reasonCodes);
   });
 
+  it("accepts legacy Mobile and managed renamed outcomes while excluding candidates", () => {
+    const mobile = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({ milestone: { number: 200, title: "Mobile 3 — App delivery", state: "open" } }),
+    );
+    expect(mobile.status).toBe("ready");
+
+    const managedDescription = '<!-- outcome: {"version":1,"track":"commerce","order":100,"status":"committed"} -->';
+    const managed = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({
+        milestone: { number: 900, title: "Renamed checkout outcome", description: managedDescription, state: "open" },
+      }),
+    );
+    expect(managed.status).toBe("ready");
+
+    const candidate = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({
+        milestone: {
+          number: 901,
+          title: "Candidate checkout idea",
+          description: managedDescription.replace('"committed"', '"candidate"'),
+          state: "open",
+        },
+      }),
+    );
+    expect(candidate.status).toBe("not-ready");
+    expect(candidate.reasonCodes).toEqual(expect.arrayContaining(["MILESTONE_CANDIDATE", "MILESTONE_NOT_EXECUTABLE"]));
+  });
+
   it("advisory decomposition facts never change readiness status", () => {
     const threeCriteria = prospectiveResult(bodyWithAcceptanceCriteria(3));
     const twelveCriteria = prospectiveResult(bodyWithAcceptanceCriteria(12));

@@ -1,7 +1,7 @@
 import { classified } from "./backlog-classify.mjs";
+import { compareOutcomeMilestones, isExecutableOutcome, readOutcomePolicy } from "./milestone-policy.mjs";
 
 export const THROUGHPUT_SERIES = /^(Wave|Mobile)\s+(\d+)\b/;
-const NON_EXECUTABLE_MILESTONES = new Set(["Deferred / Incubation", "Operations"]);
 
 export function seriesIdentity(title) {
   if (typeof title !== "string") return null;
@@ -12,7 +12,9 @@ export function seriesIdentity(title) {
 }
 
 export function isRunnableRefined(issue) {
-  if (!issue || issue.state !== "open" || !Array.isArray(issue.blockedBy)) return false;
+  if (!issue || issue.state !== "open" || !Array.isArray(issue.blockedBy) || !isExecutableOutcome(issue.milestone)) {
+    return false;
+  }
   const openBlockerCount = issue.blockedBy.filter((blocker) => blocker?.state === "open").length;
   return (
     openBlockerCount === 0 &&
@@ -22,6 +24,9 @@ export function isRunnableRefined(issue) {
       labels: issue.labels.map((label) => label.name),
       issueTypeName: issue.issueTypeName,
       milestoneTitle: issue.milestone?.title ?? null,
+      milestoneDescription: issue.milestone?.description ?? null,
+      milestoneNumber: issue.milestone?.number ?? null,
+      milestoneState: issue.milestone?.state ?? null,
       blockedByCount: openBlockerCount,
       hasParent: false,
     })
@@ -29,7 +34,7 @@ export function isRunnableRefined(issue) {
 }
 
 /**
- * Select one pull milestone per exact Wave/Mobile series. Input is the
+ * Select one pull milestone per exact managed or migration-compatible track. Input is the
  * normalized, complete authority published by roadmap-status; this helper has
  * no provider or mutation operation.
  */
@@ -37,18 +42,17 @@ export function derivePullWindow({ milestones, issues }) {
   const candidates = new Map();
   const milestoneById = new Map();
   for (const milestone of milestones) {
-    const series = seriesIdentity(milestone?.title);
-    if (!series || milestone.state !== "open" || NON_EXECUTABLE_MILESTONES.has(milestone.title)) continue;
-    milestoneById.set(milestone.id, { milestone, series });
+    if (!isExecutableOutcome(milestone)) continue;
+    milestoneById.set(milestone.id, { milestone, policy: readOutcomePolicy(milestone) });
   }
   for (const issue of issues) {
     const entry = milestoneById.get(issue?.milestone?.id);
-    if (!entry || !isRunnableRefined(issue)) continue;
-    const key = entry.series.family;
+    if (!entry || !isRunnableRefined({ ...issue, milestone: entry.milestone })) continue;
+    const key = entry.policy.track;
     const current = candidates.get(key);
-    if (!current || entry.series.ordinal < current.series.ordinal) candidates.set(key, entry);
+    if (!current || compareOutcomeMilestones(entry.milestone, current.milestone) < 0) candidates.set(key, entry);
   }
   return [...candidates.values()]
-    .sort((left, right) => left.series.family.localeCompare(right.series.family))
+    .sort((left, right) => compareOutcomeMilestones(left.milestone, right.milestone))
     .map(({ milestone }) => ({ id: milestone.id, number: milestone.number, title: milestone.title }));
 }

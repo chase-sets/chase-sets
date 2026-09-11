@@ -15,6 +15,7 @@ import {
   LABELS_QUERY,
   main,
   planDateUpdates,
+  planOutcomeOrderUpdates,
   planStatusUpdates,
   projectItemFromNode,
   readConfiguration,
@@ -142,6 +143,47 @@ function mutationRequests(requests) {
 }
 
 describe("project status derivation", () => {
+  it("projects shared outcome order independently of creation number and clears non-executable rows", () => {
+    const milestone = (number, order, status = "committed") => ({
+      number,
+      title: `Outcome ${number}`,
+      state: "OPEN",
+      description: `<!-- outcome: {"version":1,"track":"commerce","order":${order},"status":"${status}"} -->`,
+    });
+    const a = { itemId: "a", outcomeOrder: null, issue: issue({ milestone: milestone(100, 50) }) };
+    const b = { itemId: "b", outcomeOrder: null, issue: issue({ number: 2, milestone: milestone(200, 10) }) };
+    const candidate = {
+      itemId: "c",
+      outcomeOrder: 3,
+      issue: issue({ number: 3, milestone: milestone(300, 1, "candidate") }),
+    };
+    expect(planOutcomeOrderUpdates([a, b, candidate]).map(({ itemId, to }) => [itemId, to])).toEqual([
+      ["a", 2],
+      ["b", 1],
+      ["c", null],
+    ]);
+    expect(
+      planOutcomeOrderUpdates([
+        { ...a, outcomeOrder: 2 },
+        { ...b, outcomeOrder: 1 },
+      ]),
+    ).toEqual([]);
+    expect(() => planOutcomeOrderUpdates([a, { ...b, issue: issue({ milestone: milestone(100, 10) }) }])).toThrow(
+      "changed during collection",
+    );
+  });
+  it("keeps candidate outcome work out of Refined using live milestone metadata", () => {
+    const milestone = {
+      number: 200,
+      title: "Seller improvements",
+      state: "OPEN",
+      description: '<!-- outcome: {"version":1,"track":"commerce","order":100,"status":"candidate"} -->',
+    };
+    const collected = projectItemFromNode(boardNode({ milestone })).issue;
+    expect(deriveStatus(collected)).toBe("Backlog");
+    expect(planStatusUpdates([{ itemId: "candidate", status: "In lane", issue: collected }])).toEqual([]);
+    expect(ITEMS_QUERY).toContain("milestone { number title description state dueOn }");
+  });
   it("derives Refined when placed and fully classified", () => {
     expect(deriveStatus(issue())).toBe("Refined");
   });

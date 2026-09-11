@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { classified } from "./backlog-classify.mjs";
 import { canonicalLabelNames, ENABLED_NATIVE_ISSUE_TYPES } from "./label-registry.mjs";
+import { isExecutableOutcome, readOutcomePolicy } from "./milestone-policy.mjs";
 
 export const ISSUE_READINESS_SCHEMA_VERSION = "issue-readiness/v1";
 export const ISSUE_READINESS_RUN_SCHEMA_VERSION = "issue-readiness-run/v1";
@@ -152,7 +153,13 @@ function projectIssue(raw, repository, expectedNumber) {
     (typeof raw.milestone !== "object" ||
       typeof raw.milestone.title !== "string" ||
       !nonNegativeInteger(raw.milestone.number) ||
-      !["open", "closed"].includes(raw.milestone.state))
+      !["open", "closed"].includes(raw.milestone.state) ||
+      (raw.milestone.description !== undefined &&
+        raw.milestone.description !== null &&
+        typeof raw.milestone.description !== "string") ||
+      (raw.milestone.node_id !== undefined &&
+        raw.milestone.node_id !== null &&
+        typeof raw.milestone.node_id !== "string"))
   ) {
     fail("ISSUE_MILESTONE_SHAPE_INVALID");
   }
@@ -164,7 +171,13 @@ function projectIssue(raw, repository, expectedNumber) {
     body: raw.body ?? "",
     issueType: raw.type ? { nodeId: raw.type.node_id, name: raw.type.name, isEnabled: raw.type.is_enabled } : null,
     milestone: raw.milestone
-      ? { number: raw.milestone.number, title: raw.milestone.title, state: raw.milestone.state }
+      ? {
+          id: raw.milestone.node_id ?? null,
+          number: raw.milestone.number,
+          title: raw.milestone.title,
+          description: raw.milestone.description ?? null,
+          state: raw.milestone.state,
+        }
       : null,
     commentsTotal: raw.comments,
     dependenciesTotal: raw.issue_dependencies_summary.total_blocked_by,
@@ -537,8 +550,10 @@ export async function collectIssueAuthority({ repository, number, token, client 
       finalIssue.issueType?.nodeId === issue.issueType?.nodeId &&
       finalIssue.issueType?.name === issue.issueType?.name &&
       finalIssue.issueType?.isEnabled === issue.issueType?.isEnabled &&
+      finalIssue.milestone?.id === issue.milestone?.id &&
       finalIssue.milestone?.number === issue.milestone?.number &&
       finalIssue.milestone?.title === issue.milestone?.title &&
+      finalIssue.milestone?.description === issue.milestone?.description &&
       finalIssue.milestone?.state === issue.milestone?.state &&
       finalIssue.commentsTotal === issue.commentsTotal &&
       finalIssue.dependenciesTotal === issue.dependenciesTotal &&
@@ -829,7 +844,13 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
     facts: {
       state: authority.issue?.state ?? null,
       issueType: authority.issue?.issueType ?? null,
-      milestone: authority.issue?.milestone ?? null,
+      milestone: authority.issue?.milestone
+        ? {
+            number: authority.issue.milestone.number,
+            title: authority.issue.milestone.title,
+            state: authority.issue.milestone.state,
+          }
+        : null,
       labels: [...(authority.labels ?? [])].sort(),
       hasParent: authority.graph?.hasParent ?? null,
       parentNumber: authority.graph?.parentNumber ?? null,
@@ -886,6 +907,9 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
     labels,
     issueTypeName,
     milestoneTitle: authority.issue.milestone?.title ?? null,
+    milestoneDescription: authority.issue.milestone?.description ?? null,
+    milestoneNumber: authority.issue.milestone?.number ?? null,
+    milestoneState: authority.issue.milestone?.state ?? null,
     blockedByCount: authority.dependencies.filter((dependency) => dependency.state === "open").length,
     hasParent: authority.graph.hasParent,
   };
@@ -898,8 +922,11 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
   ) {
     classificationFailures.push("ISSUE_TYPE_NOT_DISPATCHABLE");
   }
-  if (!/^Wave\s+\d+\b/.test(authority.issue.milestone?.title ?? "")) {
-    classificationFailures.push("MILESTONE_NOT_WAVE");
+  const outcomePolicy = readOutcomePolicy(authority.issue.milestone);
+  if (outcomePolicy === null) classificationFailures.push("MILESTONE_NOT_OUTCOME");
+  if (outcomePolicy?.status === "candidate") classificationFailures.push("MILESTONE_CANDIDATE");
+  if (authority.issue.milestone && !isExecutableOutcome(authority.issue.milestone)) {
+    classificationFailures.push("MILESTONE_NOT_EXECUTABLE");
   }
   if (authority.issue.milestone?.state !== "open") classificationFailures.push("MILESTONE_NOT_OPEN");
   if (labels.some((label) => NON_RUNNABLE_LABELS.has(label))) {

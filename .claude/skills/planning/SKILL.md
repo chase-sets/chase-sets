@@ -36,6 +36,22 @@ Calibration may revise itself mid-flight: when an issue-sized idea grows a secon
 context or a full-path trigger during discovery, escalate the tier — start small,
 escalate the moment scope demands it.
 
+## Agent-owned placement
+
+Choose placement and priority yourself using `docs/contributing/backlog-model.md`.
+Todd's steering overrides routine ordering; it is not a mandatory approval step.
+Identify the issue's observable acceptance, the outcome that requires it, and
+its genuine native prerequisites. Reuse a milestone for acceptance fit, never
+just a shared theme. Create a bounded outcome when independently usable work
+needs a separate finish line; keep future options in candidate milestones.
+
+Set the outcome metadata and issue Dispatch rank, record material placement
+reasons on the roadmap, and preserve current steering until achieved or
+superseded. Never ask Todd which milestone to use, make him supply routine
+ranks, or turn missing priority evidence into a Decision. Continue routing
+actual unresolved product, legal and provider-authority choices as before.
+Do not use candidate placement to hide stopped implementation or active lanes.
+
 ## Bounded brief contract
 
 A brief:
@@ -112,7 +128,7 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
      parent, keep the predecessor's parent link;
    - every open slice classified (`refined ≡ classified`) with a wave milestone
      + `priority:*` + `area:*` + `kind:*`, excluding Epics,
-     `status:tracking-only`, `Deferred / Incubation`, and `Operations` (the
+     `status:tracking-only`, candidate outcomes, `Deferred / Incubation`, and `Operations` (the
      slice form's dropdowns set the labels; API-created issues must set type and
      labels explicitly);
    - parent attachment is reported, not gating: attach a slice to the Epic that

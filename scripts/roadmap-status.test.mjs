@@ -57,6 +57,8 @@ const WAVE_2 = { number: 137, title: "Wave 2", state: "open", due_on: null };
 const DEFERRED = { number: 146, title: "Deferred / Incubation", state: "open", due_on: null };
 const OPERATIONS = { number: 147, title: "Operations", state: "open", due_on: null };
 const CLOSED_WAVE_0 = { number: 134, title: "Wave 0", state: "closed", due_on: "2026-07-01T00:00:00Z" };
+const outcomeDescription = (track, order, status = "committed") =>
+  `<!-- outcome: ${JSON.stringify({ version: 1, track, order, status })} -->`;
 
 function slice(number, milestone, state, labels, created_at = OLD, overrides = {}) {
   return {
@@ -139,6 +141,7 @@ function windowMilestoneNode(milestone) {
     id: `SYNTHETIC_MILESTONE_${milestone.number}`,
     number: milestone.number,
     title: milestone.title,
+    description: milestone.description ?? null,
     state: "OPEN",
   };
 }
@@ -532,6 +535,41 @@ describe("monthly refined-inventory cap authority", () => {
 });
 
 describe("gate-stable forecast contract", () => {
+  it("migrates retained legacy forecast rows to managed-unavailable without aborting the writer", async () => {
+    const prior = deriveFixture();
+    const candidate = {
+      ...WAVE_1,
+      title: "Renamed candidate Wave 1",
+      description: outcomeDescription("commerce", 100, "candidate"),
+    };
+    const managed = {
+      number: 999,
+      title: "New arbitrary outcome",
+      description: outcomeDescription("commerce", 200),
+      state: "open",
+      due_on: null,
+    };
+    const issues = [
+      ...prior.issues.map((issue) =>
+        issue.milestone?.number === WAVE_1.number ? { ...issue, milestone: candidate } : issue,
+      ),
+      slice(5000, managed, "open", ["priority:p1", "area:ops", "kind:ops"]),
+    ];
+    const result = await runMainFixture({
+      issues,
+      milestones: [candidate, WAVE_2, managed],
+      closedMilestones: [CLOSED_WAVE_0],
+      roadmapBody: bodyWithRecord(prior.current.record),
+    });
+    expect(result.code).toBe(0);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.generated[0]).toContain("Renamed candidate Wave 1 _(not executable)_");
+    expect(result.generated[0]).toContain("| New arbitrary outcome | unavailable (managed order) | — |");
+    const migrated = readPriorForecastRecord(result.generated[0], NOW);
+    expect(migrated.status).toBe("valid");
+    expect(migrated.record.milestones.map(({ number }) => number)).toEqual([CLOSED_WAVE_0.number, WAVE_2.number]);
+  });
+
   it("derives pinned UTC forecasts and literal generated presentation from gate-stable history", () => {
     const fixture = deriveFixture({ wave1Open: 2, wave2Open: 1 });
     const [wave1, wave2] = fixture.current.record.milestones.filter((milestone) => milestone.state === "open");
@@ -1230,19 +1268,26 @@ describe("gate-stable forecast contract", () => {
   });
 
   it("binds backlog-model forecast and gate literals to generator constants", () => {
-    const docs = readFileSync(path.join(repoRoot, "docs", "contributing", "backlog-model.md"), "utf8");
+    const docs = readFileSync(path.join(repoRoot, "docs", "contributing", "backlog-model.md"), "utf8").replaceAll(
+      "\r\n",
+      "\n",
+    );
     for (const literal of [
-      "Milestone = outcome-set membership and exit-gate closure",
-      "Blocker** is a correctness edge only, never a scheduling opinion",
-      "`priority:p0` preempts an active lane",
-      "`priority:p1` wins the next",
-      "`priority:p2` is normal work",
-      "`priority:p3` is",
-      "never a statement of business",
-      "Dispatch rank** is a sparse within-wave fine order evaluated before",
-      "Every open milestone has `due_on: null`, including `Deferred / Incubation` and",
-      "An externally committed date belongs on the specific gate issue",
-      "drained merge queue with no sibling pull request",
+      "Milestone = finite outcome membership and exit-gate closure",
+      "Every executable slice belongs to exactly one committed outcome milestone",
+      "Candidate milestones hold triaged future capabilities",
+      "Open milestones have `due_on: null`",
+      "stable GitHub milestone identity owns",
+      "Malformed or duplicate metadata is an explicit error",
+      "Managed outcomes report `unavailable (managed order)`",
+      "Outcome order** is agent-owned order within a named track",
+      "Blocker** is a native correctness edge, never a scheduling opinion",
+      "Dispatch rank** is agent-maintained issue order inside the selected outcome",
+      "p0 interrupts an active lane only",
+      "p1 wins an otherwise equal next-lane choice",
+      "is ordinary work; p3 is opportunistic",
+      "p3 is opportunistic",
+      "drained merge queue with no sibling pull",
       "FORECAST_SAMPLE_BELOW_14",
       "FORECAST_ACTIVE_DAYS_BELOW_7",
       "FORECAST_DAY_SHARE_ABOVE_25_PERCENT",
@@ -1256,7 +1301,10 @@ describe("gate-stable forecast contract", () => {
   });
 
   it("binds Probe ladder lifecycle and authority boundaries to the documentation contract", () => {
-    const docs = readFileSync(path.join(repoRoot, "docs", "contributing", "backlog-model.md"), "utf8");
+    const docs = readFileSync(path.join(repoRoot, "docs", "contributing", "backlog-model.md"), "utf8").replaceAll(
+      "\r\n",
+      "\n",
+    );
     const lifecycleRequirements = [
       "time-boxed evidence gathering",
       "what a slice needs before dispatch",
@@ -1630,6 +1678,49 @@ describe("gate-stable forecast contract", () => {
 });
 
 describe("roadmap status classification and preserved rollups", () => {
+  it("orders and joins managed outcomes by policy and stable milestone number, excluding candidate totals", () => {
+    const first = {
+      number: 900,
+      title: "Renamed first outcome",
+      description: outcomeDescription("commerce", 100),
+      state: "open",
+      due_on: null,
+    };
+    const candidate = {
+      number: 100,
+      title: "Candidate inserted outcome",
+      description: outcomeDescription("commerce", 150, "candidate"),
+      state: "open",
+      due_on: null,
+    };
+    const later = {
+      number: 10,
+      title: "Later outcome",
+      description: outcomeDescription("commerce", 200),
+      state: "open",
+      due_on: null,
+    };
+    const issues = [
+      slice(1, { ...first, title: "Old first title" }, "open", ["priority:p1", "area:ops", "kind:ops"]),
+      slice(2, candidate, "open", ["priority:p1", "area:ops", "kind:ops"]),
+      slice(3, later, "open", ["priority:p1", "area:ops", "kind:ops"]),
+    ];
+    const summary = summarizeWaves({
+      milestones: [later, candidate, first],
+      issues,
+      scopeGrowthByIssue: new Map([
+        [1, { status: "known", enteredAtMs: null }],
+        [3, { status: "known", enteredAtMs: null }],
+      ]),
+      nowMs: NOW,
+    });
+    expect(summary.rows.map(({ title }) => title)).toEqual([first.title, candidate.title, later.title]);
+    expect(summary.rows[0]).toMatchObject({ total: 1, open: 1, refinedOpen: 1, executable: true });
+    expect(summary.rows[1]).toMatchObject({ total: 0, open: 0, refinedOpen: 0, tracking: 0, executable: false });
+    expect(renderRoadmapStatus(summary)).toContain(`| ${first.title} | unavailable (managed order) | — |`);
+    expect(buildForecastMilestoneCatalog([first, later], [])).toEqual([]);
+  });
+
   it("identifies epics and delegates classification to the shared predicate", () => {
     expect(isEpic(slice(1, WAVE_1, "open", ["kind:epic"], OLD, { issueTypeName: null }))).toBe(true);
     expect(isEpic(slice(2, WAVE_1, "open", ["kind:product"]))).toBe(false);
@@ -1670,7 +1761,7 @@ describe("roadmap status classification and preserved rollups", () => {
     });
   });
 
-  it("assigns an epic to the earliest wave among its reconciled children", () => {
+  it("reports an epic in every outcome where its reconciled children contribute", () => {
     const issues = [epic(10, 2), epic(11, 1)];
     const epicChildren = new Map([
       [
@@ -1690,7 +1781,7 @@ describe("roadmap status classification and preserved rollups", () => {
       nowMs: NOW,
     });
     expect(rows[0]).toMatchObject({ epicsTotal: 1, epicsComplete: 1 });
-    expect(rows[1]).toMatchObject({ epicsTotal: 1, epicsComplete: 0 });
+    expect(rows[1]).toMatchObject({ epicsTotal: 2, epicsComplete: 1 });
   });
 
   it("never counts a childless epic as complete", () => {
@@ -1823,16 +1914,12 @@ describe("latest-entry scope growth", () => {
     expect(rows[0].addedRecently).toBe(1);
   });
 
-  it("makes a renamed milestone bounded-unknown and never falls back to created_at", () => {
+  it("uses the final membership transition when a milestone was renamed", () => {
     const issue = slice(4, WAVE_1, "open", ["kind:product"], OLD, { updated_at: RECENT });
     const entry = resolveCurrentMilestoneEntry(issue, [
       { event: "milestoned", milestone: { title: "Wave One (old title)" }, created_at: RECENT },
     ]);
-    expect(entry).toEqual({
-      status: "unknown",
-      reason: `milestone history has no entry titled "${WAVE_1.title}"`,
-    });
-    expect(entry.source).toBeUndefined();
+    expect(entry).toEqual({ status: "known", enteredAtMs: Date.parse(RECENT), source: "latest-milestoned-event" });
 
     const { rows } = summarizeWaves({
       milestones: [WAVE_1],
@@ -1841,11 +1928,9 @@ describe("latest-entry scope growth", () => {
       nowMs: NOW,
     });
     const markdown = renderRoadmapStatus({ rows, windowDays: 7 });
-    expect(rows[0]).toMatchObject({ addedRecently: 0, growthUnknown: 1 });
-    expect(markdown).toContain("| Wave 1 | — | — | 1 | 0 (0%) | 1 | 0/1 | 0 | 0 | ? |");
-    expect(markdown).toContain("scope growth is **?** (1 issue has bounded-unknown entry history)");
-    expect(markdown).toContain("Scope-growth diagnostics (bounded unknown): Wave 1: 1 issue.");
-    expect(markdown).not.toContain("0 entered current scope");
+    expect(rows[0]).toMatchObject({ addedRecently: 1, growthUnknown: 0 });
+    expect(markdown).toContain("| Wave 1 | — | — | 1 | 0 (0%) | 1 | 0/1 | 0 | 0 | +1 |");
+    expect(markdown).not.toContain("Scope-growth diagnostics (bounded unknown)");
   });
 
   it("uses created_at only when a fetched timeline has zero milestone events", () => {
@@ -1859,7 +1944,7 @@ describe("latest-entry scope growth", () => {
       resolveCurrentMilestoneEntry(issue, [
         { event: "milestoned", milestone: { title: "Renamed Wave" }, created_at: RECENT },
       ]),
-    ).toMatchObject({ status: "unknown" });
+    ).toEqual({ status: "known", enteredAtMs: Date.parse(RECENT), source: "latest-milestoned-event" });
   });
 
   it("counts a recently created current member without fetching its timeline", async () => {
@@ -2453,7 +2538,7 @@ describe("real main composition", () => {
     const { request } = createMainRequest({
       issues: [issue],
       timelinesByIssue: new Map([
-        [200, [{ event: "milestoned", milestone: { title: "Wave 1 (old title)" }, created_at: RECENT }]],
+        [200, [{ event: "demilestoned", milestone: { title: "Wave 1 (old title)" }, created_at: RECENT }]],
       ]),
     });
     let output = "";
@@ -2794,6 +2879,7 @@ describe("prioritization hygiene authority", () => {
       'if (nodes.length === nodesBeforePage || nodes.length >= expectedTotal) {\n        throw windowAuthorityError("ROADMAP_DISPATCH_WINDOW_AUTHORITY_COUNT_MISMATCH");\n      }';
     const backlogClassifyImport = ['from "./backlog-classify', '.mjs"'].join("");
     const dispatchWindowImport = ['from "./dispatch-window', '.mjs"'].join("");
+    const milestonePolicyImport = ['from "./milestone-policy', '.mjs"'].join("");
     const source = readFileSync(path.join(repoRoot, "scripts", "roadmap-status.mjs"), "utf8");
     expect(source).toContain(guard);
 
@@ -2821,6 +2907,10 @@ describe("prioritization hygiene authority", () => {
       .replaceAll(
         dispatchWindowImport,
         `from "${pathToFileURL(path.join(repoRoot, "scripts", "dispatch-window.mjs")).href}"`,
+      )
+      .replaceAll(
+        milestonePolicyImport,
+        `from "${pathToFileURL(path.join(repoRoot, "scripts", "milestone-policy.mjs")).href}"`,
       );
     const mutant = await import(`data:text/javascript;base64,${Buffer.from(mutantSource).toString("base64")}`);
     continuationCalls = 0;
