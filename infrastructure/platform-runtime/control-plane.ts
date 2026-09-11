@@ -10,6 +10,22 @@ import {
 } from "./work-signal-composite";
 import type { RuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
+export {
+  createEvidenceWindowCorrelation,
+  createEvidenceWindowRegistrationRoutes,
+  createNullEvidenceWindowCorrelation,
+  createPostgresEvidenceWindowRegistration,
+  EVIDENCE_WINDOW_ADMISSION_HEADER,
+  EvidenceWindowRegistrationError,
+  type EvidenceWindowAuthorityProbe,
+  type EvidenceWindowAuthoritySnapshot,
+  type EvidenceWindowCorrelation,
+  type EvidenceWindowCurrent,
+  type EvidenceWindowRegistration,
+  type EvidenceWindowRegistrationErrorCode,
+  type EvidenceWindowRoutesOptions,
+} from "./evidence-window-registration";
+
 const DEFAULT_PROJECTION_OPERATION_LIMIT = 50;
 const PROJECTION_OPERATION_NOTIFY_CHANNEL = "platform_projection_operation_events";
 const PROJECTION_OPERATION_WORK_SIGNAL_KIND = "projection-operation.event";
@@ -42,6 +58,26 @@ function normalizeProjectionOperationBackoffMs(value: number | undefined, fallba
 }
 
 export const platformControlPlaneSchemaSql = `
+CREATE TABLE IF NOT EXISTS evidence_window (
+  window_id text PRIMARY KEY CHECK (window_id ~ '^[0-9a-f]{32}$'),
+  state text NOT NULL CHECK (state IN ('open', 'closed')),
+  opened_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  retention_seconds integer NOT NULL CHECK (retention_seconds BETWEEN 3600 AND 82800),
+  closed_at timestamptz NULL,
+  observed_mode text NOT NULL CHECK (observed_mode = 'test'),
+  version integer NOT NULL CHECK (version >= 1),
+  CHECK (expires_at = opened_at + (retention_seconds * interval '1 second')),
+  CHECK (
+    (state = 'open' AND closed_at IS NULL)
+    OR (state = 'closed' AND closed_at IS NOT NULL)
+  )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS evidence_window_single_open_idx
+  ON evidence_window ((true))
+  WHERE state = 'open';
+
 CREATE TABLE IF NOT EXISTS platform_control_leases (
   lease_name text PRIMARY KEY,
   owner_id text NOT NULL,

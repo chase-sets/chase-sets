@@ -9,6 +9,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import {
   bootstrapPlatformControlPlane,
+  createPostgresEvidenceWindowRegistration,
   createPostgresPlatformControlPlane,
   platformControlPlaneSchemaSql,
   reapStaleProjectionOperations,
@@ -1084,5 +1085,173 @@ describe("platform runtime Postgres concurrency guards", () => {
       expiredWakeIntents: 1,
       remainingPinnedWakeIntents: 0,
     });
+  });
+
+  it("boots the exact evidence-window schema from empty and converges idempotently", async () => {
+    await pools.platform.query("DROP TABLE evidence_window CASCADE");
+    await bootstrapPlatformControlPlane(pools.platform);
+    await expect(bootstrapPlatformControlPlane(pools.platform)).resolves.toBeUndefined();
+
+    const columns = await pools.platform.query<{
+      column_name: string;
+      data_type: string;
+      is_nullable: "YES" | "NO";
+      column_default: string | null;
+    }>(
+      `SELECT column_name, data_type, is_nullable, column_default
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'evidence_window'
+       ORDER BY ordinal_position`,
+    );
+    expect(columns.rows).toEqual([
+      { column_name: "window_id", data_type: "text", is_nullable: "NO", column_default: null },
+      { column_name: "state", data_type: "text", is_nullable: "NO", column_default: null },
+      { column_name: "opened_at", data_type: "timestamp with time zone", is_nullable: "NO", column_default: null },
+      { column_name: "expires_at", data_type: "timestamp with time zone", is_nullable: "NO", column_default: null },
+      { column_name: "retention_seconds", data_type: "integer", is_nullable: "NO", column_default: null },
+      { column_name: "closed_at", data_type: "timestamp with time zone", is_nullable: "YES", column_default: null },
+      { column_name: "observed_mode", data_type: "text", is_nullable: "NO", column_default: null },
+      { column_name: "version", data_type: "integer", is_nullable: "NO", column_default: null },
+    ]);
+
+    const constraints = await pools.platform.query<{ definition: string }>(
+      `SELECT pg_get_constraintdef(oid) AS definition
+       FROM pg_constraint
+       WHERE conrelid = 'evidence_window'::regclass`,
+    );
+    expect(constraints.rows.map((row) => row.definition).join("\n")).toMatch(/PRIMARY KEY \(window_id\)/);
+    expect(constraints.rows).toHaveLength(8);
+
+    const indexes = await pools.platform.query<{ indexname: string; indexdef: string }>(
+      `SELECT indexname, indexdef
+       FROM pg_indexes
+       WHERE schemaname = 'public' AND tablename = 'evidence_window'
+       ORDER BY indexname`,
+    );
+    expect(indexes.rows).toHaveLength(2);
+    expect(indexes.rows.find((row) => row.indexname === "evidence_window_single_open_idx")?.indexdef).toMatch(
+      /UNIQUE INDEX .* \(\(true\)\) WHERE \(state = 'open'::text\)/,
+    );
+    const tables = await pools.platform.query<{ table_name: string }>(
+      `SELECT table_name
+       FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name LIKE 'evidence_window%'
+       ORDER BY table_name`,
+    );
+    expect(tables.rows).toEqual([{ table_name: "evidence_window" }]);
+  });
+
+  it("admits exactly one of two concurrent opens through the database constraint", async () => {
+    const registration = createPostgresEvidenceWindowRegistration(pools.platform);
+    const attempts = await Promise.allSettled([
+      registration.open({ windowId: "10000000000000000000000000000000", retentionSeconds: 3_600 }),
+      registration.open({ windowId: "20000000000000000000000000000000", retentionSeconds: 3_600 }),
+    ]);
+
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
+    expect(attempts.find((attempt) => attempt.status === "rejected")).toMatchObject({
+      reason: { code: "evidence-window-already-open" },
+    });
+    const stored = await pools.platform.query<{ open_count: number; total_count: number }>(
+      `SELECT
+         COUNT(*) FILTER (WHERE state = 'open')::integer AS open_count,
+         COUNT(*)::integer AS total_count
+       FROM evidence_window`,
+    );
+    expect(stored.rows[0]).toEqual({ open_count: 1, total_count: 1 });
+  });
+
+  it("reads expiry without mutation and atomically retires it during a raced replacement", async () => {
+    const registration = createPostgresEvidenceWindowRegistration(pools.platform);
+    const expiredId = "30000000000000000000000000000000";
+    await expect(registration.current()).resolves.toBeNull();
+    await registration.open({ windowId: expiredId, retentionSeconds: 3_600 });
+    await expect(registration.current()).resolves.toMatchObject({ windowId: expiredId, version: 1 });
+    await pools.platform.query(
+      `UPDATE evidence_window
+       SET opened_at = statement_timestamp() - interval '3600 seconds',
+           expires_at = statement_timestamp(),
+           retention_seconds = 3600
+       WHERE window_id = $1`,
+      [expiredId],
+    );
+    const expiry = await pools.platform.query<{ expires_at: Date }>(
+      "SELECT expires_at FROM evidence_window WHERE window_id = $1",
+      [expiredId],
+    );
+    await expect(registration.current()).resolves.toBeNull();
+    await expect(registration.current()).resolves.toBeNull();
+    await expect(
+      pools.platform.query("SELECT state, version FROM evidence_window WHERE window_id = $1", [expiredId]),
+    ).resolves.toMatchObject({ rows: [{ state: "open", version: 1 }] });
+
+    const replacements = await Promise.allSettled([
+      registration.open({ windowId: "40000000000000000000000000000000", retentionSeconds: 3_600 }),
+      registration.open({ windowId: "50000000000000000000000000000000", retentionSeconds: 3_600 }),
+    ]);
+    expect(replacements.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    expect(replacements.find((attempt) => attempt.status === "rejected")).toMatchObject({
+      reason: { code: "evidence-window-already-open" },
+    });
+
+    const rows = await pools.platform.query<{
+      window_id: string;
+      state: "open" | "closed";
+      expires_at: Date;
+      closed_at: Date | null;
+      version: number;
+    }>("SELECT window_id, state, expires_at, closed_at, version FROM evidence_window ORDER BY window_id");
+    expect(rows.rows).toHaveLength(2);
+    expect(rows.rows.find((row) => row.window_id === expiredId)).toMatchObject({ state: "closed", version: 2 });
+    expect(rows.rows.find((row) => row.window_id === expiredId)?.closed_at?.toISOString()).toBe(
+      expiry.rows[0]?.expires_at.toISOString(),
+    );
+    expect(rows.rows.filter((row) => row.state === "open")).toHaveLength(1);
+  });
+
+  it("closes current and expired windows with expected-version guards and idempotent repeats", async () => {
+    const registration = createPostgresEvidenceWindowRegistration(pools.platform);
+    const currentId = "60000000000000000000000000000000";
+    const opened = await registration.open({ windowId: currentId, retentionSeconds: 3_600 });
+    await expect(registration.close({ windowId: currentId, expectedVersion: 2 })).rejects.toMatchObject({
+      code: "evidence-window-stale-write-rejected",
+    });
+    const closed = await registration.close({ windowId: currentId, expectedVersion: opened.version });
+    expect(closed).toMatchObject({ windowId: currentId, state: "closed", version: 2 });
+    await expect(registration.current()).resolves.toBeNull();
+    await expect(registration.close({ windowId: currentId, expectedVersion: 1 })).resolves.toEqual(closed);
+    await expect(
+      registration.close({ windowId: "70000000000000000000000000000000", expectedVersion: 1 }),
+    ).rejects.toMatchObject({ code: "evidence-window-unknown" });
+    await expect(registration.open({ windowId: currentId, retentionSeconds: 3_600 })).rejects.toMatchObject({
+      code: "evidence-window-storage-failed",
+    });
+
+    const expiredId = "80000000000000000000000000000000";
+    await registration.open({ windowId: expiredId, retentionSeconds: 3_600 });
+    await pools.platform.query(
+      `UPDATE evidence_window
+       SET opened_at = statement_timestamp() - interval '3600 seconds',
+           expires_at = statement_timestamp(),
+           retention_seconds = 3600
+       WHERE window_id = $1`,
+      [expiredId],
+    );
+    const beforeClose = await pools.platform.query<{ expires_at: Date }>(
+      "SELECT expires_at FROM evidence_window WHERE window_id = $1",
+      [expiredId],
+    );
+    const expiredClose = await registration.close({ windowId: expiredId, expectedVersion: 1 });
+    expect(expiredClose).toEqual({
+      windowId: expiredId,
+      state: "closed",
+      closedAt: beforeClose.rows[0]?.expires_at.toISOString(),
+      version: 2,
+    });
+    const retained = await pools.platform.query<{ total_count: number }>(
+      "SELECT COUNT(*)::integer AS total_count FROM evidence_window",
+    );
+    expect(retained.rows[0]).toEqual({ total_count: 2 });
   });
 });
