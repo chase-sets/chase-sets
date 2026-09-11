@@ -13,7 +13,12 @@ import {
   type PublicChannelConnection,
 } from "../../features/connections/domain/contracts";
 
-export { channelConnectionStatuses, type ChannelConnectionPage, type ChannelConnectionStatus, type PublicChannelConnection };
+export {
+  channelConnectionStatuses,
+  type ChannelConnectionPage,
+  type ChannelConnectionStatus,
+  type PublicChannelConnection,
+};
 
 export class ChannelsPublicationApiError extends Error {
   public constructor(

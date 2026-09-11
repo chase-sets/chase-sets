@@ -87,7 +87,5 @@ export default function AccountChannelsConnectionRoute() {
     );
   }
   const connection = actionData?.kind === "applied" ? actionData.connection : data.connection;
-  return (
-    <ChannelConnectionDetailPage state={{ kind: "ready", connection }} pendingIntent={pendingIntent} />
-  );
+  return <ChannelConnectionDetailPage state={{ kind: "ready", connection }} pendingIntent={pendingIntent} />;
 }

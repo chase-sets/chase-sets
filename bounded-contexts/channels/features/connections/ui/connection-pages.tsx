@@ -231,12 +231,18 @@ function ConnectionDetailSections({
               {allowedActions.map((action) => (
                 <Form key={action} method="post" spacing="none">
                   <HiddenInput type="hidden" name="intent" value={action} />
-                  <Button type="submit" tone={action === "disconnect" ? "danger" : "secondary"} disabled={pendingIntent !== null}>
+                  <Button
+                    type="submit"
+                    tone={action === "disconnect" ? "danger" : "secondary"}
+                    disabled={pendingIntent !== null}
+                  >
                     {t(actionLabelKeys[action])}
                   </Button>
                 </Form>
               ))}
-              {pendingIntent !== null ? <Text tone="secondary">{t("channels.connections.actions.pending")}</Text> : null}
+              {pendingIntent !== null ? (
+                <Text tone="secondary">{t("channels.connections.actions.pending")}</Text>
+              ) : null}
             </Stack>
           )}
         </Stack>

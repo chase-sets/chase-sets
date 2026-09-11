@@ -82,9 +82,7 @@ export function createFakeConnectionServices(seed: readonly FakeConnectionRecord
     },
     disconnectChannelConnection: async ({ accountId, connectionId }) => {
       calls.disconnect += 1;
-      return commandResult(
-        transition(accountId, connectionId, [...channelConnectionStatuses], "disconnected"),
-      );
+      return commandResult(transition(accountId, connectionId, [...channelConnectionStatuses], "disconnected"));
     },
     getConnection: async ({ accountId, connectionId }) => {
       const record = connections.get(connectionId);
