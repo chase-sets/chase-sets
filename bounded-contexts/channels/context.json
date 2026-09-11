@@ -477,7 +477,7 @@
         "route-action:bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx"
       ],
       "visibleDestination": {
-        "routeId": "account-channel-connection",
+        "routeId": "channels-connection-detail",
         "description": "Every manual sync API mutation returns the committed producer run/panel, exact CSV, ingest receipt, or verification snapshot; failures return a closed error without claiming projected success."
       },
       "proof": {
