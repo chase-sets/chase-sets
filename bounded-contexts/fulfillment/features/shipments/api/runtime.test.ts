@@ -404,7 +404,8 @@ function createAuthoritativeVoidOperationDb(
     operation_key: "postage-operation/v1:tnt_test:acc_seller:synthetic_digest_A",
     operation_id: "pop_synthetic_void_A",
     operation_kind: "void-label",
-    shipment_id: "shp_1",
+    subject_kind: "shipment",
+    subject_id: "shp_1",
     tenant_id: "tnt_test",
     seller_account_id: "acc_seller",
     key_digest: "synthetic_digest_A",
@@ -455,12 +456,13 @@ function createAuthoritativeVoidOperationDb(
             ...operation,
             operation_key: String(values[0]),
             operation_kind: String(values[2]),
-            shipment_id: String(values[3]),
-            tenant_id: String(values[4]),
-            seller_account_id: String(values[5]),
-            key_digest: String(values[6]),
-            request_hash: String(values[7]),
-            target_key: String(values[8]),
+            subject_kind: String(values[3]),
+            subject_id: String(values[4]),
+            tenant_id: String(values[5]),
+            seller_account_id: String(values[6]),
+            key_digest: String(values[7]),
+            request_hash: String(values[8]),
+            target_key: String(values[9]),
           };
           return { rows: [] };
         }
@@ -1867,7 +1869,8 @@ describe("fulfillment shipment runtime", () => {
         services.reconcilePostageOperationLocator({
           operationId: "pop_synthetic_void_A",
           tenantId: "tnt_test",
-          shipmentId: "shp_1",
+          subjectKind: "shipment",
+          subjectId: "shp_1",
         }),
       ).resolves.toEqual({ outcome: "effect-applied" });
 
@@ -2034,6 +2037,8 @@ describe("fulfillment shipment runtime", () => {
           return {
             rows: [
               {
+                subject_kind: "shipment",
+                subject_id: "shp_1",
                 shipment_id: "shp_1",
                 order_id: "ord_1",
                 seller_account_id: "acc_seller",
@@ -2540,6 +2545,121 @@ describe("fulfillment shipment runtime", () => {
         "refunded",
         "refund-refunded",
       ]),
+    );
+  });
+
+  it("records a current-label refund webhook without a void request and finalizes its receipt", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const postageWebhookGateway: PostageProviderWebhookGateway = {
+      processPostageProviderWebhook: vi.fn(async () => ({
+        providerEventId: "evt_refund_without_request_1",
+        providerName: "easypost",
+        providerMode: "production" as const,
+        eventKind: "refund-status" as const,
+        providerObjectReference: "rfnd_provider_1",
+        providerShipmentId: "shp_provider_1",
+        trackingIdentifier: "940000000000000000",
+        status: "refunded",
+        occurredAt: "2026-05-30T12:00:02.000Z",
+        receivedAt: "2026-05-30T12:00:04.000Z",
+        payload: { id: "evt_refund_without_request_1" },
+      })),
+    };
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              {
+                subject_kind: "shipment",
+                subject_id: "shp_1",
+                shipment_id: "shp_1",
+                tenant_id: "tnt_test",
+                seller_account_id: "acc_seller",
+                status: "label-attached",
+                label_status: "purchased",
+                label_refund_status: null,
+                label_voided_at: null,
+                tracking_identifier: "940000000000000000",
+                postage_provider_shipment_id: "shp_provider_1",
+                postage_provider_label_id: "pl_1",
+                refund_postage_provider_label_id: "pl_1",
+                matched_void_operation_key: null,
+                matched_void_operation_id: null,
+              },
+            ],
+          };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageWebhookGateway,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+    await seedPackedShipmentAggregate(services, context);
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "AttachShipmentLabel",
+        shippingMethod: "standard",
+        carrierName: "USPS",
+        labelReference: "pl_1",
+        labelDocumentUrl: "https://labels.easypost.test/pl_1.pdf",
+        trackingIdentifier: "940000000000000000",
+        postageProviderName: "easypost",
+        postageProviderMode: "production",
+        postageProviderShipmentId: "shp_provider_1",
+        postageProviderLabelId: "pl_1",
+        postageAmountCents: 499,
+        postageCurrency: "USD",
+        attachedAt: "2026-05-30T11:55:00.000Z",
+      },
+      context,
+    });
+    const eventCountBeforeWebhook = readAllEvents().length;
+
+    await expect(
+      services.processPostageProviderWebhook(
+        {
+          rawBody: "{}",
+          method: "POST",
+          path: "/api/fulfillment/provider/postage/webhooks",
+          headers: new Headers(),
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      status: "recorded",
+      providerEventId: "evt_refund_without_request_1",
+      eventKind: "refund-status",
+      shipmentId: "shp_1",
+      processingResult: "recorded",
+    });
+
+    expect(readAllEvents()).toHaveLength(eventCountBeforeWebhook);
+    const candidateCall = db.query.mock.calls.find(([sql]) => sql.includes("WITH candidate_subjects AS"));
+    expect(candidateCall?.[0]).toEqual(expect.stringContaining("page.postage_provider_name = $4"));
+    expect(candidateCall?.[0]).toEqual(expect.stringContaining("page.postage_provider_mode = $5"));
+    expect(candidateCall?.[0]).toEqual(expect.stringContaining("operation.provider_name = $4"));
+    expect(candidateCall?.[0]).toEqual(expect.stringContaining("operation.provider_mode = $5"));
+    expect(candidateCall?.[1]).toEqual(["940000000000000000", "shp_provider_1", true, "easypost", "production"]);
+    const finalizationCall = db.query.mock.calls.find(([sql]) =>
+      sql.includes("SET subject_kind = EXCLUDED.subject_kind"),
+    );
+    expect(finalizationCall?.[1]).toEqual(
+      expect.arrayContaining(["evt_refund_without_request_1", "shipment", "shp_1", "recorded"]),
     );
   });
 

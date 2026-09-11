@@ -458,6 +458,8 @@ async function findSubjectForPostageProviderEvent(
 ): Promise<Readonly<{ subject: PostageSubjectForProviderEvent | null; ambiguous: boolean }>> {
   const trackingIdentifier = event.trackingIdentifier?.trim() || null;
   const providerShipmentId = event.providerShipmentId?.trim() || null;
+  const providerName = event.providerName.trim();
+  const providerMode = event.providerMode.trim();
   const matchHistoricalVoidOperations = event.eventKind === "refund-status";
   if (!trackingIdentifier && !providerShipmentId) {
     return { subject: null, ambiguous: false };
@@ -492,8 +494,12 @@ async function findSubjectForPostageProviderEvent(
         AND authority.status = 'resolved'
         AND authority.tenant_id = page.tenant_id
         AND authority.seller_account_id = page.seller_account_id
-       WHERE ($1::text IS NOT NULL AND page.tracking_identifier = $1)
-          OR ($2::text IS NOT NULL AND page.postage_provider_shipment_id = $2)
+       WHERE page.postage_provider_name = $4
+         AND page.postage_provider_mode = $5
+         AND (
+           ($1::text IS NOT NULL AND page.tracking_identifier = $1)
+           OR ($2::text IS NOT NULL AND page.postage_provider_shipment_id = $2)
+         )
        UNION ALL
        SELECT
          'shipment'::text AS subject_kind,
@@ -530,6 +536,8 @@ async function findSubjectForPostageProviderEvent(
         AND authority.seller_account_id = operation.seller_account_id
        WHERE $3::boolean
          AND operation.operation_kind = 'void-label'
+         AND operation.provider_name = $4
+         AND operation.provider_mode = $5
          AND (
            ($1::text IS NOT NULL AND (
              operation.tracking_identifier = $1
@@ -596,7 +604,7 @@ async function findSubjectForPostageProviderEvent(
      FROM candidate_subjects
      ORDER BY subject_kind, subject_id, match_priority ASC, updated_at DESC
      LIMIT 2`,
-    [trackingIdentifier, providerShipmentId, matchHistoricalVoidOperations],
+    [trackingIdentifier, providerShipmentId, matchHistoricalVoidOperations, providerName, providerMode],
   );
 
   return { subject: result.rows.length === 1 ? result.rows[0]! : null, ambiguous: result.rows.length > 1 };
@@ -849,6 +857,11 @@ async function applyPostageProviderRefundEvent(
     throw new ShipmentHistoryPoisonedError("postage-refund-original-label-missing");
   }
 
+  const convergesTerminalRefund = normalizeProviderRefundStatus(shipment.label_refund_status) !== null;
+  if (!shipment.matched_void_operation_key && shipment.label_status !== "void-requested" && !convergesTerminalRefund) {
+    return "recorded";
+  }
+
   const result = await commandHandler({
     streamId: `fulfillment.shipment-${shipment.shipment_id}`,
     command: {
@@ -872,7 +885,8 @@ async function applyPostageProviderRefundEvent(
     const operation = await recordPostageVoidOperationTerminal(db, {
       operationId: shipment.matched_void_operation_id,
       tenantId: shipment.tenant_id,
-      shipmentId: shipment.shipment_id,
+      subjectKind: shipment.subject_kind,
+      subjectId: shipment.subject_id,
       expectedStatus: shipment.matched_void_operation_status as PostageOperationAuthority["status"],
       expectedLifecycleGeneration: shipment.matched_void_operation_lifecycle_generation,
       expectedUpdatedAt: shipment.matched_void_operation_updated_at,

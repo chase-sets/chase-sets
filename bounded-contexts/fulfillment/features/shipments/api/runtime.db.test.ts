@@ -255,14 +255,14 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     });
     await pool.query(
       `INSERT INTO fulfillment_shipment_pages (
-         shipment_id, tenant_id, order_id, buyer_account_id, seller_account_id, shipping_option,
-         status, package_status, label_status, tracking_identifier, postage_provider_shipment_id,
-         postage_provider_label_id, created_at, updated_at
-       ) VALUES (
-         $1,'tnt_1','ord_7829','acc_buyer','acc_seller','standard',
-         'label-attached','packed','purchased','synthetic_tracking_B','synthetic_shipment_B',
-         'synthetic_label_B',$2,$3
-       )`,
+          shipment_id, tenant_id, order_id, buyer_account_id, seller_account_id, shipping_option,
+          status, package_status, label_status, tracking_identifier, postage_provider_shipment_id,
+          postage_provider_label_id, postage_provider_name, postage_provider_mode, created_at, updated_at
+        ) VALUES (
+          $1,'tnt_1','ord_7829','acc_buyer','acc_seller','standard',
+          'label-attached','packed','purchased','synthetic_tracking_B','synthetic_shipment_B',
+          'synthetic_label_B','synthetic-postage','test',$2,$3
+        )`,
       [shipmentId, "2026-09-10T00:00:00.000Z", "2026-09-10T00:03:00.000Z"],
     );
     await pool.query(
@@ -274,7 +274,8 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     const reserved = await reservePostageOperation(pool, {
       tenantId: "tnt_1",
       sellerAccountId: "acc_seller",
-      shipmentId,
+      subjectKind: "shipment",
+      subjectId: shipmentId,
       keyDigest: "synthetic_void_digest_A",
       requestHash: "synthetic_void_request_A",
       targetKey: `void:${shipmentId}:synthetic_label_A`,
@@ -831,6 +832,70 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     );
     expect(conflictReceipt.rows).toEqual([
       { handoff_state: "quarantined", processing_result: "terminal-refund-status-conflict" },
+    ]);
+  });
+
+  it.each([
+    {
+      control: "provider mode",
+      event: { providerName: "synthetic-postage", providerMode: "production" as const },
+    },
+    {
+      control: "provider name",
+      event: { providerName: "other-synthetic-postage", providerMode: "test" as const },
+    },
+  ])("rejects a late refund whose signed $control differs from the durable void authority", async ({ event }) => {
+    const webhookEvent = {
+      providerEventId: "synthetic_event_A_wrong_authority",
+      ...event,
+      eventKind: "refund-status" as const,
+      providerObjectReference: "synthetic_refund_A",
+      providerShipmentId: "synthetic_shipment_A",
+      trackingIdentifier: "synthetic_tracking_A",
+      status: "refunded",
+      occurredAt: "2026-09-10T00:04:00.000Z",
+      receivedAt: "2026-09-10T00:04:01.000Z",
+      payload: { synthetic: true, control: "provider-authority-mismatch" },
+    };
+    const harness = await refundProducerHarness({
+      processPostageProviderWebhook: async () => webhookEvent,
+    });
+
+    await expect(
+      harness.runtime.processPostageProviderWebhook(
+        {
+          rawBody: "{}",
+          method: "POST",
+          path: "/api/fulfillment/provider/postage/webhooks",
+          headers: new Headers(),
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      status: "recorded",
+      shipmentId: null,
+      processingResult: "unmatched",
+    });
+
+    const storedPublicRefunds = (
+      await harness.eventStore.readStream({ streamId: `fulfillment.shipment-${harness.shipmentId}` })
+    )
+      .map(toTransportEvent)
+      .filter((storedEvent) => storedEvent.type === "fulfillment.shipment.label-refund-status-recorded");
+    expect(storedPublicRefunds).toHaveLength(0);
+    const receipt = await pool.query<{
+      handoff_state: string;
+      processing_result: string;
+      subject_kind: string | null;
+      subject_id: string | null;
+    }>(
+      `SELECT handoff_state, processing_result, subject_kind, subject_id
+       FROM fulfillment_postage_provider_events
+       WHERE provider_event_id = $1`,
+      [webhookEvent.providerEventId],
+    );
+    expect(receipt.rows).toEqual([
+      { handoff_state: "unmatched", processing_result: "unmatched", subject_kind: null, subject_id: null },
     ]);
   });
 
