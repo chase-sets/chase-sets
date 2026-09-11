@@ -291,7 +291,7 @@ export async function prepareHostedResponsiveEvidenceArtifact({
   const styleEvidencePath = path.join(destination, "style-evidence.log");
   await writeFile(styleEvidencePath, extractBoundedStyleEvidence(producerLog), "utf8");
   const provenance = {
-    schemaVersion: "hosted-responsive-evidence/v1",
+    schemaVersion: "hosted-responsive-evidence/v2",
     producer,
     git: gitIdentity,
     source: {
@@ -337,13 +337,25 @@ function validateProducerIdentity(producer, gitIdentity) {
   if (!Number.isSafeInteger(producer?.jobIndex) || producer.jobIndex < 0) {
     violations.push("responsive evidence producer.jobIndex must be a non-negative integer.");
   }
-  for (const field of ["workflowSha", "checkoutSha", "sourceHeadSha"]) {
+  for (const field of [
+    "workflowSha",
+    "checkoutSha",
+    "checkoutTreeSha",
+    "executedBaseSha",
+    "executedBaseTreeSha",
+    "sourceHeadSha",
+    "sourceHeadTreeSha",
+    "eventBaseSha",
+  ]) {
     if (!shaPattern.test(producer?.[field] ?? "")) violations.push(`responsive evidence producer.${field} is invalid.`);
   }
-  if (producer?.baseSha !== null && !shaPattern.test(producer?.baseSha ?? "")) {
-    violations.push("responsive evidence producer.baseSha is invalid.");
+  if (
+    !Array.isArray(producer?.checkoutParentShas) ||
+    producer.checkoutParentShas.some((value) => !shaPattern.test(value))
+  ) {
+    violations.push("responsive evidence producer.checkoutParentShas is invalid.");
   }
-  for (const field of ["checkoutCommit", "checkoutTree", "sourceHead"]) {
+  for (const field of ["checkoutCommit", "checkoutTree", "executedBase", "executedBaseTree", "sourceHead"]) {
     if (!shaPattern.test(gitIdentity?.[field] ?? "")) violations.push(`responsive evidence git.${field} is invalid.`);
   }
   if (gitIdentity?.sourceHeadTree !== null && !shaPattern.test(gitIdentity?.sourceHeadTree ?? "")) {
@@ -361,19 +373,50 @@ function validateProducerIdentity(producer, gitIdentity) {
   if (producer?.checkoutSha !== gitIdentity?.checkoutCommit) {
     violations.push("responsive evidence producer checkout SHA does not match the observed checkout commit.");
   }
+  if (producer?.checkoutTreeSha !== gitIdentity?.checkoutTree) {
+    violations.push("responsive evidence producer checkout tree does not match the observed checkout tree.");
+  }
+  if (JSON.stringify(producer?.checkoutParentShas) !== JSON.stringify(gitIdentity?.checkoutParents)) {
+    violations.push(
+      "responsive evidence producer checkout parents do not match the observed ordered checkout parents.",
+    );
+  }
+  if (producer?.executedBaseSha !== gitIdentity?.executedBase) {
+    violations.push("responsive evidence producer executed base does not match the observed first checkout parent.");
+  }
+  if (producer?.executedBaseTreeSha !== gitIdentity?.executedBaseTree) {
+    violations.push("responsive evidence producer executed base tree does not match the observed first-parent tree.");
+  }
   if (producer?.sourceHeadSha !== gitIdentity?.sourceHead) {
     violations.push("responsive evidence producer source head does not match the observed source head.");
   }
+  if (producer?.sourceHeadTreeSha !== gitIdentity?.sourceHeadTree) {
+    violations.push("responsive evidence producer source head tree does not match the observed source tree.");
+  }
   if (producer?.eventName === "pull_request") {
     const parents = Array.isArray(gitIdentity?.checkoutParents) ? gitIdentity.checkoutParents : [];
-    if (!parents.includes(producer.sourceHeadSha)) {
-      violations.push("pull-request evidence checkout does not contain the declared source head parent.");
+    if (parents.length !== 2) {
+      violations.push("pull-request evidence checkout must expose exactly two ordered parents.");
     }
-    if (!producer.baseSha || !parents.includes(producer.baseSha)) {
-      violations.push("pull-request evidence checkout does not contain the declared base parent.");
+    if (parents[0] !== producer.executedBaseSha) {
+      violations.push("pull-request evidence executed base is not the first checkout parent.");
+    }
+    if (parents[1] !== producer.sourceHeadSha) {
+      violations.push("pull-request evidence source head is not the second checkout parent.");
     }
     if (!shaPattern.test(gitIdentity?.sourceHeadTree ?? "")) {
       violations.push("pull-request evidence requires an observed source head tree.");
+    }
+  } else if (producer?.eventName === "merge_group") {
+    const parents = Array.isArray(gitIdentity?.checkoutParents) ? gitIdentity.checkoutParents : [];
+    if (parents.length !== 1 || parents[0] !== producer.executedBaseSha) {
+      violations.push("merge-group evidence must expose exactly one executed-base parent.");
+    }
+    if (producer.checkoutSha !== producer.sourceHeadSha || producer.checkoutTreeSha !== producer.sourceHeadTreeSha) {
+      violations.push("merge-group evidence source must be the exact executed checkout and tree.");
+    }
+    if (producer.eventBaseSha !== producer.executedBaseSha) {
+      violations.push("merge-group evidence event base does not match the executed first parent.");
     }
   }
   return violations;
@@ -415,10 +458,18 @@ export function observeGitIdentity(repoRoot, sourceHead) {
     cwd: repoRoot,
     encoding: "utf8",
   });
+  const checkoutParents = git("show", "-s", "--diff-merges=off", "--format=%P", "HEAD").split(/\s+/).filter(Boolean);
+  const executedBase = checkoutParents[0] ?? "";
+  const executedBaseTree = spawnSync("git", ["show", "-s", "--format=%T", executedBase], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
   return {
     checkoutCommit: git("rev-parse", "HEAD"),
     checkoutTree: git("show", "-s", "--diff-merges=off", "--format=%T", "HEAD"),
-    checkoutParents: git("show", "-s", "--diff-merges=off", "--format=%P", "HEAD").split(/\s+/).filter(Boolean),
+    checkoutParents,
+    executedBase,
+    executedBaseTree: executedBaseTree.status === 0 ? executedBaseTree.stdout.trim() : null,
     shallow: git("rev-parse", "--is-shallow-repository") === "true",
     sourceHead,
     sourceHeadTree: sourceTree.status === 0 ? sourceTree.stdout.trim() : null,
@@ -588,9 +639,14 @@ async function main() {
       job: process.env.GITHUB_JOB ?? "",
       jobIndex: Number(process.env.RESPONSIVE_EVIDENCE_JOB_INDEX),
       suiteBatch,
-      checkoutSha: process.env.GITHUB_SHA ?? "",
+      checkoutSha: process.env.RESPONSIVE_EVIDENCE_CHECKOUT_SHA ?? "",
+      checkoutTreeSha: process.env.RESPONSIVE_EVIDENCE_CHECKOUT_TREE_SHA ?? "",
+      checkoutParentShas: (process.env.RESPONSIVE_EVIDENCE_CHECKOUT_PARENTS ?? "").split(/\s+/).filter(Boolean),
+      executedBaseSha: process.env.RESPONSIVE_EVIDENCE_EXECUTED_BASE_SHA ?? "",
+      executedBaseTreeSha: process.env.RESPONSIVE_EVIDENCE_EXECUTED_BASE_TREE_SHA ?? "",
       sourceHeadSha,
-      baseSha: process.env.RESPONSIVE_EVIDENCE_BASE_SHA || null,
+      sourceHeadTreeSha: process.env.RESPONSIVE_EVIDENCE_SOURCE_HEAD_TREE_SHA ?? "",
+      eventBaseSha: process.env.RESPONSIVE_EVIDENCE_EVENT_BASE_SHA ?? "",
     };
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot,

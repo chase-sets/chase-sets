@@ -119,7 +119,7 @@ describe("responsive evidence artifact validation", () => {
 
     expect(result).toMatchObject({ publish: true, violations: [], expectedClaimIds: ["claim"] });
     expect(JSON.parse(await readFile(path.join(root, outputRoot, "provenance.json"), "utf8"))).toMatchObject({
-      schemaVersion: "hosted-responsive-evidence/v1",
+      schemaVersion: "hosted-responsive-evidence/v2",
       producer: { outcome: "success", runId: 123, runAttempt: 2, jobIndex: 3 },
       claims: [{ claimId: "claim" }],
     });
@@ -141,7 +141,14 @@ describe("responsive evidence artifact validation", () => {
 
     expect(e2eJob).toContain('pnpm run test:e2e:suite "${{ matrix.suite_batch }}"');
     expect(e2eJob).toMatch(/uses: actions\/checkout@[^\n]+\r?\n\s+with:\r?\n\s+fetch-depth: 2\r?\n/);
+    expect(e2eJob).toContain("id: responsive-evidence-checkout");
+    expect(e2eJob).toContain("RESPONSIVE_EVIDENCE_EVENT_BASE_SHA:");
+    expect(e2eJob).toContain("RESPONSIVE_EVIDENCE_EXECUTED_BASE_SHA:");
+    expect(e2eJob).toContain("RESPONSIVE_EVIDENCE_SOURCE_HEAD_TREE_SHA:");
     expect(e2eJob).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(e2eJob).toContain(
+      "name: responsive-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}",
+    );
     expect(e2eJob).toContain("path: artifacts/hosted-responsive-evidence");
     expect(e2eJob).toContain("if-no-files-found: error");
     expect(e2eJob).toContain("if: steps.responsive-evidence.outputs.publish == 'true'");
@@ -151,8 +158,9 @@ describe("responsive evidence artifact validation", () => {
     expect(fence.findings).toEqual([]);
   });
 
-  it("publishes nothing when the successful producer payload is incomplete", async () => {
+  it("rejects canonical-artifact-directory-masks-missing-payload despite a successful producer", async () => {
     const root = await fixture();
+    await write(root, "artifacts/hosted-responsive-evidence/captures/claim/claim.png", "decoy canonical payload");
     await rm(path.join(root, screenshotPath));
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
@@ -170,6 +178,7 @@ describe("responsive evidence artifact validation", () => {
 
   it.each([
     ["failed producer", { outcome: "failure" }, syntheticGitIdentity(), "producer outcome"],
+    ["missing run attempt", { runAttempt: 0 }, syntheticGitIdentity(), "producer.runAttempt"],
     ["wrong producer head", {}, { ...syntheticGitIdentity(), sourceHead: "4".repeat(40) }, "source head"],
   ])("publishes nothing for a %s", async (_name, producerPatch, gitIdentity, violation) => {
     const root = await fixture();
@@ -210,17 +219,37 @@ describe("responsive evidence artifact validation", () => {
   });
 });
 
-describe("hosted evidence from real merge checkouts", () => {
-  it.each([1, 2, null])("observes and validates a merge checkout at depth %s", async (depth) => {
+describe("hosted evidence from synthetic Git merge checkouts", () => {
+  it("accepts a synthetic pull-request checkout whose executed base advanced after the event snapshot", async () => {
+    const { root, producer, executedBaseSha } = await mergeCheckout(2, { advanceBase: true });
+    const gitIdentity = observeGitIdentity(root, producer.sourceHeadSha);
+    expect(producer.eventBaseSha).not.toBe(executedBaseSha);
+    expect(gitIdentity.checkoutParents).toEqual([executedBaseSha, producer.sourceHeadSha]);
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer,
+      producerLogPath: await producerLog(root),
+      gitIdentity,
+    });
+
+    expect(result).toMatchObject({ publish: true, violations: [], expectedClaimIds: ["claim"] });
+  });
+
+  it.each([2, null])("accepts a synthetic unchanged-base pull-request checkout at depth %s", async (depth) => {
     const { root, producer, sourceHeadTree, checkoutTree } = await mergeCheckout(depth);
     const gitIdentity = observeGitIdentity(root, producer.sourceHeadSha);
+    expect(producer.eventBaseSha).toBe(producer.executedBaseSha);
     expect(gitIdentity).toEqual({
       checkoutCommit: producer.checkoutSha,
       checkoutTree,
-      checkoutParents: depth === 1 ? [] : [producer.baseSha, producer.sourceHeadSha],
+      checkoutParents: [producer.executedBaseSha, producer.sourceHeadSha],
+      executedBase: producer.executedBaseSha,
+      executedBaseTree: producer.executedBaseTreeSha,
       shallow: depth !== null,
       sourceHead: producer.sourceHeadSha,
-      sourceHeadTree: depth === 1 ? null : sourceHeadTree,
+      sourceHeadTree,
     });
     expect(sourceHeadTree).toMatch(/^[0-9a-f]{40}$/);
     expect(sourceHeadTree).not.toBe(checkoutTree);
@@ -233,28 +262,34 @@ describe("hosted evidence from real merge checkouts", () => {
       gitIdentity,
     });
 
-    if (depth === 1) {
-      expect(result).toMatchObject({ publish: false, files: [] });
-      expect(result.violations).toEqual([
-        "pull-request evidence checkout does not contain the declared source head parent.",
-        "pull-request evidence checkout does not contain the declared base parent.",
-        "pull-request evidence requires an observed source head tree.",
-      ]);
-      expect(existsSync(path.join(root, "artifacts/hosted-responsive-evidence"))).toBe(false);
-    } else {
-      expect(result).toMatchObject({ publish: true, violations: [], expectedClaimIds: ["claim"] });
-      const provenance = JSON.parse(
-        await readFile(path.join(root, "artifacts/hosted-responsive-evidence/provenance.json"), "utf8"),
-      );
-      expect(provenance.producer).toEqual(producer);
-      expect(provenance.git).toEqual(gitIdentity);
-    }
+    expect(result).toMatchObject({ publish: true, violations: [], expectedClaimIds: ["claim"] });
+    const provenance = JSON.parse(
+      await readFile(path.join(root, "artifacts/hosted-responsive-evidence/provenance.json"), "utf8"),
+    );
+    expect(provenance.producer).toEqual(producer);
+    expect(provenance.git).toEqual(gitIdentity);
+  });
+
+  it("rejects a synthetic depth-1 checkout with hidden source and executed-base identities", async () => {
+    const { root, producer } = await mergeCheckout(1);
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer,
+      producerLogPath: await producerLog(root),
+      gitIdentity: observeGitIdentity(root, producer.sourceHeadSha),
+    });
+
+    expect(result).toMatchObject({ publish: false, files: [] });
+    expect(result.violations).toContain("pull-request evidence checkout must expose exactly two ordered parents.");
+    expect(result.violations).toContain("pull-request evidence requires an observed source head tree.");
+    expect(existsSync(path.join(root, "artifacts/hosted-responsive-evidence"))).toBe(false);
   });
 
   it.each([
-    ["sourceHeadSha", "source head parent"],
-    ["baseSha", "base parent"],
-  ])("rejects a declared %s missing from the observed merge parents", async (field, violation) => {
+    ["sourceHeadSha", "pull-request evidence source head is not the second checkout parent."],
+    ["executedBaseSha", "pull-request evidence executed base is not the first checkout parent."],
+  ])("rejects a forged %s relationship", async (field, violation) => {
     const { root, producer } = await mergeCheckout(2);
     producer[field] = producer.checkoutSha;
     const gitIdentity = observeGitIdentity(root, producer.sourceHeadSha);
@@ -271,8 +306,26 @@ describe("hosted evidence from real merge checkouts", () => {
     });
 
     expect(result).toMatchObject({ publish: false, files: [] });
-    expect(result.violations).toEqual([`pull-request evidence checkout does not contain the declared ${violation}.`]);
+    expect(result.violations).toContain(violation);
     expect(existsSync(path.join(root, "artifacts/hosted-responsive-evidence"))).toBe(false);
+  });
+
+  it("rejects a synthetic unrelated executed base", async () => {
+    const { root, producer } = await mergeCheckout(2);
+    producer.executedBaseSha = "f".repeat(40);
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer,
+      producerLogPath: await producerLog(root),
+      gitIdentity: observeGitIdentity(root, producer.sourceHeadSha),
+    });
+
+    expect(result).toMatchObject({ publish: false, files: [] });
+    expect(result.violations).toContain(
+      "responsive evidence producer executed base does not match the observed first checkout parent.",
+    );
   });
 
   it("rejects observed parents when the source head tree cannot be resolved", async () => {
@@ -281,7 +334,7 @@ describe("hosted evidence from real merge checkouts", () => {
     // HEAD still exposes both real parent IDs, but Git can no longer resolve the source tree.
     await rm(path.join(root, ".git/objects", producer.sourceHeadSha.slice(0, 2), producer.sourceHeadSha.slice(2)));
     const gitIdentity = observeGitIdentity(root, producer.sourceHeadSha);
-    expect(gitIdentity.checkoutParents).toEqual([producer.baseSha, producer.sourceHeadSha]);
+    expect(gitIdentity.checkoutParents).toEqual([producer.executedBaseSha, producer.sourceHeadSha]);
     expect(gitIdentity.sourceHeadTree).toBeNull();
 
     const result = await prepareHostedResponsiveEvidenceArtifact({
@@ -293,12 +346,118 @@ describe("hosted evidence from real merge checkouts", () => {
     });
 
     expect(result).toMatchObject({ publish: false, files: [] });
-    expect(result.violations).toEqual(["pull-request evidence requires an observed source head tree."]);
+    expect(result.violations).toContain("pull-request evidence requires an observed source head tree.");
     expect(existsSync(path.join(root, "artifacts/hosted-responsive-evidence"))).toBe(false);
+  });
+
+  it("accepts a synthetic merge-group checkout bound to its exact checkout tree and event base", async () => {
+    const { root, producer } = await mergeGroupCheckout(2);
+    const gitIdentity = observeGitIdentity(root, producer.sourceHeadSha);
+    expect(gitIdentity.checkoutParents).toEqual([producer.eventBaseSha]);
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer,
+      producerLogPath: await producerLog(root),
+      gitIdentity,
+    });
+
+    expect(result).toMatchObject({ publish: true, violations: [], expectedClaimIds: ["claim"] });
+  });
+
+  it.each([
+    ["wrong source", { sourceHeadSha: "f".repeat(40), sourceHeadTreeSha: "e".repeat(40) }],
+    ["wrong event base", { eventBaseSha: "f".repeat(40) }],
+  ])("rejects a synthetic merge-group %s", async (_name, patch) => {
+    const { root, producer: validProducer } = await mergeGroupCheckout(2);
+    const producer = { ...validProducer, ...patch };
+    const observedSource = _name === "wrong source" ? validProducer.checkoutSha : producer.sourceHeadSha;
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer,
+      producerLogPath: await producerLog(root),
+      gitIdentity: observeGitIdentity(root, observedSource),
+    });
+
+    expect(result).toMatchObject({ publish: false, files: [] });
+    expect(result.violations).toContain(
+      _name === "wrong source"
+        ? "merge-group evidence source must be the exact executed checkout and tree."
+        : "merge-group evidence event base does not match the executed first parent.",
+    );
+  });
+
+  it.each([
+    ["checkoutSha"],
+    ["checkoutTreeSha"],
+    ["checkoutParentShas"],
+    ["executedBaseSha"],
+    ["executedBaseTreeSha"],
+    ["sourceHeadTreeSha"],
+  ])("rejects forged synthetic checkout identity field %s", async (field) => {
+    const { root, producer } = await mergeCheckout(2);
+    producer[field] = field === "checkoutParentShas" ? ["f".repeat(40)] : "f".repeat(40);
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer,
+      producerLogPath: await producerLog(root),
+      gitIdentity: observeGitIdentity(root, producer.sourceHeadSha),
+    });
+
+    expect(result).toMatchObject({ publish: false, files: [] });
+    expect(result.violations.length).toBeGreaterThan(0);
+    expect(existsSync(path.join(root, "artifacts/hosted-responsive-evidence"))).toBe(false);
+  });
+
+  it.each([
+    ["checkoutSha"],
+    ["checkoutTreeSha"],
+    ["checkoutParentShas"],
+    ["executedBaseSha"],
+    ["executedBaseTreeSha"],
+    ["sourceHeadSha"],
+    ["sourceHeadTreeSha"],
+    ["eventBaseSha"],
+  ])("rejects missing synthetic producer identity field %s", async (field) => {
+    const { root, producer } = await mergeCheckout(2);
+    delete producer[field];
+    const observedSource = field === "sourceHeadSha" ? "f".repeat(40) : producer.sourceHeadSha;
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer,
+      producerLogPath: await producerLog(root),
+      gitIdentity: observeGitIdentity(root, observedSource),
+    });
+
+    expect(result).toMatchObject({ publish: false, files: [] });
+    expect(result.violations).toContain(`responsive evidence producer.${field} is invalid.`);
+  });
+
+  it.each([
+    ["checkoutTreeSha", "not-a-sha"],
+    ["checkoutParentShas", "not-an-array"],
+  ])("rejects malformed synthetic producer identity field %s", async (field, value) => {
+    const { root, producer } = await mergeCheckout(2);
+    producer[field] = value;
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: ["@marketplace-browse"],
+      producer,
+      producerLogPath: await producerLog(root),
+      gitIdentity: observeGitIdentity(root, producer.sourceHeadSha),
+    });
+
+    expect(result).toMatchObject({ publish: false, files: [] });
+    expect(result.violations).toContain(`responsive evidence producer.${field} is invalid.`);
   });
 });
 
-async function mergeCheckout(depth) {
+async function mergeCheckout(depth, { advanceBase = false } = {}) {
   const source = await fixture();
   const git = (...args) =>
     execFileSync("git", ["-C", source, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -319,7 +478,14 @@ async function mergeCheckout(depth) {
   await write(source, "base.txt", "Synthetic base change\n");
   git("add", ".");
   git("commit", "-m", "Synthetic base head");
-  const baseSha = git("rev-parse", "HEAD");
+  const eventBaseSha = git("rev-parse", "HEAD");
+  if (advanceBase) {
+    await write(source, "advanced-base.txt", "Synthetic base advance after event snapshot\n");
+    git("add", ".");
+    git("commit", "-m", "Synthetic executed base advance");
+  }
+  const executedBaseSha = git("rev-parse", "HEAD");
+  const executedBaseTreeSha = git("show", "-s", "--format=%T", "HEAD");
   git("merge", "--no-ff", "source", "-m", "Synthetic pull-request merge");
   const checkoutSha = git("rev-parse", "HEAD");
   const checkoutTree = git("show", "-s", "--format=%T", "HEAD");
@@ -334,9 +500,58 @@ async function mergeCheckout(depth) {
   );
   return {
     root,
-    producer: { ...successfulProducer(), checkoutSha, sourceHeadSha, baseSha },
+    producer: {
+      ...successfulProducer(),
+      checkoutSha,
+      checkoutTreeSha: checkoutTree,
+      checkoutParentShas: [executedBaseSha, sourceHeadSha],
+      executedBaseSha,
+      executedBaseTreeSha,
+      sourceHeadSha,
+      sourceHeadTreeSha: sourceHeadTree,
+      eventBaseSha,
+    },
+    executedBaseSha,
     sourceHeadTree,
     checkoutTree,
+  };
+}
+
+async function mergeGroupCheckout(depth) {
+  const source = await fixture();
+  const git = (...args) =>
+    execFileSync("git", ["-C", source, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git("init", "--initial-branch=main");
+  git("config", "user.name", "Synthetic evidence test");
+  git("config", "user.email", "synthetic@example.invalid");
+  git("config", "commit.gpgSign", "false");
+  git("config", "core.autocrlf", "false");
+  git("add", ".");
+  git("commit", "-m", "Synthetic merge-group base");
+  const eventBaseSha = git("rev-parse", "HEAD");
+  const executedBaseTreeSha = git("show", "-s", "--format=%T", "HEAD");
+  await write(source, "merge-group.txt", "Synthetic merge-group candidate\n");
+  git("add", ".");
+  git("commit", "-m", "Synthetic merge-group candidate");
+  const checkoutSha = git("rev-parse", "HEAD");
+  const checkoutTreeSha = git("show", "-s", "--format=%T", "HEAD");
+  const root = await mkdtemp(path.join(os.tmpdir(), "responsive-merge-group-checkout-"));
+  roots.push(root);
+  git("clone", "--config=core.autocrlf=false", `--depth=${depth}`, pathToFileURL(source).href, root);
+  return {
+    root,
+    producer: {
+      ...successfulProducer(),
+      eventName: "merge_group",
+      checkoutSha,
+      checkoutTreeSha,
+      checkoutParentShas: [eventBaseSha],
+      executedBaseSha: eventBaseSha,
+      executedBaseTreeSha,
+      sourceHeadSha: checkoutSha,
+      sourceHeadTreeSha: checkoutTreeSha,
+      eventBaseSha,
+    },
   };
 }
 
@@ -434,8 +649,13 @@ function successfulProducer() {
     jobIndex: 3,
     suiteBatch: "marketplace_browse",
     checkoutSha: "1".repeat(40),
+    checkoutTreeSha: "5".repeat(40),
+    checkoutParentShas: ["3".repeat(40), "2".repeat(40)],
+    executedBaseSha: "3".repeat(40),
+    executedBaseTreeSha: "4".repeat(40),
     sourceHeadSha: "2".repeat(40),
-    baseSha: "3".repeat(40),
+    sourceHeadTreeSha: "6".repeat(40),
+    eventBaseSha: "3".repeat(40),
   };
 }
 
@@ -444,6 +664,8 @@ function syntheticGitIdentity() {
     checkoutCommit: "1".repeat(40),
     checkoutTree: "5".repeat(40),
     checkoutParents: ["3".repeat(40), "2".repeat(40)],
+    executedBase: "3".repeat(40),
+    executedBaseTree: "4".repeat(40),
     shallow: false,
     sourceHead: "2".repeat(40),
     sourceHeadTree: "6".repeat(40),
