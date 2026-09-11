@@ -354,7 +354,7 @@
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H542755c24d1e#1",
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H16abbc610122#1",
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST Hf47bd35ee32b#1",
-        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:He221a811e1c4#1",
+        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hbd7dd2c17dad#1",
         "route-action:bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx"
       ],
       "visibleDestination": {

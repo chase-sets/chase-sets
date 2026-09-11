@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
@@ -46,6 +46,63 @@ describe("channel-connections-page-state-matrix", () => {
     expect(await screen.findByText("No channel connections")).toBeTruthy();
   });
 
+  it("shows the canonical error state when the connections API fails to load", async () => {
+    const { services } = createFakeConnectionServices([]);
+    services.listConnections = vi.fn(async () => {
+      throw new Error("boom");
+    });
+    mountConnectionRouteHarness(services);
+    const router = createMemoryRouter(
+      [{ path: "/account/channels", loader: listLoader, Component: AccountChannelsRoute }],
+      { initialEntries: ["/account/channels"] },
+    );
+    render(
+      <ChaseRoot linkComponent={RouterLinkAdapter}>
+        <RouterProvider router={router} />
+      </ChaseRoot>,
+    );
+    expect(await screen.findByText("Connections could not be loaded")).toBeTruthy();
+    expect(await screen.findByText("Channels API error 500")).toBeTruthy();
+  });
+
+  it("shows the loading state during a filter navigation instead of stale results", async () => {
+    const fixtures = channelConnectionStatuses.map(fixtureFor);
+    const harness = createFakeConnectionServices(fixtures);
+    const originalList = harness.services.listConnections;
+    let releaseSecondLoad: () => void = () => {};
+    let loadCount = 0;
+    harness.services.listConnections = vi.fn(async (input) => {
+      loadCount += 1;
+      if (loadCount === 2) {
+        await new Promise<void>((resolve) => {
+          releaseSecondLoad = resolve;
+        });
+      }
+      return originalList(input);
+    });
+    mountConnectionRouteHarness(harness.services);
+    const router = createMemoryRouter(
+      [{ path: "/account/channels", loader: listLoader, Component: AccountChannelsRoute }],
+      { initialEntries: ["/account/channels"] },
+    );
+    render(
+      <ChaseRoot linkComponent={RouterLinkAdapter}>
+        <RouterProvider router={router} />
+      </ChaseRoot>,
+    );
+    expect(await screen.findAllByRole("link", { name: "View connection" })).toHaveLength(3);
+
+    void router.navigate("/account/channels?status=paused");
+    await waitFor(() => expect(router.state.navigation.state).toBe("loading"));
+    expect(await screen.findByText("Loading channel connections…")).toBeTruthy();
+
+    await act(async () => {
+      releaseSecondLoad();
+    });
+    expect(await screen.findAllByRole("link", { name: "View connection" })).toHaveLength(1);
+    expect(screen.queryByText("Loading channel connections…")).toBeNull();
+  });
+
   it("excludes disconnected from the default list and includes it only under the explicit filter", async () => {
     const fixtures = channelConnectionStatuses.map(fixtureFor);
     mountConnectionRouteHarness(createFakeConnectionServices(fixtures).services);
@@ -59,6 +116,7 @@ describe("channel-connections-page-state-matrix", () => {
       </ChaseRoot>,
     );
     expect(await screen.findAllByRole("link", { name: "View connection" })).toHaveLength(3);
+    expect(screen.getAllByRole("link", { name: "Active" })).toHaveLength(1);
 
     await act(async () => {
       await router.navigate("/account/channels?status=disconnected");

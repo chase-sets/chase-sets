@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useNavigation } from "react-router";
 import { ChannelConnectionListPage } from "../../features/connections/ui/connection-pages";
 import {
   channelConnectionStatuses,
@@ -45,6 +45,10 @@ export const meta: MetaFunction = () =>
 
 export default function AccountChannelsRoute() {
   const data = useLoaderData<typeof loader>();
+  const navigation = useNavigation();
+  if (navigation.state === "loading") {
+    return <ChannelConnectionListPage state={{ kind: "loading" }} />;
+  }
   if (data.kind === "error") {
     return <ChannelConnectionListPage state={{ kind: "error", message: data.message }} />;
   }

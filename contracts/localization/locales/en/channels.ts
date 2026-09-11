@@ -53,7 +53,7 @@ export const channelsMessages = {
   "channels.connections.empty.description": "Connections you set up will appear here.",
   "channels.connections.open": "View connection",
   "channels.connections.next": "Load more connections",
-  "channels.connections.filter.default": "Active",
+  "channels.connections.filter.default": "Not disconnected",
   "channels.connections.filter.pendingSetup": "Pending setup",
   "channels.connections.filter.active": "Active",
   "channels.connections.filter.paused": "Paused",

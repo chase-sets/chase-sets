@@ -3,7 +3,6 @@ import {
   Badge,
   Button,
   Card,
-  Form,
   HiddenInput,
   LinkButton,
   MarketplaceNotice,
@@ -13,6 +12,7 @@ import {
   Stack,
   Text,
 } from "@chase-sets/design-system";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import type { ChannelConnectionStatus, PublicChannelConnection } from "../domain/contracts";
 
 const listFilters: readonly Readonly<{ status: ChannelConnectionStatus | "default"; labelKey: string }>[] = [
@@ -229,7 +229,7 @@ function ConnectionDetailSections({
           ) : (
             <Stack direction="row" gap={2}>
               {allowedActions.map((action) => (
-                <Form key={action} method="post" spacing="none">
+                <RouterForm key={action} method="post" spacing="none">
                   <HiddenInput type="hidden" name="intent" value={action} />
                   <Button
                     type="submit"
@@ -238,7 +238,7 @@ function ConnectionDetailSections({
                   >
                     {t(actionLabelKeys[action])}
                   </Button>
-                </Form>
+                </RouterForm>
               ))}
               {pendingIntent !== null ? (
                 <Text tone="secondary">{t("channels.connections.actions.pending")}</Text>

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
-import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
@@ -8,7 +8,6 @@ import AccountChannelsConnectionRoute, {
   action as detailAction,
   loader as detailLoader,
 } from "../../../routes/marketplace/account-channels-connection";
-import { ChannelConnectionDetailPage } from "../ui/connection-pages";
 import { ChannelConnectionError } from "../domain/contracts";
 import { createFakeConnectionServices, mountConnectionRouteHarness, routeAccountId } from "./route-harness";
 
@@ -47,38 +46,44 @@ function renderDetail() {
   return router;
 }
 
-function intentFormData(intent: string) {
-  const formData = new FormData();
-  formData.set("intent", intent);
-  return formData;
-}
-
 describe("channel-connection-actions", () => {
-  it("disables every action control while a command is pending for the connection", () => {
-    render(
-      <ChaseRoot linkComponent={RouterLinkAdapter}>
-        <MemoryRouter>
-          <ChannelConnectionDetailPage state={{ kind: "ready", connection }} pendingIntent="pause" />
-        </MemoryRouter>
-      </ChaseRoot>,
-    );
-    expect(screen.getByRole("button", { name: "Pause" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByRole("button", { name: "Disconnect" }).hasAttribute("disabled")).toBe(true);
-  });
-
-  it("submits pause once and reconciles from the committed API response", async () => {
+  it("submits pause exactly once from a real click, disables every control while pending, and reconciles from the committed response", async () => {
     const harness = createFakeConnectionServices([fixture]);
-    mountConnectionRouteHarness(harness.services);
+    const originalPause = harness.services.pauseChannelConnection;
+    let releasePause: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releasePause = resolve;
+    });
+    harness.services.pauseChannelConnection = vi.fn(async (input) => {
+      await gate;
+      return originalPause(input);
+    });
+    const { apiRequests } = mountConnectionRouteHarness(harness.services);
     const router = renderDetail();
     await screen.findByText("fixture-provider");
 
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+
+    await waitFor(() => expect(router.state.navigation.state).toBe("submitting"));
+    expect(screen.getByRole("button", { name: "Pause" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Disconnect" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("Working…")).toBeTruthy();
+    expect(apiRequests.filter((request) => request.method === "POST")).toHaveLength(1);
+    expect((harness.services.pauseChannelConnection as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+
+    // A repeat click while the control is disabled must not submit a second time.
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(apiRequests.filter((request) => request.method === "POST")).toHaveLength(1);
+    expect((harness.services.pauseChannelConnection as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+
     await act(async () => {
-      await router.navigate(path, { formMethod: "post", formData: intentFormData("pause") });
+      releasePause();
     });
 
     expect(await screen.findByRole("button", { name: "Resume" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
     expect(harness.calls.pause).toBe(1);
+    expect(apiRequests.filter((request) => request.method === "POST")).toHaveLength(1);
     expect(harness.connections.get(fixture.connectionId)?.status).toBe("paused");
   });
 
@@ -88,12 +93,10 @@ describe("channel-connection-actions", () => {
       throw new ChannelConnectionError("connection-disconnected");
     });
     mountConnectionRouteHarness(harness.services);
-    const router = renderDetail();
+    renderDetail();
     await screen.findByText("fixture-provider");
 
-    await act(async () => {
-      await router.navigate(path, { formMethod: "post", formData: intentFormData("pause") });
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
 
     expect(await screen.findByText("connection-disconnected")).toBeTruthy();
     // The connection remains in its last-known committed status: still active,
@@ -103,25 +106,22 @@ describe("channel-connection-actions", () => {
     expect(harness.connections.get(fixture.connectionId)?.status).toBe("active");
   });
 
-  it("repeats a resolved command as a single, idempotent call rather than compounding state", async () => {
+  it("clicks a resolved command as a single, idempotent action rather than compounding state", async () => {
     const harness = createFakeConnectionServices([fixture]);
     mountConnectionRouteHarness(harness.services);
-    const router = renderDetail();
+    renderDetail();
     await screen.findByText("fixture-provider");
 
-    await act(async () => {
-      await router.navigate(path, { formMethod: "post", formData: intentFormData("pause") });
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(await screen.findByRole("button", { name: "Resume" })).toBeTruthy();
     expect(harness.calls.pause).toBe(1);
     expect(harness.connections.get(fixture.connectionId)?.status).toBe("paused");
 
-    // A second, distinct disconnect command is still honored once and reflects
+    // A second, distinct disconnect click is still honored once and reflects
     // the newly committed terminal status, never an invented intermediate one.
-    await act(async () => {
-      await router.navigate(path, { formMethod: "post", formData: intentFormData("disconnect") });
-    });
-    expect(harness.calls.disconnect).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     expect(await screen.findByText("No actions are available for this connection.")).toBeTruthy();
+    expect(harness.calls.disconnect).toBe(1);
     expect(harness.connections.get(fixture.connectionId)?.status).toBe("disconnected");
   });
 });
