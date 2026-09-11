@@ -513,7 +513,6 @@ describeDb("channel-listing-desired-state-production-path", () => {
       ),
     ).toMatchObject({ rows: [] });
   });
-
 });
 
 function candidate(dimension: string, sourceKey: string, proposedTargetKey: string) {
