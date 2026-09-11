@@ -114,6 +114,7 @@ import {
   lookupWalletAdjustmentBySupportReference,
   settlementClearancePolicy,
   settlementPayoutBoundsPolicy,
+  settlementPayoutFeePolicy,
   type SettlementSupportLookupRow,
   type SettlementWalletAdjustmentSupportLookupRow,
 } from "@chase-sets/settlement/server";
@@ -354,6 +355,7 @@ export function createPlatformApiHost(
       definitions: [
         settlementClearancePolicy,
         settlementPayoutBoundsPolicy,
+        settlementPayoutFeePolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.settlement as { policies?: PolicyConsoleWritePort } | undefined,
@@ -428,6 +430,7 @@ export function createPlatformApiHost(
     publicPolicySources.push(
       createPublicPolicySource(settlementPool, settlementClearancePolicy),
       createPublicPolicySource(settlementPool, settlementPayoutBoundsPolicy),
+      createPublicPolicySource(settlementPool, settlementPayoutFeePolicy),
     );
   }
   if (platformOperationsPool) {

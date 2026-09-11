@@ -176,3 +176,13 @@ A **Payout Batch** is a grouped payout execution run.
 ## Statement
 
 A **Statement** is the financial summary published for an account over a period of time.
+
+## Payout Fee
+
+A **Payout Fee** is the Settlement-owned percentage-plus-fixed policy amount associated with a requested Payout. Its policy also carries a separate fixed amount for an account's first Payout of a calendar month; that monthly component is absorbed when the configured amount is zero.
+
+Notes:
+
+- The policy is published from `settlement.payout-fee`; numeric values are resolved from the current policy document rather than repeated in prose.
+- Settlement owns the policy and quote. Applying it to a Payout, posting its Ledger Entry, and reversing it on failure are separate payout-lifecycle behavior.
+- This term is distinct from the Marketplace Sales Fee that Settlement's payment-source projection audits when crediting sale proceeds.

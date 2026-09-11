@@ -3,10 +3,14 @@ import { SettlementDomainError } from "../../../support/runtime-support/common";
 import {
   assertPayoutAmountWithinPolicy,
   capPayoutAmountToPolicy,
+  decodeSettlementPayoutFeePolicyValue,
   decodeSettlementPayoutBoundsPolicyValue,
   payoutAmountPolicy,
+  quotePayoutFee,
   resolvePayoutAmountSelection,
   settlementPayoutBoundsPolicy,
+  settlementPayoutFeePolicy,
+  SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE,
 } from "./payout-policy";
 
 describe("settlement payout-bounds policy", () => {
@@ -124,5 +128,185 @@ describe("settlement payout-bounds policy", () => {
   it("resolves the minimum-amount shortcut from the resolved policy", () => {
     const revised = { minimumAmount: "1.00", maximumAmount: "50.00" };
     expect(resolvePayoutAmountSelection({ amount: "0", shortcut: "minimum" }, revised)).toBe("1.00");
+  });
+});
+
+describe("payout-fee-quote-and-decode", () => {
+  it("keeps the compiled fallback byte-identical to the declared policy default with the monthly amount absorbed", () => {
+    expect(JSON.stringify(settlementPayoutFeePolicy.defaultValue)).toBe(
+      JSON.stringify(SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE),
+    );
+    expect(SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE).toEqual({
+      label: "Payout fee",
+      percentageBps: 25,
+      fixedAmount: "0.25",
+      firstPayoutOfMonthFixedAmount: "0.00",
+    });
+  });
+
+  it("quotes the minimum payout and preserves percentage-ceiling rounding", () => {
+    expect(quotePayoutFee("5.00")).toEqual({ feeAmount: "0.27", netAmount: "4.73" });
+
+    // A nearest/floor mutant produces 0.26: 25 bps of 5.00 is 1.25 cents and must round up.
+    expect(quotePayoutFee("5.00").feeAmount).not.toBe("0.26");
+  });
+
+  it("quotes an amount where percentage exceeds the fixed component", () => {
+    expect(quotePayoutFee("200.00")).toEqual({ feeAmount: "0.75", netAmount: "199.25" });
+  });
+
+  it("adds the monthly component only for the first payout of the month", () => {
+    const revised = {
+      percentageBps: 25,
+      fixedAmount: "0.25",
+      firstPayoutOfMonthFixedAmount: "0.50",
+    };
+
+    expect(quotePayoutFee("10.00", revised, { isFirstPayoutOfMonth: false })).toEqual({
+      feeAmount: "0.28",
+      netAmount: "9.72",
+    });
+    expect(quotePayoutFee("10.00", revised, { isFirstPayoutOfMonth: true })).toEqual({
+      feeAmount: "0.78",
+      netAmount: "9.22",
+    });
+  });
+
+  it("rejects requested amounts at or below the fee instead of fabricating a negative valid net", () => {
+    expect(() => quotePayoutFee("0.10")).toThrow("Payout requested amount must exceed the payout fee.");
+    expect(() =>
+      quotePayoutFee("0.25", {
+        percentageBps: 0,
+        fixedAmount: "0.25",
+        firstPayoutOfMonthFixedAmount: "0.00",
+      }),
+    ).toThrow("Payout requested amount must exceed the payout fee.");
+  });
+
+  it("decodes the exact closed value shape and canonicalizes its money amounts", () => {
+    expect(
+      decodeSettlementPayoutFeePolicyValue({
+        label: " Revised payout fee ",
+        percentageBps: 1000,
+        fixedAmount: "5",
+        firstPayoutOfMonthFixedAmount: "0",
+      }),
+    ).toEqual({
+      label: "Revised payout fee",
+      percentageBps: 1000,
+      fixedAmount: "5.00",
+      firstPayoutOfMonthFixedAmount: "0.00",
+    });
+    expect(
+      decodeSettlementPayoutFeePolicyValue({
+        label: "Monthly-only boundary",
+        percentageBps: 0,
+        fixedAmount: "0.00",
+        firstPayoutOfMonthFixedAmount: "5.00",
+      }),
+    ).toEqual({
+      label: "Monthly-only boundary",
+      percentageBps: 0,
+      fixedAmount: "0.00",
+      firstPayoutOfMonthFixedAmount: "5.00",
+    });
+  });
+
+  it.each([
+    ["non-object", null],
+    ["missing field", { label: "Payout fee", percentageBps: 25, fixedAmount: "0.25" }],
+    [
+      "extra field",
+      {
+        label: "Payout fee",
+        percentageBps: 25,
+        fixedAmount: "0.25",
+        firstPayoutOfMonthFixedAmount: "0.00",
+        currencyCode: "usd",
+      },
+    ],
+    [
+      "wrong scalar type",
+      {
+        label: "Payout fee",
+        percentageBps: "25",
+        fixedAmount: "0.25",
+        firstPayoutOfMonthFixedAmount: "0.00",
+      },
+    ],
+    [
+      "empty label",
+      {
+        label: " ",
+        percentageBps: 25,
+        fixedAmount: "0.25",
+        firstPayoutOfMonthFixedAmount: "0.00",
+      },
+    ],
+    [
+      "fractional percentage",
+      {
+        label: "Payout fee",
+        percentageBps: 25.5,
+        fixedAmount: "0.25",
+        firstPayoutOfMonthFixedAmount: "0.00",
+      },
+    ],
+    [
+      "negative percentage",
+      {
+        label: "Payout fee",
+        percentageBps: -1,
+        fixedAmount: "0.25",
+        firstPayoutOfMonthFixedAmount: "0.00",
+      },
+    ],
+    [
+      "percentage above maximum",
+      {
+        label: "Payout fee",
+        percentageBps: 1001,
+        fixedAmount: "0.25",
+        firstPayoutOfMonthFixedAmount: "0.00",
+      },
+    ],
+    [
+      "fixed amount above maximum",
+      {
+        label: "Payout fee",
+        percentageBps: 25,
+        fixedAmount: "5.01",
+        firstPayoutOfMonthFixedAmount: "0.00",
+      },
+    ],
+    [
+      "malformed fixed amount",
+      {
+        label: "Payout fee",
+        percentageBps: 25,
+        fixedAmount: "NaN",
+        firstPayoutOfMonthFixedAmount: "0.00",
+      },
+    ],
+    [
+      "monthly amount above maximum",
+      {
+        label: "Payout fee",
+        percentageBps: 25,
+        fixedAmount: "0.25",
+        firstPayoutOfMonthFixedAmount: "5.01",
+      },
+    ],
+    [
+      "negative monthly amount",
+      {
+        label: "Payout fee",
+        percentageBps: 25,
+        fixedAmount: "0.25",
+        firstPayoutOfMonthFixedAmount: "-0.01",
+      },
+    ],
+  ])("rejects a malformed %s value", (_case, raw) => {
+    expect(() => decodeSettlementPayoutFeePolicyValue(raw as never)).toThrow(SettlementDomainError);
   });
 });

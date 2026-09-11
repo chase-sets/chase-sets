@@ -121,7 +121,7 @@ type PayoutRuntimeDeps = Readonly<{
   payoutDestinationFrictionPolicy?: Partial<PayoutDestinationFrictionPolicy>;
   sensitiveActionVerifier?: SensitiveActionVerifier;
   webhookTelemetry?: ProviderWebhookTelemetry;
-  /** The settlement-owned platform-policy runtime; absent falls back to the compiled payout-bounds default. */
+  /** The Settlement-owned resolver dependency for payout policies; standalone usage retains compiled fallbacks. */
   policies?: Pick<PolicyRuntime, "resolvePolicy">;
 }>;
 

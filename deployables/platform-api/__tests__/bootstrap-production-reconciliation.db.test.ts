@@ -9,6 +9,7 @@ import {
 import { module as catalogModule } from "@chase-sets/catalog";
 import { catalogSeedIds, representativeProductContentsScenario } from "@chase-sets/catalog-seed";
 import { module as identityModule } from "@chase-sets/identity";
+import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import {
   productionLikeDataProfiles,
   representativeCommerceStateDataProfiles,
@@ -16,6 +17,7 @@ import {
 } from "@chase-sets/platform-runtime/api";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { publicPolicyValueKeys } from "@chase-sets/public-presence/server";
+import { settlementPayoutFeePolicy, type SettlementServices } from "@chase-sets/settlement/server";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
@@ -202,7 +204,7 @@ async function runRepresentativeIdentitySeed(runtime: ReturnType<typeof createId
 }
 
 describe("platform api bootstrap production reconciliation", () => {
-  it("bootstraps and reconciles every whitelisted public policy value in the production landing profile", async () => {
+  it("payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile", async () => {
     const landingPools = createPlatformApiPools({
       runtimeProfile: "landing",
       sharedDatabaseUrl: null,
@@ -224,6 +226,55 @@ describe("platform api bootstrap production reconciliation", () => {
         environmentName: "production",
         runtimeProfile: "landing",
       } as const;
+      const settlementContext = runtime.mountedContexts.find((context) => context.contextName === "settlement");
+      if (!settlementContext) throw new Error("Expected Settlement to be mounted in the landing profile.");
+      await bootstrapContextDatabase(settlementContext.module, settlementContext.pool);
+
+      const platformAdmin: ResolvedActor = {
+        sessionId: "ses_payout_fee_policy_admin",
+        tenantId: "tnt_platform",
+        userId: "usr_payout_fee_policy_admin",
+        accountId: "acc_payout_fee_policy_admin",
+        membershipId: "mem_payout_fee_policy_admin",
+        roleKey: "platform-admin",
+        permissions: ["platform-policy.view", "platform-policy.manage"],
+      };
+      const app = buildPlatformApiApp(runtime, {
+        runtimeProfile: "landing",
+        resolveActor: async () => platformAdmin,
+      });
+      const settlementServices = runtime.services.settlement as SettlementServices;
+
+      await expect(
+        settlementServices.policies.resolvePolicy(settlementPayoutFeePolicy, { at: "2026-09-10T12:00:00.000Z" }),
+      ).resolves.toMatchObject({
+        source: "fallback",
+        documentId: null,
+        value: settlementPayoutFeePolicy.defaultValue,
+      });
+
+      const fallbackDetailResponse = await app.request("/api/platform/policy-console/settlement.payout-fee");
+      expect(fallbackDetailResponse.status).toBe(200);
+      await expect(fallbackDetailResponse.json()).resolves.toMatchObject({
+        policyKey: "settlement.payout-fee",
+        current: { source: "fallback", documentId: null, value: settlementPayoutFeePolicy.defaultValue },
+      });
+
+      const invalidRevision = await app.request("/api/platform/policy-console/settlement.payout-fee/revisions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          value: {
+            label: "Invalid payout fee",
+            percentageBps: 1001,
+            fixedAmount: "0.30",
+            firstPayoutOfMonthFixedAmount: "0.50",
+          },
+          status: "active",
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+        }),
+      });
+      expect(invalidRevision.status).toBe(400);
 
       expect(runtime.mountedContexts.map(({ contextName, mountRole }) => [contextName, mountRole])).toEqual(
         expect.arrayContaining([
@@ -238,19 +289,23 @@ describe("platform api bootstrap production reconciliation", () => {
         enabledDataProfiles: ["critical-bootstrap"],
       });
 
-      const app = buildPlatformApiApp(runtime, { runtimeProfile: "landing" });
       const response = await app.request("/api/public-presence/policy-values");
       const body = (await response.json()) as { values: Readonly<Record<string, unknown>> };
 
       expect(response.status).toBe(200);
       expect(Object.keys(body.values).sort()).toEqual([...publicPolicyValueKeys].sort());
+      expect(body.values).toMatchObject({
+        "settlement.payout-fee.bps": { value: 25 },
+        "settlement.payout-fee.fixed": { value: "0.25", currency: "USD" },
+        "settlement.payout-fee.monthly": { value: "0.00", currency: "USD" },
+      });
 
       for (const [contextName, policyKeys] of [
         [
           "commercial-terms",
           ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
         ],
-        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds"]],
+        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds", "settlement.payout-fee"]],
       ] as const) {
         const result = await landingPools[contextName].query<Readonly<{ policy_key: string; count: string }>>(
           `SELECT policy_key, COUNT(*) AS count
@@ -265,6 +320,75 @@ describe("platform api bootstrap production reconciliation", () => {
           [...policyKeys].sort().map((policyKey) => [policyKey, 1]),
         );
       }
+
+      const seededPayoutFee = await landingPools.settlement.query<Readonly<{ value: unknown }>>(
+        `SELECT value
+           FROM platform_policy_documents
+          WHERE policy_key = 'settlement.payout-fee'
+            AND status = 'active'`,
+      );
+      expect(seededPayoutFee.rows).toEqual([{ value: settlementPayoutFeePolicy.defaultValue }]);
+
+      const listResponse = await app.request("/api/platform/policy-console");
+      expect(listResponse.status).toBe(200);
+      const listBody = (await listResponse.json()) as {
+        items: readonly { policyKey: string; status: string; value: unknown }[];
+      };
+      expect(listBody.items).toContainEqual(
+        expect.objectContaining({
+          policyKey: "settlement.payout-fee",
+          status: "active",
+          value: settlementPayoutFeePolicy.defaultValue,
+        }),
+      );
+
+      const revisedValue = {
+        label: "Revised payout fee",
+        percentageBps: 30,
+        fixedAmount: "0.30",
+        firstPayoutOfMonthFixedAmount: "0.50",
+      };
+      const revisionResponse = await app.request("/api/platform/policy-console/settlement.payout-fee/revisions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          value: revisedValue,
+          status: "active",
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+        }),
+      });
+      expect(revisionResponse.status).toBe(201);
+      await expect(revisionResponse.json()).resolves.toMatchObject({ version: 2, scheduled: false });
+
+      await drainLocalProjectionHandlerSets(
+        "settlement",
+        landingPools.settlement,
+        settlementServices.policies.projectors,
+      );
+      await expect(
+        settlementServices.policies.resolvePolicy(settlementPayoutFeePolicy, { at: "2026-09-10T12:00:00.000Z" }),
+      ).resolves.toMatchObject({
+        source: "policy",
+        documentId: expect.stringMatching(/^pol_/),
+        value: revisedValue,
+      });
+
+      const detailResponse = await app.request("/api/platform/policy-console/settlement.payout-fee");
+      expect(detailResponse.status).toBe(200);
+      await expect(detailResponse.json()).resolves.toMatchObject({
+        policyKey: "settlement.payout-fee",
+        current: { source: "policy", value: revisedValue },
+      });
+
+      const revisedPublicResponse = await app.request("/api/public-presence/policy-values");
+      expect(revisedPublicResponse.status).toBe(200);
+      await expect(revisedPublicResponse.json()).resolves.toMatchObject({
+        values: {
+          "settlement.payout-fee.bps": { value: 30 },
+          "settlement.payout-fee.fixed": { value: "0.30", currency: "USD" },
+          "settlement.payout-fee.monthly": { value: "0.50", currency: "USD" },
+        },
+      });
     } finally {
       await closePlatformApiPools(landingPools);
     }
@@ -382,7 +506,7 @@ describe("platform api bootstrap production reconciliation", () => {
           "commercial-terms",
           ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
         ],
-        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds"]],
+        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds", "settlement.payout-fee"]],
       ] as const) {
         const result = await queuedPools[contextName].query<Readonly<{ policy_key: string; count: string }>>(
           `SELECT policy_key, COUNT(*) AS count

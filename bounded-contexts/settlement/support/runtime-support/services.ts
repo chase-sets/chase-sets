@@ -49,7 +49,7 @@ export type SettlementServices = Readonly<{
   payoutReadiness: ReturnType<typeof createPayoutReadinessRuntime>;
   liabilityReconciliation: ReturnType<typeof createLiabilityReconciliationRuntime>;
   accountLinkage: ReturnType<typeof createAccountLinkageRuntime>;
-  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (clearance window, payout bounds). */
+  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents. */
   policies: PolicyRuntime;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;

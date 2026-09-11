@@ -91,6 +91,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Buyer-Paid Share | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Captured payment amount attributable to a cancelled order, including allocated checkout fee. |
 | Wallet | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Marketplace ledger balance container. |
 | Payout | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Transfer of eligible funds to an account. |
+| Payout Fee | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Percentage-plus-fixed policy amount associated with a requested Payout, including a separately configurable first-Payout-of-month fixed component. |
 | Wallet Adjustment | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Cash-equivalent, operator-requested-and-approved correction to a Wallet balance, posted as one immutable `adjustment`-kind Ledger Entry. Distinct from the future non-withdrawable Marketplace Credit (#4891). See [ADR 0020: Wallet Adjustment Authority And Balance Types](./adr/0020-wallet-adjustment-authority-and-balance-types.md). |
 | Commercial Terms Resolution | [Commercial Terms](../bounded-contexts/commercial-terms/GLOSSARY.md) | Deterministic seller-side fee policy resolution. |
 | Marketplace Sales Fee | [Commercial Terms](../bounded-contexts/commercial-terms/GLOSSARY.md) | Marketplace sales fee policy. Confirmation rules live in [Marketplace Sales Fee Confirmation](../bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md). |

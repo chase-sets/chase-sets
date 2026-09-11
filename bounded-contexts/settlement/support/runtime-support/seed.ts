@@ -31,7 +31,12 @@ import {
   SETTLEMENT_CLEARANCE_LAUNCH_POLICY_VALUE,
   settlementClearancePolicy,
 } from "../../features/wallets/domain/clearance-policy";
-import { payoutAmountPolicy, settlementPayoutBoundsPolicy } from "../../features/payouts/domain/payout-policy";
+import {
+  payoutAmountPolicy,
+  settlementPayoutBoundsPolicy,
+  settlementPayoutFeePolicy,
+  SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE,
+} from "../../features/payouts/domain/payout-policy";
 
 type SeedPaymentSourceRow = Readonly<{
   amount: string;
@@ -409,6 +414,13 @@ async function reconcileCriticalSettlementPolicies(
     context,
     settlementPayoutBoundsPolicy,
     payoutAmountPolicy,
+    "2026-01-01T00:00:00.000Z",
+  );
+  await seedSettlementPolicyDocumentIfMissing(
+    services,
+    context,
+    settlementPayoutFeePolicy,
+    SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE,
     "2026-01-01T00:00:00.000Z",
   );
 }

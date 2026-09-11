@@ -39,6 +39,19 @@ export type PolicyRegistryRow = Readonly<{
   updated_at: string;
 }>;
 
+type DatabaseTimestamp = string | Date;
+
+type ActivePolicyDocumentDatabaseRow = Omit<
+  PolicyDocumentRow,
+  "effective_from" | "effective_until" | "created_at" | "updated_at"
+> &
+  Readonly<{
+    effective_from: DatabaseTimestamp;
+    effective_until: DatabaseTimestamp | null;
+    created_at: DatabaseTimestamp;
+    updated_at: DatabaseTimestamp;
+  }>;
+
 export type PolicyDocumentWindowCheck = Readonly<{
   policyKey: string;
   effectiveFrom: string;
@@ -61,13 +74,31 @@ const policyDocumentSelect = `
   FROM platform_policy_documents
 `;
 
+function timestampToIso(value: DatabaseTimestamp): string {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function optionalTimestampToIso(value: DatabaseTimestamp | null): string | null {
+  return value === null ? null : timestampToIso(value);
+}
+
+function normalizeActivePolicyDocumentRow(row: ActivePolicyDocumentDatabaseRow): PolicyDocumentRow {
+  return {
+    ...row,
+    effective_from: timestampToIso(row.effective_from),
+    effective_until: optionalTimestampToIso(row.effective_until),
+    created_at: timestampToIso(row.created_at),
+    updated_at: timestampToIso(row.updated_at),
+  };
+}
+
 /**
  * Loads every `active` document row for a policy key -- the resolver's
  * candidate set. Ordered so the resolver can pick the first row whose window
  * covers the requested instant.
  */
 export async function listActivePolicyDocuments(db: PgQueryable, policyKey: string) {
-  const result = await db.query<PolicyDocumentRow>(
+  const result = await db.query<ActivePolicyDocumentDatabaseRow>(
     `${policyDocumentSelect}
      WHERE policy_key = $1
        AND status = 'active'
@@ -75,7 +106,7 @@ export async function listActivePolicyDocuments(db: PgQueryable, policyKey: stri
     [policyKey],
   );
 
-  return result.rows;
+  return result.rows.map(normalizeActivePolicyDocumentRow);
 }
 
 export async function getPolicyDocument(db: PgQueryable, documentId: string) {

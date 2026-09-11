@@ -30,8 +30,11 @@ export type { SettlementServices } from "./support/runtime-support/services";
  */
 export { settlementClearancePolicy } from "./features/wallets/domain/clearance-policy";
 export type { SettlementClearancePolicyValue } from "./features/wallets/domain/clearance-policy";
-export { settlementPayoutBoundsPolicy } from "./features/payouts/domain/payout-policy";
-export type { SettlementPayoutBoundsPolicyValue } from "./features/payouts/domain/payout-policy";
+export { settlementPayoutBoundsPolicy, settlementPayoutFeePolicy } from "./features/payouts/domain/payout-policy";
+export type {
+  SettlementPayoutBoundsPolicyValue,
+  SettlementPayoutFeePolicyValue,
+} from "./features/payouts/domain/payout-policy";
 /**
  * Support-safe payout-by-reference lookups for the unified
  * support-reference router, assembled in the `platform-api` composition

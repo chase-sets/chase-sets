@@ -51,14 +51,14 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     bootBearingCases: "all",
     cases: Object.freeze([
       Object.freeze({
-        name: "bootstraps and reconciles every whitelisted public policy value in the production landing profile",
+        name: "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
         referenceDurationMs: 8250,
-        identity: "37b0e09726e4529e",
+        identity: "638e411899544781",
       }),
       Object.freeze({
         name: "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
         referenceDurationMs: 16350,
-        identity: "05afe53d6dbc6aff",
+        identity: "b04028e2169c8633",
       }),
       Object.freeze({
         name: "serializes two concurrent full production-like API host bootstraps with a database advisory lock",

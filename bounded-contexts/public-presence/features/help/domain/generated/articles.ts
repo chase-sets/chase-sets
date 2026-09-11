@@ -6636,13 +6636,17 @@ export const helpArticles = [
   {
     slug: "sales-fees",
     locale: "en",
-    title: "Marketplace sales and checkout fees",
+    title: "Marketplace sales, payout, and checkout fees",
     description:
-      "See the live standard sales-fee schedule, listing-time fee locks, the founders window, and buyer checkout processing fees.",
+      "See the live standard sales-fee, payout-fee, and checkout-fee schedules, listing-time fee locks, and the founders window.",
     audience: "seller",
     category: "selling",
     reviewedAt: "2026-07-14",
-    citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
+    citedPolicies: [
+      "commercial-terms.marketplace-sales-fee-schedule",
+      "commercial-terms.checkout-processing-fee",
+      "settlement.payout-fee",
+    ],
     relatedFlows: ["listing-confirmation", "checkout-price-breakdown"],
     claimCategories: ["fees"],
     promiseTable: [
@@ -6650,6 +6654,14 @@ export const helpArticles = [
         claim: "Published fee figures resolve from the current ratified policy documents.",
         issues: ["#4353"],
         tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"],
+      },
+      {
+        claim: "Published payout-fee figures resolve from the current Settlement payout-fee policy document.",
+        issues: ["#7819"],
+        tests: [
+          "bounded-contexts/public-presence/tests/help-route.test.tsx",
+          "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+        ],
       },
       {
         claim:
@@ -6711,6 +6723,11 @@ export const helpArticles = [
         level: 2,
         id: "checkout-processing-fees",
         text: "Checkout processing fees",
+      },
+      {
+        level: 2,
+        id: "payout-fees",
+        text: "Payout fees",
       },
       {
         level: 2,
@@ -7003,6 +7020,51 @@ export const helpArticles = [
       {
         type: "heading",
         level: 2,
+        id: "payout-fees",
+        text: "Payout fees",
+        content: [
+          {
+            type: "text",
+            value: "Payout fees",
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            value: "The published payout-fee policy's standard components are ",
+          },
+          {
+            type: "policy-value",
+            key: "settlement.payout-fee.bps",
+          },
+          {
+            type: "text",
+            value: " of the requested amount plus ",
+          },
+          {
+            type: "policy-value",
+            key: "settlement.payout-fee.fixed",
+          },
+          {
+            type: "text",
+            value: ". Its separately configurable fixed component for the first payout of a calendar month is ",
+          },
+          {
+            type: "policy-value",
+            key: "settlement.payout-fee.monthly",
+          },
+          {
+            type: "text",
+            value: ".",
+          },
+        ],
+      },
+      {
+        type: "heading",
+        level: 2,
         id: "order-protection-and-shipping",
         text: "Order Protection and shipping",
         content: [
@@ -7092,6 +7154,9 @@ export const helpArticles = [
       "checkout-processing-fee.bank-account.fixed",
       "checkout-processing-fee.platform-credit.bps",
       "checkout-processing-fee.platform-credit.fixed",
+      "settlement.payout-fee.bps",
+      "settlement.payout-fee.fixed",
+      "settlement.payout-fee.monthly",
     ],
   },
 ] as const satisfies readonly HelpArticle[];
