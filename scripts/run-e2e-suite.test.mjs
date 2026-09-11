@@ -348,4 +348,17 @@ describe("run e2e suite", () => {
 
     expect(unownedRoutes).toEqual([]);
   });
+
+  it("channels-e2e-suite-ownership", () => {
+    // Both Channels ownership keys must independently resolve to marketplace_account,
+    // so deleting either one fails here with an unexpected empty array instead of
+    // silently letting `e2eSuiteIdsForChangedFile` fall through to `?? []`.
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/features/connections/ui/connection-pages.tsx")).toEqual(
+      ["marketplace_account", "marketplace_seller"],
+    );
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/marketplace/account-channels.tsx")).toEqual([
+      "marketplace_account",
+      "marketplace_seller",
+    ]);
+  });
 });

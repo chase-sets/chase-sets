@@ -6,6 +6,14 @@ import type {
   ChannelPublicationConnectionSummary,
   ChannelPublicationSettings,
 } from "../../features/listing-composition/domain/contracts";
+import {
+  channelConnectionStatuses,
+  type ChannelConnectionPage,
+  type ChannelConnectionStatus,
+  type PublicChannelConnection,
+} from "../../features/connections/domain/contracts";
+
+export { channelConnectionStatuses, type ChannelConnectionPage, type ChannelConnectionStatus, type PublicChannelConnection };
 
 export class ChannelsPublicationApiError extends Error {
   public constructor(
@@ -14,6 +22,53 @@ export class ChannelsPublicationApiError extends Error {
   ) {
     super(readApiErrorMessage(body, `Channels API error ${status}`));
   }
+}
+
+export class ChannelsConnectionsApiError extends Error {
+  public constructor(
+    public readonly status: number,
+    public readonly body: unknown,
+  ) {
+    super(readApiErrorMessage(body, `Channels API error ${status}`));
+  }
+}
+
+export function createChannelsConnectionsRequestApiClient(request: Request) {
+  const baseUrl = resolveRequestApiBaseUrl(request, "/api/channels/connections");
+  const fetch = createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "channels" });
+  async function json<T>(path: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw new ChannelsConnectionsApiError(response.status, body);
+    return body as T;
+  }
+  return {
+    listConnections(
+      query: Readonly<{ cursor?: string; status?: ChannelConnectionStatus; limit?: number }> = {},
+    ): Promise<ChannelConnectionPage> {
+      const params = new URLSearchParams();
+      if (query.cursor) params.set("cursor", query.cursor);
+      if (query.status) params.set("status", query.status);
+      if (query.limit) params.set("limit", String(query.limit));
+      const search = params.toString();
+      return json(search ? `?${search}` : "");
+    },
+    getConnection(connectionId: string): Promise<PublicChannelConnection> {
+      return json(`/${encodeURIComponent(connectionId)}`);
+    },
+    pauseConnection(connectionId: string): Promise<PublicChannelConnection> {
+      return json(`/${encodeURIComponent(connectionId)}/pause`, { method: "POST" });
+    },
+    resumeConnection(connectionId: string): Promise<PublicChannelConnection> {
+      return json(`/${encodeURIComponent(connectionId)}/resume`, { method: "POST" });
+    },
+    disconnectConnection(connectionId: string): Promise<PublicChannelConnection> {
+      return json(`/${encodeURIComponent(connectionId)}/disconnect`, { method: "POST" });
+    },
+  };
 }
 
 export function createChannelsPublicationRequestApiClient(request: Request) {

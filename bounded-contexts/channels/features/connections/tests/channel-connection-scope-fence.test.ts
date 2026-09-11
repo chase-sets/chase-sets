@@ -5,11 +5,13 @@ import manifest from "../../../context.json" with { type: "json" };
 import packageJson from "../../../package.json" with { type: "json" };
 
 describe("channel-connection-scope-fence", () => {
-  it("keeps provider execution, setup replacement, UI, and public connect or activate routes absent", () => {
+  it("keeps provider execution, setup replacement, provider integrations, and public connect or activate routes absent", () => {
     const sliceRoot = path.resolve(import.meta.dirname, "..");
     const files = listFiles(sliceRoot);
     const route = readFileSync(path.join(sliceRoot, "api/route.ts"), "utf8");
-    expect(files.some((file) => file.startsWith("ui/") || file.startsWith("integrations/"))).toBe(false);
+    // The account-scoped connection list/detail seller surface (issue #7539) owns
+    // the ui/ bucket; provider integrations remain out of scope for this slice.
+    expect(files.some((file) => file.startsWith("integrations/"))).toBe(false);
     expect(findForbiddenRoutes(route)).toEqual([]);
     expect(route).not.toMatch(/credentialReference\?|bindings\s*:/);
     expect(JSON.stringify(manifest)).not.toContain("landing");
