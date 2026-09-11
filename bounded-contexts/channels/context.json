@@ -27,7 +27,7 @@
   "allowedSupportDirectories": ["request-support", "runtime-support"],
   "publicExports": [".", "./context", "./server", "./routes/*"],
   "allowedContextDependencies": ["@chase-sets/marketplace"],
-  "seedRequirements": [],
+  "seedRequirements": ["inventory"],
   "hostPorts": [
     {
       "portName": "marketplaceChannelInboundClamp",

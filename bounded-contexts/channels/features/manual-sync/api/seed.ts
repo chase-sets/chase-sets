@@ -3,6 +3,7 @@ import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
+import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { canonicalManualClaimLeasePolicySnapshotDigest } from "../../tcgplayer-csv/domain/validation";
 import type { ChannelSyncRun } from "../../tcgplayer-csv/domain/contracts";
@@ -15,6 +16,8 @@ export const manualSyncScenarioSeed = Object.freeze({
   runId: "run-seed-tcgplayer-manual-recovery",
   reservationId: "reservation-seed-tcgplayer-manual-recovery",
   listingId: marketplaceReservedSeedIds.listings.charizardBaseSetNearMint,
+  storageLocationId: inventorySeedIds.storageLocations.northShelf,
+  storageLocationRevision: 1,
 });
 
 export async function seedManualSyncScenario(pool: PgTransactionalPool): Promise<void> {
@@ -48,7 +51,16 @@ export async function seedManualSyncScenario(pool: PgTransactionalPool): Promise
         },
         {
           eventType: "channels.connection.activated",
-          payload: { connectionId: manualSyncScenarioSeed.connectionId, credentialReference: null, bindings: [] },
+          payload: {
+            connectionId: manualSyncScenarioSeed.connectionId,
+            credentialReference: null,
+            bindings: [
+              {
+                storageLocationId: manualSyncScenarioSeed.storageLocationId,
+                revision: manualSyncScenarioSeed.storageLocationRevision,
+              },
+            ],
+          },
         },
       ],
     });
@@ -99,7 +111,10 @@ export async function inspectManualSyncSeedState(
     connection.connectionId === manualSyncScenarioSeed.connectionId &&
     connection.accountId === demoIdentitySeedIds.accountId &&
     connection.providerKey === "tcgplayer" &&
-    connection.status === "active";
+    connection.status === "active" &&
+    connection.bindings.length === 1 &&
+    connection.bindings[0]?.storageLocationId === manualSyncScenarioSeed.storageLocationId &&
+    connection.bindings[0]?.revision === manualSyncScenarioSeed.storageLocationRevision;
 
   const runStreamId = `channels.tcgplayer-sync-run-${manualSyncScenarioSeed.runId}`;
   const runEvents = await readCompleteStream(eventStore, { streamId: runStreamId });

@@ -146,7 +146,6 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("manual-sync-buckets");
   }
-  const emptyArrayFields = ["seedRequirements"];
   const absentManifestFields = [
     "sourceRuntimeDeployables",
     "sourceRuntimeProfiles",
@@ -155,14 +154,14 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     "readAfterWriteRouteInventory",
   ];
 
-  for (const field of emptyArrayFields) {
-    if (!Array.isArray(candidate[field]) || candidate[field].length !== 0) violations.push(field);
-  }
   for (const field of absentManifestFields) {
     if (field in candidate) violations.push(field);
   }
   if (JSON.stringify(candidate.allowedContextDependencies) !== JSON.stringify(["@chase-sets/marketplace"])) {
     violations.push("allowedContextDependencies");
+  }
+  if (JSON.stringify(candidate.seedRequirements) !== JSON.stringify(["inventory"])) {
+    violations.push("seedRequirements");
   }
   if (
     JSON.stringify(candidate.hostPorts) !==
@@ -270,6 +269,7 @@ describe("channels-context-foundation", () => {
       allowedSupportDirectories: ["request-support", "runtime-support"],
       publicExports: [".", "./context", "./server", "./routes/*"],
       allowedContextDependencies: ["@chase-sets/marketplace"],
+      seedRequirements: ["inventory"],
       hostPorts: [
         {
           portName: "marketplaceChannelInboundClamp",

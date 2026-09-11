@@ -77,7 +77,19 @@ describeDb("manual-sync browser scenario seed", () => {
       ),
     ).toEqual([
       expect.objectContaining({ type: "channels.connection.connected" }),
-      expect.objectContaining({ type: "channels.connection.activated" }),
+      {
+        type: "channels.connection.activated",
+        data: {
+          connectionId: manualSyncScenarioSeed.connectionId,
+          credentialReference: null,
+          bindings: [
+            {
+              storageLocationId: manualSyncScenarioSeed.storageLocationId,
+              revision: manualSyncScenarioSeed.storageLocationRevision,
+            },
+          ],
+        },
+      },
     ]);
     expect(runEvents).toHaveLength(1);
     expect(

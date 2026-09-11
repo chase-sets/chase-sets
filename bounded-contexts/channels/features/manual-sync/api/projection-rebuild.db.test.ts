@@ -86,17 +86,17 @@ describeDb("manual-sync command ownership survives the actual TCGplayer CSV proj
       (group) => group.projectionName === "tcgplayer-csv-projection",
     );
     if (!declared) throw new Error("Missing actual Channels TCGplayer CSV projection group.");
-    const mutant = {
-      ...declared,
-      ownedTables: declared.ownedTables.filter((tableName) => tableName !== "channel_inventory_snapshot_rows"),
-    };
-    const module = { ...channelsModule, buildProjectionGroups: undefined, projectionGroups: [mutant] };
-    const [group] = resolveModuleProjectionGroups(
-      [{ contextName: "channels", module, services: {}, pool, projectionHandlerSets: [] }] as never,
-      [] as never,
+    const group = actualProjectionGroup(
+      declared.projectionName,
+      async () => undefined,
+      declared.ownedTables.filter((tableName) => tableName !== "channel_inventory_snapshot_rows"),
     );
+    const rejection = await group.reset().catch((error: unknown) => error);
 
-    await expect(group!.reset()).rejects.toThrow(/foreign key constraint|referenced in a foreign key/i);
+    expect(rejection).toMatchObject({
+      code: "0A000",
+      message: expect.stringMatching(/cannot truncate a table referenced in a foreign key constraint/i),
+    });
   });
 
   it("makes the survivor guard fail when the durable command table is restored to projection ownership", async () => {
