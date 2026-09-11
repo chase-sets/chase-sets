@@ -20,6 +20,15 @@ export type {
   RecordExternalChannelSaleOutcome,
   RecordExternalChannelSaleResult,
 } from "./features/channel-sales/api/contracts";
+export { channelAllocationModes } from "./features/channel-allocations/domain/allocation";
+export type {
+  ChannelStockAllocation,
+  SetChannelStockAllocation,
+  SetChannelStockAllocationCommand,
+  SetChannelStockAllocationResult,
+  ChannelStockAllocationHistoryFailure,
+  ChannelStockAllocationHistoryFailureReason,
+} from "./features/channel-allocations/api/contracts";
 /**
  * Read-only Hold/reservation cleanup authority. The platform-api
  * composition root binds this to Ordering's `inventoryCleanupAuthority` host

@@ -24,6 +24,7 @@ If an item uses a `condition` dimension, that condition is chosen through the se
 - Hold state
 - Hold-collision decisions and evidence
 - Permanent provider-neutral external channel sale-line records
+- Per-item Channel Stock Allocation declarations for connected sales channels
 - Bulk stock import workflows
 - Recovered return custody, identification, disposition, and value evidence
 
@@ -45,6 +46,7 @@ CSV import row formats and examples are documented in [Inventory CSV Import Exam
 ## Core Aggregates and Process Managers
 
 - Inventory Item
+- Channel Stock Allocation
 - Hold
 - Import Batch
 
@@ -64,6 +66,7 @@ CSV import row formats and examples are documented in [Inventory CSV Import Exam
 - `InventoryItemAdjusted`
 - `inventory.item.offline-sale-recorded`
 - `inventory.external-channel-sale.recorded`
+- `inventory.channel-stock-allocation.set`
 - `inventory.recovered-item.authenticity-review-required.v1`
 - `inventory.recovered-item.sellable.v1`
 - `inventory.recovered-item.transferred.v1`

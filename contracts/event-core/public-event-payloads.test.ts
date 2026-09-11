@@ -27,6 +27,7 @@ import type {
   IdentityAccountSuspendedPayload,
   IdentityFounderNumberClaimedPayload,
   InventoryHoldPlacedPayload,
+  InventoryChannelStockAllocationSetPayload,
   InventoryExternalChannelSaleRecordedPayload,
   InventoryItemCreatedPayload,
   InventoryItemOfflineSaleRecordedPayload,
@@ -259,6 +260,10 @@ const aggregateTypeIdentity = {
   "inventory.external-channel-sale.recorded": true satisfies IsExactly<
     ChaseSetsEventPayloads["inventory.external-channel-sale.recorded"],
     InventoryExternalChannelSaleRecordedPayload
+  >,
+  "inventory.channel-stock-allocation.set": true satisfies IsExactly<
+    ChaseSetsEventPayloads["inventory.channel-stock-allocation.set"],
+    InventoryChannelStockAllocationSetPayload
   >,
   "ordering.order.created": true satisfies IsExactly<
     ChaseSetsEventPayloads["ordering.order.created"],

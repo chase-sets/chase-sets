@@ -1,6 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { deriveChannelSelectedOptionKey } from "../domain/canonical";
+import type { InventoryChannelStockAllocationSetPayload } from "@chase-sets/event-core/public-event-payloads/inventory";
 
 type Transport = Parameters<ProjectorHandlerMap[string]>[0];
 
@@ -36,6 +37,26 @@ export function buildChannelCatalogFactsProjectionHandlers(db: PgQueryable): Pro
 
 export function buildChannelInventoryFactsProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
+    "inventory.channel-stock-allocation.set": async (event) => {
+      const data = event.data as InventoryChannelStockAllocationSetPayload;
+      await db.query(
+        `INSERT INTO channels_inventory_allocation_facts
+           (item_id,account_id,mode,partitions,updated_at,allocation_stream_version)
+         VALUES ($1,$2,$3,$4::jsonb,$5,$6)
+         ON CONFLICT (item_id) DO UPDATE SET
+           account_id=EXCLUDED.account_id, mode=EXCLUDED.mode, partitions=EXCLUDED.partitions,
+           updated_at=EXCLUDED.updated_at, allocation_stream_version=EXCLUDED.allocation_stream_version
+         WHERE channels_inventory_allocation_facts.allocation_stream_version < EXCLUDED.allocation_stream_version`,
+        [
+          data.inventoryItemId,
+          data.accountId,
+          data.mode,
+          JSON.stringify(data.partitions),
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
+      );
+    },
     "inventory.item.created": async (event) => {
       const data = record(event.data);
       await db.query(

@@ -8,12 +8,14 @@ import type { ChannelCommandResult, ChannelCompositionProfileRegistry, ChannelLi
 import { decideChannelListingComposition, type ChannelListingAggregateState } from "../domain/link";
 import { parseChannelListingCompositionInput } from "../domain/parse";
 import { readChannelListingCompositionFacts } from "../read-model/queries";
+import type { ChannelStockAllocationBufferPolicyValue } from "../domain/allocation";
 
 export type ChannelListingPublicationApplicationDeps = Readonly<{
   db: PgQueryable;
   profiles: ChannelCompositionProfileRegistry;
   listingIdDigest?: ChannelListingIdDigest;
   linkRepository: AggregateRepository<ChannelListingAggregateState, ChannelListingEvent>;
+  resolveChannelStockAllocationBufferPolicy: () => Promise<ChannelStockAllocationBufferPolicyValue>;
 }>;
 
 type ChannelListingDesiredStateDecision =
@@ -40,7 +42,8 @@ export function createChannelListingPublicationApplication(deps: ChannelListingP
     db: PgQueryable,
   ): Promise<ChannelListingDesiredStateDecision> => {
     const channelListingId = deriveChannelListingId(input.connectionId, input.listingId, deps.listingIdDigest);
-    const facts = await readChannelListingCompositionFacts(db, input, deps.profiles);
+    const buffer = await deps.resolveChannelStockAllocationBufferPolicy();
+    const facts = await readChannelListingCompositionFacts(db, input, deps.profiles, buffer);
     if (!facts) return { kind: "refused", code: "unknown-link" };
     const profile = deps.profiles.get({
       providerKey: facts.connection.providerKey,

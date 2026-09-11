@@ -35,7 +35,10 @@ const inventoryEvents = [
   "inventory.hold.released",
   "inventory.hold.expired",
   "inventory.hold.consumed",
+  "inventory.channel-stock-allocation.set",
 ] as const;
+
+export const CHANNEL_STOCK_ALLOCATION_SUBSCRIPTION_VERSION = 2;
 const catalogEvents = [
   "catalog.catalog-item.category-assigned",
   "catalog.catalog-item.category-removed",
@@ -118,9 +121,11 @@ export function buildChannelInventoryDesiredStateReactionHandlers(
       async (value: unknown) => {
         const event = value as SignalEvent;
         const itemId =
-          event.type.startsWith("inventory.hold.") && event.type !== "inventory.hold.placed"
-            ? await findHoldItemId(db, String(event.data.holdId))
-            : String(event.data.itemId);
+          event.type === "inventory.channel-stock-allocation.set"
+            ? String(event.data.inventoryItemId)
+            : event.type.startsWith("inventory.hold.") && event.type !== "inventory.hold.placed"
+              ? await findHoldItemId(db, String(event.data.holdId))
+              : String(event.data.itemId);
         if (!itemId) return;
         const connections = await connectionsForInventoryItem(db, itemId);
         for (const connectionId of connections) {

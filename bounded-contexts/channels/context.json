@@ -59,7 +59,7 @@
     {
       "sourceContextName": "inventory",
       "projectionName": "channel-inventory-publication-facts",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": [
         "inventory.item.created",
@@ -69,7 +69,8 @@
         "inventory.hold.extended",
         "inventory.hold.released",
         "inventory.hold.expired",
-        "inventory.hold.consumed"
+        "inventory.hold.consumed",
+        "inventory.channel-stock-allocation.set"
       ],
       "order": 30,
       "projectionHandlerSetNames": ["channel-inventory-publication-facts"]
@@ -152,7 +153,7 @@
     {
       "sourceContextName": "inventory",
       "reactionName": "channel-listing-desired-state-reaction",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": [
         "inventory.item.created",
@@ -162,7 +163,8 @@
         "inventory.hold.extended",
         "inventory.hold.released",
         "inventory.hold.expired",
-        "inventory.hold.consumed"
+        "inventory.hold.consumed",
+        "inventory.channel-stock-allocation.set"
       ],
       "order": 62,
       "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
@@ -236,7 +238,11 @@
     {
       "projectionName": "channel-inventory-publication-facts",
       "sourceContextNames": ["inventory"],
-      "ownedTables": ["channels_inventory_item_facts", "channels_inventory_hold_facts"],
+      "ownedTables": [
+        "channels_inventory_item_facts",
+        "channels_inventory_hold_facts",
+        "channels_inventory_allocation_facts"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -253,6 +259,13 @@
       ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["channels"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "channel-listing-desired-state-reaction",

@@ -157,6 +157,7 @@
     "/api/inventory/storage-locations/{id}": { "patch": { "tags": ["Inventory"], "summary": "Update storage location.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/inventory/items": { "get": { "tags": ["Inventory"], "summary": "List inventory items.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Inventory"], "summary": "Create inventory item.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/inventory/items/{id}": {"get":{"tags":["Inventory"],"summary":"Get inventory item.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
+    "/api/inventory/items/{id}/channel-stock-allocation": { "get": { "tags": ["Inventory"], "summary": "Read an item's Channel Stock Allocation.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "put": { "tags": ["Inventory"], "summary": "Replace an item's Channel Stock Allocation at an expected revision.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "409": { "$ref": "#/components/responses/Conflict" } } } },
     "/api/inventory/items/{id}/adjustments": { "post": { "tags": ["Inventory"], "summary": "Adjust inventory item quantity.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/inventory/items/{id}/offline-sales": {
       "post": {

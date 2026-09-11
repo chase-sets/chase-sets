@@ -9,7 +9,8 @@
     "import-batch",
     "recovered-item",
     "storage-location",
-    "external-channel-sale"
+    "external-channel-sale",
+    "channel-stock-allocation"
   ],
   "streamPrefix": "inventory.",
   "accountCapabilities": [
@@ -23,6 +24,7 @@
   "apiBasePath": "/api/inventory",
   "slices": [
     "inventory-items",
+    "channel-allocations",
     "channel-sales",
     "hold-collisions",
     "import-batches",
@@ -95,6 +97,13 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "inventory-channel-stock-allocation-projection",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["inventory_channel_stock_allocations"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
     {
       "projectionName": "inventory-catalog-item-projection",
       "sourceContextNames": ["catalog"],
@@ -903,6 +912,11 @@
     }
   ],
   "directoryIntent": {
+    "channel-allocations": {
+      "classification": "slice",
+      "purpose": "Own per-item Channel Stock Allocation commands, event history, read model, and HTTP contract.",
+      "expectedConsumers": ["Internal Inventory module composition and Channels fact subscribers"]
+    },
     "channel-sales": {
       "classification": "slice",
       "purpose": "Own the channel-sales slice's provider-neutral command, permanent sale-line authority, replay, and conflict behavior.",
@@ -964,6 +978,7 @@
       "purpose": "Provide reusable runtime-support assets shared by inventory-owned features and composition seams.",
       "expectedConsumers": [
         "hold-collisions",
+        "channel-allocations",
         "channel-sales",
         "holds",
         "import-batches",

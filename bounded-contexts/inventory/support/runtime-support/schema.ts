@@ -18,6 +18,10 @@ import { inventoryReservationSchemaSql } from "../../features/reservations/read-
 import { inventoryRestockDecisionSchemaSql } from "../../features/restock-decisions/read-model/schema";
 import { inventoryRecoveredItemSchemaSql } from "../../features/recovered-items/read-model/schema";
 import { inventoryStorageLocationSchemaSql } from "../../features/storage-locations/read-model/schema";
+import {
+  inventoryChannelStockAllocationSchemaMigrations,
+  inventoryChannelStockAllocationSchemaSql,
+} from "../../features/channel-allocations/read-model/schema";
 
 export const inventorySchemaSql = [
   eventCorePostgresSchemaSql,
@@ -30,6 +34,7 @@ export const inventorySchemaSql = [
   inventoryHoldSchemaSql,
   inventoryHoldCollisionSchemaSql,
   inventoryReservationSchemaSql,
+  inventoryChannelStockAllocationSchemaSql,
 ].join("\n\n");
 
 export const inventorySchemaMigrations = [
@@ -38,4 +43,5 @@ export const inventorySchemaMigrations = [
   ...inventoryHoldSourceIndexSchemaMigrations,
   ...inventoryCatalogItemSchemaMigrations,
   ...inventoryImportBatchSchemaMigrations,
+  ...inventoryChannelStockAllocationSchemaMigrations,
 ] as const;
