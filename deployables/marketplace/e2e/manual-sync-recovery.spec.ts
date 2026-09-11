@@ -45,7 +45,9 @@ test.describe("manual TCGplayer clamp recovery", () => {
       await expect(page.getByRole("button", { name: /^Release before submission$/i })).toBeVisible();
 
       await page.getByRole("button", { name: /^Release before submission$/i }).click();
-      await expect(page.getByText(/^Ready to download$/i)).toBeVisible();
+      await expect(page.getByText(/^Abandoned$/i)).toBeVisible();
+      await expect(page.getByRole("button", { name: /^Clamp and download CSV$/i })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: /^Release before submission$/i })).toHaveCount(0);
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
         "the released panel must fit the 390px account viewport",
