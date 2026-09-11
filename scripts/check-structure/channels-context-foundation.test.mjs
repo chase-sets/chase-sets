@@ -292,7 +292,6 @@ describe("channels-context-foundation", () => {
       ["channels.view"],
       ["channels.view"],
       ["channels.view"],
-      ["channels.view"],
       ["channels.manage"],
       ["channels.view"],
     ]);
