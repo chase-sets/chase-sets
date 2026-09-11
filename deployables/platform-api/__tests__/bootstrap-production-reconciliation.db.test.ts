@@ -253,30 +253,27 @@ describe("platform api bootstrap production reconciliation", () => {
         value: settlementPayoutFeePolicy.defaultValue,
       });
 
-      const fallbackDetailResponse = await app.request("/api/platform-operations/policy-console/settlement.payout-fee");
+      const fallbackDetailResponse = await app.request("/api/platform/policy-console/settlement.payout-fee");
       expect(fallbackDetailResponse.status).toBe(200);
       await expect(fallbackDetailResponse.json()).resolves.toMatchObject({
         policyKey: "settlement.payout-fee",
         current: { source: "fallback", documentId: null, value: settlementPayoutFeePolicy.defaultValue },
       });
 
-      const invalidRevision = await app.request(
-        "/api/platform-operations/policy-console/settlement.payout-fee/revisions",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            value: {
-              label: "Invalid payout fee",
-              percentageBps: 1001,
-              fixedAmount: "0.30",
-              firstPayoutOfMonthFixedAmount: "0.50",
-            },
-            status: "active",
-            effectiveFrom: "2026-01-01T00:00:00.000Z",
-          }),
-        },
-      );
+      const invalidRevision = await app.request("/api/platform/policy-console/settlement.payout-fee/revisions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          value: {
+            label: "Invalid payout fee",
+            percentageBps: 1001,
+            fixedAmount: "0.30",
+            firstPayoutOfMonthFixedAmount: "0.50",
+          },
+          status: "active",
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+        }),
+      });
       expect(invalidRevision.status).toBe(400);
 
       expect(runtime.mountedContexts.map(({ contextName, mountRole }) => [contextName, mountRole])).toEqual(
@@ -332,7 +329,7 @@ describe("platform api bootstrap production reconciliation", () => {
       );
       expect(seededPayoutFee.rows).toEqual([{ value: settlementPayoutFeePolicy.defaultValue }]);
 
-      const listResponse = await app.request("/api/platform-operations/policy-console");
+      const listResponse = await app.request("/api/platform/policy-console");
       expect(listResponse.status).toBe(200);
       const listBody = (await listResponse.json()) as {
         items: readonly { policyKey: string; status: string; value: unknown }[];
@@ -351,18 +348,15 @@ describe("platform api bootstrap production reconciliation", () => {
         fixedAmount: "0.30",
         firstPayoutOfMonthFixedAmount: "0.50",
       };
-      const revisionResponse = await app.request(
-        "/api/platform-operations/policy-console/settlement.payout-fee/revisions",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            value: revisedValue,
-            status: "active",
-            effectiveFrom: "2026-01-01T00:00:00.000Z",
-          }),
-        },
-      );
+      const revisionResponse = await app.request("/api/platform/policy-console/settlement.payout-fee/revisions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          value: revisedValue,
+          status: "active",
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+        }),
+      });
       expect(revisionResponse.status).toBe(201);
       await expect(revisionResponse.json()).resolves.toMatchObject({ version: 2, scheduled: false });
 
@@ -379,7 +373,7 @@ describe("platform api bootstrap production reconciliation", () => {
         value: revisedValue,
       });
 
-      const detailResponse = await app.request("/api/platform-operations/policy-console/settlement.payout-fee");
+      const detailResponse = await app.request("/api/platform/policy-console/settlement.payout-fee");
       expect(detailResponse.status).toBe(200);
       await expect(detailResponse.json()).resolves.toMatchObject({
         policyKey: "settlement.payout-fee",
