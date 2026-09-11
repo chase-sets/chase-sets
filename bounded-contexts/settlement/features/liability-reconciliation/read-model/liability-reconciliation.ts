@@ -128,7 +128,7 @@ export async function queryLiabilitySnapshot(
          WHERE currency_code = $1
        ), 0)::numeric(18, 2)::text AS wallet_liability_amount,
        COALESCE((
-         SELECT SUM(amount)
+         SELECT SUM(net_amount)
          FROM settlement_payout_pages
          WHERE currency_code = $1
            AND status IN ('requested', 'in-transit')

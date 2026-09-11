@@ -2,13 +2,44 @@
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import type { SettlementPayoutRow } from "../read-model/queries";
 import { SettlementMoneyHealthPage } from "./money-health-page";
+
+const payoutWithFee: SettlementPayoutRow = {
+  payout_id: "pyo_money_health_fee",
+  account_id: "acc_seller",
+  amount: "12.50",
+  requested_amount: "12.50",
+  fee_amount: "0.29",
+  net_amount: "12.21",
+  currency_code: "usd",
+  destination_reference: null,
+  note: null,
+  display_reference: "PYO-MONEYHLTH",
+  status: "in-transit",
+  provider_transfer_reference: "tr_synthetic_money_health",
+  provider_payout_reference: "po_synthetic_money_health",
+  provider_status: "pending",
+  provider_failure_code: null,
+  provider_failure_message: null,
+  requested_at: "2026-09-11T12:00:00.000Z",
+  updated_at: "2026-09-11T12:01:00.000Z",
+  sent_at: "2026-09-11T12:01:00.000Z",
+  completed_at: null,
+  failed_at: null,
+  failure_reason: null,
+  last_provider_event_at: null,
+  last_reconciled_at: null,
+  retry_count: 0,
+  next_retry_at: null,
+  retry_reason: null,
+};
 
 describe("SettlementMoneyHealthPage", () => {
   it("renders a populated platform balance forecast as flat page furniture", () => {
     const html = renderToStaticMarkup(
       <SettlementMoneyHealthPage
-        payouts={[]}
+        payouts={[payoutWithFee]}
         negativeBalanceAccounts={[]}
         reconciliationRuns={[]}
         platformBalanceForecast={{
@@ -35,5 +66,11 @@ describe("SettlementMoneyHealthPage", () => {
     expect(forecast?.textContent).toContain("$200.00");
     expect(forecast?.textContent).toContain("$1,050.00");
     expect(forecast?.querySelector(".ds-glass")).toBeNull();
+    expect(html).toContain("Requested");
+    expect(html).toContain("$12.50");
+    expect(html).toContain("Payout fee");
+    expect(html).toContain("$0.29");
+    expect(html).toContain("Net payout");
+    expect(html).toContain("$12.21");
   });
 });

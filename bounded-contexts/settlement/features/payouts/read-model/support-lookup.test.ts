@@ -13,6 +13,9 @@ const row = {
   status: "completed",
   account_id: "acc_seller",
   amount: "150.00",
+  requested_amount: "150.00",
+  fee_amount: "1.00",
+  net_amount: "149.00",
   currency_code: "USD",
   requested_at: "2026-07-11T00:00:00.000Z",
 };
@@ -25,6 +28,8 @@ describe("lookupPayoutBySupportReference", () => {
 
     expect(result).toEqual(row);
     expect(query.mock.calls[0]![0]).toContain("WHERE display_reference = $1");
+    expect(query.mock.calls[0]![0]).toContain("fee_amount::text AS fee_amount");
+    expect(query.mock.calls[0]![0]).toContain("net_amount::text AS net_amount");
     expect(query.mock.calls[0]![1]).toEqual(["PYO-E6K7M8N9"]);
   });
 
