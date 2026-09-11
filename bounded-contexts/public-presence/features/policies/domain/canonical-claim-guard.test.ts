@@ -230,6 +230,7 @@ const registeredCorpusSectionIds = {
     "tax-form-delivery",
     "errors-and-unauthorized-transactions",
     "termination-and-residual-obligations",
+    "prepaid-balance",
   ],
   "agent-connector-terms": [
     "scope-and-definitions",
@@ -1039,7 +1040,7 @@ describe("finite authorized-agent semantic adjudication matrix", () => {
     const matrixKeys = registeredCorpusAdjudicationMatrix.map((row) => row.row);
 
     expect(matrixKeys).toEqual(projectedKeys);
-    expect(matrixKeys).toHaveLength(79);
+    expect(matrixKeys).toHaveLength(80);
     expect(new Set(matrixKeys).size).toBe(matrixKeys.length);
     for (const row of registeredCorpusAdjudicationMatrix) {
       expect(row.principalResponsibility, row.row).toBe("green");

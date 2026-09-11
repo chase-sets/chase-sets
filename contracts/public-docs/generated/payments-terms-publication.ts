@@ -4,7 +4,7 @@ import type { PublicPolicyPublicationRecord } from "../policy-corpus";
 
 export const publicPaymentsTermsPublicationRecord = {
   policyKey: "payments-terms",
-  version: "v1",
+  version: "v2",
   locale: "en",
   href: "/payments-terms",
   publicationStatus: "counsel-review-required",
@@ -12,6 +12,6 @@ export const publicPaymentsTermsPublicationRecord = {
   counselApprovalReference: null,
   rolloutJurisdictionsOrProductLimits: [],
   launchRequired: true,
-  contentFingerprint: "sha256:5784d9cc30d802c994d34e7c96de9e3e818d1f9b3595536fb796ac3d77a97560",
+  contentFingerprint: "sha256:f6b28f131e13f00d90342a96d9a74e7b8a8c73031be0cdafc65f5f4683f67281",
   consentActivatable: false,
 } as const satisfies PublicPolicyPublicationRecord<"payments-terms">;

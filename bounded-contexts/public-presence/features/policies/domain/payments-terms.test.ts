@@ -6,6 +6,7 @@ import {
   type PublicPolicyArtifact,
 } from "./policy-artifact";
 import { paymentsTermsPolicyArtifact, requiredPaymentsTermsSubjectIds } from "./payments-terms";
+import { publicPolicyRegistry } from "./policy-registry";
 
 function approvedPaymentsTermsArtifact(): PublicPolicyArtifact {
   return {
@@ -174,5 +175,85 @@ describe("payments terms artifact", () => {
     expect(readiness.ready).toBe(true);
     expect(readiness.errors).toEqual([]);
     expect(isConsentActivatable(approved, requiredPaymentsTermsSubjectIds)).toBe(true);
+  });
+
+  it("payments-terms-v2-registry", () => {
+    expect(paymentsTermsPolicyArtifact.metadata.version).toBe("v2");
+    expect(requiredPaymentsTermsSubjectIds).toContain("prepaid-balance");
+
+    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "prepaid-balance");
+    expect(prepaidBalance).toBeDefined();
+    expect(prepaidBalance?.title).toBe("Prepaid Balance");
+    expect(prepaidBalance?.draftText.trim().length ?? 0).toBeGreaterThan(0);
+    expect(prepaidBalance?.reviewStatus).toBe("counsel-required");
+
+    // The revision stays an in-place edit of the existing seven-document
+    // corpus: no new registry entry, key, or artifact for Prepaid Balance.
+    expect(publicPolicyRegistry).toHaveLength(7);
+    expect(new Set(publicPolicyRegistry.map((entry) => entry.artifact.metadata.policyKey)).size).toBe(7);
+  });
+
+  it("payments-terms-v2-subject-citations", () => {
+    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "prepaid-balance");
+    expect(prepaidBalance).toBeDefined();
+
+    // Every material assertion in the section cites the ruled decisions it
+    // states, not an invented Stripe or counsel position.
+    expect(prepaidBalance?.reviewManifest.decisionRefs).toEqual(expect.arrayContaining([7807, 7808]));
+    expect(prepaidBalance?.reviewManifest.productTruthRefs.length ?? 0).toBeGreaterThan(0);
+    for (const assumption of prepaidBalance?.reviewManifest.assumptions ?? []) {
+      expect(assumption.evidenceRef.length).toBeGreaterThan(0);
+    }
+
+    // No invented refund-window duration or fabricated processing-fee rate:
+    // the draft defers to the processor's own rules and the live fee policy.
+    expect(prepaidBalance?.draftText).not.toMatch(/\d+\s*(?:day|month|year)s?\b.{0,20}(refund|window)/i);
+    expect(prepaidBalance?.draftText).not.toMatch(/\d+(\.\d+)?\s*%|\bbps\b/i);
+
+    // Prepaid Balance is drafted as distinct from the pre-existing,
+    // promotional Marketplace Credit concept, never as a kind of it.
+    expect(prepaidBalance?.draftText).toContain("is not Marketplace Credit");
+
+    // The section does not restate Marketplace Credit's own (contested)
+    // definition.
+    expect(prepaidBalance?.draftText).not.toContain("Marketplace Credit stays promotional");
+
+    // Scope item 3's fee-disclosure counsel question sits alongside the
+    // existing bank-permission and refund-window questions.
+    const openQuestions = prepaidBalance?.reviewManifest.openQuestions ?? [];
+    expect(openQuestions.some((question) => /fee/i.test(question) && /disclos/i.test(question))).toBe(true);
+  });
+
+  it("states the ruled no-interest product term for Prepaid Balance in the rendered draft, distinct from the sibling Wallet's unresolved wallet-no-interest claim, while staying non-operative pending counsel approval", () => {
+    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "prepaid-balance");
+    expect(prepaidBalance).toBeDefined();
+
+    // Todd's #7807/#7808 ruling states no-interest as a settled Prepaid
+    // Balance product term, not an open question: the rendered public
+    // draftText must say so directly, not defer to a structural disclosure.
+    expect(prepaidBalance?.draftText).toMatch(/does not pay interest on a prepaid balance/i);
+
+    // This is a distinct claim from the sibling Terms artifact's still-open,
+    // corpus-wide wallet-no-interest claim (terms-of-service.ts), which
+    // covers the general Wallet ledger balance, not the Prepaid Balance
+    // product type: this section must not borrow that claim's unresolved
+    // structural disclosure or manifest entry to render its own settled,
+    // already-ruled term.
+    expect(prepaidBalance?.claimDisclosures ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ claimId: "wallet-no-interest" })]),
+    );
+    expect(prepaidBalance?.reviewManifest.canonicalClaims ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ claimId: "wallet-no-interest" })]),
+    );
+
+    // Stating the ruled product term does not make the section, or the
+    // artifact, operative: it stays gated behind qualified counsel approval.
+    expect(prepaidBalance?.reviewStatus).toBe("counsel-required");
+    const readiness = evaluatePublicPolicyPublicationReadiness(
+      paymentsTermsPolicyArtifact,
+      requiredPaymentsTermsSubjectIds,
+    );
+    expect(readiness.ready).toBe(false);
+    expect(isConsentActivatable(paymentsTermsPolicyArtifact, requiredPaymentsTermsSubjectIds)).toBe(false);
   });
 });

@@ -28,7 +28,13 @@ const corpusRoutes = [
     policyKey: "seller-agreement",
     noindexWhilePending: true,
   },
-  { routeName: "payments-terms", meta: paymentsTermsMeta, policyKey: "payments-terms", noindexWhilePending: true },
+  {
+    routeName: "payments-terms",
+    meta: paymentsTermsMeta,
+    policyKey: "payments-terms",
+    noindexWhilePending: true,
+    version: "v2",
+  },
   { routeName: "privacy", meta: privacyPolicyMeta, policyKey: "privacy-policy", noindexWhilePending: false },
   { routeName: "agent-terms", meta: agentTermsMeta, policyKey: "agent-connector-terms", noindexWhilePending: true },
   {
@@ -47,7 +53,7 @@ describe("policy corpus route metadata", () => {
       expect(descriptors).toEqual(
         expect.arrayContaining([
           { name: "chase-sets:policy-key", content: route.policyKey },
-          { name: "chase-sets:policy-version", content: "v1" },
+          { name: "chase-sets:policy-version", content: "version" in route ? route.version : "v1" },
           { name: "chase-sets:policy-publication-status", content: "counsel-review-required" },
         ]),
       );

@@ -116,7 +116,7 @@ describe("policy artifact page", () => {
       expect(screen.getByText("Effective date pending counsel approval")).toBeTruthy();
 
       const page = container.querySelector(`[data-policy-key="${route.artifact.metadata.policyKey}"]`);
-      expect(page?.getAttribute("data-policy-version")).toBe("v1");
+      expect(page?.getAttribute("data-policy-version")).toBe(route.artifact.metadata.version);
       expect(page?.getAttribute("data-policy-publication-status")).toBe("counsel-review-required");
       expect(page?.getAttribute("data-policy-effective-at")).toBe("");
     });
