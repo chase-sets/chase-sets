@@ -17,6 +17,7 @@ import {
   decideInventoryItem,
   initialInventoryItemState,
 } from "../../../../inventory/features/inventory-items/domain/domain";
+import { createChannelListingCompositionRuntime } from "../api/runtime";
 import { createChannelCompositionProfileRegistry, deriveChannelSelectedOptionKey } from "../domain/canonical";
 import {
   CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK,
@@ -59,8 +60,26 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
 
   afterAll(async () => closeMultiContextTestPools(pools));
 
+  function createTestChannelServices() {
+    const eventStore = createPostgresEventStore({ pool: pools.channels });
+    const policies = createPolicyRuntime({ eventStore, db: pools.channels });
+    return {
+      ...channelsModule.createServices(pools.channels, {}),
+      listingComposition: createChannelListingCompositionRuntime({
+        eventStore,
+        transactionalEventStore: eventStore,
+        db: pools.channels,
+        profiles: createChannelCompositionProfileRegistry([syntheticProfile]),
+        resolveChannelStockAllocationBufferPolicy: () =>
+          resolveChannelStockAllocationBufferPolicy(
+            async () => (await policies.resolvePolicy(channelStockAllocationBufferPolicy)).value,
+          ),
+      }),
+    };
+  }
+
   it("propagates mode, units, and no-op revisions only to affected desired states", async () => {
-    const services = channelsModule.createServices(pools.channels, {});
+    const services = createTestChannelServices();
     await seedInitialDesiredStates(services.listingComposition);
     const initial = await desiredStates(pools.channels);
     expect(initial.map((row) => [row.connectionId, row.listingId, row.quantity])).toEqual([
@@ -132,7 +151,7 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
   });
 
   it("fans a synthetic recorded external sale adjustment to every other connection and writes no next-day desired state", async () => {
-    const services = channelsModule.createServices(pools.channels, {});
+    const services = createTestChannelServices();
     const inventoryServices = inventoryModule.createServices(pools.inventory, {});
     await seedInitialDesiredStates(services.listingComposition);
     const beforeSale = await desiredStates(pools.channels);

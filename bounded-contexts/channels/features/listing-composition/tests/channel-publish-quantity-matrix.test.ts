@@ -94,14 +94,22 @@ describe("channel-publish-quantity-matrix", () => {
       expect(() => decodeChannelStockAllocationBufferPolicy(malformed as never)).toThrow();
     }
     await expect(
-      resolveChannelStockAllocationBufferPolicy(async () => {
-        throw new Error("Invalid inventory Channel Stock Allocation buffer policy: synthetic malformed value.");
-      }),
+      resolveChannelStockAllocationBufferPolicy(async () =>
+        decodeChannelStockAllocationBufferPolicy({
+          bufferThresholdUnits: 5,
+          bufferHoldbackUnits: "synthetic-malformed-value",
+        } as never),
+      ),
     ).resolves.toEqual(CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK);
     await expect(
       resolveChannelStockAllocationBufferPolicy(async () => {
         throw new Error("synthetic database unavailable");
       }),
     ).rejects.toThrow("synthetic database unavailable");
+    await expect(
+      resolveChannelStockAllocationBufferPolicy(async () => {
+        throw new Error("Invalid inventory Channel Stock Allocation buffer policy: synthetic infrastructure spoof.");
+      }),
+    ).rejects.toThrow("synthetic infrastructure spoof");
   });
 });

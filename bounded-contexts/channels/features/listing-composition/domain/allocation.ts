@@ -20,6 +20,13 @@ export const CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK: ChannelStockAlloca
   bufferHoldbackUnits: 0,
 });
 
+class ChannelStockAllocationBufferPolicyValueError extends Error {
+  constructor(message: string) {
+    super(`Invalid inventory Channel Stock Allocation buffer policy: ${message}`);
+    this.name = "ChannelStockAllocationBufferPolicyValueError";
+  }
+}
+
 export const channelStockAllocationBufferPolicy: PolicyDefinition<ChannelStockAllocationBufferPolicyValue> =
   definePolicy({
     policyKey: "inventory.channel-stock-allocation-buffer",
@@ -52,10 +59,7 @@ export async function resolveChannelStockAllocationBufferPolicy(
   try {
     return await resolve();
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.startsWith("Invalid inventory Channel Stock Allocation buffer policy:")
-    ) {
+    if (error instanceof ChannelStockAllocationBufferPolicyValueError) {
       return CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK;
     }
     throw error;
@@ -91,5 +95,5 @@ function boundedInteger(value: unknown, label: string): number {
 }
 
 function invalid(message: string): never {
-  throw new Error(`Invalid inventory Channel Stock Allocation buffer policy: ${message}`);
+  throw new ChannelStockAllocationBufferPolicyValueError(message);
 }
