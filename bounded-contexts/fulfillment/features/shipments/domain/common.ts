@@ -39,6 +39,13 @@ export class FulfillmentDomainError extends Error {
   }
 }
 
+export class ShipmentLabelRefundTerminalConflictError extends FulfillmentDomainError {
+  public constructor() {
+    super("Shipment label refund already has a different terminal status.");
+    this.name = "ShipmentLabelRefundTerminalConflictError";
+  }
+}
+
 export function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new FulfillmentDomainError(message);

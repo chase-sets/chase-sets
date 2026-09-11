@@ -74,6 +74,27 @@ export type FulfillmentShipmentLabelAttachedPayload = Readonly<{
   attachedAt: string;
 }>;
 
+type HistoricalFulfillmentShipmentLabelRefundStatusRecordedPayload = Readonly<{
+  shipmentId: ShipmentId;
+  postageProviderLabelId?: never;
+  refundStatus: string;
+  refundReference: string | null;
+  resolvedAt: string;
+}>;
+
+type CurrentFulfillmentShipmentLabelRefundStatusRecordedPayload = Readonly<{
+  shipmentId: ShipmentId;
+  postageProviderLabelId: string;
+  refundStatus: string;
+  refundReference: string | null;
+  resolvedAt: string;
+}>;
+
+/** Historical facts omit the label identity; every current publisher includes the complete original-label fact. */
+export type FulfillmentShipmentLabelRefundStatusRecordedPayload =
+  | HistoricalFulfillmentShipmentLabelRefundStatusRecordedPayload
+  | CurrentFulfillmentShipmentLabelRefundStatusRecordedPayload;
+
 type HistoricalFulfillmentShipmentDispatchedPayload = Readonly<{
   shipmentId: ShipmentId;
   orderId?: never;
@@ -123,6 +144,7 @@ export type FulfillmentEventPayloads = Readonly<{
   "fulfillment.shipment.packing-started": FulfillmentShipmentPackingStartedPayload;
   "fulfillment.shipment.package-prepared": FulfillmentShipmentPackagePreparedPayload;
   "fulfillment.shipment.label-attached": FulfillmentShipmentLabelAttachedPayload;
+  "fulfillment.shipment.label-refund-status-recorded": FulfillmentShipmentLabelRefundStatusRecordedPayload;
   "fulfillment.shipment.dispatched": FulfillmentShipmentDispatchedPayload;
   "fulfillment.shipment.delivered": FulfillmentShipmentDeliveredPayload;
   "fulfillment.shipment.cancelled": FulfillmentShipmentCancelledPayload;

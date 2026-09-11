@@ -32,6 +32,7 @@ import type { AccountId, CatalogItemId, OrderId, ShipmentId } from "@chase-sets/
 import type { PackagePlan } from "@chase-sets/product-measures";
 import {
   FulfillmentDomainError,
+  ShipmentLabelRefundTerminalConflictError,
   type ShipmentExceptionType,
   type ShipmentLineId,
   type ShippingMethod,
@@ -83,6 +84,7 @@ import {
   listStalePostageOperationLocators,
   postageOperationRecoveryStatus,
   quarantineShipmentTenantBinding,
+  recordPostageVoidOperationTerminal,
   reservePostageOperation,
   transitionPostageOperation,
   type PostageOperationAuthority,
@@ -121,8 +123,13 @@ type ShipmentForPostageProviderEvent = Readonly<{
   label_voided_at: string | null;
   tracking_identifier: string | null;
   postage_provider_shipment_id: string | null;
+  postage_provider_label_id: string | null;
+  refund_postage_provider_label_id: string | null;
   matched_void_operation_key: string | null;
+  matched_void_operation_id: string | null;
   matched_void_operation_status: string | null;
+  matched_void_operation_lifecycle_generation: number | null;
+  matched_void_operation_updated_at: string | null;
 }>;
 
 type ChannelFulfillmentRecordForPostageProviderEvent = Readonly<{
@@ -451,6 +458,8 @@ async function findSubjectForPostageProviderEvent(
 ): Promise<Readonly<{ subject: PostageSubjectForProviderEvent | null; ambiguous: boolean }>> {
   const trackingIdentifier = event.trackingIdentifier?.trim() || null;
   const providerShipmentId = event.providerShipmentId?.trim() || null;
+  const providerName = event.providerName.trim();
+  const providerMode = event.providerMode.trim();
   const matchHistoricalVoidOperations = event.eventKind === "refund-status";
   if (!trackingIdentifier && !providerShipmentId) {
     return { subject: null, ambiguous: false };
@@ -470,9 +479,14 @@ async function findSubjectForPostageProviderEvent(
          page.label_voided_at,
          page.tracking_identifier,
          page.postage_provider_shipment_id,
+         page.postage_provider_label_id,
+         page.postage_provider_label_id AS refund_postage_provider_label_id,
          NULL::text AS matched_void_operation_key,
+         NULL::text AS matched_void_operation_id,
          NULL::text AS matched_void_operation_status,
-         0 AS match_priority,
+         NULL::integer AS matched_void_operation_lifecycle_generation,
+         NULL::timestamptz AS matched_void_operation_updated_at,
+         CASE WHEN $3::boolean THEN 1 ELSE 0 END AS match_priority,
          page.updated_at
        FROM fulfillment_shipment_pages AS page
        JOIN fulfillment_shipment_tenant_resolutions AS authority
@@ -480,8 +494,12 @@ async function findSubjectForPostageProviderEvent(
         AND authority.status = 'resolved'
         AND authority.tenant_id = page.tenant_id
         AND authority.seller_account_id = page.seller_account_id
-       WHERE ($1::text IS NOT NULL AND page.tracking_identifier = $1)
-          OR ($2::text IS NOT NULL AND page.postage_provider_shipment_id = $2)
+       WHERE page.postage_provider_name = $4
+         AND page.postage_provider_mode = $5
+         AND (
+           ($1::text IS NOT NULL AND page.tracking_identifier = $1)
+           OR ($2::text IS NOT NULL AND page.postage_provider_shipment_id = $2)
+         )
        UNION ALL
        SELECT
          'shipment'::text AS subject_kind,
@@ -495,9 +513,17 @@ async function findSubjectForPostageProviderEvent(
          page.label_voided_at,
          page.tracking_identifier,
          page.postage_provider_shipment_id,
+         page.postage_provider_label_id,
+         COALESCE(
+           operation.provider_label_id,
+           operation.request_json #>> '{providerLabelId}'
+         ) AS refund_postage_provider_label_id,
          operation.operation_key AS matched_void_operation_key,
+         operation.operation_id AS matched_void_operation_id,
          operation.status AS matched_void_operation_status,
-         1 AS match_priority,
+         operation.lifecycle_generation AS matched_void_operation_lifecycle_generation,
+         operation.updated_at AS matched_void_operation_updated_at,
+         0 AS match_priority,
          operation.updated_at
        FROM fulfillment_postage_label_operations AS operation
        JOIN fulfillment_shipment_pages AS page
@@ -510,6 +536,8 @@ async function findSubjectForPostageProviderEvent(
         AND authority.seller_account_id = operation.seller_account_id
        WHERE $3::boolean
          AND operation.operation_kind = 'void-label'
+         AND operation.provider_name = $4
+         AND operation.provider_mode = $5
          AND (
            ($1::text IS NOT NULL AND (
              operation.tracking_identifier = $1
@@ -533,8 +561,13 @@ async function findSubjectForPostageProviderEvent(
          NULL::timestamptz AS label_voided_at,
          operation.tracking_identifier,
          operation.provider_shipment_id AS postage_provider_shipment_id,
+         NULL::text AS postage_provider_label_id,
+         NULL::text AS refund_postage_provider_label_id,
          NULL::text AS matched_void_operation_key,
+         NULL::text AS matched_void_operation_id,
          NULL::text AS matched_void_operation_status,
+         NULL::integer AS matched_void_operation_lifecycle_generation,
+         NULL::timestamptz AS matched_void_operation_updated_at,
          0 AS match_priority,
          operation.updated_at
        FROM fulfillment_postage_label_operations AS operation
@@ -561,12 +594,17 @@ async function findSubjectForPostageProviderEvent(
        label_voided_at,
        tracking_identifier,
        postage_provider_shipment_id,
+       postage_provider_label_id,
+       refund_postage_provider_label_id,
        matched_void_operation_key,
-       matched_void_operation_status
+       matched_void_operation_id,
+       matched_void_operation_status,
+       matched_void_operation_lifecycle_generation,
+       matched_void_operation_updated_at
      FROM candidate_subjects
      ORDER BY subject_kind, subject_id, match_priority ASC, updated_at DESC
      LIMIT 2`,
-    [trackingIdentifier, providerShipmentId, matchHistoricalVoidOperations],
+    [trackingIdentifier, providerShipmentId, matchHistoricalVoidOperations, providerName, providerMode],
   );
 
   return { subject: result.rows.length === 1 ? result.rows[0]! : null, ambiguous: result.rows.length > 1 };
@@ -795,6 +833,13 @@ function normalizeProviderRefundStatus(status: string | null | undefined) {
   return null;
 }
 
+class PostageVoidOperationInterleavingError extends Error {
+  public constructor() {
+    super("Matched postage void operation changed before its terminal outcome was recorded.");
+    this.name = "PostageVoidOperationInterleavingError";
+  }
+}
+
 async function applyPostageProviderRefundEvent(
   db: PgQueryable,
   commandHandler: CommandHandler<FulfillmentShipmentCommand, FulfillmentShipmentState, FulfillmentShipmentEvent>,
@@ -807,26 +852,13 @@ async function applyPostageProviderRefundEvent(
     return "recorded";
   }
 
-  if (shipment.label_status === "voided" || shipment.label_status === "void-rejected") {
-    return "terminal-refund-status-ignored";
+  const postageProviderLabelId = shipment.refund_postage_provider_label_id?.trim() || null;
+  if (!postageProviderLabelId) {
+    throw new ShipmentHistoryPoisonedError("postage-refund-original-label-missing");
   }
 
-  if (shipment.label_status !== "void-requested") {
-    if (refundStatus === "rejected" && shipment.matched_void_operation_key) {
-      await recordFulfillmentPostageLabelOperationFailed(db, {
-        operationKey: shipment.matched_void_operation_key,
-        errorMessage: "Postage label refund was rejected after a replacement label was purchased.",
-        completedAt: event.occurredAt,
-      });
-      return "refund-rejected-after-rebuy";
-    }
-    if (refundStatus === "refunded" && shipment.matched_void_operation_key) {
-      await recordFulfillmentPostageLabelOperationSucceeded(db, {
-        operationKey: shipment.matched_void_operation_key,
-        completedAt: event.occurredAt,
-      });
-      return "refund-resolved-after-rebuy";
-    }
+  const convergesTerminalRefund = normalizeProviderRefundStatus(shipment.label_refund_status) !== null;
+  if (!shipment.matched_void_operation_key && shipment.label_status !== "void-requested" && !convergesTerminalRefund) {
     return "recorded";
   }
 
@@ -834,6 +866,7 @@ async function applyPostageProviderRefundEvent(
     streamId: `fulfillment.shipment-${shipment.shipment_id}`,
     command: {
       type: "RecordShipmentLabelRefundStatus",
+      postageProviderLabelId,
       refundStatus,
       refundReference: event.providerObjectReference,
       resolvedAt: event.occurredAt,
@@ -841,25 +874,34 @@ async function applyPostageProviderRefundEvent(
     context,
   });
 
-  if (result.newEvents.length === 0) {
-    return "terminal-refund-status-ignored";
-  }
-
-  if (shipment.matched_void_operation_key) {
-    if (refundStatus === "refunded") {
-      await recordFulfillmentPostageLabelOperationSucceeded(db, {
-        operationKey: shipment.matched_void_operation_key,
-        completedAt: event.occurredAt,
-      });
-    } else {
-      await recordFulfillmentPostageLabelOperationFailed(db, {
-        operationKey: shipment.matched_void_operation_key,
-        errorMessage: "Postage label refund was rejected by the provider.",
-        completedAt: event.occurredAt,
-      });
+  if (shipment.matched_void_operation_id) {
+    if (
+      !shipment.matched_void_operation_status ||
+      shipment.matched_void_operation_lifecycle_generation === null ||
+      !shipment.matched_void_operation_updated_at
+    ) {
+      throw new ShipmentHistoryPoisonedError("postage-refund-operation-authority-incomplete");
     }
+    const operation = await recordPostageVoidOperationTerminal(db, {
+      operationId: shipment.matched_void_operation_id,
+      tenantId: shipment.tenant_id,
+      subjectKind: shipment.subject_kind,
+      subjectId: shipment.subject_id,
+      expectedStatus: shipment.matched_void_operation_status as PostageOperationAuthority["status"],
+      expectedLifecycleGeneration: shipment.matched_void_operation_lifecycle_generation,
+      expectedUpdatedAt: shipment.matched_void_operation_updated_at,
+      refundStatus,
+      refundReference: event.providerObjectReference,
+      resolvedAt: event.occurredAt,
+    });
+    if (!operation) throw new PostageVoidOperationInterleavingError();
   }
 
+  if (result.newEvents.length === 0) return "terminal-refund-status-ignored";
+  const resolvedHistoricalLabel = shipment.postage_provider_label_id !== postageProviderLabelId;
+  if (resolvedHistoricalLabel) {
+    return refundStatus === "refunded" ? "refund-resolved-after-rebuy" : "refund-rejected-after-rebuy";
+  }
   return refundStatus === "refunded" ? "refund-refunded" : "refund-rejected";
 }
 
@@ -1266,6 +1308,15 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     return operation.request_json as Record<string, unknown>;
   }
 
+  function postageProviderLabelIdForOperation(operation: PostageOperationAuthority) {
+    const request = postageOperationRequestRecord(operation);
+    const postageProviderLabelId = operation.provider_label_id ?? request.providerLabelId;
+    if (typeof postageProviderLabelId !== "string" || postageProviderLabelId.trim().length === 0) {
+      throw new ShipmentHistoryPoisonedError("postage-provider-label-id-invalid");
+    }
+    return postageProviderLabelId;
+  }
+
   async function finalizeAuthoritativePostageOperation(
     operation: PostageOperationAuthority,
     claim: NonNullable<Awaited<ReturnType<typeof claimPostageOperationForFinalization>>>,
@@ -1351,6 +1402,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           streamId: `fulfillment.shipment-${operation.subject_id}`,
           command: {
             type: "VoidShipmentLabel",
+            postageProviderLabelId: postageProviderLabelIdForOperation(operation),
             refundStatus: result.refundStatus,
             refundReference: result.refundReference,
             voidedAt: result.voidedAt,
@@ -1559,6 +1611,29 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
             );
           }
         } catch (error) {
+          if (
+            error instanceof ShipmentLabelRefundTerminalConflictError ||
+            error instanceof PostageVoidOperationInterleavingError
+          ) {
+            const conflictResult =
+              error instanceof ShipmentLabelRefundTerminalConflictError
+                ? "terminal-refund-status-conflict"
+                : "postage-void-operation-interleaving";
+            await deps.db.query(
+              `UPDATE fulfillment_postage_provider_events
+               SET handoff_state = 'quarantined', processing_result = $4,
+                   receipt_version = receipt_version + 1
+               WHERE provider_event_id = $1 AND payload_hash = $2 AND claim_token = $3`,
+              [event.providerEventId, reservation.payloadHash, claimToken, conflictResult],
+            );
+            return {
+              status: "recorded",
+              providerEventId: event.providerEventId,
+              eventKind: event.eventKind,
+              shipmentId: shipment.shipment_id,
+              processingResult: conflictResult,
+            };
+          }
           if (!(error instanceof ShipmentHistoryPoisonedError)) throw error;
           await quarantineShipmentTenantBinding(deps.db, {
             shipmentId: shipment.shipment_id,
@@ -2416,6 +2491,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const voidRequestedAt = new Date().toISOString();
       decideFulfillmentShipment(loaded.state, {
         type: "VoidShipmentLabel",
+        postageProviderLabelId: shipment.postage_provider_label_id,
         refundStatus: "submitted",
         voidedAt: voidRequestedAt,
       });
@@ -2472,6 +2548,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
               streamId: `fulfillment.shipment-${params.shipmentId}`,
               command: {
                 type: "VoidShipmentLabel",
+                postageProviderLabelId: postageProviderLabelIdForOperation(operation),
                 refundStatus: result.refundStatus,
                 refundReference: result.refundReference,
                 voidedAt: result.voidedAt,
@@ -2530,6 +2607,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           streamId: `fulfillment.shipment-${params.shipmentId}`,
           command: {
             type: "VoidShipmentLabel",
+            postageProviderLabelId: shipment.postage_provider_label_id,
             refundStatus: voidedLabel.refundStatus,
             refundReference: voidedLabel.refundReference,
             voidedAt: voidedLabel.voidedAt,
@@ -2592,6 +2670,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         streamId: `fulfillment.shipment-${params.shipmentId}`,
         command: {
           type: "VoidShipmentLabel",
+          postageProviderLabelId: shipment.postage_provider_label_id,
           refundStatus: voidedLabel.refundStatus,
           refundReference: voidedLabel.refundReference,
           voidedAt: voidedLabel.voidedAt,
