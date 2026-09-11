@@ -843,23 +843,7 @@ describeDb(
         { assertDelistDirective: () => undefined },
       );
       await runtime.enqueueDesiredState(desiredState("listing-invalid-rate", 1, 7, "event-invalid-rate"));
-      const before = await operationAdmissionStates(pools.channels);
-
-      await expect(
-        runtime.processNextInlineOperation({ registry, claimOwnerId: "worker-invalid-rate" }),
-      ).rejects.toMatchObject({
-        code: "invalid-input",
-      });
-      expect(providerCalls).toBe(0);
-      expect(await operationAdmissionStates(pools.channels)).toEqual(before);
-      const lane = await pools.channels.query(
-        "SELECT blocked_operation_id, blocked_reason FROM channel_outbound_lanes WHERE connection_id = 'connection-a'",
-      );
-      expect(lane.rows).toEqual([{ blocked_operation_id: null, blocked_reason: null }]);
-      expect(await rateState(pools.channels, "synthetic-inline")).toMatchObject({
-        request_count: 0,
-        adaptive_divisor: 0,
-      });
+      await expectInvalidLockedRateState("worker-invalid-divisor");
 
       await pools.channels.query(
         "UPDATE channel_provider_rate_state SET adaptive_divisor = 1 WHERE provider_key = 'synthetic-inline' AND environment = 'sandbox'",
@@ -867,6 +851,52 @@ describeDb(
       await pools.channels.query(`ALTER TABLE channel_provider_rate_state ADD CONSTRAINT ${conname} ${definition}`);
       expect(await runtime.processNextInlineOperation({ registry, claimOwnerId: "worker-valid-rate" })).toBe(1);
       expect(providerCalls).toBe(1);
+      providerCalls = 0;
+
+      for (const [column, listingId] of [
+        ["request_count", "listing-null-request-count"],
+        ["consecutive_successes", "listing-null-consecutive-successes"],
+      ] as const) {
+        await pools.channels.query(`ALTER TABLE channel_provider_rate_state ALTER COLUMN ${column} DROP NOT NULL`);
+        try {
+          await pools.channels.query(
+            `UPDATE channel_provider_rate_state SET ${column} = NULL WHERE provider_key = 'synthetic-inline' AND environment = 'sandbox'`,
+          );
+          await runtime.enqueueDesiredState(desiredState(listingId, 1, 7, `event-${listingId}`));
+          await expectInvalidLockedRateState(`worker-invalid-${column}`);
+        } finally {
+          await pools.channels.query(
+            `UPDATE channel_provider_rate_state SET ${column} = 0 WHERE provider_key = 'synthetic-inline' AND environment = 'sandbox'`,
+          );
+          await pools.channels.query(`ALTER TABLE channel_provider_rate_state ALTER COLUMN ${column} SET NOT NULL`);
+        }
+      }
+
+      await pools.channels.query(
+        "UPDATE channel_provider_rate_state SET revision = 9007199254740992 WHERE provider_key = 'synthetic-inline' AND environment = 'sandbox'",
+      );
+      await runtime.enqueueDesiredState(desiredState("listing-bigint-revision", 1, 7, "event-bigint-revision"));
+      expect(await runtime.processNextInlineOperation({ registry, claimOwnerId: "worker-bigint-revision" })).toBe(1);
+      expect(providerCalls).toBe(1);
+      const revision = await pools.channels.query<{ revision: string }>(
+        "SELECT revision::text FROM channel_provider_rate_state WHERE provider_key = 'synthetic-inline' AND environment = 'sandbox'",
+      );
+      expect(revision.rows).toEqual([{ revision: "9007199254740993" }]);
+
+      async function expectInvalidLockedRateState(claimOwnerId: string) {
+        const beforeOperation = await operationAdmissionStates(pools.channels);
+        const beforeRate = await lockedRateState(pools.channels, "synthetic-inline");
+        await expect(runtime.processNextInlineOperation({ registry, claimOwnerId })).rejects.toMatchObject({
+          code: "invalid-input",
+        });
+        expect(providerCalls).toBe(0);
+        expect(await operationAdmissionStates(pools.channels)).toEqual(beforeOperation);
+        expect(await lockedRateState(pools.channels, "synthetic-inline")).toEqual(beforeRate);
+        const lane = await pools.channels.query(
+          "SELECT blocked_operation_id, blocked_reason FROM channel_outbound_lanes WHERE connection_id = 'connection-a'",
+        );
+        expect(lane.rows).toEqual([{ blocked_operation_id: null, blocked_reason: null }]);
+      }
     });
 
     it("enforces a durable per-connection cap while a fair neighboring connection advances", async () => {
@@ -1880,6 +1910,21 @@ async function operationAdmissionStates(db: PgTransactionalPool) {
 async function rateState(db: PgTransactionalPool, providerKey: string) {
   const result = await db.query<{ request_count: number; adaptive_divisor: number }>(
     `SELECT request_count, adaptive_divisor
+     FROM channel_provider_rate_state
+     WHERE provider_key = $1 AND environment = 'sandbox'`,
+    [providerKey],
+  );
+  return result.rows[0];
+}
+
+async function lockedRateState(db: PgTransactionalPool, providerKey: string) {
+  const result = await db.query<{
+    request_count: string | null;
+    adaptive_divisor: string;
+    consecutive_successes: string | null;
+    revision: string;
+  }>(
+    `SELECT request_count::text, adaptive_divisor::text, consecutive_successes::text, revision::text
      FROM channel_provider_rate_state
      WHERE provider_key = $1 AND environment = 'sandbox'`,
     [providerKey],
