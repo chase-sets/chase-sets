@@ -572,7 +572,8 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
   it("postage-subject-webhook-resolution resolves shipment and record subjects and quarantines ambiguity", async () => {
     await pool.query(
       `UPDATE fulfillment_shipment_pages
-       SET tracking_identifier = 'trk_shipment', postage_provider_shipment_id = 'eps_shipment'
+       SET tracking_identifier = 'trk_shipment', postage_provider_shipment_id = 'eps_shipment',
+           postage_provider_name = 'fake-postage', postage_provider_mode = 'test'
        WHERE shipment_id = 'shp_7171'`,
     );
     await pool.query(
