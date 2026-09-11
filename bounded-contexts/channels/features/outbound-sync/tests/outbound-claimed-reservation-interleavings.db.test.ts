@@ -10,6 +10,7 @@ import {
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-core/storage";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import { module as channelsModule } from "../../../index";
 import { createChannelListingCompositionRuntime } from "../../listing-composition/api/runtime";
 import { createChannelCompositionProfileRegistry } from "../../listing-composition/domain/canonical";
@@ -1346,7 +1347,7 @@ type ProducerEventRow = Readonly<{
       draft?: Readonly<{ quantity?: number }>;
     }
   >;
-  metadata: Readonly<Record<string, unknown>>;
+  metadata: JsonObject;
   stream_id: string;
   stream_version: number;
   global_position: string;
