@@ -78,6 +78,18 @@ describe("Channels account connection route contribution", () => {
     expect(await screen.findByText("Publication activity is unavailable")).toBeTruthy();
   });
 
+  it("renders exactly one Manual TCGplayer sync panel heading", async () => {
+    vi.stubGlobal(
+      "fetch",
+      auxiliaryFetch({
+        operation: () => Response.json(operationLogBody()),
+        manualSync: () => Response.json(manualSyncPanel()),
+      }),
+    );
+    renderRoute();
+    expect(await screen.findAllByRole("heading", { name: "Manual TCGplayer sync" })).toHaveLength(1);
+  });
+
   it("preserves a loaded operation log when Manual Sync returns 503", async () => {
     const fetch = auxiliaryFetch({
       operation: () => Response.json(operationLogBody()),
