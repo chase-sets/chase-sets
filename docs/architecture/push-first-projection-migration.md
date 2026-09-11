@@ -58,6 +58,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `channels:channel-marketplace-publication-facts` | Channels | **marketplace** | push-enabled | 1/1 |
 | `channels:channel-outbound-operation-enqueue` | Channels | channels | push-eligible | 0/1 |
 | `channels:channel-owned-publication-state` | Channels | channels | push-eligible | 0/1 |
+| `channels:tcgplayer-csv-projection` | Channels | channels | push-eligible | 0/1 |
 | `checkout:checkout-catalog-item-projection` | Checkout | **catalog** | push-enabled | 1/1 |
 | `checkout:checkout-marketplace-listing-options-projection` | Checkout | **catalog**, **marketplace**, **ordering** | push-enabled | 3/3 |
 | `checkout:checkout-inventory-supply-projection` | Checkout | **inventory** | push-enabled | 1/1 |

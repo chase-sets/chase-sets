@@ -10,7 +10,13 @@ describe("channel-publication-port-scope-fence", () => {
     const sliceRoot = path.resolve(import.meta.dirname, "..");
     const relativeFiles = listFiles(sliceRoot);
     expect([...new Set(relativeFiles.map((file) => file.split("/")[0]))].sort()).toEqual(["api", "domain", "tests"]);
-    expect(manifest.slices).toEqual(["connections", "publication-port", "listing-composition", "outbound-sync"]);
+    expect(manifest.slices).toEqual([
+      "connections",
+      "publication-port",
+      "listing-composition",
+      "tcgplayer-csv",
+      "outbound-sync",
+    ]);
     expect(manifest.hostPorts).toEqual([]);
     expect(manifest.allowedSupportDirectories).toEqual(["request-support"]);
     expect(manifest.publicExports).toEqual([".", "./context", "./server", "./routes/*"]);
