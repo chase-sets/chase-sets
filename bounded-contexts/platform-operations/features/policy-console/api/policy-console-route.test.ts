@@ -198,6 +198,52 @@ describe("policy console routes", () => {
     void nowIso;
   });
 
+  it("uses database timestamp values to select the current window and exclude an expired window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-11T06:00:00.000Z"));
+    try {
+      const db = createQueryableDb({
+        active: [
+          {
+            document_id: "pol_upcoming",
+            policy_key: testPolicy.policyKey,
+            status: "active",
+            value: { maxDays: 5 },
+            effective_from: new Date("2026-09-12T00:00:00.000Z"),
+            effective_until: null,
+          },
+          {
+            document_id: "pol_current",
+            policy_key: testPolicy.policyKey,
+            status: "active",
+            value: { maxDays: 2 },
+            effective_from: new Date("2026-09-01T00:00:00.000Z"),
+            effective_until: null,
+          },
+          {
+            document_id: "pol_expired",
+            policy_key: testPolicy.policyKey,
+            status: "active",
+            value: { maxDays: 1 },
+            effective_from: new Date("2026-08-01T00:00:00.000Z"),
+            effective_until: new Date("2026-09-01T00:00:00.000Z"),
+          },
+        ],
+      });
+      const app = createApp([buildEntry({ db })], ["platform-policy.view"]);
+
+      const response = await app.request(`/${testPolicy.policyKey}`);
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        current: { source: "policy", documentId: "pol_current", value: { maxDays: 2 } },
+        upcoming: [{ documentId: "pol_upcoming", value: { maxDays: 5 } }],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("404s for an unknown policy key", async () => {
     const app = createApp([buildEntry()], ["platform-policy.view"]);
     const response = await app.request("/not-a-real-policy");
