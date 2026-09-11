@@ -3,6 +3,7 @@ import {
   decidePayout,
   evolvePayout,
   initialPayoutState,
+  payoutMonthStreamId,
   payoutUtcMonthWindow,
   type PayoutRequestedEvent,
 } from "./domain";
@@ -181,5 +182,12 @@ describe("settlement payout domain", () => {
       startsAt: "2026-12-01T00:00:00.000Z",
       endsAt: "2027-01-01T00:00:00.000Z",
     });
+    expect(payoutUtcMonthWindow("2026-08-31T19:00:00.000-05:00")).toEqual({
+      startsAt: "2026-09-01T00:00:00.000Z",
+      endsAt: "2026-10-01T00:00:00.000Z",
+    });
+    expect(payoutMonthStreamId("acc_utc" as never, "2026-08-31T19:00:00.000-05:00")).toBe(
+      "settlement.payout-month-acc_utc-2026-09",
+    );
   });
 });
