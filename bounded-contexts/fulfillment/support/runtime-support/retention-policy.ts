@@ -31,6 +31,12 @@ export const fulfillmentRetentionExemptions: readonly BcRetentionExemption[] = [
     reason: "Shipment tenant bindings and quarantine decisions are permanent fail-closed authority evidence.",
   },
   {
+    tableName: "fulfillment_channel_fulfillment_record_tenant_resolutions",
+    owner: "fulfillment",
+    reason:
+      "Channel Fulfillment Record tenant bindings and quarantine decisions are permanent fail-closed authority evidence.",
+  },
+  {
     tableName: "fulfillment_return_shipment_label_operations",
     owner: "fulfillment",
     reason:

@@ -1,9 +1,10 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PostageOperationSubjectKind, PostageProviderWebhookEvent } from "@chase-sets/postage-labels";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -21,8 +22,8 @@ import {
   type FulfillmentShipmentEvent,
 } from "../domain/domain";
 import {
-  executeShipmentMutationAttempt,
-  shipmentMutationAttemptStreamId,
+  executeFulfillmentMutationAttempt,
+  fulfillmentMutationAttemptStreamId,
   ShipmentHistoryPoisonedError,
 } from "../domain/mutation-attempt";
 import {
@@ -32,6 +33,8 @@ import {
   reservePostageOperation,
   transitionPostageOperation,
 } from "../read-model/postage-operation-authority";
+import { buildFulfillmentShipmentProjectionHandlers } from "../read-model/projection";
+import { createFulfillmentShipmentRuntime } from "./runtime";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI)
@@ -71,7 +74,8 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     return reservePostageOperation(pool, {
       tenantId: "tnt_1",
       sellerAccountId: "acc_seller",
-      shipmentId: "shp_7171",
+      subjectKind: "shipment",
+      subjectId: "shp_7171",
       keyDigest,
       requestHash: `request-${keyDigest}`,
       targetKey,
@@ -139,12 +143,13 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     harness: Awaited<ReturnType<typeof atomicHarness>>,
     input: Readonly<{ shipmentId: string; attemptId: string; eventStore?: EventStore }>,
   ) {
-    return executeShipmentMutationAttempt({
+    return executeFulfillmentMutationAttempt({
       eventStore: input.eventStore ?? harness.eventStore,
       loadShipment: harness.repository.load,
       context,
       mutationAttemptId: input.attemptId,
-      shipmentId: input.shipmentId,
+      subjectKind: "shipment",
+      subjectId: input.shipmentId,
       sellerAccountId: "acc_seller",
       commandKind: "start-packing",
       request: {},
@@ -189,13 +194,378 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     expect(await reserve(loser.operation.key_digest)).toMatchObject({ targetConflict: true, created: false });
   });
 
+  it("postage-subject-tenant-authority refuses absent and quarantined record tenants before provider effects", async () => {
+    await pool.query(
+      `INSERT INTO fulfillment_channel_fulfillment_record_tenant_resolutions (
+         channel_fulfillment_record_id, tenant_id, seller_account_id, status, reason_code, resolved_at
+       ) VALUES ('cfr_quarantined', NULL, NULL, 'quarantined', 'projection-identity-mismatch', now())`,
+    );
+    const providerInvocation = vi.fn(async () => undefined);
+    async function attemptRecord(subjectId: string, keyDigest: string) {
+      const reservation = await reservePostageOperation(pool, {
+        tenantId: "tnt_1",
+        sellerAccountId: "acc_seller",
+        subjectKind: "channel-fulfillment-record",
+        subjectId,
+        keyDigest,
+        requestHash: keyDigest,
+        targetKey: `purchase:${subjectId}:initial`,
+        operationKind: "purchase-usps-label",
+        providerName: "fake-postage",
+        providerMode: "test",
+        request: { subjectKind: "channel-fulfillment-record", subjectId },
+      });
+      if (!reservation.targetConflict) await providerInvocation();
+    }
+
+    await expect(attemptRecord("cfr_absent", "absent-key")).rejects.toThrow("tenant authority is unavailable");
+    await expect(attemptRecord("cfr_quarantined", "quarantined-key")).rejects.toThrow(
+      "tenant authority is unavailable",
+    );
+    expect(providerInvocation).not.toHaveBeenCalled();
+    const operations = await pool.query(
+      `SELECT operation_key FROM fulfillment_postage_label_operations
+       WHERE subject_kind = 'channel-fulfillment-record'`,
+    );
+    expect(operations.rows).toEqual([]);
+  });
+
+  it("keeps Shipment and Channel Fulfillment Record authority quarantined after any identity conflict", async () => {
+    const handlers = buildFulfillmentShipmentProjectionHandlers(pool);
+    const recordCreated = {
+      type: "fulfillment.channel-fulfillment-record.created",
+      tenantId: "tnt_1",
+      data: {
+        channelFulfillmentRecordId: "cfr_projection",
+        sellerAccountId: "acc_seller",
+        createdAt: "2026-09-10T00:00:00.000Z",
+      },
+    };
+    const shipmentCreated = {
+      type: "fulfillment.shipment.created",
+      tenantId: "tnt_1",
+      data: {
+        shipmentId: "shp_projection_authority",
+        orderId: "ord_projection_authority",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        shippingOption: "standard",
+        shippingDestinationSnapshot: {
+          name: "Synthetic Buyer",
+          line1: "2 Test St",
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+        },
+        shippingOriginSnapshot: {
+          name: "Synthetic Seller",
+          line1: "1 Test St",
+          city: "Austin",
+          state: "TX",
+          postalCode: "78701",
+          country: "US",
+        },
+        shippingPlanSnapshot: null,
+        lines: [],
+        createdAt: "2026-09-10T00:00:00.000Z",
+      },
+    };
+
+    const authorityRows = () =>
+      pool.query<{
+        subject_kind: PostageOperationSubjectKind;
+        subject_id: string;
+        tenant_id: string | null;
+        seller_account_id: string | null;
+        status: string;
+        reason_code: string;
+      }>(
+        `SELECT 'shipment'::text AS subject_kind, shipment_id AS subject_id,
+                tenant_id, seller_account_id, status, reason_code
+         FROM fulfillment_shipment_tenant_resolutions
+         WHERE shipment_id = 'shp_projection_authority'
+         UNION ALL
+         SELECT 'channel-fulfillment-record'::text, channel_fulfillment_record_id,
+                tenant_id, seller_account_id, status, reason_code
+         FROM fulfillment_channel_fulfillment_record_tenant_resolutions
+         WHERE channel_fulfillment_record_id = 'cfr_projection'
+         ORDER BY subject_kind`,
+      );
+
+    await handlers["fulfillment.channel-fulfillment-record.created"]!(recordCreated as never);
+    await handlers["fulfillment.shipment.created"]!(shipmentCreated as never);
+    await handlers["fulfillment.channel-fulfillment-record.created"]!(recordCreated as never);
+    await handlers["fulfillment.shipment.created"]!(shipmentCreated as never);
+    expect((await authorityRows()).rows).toEqual([
+      {
+        subject_kind: "channel-fulfillment-record",
+        subject_id: "cfr_projection",
+        tenant_id: "tnt_1",
+        seller_account_id: "acc_seller",
+        status: "resolved",
+        reason_code: "authoritative-history",
+      },
+      {
+        subject_kind: "shipment",
+        subject_id: "shp_projection_authority",
+        tenant_id: "tnt_1",
+        seller_account_id: "acc_seller",
+        status: "resolved",
+        reason_code: "authoritative-history",
+      },
+    ]);
+
+    const conflictingRecord = {
+      ...recordCreated,
+      tenantId: "tnt_other",
+      data: { ...recordCreated.data, sellerAccountId: "acc_other" },
+    };
+    const conflictingShipment = {
+      ...shipmentCreated,
+      tenantId: "tnt_other",
+      data: { ...shipmentCreated.data, sellerAccountId: "acc_other" },
+    };
+    for (const event of [conflictingRecord, conflictingRecord]) {
+      await handlers["fulfillment.channel-fulfillment-record.created"]!(event as never);
+    }
+    for (const event of [conflictingShipment, conflictingShipment]) {
+      await handlers["fulfillment.shipment.created"]!(event as never);
+    }
+    await handlers["fulfillment.channel-fulfillment-record.created"]!(recordCreated as never);
+    await handlers["fulfillment.shipment.created"]!(shipmentCreated as never);
+
+    expect((await authorityRows()).rows).toEqual([
+      {
+        subject_kind: "channel-fulfillment-record",
+        subject_id: "cfr_projection",
+        tenant_id: "tnt_1",
+        seller_account_id: "acc_seller",
+        status: "quarantined",
+        reason_code: "projection-identity-mismatch",
+      },
+      {
+        subject_kind: "shipment",
+        subject_id: "shp_projection_authority",
+        tenant_id: "tnt_1",
+        seller_account_id: "acc_seller",
+        status: "quarantined",
+        reason_code: "projection-identity-mismatch",
+      },
+    ]);
+
+    const syntheticProviderEffect = vi.fn(async () => undefined);
+    for (const subject of [
+      { subjectKind: "shipment" as const, subjectId: "shp_projection_authority" },
+      { subjectKind: "channel-fulfillment-record" as const, subjectId: "cfr_projection" },
+    ]) {
+      for (const identity of [
+        { tenantId: "tnt_1", sellerAccountId: "acc_seller", suffix: "original" },
+        { tenantId: "tnt_other", sellerAccountId: "acc_other", suffix: "conflict" },
+      ]) {
+        await expect(
+          reservePostageOperation(pool, {
+            tenantId: identity.tenantId,
+            sellerAccountId: identity.sellerAccountId,
+            subjectKind: subject.subjectKind,
+            subjectId: subject.subjectId,
+            keyDigest: `${subject.subjectKind}-${identity.suffix}`,
+            requestHash: `${subject.subjectKind}-${identity.suffix}`,
+            targetKey: `purchase:${subject.subjectId}:initial`,
+            operationKind: "purchase-usps-label",
+            providerName: "synthetic-postage",
+            providerMode: "test",
+            request: subject,
+          }).then(syntheticProviderEffect),
+        ).rejects.toThrow("tenant authority is unavailable");
+      }
+    }
+    expect(syntheticProviderEffect).not.toHaveBeenCalled();
+    expect(
+      (
+        await pool.query(
+          `SELECT operation_key FROM fulfillment_postage_label_operations
+           WHERE subject_id IN ('shp_projection_authority', 'cfr_projection')`,
+        )
+      ).rows,
+    ).toEqual([]);
+  });
+
+  it("postage-subject-webhook-resolution resolves shipment and record subjects and quarantines ambiguity", async () => {
+    await pool.query(
+      `UPDATE fulfillment_shipment_pages
+       SET tracking_identifier = 'trk_shipment', postage_provider_shipment_id = 'eps_shipment'
+       WHERE shipment_id = 'shp_7171'`,
+    );
+    await pool.query(
+      `INSERT INTO fulfillment_channel_fulfillment_record_tenant_resolutions (
+         channel_fulfillment_record_id, tenant_id, seller_account_id, status, reason_code, resolved_at
+       ) VALUES ('cfr_webhook', 'tnt_1', 'acc_seller', 'resolved', 'authoritative-history', now())`,
+    );
+    await pool.query(
+      `INSERT INTO fulfillment_postage_label_operations (
+         operation_key, operation_id, operation_kind, subject_kind, subject_id,
+         tenant_id, seller_account_id, key_digest, request_hash, target_key,
+         provider_name, provider_mode, idempotency_key, status,
+         provider_shipment_id, tracking_identifier, created_at, updated_at
+       ) VALUES (
+         'record-webhook-operation', 'pop_record_webhook', 'purchase-usps-label',
+         'channel-fulfillment-record', 'cfr_webhook', 'tnt_1', 'acc_seller',
+         'record-webhook-key', 'record-webhook-request', 'purchase:initial',
+         'fake-postage', 'test', 'record-webhook-key', 'effect-applied',
+         'eps_record', 'trk_record', now(), now()
+       )`,
+    );
+    const shipmentHarness = await atomicHarness("shp_7171");
+
+    async function process(event: PostageProviderWebhookEvent) {
+      const services = createFulfillmentShipmentRuntime({
+        eventStore: shipmentHarness.eventStore,
+        checkpointStore: {} as never,
+        db: pool,
+        postageWebhookGateway: { processPostageProviderWebhook: async () => event },
+      });
+      return services.processPostageProviderWebhook(
+        { rawBody: "{}", method: "POST", path: "/postage/webhooks", headers: new Headers() },
+        context,
+      );
+    }
+
+    const baseEvent = {
+      providerName: "fake-postage",
+      providerMode: "test",
+      eventKind: "tracking-status",
+      providerObjectReference: "tracker",
+      status: "in_transit",
+      occurredAt: "2026-09-10T01:00:00.000Z",
+      payload: {},
+    } as const;
+    await expect(
+      process({
+        ...baseEvent,
+        providerEventId: "pev_subject_shipment",
+        providerShipmentId: "eps_shipment",
+        trackingIdentifier: "trk_shipment",
+      }),
+    ).resolves.toMatchObject({
+      status: "recorded",
+      subjectKind: "shipment",
+      subjectId: "shp_7171",
+      shipmentId: "shp_7171",
+    });
+    await expect(
+      process({
+        ...baseEvent,
+        providerEventId: "pev_subject_record",
+        providerShipmentId: "eps_record",
+        trackingIdentifier: "trk_record",
+      }),
+    ).resolves.toMatchObject({
+      status: "recorded",
+      subjectKind: "channel-fulfillment-record",
+      subjectId: "cfr_webhook",
+      shipmentId: null,
+    });
+
+    await pool.query(
+      `UPDATE fulfillment_shipment_pages SET tracking_identifier = 'trk_ambiguous'
+       WHERE shipment_id = 'shp_7171'`,
+    );
+    await pool.query(
+      `UPDATE fulfillment_postage_label_operations SET tracking_identifier = 'trk_ambiguous'
+       WHERE operation_key = 'record-webhook-operation'`,
+    );
+    await expect(
+      process({
+        ...baseEvent,
+        providerEventId: "pev_subject_ambiguous",
+        providerShipmentId: null,
+        trackingIdentifier: "trk_ambiguous",
+      }),
+    ).resolves.toMatchObject({
+      status: "recorded",
+      shipmentId: null,
+      processingResult: "quarantined",
+    });
+    const receipts = await pool.query<{
+      provider_event_id: string;
+      subject_kind: string | null;
+      subject_id: string | null;
+      processing_result: string;
+    }>(
+      `SELECT provider_event_id, subject_kind, subject_id, processing_result
+       FROM fulfillment_postage_provider_events
+       WHERE provider_event_id LIKE 'pev_subject_%'
+       ORDER BY provider_event_id`,
+    );
+    expect(receipts.rows).toEqual([
+      {
+        provider_event_id: "pev_subject_ambiguous",
+        subject_kind: null,
+        subject_id: null,
+        processing_result: "multiple-authority-matches",
+      },
+      {
+        provider_event_id: "pev_subject_record",
+        subject_kind: "channel-fulfillment-record",
+        subject_id: "cfr_webhook",
+        processing_result: "recorded",
+      },
+      {
+        provider_event_id: "pev_subject_shipment",
+        subject_kind: "shipment",
+        subject_id: "shp_7171",
+        processing_result: "recorded",
+      },
+    ]);
+  });
+
+  it("records unresolved provider events with nullable subjects and unchanged unmatched processing", async () => {
+    const eventStore = createPostgresEventStore({ pool });
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db: pool,
+      postageWebhookGateway: {
+        processPostageProviderWebhook: async () => ({
+          providerEventId: "pev_unresolved_subject",
+          providerName: "fake-postage",
+          providerMode: "test",
+          eventKind: "provider-event",
+          providerObjectReference: "unknown-provider-object",
+          providerShipmentId: null,
+          trackingIdentifier: null,
+          occurredAt: "2026-09-10T02:00:00.000Z",
+          payload: {},
+        }),
+      },
+    });
+
+    await expect(
+      services.processPostageProviderWebhook(
+        { rawBody: "{}", method: "POST", path: "/postage/webhooks", headers: new Headers() },
+        context,
+      ),
+    ).resolves.toMatchObject({ processingResult: "unmatched", subjectKind: null, subjectId: null });
+    const receipt = await pool.query(
+      `SELECT subject_kind, subject_id, processing_result, handoff_state
+       FROM fulfillment_postage_provider_events
+       WHERE provider_event_id = 'pev_unresolved_subject'`,
+    );
+    expect(receipt.rows).toEqual([
+      { subject_kind: null, subject_id: null, processing_result: "unmatched", handoff_state: "unmatched" },
+    ]);
+  });
+
   it("issue-7171-non-provider-atomic-replay leaves no fact or receipt before appendToStreams and replays read-only after it", async () => {
     const shipmentId = "shp_atomic_cut";
     const attemptId = "018f47d2-9d2a-4d68-8f33-6fb718c3f001";
     const harness = await atomicHarness(shipmentId);
-    const attemptStreamId = shipmentMutationAttemptStreamId({
+    const attemptStreamId = fulfillmentMutationAttemptStreamId({
       tenantId: "tnt_1",
       sellerAccountId: "acc_seller",
+      subjectKind: "shipment",
+      subjectId: shipmentId,
       key: attemptId,
     });
     const beforeCut: EventStore = {
@@ -224,7 +594,7 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     expect(await harness.eventStore.readStream({ streamId: attemptStreamId })).toHaveLength(1);
     await expect(executeAtomic(harness, { shipmentId, attemptId })).resolves.toMatchObject({
       replayed: true,
-      shipmentVersion: 2,
+      subjectVersion: 2,
     });
     expect(await harness.eventStore.readStream({ streamId: `fulfillment.shipment-${shipmentId}` })).toHaveLength(2);
     expect(await harness.eventStore.readStream({ streamId: attemptStreamId })).toHaveLength(1);
@@ -270,13 +640,15 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
         attemptId: "218f47d2-9d2a-4d68-8f33-6fb718c3f003",
         eventStore: zeroEventGuard,
       }),
-    ).resolves.toMatchObject({ resultClass: "unchanged", shipmentVersion: 3 });
+    ).resolves.toMatchObject({ resultClass: "unchanged", subjectVersion: 3 });
     expect(zeroEventConflict).toBe(true);
 
     const poisonedAttemptId = "318f47d2-9d2a-4d68-8f33-6fb718c3f004";
-    const poisonedAttemptStream = shipmentMutationAttemptStreamId({
+    const poisonedAttemptStream = fulfillmentMutationAttemptStreamId({
       tenantId: "tnt_1",
       sellerAccountId: "acc_seller",
+      subjectKind: "shipment",
+      subjectId: shipmentId,
       key: poisonedAttemptId,
     });
     let injectedAttemptRace = false;
@@ -326,7 +698,8 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
       findPostageOperationByDigest(pool, {
         tenantId: "tnt_1",
         sellerAccountId: "acc_seller",
-        shipmentId: "shp_7171_other",
+        subjectKind: "shipment",
+        subjectId: "shp_7171_other",
         keyDigest: "digest-addressed-shipment",
       }),
     ).resolves.toBeNull();
@@ -417,7 +790,8 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     await reservePostageOperation(pool, {
       tenantId: "tnt_2",
       sellerAccountId: "acc_seller_2",
-      shipmentId: "shp_7171_b",
+      subjectKind: "shipment",
+      subjectId: "shp_7171_b",
       keyDigest: "digest-tenant-b",
       requestHash: "request-tenant-b",
       targetKey: "purchase:shp_7171_b:tenant-b",
@@ -439,7 +813,13 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
     const locators = [...first, ...second];
 
     expect(new Set(locators.map((locator) => locator.tenantId))).toEqual(new Set(["tnt_1", "tnt_2"]));
-    expect(Object.keys(locators[0]!).sort()).toEqual(["operationId", "shipmentId", "tenantId", "updatedAt"]);
+    expect(Object.keys(locators[0]!).sort()).toEqual([
+      "operationId",
+      "subjectId",
+      "subjectKind",
+      "tenantId",
+      "updatedAt",
+    ]);
     expect(JSON.stringify(locators)).not.toContain("digest-tenant");
   });
 });

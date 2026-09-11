@@ -294,18 +294,19 @@ function createPostageOperationDb(shipmentRow = createPackedShipmentRow()) {
           operation = {
             operation_key: params?.[0],
             operation_kind: params?.[1],
-            shipment_id: params?.[2],
-            provider_name: params?.[3],
-            provider_mode: params?.[4],
-            idempotency_key: params?.[5],
-            request_json: JSON.parse(String(params?.[6] ?? "{}")),
+            subject_kind: params?.[2],
+            subject_id: params?.[3],
+            provider_name: params?.[4],
+            provider_mode: params?.[5],
+            idempotency_key: params?.[6],
+            request_json: JSON.parse(String(params?.[7] ?? "{}")),
             status: "pending",
             provider_shipment_id: null,
             provider_label_id: null,
             tracking_identifier: null,
             error_message: null,
-            created_at: params?.[7],
-            updated_at: params?.[7],
+            created_at: params?.[8],
+            updated_at: params?.[8],
             completed_at: null,
           };
           return { rows: [{ ...operation, operation_reserved: true }] };
@@ -642,6 +643,8 @@ describe("fulfillment shipment runtime", () => {
 
     expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledWith(
       expect.objectContaining({
+        subjectKind: "shipment",
+        subjectId: "shp_1",
         deliveryConfirmation: "signature",
         insuranceAmount: null,
         sender: expect.objectContaining({
@@ -667,7 +670,7 @@ describe("fulfillment shipment runtime", () => {
       String(sql).includes("INSERT INTO fulfillment_postage_label_operations"),
     );
     expect(providerOperationCall).toBeTruthy();
-    const operationRequest = String(providerOperationCall?.[1]?.[6]);
+    const operationRequest = String(providerOperationCall?.[1]?.[7]);
     expect(operationRequest).toContain('"postagePolicySnapshot"');
     expect(operationRequest).toContain('"signatureRequired":true');
     expect(operationRequest).toContain('"insuranceRequired":false');
@@ -912,7 +915,8 @@ describe("fulfillment shipment runtime", () => {
     await recordFulfillmentPostageLabelOperationPending(db as never, {
       operationKey: "shipment:shp_1:purchase-usps-label:initial",
       operationKind: "purchase-usps-label",
-      shipmentId: "shp_1",
+      subjectKind: "shipment",
+      subjectId: "shp_1",
       providerName: "sandbox-usps",
       providerMode: "test",
       idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
@@ -951,7 +955,8 @@ describe("fulfillment shipment runtime", () => {
     await recordFulfillmentPostageLabelOperationPending(db as never, {
       operationKey: "shipment:shp_1:void-label:2026-04-02T00:15:00.000Z",
       operationKind: "void-label",
-      shipmentId: "shp_1",
+      subjectKind: "shipment",
+      subjectId: "shp_1",
       providerName: "sandbox-usps",
       providerMode: "test",
       idempotencyKey: "shipment:shp_1:void-label:2026-04-02T00:15:00.000Z",
@@ -1957,6 +1962,8 @@ describe("fulfillment shipment runtime", () => {
                 tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "label-attached",
+                subject_kind: "shipment",
+                subject_id: "shp_1",
                 tracking_identifier: "940000000000000000",
                 postage_provider_shipment_id: "shp_provider_1",
               },
@@ -2110,6 +2117,8 @@ describe("fulfillment shipment runtime", () => {
                 seller_account_id: "acc_seller",
                 status: "awaiting-label",
                 label_status: "void-requested",
+                subject_kind: "shipment",
+                subject_id: "shp_1",
                 label_refund_status: "submitted",
                 label_voided_at: "2026-05-30T11:58:00.000Z",
                 tracking_identifier: "940000000000000000",
@@ -2237,6 +2246,8 @@ describe("fulfillment shipment runtime", () => {
                 seller_account_id: "acc_seller",
                 status: "awaiting-label",
                 label_status: "void-requested",
+                subject_kind: "shipment",
+                subject_id: "shp_1",
                 label_refund_status: "submitted",
                 label_voided_at: "2026-05-30T11:58:00.000Z",
                 tracking_identifier: "940000000000000000",
@@ -2354,6 +2365,8 @@ describe("fulfillment shipment runtime", () => {
                 seller_account_id: "acc_seller",
                 status: "label-attached",
                 label_status: "purchased",
+                subject_kind: "shipment",
+                subject_id: "shp_1",
                 label_refund_status: null,
                 label_voided_at: null,
                 tracking_identifier: "940000000000000001",
