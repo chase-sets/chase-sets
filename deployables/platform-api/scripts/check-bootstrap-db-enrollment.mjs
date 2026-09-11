@@ -156,7 +156,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "does not re-author Settlement while its payout projection lags the stream",
         referenceDurationMs: 77914,
-        identity: "4b8f47463aabf78e",
+        identity: "7be95cff42705d0f",
       }),
     ]),
   }),
@@ -172,7 +172,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
         referenceDurationMs: 73270,
-        identity: "0e58f51814a75504",
+        identity: "87329a93b32372be",
       }),
       Object.freeze({
         name: "enumerates stream-sourced seed-state coverage from the runtime mount list",

@@ -235,6 +235,26 @@ export const settlementPayoutSchemaMigrations: readonly BcSchemaMigration[] = [
        WHERE requested_amount = 0.00
          AND fee_amount = 0.00
          AND net_amount = 0.00`,
+      `CREATE OR REPLACE FUNCTION settlement_normalize_legacy_payout_amounts()
+       RETURNS trigger
+       LANGUAGE plpgsql
+       AS $$
+       BEGIN
+         IF NEW.requested_amount = 0.00
+            AND NEW.fee_amount = 0.00
+            AND NEW.net_amount = 0.00 THEN
+           NEW.requested_amount := NEW.amount;
+           NEW.net_amount := NEW.amount;
+         END IF;
+         RETURN NEW;
+       END
+       $$`,
+      `DROP TRIGGER IF EXISTS settlement_payout_pages_normalize_legacy_amounts
+       ON settlement_payout_pages`,
+      `CREATE TRIGGER settlement_payout_pages_normalize_legacy_amounts
+       BEFORE INSERT ON settlement_payout_pages
+       FOR EACH ROW
+       EXECUTE FUNCTION settlement_normalize_legacy_payout_amounts()`,
     ],
   },
 ];

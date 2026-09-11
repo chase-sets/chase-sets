@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   decidePayout,
   evolvePayout,
+  evolvePayoutMonth,
+  initialPayoutMonthState,
   initialPayoutState,
+  payoutMonthHasActivePayout,
   payoutMonthStreamId,
   payoutUtcMonthWindow,
+  planPayoutMonthFailure,
   type PayoutRequestedEvent,
 } from "./domain";
 
@@ -61,18 +65,31 @@ describe("settlement payout domain", () => {
       sentAt: "2026-04-02T01:00:00.000Z",
     });
     const inTransit = inTransitEvents.reduce(evolvePayout, requested);
+    const completedEvents = decidePayout(inTransit, {
+      type: "CompletePayout",
+      completedAt: "2026-04-02T02:00:00.000Z",
+    });
     const failedEvents = decidePayout(inTransit, {
       type: "FailPayout",
       failedAt: "2026-04-02T02:00:00.000Z",
     });
 
-    for (const event of [...requestedEvents, ...inTransitEvents, ...failedEvents]) {
+    for (const event of [...requestedEvents, ...inTransitEvents, ...completedEvents, ...failedEvents]) {
       expect(event.data).toMatchObject({
         requestedAmount: "25.00",
         feeAmount: "1.00",
         netAmount: "24.00",
       });
     }
+    expect(completedEvents[0]).toMatchObject({
+      type: "settlement.payout.completed",
+      data: {
+        amount: "25.00",
+        requestedAmount: "25.00",
+        feeAmount: "1.00",
+        netAmount: "24.00",
+      },
+    });
   });
 
   it("records provider references without changing payout status", () => {
@@ -189,5 +206,27 @@ describe("settlement payout domain", () => {
     expect(payoutMonthStreamId("acc_utc" as never, "2026-08-31T19:00:00.000-05:00")).toBe(
       "settlement.payout-month-acc_utc-2026-09",
     );
+  });
+
+  it("releases each retained active payout by identity", () => {
+    const firstFailure = planPayoutMonthFailure(initialPayoutMonthState, {
+      accountId: "acc_retained" as never,
+      payoutId: "pyo_retained_a" as never,
+      failedAt: "2026-09-11T01:00:00.000Z",
+      baselineActivePayoutIds: ["pyo_retained_a" as never, "pyo_retained_b" as never],
+    });
+    const afterFirstFailure = firstFailure.reduce(evolvePayoutMonth, initialPayoutMonthState);
+    expect(afterFirstFailure.activePayoutIds).toEqual(["pyo_retained_b"]);
+    expect(payoutMonthHasActivePayout(afterFirstFailure)).toBe(true);
+
+    const secondFailure = planPayoutMonthFailure(afterFirstFailure, {
+      accountId: "acc_retained" as never,
+      payoutId: "pyo_retained_b" as never,
+      failedAt: "2026-09-11T02:00:00.000Z",
+      baselineActivePayoutIds: [],
+    });
+    const afterBothFailures = secondFailure.reduce(evolvePayoutMonth, afterFirstFailure);
+    expect(afterBothFailures.activePayoutIds).toEqual([]);
+    expect(payoutMonthHasActivePayout(afterBothFailures)).toBe(false);
   });
 });

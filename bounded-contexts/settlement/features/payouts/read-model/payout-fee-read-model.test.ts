@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildPayoutProjectionHandlers } from "./projection";
-import { countActivePayoutsInUtcMonth, listPayouts } from "./queries";
+import { listPayouts } from "./queries";
 import { settlementPayoutSchemaMigrations, settlementPayoutSchemaSql } from "./schema";
 
 describe("payout-fee-reader-inventory read model", () => {
@@ -70,38 +70,21 @@ describe("payout-fee-reader-inventory read model", () => {
     ]);
   });
 
-  it("selects all three amounts for list readers and counts only active UTC-month payouts", async () => {
+  it("selects all three amounts for list readers", async () => {
     const queries: string[] = [];
     const db = {
       query: vi.fn(async (sql: string, _values?: readonly unknown[]) => {
         queries.push(sql);
         if (sql.includes("COUNT(*) AS count")) return { rows: [{ count: "0" }], rowCount: 1 };
-        if (sql.includes("COUNT(*)::text AS count")) return { rows: [{ count: "2" }], rowCount: 1 };
         return { rows: [], rowCount: 0 };
       }),
     };
 
     await listPayouts(db as never, { accountId: "acc_reader" });
-    await expect(
-      countActivePayoutsInUtcMonth(db as never, {
-        accountId: "acc_reader",
-        at: "2026-09-01T00:00:00.000Z",
-        excludePayoutId: "pyo_failed",
-      }),
-    ).resolves.toBe(2);
 
     expect(queries.join("\n")).toContain("requested_amount::text AS requested_amount");
     expect(queries.join("\n")).toContain("fee_amount::text AS fee_amount");
     expect(queries.join("\n")).toContain("net_amount::text AS net_amount");
-    expect(queries.join("\n")).toContain("requested.event_type = 'settlement.payout.requested'");
-    expect(queries.join("\n")).toContain("failed.event_type = 'settlement.payout.failed'");
-    const monthQuery = db.query.mock.calls.find(([sql]) => sql.includes("COUNT(*)::text AS count"));
-    expect(monthQuery?.[1]).toEqual([
-      "acc_reader",
-      "2026-09-01T00:00:00.000Z",
-      "2026-10-01T00:00:00.000Z",
-      "pyo_failed",
-    ]);
   });
 
   it("owns an additive schema and ledgered historical backfill", () => {
@@ -117,5 +100,6 @@ describe("payout-fee-reader-inventory read model", () => {
     expect(migration?.statements.join("\n")).toContain("SET requested_amount = amount");
     expect(migration?.statements.join("\n")).toContain("fee_amount = 0.00");
     expect(migration?.statements.join("\n")).toContain("net_amount = amount");
+    expect(migration?.statements.join("\n")).toContain("settlement_payout_pages_normalize_legacy_amounts");
   });
 });

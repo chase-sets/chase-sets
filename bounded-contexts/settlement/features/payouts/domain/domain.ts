@@ -162,7 +162,7 @@ export type PayoutCompletedEvent = DomainEvent<
     payoutId: PayoutId;
     accountId: AccountId;
     providerStatus: string | null;
-    /** Net amount delivered to the connected payout account. */
+    /** Historical compatibility alias for the requested amount. */
     amount: string;
     requestedAmount: string;
     feeAmount: string;
@@ -308,7 +308,7 @@ export const decidePayout: AggregateDecider<PayoutState, PayoutCommand, PayoutEv
             payoutId: state.payoutId,
             accountId: state.accountId,
             providerStatus: normalizeOptionalText(command.providerStatus),
-            amount: state.netAmount,
+            amount: state.requestedAmount,
             requestedAmount: state.requestedAmount,
             feeAmount: state.feeAmount,
             netAmount: state.netAmount,
@@ -419,20 +419,18 @@ export const evolvePayout: AggregateEvolver<PayoutState, PayoutEvent> = (state, 
 
 export type PayoutMonthState = Readonly<{
   initialized: boolean;
-  legacyActivePayoutCount: number;
   activePayoutIds: readonly PayoutId[];
 }>;
 
 export const initialPayoutMonthState: PayoutMonthState = {
   initialized: false,
-  legacyActivePayoutCount: 0,
   activePayoutIds: [],
 };
 
 export type PayoutMonthEvent =
   | DomainEvent<
       "settlement.payout.monthly-baseline-recorded",
-      Readonly<{ accountId: AccountId; legacyActivePayoutCount: number; recordedAt: string }>
+      Readonly<{ accountId: AccountId; activePayoutIds: readonly PayoutId[]; recordedAt: string }>
     >
   | DomainEvent<
       "settlement.payout.monthly-request-counted",
@@ -451,7 +449,7 @@ export const evolvePayoutMonth: AggregateEvolver<PayoutMonthState, PayoutMonthEv
         : {
             ...state,
             initialized: true,
-            legacyActivePayoutCount: event.data.legacyActivePayoutCount,
+            activePayoutIds: [...new Set(event.data.activePayoutIds)],
           };
     case "settlement.payout.monthly-request-counted":
       return state.activePayoutIds.includes(event.data.payoutId)
@@ -468,7 +466,7 @@ export const evolvePayoutMonth: AggregateEvolver<PayoutMonthState, PayoutMonthEv
 };
 
 export function payoutMonthHasActivePayout(state: PayoutMonthState) {
-  return state.legacyActivePayoutCount > 0 || state.activePayoutIds.length > 0;
+  return state.activePayoutIds.length > 0;
 }
 
 export function planPayoutMonthRequest(
@@ -477,13 +475,9 @@ export function planPayoutMonthRequest(
     accountId: AccountId;
     payoutId: PayoutId;
     requestedAt: string;
-    legacyActivePayoutCount: number;
+    baselineActivePayoutIds: readonly PayoutId[];
   }>,
 ) {
-  assert(
-    Number.isSafeInteger(input.legacyActivePayoutCount) && input.legacyActivePayoutCount >= 0,
-    "Payout month baseline count must be a non-negative integer.",
-  );
   const events: PayoutMonthEvent[] = [];
   let effectiveState = state;
   if (!state.initialized) {
@@ -491,7 +485,7 @@ export function planPayoutMonthRequest(
       type: "settlement.payout.monthly-baseline-recorded",
       data: {
         accountId: input.accountId,
-        legacyActivePayoutCount: input.legacyActivePayoutCount,
+        activePayoutIds: [...new Set(input.baselineActivePayoutIds)],
         recordedAt: ensureIsoTimestamp(input.requestedAt, "Payout month baseline must include a timestamp."),
       },
     };
@@ -519,21 +513,24 @@ export function planPayoutMonthFailure(
     accountId: AccountId;
     payoutId: PayoutId;
     failedAt: string;
-    legacyActivePayoutCount: number;
+    baselineActivePayoutIds: readonly PayoutId[];
   }>,
 ) {
   const events: PayoutMonthEvent[] = [];
+  let effectiveState = state;
   if (!state.initialized) {
-    events.push({
+    const baselineEvent: PayoutMonthEvent = {
       type: "settlement.payout.monthly-baseline-recorded",
       data: {
         accountId: input.accountId,
-        legacyActivePayoutCount: Math.max(0, input.legacyActivePayoutCount),
+        activePayoutIds: [...new Set(input.baselineActivePayoutIds)],
         recordedAt: ensureIsoTimestamp(input.failedAt, "Payout month baseline must include a timestamp."),
       },
-    });
+    };
+    events.push(baselineEvent);
+    effectiveState = evolvePayoutMonth(effectiveState, baselineEvent);
   }
-  if (state.activePayoutIds.includes(input.payoutId)) {
+  if (effectiveState.activePayoutIds.includes(input.payoutId)) {
     events.push({
       type: "settlement.payout.monthly-request-released",
       data: {

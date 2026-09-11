@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import type { SettlementServices } from "@chase-sets/settlement/server";
 import { createPlatformApiBootstrapTestHarness } from "./bootstrap-db-test-support";
 import {
   allContextEventCounts,
@@ -36,6 +40,8 @@ import {
   seedStateExemptions,
   settlementSeedPendingSaleCreditId,
   settlementSeedSellerAccountId,
+  settlementSeedSyntheticFeeCompletedPayoutId,
+  settlementSeedSyntheticFeeFailedPayoutId,
   summarizeStates,
   supportRequestServices,
   supportRequestStreamEventTypes,
@@ -70,10 +76,10 @@ describe("authoritative seed resume", () => {
     expect(frozenSeedIdentityCorpus, "the pinned corpus literal must be in canonical sorted order").toEqual(
       [...frozenSeedIdentityCorpus].sort(),
     );
-    expect(frozenSeedIdentityCorpus, "the frozen corpus cardinality must remain exact").toHaveLength(288);
+    expect(frozenSeedIdentityCorpus, "the frozen corpus cardinality must remain exact").toHaveLength(293);
 
     const runtime = createHost();
-    await ordinaryBoot(runtime);
+    await exerciseRetainedBasePayoutFeeCompatibility(runtime);
 
     const inspecting = eligibleScenarioSeedContexts(runtime).filter((context) => context.inspects);
     expect(inspecting.map((context) => context.contextName).sort()).toEqual([...frozenInspectingSeedContexts]);
@@ -343,7 +349,7 @@ describe("authoritative seed resume", () => {
       indeterminateReport.report.eventCount,
     );
     const defaultArmViolations = corpusViolations(defaultArmMutant);
-    expect(defaultArmViolations).toContain("corpus cardinality 289 does not equal the pinned 288");
+    expect(defaultArmViolations).toContain("corpus cardinality 294 does not equal the pinned 293");
     expect(mountBindingViolations(defaultArmMutant), "the default-arm mutant must stay green on mount binding").toEqual(
       [],
     );
@@ -646,6 +652,205 @@ describe("authoritative seed resume", () => {
       .map((module) => module.contextName);
     expect(omitted).toEqual(["inventory"]);
   });
+
+  async function exerciseRetainedBasePayoutFeeCompatibility(runtime: ReturnType<typeof createHost>) {
+    const settlementMount = runtime.mountedContexts.find((entry) => entry.contextName === "settlement")!;
+    await bootstrapContextDatabase(settlementMount.module, pools.settlement);
+    const eventStore = createPostgresEventStore({ pool: pools.settlement });
+    const wallets = (settlementMount.services as SettlementServices).wallets;
+    await wallets.ensureWallet(
+      {
+        accountId: settlementSeedSellerAccountId as never,
+        currencyCode: "usd",
+        openedAt: "2026-03-24T07:00:00.000Z",
+      },
+      seedActorContext,
+    );
+    await wallets.postEntry(
+      {
+        accountId: settlementSeedSellerAccountId as never,
+        ledgerEntryId: "led_synthetic_retained_base_credit" as never,
+        kind: "adjustment",
+        direction: "credit",
+        amount: "200.00",
+        currencyCode: "usd",
+        fundsStatus: "available",
+        description: "Synthetic retained-base fixture credit",
+        postedAt: "2026-03-24T07:01:00.000Z",
+      },
+      seedActorContext,
+    );
+    for (const entry of [
+      {
+        ledgerEntryId: "led_seed_payout_debit_completed",
+        payoutId: "pyo_seed_completed",
+        kind: "payout" as const,
+        direction: "debit" as const,
+        amount: "50.00",
+        postedAt: "2026-03-24T10:00:00.000Z",
+      },
+      {
+        ledgerEntryId: "led_seed_payout_debit_failed",
+        payoutId: "pyo_seed_failed",
+        kind: "payout" as const,
+        direction: "debit" as const,
+        amount: "20.00",
+        postedAt: "2026-03-24T11:00:00.000Z",
+      },
+      {
+        ledgerEntryId: "led_seed_payout_reversal_failed",
+        payoutId: "pyo_seed_failed",
+        kind: "payout-reversal" as const,
+        direction: "credit" as const,
+        amount: "20.00",
+        postedAt: "2026-03-24T11:10:00.000Z",
+      },
+    ]) {
+      await wallets.postEntry(
+        {
+          accountId: settlementSeedSellerAccountId as never,
+          ledgerEntryId: entry.ledgerEntryId as never,
+          kind: entry.kind,
+          direction: entry.direction,
+          amount: entry.amount,
+          currencyCode: "usd",
+          fundsStatus: "available",
+          payoutId: entry.payoutId as never,
+          description: "Retained base payout fixture",
+          postedAt: entry.postedAt,
+        },
+        seedActorContext,
+      );
+    }
+    await eventStore.appendToStream({
+      streamId: "settlement.payout-pyo_seed_completed",
+      expectedVersion: "no_stream",
+      context: seedActorContext,
+      events: [
+        {
+          eventType: "settlement.payout.requested",
+          payload: {
+            payoutId: "pyo_seed_completed",
+            accountId: settlementSeedSellerAccountId,
+            amount: "50.00",
+            currencyCode: "usd",
+            destinationReference: "bank_seed_completed",
+            note: "Completed payout seed",
+            notificationEmail: "demo@chasesets.test",
+            requestedAt: "2026-03-24T10:00:00.000Z",
+          },
+        },
+        {
+          eventType: "settlement.payout.in-transit-recorded",
+          payload: { payoutId: "pyo_seed_completed", sentAt: "2026-03-24T10:05:00.000Z" },
+        },
+        {
+          eventType: "settlement.payout.completed",
+          payload: {
+            payoutId: "pyo_seed_completed",
+            accountId: settlementSeedSellerAccountId,
+            amount: "50.00",
+            completedAt: "2026-03-24T10:15:00.000Z",
+          },
+        },
+      ],
+    });
+    await eventStore.appendToStream({
+      streamId: "settlement.payout-pyo_seed_failed",
+      expectedVersion: "no_stream",
+      context: seedActorContext,
+      events: [
+        {
+          eventType: "settlement.payout.requested",
+          payload: {
+            payoutId: "pyo_seed_failed",
+            accountId: settlementSeedSellerAccountId,
+            amount: "20.00",
+            currencyCode: "usd",
+            destinationReference: "bank_seed_failed",
+            note: "Failed payout seed",
+            notificationEmail: null,
+            requestedAt: "2026-03-24T11:00:00.000Z",
+          },
+        },
+        {
+          eventType: "settlement.payout.failed",
+          payload: {
+            payoutId: "pyo_seed_failed",
+            failureReason: "Bank account temporarily unavailable",
+            failedAt: "2026-03-24T11:10:00.000Z",
+          },
+        },
+      ],
+    });
+
+    await ordinaryBoot(runtime);
+    const walletEvents = await readCompleteStream(eventStore, {
+      streamId: `settlement.wallet-${settlementSeedSellerAccountId}`,
+    });
+    const payoutEntries = walletEvents
+      .filter((event) => event.eventType === "settlement.wallet.ledger-entry-posted")
+      .map((event) => event.payload as { ledgerEntryId: string; payoutId?: string; amount: string; direction: string })
+      .filter((entry) => entry.payoutId);
+    expect(payoutEntries.filter((entry) => entry.payoutId === "pyo_seed_completed")).toEqual([
+      expect.objectContaining({ ledgerEntryId: "led_seed_payout_debit_completed", amount: "50.00" }),
+    ]);
+    expect(payoutEntries.filter((entry) => entry.payoutId === "pyo_seed_failed")).toEqual([
+      expect.objectContaining({ ledgerEntryId: "led_seed_payout_debit_failed", amount: "20.00" }),
+      expect.objectContaining({ ledgerEntryId: "led_seed_payout_reversal_failed", amount: "20.00" }),
+    ]);
+    const legacyPayoutRows = await pools.settlement.query<
+      Readonly<{ payout_id: string; requested_amount: string; fee_amount: string; net_amount: string }>
+    >(
+      `SELECT payout_id, requested_amount::text, fee_amount::text, net_amount::text
+       FROM settlement_payout_pages
+       WHERE payout_id = ANY($1::text[])
+       ORDER BY payout_id ASC`,
+      [["pyo_seed_completed", "pyo_seed_failed"]],
+    );
+    expect(legacyPayoutRows.rows).toEqual([
+      { payout_id: "pyo_seed_completed", requested_amount: "50.00", fee_amount: "0.00", net_amount: "50.00" },
+      { payout_id: "pyo_seed_failed", requested_amount: "20.00", fee_amount: "0.00", net_amount: "20.00" },
+    ]);
+
+    const syntheticRequested = await pools.settlement.query<
+      Readonly<{ payout_id: string; requested_amount: string; fee_amount: string; net_amount: string }>
+    >(
+      `SELECT payload ->> 'payoutId' AS payout_id,
+              payload ->> 'requestedAmount' AS requested_amount,
+              payload ->> 'feeAmount' AS fee_amount,
+              payload ->> 'netAmount' AS net_amount
+       FROM event_store_events
+       WHERE event_type = 'settlement.payout.requested'
+         AND payload ->> 'payoutId' = ANY($1::text[])
+       ORDER BY payout_id ASC`,
+      [[settlementSeedSyntheticFeeCompletedPayoutId, settlementSeedSyntheticFeeFailedPayoutId]],
+    );
+    expect(syntheticRequested.rows).toHaveLength(2);
+    for (const row of syntheticRequested.rows) {
+      const cents = (amount: string) => Math.round(Number(amount) * 100);
+      expect(cents(row.net_amount) + cents(row.fee_amount)).toBe(cents(row.requested_amount));
+      expect(Number(row.fee_amount)).toBeGreaterThan(0);
+      expect(
+        payoutEntries.filter((entry) => entry.payoutId === row.payout_id && entry.direction === "debit"),
+      ).toHaveLength(2);
+    }
+    const syntheticFailedEntries = payoutEntries.filter(
+      (entry) => entry.payoutId === settlementSeedSyntheticFeeFailedPayoutId,
+    );
+    expect(syntheticFailedEntries.filter((entry) => entry.direction === "credit")).toHaveLength(2);
+    expect(
+      syntheticFailedEntries.reduce(
+        (total, entry) => total + (entry.direction === "debit" ? -1 : 1) * Math.round(Number(entry.amount) * 100),
+        0,
+      ),
+    ).toBe(0);
+
+    const beforeSecondBoot = await contextEventCount("settlement");
+    await bootstrapContextDatabase(settlementMount.module, pools.settlement);
+    await settlementMount.module.seed!(settlementMount.pool, settlementMount.services, seedOptions);
+    expect(await contextEventCount("settlement")).toBe(beforeSecondBoot);
+  }
 
   it("resumes every converted context after its UNLOGGED guard projections are truncated", async () => {
     await expectZeroRelationCaseEntry("UNLOGGED truncation resume");

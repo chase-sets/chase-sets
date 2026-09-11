@@ -189,4 +189,4 @@ Notes:
 
 ## Payout Fee Ledger Entry
 
-A **Payout Fee Ledger Entry** is the deterministic `fee` debit that records the Payout Fee separately from the net `payout` debit. If payout execution fails, Settlement reverses each debit independently and exactly once using its own deterministic reversal identity.
+A **Payout Fee Ledger Entry** is the deterministic `fee` debit that records a non-zero Payout Fee separately from the net `payout` debit. If payout execution fails, Settlement reverses each debit independently and exactly once using its own deterministic reversal identity. A zero Payout Fee creates no fee debit or fee reversal.

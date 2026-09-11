@@ -174,6 +174,134 @@ describeDb("payout-fee-concurrency real Postgres wallet interleaving", () => {
     }
   });
 
+  it("releases two retained active payout identities before quoting the next request as first", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-11T02:00:00.000Z"));
+      const eventStore = createPostgresEventStore({ pool });
+      const payouts = createPayoutRuntime({
+        eventStore,
+        checkpointStore: { loadCheckpoint: async () => "0" as never, saveCheckpoint: async () => undefined },
+        db: pool,
+        wallets: {
+          getWallet: async () => ({
+            account_id: "acc_payout_fee_concurrency",
+            currency_code: "usd",
+            pending_balance_amount: "0.00",
+            available_balance_amount: "100.00",
+            total_credited_amount: "100.00",
+            total_debited_amount: "0.00",
+            negative_balance_status: "in-good-standing" as const,
+            negative_balance_started_at: null,
+            collections_escalated_at: null,
+            opened_at: "2026-09-01T00:00:00.000Z",
+            updated_at: "2026-09-11T02:00:00.000Z",
+          }),
+          postEntry: async (entry: Parameters<WalletServices["postEntry"]>[0]) => ({
+            ledgerEntryId: entry.ledgerEntryId,
+            version: 1,
+          }),
+          listNegativeBalanceAccounts: async () => ({ items: [], total: 0 }),
+        } as unknown as WalletServices,
+        payoutReadiness: {
+          getPayoutReadiness: async () => ({
+            account_id: "acc_payout_fee_concurrency",
+            status: "ready" as const,
+            missing_requirements: [],
+            advisory_requirements: [],
+            disabled_reason: null,
+            requirements_deadline: null,
+            provider_reference: "acct_synthetic_retained_payouts",
+            contact_email: null,
+            onboarding_status: "complete",
+            transfer_capability_status: "active",
+            payout_capability_status: "active",
+            payout_destination_status: "ready",
+            payout_destination_fingerprint: null,
+            payout_destination_changed_at: null,
+            payout_account_dashboard: "none" as const,
+            losses_collector: "application" as const,
+            fees_collector: "application" as const,
+            requirements_collector: "application" as const,
+            updated_at: "2026-09-11T02:00:00.000Z",
+          }),
+        } as unknown as PayoutReadinessServices,
+        moneyMovementGateway: createFakeMoneyMovementGateway(),
+        policies: {
+          resolvePolicy: async (definition: { policyKey: string }, input?: { at?: string }) => ({
+            policyKey: definition.policyKey,
+            value:
+              definition.policyKey === "settlement.payout-fee"
+                ? {
+                    label: "Synthetic retained-payout fee",
+                    percentageBps: 0,
+                    fixedAmount: "1.00",
+                    firstPayoutOfMonthFixedAmount: "2.00",
+                  }
+                : { currencyCode: "usd", minimumAmount: "5.00", maximumAmount: "10000.00" },
+            source: "policy" as const,
+            documentId: "pol_synthetic_retained_payouts",
+            resolvedAt: input?.at ?? new Date().toISOString(),
+          }),
+        } as never,
+      });
+      for (const payoutId of ["pyo_retained_a", "pyo_retained_b"] as const) {
+        await eventStore.appendToStream({
+          streamId: `settlement.payout-${payoutId}`,
+          expectedVersion: "no_stream",
+          context,
+          events: [
+            {
+              eventType: "settlement.payout.requested",
+              payload: {
+                payoutId,
+                accountId: "acc_payout_fee_concurrency",
+                amount: "10.00",
+                currencyCode: "usd",
+                destinationReference: null,
+                note: null,
+                notificationEmail: null,
+                requestedAt: "2026-09-11T00:00:00.000Z",
+              },
+            },
+          ],
+        });
+      }
+
+      for (const payoutId of ["pyo_retained_a", "pyo_retained_b"] as const) {
+        await payouts.failPayout(
+          {
+            payoutId,
+            accountId: "acc_payout_fee_concurrency",
+            netAmount: "10.00",
+            feeAmount: "0.00",
+            currencyCode: "usd",
+            failedAt: `2026-09-11T0${payoutId.endsWith("a") ? "1" : "2"}:00:00.000Z`,
+          },
+          context,
+        );
+      }
+
+      await expect(
+        payouts.previewPayoutRequest({ accountId: "acc_payout_fee_concurrency" as never, amount: "10.00" }, context),
+      ).resolves.toMatchObject({ fee_amount: "3.00", net_amount: "7.00", is_first_payout_of_month: true });
+      await expect(
+        payouts.requestPayout({ accountId: "acc_payout_fee_concurrency" as never, amount: "10.00" }, context),
+      ).resolves.toMatchObject({ payout: { fee_amount: "3.00", net_amount: "7.00" } });
+
+      const baselineEvents = await pool.query<Readonly<{ payload: { activePayoutIds?: readonly string[] } }>>(
+        `SELECT payload
+         FROM event_store_events
+         WHERE event_type = 'settlement.payout.monthly-baseline-recorded'`,
+      );
+      expect(baselineEvents.rows).toEqual([
+        { payload: expect.objectContaining({ activePayoutIds: ["pyo_retained_a", "pyo_retained_b"] }) },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("allows only one of two concurrent requested totals beyond the available balance", async () => {
     const eventStore = createPostgresEventStore({ pool });
     const realWallets = createWalletRuntime({

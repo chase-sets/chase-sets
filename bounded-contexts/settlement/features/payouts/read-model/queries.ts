@@ -340,28 +340,29 @@ export async function getAccountPayoutRiskSummary(
   };
 }
 
-export async function countActivePayoutsInUtcMonth(
+export async function listActivePayoutIdsInUtcMonth(
   db: PgQueryable,
-  params: Readonly<{ accountId: string; at: string; excludePayoutId?: string | null }>,
-): Promise<number> {
+  params: Readonly<{ accountId: string; at: string }>,
+): Promise<readonly string[]> {
   const month = payoutUtcMonthWindow(params.at);
-  const result = await db.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count
+  const result = await db.query<{ payout_id: string }>(
+    `SELECT requested.payload ->> 'payoutId' AS payout_id
      FROM event_store_events requested
      WHERE requested.event_type = 'settlement.payout.requested'
        AND requested.payload ->> 'accountId' = $1
        AND (requested.payload ->> 'requestedAt')::timestamptz >= $2::timestamptz
        AND (requested.payload ->> 'requestedAt')::timestamptz < $3::timestamptz
-       AND ($4::text IS NULL OR requested.payload ->> 'payoutId' <> $4)
+       AND requested.payload ->> 'payoutId' IS NOT NULL
        AND NOT EXISTS (
          SELECT 1
          FROM event_store_events failed
          WHERE failed.stream_id = requested.stream_id
            AND failed.event_type = 'settlement.payout.failed'
-       )`,
-    [params.accountId, month.startsAt, month.endsAt, params.excludePayoutId ?? null],
+       )
+     ORDER BY payout_id ASC`,
+    [params.accountId, month.startsAt, month.endsAt],
   );
-  return Number(result.rows[0]?.count ?? 0);
+  return result.rows.map((row) => row.payout_id);
 }
 
 export async function recordSettlementProviderIdempotencyKey(
@@ -466,6 +467,30 @@ export async function reservePayoutRequestIdempotency(
     throw new Error("Payout request idempotency reservation returned no row.");
   }
   return row;
+}
+
+/**
+ * Release only the reservation this request inserted, and only while its payout
+ * stream is provably absent. Post-append ambiguity therefore keeps the key.
+ */
+export async function releaseUncommittedPayoutRequestIdempotency(
+  db: PgQueryable,
+  entry: Readonly<{ accountId: string; idempotencyKey: string; payoutId: string }>,
+): Promise<boolean> {
+  const result = await db.query<{ payout_id: string }>(
+    `DELETE FROM settlement_payout_request_idempotency reservation
+     WHERE reservation.account_id = $1
+       AND reservation.idempotency_key = $2
+       AND reservation.payout_id = $3
+       AND NOT EXISTS (
+         SELECT 1
+         FROM event_store_events appended
+         WHERE appended.stream_id = $4
+       )
+     RETURNING reservation.payout_id`,
+    [entry.accountId, entry.idempotencyKey, entry.payoutId, `settlement.payout-${entry.payoutId}`],
+  );
+  return result.rows[0]?.payout_id === entry.payoutId;
 }
 
 export async function recordSettlementProviderOperationPending(
