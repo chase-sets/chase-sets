@@ -296,11 +296,19 @@ export function selectAffectedRefundFact(
   if (capEntries.length > 1) anomalies.add("duplicate-refund-cap-entry");
   if (capEntries.length === 0) anomalies.add("missing-refund-cap-entry");
 
-  const amountCents =
-    amountEntries.length === 1 ? canonicalCents((amountEntries[0] as CapturePayoutFact).amount) : null;
-  const capCents = capEntries.length === 1 ? canonicalCents((capEntries[0] as CapturePayoutFact).amount) : null;
-  if (amountEntries.length === 1 && amountCents === null) anomalies.add("canonical-money-invalid");
-  if (capEntries.length === 1 && capCents === null) anomalies.add("canonical-money-invalid");
+  const classifyAmount = (entries: readonly Readonly<Record<string, unknown>>[]): bigint | null => {
+    if (entries.length !== 1) return null;
+    const amount = entries[0]?.amount;
+    if (!isNonEmptyString(amount)) {
+      anomalies.add("source-field-missing");
+      return null;
+    }
+    const cents = canonicalCents(amount);
+    if (cents === null) anomalies.add("canonical-money-invalid");
+    return cents;
+  };
+  const amountCents = classifyAmount(amountEntries);
+  const capCents = classifyAmount(capEntries);
 
   const sorted = sortedUnique(anomalies, REFUND_ANOMALY_ORDER);
   return sorted.length > 0
@@ -429,13 +437,15 @@ export function admitSaleMoney(
  */
 export function deriveCaptureAnomalies(
   atomic: readonly CaptureAnomaly[],
-  authoritativeSellerAccountId: string | null,
+  authoritativeSellerAccountId: string | null | undefined,
   payoutSellerAccountId: string | null,
   orderSideAnomalies: readonly CaptureAnomaly[],
 ): CaptureAnomaly[] {
   const anomalies = new Set<CaptureAnomaly>([...atomic, ...orderSideAnomalies]);
-  if (
-    authoritativeSellerAccountId !== null &&
+  if (authoritativeSellerAccountId === null) {
+    anomalies.add("source-field-missing");
+  } else if (
+    authoritativeSellerAccountId !== undefined &&
     payoutSellerAccountId !== null &&
     authoritativeSellerAccountId !== payoutSellerAccountId
   ) {
@@ -488,6 +498,7 @@ type OrderFactRow = Readonly<{
   cancelled_at: Date | null;
   lifecycle_state: OrderFactLifecycleState;
   revision: string;
+  changed_at: Date;
 }>;
 
 type SaleRow = Readonly<{
@@ -515,6 +526,7 @@ type SaleRow = Readonly<{
   payment_refunded_source_version: string | null;
   revision: string;
   recorded_at: Date | null;
+  changed_at: Date;
 }>;
 
 /** The capture-side source facts a sale row retains so either arrival order can complete it. */
@@ -559,6 +571,13 @@ function isStaleGroupVersion(storedVersion: string | null, observedVersion: numb
 
 function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+function requireProjectionIdentity(eventType: string, field: string, value: unknown): string {
+  if (isNonEmptyString(value)) return value;
+  const error = new Error(`Seller compliance projection rejected ${eventType}: required ${field} is missing.`);
+  error.name = "SellerComplianceProjectionIdentityError";
+  throw error;
 }
 
 function payoutFromRow(row: SaleRow): CapturePayoutFact | null {
@@ -641,6 +660,35 @@ async function readCaptureMembership(db: PgQueryable, paymentId: string): Promis
   return result.rows.length === 0 ? null : result.rows.map((row) => row.order_id);
 }
 
+async function readRetainedCaptureSourceVersion(db: PgQueryable, paymentId: string): Promise<number | null> {
+  const result = await db.query<{ source_version: string | null }>(
+    `SELECT MAX(payment_captured_source_version) AS source_version
+     FROM platform_operations_seller_compliance_sales
+     WHERE payment_id = $1`,
+    [paymentId],
+  );
+  return toNumberOrNull(result.rows[0]?.source_version ?? null);
+}
+
+async function readRefundObservedOrderIds(db: PgQueryable, paymentId: string): Promise<string[]> {
+  const result = await db.query<{ order_id: string }>(
+    `SELECT order_id FROM platform_operations_seller_compliance_sales
+     WHERE payment_id = $1 AND payment_refunded_source_version IS NOT NULL
+     ORDER BY order_id ASC`,
+    [paymentId],
+  );
+  return result.rows.map((row) => row.order_id);
+}
+
+function invalidateRefundMembership(refund: RetainedRefundFacts): RetainedRefundFacts {
+  return {
+    ...refund,
+    refundedOrderTotalCents: null,
+    orderRefundCapCents: null,
+    anomalies: sortedUnique([...refund.anomalies, "refund-order-membership-invalid"], REFUND_ANOMALY_ORDER),
+  };
+}
+
 type MaterializedSale = Readonly<{
   sellerAccountId: string | null;
   saleState: SaleState;
@@ -656,6 +704,7 @@ type MaterializedSale = Readonly<{
   cancelledAt: string | null;
   orderCreatedSourceVersion: number | null;
   orderCancelledSourceVersion: number | null;
+  orderFactChangedAt: string | null;
 }>;
 
 function materializeSale(
@@ -670,7 +719,7 @@ function materializeSale(
   const captureAnomalies = hasCapture
     ? deriveCaptureAnomalies(
         capture.atomicAnomalies,
-        hasOrder ? (orderFact?.seller_account_id ?? null) : null,
+        hasOrder ? (orderFact?.seller_account_id ?? null) : undefined,
         capture.payoutSellerAccountId,
         admission?.orderSideAnomalies ?? [],
       )
@@ -702,6 +751,7 @@ function materializeSale(
     cancelledAt: hasOrder ? toIsoOrNull(orderFact?.cancelled_at ?? null) : null,
     orderCreatedSourceVersion: hasOrder ? toNumberOrNull(orderFact?.order_created_source_version ?? null) : null,
     orderCancelledSourceVersion: hasOrder ? toNumberOrNull(orderFact?.order_cancelled_source_version ?? null) : null,
+    orderFactChangedAt: orderFact === null ? null : orderFact.changed_at.toISOString(),
   };
 }
 
@@ -773,6 +823,16 @@ function stableJson(value: unknown): string {
   return JSON.stringify(canonical(value));
 }
 
+function latestObservationInstant(...values: readonly (string | Date | null)[]): string {
+  const instants = values
+    .filter((value): value is string | Date => value !== null)
+    .map((value) => (value instanceof Date ? value.getTime() : new Date(value).getTime()));
+  if (instants.some((instant) => !Number.isFinite(instant))) {
+    throw new Error("Seller compliance sale observation time must be a valid instant.");
+  }
+  return new Date(Math.max(...instants)).toISOString();
+}
+
 async function writeSaleRow(
   db: PgQueryable,
   paymentId: string,
@@ -781,6 +841,11 @@ async function writeSaleRow(
   sale: MaterializedSale,
   eventRecordedAt: string,
 ): Promise<void> {
+  const observationAt = latestObservationInstant(
+    eventRecordedAt,
+    existing?.changed_at ?? null,
+    sale.orderFactChangedAt,
+  );
   const money = sale.money;
   const values = [
     paymentId,
@@ -854,7 +919,7 @@ async function writeSaleRow(
          $32::jsonb, $33::jsonb, $34::jsonb, $35::jsonb, $36::jsonb, $37, $38, $39, $40, $41, $42,
          1, nextval('platform_operations_seller_compliance_sales_change_seq'), $44, $43
        )`,
-      [...values, eventRecordedAt, completed ? eventRecordedAt : null],
+      [...values, observationAt, completed ? observationAt : null],
     );
     return;
   }
@@ -889,7 +954,7 @@ async function writeSaleRow(
        recorded_at = COALESCE(platform_operations_seller_compliance_sales.recorded_at, $44),
        changed_at = CASE WHEN $45 THEN $43 ELSE platform_operations_seller_compliance_sales.changed_at END
      WHERE payment_id = $1 AND order_id = $2 AND revision = $46`,
-    [...values, eventRecordedAt, completed ? eventRecordedAt : null, material, existing.revision],
+    [...values, observationAt, completed ? observationAt : null, material, existing.revision],
   );
   if (result.rowCount === 0) {
     throw new Error(
@@ -1110,7 +1175,7 @@ async function writeOrderFact(
        order_created_source_version = $14, order_cancelled_source_version = $15,
        cancelled_at = $16, lifecycle_state = $17,
        revision = platform_operations_seller_compliance_order_facts.revision + 1,
-       changed_at = $18
+       changed_at = GREATEST(platform_operations_seller_compliance_order_facts.changed_at, $18)
      WHERE order_id = $1 AND revision = $19`,
     [...values, eventRecordedAt, existing.revision],
   );
@@ -1131,8 +1196,7 @@ export function buildOrderingSellerComplianceSalesProjectionHandlers(db: PgQuery
     "ordering.order.created": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as Readonly<Record<string, unknown>>;
-      const orderId = String(data.orderId ?? "");
-      if (orderId.length === 0) return;
+      const orderId = requireProjectionIdentity("ordering.order.created", "orderId", data.orderId);
 
       await lockOrderScope(projectionDb, orderId);
       const existing = await lockOrderFact(projectionDb, orderId);
@@ -1141,6 +1205,12 @@ export function buildOrderingSellerComplianceSalesProjectionHandlers(db: PgQuery
       }
 
       const authenticity = isRecord(data.authenticityPlanSnapshot) ? data.authenticityPlanSnapshot : null;
+      const authenticityFeeAmount =
+        data.authenticityPlanSnapshot === null
+          ? "0.00"
+          : authenticity === null
+            ? null
+            : asMoneyStringOrNull(authenticity.feeAmount);
       await writeOrderFact(
         projectionDb,
         existing,
@@ -1152,9 +1222,9 @@ export function buildOrderingSellerComplianceSalesProjectionHandlers(db: PgQuery
             shippingChargeAmount: asMoneyStringOrNull(data.shippingChargeAmount),
             shippingAllowanceAmount: asMoneyStringOrNull(data.shippingAllowanceAmount),
             salesTaxAmount: asMoneyStringOrNull(data.salesTaxAmount),
-            // A null authenticity plan is Ordering's authoritative no-fee value: its own
-            // total invariant adds exactly "0.00" for it. Every other absent string stays null.
-            authenticityFeeAmount: authenticity === null ? "0.00" : asMoneyStringOrNull(authenticity.feeAmount),
+            // Only an explicit source null is Ordering's authoritative no-fee value. An
+            // absent or malformed snapshot stays missing and therefore cannot admit money.
+            authenticityFeeAmount,
             protectionAmount: asMoneyStringOrNull(data.protectionAmount),
             protectionAllowanceAmount: asMoneyStringOrNull(data.protectionAllowanceAmount),
             protectionOverageAmount: asMoneyStringOrNull(data.protectionOverageAmount),
@@ -1175,8 +1245,7 @@ export function buildOrderingSellerComplianceSalesProjectionHandlers(db: PgQuery
     "ordering.order.cancelled": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as Readonly<Record<string, unknown>>;
-      const orderId = String(data.orderId ?? "");
-      if (orderId.length === 0) return;
+      const orderId = requireProjectionIdentity("ordering.order.cancelled", "orderId", data.orderId);
 
       await lockOrderScope(projectionDb, orderId);
       const existing = await lockOrderFact(projectionDb, orderId);
@@ -1219,16 +1288,40 @@ export function buildPaymentsSellerComplianceSalesProjectionHandlers(db: PgQuery
     "payments.payment-captured": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as unknown as CaptureFact;
-      const paymentId = String(data.paymentId ?? "");
-      if (paymentId.length === 0) return;
+      const paymentId = requireProjectionIdentity("payments.payment-captured", "paymentId", data.paymentId);
+      const retainedCaptureSourceVersion = await readRetainedCaptureSourceVersion(projectionDb, paymentId);
+      if (retainedCaptureSourceVersion !== null && retainedCaptureSourceVersion >= event.streamVersion) return;
 
       const atomicAnomalies = classifyCaptureAtomicAnomalies(data);
       const occurredAt = isNonEmptyString(data.capturedAt) ? data.capturedAt : event.timing.occurredAt;
-      // A fixed lock order over the affected orders keeps concurrent captures deadlock-free.
-      for (const orderId of distinctOrderIds(data.orderIds).sort()) {
+      const captureOrderIds = distinctOrderIds(data.orderIds);
+      const captureMembershipIsAuthoritative =
+        Array.isArray(data.orderIds) && data.orderIds.length > 0 && data.orderIds.every(isNonEmptyString);
+      const refundObservedOrderIds = captureMembershipIsAuthoritative
+        ? await readRefundObservedOrderIds(projectionDb, paymentId)
+        : [];
+      // A fixed lock order over capture members and refund-first rows keeps concurrent
+      // captures deadlock-free while making the newly known membership authoritative.
+      for (const orderId of [...new Set([...captureOrderIds, ...refundObservedOrderIds])].sort()) {
         await lockOrderScope(projectionDb, orderId);
         const orderFact = await lockOrderFact(projectionDb, orderId);
         const existing = await lockSaleRow(projectionDb, paymentId, orderId);
+        if (!captureOrderIds.includes(orderId)) {
+          if (
+            existing === null ||
+            existing.payment_refunded_source_version === null ||
+            asStringArray(existing.refund_anomalies).includes("refund-order-membership-invalid")
+          ) {
+            continue;
+          }
+          const sale = materializeSale(
+            orderFact,
+            retainedCaptureFacts(existing),
+            invalidateRefundMembership(retainedRefundFacts(existing)),
+          );
+          await writeSaleRow(projectionDb, paymentId, orderId, existing, sale, event.timing.recordedAt);
+          continue;
+        }
         if (isStaleGroupVersion(existing?.payment_captured_source_version ?? null, event.streamVersion)) {
           continue;
         }
@@ -1248,8 +1341,7 @@ export function buildPaymentsSellerComplianceSalesProjectionHandlers(db: PgQuery
     "payments.payment-refunded": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as unknown as RefundFact;
-      const paymentId = String(data.paymentId ?? "");
-      if (paymentId.length === 0) return;
+      const paymentId = requireProjectionIdentity("payments.payment-refunded", "paymentId", data.paymentId);
 
       const membership = await readCaptureMembership(projectionDb, paymentId);
       const refundObservedAt = isNonEmptyString(data.refundedAt) ? data.refundedAt : event.timing.occurredAt;

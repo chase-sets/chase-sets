@@ -41,12 +41,11 @@ const PAYMENT = "pay_synthetic_1";
 const CAPTURED_AT = "2026-03-01T00:00:00.000Z";
 const CANCELLED_AT = "2026-02-15T00:00:00.000Z";
 const REFUNDED_AT = "2026-04-01T00:00:00.000Z";
-/**
- * One fixed observation instant for every event envelope. `recorded_at` and `changed_at`
- * are assigned from the event's own recorded timing so a rebuild is deterministic; holding
- * it constant lets two different arrival orders be compared on those columns too.
- */
 const RECORDED_AT = "2026-05-01T00:00:00.000Z";
+const ORDER_RECORDED_AT = "2026-01-11T00:00:00.000Z";
+const CANCELLATION_RECORDED_AT = "2026-02-16T00:00:00.000Z";
+const CAPTURE_RECORDED_AT = "2026-03-02T00:00:00.000Z";
+const REFUND_RECORDED_AT = "2026-04-02T00:00:00.000Z";
 
 const ORDER_MONEY = {
   itemSubtotalAmount: "100.00",
@@ -61,6 +60,22 @@ const ORDER_MONEY = {
   protectionOverageAmount: "0.00",
   totalAmount: "113.00",
 } as const;
+
+const ADMITTED_MONEY_COLUMNS = [
+  "item_gross_cents",
+  "shipping_charge_cents",
+  "sales_tax_cents",
+  "authenticity_fee_cents",
+  "protection_cents",
+  "protection_allowance_cents",
+  "protection_overage_cents",
+  "order_total_cents",
+  "marketplace_sales_fee_cents",
+  "seller_item_net_cents",
+  "shipping_allowance_cents",
+  "seller_shipping_payout_cents",
+  "seller_payout_cents",
+] as const;
 
 function payout(orderId: string, overrides: Readonly<Record<string, unknown>> = {}) {
   return {
@@ -86,6 +101,7 @@ function transportEvent(
   streamVersion: number,
   data: Readonly<Record<string, unknown>>,
   occurredAt: string,
+  recordedAt = RECORDED_AT,
 ): TransportEvent {
   eventSequence += 1;
   return {
@@ -99,11 +115,16 @@ function transportEvent(
     metadata: {},
     audit: { performedByUserId: "usr_synthetic", forAccountId: "acct_synthetic" },
     trace: {},
-    timing: { occurredAt, recordedAt: RECORDED_AT },
+    timing: { occurredAt, recordedAt },
   } as unknown as TransportEvent;
 }
 
-function orderCreated(orderId: string, streamVersion: number, overrides: Readonly<Record<string, unknown>> = {}) {
+function orderCreated(
+  orderId: string,
+  streamVersion: number,
+  overrides: Readonly<Record<string, unknown>> = {},
+  recordedAt = RECORDED_AT,
+) {
   return transportEvent(
     "ordering.order.created",
     `ordering.order-${orderId}`,
@@ -129,20 +150,26 @@ function orderCreated(orderId: string, streamVersion: number, overrides: Readonl
       ...overrides,
     },
     "2026-01-10T00:00:00.000Z",
+    recordedAt,
   );
 }
 
-function orderCancelled(orderId: string, streamVersion: number) {
+function orderCancelled(orderId: string, streamVersion: number, recordedAt = RECORDED_AT) {
   return transportEvent(
     "ordering.order.cancelled",
     `ordering.order-${orderId}`,
     streamVersion,
     { orderId, cancelledAt: CANCELLED_AT, reservationRequests: [] },
     CANCELLED_AT,
+    recordedAt,
   );
 }
 
-function paymentCaptured(streamVersion: number, overrides: Readonly<Record<string, unknown>> = {}) {
+function paymentCaptured(
+  streamVersion: number,
+  overrides: Readonly<Record<string, unknown>> = {},
+  recordedAt = RECORDED_AT,
+) {
   return transportEvent(
     "payments.payment-captured",
     `payments.payment-${PAYMENT}`,
@@ -156,10 +183,15 @@ function paymentCaptured(streamVersion: number, overrides: Readonly<Record<strin
       ...overrides,
     },
     CAPTURED_AT,
+    recordedAt,
   );
 }
 
-function paymentRefunded(streamVersion: number, overrides: Readonly<Record<string, unknown>> = {}) {
+function paymentRefunded(
+  streamVersion: number,
+  overrides: Readonly<Record<string, unknown>> = {},
+  recordedAt = RECORDED_AT,
+) {
   return transportEvent(
     "payments.payment-refunded",
     `payments.payment-${PAYMENT}`,
@@ -177,7 +209,14 @@ function paymentRefunded(streamVersion: number, overrides: Readonly<Record<strin
       ...overrides,
     },
     REFUNDED_AT,
+    recordedAt,
   );
+}
+
+function withoutEventDataField(event: TransportEvent, field: string): TransportEvent {
+  const data = { ...(event.data as Readonly<Record<string, unknown>>) };
+  delete data[field];
+  return { ...event, data } as TransportEvent;
 }
 
 describeDb("platform-operations seller compliance sale facts", () => {
@@ -267,14 +306,21 @@ describeDb("platform-operations seller compliance sale facts", () => {
   });
 
   it("converges ordering-first and capture-first histories across restart", async () => {
-    await deliver(orderCreated(ORDER_ONE, 1), orderCancelled(ORDER_ONE, 2), paymentCaptured(1));
+    const created = orderCreated(ORDER_ONE, 1, {}, ORDER_RECORDED_AT);
+    const cancelled = orderCancelled(ORDER_ONE, 2, CANCELLATION_RECORDED_AT);
+    const captured = paymentCaptured(1, {}, CAPTURE_RECORDED_AT);
+    await deliver(created, cancelled, captured);
     const orderFirst = await readSales();
     expect(orderFirst).toHaveLength(1);
 
     await resetMultiContextTestSchemas(pools);
     await pool.query(platformOperationsModule.schemaSql);
 
-    await deliver(paymentCaptured(1), orderCreated(ORDER_ONE, 1), orderCancelled(ORDER_ONE, 2));
+    await deliver(captured);
+    const awaitingOrder = await readSales();
+    expect(awaitingOrder[0]).toMatchObject({ sale_state: "awaiting-order", capture_anomalies: [] });
+    const beforeCompletionSnapshot = await readSellerComplianceSnapshotChangeSequence(pool);
+    await deliver(created, cancelled);
     const captureFirst = await readSales();
     expect(captureFirst).toHaveLength(1);
 
@@ -300,7 +346,19 @@ describeDb("platform-operations seller compliance sale facts", () => {
     });
     expect(orderFirst[0]!.occurred_at).toEqual(new Date(CAPTURED_AT));
     expect(orderFirst[0]!.cancelled_at).toEqual(new Date(CANCELLED_AT));
-    expect(orderFirst[0]!.recorded_at).toEqual(new Date(RECORDED_AT));
+    expect(orderFirst[0]!.recorded_at).toEqual(new Date(CAPTURE_RECORDED_AT));
+    expect(orderFirst[0]!.changed_at).toEqual(new Date(CAPTURE_RECORDED_AT));
+    expect(captureFirst[0]!.changed_at).toEqual(new Date(CAPTURE_RECORDED_AT));
+
+    const nextSnapshot = await readSellerComplianceSnapshotChangeSequence(pool);
+    expect(BigInt(nextSnapshot)).toBeGreaterThan(BigInt(beforeCompletionSnapshot));
+    const nextPass = await listSellersWithChangedCompletedSales(pool, {
+      fromInclusive: "2026-01-01T00:00:00.000Z",
+      toExclusive: "2026-04-01T00:00:00.000Z",
+      snapshotChangeSequence: nextSnapshot,
+      limit: 100,
+    });
+    expect(nextPass.sellerAccountIds).toContain(SELLER);
   });
 
   it("keeps an order-only staging row out of completed sales until payment identity arrives", async () => {
@@ -373,6 +431,98 @@ describeDb("platform-operations seller compliance sale facts", () => {
     expect(afterRedelivery[1]!.refunded_order_total_cents).toBeNull();
   });
 
+  it("rematerializes refund-first rows against authoritative capture membership", async () => {
+    const refundForNonmember = paymentRefunded(
+      2,
+      {
+        orderIds: [ORDER_TWO],
+        refundedOrderAmounts: [
+          { orderId: ORDER_ONE, amount: "7.00" },
+          { orderId: ORDER_TWO, amount: "40.00" },
+        ],
+        orderRefundCaps: [
+          { orderId: ORDER_ONE, amount: "50.00" },
+          { orderId: ORDER_TWO, amount: "113.00" },
+        ],
+      },
+      REFUND_RECORDED_AT,
+    );
+    const shuffledRefundForNonmember = paymentRefunded(
+      2,
+      {
+        orderIds: [ORDER_TWO],
+        refundedOrderAmounts: [
+          { orderId: ORDER_TWO, amount: "40.00" },
+          { orderId: ORDER_ONE, amount: "7.00" },
+        ],
+        orderRefundCaps: [
+          { orderId: ORDER_TWO, amount: "113.00" },
+          { orderId: ORDER_ONE, amount: "50.00" },
+        ],
+      },
+      REFUND_RECORDED_AT,
+    );
+    const captureForMember = paymentCaptured(1, {}, CAPTURE_RECORDED_AT);
+    const orderFacts = [
+      orderCreated(ORDER_ONE, 1, {}, ORDER_RECORDED_AT),
+      orderCreated(ORDER_TWO, 1, {}, ORDER_RECORDED_AT),
+    ] as const;
+
+    await deliver(...orderFacts, refundForNonmember, captureForMember, refundForNonmember, captureForMember);
+    const refundFirst = await readSales();
+    const refundFirstOrderFacts = await readOrderFacts();
+    expect(refundFirst).toHaveLength(2);
+    expect(refundFirst[1]).toMatchObject({
+      order_id: ORDER_TWO,
+      sale_state: "awaiting-capture",
+      refunded_order_total_cents: null,
+      order_refund_cap_cents: null,
+      refund_anomalies: ["refund-order-membership-invalid"],
+    });
+
+    await resetMultiContextTestSchemas(pools);
+    await pool.query(platformOperationsModule.schemaSql);
+    await deliver(...orderFacts, captureForMember, shuffledRefundForNonmember, shuffledRefundForNonmember);
+    const captureFirst = await readSales();
+
+    expect(captureFirst.map(withoutWriteMetadata)).toEqual(refundFirst.map(withoutWriteMetadata));
+    expect(await readOrderFacts()).toEqual(refundFirstOrderFacts);
+
+    await resetMultiContextTestSchemas(pools);
+    await pool.query(platformOperationsModule.schemaSql);
+    const newerRefundForMember = paymentRefunded(
+      4,
+      {
+        orderIds: [ORDER_TWO],
+        refundedOrderAmounts: [
+          { orderId: ORDER_ONE, amount: "7.00" },
+          { orderId: ORDER_TWO, amount: "40.00" },
+        ],
+        orderRefundCaps: [
+          { orderId: ORDER_ONE, amount: "50.00" },
+          { orderId: ORDER_TWO, amount: "113.00" },
+        ],
+      },
+      REFUND_RECORDED_AT,
+    );
+    await deliver(
+      ...orderFacts,
+      paymentCaptured(3, {
+        orderIds: [ORDER_ONE, ORDER_TWO],
+        sellerPayouts: [payout(ORDER_ONE), payout(ORDER_TWO)],
+      }),
+      newerRefundForMember,
+    );
+    const beforeStaleCapture = await readSales();
+    expect(beforeStaleCapture[1]).toMatchObject({
+      refunded_order_total_cents: "4000",
+      order_refund_cap_cents: "11300",
+      refund_anomalies: [],
+    });
+    await deliver(captureForMember);
+    expect(await readSales()).toEqual(beforeStaleCapture);
+  });
+
   it("assigns affected-order cumulative refund facts and preserves money across redelivery", async () => {
     const twoOrderCapture = paymentCaptured(1, {
       orderIds: [ORDER_ONE, ORDER_TWO],
@@ -390,7 +540,7 @@ describeDb("platform-operations seller compliance sale facts", () => {
     expect(afterCancellation[0]).toMatchObject({ refunded_order_total_cents: "4000", order_refund_cap_cents: "11300" });
 
     // Duplicate and missing affected entries fail closed and leave the affected order null.
-    for (const [label, overrides] of [
+    for (const [label, overrides, expectedAnomalies] of [
       [
         "duplicate amount entry",
         {
@@ -399,9 +549,20 @@ describeDb("platform-operations seller compliance sale facts", () => {
             { orderId: ORDER_ONE, amount: "40.00" },
           ],
         },
+        ["duplicate-refunded-amount-entry"],
       ],
-      ["missing amount entry", { refundedOrderAmounts: [{ orderId: ORDER_TWO, amount: "7.00" }] }],
-      ["missing cap entry", { orderRefundCaps: [{ orderId: ORDER_TWO, amount: "50.00" }] }],
+      [
+        "missing amount entry",
+        { refundedOrderAmounts: [{ orderId: ORDER_TWO, amount: "7.00" }] },
+        ["missing-refunded-amount-entry"],
+      ],
+      ["missing amount field", { refundedOrderAmounts: [{ orderId: ORDER_ONE }] }, ["source-field-missing"]],
+      [
+        "missing cap entry",
+        { orderRefundCaps: [{ orderId: ORDER_TWO, amount: "50.00" }] },
+        ["missing-refund-cap-entry"],
+      ],
+      ["missing cap amount field", { orderRefundCaps: [{ orderId: ORDER_ONE }] }, ["source-field-missing"]],
       [
         "duplicate cap entry",
         {
@@ -410,9 +571,15 @@ describeDb("platform-operations seller compliance sale facts", () => {
             { orderId: ORDER_ONE, amount: "113.00" },
           ],
         },
+        ["duplicate-refund-cap-entry"],
       ],
-      ["noncanonical amount", { refundedOrderAmounts: [{ orderId: ORDER_ONE, amount: "40.3" }] }],
-      ["invalid currency", { currencyCode: "USD" }],
+      [
+        "noncanonical amount",
+        { refundedOrderAmounts: [{ orderId: ORDER_ONE, amount: "40.3" }] },
+        ["canonical-money-invalid"],
+      ],
+      ["noncanonical cap", { orderRefundCaps: [{ orderId: ORDER_ONE, amount: "113.0" }] }, ["canonical-money-invalid"]],
+      ["invalid currency", { currencyCode: "USD" }, ["currency-invalid"]],
     ] as const) {
       await resetMultiContextTestSchemas(pools);
       await pool.query(platformOperationsModule.schemaSql);
@@ -425,7 +592,7 @@ describeDb("platform-operations seller compliance sale facts", () => {
       const [row] = await readSales();
       expect(row!.refunded_order_total_cents, label).toBeNull();
       expect(row!.order_refund_cap_cents, label).toBeNull();
-      expect((row!.refund_anomalies as string[]).length, label).toBeGreaterThan(0);
+      expect(row!.refund_anomalies, label).toEqual(expectedAnomalies);
       // Capture-side money survives a refund defect: the two groups are independent.
       expect(row!.item_gross_cents, label).toBe("10000");
     }
@@ -527,6 +694,125 @@ describeDb("platform-operations seller compliance sale facts", () => {
     // A null authenticity plan is Ordering's authoritative no-fee value, not an inferred zero.
     await deliver(orderCreated(ORDER_TWO, 1, { authenticityPlanSnapshot: { feeAmount: "12.00" } }));
     expect((await readOrderFacts()).map((fact) => fact.authenticity_fee_amount)).toEqual(["0.00", "12.00"]);
+  });
+
+  it("distinguishes explicit null authenticity from absent and malformed snapshots", async () => {
+    const cases = [
+      {
+        label: "explicit null",
+        event: orderCreated(ORDER_ONE, 1, { authenticityPlanSnapshot: null }),
+        anomalies: [],
+        authenticityFeeCents: "0",
+      },
+      {
+        label: "absent property",
+        event: withoutEventDataField(orderCreated(ORDER_ONE, 1), "authenticityPlanSnapshot"),
+        anomalies: ["source-field-missing"],
+        authenticityFeeCents: null,
+      },
+      {
+        label: "malformed scalar",
+        event: orderCreated(ORDER_ONE, 1, { authenticityPlanSnapshot: "none" }),
+        anomalies: ["source-field-missing"],
+        authenticityFeeCents: null,
+      },
+      {
+        label: "record without fee",
+        event: orderCreated(ORDER_ONE, 1, { authenticityPlanSnapshot: {} }),
+        anomalies: ["source-field-missing"],
+        authenticityFeeCents: null,
+      },
+      {
+        label: "noncanonical fee",
+        event: orderCreated(ORDER_ONE, 1, { authenticityPlanSnapshot: { feeAmount: "12.0" } }),
+        anomalies: ["canonical-money-invalid"],
+        authenticityFeeCents: null,
+      },
+      {
+        label: "canonical fee",
+        event: orderCreated(ORDER_ONE, 1, { authenticityPlanSnapshot: { feeAmount: "12.00" } }),
+        anomalies: [],
+        authenticityFeeCents: "1200",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      await resetMultiContextTestSchemas(pools);
+      await pool.query(platformOperationsModule.schemaSql);
+      await deliver(testCase.event, paymentCaptured(1));
+      const [row] = await readSales();
+      expect(row!.capture_anomalies, testCase.label).toEqual(testCase.anomalies);
+      expect(row!.authenticity_fee_cents, testCase.label).toBe(testCase.authenticityFeeCents);
+      expect(row!.sale_state, testCase.label).toBe(
+        testCase.anomalies.length === 0 ? "captured" : "captured-unreconciled",
+      );
+      if (testCase.anomalies.length > 0) {
+        for (const column of ADMITTED_MONEY_COLUMNS) expect(row![column], `${testCase.label}: ${column}`).toBeNull();
+      }
+    }
+  });
+
+  it("fails closed when the authoritative Ordering seller is absent", async () => {
+    await deliver(paymentCaptured(1));
+    expect((await readSales())[0]).toMatchObject({
+      sale_state: "awaiting-order",
+      seller_account_id: null,
+      capture_anomalies: [],
+      item_gross_cents: null,
+    });
+    await deliver(orderCreated(ORDER_ONE, 1));
+    expect((await readSales())[0]).toMatchObject({
+      sale_state: "captured",
+      seller_account_id: SELLER,
+      capture_anomalies: [],
+      item_gross_cents: "10000",
+    });
+
+    const cases = [
+      {
+        label: "absent seller",
+        event: withoutEventDataField(orderCreated(ORDER_ONE, 1), "sellerAccountId"),
+        anomalies: ["source-field-missing"],
+        sellerAccountId: null,
+      },
+      {
+        label: "empty seller",
+        event: orderCreated(ORDER_ONE, 1, { sellerAccountId: "" }),
+        anomalies: ["source-field-missing"],
+        sellerAccountId: null,
+      },
+      {
+        label: "matching seller",
+        event: orderCreated(ORDER_ONE, 1),
+        anomalies: [],
+        sellerAccountId: SELLER,
+      },
+      {
+        label: "mismatched seller",
+        event: orderCreated(ORDER_ONE, 1, { sellerAccountId: OTHER_SELLER }),
+        anomalies: ["seller-mismatch"],
+        sellerAccountId: OTHER_SELLER,
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      await resetMultiContextTestSchemas(pools);
+      await pool.query(platformOperationsModule.schemaSql);
+      await deliver(testCase.event, paymentCaptured(1));
+      const [row] = await readSales();
+      expect(row).toMatchObject({
+        seller_account_id: testCase.sellerAccountId,
+        capture_anomalies: testCase.anomalies,
+        sale_state: testCase.anomalies.length === 0 ? "captured" : "captured-unreconciled",
+      });
+      for (const column of ADMITTED_MONEY_COLUMNS) {
+        if (testCase.anomalies.length === 0) {
+          expect(row![column], `${testCase.label}: ${column}`).not.toBeNull();
+        } else {
+          expect(row![column], `${testCase.label}: ${column}`).toBeNull();
+        }
+      }
+    }
   });
 
   it("guards each source field group independently", async () => {

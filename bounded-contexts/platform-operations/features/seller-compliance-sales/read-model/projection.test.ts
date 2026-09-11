@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as platformOperationsModule } from "../../../index";
@@ -142,7 +142,8 @@ describe("seller compliance capture payout law", () => {
   it("adds seller-mismatch only once Ordering's authoritative seller exists", () => {
     const atomic = classifyCaptureAtomicAnomalies(capture());
     expect(atomic).toEqual([]);
-    expect(deriveCaptureAnomalies(atomic, null, OTHER_SELLER, [])).toEqual([]);
+    expect(deriveCaptureAnomalies(atomic, undefined, OTHER_SELLER, [])).toEqual([]);
+    expect(deriveCaptureAnomalies(atomic, null, OTHER_SELLER, [])).toEqual(["source-field-missing"]);
     expect(deriveCaptureAnomalies(atomic, SELLER, SELLER, [])).toEqual([]);
     expect(deriveCaptureAnomalies(atomic, SELLER, OTHER_SELLER, [])).toEqual(["seller-mismatch"]);
   });
@@ -394,6 +395,28 @@ describe("seller compliance affected-order refund membership", () => {
     expect(nonCanonical.anomalies).toEqual(["canonical-money-invalid"]);
     expect(nonCanonical.refundedOrderTotalCents).toBeNull();
   });
+
+  it.each([
+    ["missing amount", { refundedOrderAmounts: [{ orderId: "ord_synthetic_1" }] }, ["source-field-missing"]],
+    ["null amount", { refundedOrderAmounts: [{ orderId: "ord_synthetic_1", amount: null }] }, ["source-field-missing"]],
+    [
+      "non-string amount",
+      { refundedOrderAmounts: [{ orderId: "ord_synthetic_1", amount: 40 }] },
+      ["source-field-missing"],
+    ],
+    ["empty amount", { refundedOrderAmounts: [{ orderId: "ord_synthetic_1", amount: "" }] }, ["source-field-missing"]],
+    ["missing cap", { orderRefundCaps: [{ orderId: "ord_synthetic_1" }] }, ["source-field-missing"]],
+    [
+      "noncanonical cap",
+      { orderRefundCaps: [{ orderId: "ord_synthetic_1", amount: "113.0" }] },
+      ["canonical-money-invalid"],
+    ],
+  ])("distinguishes %s from canonical money failure", (_label, overrides, expected) => {
+    const selected = selectAffectedRefundFact(refund(overrides), "ord_synthetic_1", twoOrderPayment);
+    expect(selected.anomalies).toEqual(expected);
+    expect(selected.refundedOrderTotalCents).toBeNull();
+    expect(selected.orderRefundCapCents).toBeNull();
+  });
 });
 
 describe("seller compliance classification inputs", () => {
@@ -466,6 +489,46 @@ describe("seller compliance half-open time contract", () => {
 });
 
 describe("seller compliance production registration", () => {
+  it.each([
+    ["ordering.order.created", "orderId"],
+    ["ordering.order.cancelled", "orderId"],
+    ["payments.payment-captured", "paymentId"],
+    ["payments.payment-refunded", "paymentId"],
+  ])("rejects missing and empty identity for %s before any database query", async (eventType, identityField) => {
+    for (const identityValue of [undefined, ""] as const) {
+      const query = vi.fn(() => {
+        throw new Error("The identity rejection must happen before any database query.");
+      });
+      const pool = { query, connect: vi.fn() } as unknown as PgTransactionalPool;
+      const services = platformOperationsModule.createServices(pool, {});
+      const subscriptions = platformOperationsModule.buildSubscriptions?.(services) ?? [];
+      const handlers = Object.assign(
+        {},
+        ...subscriptions
+          .filter((subscription) => subscription.projectionName === "seller-compliance-sales-projection")
+          .map((subscription) => subscription.handlers),
+      ) as Readonly<Record<string, ((event: unknown, context: unknown) => Promise<void>) | undefined>>;
+      const handler = handlers[eventType];
+      expect(handler).toBeDefined();
+
+      await expect(
+        handler?.(
+          {
+            type: eventType,
+            streamVersion: 1,
+            data: identityValue === undefined ? {} : { [identityField]: identityValue },
+            timing: { occurredAt: "2026-01-01T00:00:00.000Z", recordedAt: "2026-01-01T00:00:00.000Z" },
+          },
+          {},
+        ),
+      ).rejects.toMatchObject({
+        name: "SellerComplianceProjectionIdentityError",
+        message: `Seller compliance projection rejected ${eventType}: required ${identityField} is missing.`,
+      });
+      expect(query).not.toHaveBeenCalled();
+    }
+  });
+
   it("registers two source subscriptions covering four events", () => {
     const services = platformOperationsModule.createServices(failingPool(), {});
     const subscriptions = (platformOperationsModule.buildSubscriptions?.(services) ?? []).filter(
