@@ -402,7 +402,9 @@ export async function findPayoutRequestIdempotency(
  * winning reservation: `reserved` is true when this call inserted the row, false
  * when a concurrent request already owned the key (in which case the returned
  * payout_id is the winner's, and this caller must replay it rather than proceed).
- * A single statement so the decision is atomic under concurrency.
+ * The no-op conflict update leaves the winning values intact while making the
+ * committed winner returnable after PostgreSQL waits for its transaction.
+ * `xmax` distinguishes the inserted tuple from the conflict-update tuple.
  */
 export async function reservePayoutRequestIdempotency(
   db: PgQueryable,
@@ -416,20 +418,15 @@ export async function reservePayoutRequestIdempotency(
   }>,
 ): Promise<PayoutRequestIdempotencyRecord & Readonly<{ reserved: boolean }>> {
   const result = await db.query<PayoutRequestIdempotencyRecord & { reserved: boolean }>(
-    `WITH ins AS (
-       INSERT INTO settlement_payout_request_idempotency (
-         account_id, idempotency_key, payout_id, requested_amount, currency_code, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (account_id, idempotency_key) DO NOTHING
-       RETURNING payout_id, requested_amount, currency_code
-     )
-     SELECT payout_id, requested_amount::text AS requested_amount, currency_code, true AS reserved
-     FROM ins
-     UNION ALL
-     SELECT payout_id, requested_amount::text AS requested_amount, currency_code, false AS reserved
-     FROM settlement_payout_request_idempotency
-     WHERE account_id = $1 AND idempotency_key = $2 AND NOT EXISTS (SELECT 1 FROM ins)
-     LIMIT 1`,
+    `INSERT INTO settlement_payout_request_idempotency AS reservation (
+       account_id, idempotency_key, payout_id, requested_amount, currency_code, created_at
+     ) VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (account_id, idempotency_key) DO UPDATE
+       SET idempotency_key = reservation.idempotency_key
+     RETURNING payout_id,
+               requested_amount::text AS requested_amount,
+               currency_code,
+               (xmax = 0) AS reserved`,
     [entry.accountId, entry.idempotencyKey, entry.payoutId, entry.requestedAmount, entry.currencyCode, entry.createdAt],
   );
   const row = result.rows[0];
