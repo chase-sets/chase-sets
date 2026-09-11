@@ -41,12 +41,12 @@ type ProviderRateRow = Readonly<{
   provider_key: string;
   environment: "sandbox" | "production";
   window_started_at: Date | string;
-  request_count: string | number;
-  adaptive_divisor: string | number;
+  request_count: number;
+  adaptive_divisor: number;
   throttled_until: Date | string | null;
-  consecutive_successes: string | number;
+  consecutive_successes: number;
   last_rate_limit_at: Date | string | null;
-  revision: string | number;
+  revision: string;
 }>;
 
 type SummaryRow = Readonly<{
@@ -670,6 +670,7 @@ async function lockRateState(
     [identity.providerKey, identity.environment],
   );
   const row = state.rows[0]!;
+  assertLockedProviderRateState(row);
   if (Date.parse(currentInstant) - Date.parse(timestamp(row.window_started_at)!) >= budget.windowMs) {
     state = await db.query<ProviderRateRow>(
       `UPDATE channel_provider_rate_state
@@ -681,6 +682,38 @@ async function lockRateState(
     );
   }
   return state.rows[0]!;
+}
+
+function assertLockedProviderRateState(row: ProviderRateRow): void {
+  if (
+    !isText(row.provider_key) ||
+    (row.environment !== "sandbox" && row.environment !== "production") ||
+    !persistedInstant(row.window_started_at) ||
+    !persistedInt4AtLeast(row.request_count, 0) ||
+    !persistedInt4Between(row.adaptive_divisor, 1, 64) ||
+    (row.throttled_until !== null && !persistedInstant(row.throttled_until)) ||
+    !persistedInt4AtLeast(row.consecutive_successes, 0) ||
+    (row.last_rate_limit_at !== null && !persistedInstant(row.last_rate_limit_at)) ||
+    !persistedRevision(row.revision)
+  ) {
+    throw new OutboundSyncError("invalid-input", "Locked provider rate state is invalid.");
+  }
+}
+
+function persistedInstant(value: Date | string): boolean {
+  return value instanceof Date ? Number.isFinite(value.getTime()) : instant(value);
+}
+
+function persistedInt4AtLeast(value: number, minimum: number): boolean {
+  return Number.isInteger(value) && value >= minimum && value <= 2_147_483_647;
+}
+
+function persistedInt4Between(value: number, minimum: number, maximum: number): boolean {
+  return persistedInt4AtLeast(value, minimum) && value <= maximum;
+}
+
+function persistedRevision(value: string): boolean {
+  return /^(?:[1-9]\d*)$/.test(value) && BigInt(value) <= 9_223_372_036_854_775_807n;
 }
 
 async function settleInlineOperationBatch(
