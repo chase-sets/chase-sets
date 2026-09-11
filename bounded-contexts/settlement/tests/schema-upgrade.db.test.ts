@@ -219,29 +219,39 @@ describeDb("settlement schema upgrades", () => {
       "20260910_settlement_marketplace_label_postage",
     );
 
-    async function readShape() {
+    async function readTableShape(tableName: string) {
       const [columns, indexes, persistence] = await Promise.all([
         pool.query<{ column_name: string; data_type: string; is_nullable: string }>(
           `SELECT column_name, data_type, is_nullable
            FROM information_schema.columns
            WHERE table_schema = current_schema()
-             AND table_name = 'settlement_marketplace_label_postage'
+             AND table_name = $1
            ORDER BY ordinal_position`,
+          [tableName],
         ),
         pool.query<{ indexname: string; indexdef: string }>(
           `SELECT indexname, indexdef
            FROM pg_indexes
            WHERE schemaname = current_schema()
-             AND tablename = 'settlement_marketplace_label_postage'
+             AND tablename = $1
            ORDER BY indexname`,
+          [tableName],
         ),
         pool.query<{ relpersistence: string }>(
           `SELECT relpersistence
            FROM pg_class
-           WHERE oid = 'settlement_marketplace_label_postage'::regclass`,
+           WHERE oid = $1::regclass`,
+          [tableName],
         ),
       ]);
       return { columns: columns.rows, indexes: indexes.rows, persistence: persistence.rows };
+    }
+
+    async function readShape() {
+      return {
+        activation: await readTableShape("settlement_marketplace_label_postage_activation"),
+        projection: await readTableShape("settlement_marketplace_label_postage"),
+      };
     }
 
     for (const statement of migration!.statements) {
@@ -254,8 +264,12 @@ describeDb("settlement schema upgrades", () => {
     const bootShape = await readShape();
 
     expect(migrationShape).toEqual(bootShape);
-    expect(bootShape.persistence).toEqual([{ relpersistence: "u" }]);
-    expect(bootShape.indexes.map((index) => index.indexname)).toEqual(
+    expect(bootShape.activation.persistence).toEqual([{ relpersistence: "p" }]);
+    expect(bootShape.activation.indexes.map((index) => index.indexname)).toEqual([
+      "settlement_marketplace_label_postage_activation_pkey",
+    ]);
+    expect(bootShape.projection.persistence).toEqual([{ relpersistence: "u" }]);
+    expect(bootShape.projection.indexes.map((index) => index.indexname)).toEqual(
       expect.arrayContaining([
         "settlement_marketplace_label_postage_pkey",
         "settlement_marketplace_label_postage_provider_identity_idx",

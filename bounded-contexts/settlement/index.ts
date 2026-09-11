@@ -95,7 +95,7 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
         "fulfillment.settlement-fulfillment-source-projection": () =>
           buildSettlementFulfillmentSourceProjectionHandlers(services.db, {
             wallets: services.wallets,
-            policies: services.policies,
+            activation: services.marketplaceLabelPostageActivation,
           }),
         "inventory.settlement-inventory-recovery-workflow": () => ({
           "inventory.recovered-item.value-reported.v1": async (event: Parameters<BcEventSubscriptionHandler>[0]) => {

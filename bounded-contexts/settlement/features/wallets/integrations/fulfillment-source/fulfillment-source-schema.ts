@@ -1,5 +1,11 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
+const settlementMarketplaceLabelPostageActivationTableSql = `CREATE TABLE IF NOT EXISTS settlement_marketplace_label_postage_activation (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  policy_version text NOT NULL,
+  activated_at timestamptz NOT NULL
+);`;
+
 const settlementMarketplaceLabelPostageTableSql = `CREATE UNLOGGED TABLE IF NOT EXISTS settlement_marketplace_label_postage (
   shipment_id text NOT NULL,
   label_identity text NOT NULL,
@@ -27,7 +33,6 @@ const settlementMarketplaceLabelPostageTableSql = `CREATE UNLOGGED TABLE IF NOT 
   policy_version text NOT NULL,
   source_recorded_at timestamptz NOT NULL,
   label_attached_at timestamptz NOT NULL,
-  voided_at timestamptz NULL,
   refunded_at timestamptz NULL,
   last_stream_version integer NOT NULL,
   updated_at timestamptz NOT NULL,
@@ -77,6 +82,8 @@ CREATE INDEX IF NOT EXISTS settlement_order_fulfillment_sources_order_idx
 CREATE INDEX IF NOT EXISTS settlement_order_fulfillment_sources_seller_idx
   ON settlement_order_fulfillment_sources (seller_account_id, updated_at DESC);
 
+${settlementMarketplaceLabelPostageActivationTableSql}
+
 ${settlementMarketplaceLabelPostageTableSql}
 
 ${settlementMarketplaceLabelPostageProviderIdentityIndexSql}
@@ -87,9 +94,10 @@ ${settlementMarketplaceLabelPostageOperatorReviewIndexSql}
 export const settlementFulfillmentSourceSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260910_settlement_marketplace_label_postage",
-    description: "Create the replayable marketplace label postage posting and operator-review projection.",
+    description: "Create the worker activation authority and replayable marketplace label postage projection.",
     statements: [
       "SET lock_timeout = '5s';",
+      settlementMarketplaceLabelPostageActivationTableSql,
       settlementMarketplaceLabelPostageTableSql,
       settlementMarketplaceLabelPostageProviderIdentityMigrationIndexSql,
       settlementMarketplaceLabelPostageOperatorReviewMigrationIndexSql,

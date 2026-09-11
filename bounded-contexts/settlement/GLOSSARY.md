@@ -157,7 +157,7 @@ Notes:
 
 - A successful provider refund creates one linked, opposite-direction `platform-purchase` entry; a void request or non-successful refund status never moves Wallet funds.
 - Facts without an amount are typed skips. Facts whose currency differs from the Wallet currency are typed refusals recorded for operator review; Settlement never converts label postage.
-- The Settlement-owned, policy-versioned cutover uses the fact's recorded time, so replay does not charge historical labels or choose a new boundary from a worker clock.
+- The Settlement-owned, policy-versioned activation is one immutable database-authored worker-start record. Facts recorded before it remain historical; equality and later are eligible, so replay never chooses a boundary from a worker or deployment clock.
 
 ## Negative Balance
 

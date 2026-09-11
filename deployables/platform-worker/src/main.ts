@@ -22,6 +22,8 @@ import { createLocalEmailCaptureNotificationAdapter } from "@chase-sets/local-em
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { module as settlementModule } from "@chase-sets/settlement";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import type {
@@ -35,7 +37,11 @@ import type {
   RepricingEngineServices,
 } from "@chase-sets/pricing/server";
 import { createIdentityTermsAcceptanceResolver } from "@chase-sets/identity/server";
-import { settlementOperationLogFields } from "@chase-sets/settlement/server";
+import {
+  activateMarketplaceLabelPostage,
+  settlementOperationLogFields,
+  type MarketplaceLabelPostageActivation,
+} from "@chase-sets/settlement/server";
 import {
   createCheckoutProcessingFeePolicyResolver,
   createCommercialTermsResolver,
@@ -127,6 +133,7 @@ import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 import { createRegisteredScheduledRunners } from "./scheduled-runners";
 import { runStartupRetry } from "./startup-retry";
+import { initializeMarketplaceLabelPostageWorkerRuntime } from "./marketplace-label-postage-startup";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -269,38 +276,56 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
   return createDraft(params, context);
 };
 
-runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
-  pools,
-  runtimeProfile: config.runtimeProfile,
-  runtimeLifecycle,
-  hostPorts: {
-    processorGateway: paymentProcessorGateway,
-    moneyMovementGateway,
-    operationsRecorder: settlementOperationsRecorder,
-    postageLabelProvider,
-    addressVerificationProvider: postageLabelProvider,
-    catalogAssetStorage,
-    ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
-    ...(pricingHostPorts ?? {}),
-    sourceObservationTelemetry,
-    evidenceWindowCorrelation,
-    ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
-    ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
-    ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
-    agentWebhookOrderResolvers: createOrderingAgentWebhookOrderResolvers({
-      ordering: pools.ordering,
-      linkedAuthorizations: pools.identity,
-      oauthClients: pools.auth,
-    }),
-    draftListingCreator,
-    // Ordering's cleanup authority is an API-only read surface: the
-    // worker runs projectors, subscriptions, and scheduled runners and never
-    // serves N8. The variant is stated explicitly rather than omitted, so an
-    // unsupplied nonoptional port can never masquerade as "mounted".
-    inventoryCleanupAuthority: { kind: "not-mounted" },
-    searchEmbeddingConfig: config.discoverySearchEmbeddings,
-  },
-});
+const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation) =>
+  createWorkerHost(workerContextRegistry, "platform-worker", {
+    pools,
+    runtimeProfile: config.runtimeProfile,
+    runtimeLifecycle,
+    hostPorts: {
+      processorGateway: paymentProcessorGateway,
+      moneyMovementGateway,
+      operationsRecorder: settlementOperationsRecorder,
+      postageLabelProvider,
+      addressVerificationProvider: postageLabelProvider,
+      catalogAssetStorage,
+      ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
+      ...(pricingHostPorts ?? {}),
+      sourceObservationTelemetry,
+      evidenceWindowCorrelation,
+      ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
+      ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
+      ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
+      agentWebhookOrderResolvers: createOrderingAgentWebhookOrderResolvers({
+        ordering: pools.ordering,
+        linkedAuthorizations: pools.identity,
+        oauthClients: pools.auth,
+      }),
+      draftListingCreator,
+      // Ordering's cleanup authority is an API-only read surface: the
+      // worker runs projectors, subscriptions, and scheduled runners and never
+      // serves N8. The variant is stated explicitly rather than omitted, so an
+      // unsupplied nonoptional port can never masquerade as "mounted".
+      inventoryCleanupAuthority: { kind: "not-mounted" },
+      searchEmbeddingConfig: config.discoverySearchEmbeddings,
+      ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
+    },
+  });
+
+runtime =
+  config.runtimeProfile === "landing"
+    ? constructWorkerRuntime()
+    : await initializeMarketplaceLabelPostageWorkerRuntime({
+        bootstrapSettlementDatabase: () =>
+          runWorkerStartupDatabaseStep("bootstrap Settlement database", () =>
+            bootstrapContextDatabase(settlementModule, pools.settlement),
+          ),
+        activateMarketplaceLabelPostage: () =>
+          runWorkerStartupDatabaseStep("activate marketplace label postage", () =>
+            activateMarketplaceLabelPostage(pools.settlement),
+          ),
+        logger,
+        constructRuntime: constructWorkerRuntime,
+      });
 
 type WorkerIdentityServices = Readonly<{
   accounts?: Readonly<{

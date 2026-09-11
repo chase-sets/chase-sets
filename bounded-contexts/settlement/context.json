@@ -296,6 +296,11 @@
       "purpose": "Durable outbound notification outbox consumed only by event projectors."
     },
     {
+      "portName": "marketplaceLabelPostageActivation",
+      "providedBy": "platform-worker",
+      "purpose": "Validated Settlement database activation provenance supplied before the marketplace label postage subscription runner is constructed."
+    },
+    {
       "portName": "termsAcceptanceResolver",
       "providedBy": "identity",
       "purpose": "Resolve whether a buyer has accepted the active Terms of Service version so wallet balance credit can be applied at checkout without Settlement querying Identity storage."

@@ -7,16 +7,15 @@ import {
 } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { centsToMoneyAmount } from "@chase-sets/primitives/money";
 import type { AccountId, LedgerEntryId, OrderId } from "@chase-sets/primitives/typed-ids";
 import type { WalletServices } from "../../api/runtime";
 import { SettlementDomainError } from "../../../../support/runtime-support/common";
-import { marketplaceLabelPostagePolicy, type MarketplaceLabelPostagePolicyValue } from "./label-postage-policy";
+import type { MarketplaceLabelPostageActivation } from "./label-postage-policy";
 
 type FulfillmentSourceProjectionDeps = Readonly<{
   wallets: Pick<WalletServices, "loadWalletState" | "postEntry">;
-  policies: Pick<PolicyRuntime, "resolvePolicy">;
+  activation?: MarketplaceLabelPostageActivation;
 }>;
 
 type ShipmentSourceRow = Readonly<{
@@ -41,7 +40,6 @@ type LabelPostageRow = Readonly<{
   policy_version: string;
   source_recorded_at: string;
   label_attached_at: string;
-  voided_at: string | null;
   refunded_at: string | null;
   last_stream_version: number;
 }>;
@@ -64,15 +62,9 @@ export type MarketplaceLabelPostageDebitDecision =
 
 type LabelAttachedData = ChaseSetsEventPayloads["fulfillment.shipment.label-attached"];
 
-type LabelVoidedData = Readonly<{
-  shipmentId: string;
-  refundStatus: string;
-  refundReference: string | null;
-  voidedAt: string;
-}>;
-
 type LabelRefundStatusData = Readonly<{
   shipmentId: string;
+  postageProviderLabelId?: string;
   refundStatus: string;
   refundReference: string | null;
   resolvedAt: string;
@@ -102,10 +94,10 @@ export function decideMarketplaceLabelPostageDebit(
     postageAmountCents: number | null;
     postageCurrency: string | null;
     walletCurrency: string;
-    policy: MarketplaceLabelPostagePolicyValue;
+    activation: MarketplaceLabelPostageActivation;
   }>,
 ): MarketplaceLabelPostageDebitDecision {
-  if (Date.parse(input.factRecordedAt) < Date.parse(input.policy.cutoverRecordedAt)) {
+  if (Date.parse(input.factRecordedAt) < Date.parse(input.activation.activatedAt)) {
     return { kind: "skip", reason: "historical" };
   }
   if (input.postageAmountCents === null) {
@@ -238,12 +230,15 @@ async function recordLabelAttached(
   event: TransportEvent,
 ): Promise<void> {
   const data = event.data as LabelAttachedData;
+  const activation = deps.activation;
+  if (!activation) {
+    throw new SettlementDomainError("Marketplace label postage activation was not read before runner construction.");
+  }
   const source = await loadShipmentSource(db, data.shipmentId);
-  const policy = await deps.policies.resolvePolicy(marketplaceLabelPostagePolicy, { at: event.timing.recordedAt });
   const providerLabelId = data.postageProviderLabelId?.trim() || null;
   const currency = normalizedFactCurrency(data.postageCurrency);
   const needsWalletCurrency =
-    Date.parse(event.timing.recordedAt) >= Date.parse(policy.value.cutoverRecordedAt) &&
+    Date.parse(event.timing.recordedAt) >= Date.parse(activation.activatedAt) &&
     data.postageAmountCents !== null &&
     Number.isSafeInteger(data.postageAmountCents) &&
     data.postageAmountCents > 0 &&
@@ -257,7 +252,7 @@ async function recordLabelAttached(
     postageAmountCents: data.postageAmountCents,
     postageCurrency: currency,
     walletCurrency,
-    policy: policy.value,
+    activation,
   });
   const outcome = outcomeForDecision(decision);
   const labelIdentity = providerLabelId ? `provider:${providerLabelId}` : `event:${event.id}`;
@@ -270,11 +265,11 @@ async function recordLabelAttached(
        order_id, seller_account_id, postage_amount_cents, postage_currency,
        outcome, refusal_reason, operator_review_required, debit_ledger_entry_id,
        refund_ledger_entry_id, refund_reference, refund_status, policy_version,
-       source_recorded_at, label_attached_at, voided_at, refunded_at,
+       source_recorded_at, label_attached_at, refunded_at,
        last_stream_version, updated_at
      ) VALUES (
        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-       NULL, NULL, NULL, $13, $14, $15, NULL, NULL, $16, $15
+       NULL, NULL, NULL, $13, $14, $15, NULL, $16, $15
      )
      ON CONFLICT DO NOTHING
      RETURNING shipment_id`,
@@ -291,7 +286,7 @@ async function recordLabelAttached(
       decisionReason(decision),
       decisionNeedsOperatorReview(decision),
       debitLedgerEntryId,
-      policy.value.policyVersion,
+      activation.policyVersion,
       event.timing.recordedAt,
       data.attachedAt,
       event.streamVersion,
@@ -314,7 +309,7 @@ async function recordLabelAttached(
         amountCents: data.postageAmountCents,
         currency,
         outcome,
-        policyVersion: policy.value.policyVersion,
+        policyVersion: activation.policyVersion,
       })
     ) {
       if (existing) {
@@ -359,41 +354,6 @@ async function recordLabelAttached(
   );
 }
 
-async function recordLabelVoided(db: PgQueryable, event: TransportEvent): Promise<void> {
-  const data = event.data as LabelVoidedData;
-  const selected = await db.query<LabelPostageRow>(
-    `SELECT * FROM settlement_marketplace_label_postage
-     WHERE shipment_id = $1
-       AND voided_at IS NULL
-     ORDER BY label_attached_at DESC, label_identity DESC
-     LIMIT 1
-     FOR UPDATE`,
-    [data.shipmentId],
-  );
-  const label = selected.rows[0];
-  if (!label) return;
-
-  await db.query(
-    `UPDATE settlement_marketplace_label_postage
-     SET refund_reference = $3,
-         refund_status = $4,
-         voided_at = $5,
-         last_stream_version = $6,
-         updated_at = $5
-     WHERE shipment_id = $1
-       AND label_identity = $2
-       AND last_stream_version < $6`,
-    [
-      label.shipment_id,
-      label.label_identity,
-      data.refundReference,
-      data.refundStatus.trim().toLowerCase(),
-      data.voidedAt,
-      event.streamVersion,
-    ],
-  );
-}
-
 async function recordLabelRefundStatus(
   db: PgQueryable,
   deps: FulfillmentSourceProjectionDeps,
@@ -401,25 +361,23 @@ async function recordLabelRefundStatus(
 ): Promise<void> {
   const data = event.data as LabelRefundStatusData;
   const refundStatus = data.refundStatus.trim().toLowerCase();
+  const providerLabelId = data.postageProviderLabelId?.trim() ?? "";
+  if (providerLabelId.length === 0) {
+    throw new SettlementDomainError("Marketplace label refund status is missing its original label identity.");
+  }
   const selected = await db.query<LabelPostageRow>(
     `SELECT * FROM settlement_marketplace_label_postage
      WHERE shipment_id = $1
-       AND voided_at IS NOT NULL
-       AND ($2::text IS NULL OR refund_reference = $2)
-     ORDER BY
-       CASE WHEN refund_reference = $2 THEN 0 ELSE 1 END,
-       voided_at DESC,
-       label_identity DESC
-     LIMIT 1
+       AND postage_provider_label_id = $2
      FOR UPDATE`,
-    [data.shipmentId, data.refundReference],
+    [data.shipmentId, providerLabelId],
   );
   const label = selected.rows[0];
   if (!label) {
-    if (refundStatus === "refunded") {
-      throw new SettlementDomainError("Refunded marketplace label postage is missing its recorded void linkage.");
-    }
-    return;
+    throw new SettlementDomainError("Marketplace label refund status has no matching original label debit fact.");
+  }
+  if (label.refund_status !== null && label.refund_status !== refundStatus) {
+    throw new SettlementDomainError("Marketplace label refund terminal status conflicts with the recorded outcome.");
   }
 
   if (label.refund_ledger_entry_id !== null) {
@@ -627,8 +585,9 @@ export function buildSettlementFulfillmentSourceProjectionHandlers(
     ...createTransactionalProjectorHandlerMap({
       "fulfillment.shipment.label-attached": async (event, context) =>
         recordLabelAttached(context.db as PgQueryable, deps, event),
-      "fulfillment.shipment.label-voided": async (event, context) =>
-        recordLabelVoided(context.db as PgQueryable, event),
+      // The void fact carries no original-label identity. It remains lifecycle-only;
+      // the enriched terminal refund fact is the sole money/refund authority.
+      "fulfillment.shipment.label-voided": async (_event, _context) => undefined,
       "fulfillment.shipment.label-refund-status-recorded": async (event, context) =>
         recordLabelRefundStatus(context.db as PgQueryable, deps, event),
     }),

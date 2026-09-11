@@ -5,7 +5,12 @@ import {
   buildSettlementFulfillmentSourceProjectionHandlers,
   decideMarketplaceLabelPostageDebit,
 } from "./fulfillment-source-projection";
-import { MARKETPLACE_LABEL_POSTAGE_LAUNCH_POLICY_VALUE } from "./label-postage-policy";
+import { MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION } from "./label-postage-policy";
+
+const syntheticActivation = {
+  policyVersion: MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION,
+  activatedAt: "2026-05-01T00:00:00.000Z",
+} as const;
 
 function event(type: string, data: Record<string, unknown>, streamVersion = 1): TransportEvent {
   return buildTransportEvent(type, data, {
@@ -26,7 +31,7 @@ describe("settlement fulfillment source projection", () => {
     };
     const handlers = buildSettlementFulfillmentSourceProjectionHandlers(db as never, {
       wallets: {} as never,
-      policies: {} as never,
+      activation: syntheticActivation,
     });
 
     await handlers["fulfillment.shipment.created"]!(
@@ -63,25 +68,25 @@ describe("settlement fulfillment source projection", () => {
     ]);
   });
 
-  it("makes the cutover boundary, null skip, and currency refusal typed and deterministic", () => {
+  it("makes the activation boundary, null skip, and currency refusal typed and deterministic", () => {
     const basis = {
       providerLabelId: "pl_1",
       postageAmountCents: 525,
       postageCurrency: "usd",
       walletCurrency: "usd",
-      policy: MARKETPLACE_LABEL_POSTAGE_LAUNCH_POLICY_VALUE,
+      activation: syntheticActivation,
     } as const;
 
     expect(
       decideMarketplaceLabelPostageDebit({
         ...basis,
-        factRecordedAt: "2026-09-10T15:46:51.999Z",
+        factRecordedAt: "2026-04-30T23:59:59.999Z",
       }),
     ).toEqual({ kind: "skip", reason: "historical" });
     expect(
       decideMarketplaceLabelPostageDebit({
         ...basis,
-        factRecordedAt: MARKETPLACE_LABEL_POSTAGE_LAUNCH_POLICY_VALUE.cutoverRecordedAt,
+        factRecordedAt: syntheticActivation.activatedAt,
       }),
     ).toEqual({ kind: "post", amount: "5.25", currencyCode: "usd" });
     expect(
@@ -116,14 +121,9 @@ describe("settlement fulfillment source projection", () => {
       loadWalletState: vi.fn(async () => ({ currencyCode: null, entries: [] })),
       postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 2, entry: {} })),
     };
-    const policies = {
-      resolvePolicy: vi.fn(async () => ({
-        value: { ...MARKETPLACE_LABEL_POSTAGE_LAUNCH_POLICY_VALUE, cutoverRecordedAt: "2026-05-01T00:00:00.000Z" },
-      })),
-    };
     const handlers = buildSettlementFulfillmentSourceProjectionHandlers(db as never, {
       wallets: wallets as never,
-      policies: policies as never,
+      activation: syntheticActivation,
     });
     const attached = event(
       "fulfillment.shipment.label-attached",
@@ -169,18 +169,18 @@ describe("settlement fulfillment source projection", () => {
       debit_ledger_entry_id: "led_original",
       refund_ledger_entry_id: null,
       refund_reference: "rfnd_1",
-      refund_status: "submitted",
+      refund_status: null,
       policy_version: "marketplace-label-postage-v1",
       source_recorded_at: "2026-09-10T15:48:00.000Z",
       label_attached_at: "2026-09-10T15:48:00.000Z",
-      voided_at: "2026-09-10T15:49:00.000Z",
       refunded_at: null,
       last_stream_version: 3,
     };
+    let recordedRefundStatus: string | null = null;
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("SELECT * FROM settlement_marketplace_label_postage")) {
-          return { rows: [linkedRow], rowCount: 1 };
+          return { rows: [{ ...linkedRow, refund_status: recordedRefundStatus }], rowCount: 1 };
         }
         return { rows: [], rowCount: 1 };
       }),
@@ -191,7 +191,7 @@ describe("settlement fulfillment source projection", () => {
     };
     const handlers = buildSettlementFulfillmentSourceProjectionHandlers(db as never, {
       wallets: wallets as never,
-      policies: {} as never,
+      activation: syntheticActivation,
     });
 
     await handlers["fulfillment.shipment.label-refund-status-recorded"]!(
@@ -199,6 +199,7 @@ describe("settlement fulfillment source projection", () => {
         "fulfillment.shipment.label-refund-status-recorded",
         {
           shipmentId: "shp_1",
+          postageProviderLabelId: "pl_1",
           refundStatus: "rejected",
           refundReference: "rfnd_1",
           resolvedAt: "2026-09-10T15:50:00.000Z",
@@ -209,16 +210,37 @@ describe("settlement fulfillment source projection", () => {
     );
     expect(wallets.postEntry).not.toHaveBeenCalled();
 
+    recordedRefundStatus = "rejected";
+    await expect(
+      handlers["fulfillment.shipment.label-refund-status-recorded"]!(
+        event(
+          "fulfillment.shipment.label-refund-status-recorded",
+          {
+            shipmentId: "shp_1",
+            postageProviderLabelId: "pl_1",
+            refundStatus: "refunded",
+            refundReference: "rfnd_1",
+            resolvedAt: "2026-09-10T15:51:00.000Z",
+          },
+          5,
+        ),
+        { db: db as never },
+      ),
+    ).rejects.toThrow("terminal status conflicts");
+    expect(wallets.postEntry).not.toHaveBeenCalled();
+
+    recordedRefundStatus = null;
     await handlers["fulfillment.shipment.label-refund-status-recorded"]!(
       event(
         "fulfillment.shipment.label-refund-status-recorded",
         {
           shipmentId: "shp_1",
+          postageProviderLabelId: "pl_1",
           refundStatus: "refunded",
           refundReference: "rfnd_1",
           resolvedAt: "2026-09-10T15:51:00.000Z",
         },
-        5,
+        6,
       ),
       { db: db as never },
     );
@@ -234,5 +256,40 @@ describe("settlement fulfillment source projection", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("keeps label-voided lifecycle-only and refuses identity-less refund facts before any lookup", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
+    const wallets = { loadWalletState: vi.fn(), postEntry: vi.fn() };
+    const handlers = buildSettlementFulfillmentSourceProjectionHandlers(db as never, {
+      wallets: wallets as never,
+      activation: syntheticActivation,
+    });
+
+    await handlers["fulfillment.shipment.label-voided"]!(
+      event("fulfillment.shipment.label-voided", {
+        shipmentId: "shp_1",
+        refundStatus: "refunded",
+        refundReference: "synthetic_refund_1",
+        voidedAt: "2026-09-10T15:49:00.000Z",
+      }),
+      { db: db as never },
+    );
+    expect(db.query).not.toHaveBeenCalled();
+    expect(wallets.postEntry).not.toHaveBeenCalled();
+
+    await expect(
+      handlers["fulfillment.shipment.label-refund-status-recorded"]!(
+        event("fulfillment.shipment.label-refund-status-recorded", {
+          shipmentId: "shp_1",
+          refundStatus: "refunded",
+          refundReference: "synthetic_refund_1",
+          resolvedAt: "2026-09-10T15:50:00.000Z",
+        }),
+        { db: db as never },
+      ),
+    ).rejects.toThrow("missing its original label identity");
+    expect(db.query).not.toHaveBeenCalled();
+    expect(wallets.postEntry).not.toHaveBeenCalled();
   });
 });
