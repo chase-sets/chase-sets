@@ -197,7 +197,7 @@ describe("channels-context-foundation", () => {
         "channel-listing-desired-state",
         "channel-listing-reconciliation-run",
       ]),
-      slices: ["connections", "publication-port", "listing-composition", "outbound-sync"],
+      slices: ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
       allowedSupportDirectories: ["request-support"],
       publicExports: [".", "./context", "./server", "./routes/*"],
       allowedContextDependencies: [],

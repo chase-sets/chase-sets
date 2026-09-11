@@ -14,7 +14,7 @@
   ],
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
-  "slices": ["connections", "publication-port", "listing-composition", "outbound-sync", "tcgplayer-csv"],
+  "slices": ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
   "allowedSupportDirectories": ["request-support"],
   "publicExports": [".", "./context", "./server", "./routes/*"],
   "allowedContextDependencies": [],

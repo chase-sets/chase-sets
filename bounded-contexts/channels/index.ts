@@ -135,25 +135,8 @@ export {
   isChannelSyncRunTerminalState,
 } from "./features/tcgplayer-csv/domain/lifecycle";
 export { tcgplayerStagedImportPolicy } from "./features/tcgplayer-csv/domain/policy";
-export {
-  tcgplayerCompositionProfiles,
-  tcgplayerExportSchemaDescriptors,
-  tcgplayerLiveExportHeader,
-  tcgplayerProviderDescriptors,
-} from "./features/tcgplayer-csv/domain/profile";
-export {
-  assertManualClaimLeasePolicySnapshot,
-  assertTcgplayerImportSummary,
-  canonicalManualClaimLeasePolicySnapshotDigest,
-} from "./features/tcgplayer-csv/domain/validation";
-export { createTcgplayerClaimedReservationRunSettlementPort } from "./features/tcgplayer-csv/integrations/outbound-sync-settlement";
-export { buildTcgplayerCsvProjectionHandlers } from "./features/tcgplayer-csv/read-model/projection";
-export {
-  readChannelSyncRunByReservation,
-  readLatestSnapshotRows,
-  readRun,
-  readSnapshotRowsById,
-} from "./features/tcgplayer-csv/read-model/queries";
+export { tcgplayerExportSchemaDescriptors } from "./features/tcgplayer-csv/domain/profile";
+export { readLatestSnapshotRows, readRun } from "./features/tcgplayer-csv/read-model/queries";
 
 import {
   buildEventReactionsFromManifest,
