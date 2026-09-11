@@ -81,9 +81,9 @@ describe("Identity destructive action confirmations", () => {
     },
     {
       action: "Withdraw consent",
-      dialogName: "Withdraw marketing-email consent?",
+      dialogName: "Withdraw Unrecognized consent policy: Marketing Email consent?",
       consequence:
-        "This ends your current agreement to marketing-email. The audit history will be retained, and you can agree again later.",
+        "This ends your current agreement to Unrecognized consent policy: Marketing Email. The audit history will be retained, and you can agree again later.",
       intent: "withdraw",
       confirm: "Confirm withdrawal",
       page: (

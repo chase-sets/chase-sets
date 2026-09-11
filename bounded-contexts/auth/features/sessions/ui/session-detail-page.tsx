@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { authenticationMethodLabel, formatDateTime, t } from "@chase-sets/localization";
 import {
   AdminResourceDetailPage,
   HiddenInput,
@@ -10,6 +10,7 @@ import {
   Stack,
 } from "@chase-sets/design-system";
 import type { Session } from "./contracts";
+import { authDateUnavailable, sessionStatusLabel } from "../../../support/ui-support/value-labels";
 
 export function SessionDetailPage({ data }: { data: Session }) {
   const user = data.user_display_name ?? data.user_primary_email ?? data.user_id;
@@ -22,7 +23,7 @@ export function SessionDetailPage({ data }: { data: Session }) {
         { label: user },
       ]}
       title={t("auth.features.sessions.ui.sessionDetailPage.title", { user })}
-      status={data.status}
+      status={sessionStatusLabel(data.status)}
       actions={
         <Inline gap={2}>
           {data.status === "active" ? (
@@ -77,9 +78,12 @@ export function SessionDetailPage({ data }: { data: Session }) {
         },
         {
           label: t("auth.features.sessions.ui.sessionDetailPage.authentication.method"),
-          value: data.authentication_method,
+          value: authenticationMethodLabel(data.authentication_method, t),
         },
-        { label: t("auth.features.sessions.ui.sessionDetailPage.expires.at"), value: data.expires_at },
+        {
+          label: t("auth.features.sessions.ui.sessionDetailPage.expires.at"),
+          value: formatDateTime(data.expires_at, { fallback: authDateUnavailable() }),
+        },
       ]}
     />
   );

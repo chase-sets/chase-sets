@@ -4,6 +4,11 @@ import { CustomerSummaryPage } from "../../../support/ui-support/customer-pages"
 import type { Membership } from "./contracts";
 import type { Invitation } from "../../invitations/ui/contracts";
 import { grantableRoleSelectItems } from "./role-select-items";
+import {
+  invitationStatusLabel,
+  membershipRoleLabel,
+  membershipStatusLabel,
+} from "../../../support/ui-support/value-labels";
 
 function userLabel(membership: Membership) {
   return membership.user_display_name ?? membership.user_primary_email ?? membership.user_id;
@@ -54,8 +59,8 @@ export function TeamPage({
         ...memberships.map((membership) => ({
           title: userLabel(membership),
           body: t("identity.features.memberships.ui.accountTeamPage.membership.summary", {
-            role: membership.role_key,
-            status: membership.status,
+            role: membershipRoleLabel(membership.role_key),
+            status: membershipStatusLabel(membership.status),
           }),
           action: (
             <Stack direction="row" gap={2}>
@@ -110,8 +115,8 @@ export function TeamPage({
         ...invitations.map((invitation) => ({
           title: invitation.email,
           body: t("identity.features.memberships.ui.accountTeamPage.invitation.summary", {
-            role: invitation.role_key,
-            status: invitation.status,
+            role: membershipRoleLabel(invitation.role_key),
+            status: invitationStatusLabel(invitation.status),
           }),
           action:
             invitation.status === "pending" ? (
