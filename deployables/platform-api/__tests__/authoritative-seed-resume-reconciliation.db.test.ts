@@ -343,7 +343,7 @@ describe("authoritative seed resume", () => {
       indeterminateReport.report.eventCount,
     );
     const defaultArmViolations = corpusViolations(defaultArmMutant);
-    expect(defaultArmViolations).toContain("corpus cardinality 286 does not equal the pinned 285");
+    expect(defaultArmViolations).toContain("corpus cardinality 289 does not equal the pinned 288");
     expect(mountBindingViolations(defaultArmMutant), "the default-arm mutant must stay green on mount binding").toEqual(
       [],
     );
