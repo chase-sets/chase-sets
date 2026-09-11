@@ -324,7 +324,10 @@ export function SettlementMoneyDashboardPage({
             ),
             description: (
               <Stack gap={2}>
-                <Text>{formatMoney(payout.amount, payout.currency_code)}</Text>
+                <Text>
+                  {t("settlement.features.payouts.ui.netPayout")}:{" "}
+                  {formatMoney(payout.net_amount, payout.currency_code)}
+                </Text>
                 <SideSheet
                   title={t("settlement.features.moneyDashboard.ui.payoutBreakdown", {
                     reference: payout.display_reference,
@@ -344,8 +347,12 @@ export function SettlementMoneyDashboardPage({
                   <PriceBreakdown
                     lines={[
                       {
-                        label: t("settlement.features.moneyDashboard.ui.amount"),
-                        value: formatMoney(payout.amount, payout.currency_code),
+                        label: t("settlement.features.payouts.ui.requestedAmount"),
+                        value: formatMoney(payout.requested_amount, payout.currency_code),
+                      },
+                      {
+                        label: t("settlement.features.payouts.ui.payoutFee"),
+                        value: formatMoney(payout.fee_amount, payout.currency_code),
                       },
                       {
                         label: t("settlement.features.moneyDashboard.ui.requested"),
@@ -368,8 +375,8 @@ export function SettlementMoneyDashboardPage({
                           ]
                         : []),
                     ]}
-                    total={payoutStatusLabel(payout.status)}
-                    totalLabel={t("settlement.features.moneyDashboard.ui.status")}
+                    total={formatMoney(payout.net_amount, payout.currency_code)}
+                    totalLabel={t("settlement.features.payouts.ui.netPayout")}
                   />
                 </SideSheet>
               </Stack>

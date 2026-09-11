@@ -11,6 +11,7 @@ export const payoutUnavailableReasonLabels = {
   "platform-balance-insufficient": moneyStatusLabel("platform-balance-insufficient"),
   "amount-below-minimum": moneyStatusLabel("amount-below-minimum"),
   "amount-above-maximum": moneyStatusLabel("amount-above-maximum"),
+  "payout-amount-below-fee": moneyStatusLabel("payout-amount-below-fee"),
   "amount-exceeds-available-balance": moneyStatusLabel("amount-exceeds-available-balance"),
   "payout-release-hold-active": moneyStatusLabel("payout-release-hold-active"),
 } as const;

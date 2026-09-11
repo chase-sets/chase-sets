@@ -323,9 +323,19 @@ export function SettlementPayoutOperationsPage({
               cell: (row) => <Badge tone={operationsTone(row)}>{operationsLabel(row)}</Badge>,
             },
             {
-              key: "amount",
-              header: t("settlement.features.payouts.ui.payoutOperationsPage.amount"),
-              cell: (row) => formatMoney(row.amount, row.currency_code),
+              key: "requested_amount",
+              header: t("settlement.features.payouts.ui.requestedAmount"),
+              cell: (row) => formatMoney(row.requested_amount, row.currency_code),
+            },
+            {
+              key: "fee_amount",
+              header: t("settlement.features.payouts.ui.payoutFee"),
+              cell: (row) => formatMoney(row.fee_amount, row.currency_code),
+            },
+            {
+              key: "net_amount",
+              header: t("settlement.features.payouts.ui.netPayout"),
+              cell: (row) => formatMoney(row.net_amount, row.currency_code),
             },
             {
               key: "provider_payout_reference",

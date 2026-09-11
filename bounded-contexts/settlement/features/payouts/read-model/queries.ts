@@ -3,7 +3,11 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 export type SettlementPayoutRow = Readonly<{
   payout_id: string;
   account_id: string;
+  /** Historical storage alias for requested_amount. */
   amount: string;
+  requested_amount: string;
+  fee_amount: string;
+  net_amount: string;
   currency_code: string;
   destination_reference: string | null;
   note: string | null;
@@ -79,6 +83,9 @@ const payoutSelect = `
     payout_id,
     account_id,
     amount::text AS amount,
+    requested_amount::text AS requested_amount,
+    fee_amount::text AS fee_amount,
+    net_amount::text AS net_amount,
     currency_code,
     destination_reference,
     note,
@@ -330,6 +337,29 @@ export async function getAccountPayoutRiskSummary(
     stale_requested_payout_count: Number(row?.stale_requested_payout_count ?? 0),
     in_transit_payout_count: Number(row?.in_transit_payout_count ?? 0),
   };
+}
+
+export async function countActivePayoutsInUtcMonth(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; at: string; excludePayoutId?: string | null }>,
+): Promise<number> {
+  const result = await db.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM event_store_events requested
+     WHERE requested.event_type = 'settlement.payout.requested'
+       AND requested.payload ->> 'accountId' = $1
+       AND (requested.payload ->> 'requestedAt')::timestamptz >= date_trunc('month', $2::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+       AND (requested.payload ->> 'requestedAt')::timestamptz < date_trunc('month', $2::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' + INTERVAL '1 month'
+       AND ($3::text IS NULL OR requested.payload ->> 'payoutId' <> $3)
+       AND NOT EXISTS (
+         SELECT 1
+         FROM event_store_events failed
+         WHERE failed.stream_id = requested.stream_id
+           AND failed.event_type = 'settlement.payout.failed'
+       )`,
+    [params.accountId, params.at, params.excludePayoutId ?? null],
+  );
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 export async function recordSettlementProviderIdempotencyKey(

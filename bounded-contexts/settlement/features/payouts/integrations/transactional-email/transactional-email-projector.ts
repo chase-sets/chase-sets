@@ -9,6 +9,9 @@ type SettlementPayoutCompletedEmailData = Readonly<{
   payoutId: string;
   accountId: AccountId;
   amount: string;
+  requestedAmount?: string;
+  feeAmount?: string;
+  netAmount?: string;
 }>;
 
 export function buildSettlementPayoutTransactionalEmailProjectionHandlers(
@@ -25,7 +28,9 @@ export function buildSettlementPayoutTransactionalEmailProjectionHandlers(
         sellerEmail: recipient,
         recipientAccountId: data.accountId,
         payoutId: data.payoutId,
-        amount: data.amount,
+        requestedAmount: data.requestedAmount ?? data.amount,
+        feeAmount: data.feeAmount ?? "0.00",
+        netAmount: data.netAmount ?? data.amount,
         correlationId,
       }),
   });

@@ -1,8 +1,10 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
+import { applyEvents } from "@chase-sets/event-core/domain";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { EventStore, EventStoreError } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -77,6 +79,7 @@ import {
 } from "../integrations/transactional-email/transactional-email-projector";
 import {
   getPayout,
+  countActivePayoutsInUtcMonth,
   findPayoutRequestIdempotency,
   reservePayoutRequestIdempotency,
   getAccountPayoutRiskSummary,
@@ -112,6 +115,8 @@ import {
   initialPayoutMonthState,
   initialPayoutState,
   payoutMonthStreamId,
+  planPayoutMonthFailure,
+  planPayoutMonthRequest,
   type PayoutCommand,
   type PayoutEvent,
   type PayoutMonthEvent,
@@ -266,6 +271,9 @@ export type PayoutServices = Readonly<{
         label: string;
         reference: string | null;
         amount: string | null;
+        requested_amount?: string | null;
+        fee_amount?: string | null;
+        net_amount?: string | null;
         currency_code: string | null;
       }>[];
     }>
@@ -358,6 +366,9 @@ export type PayoutServices = Readonly<{
       providerFailureCode?: string | null;
       providerFailureMessage?: string | null;
       failedAt?: string;
+      netAmount?: string;
+      feeAmount?: string;
+      currencyCode?: string;
     }>,
     context: EventStoreContext,
   ) => Promise<{ payoutId: string; version: number; payout: PayoutCommandSnapshot }>;
@@ -453,8 +464,32 @@ function payoutReversalLedgerEntryId(payoutId: string): LedgerEntryId {
   return `led_payout_reversal_${payoutId}` as LedgerEntryId;
 }
 
+function payoutFeeDebitLedgerEntryId(payoutId: string): LedgerEntryId {
+  return `led_payout_fee_${payoutId}` as LedgerEntryId;
+}
+
+function payoutFeeReversalLedgerEntryId(payoutId: string): LedgerEntryId {
+  return `led_payout_fee_reversal_${payoutId}` as LedgerEntryId;
+}
+
+function payoutAmounts(value: object) {
+  const fields = value as Readonly<Record<string, unknown>>;
+  const legacyAmount = typeof fields.amount === "string" ? fields.amount : null;
+  const requestedAmount = typeof fields.requested_amount === "string" ? fields.requested_amount : legacyAmount;
+  const feeAmount = typeof fields.fee_amount === "string" ? fields.fee_amount : "0.00";
+  const netAmount = typeof fields.net_amount === "string" ? fields.net_amount : legacyAmount;
+  if (!requestedAmount || !netAmount) {
+    throw new SettlementDomainError("Payout amounts were not found.");
+  }
+  return { requestedAmount, feeAmount, netAmount } as const;
+}
+
 function isDuplicateLedgerEntryError(error: unknown) {
   return error instanceof Error && error.message === "Ledger entry has already been posted.";
+}
+
+function isConcurrencyConflict(error: unknown): error is EventStoreError {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "concurrency_conflict");
 }
 
 function providerErrorMessage(error: unknown, fallback: string) {
@@ -794,6 +829,190 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     );
   }
 
+  function requireAtomicPayoutAppend() {
+    const appendToStreams = deps.eventStore.appendToStreams;
+    if (!appendToStreams) {
+      throw new SettlementDomainError("Atomic payout month writes are unavailable.");
+    }
+    return appendToStreams;
+  }
+
+  async function activePayoutBaselineCount(accountId: string, at: string, excludePayoutId?: string | null) {
+    return countActivePayoutsInUtcMonth(deps.db, { accountId, at, excludePayoutId });
+  }
+
+  async function commitPayoutRequest(
+    params: Readonly<{
+      payoutId: PayoutId;
+      accountId: AccountId;
+      requestedAmount: string;
+      currencyCode: "usd";
+      destinationReference?: string | null;
+      note?: string | null;
+      notificationEmail?: string | null;
+      requestedAt: string;
+      feePolicy: ResolvedPayoutFeePolicy;
+    }>,
+    context: EventStoreContext,
+  ) {
+    const appendToStreams = requireAtomicPayoutAppend();
+    const payoutStreamId = `settlement.payout-${params.payoutId}`;
+    const monthStreamId = payoutMonthStreamId(params.accountId, params.requestedAt);
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const [payout, month] = await Promise.all([
+        repository.load(payoutStreamId),
+        payoutMonthRepository.load(monthStreamId),
+      ]);
+      if (payout.state.payoutId) {
+        return {
+          payoutId: params.payoutId,
+          version: payout.version,
+          payout: requirePayoutSnapshot(payout.state, payout.version),
+        };
+      }
+      const legacyActivePayoutCount = month.state.initialized
+        ? 0
+        : await activePayoutBaselineCount(params.accountId, params.requestedAt);
+      const monthPlan = planPayoutMonthRequest(month.state, {
+        accountId: params.accountId,
+        payoutId: params.payoutId,
+        requestedAt: params.requestedAt,
+        legacyActivePayoutCount,
+      });
+      const quote = quotePayoutFee(params.requestedAmount, params.feePolicy.value, {
+        isFirstPayoutOfMonth: monthPlan.isFirstPayoutOfMonth,
+      });
+      const payoutEvents = decidePayout(payout.state, {
+        type: "RequestPayout",
+        payoutId: params.payoutId,
+        accountId: params.accountId,
+        requestedAmount: params.requestedAmount,
+        feeAmount: quote.feeAmount,
+        netAmount: quote.netAmount,
+        currencyCode: params.currencyCode,
+        destinationReference: params.destinationReference ?? null,
+        note: params.note ?? null,
+        notificationEmail: params.notificationEmail ?? null,
+        requestedAt: params.requestedAt,
+      });
+
+      try {
+        const stored = await appendToStreams([
+          {
+            streamId: monthStreamId,
+            expectedVersion: month.version,
+            context,
+            events: monthPlan.events.map(payoutMonthCodec.encode),
+          },
+          {
+            streamId: payoutStreamId,
+            expectedVersion: payout.version,
+            context,
+            events: payoutEvents.map(payoutCodec.encode),
+          },
+        ]);
+        recordCommittedEvents(
+          stored.flatMap((result) => result.storedEvents),
+          "settlement",
+        );
+        const nextState = applyEvents(payout.state, evolvePayout, payoutEvents);
+        return {
+          payoutId: params.payoutId,
+          version: payout.version + payoutEvents.length,
+          payout: requirePayoutSnapshot(nextState, payout.version + payoutEvents.length),
+        };
+      } catch (error) {
+        if (!isConcurrencyConflict(error) || attempt === 4) {
+          throw error;
+        }
+      }
+    }
+    throw new SettlementDomainError("Payout month selection did not converge.");
+  }
+
+  async function commitPayoutFailure(
+    params: Readonly<{
+      payoutId: string;
+      accountId: string;
+      failureReason?: string | null;
+      providerStatus?: string | null;
+      providerFailureCode?: string | null;
+      providerFailureMessage?: string | null;
+      failedAt: string;
+    }>,
+    context: EventStoreContext,
+  ) {
+    const appendToStreams = requireAtomicPayoutAppend();
+    const payoutStreamId = `settlement.payout-${params.payoutId}`;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const payout = await repository.load(payoutStreamId);
+      if (!payout.state.payoutId) {
+        throw new SettlementDomainError("Payout was not found.");
+      }
+      if (!payout.state.requestedAt) {
+        throw new SettlementDomainError("Payout request month was not found.");
+      }
+      const monthStreamId = payoutMonthStreamId(params.accountId as AccountId, payout.state.requestedAt);
+      const month = await payoutMonthRepository.load(monthStreamId);
+      const payoutEvents = decidePayout(payout.state, {
+        type: "FailPayout",
+        failureReason: params.failureReason ?? null,
+        providerStatus: params.providerStatus ?? null,
+        providerFailureCode: params.providerFailureCode ?? null,
+        providerFailureMessage: params.providerFailureMessage ?? null,
+        failedAt: params.failedAt,
+      });
+      const legacyActivePayoutCount = month.state.initialized
+        ? 0
+        : await activePayoutBaselineCount(params.accountId, payout.state.requestedAt, params.payoutId);
+      const monthEvents = planPayoutMonthFailure(month.state, {
+        accountId: params.accountId as AccountId,
+        payoutId: params.payoutId as PayoutId,
+        failedAt: params.failedAt,
+        legacyActivePayoutCount,
+      });
+      if (payoutEvents.length === 0 && monthEvents.length === 0) {
+        return {
+          payoutId: params.payoutId,
+          version: payout.version,
+          payout: requirePayoutSnapshot(payout.state, payout.version),
+        };
+      }
+      try {
+        const stored = await appendToStreams([
+          {
+            streamId: monthStreamId,
+            expectedVersion: month.version,
+            context,
+            events: monthEvents.map(payoutMonthCodec.encode),
+          },
+          {
+            streamId: payoutStreamId,
+            expectedVersion: payout.version,
+            context,
+            events: payoutEvents.map(payoutCodec.encode),
+          },
+        ]);
+        recordCommittedEvents(
+          stored.flatMap((result) => result.storedEvents),
+          "settlement",
+        );
+        const nextState = applyEvents(payout.state, evolvePayout, payoutEvents);
+        return {
+          payoutId: params.payoutId,
+          version: payout.version + payoutEvents.length,
+          payout: requirePayoutSnapshot(nextState, payout.version + payoutEvents.length),
+        };
+      } catch (error) {
+        if (!isConcurrencyConflict(error) || attempt === 4) {
+          throw error;
+        }
+      }
+    }
+    throw new SettlementDomainError("Payout failure did not converge.");
+  }
+
   async function failPayoutAndReverseWallet(
     params: Readonly<{
       payoutId: string;
@@ -803,51 +1022,65 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       providerFailureCode?: string | null;
       providerFailureMessage?: string | null;
       failedAt?: string;
-      amount?: string;
+      netAmount?: string;
+      feeAmount?: string;
       currencyCode?: string;
     }>,
     context: EventStoreContext,
   ) {
     const payout =
       (await getPayout(deps.db, params.payoutId, params.accountId)) ??
-      (params.amount && params.currencyCode
+      (params.netAmount && params.feeAmount && params.currencyCode
         ? {
             payout_id: params.payoutId,
             account_id: params.accountId,
-            amount: params.amount,
+            amount: params.netAmount,
+            requested_amount: calculateCanonicalMoneyOrThrow("Payout requested amount must be valid.", () =>
+              sumMoneyAmounts([params.netAmount!, params.feeAmount!]),
+            ),
+            fee_amount: params.feeAmount,
+            net_amount: params.netAmount,
             currency_code: params.currencyCode,
           }
         : null);
     if (!payout) {
       throw new SettlementDomainError("Payout was not found.");
     }
+    const amounts = payoutAmounts(payout);
     const failedAt = params.failedAt ?? new Date().toISOString();
-    const debitLedgerEntryId = payoutDebitLedgerEntryId(payout.payout_id);
-    const reversalLedgerEntryId = payoutReversalLedgerEntryId(payout.payout_id);
-    const result = await commandHandler({
-      streamId: `settlement.payout-${params.payoutId}`,
-      command: {
-        type: "FailPayout",
-        failureReason: params.failureReason ?? null,
-        providerStatus: params.providerStatus ?? null,
-        providerFailureCode: params.providerFailureCode ?? null,
-        providerFailureMessage: params.providerFailureMessage ?? null,
-        failedAt,
+    const result = await commitPayoutFailure({ ...params, failedAt }, context);
+    const reversals = [
+      {
+        debitLedgerEntryId: payoutDebitLedgerEntryId(payout.payout_id),
+        reversalLedgerEntryId: payoutReversalLedgerEntryId(payout.payout_id),
+        kind: "payout-reversal",
+        fallbackAmount: amounts.netAmount,
       },
-      context,
-    });
-
-    const debitEntry = await getCommittedPayoutLedgerEntry(payout.account_id, debitLedgerEntryId);
-    const reversalEntry = await getCommittedPayoutLedgerEntry(payout.account_id, reversalLedgerEntryId);
-    if (debitEntry && !reversalEntry) {
+      {
+        debitLedgerEntryId: payoutFeeDebitLedgerEntryId(payout.payout_id),
+        reversalLedgerEntryId: payoutFeeReversalLedgerEntryId(payout.payout_id),
+        kind: "fee",
+        fallbackAmount: amounts.feeAmount,
+      },
+    ] as const;
+    for (const reversal of reversals) {
+      const debitEntry = await getCommittedPayoutLedgerEntry(payout.account_id, reversal.debitLedgerEntryId);
+      const reversalEntry = await getCommittedPayoutLedgerEntry(payout.account_id, reversal.reversalLedgerEntryId);
+      if (!debitEntry || reversalEntry) {
+        continue;
+      }
+      const reversalAmount = normalizeMoneyAmount(debitEntry.amount ?? reversal.fallbackAmount, {
+        fieldName: "Payout reversal amount",
+        allowZero: reversal.kind === "fee",
+      });
       try {
         await deps.wallets.postEntry(
           {
             accountId: payout.account_id as AccountId,
-            ledgerEntryId: reversalLedgerEntryId,
-            kind: "payout-reversal",
+            ledgerEntryId: reversal.reversalLedgerEntryId,
+            kind: reversal.kind,
             direction: "credit",
-            amount: payout.amount,
+            amount: reversalAmount,
             currencyCode: normalizeCurrencyCode(payout.currency_code),
             fundsStatus: "available",
             payoutId: payout.payout_id as PayoutId,
@@ -868,7 +1101,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         kind: "payout-reversal-posted",
         accountId: payout.account_id,
         payoutId: payout.payout_id,
-        amount: payout.amount,
+        amount: reversalAmount,
         currencyCode: payout.currency_code,
         reason:
           params.failureReason ??
@@ -880,7 +1113,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     return {
       payoutId: params.payoutId,
       version: result.version,
-      payout: requirePayoutSnapshot(result.state, result.version),
+      payout: result.payout,
     };
   }
 
@@ -974,6 +1207,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             context,
           );
         }
+        const failedAmounts = payoutAmounts(payout);
         await failPayoutAndReverseWallet(
           {
             payoutId: payout.payout_id,
@@ -983,7 +1217,8 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             providerFailureCode: event.failureCode,
             providerFailureMessage: event.failureMessage,
             failedAt: event.occurredAt,
-            amount: payout.amount,
+            netAmount: failedAmounts.netAmount,
+            feeAmount: failedAmounts.feeAmount,
             currencyCode: payout.currency_code,
           },
           context,
@@ -1082,6 +1317,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     }
 
     if (["failed", "canceled", "cancelled"].includes(providerPayout.providerStatus)) {
+      const failedAmounts = payoutAmounts(payout);
       await failPayoutAndReverseWallet(
         {
           payoutId: payout.payout_id,
@@ -1090,6 +1326,9 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           providerStatus: providerPayout.providerStatus,
           providerFailureCode: providerPayout.failureCode,
           providerFailureMessage: providerPayout.failureMessage,
+          netAmount: failedAmounts.netAmount,
+          feeAmount: failedAmounts.feeAmount,
+          currencyCode: payout.currency_code,
         },
         context,
       );
@@ -1120,11 +1359,12 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   ) {
     const request = operation?.request_json && typeof operation.request_json === "object" ? operation.request_json : {};
     const values = request as Record<string, unknown>;
+    const amounts = payoutAmounts(payout);
     return {
       payoutId: typeof values.payoutId === "string" ? values.payoutId : payout.payout_id,
       accountId: typeof values.accountId === "string" ? values.accountId : payout.account_id,
       providerReference: typeof values.providerReference === "string" ? values.providerReference : providerReference,
-      amount: typeof values.amount === "string" ? values.amount : payout.amount,
+      amount: typeof values.amount === "string" ? values.amount : amounts.netAmount,
       currencyCode: normalizeCurrencyCode(
         typeof values.currencyCode === "string" ? values.currencyCode : payout.currency_code,
       ),
@@ -1198,6 +1438,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           errorMessage: providerFailureMessage,
         });
         if (isTerminalProviderFailure(error)) {
+          const failedAmounts = payoutAmounts(payout);
           await failPayoutAndReverseWallet(
             {
               payoutId: payout.payout_id,
@@ -1206,6 +1447,9 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
               providerStatus: "failed",
               providerFailureMessage,
               failedAt: new Date().toISOString(),
+              netAmount: failedAmounts.netAmount,
+              feeAmount: failedAmounts.feeAmount,
+              currencyCode: payout.currency_code,
             },
             context,
           );
@@ -1422,6 +1666,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     getPayout: (payoutId, accountId) => getPayout(deps.db, payoutId, accountId),
     async getPayoutMoneyTimeline(params) {
       const payout = await requireExistingPayout(deps.db, params.payoutId, params.accountId);
+      const amounts = payoutAmounts(payout);
       const [walletEntries, idempotencyKeys] = await Promise.all([
         deps.wallets.listWalletEntries({
           accountId: params.accountId,
@@ -1438,7 +1683,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           kind: "payout-requested",
           label: "Payout requested",
           reference: payout.display_reference,
-          amount: payout.amount,
+          amount: amounts.requestedAmount,
+          requested_amount: amounts.requestedAmount,
+          fee_amount: amounts.feeAmount,
+          net_amount: amounts.netAmount,
           currency_code: payout.currency_code,
         },
         ...walletEntries.items
@@ -1468,7 +1716,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
                 kind: "provider-payout-submitted",
                 label: "Provider payout submitted",
                 reference: payout.provider_payout_reference,
-                amount: payout.amount,
+                amount: amounts.netAmount,
+                requested_amount: amounts.requestedAmount,
+                fee_amount: amounts.feeAmount,
+                net_amount: amounts.netAmount,
                 currency_code: payout.currency_code,
               },
             ]
@@ -1480,7 +1731,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
                 kind: "payout-completed",
                 label: "Payout completed",
                 reference: payout.provider_payout_reference,
-                amount: payout.amount,
+                amount: amounts.netAmount,
+                requested_amount: amounts.requestedAmount,
+                fee_amount: amounts.feeAmount,
+                net_amount: amounts.netAmount,
                 currency_code: payout.currency_code,
               },
             ]
@@ -1492,7 +1746,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
                 kind: "payout-failed",
                 label: "Payout failed",
                 reference: payout.provider_payout_reference,
-                amount: payout.amount,
+                amount: amounts.netAmount,
+                requested_amount: amounts.requestedAmount,
+                fee_amount: amounts.feeAmount,
+                net_amount: amounts.netAmount,
                 currency_code: payout.currency_code,
               },
             ]
@@ -1525,7 +1782,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       const pendingAmounts = payouts
         .filter((payout) => payout.currency_code === currencyCode)
         .map((payout) =>
-          normalizeMoneyAmount(payout.amount, {
+          normalizeMoneyAmount(payoutAmounts(payout).netAmount, {
             allowZero: true,
             fieldName: "In-transit payout amount",
           }),
@@ -1566,20 +1823,49 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       };
     },
     async previewPayoutRequest(params, context) {
+      const evaluatedAt = new Date().toISOString();
       const wallet = await deps.wallets.getWallet(params.accountId);
       let readiness = await deps.payoutReadiness.getPayoutReadiness(params.accountId);
       const currencyCode = normalizeCurrencyCode(wallet.currency_code);
       const amount = normalizeMoneyAmount(params.amount, {
         fieldName: "Payout amount",
       });
-      const [riskSummary, platformBalance, activeSupportHoldAmount, activeSpendHoldAmount, payoutBoundsPolicy] =
-        await Promise.all([
-          getAccountPayoutRiskSummary(deps.db, params.accountId),
-          deps.moneyMovementGateway.retrievePlatformBalance({ currencyCode }),
-          getAccountActiveSupportHoldAmount(deps.db, params.accountId),
-          getAccountActiveSpendHoldAmount(deps.db, params.accountId),
-          resolvePayoutBoundsPolicy(deps),
-        ]);
+      const [
+        riskSummary,
+        platformBalance,
+        activeSupportHoldAmount,
+        activeSpendHoldAmount,
+        payoutBoundsPolicy,
+        payoutFeePolicy,
+        payoutMonth,
+      ] = await Promise.all([
+        getAccountPayoutRiskSummary(deps.db, params.accountId),
+        deps.moneyMovementGateway.retrievePlatformBalance({ currencyCode }),
+        getAccountActiveSupportHoldAmount(deps.db, params.accountId),
+        getAccountActiveSpendHoldAmount(deps.db, params.accountId),
+        resolvePayoutBoundsPolicy(deps),
+        resolvePayoutFeePolicy(deps, evaluatedAt),
+        payoutMonthRepository.load(payoutMonthStreamId(params.accountId, evaluatedAt)),
+      ]);
+      const legacyActivePayoutCount = payoutMonth.state.initialized
+        ? 0
+        : await activePayoutBaselineCount(params.accountId, evaluatedAt);
+      const isFirstPayoutOfMonth =
+        payoutMonth.state.legacyActivePayoutCount +
+          legacyActivePayoutCount +
+          payoutMonth.state.activePayoutIds.length ===
+        0;
+      const recurringFeeAmount = payoutFeeAmount(amount, payoutFeePolicy.value);
+      const monthlyActiveFeeAmount = isFirstPayoutOfMonth
+        ? payoutFeePolicy.value.firstPayoutOfMonthFixedAmount
+        : "0.00";
+      const feeAmount = calculateCanonicalMoneyOrThrow("Payout fee amount must be valid.", () =>
+        sumMoneyAmounts([recurringFeeAmount, monthlyActiveFeeAmount]),
+      );
+      const amountExceedsFee = compareMoney(amount, feeAmount) > 0;
+      const netAmount = amountExceedsFee
+        ? calculateCanonicalMoneyOrThrow("Payout net amount must be valid.", () => subtractMoney(amount, feeAmount))
+        : "0.00";
       const platformAvailableAmount = normalizeSignedMoneyAmount(
         platformBalance.availableAmount,
         "Platform available amount",
@@ -1634,13 +1920,16 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       if (compareMoney(amount, payoutBoundsPolicy.maximumAmount) > 0) {
         unavailableReasons.push("amount-above-maximum");
       }
+      if (!amountExceedsFee) {
+        unavailableReasons.push("payout-amount-below-fee");
+      }
       if (compareMoney(payoutAvailableBalanceAmount, amount) < 0) {
         unavailableReasons.push("amount-exceeds-available-balance");
       }
       if (compareMoney(activeSupportHoldAmount, "0.00") > 0) {
         unavailableReasons.push("support-hold-active");
       }
-      if (compareMoney(platformAvailableAmount, amount) < 0) {
+      if (amountExceedsFee && compareMoney(platformAvailableAmount, netAmount) < 0) {
         unavailableReasons.push("platform-balance-insufficient");
       }
       if (riskSummary.failed_payout_count > 0) {
@@ -1654,6 +1943,23 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       return {
         account_id: params.accountId,
         requested_amount: amount,
+        fee_amount: feeAmount,
+        net_amount: netAmount,
+        monthly_active_fee_amount: monthlyActiveFeeAmount,
+        is_first_payout_of_month: isFirstPayoutOfMonth,
+        fee_policy_version: payoutFeePolicy.version,
+        fee_lines: [
+          { code: "payout-fee" as const, label: payoutFeePolicy.value.label, amount: recurringFeeAmount },
+          ...(compareMoney(monthlyActiveFeeAmount, "0.00") > 0
+            ? [
+                {
+                  code: "monthly-active-fee" as const,
+                  label: "First payout of the month",
+                  amount: monthlyActiveFeeAmount,
+                },
+              ]
+            : []),
+        ],
         currency_code: currencyCode,
         available_balance_amount: payoutAvailableBalanceAmount,
         platform_available_amount: platformAvailableAmount,
@@ -1678,16 +1984,14 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           return await replayReservedPayout(existing.payout_id, params.amount, existing.requested_amount);
         }
       }
-      await recordOperation({
-        kind: "payout-requested",
-        accountId: params.accountId,
-        amount: params.amount,
-        currencyCode: "usd",
-      });
       const wallet = await deps.wallets.getWallet(params.accountId);
       let readiness = await deps.payoutReadiness.getPayoutReadiness(params.accountId);
       const currencyCode = normalizeCurrencyCode(wallet.currency_code);
-      const payoutBoundsPolicy = await resolvePayoutBoundsPolicy(deps);
+      const requestedAt = new Date().toISOString();
+      const [payoutBoundsPolicy, payoutFeePolicy] = await Promise.all([
+        resolvePayoutBoundsPolicy(deps),
+        resolvePayoutFeePolicy(deps, requestedAt),
+      ]);
       const amount = assertPayoutAmountWithinPolicy(params.amount, currencyCode, payoutBoundsPolicy);
       try {
         readiness = await refreshPayoutReadinessWhenStalenessIsOnlyBlocker(params.accountId, readiness, context);
@@ -1819,6 +2123,23 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       if (compareMoney(payoutAvailableBalanceAmount, amount) < 0) {
         throw new SettlementDomainError("Available balance is too low for this payout.");
       }
+      const payoutMonth = await payoutMonthRepository.load(payoutMonthStreamId(params.accountId, requestedAt));
+      const legacyActivePayoutCount = payoutMonth.state.initialized
+        ? 0
+        : await activePayoutBaselineCount(params.accountId, requestedAt);
+      const isFirstPayoutOfMonth =
+        payoutMonth.state.legacyActivePayoutCount +
+          legacyActivePayoutCount +
+          payoutMonth.state.activePayoutIds.length ===
+        0;
+      try {
+        quotePayoutFee(amount, payoutFeePolicy.value, { isFirstPayoutOfMonth });
+      } catch {
+        throw new SettlementDomainError("Requested payout amount must exceed the payout fee.");
+      }
+      const maximumNetAmount = quotePayoutFee(amount, payoutFeePolicy.value, {
+        isFirstPayoutOfMonth: false,
+      }).netAmount;
       const platformBalance = await deps.moneyMovementGateway.retrievePlatformBalance({
         currencyCode,
       });
@@ -1826,19 +2147,17 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         platformBalance.availableAmount,
         "Platform available amount",
       );
-      if (compareMoney(platformAvailableAmount, amount) < 0) {
+      if (compareMoney(platformAvailableAmount, maximumNetAmount) < 0) {
         await recordOperation({
           kind: "platform-balance-insufficient",
           accountId: params.accountId,
-          amount,
+          amount: maximumNetAmount,
           currencyCode,
-          reason: `Available platform balance ${platformAvailableAmount} is below requested payout amount.`,
+          reason: `Available platform balance ${platformAvailableAmount} is below the maximum net payout amount ${maximumNetAmount}.`,
         });
         throw new SettlementDomainError("Platform balance is too low for this payout.");
       }
-
       const payoutId = createId("pyo") as PayoutId;
-      const requestedAt = new Date().toISOString();
       if (idempotencyKey) {
         // Claim the key before the payout stream is created and the wallet is
         // debited. If a concurrent duplicate already won the claim, abandon this
@@ -1855,26 +2174,31 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           return await replayReservedPayout(reservation.payout_id, amount, reservation.requested_amount);
         }
       }
-      const result = await commandHandler({
-        streamId: `settlement.payout-${payoutId}`,
-        command: {
-          type: "RequestPayout",
+      let commandSnapshot = await commitPayoutRequest(
+        {
           payoutId,
           accountId: params.accountId,
-          amount,
+          requestedAmount: amount,
           currencyCode,
           destinationReference: params.destinationReference ?? null,
           note: params.note ?? null,
           notificationEmail: params.notificationEmail ?? null,
           requestedAt,
+          feePolicy: payoutFeePolicy,
         },
         context,
-      });
-      let commandSnapshot = {
+      );
+      const { fee_amount: feeAmount, net_amount: netAmount } = commandSnapshot.payout;
+      await recordOperation({
+        kind: "payout-requested",
+        accountId: params.accountId,
         payoutId,
-        version: result.version,
-        payout: requirePayoutSnapshot(result.state, result.version),
-      };
+        amount,
+        requestedAmount: amount,
+        feeAmount,
+        netAmount,
+        currencyCode,
+      });
 
       try {
         await deps.wallets.postEntry(
@@ -1883,11 +2207,27 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             ledgerEntryId: payoutDebitLedgerEntryId(payoutId),
             kind: "payout",
             direction: "debit",
-            amount,
+            amount: netAmount,
             currencyCode,
             fundsStatus: "available",
             payoutId,
             description: params.note ?? `Payout ${deriveDisplayReferenceOrRaw(payoutId)}`,
+            postedAt: requestedAt,
+          },
+          context,
+        );
+        await deps.payoutPostingFault?.("after-net-debit");
+        await deps.wallets.postEntry(
+          {
+            accountId: params.accountId,
+            ledgerEntryId: payoutFeeDebitLedgerEntryId(payoutId),
+            kind: "fee",
+            direction: "debit",
+            amount: feeAmount,
+            currencyCode,
+            fundsStatus: "available",
+            payoutId,
+            description: `Payout fee for ${deriveDisplayReferenceOrRaw(payoutId)}`,
             postedAt: requestedAt,
           },
           context,
@@ -1901,7 +2241,8 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             failureReason: "Payout account details need review.",
             providerStatus: "failed",
             providerFailureMessage: failureMessage,
-            amount,
+            netAmount,
+            feeAmount,
             currencyCode,
           },
           context,
@@ -1926,7 +2267,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           payoutId,
           accountId: params.accountId,
           providerReference: readiness.provider_reference,
-          amount,
+          amount: netAmount,
           currencyCode,
         },
         createdAt: requestedAt,
@@ -1938,7 +2279,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           payoutId,
           accountId: params.accountId,
           providerReference: readiness.provider_reference,
-          amount,
+          amount: netAmount,
           currencyCode,
           idempotencyKey: transferIdempotencyKey,
         });
@@ -1968,7 +2309,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           kind: "provider-transfer-submitted",
           accountId: params.accountId,
           payoutId,
-          amount,
+          amount: netAmount,
+          requestedAmount: amount,
+          feeAmount,
+          netAmount,
           currencyCode,
           providerTransferReference: transfer.providerTransferReference,
         });
@@ -1985,7 +2329,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           kind: "payout-failed",
           accountId: params.accountId,
           payoutId,
-          amount,
+          amount: netAmount,
+          requestedAmount: amount,
+          feeAmount,
+          netAmount,
           currencyCode,
           reason: providerFailureMessage,
         });
@@ -1996,7 +2343,8 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             failureReason: "Payout account details need review.",
             providerStatus: "failed",
             providerFailureMessage,
-            amount,
+            netAmount,
+            feeAmount,
             currencyCode,
           },
           context,
@@ -2021,7 +2369,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           payoutId,
           accountId: params.accountId,
           providerReference: readiness.provider_reference,
-          amount,
+          amount: netAmount,
           currencyCode,
         },
       });
@@ -2031,7 +2379,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           payoutId,
           accountId: params.accountId,
           providerReference: readiness.provider_reference,
-          amount,
+          amount: netAmount,
           currencyCode,
           idempotencyKey: payoutIdempotencyKey,
         });
@@ -2062,7 +2410,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           kind: "provider-payout-submitted",
           accountId: params.accountId,
           payoutId,
-          amount,
+          amount: netAmount,
+          requestedAmount: amount,
+          feeAmount,
+          netAmount,
           currencyCode,
           providerPayoutReference: providerPayout.providerPayoutReference,
         });
@@ -2093,7 +2444,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           kind: "payout-failed",
           accountId: params.accountId,
           payoutId,
-          amount,
+          amount: netAmount,
+          requestedAmount: amount,
+          feeAmount,
+          netAmount,
           currencyCode,
           reason: providerFailureMessage,
         });

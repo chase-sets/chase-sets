@@ -569,8 +569,11 @@ export const frozenSeedIdentityCorpus: readonly string[] = [
   "settlement|Payout|pyo_seed_failed|bank_seed_failed",
   "settlement|Wallet Ledger Entry|led_seed_available_adjustment_credit|available-adjustment-credit",
   "settlement|Wallet Ledger Entry|led_seed_payout_debit_completed|payout-debit-completed",
+  "settlement|Wallet Ledger Entry|led_seed_payout_fee_debit_completed|payout-fee-debit-completed",
   "settlement|Wallet Ledger Entry|led_seed_payout_debit_failed|payout-debit-failed",
+  "settlement|Wallet Ledger Entry|led_seed_payout_fee_debit_failed|payout-fee-debit-failed",
   "settlement|Wallet Ledger Entry|led_seed_payout_reversal_failed|payout-reversal-failed",
+  "settlement|Wallet Ledger Entry|led_seed_payout_fee_reversal_failed|payout-fee-reversal-failed",
   "settlement|Wallet Ledger Entry|led_seed_pending_sale_credit|pending-sale-credit",
 ];
 

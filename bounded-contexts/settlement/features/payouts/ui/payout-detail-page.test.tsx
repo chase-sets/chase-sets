@@ -10,6 +10,9 @@ function payout(overrides: Partial<SettlementPayoutRow> = {}): SettlementPayoutR
     payout_id: "payout_test",
     account_id: "acc_test",
     amount: "125.00",
+    requested_amount: "125.00",
+    fee_amount: "1.00",
+    net_amount: "124.00",
     currency_code: "usd",
     destination_reference: null,
     note: null,
@@ -45,6 +48,12 @@ describe("payout detail recovery paths", () => {
     expect(html).toContain("Payout account needs review");
     expect(html).toContain("Review payout details");
     expect(html).toContain("Contact support");
+    expect(html).toContain("Requested amount");
+    expect(html).toContain("Payout fee");
+    expect(html).toContain("Net payout");
+    expect(html).toContain("$125.00");
+    expect(html).toContain("$1.00");
+    expect(html).toContain("$124.00");
     expect(html).toContain('href="/account/desk/settings?mode=manage"');
     expect(html).not.toContain("account_closed");
     expect(html).not.toContain("Bank account is closed.");

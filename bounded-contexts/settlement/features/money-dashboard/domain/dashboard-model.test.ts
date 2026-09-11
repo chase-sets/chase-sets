@@ -7,6 +7,9 @@ function payout(overrides: Partial<SettlementPayoutRow> = {}): SettlementPayoutR
     payout_id: "pay-1",
     account_id: "acct-1",
     amount: "80.00",
+    requested_amount: "80.00",
+    fee_amount: "1.00",
+    net_amount: "79.00",
     currency_code: "usd",
     destination_reference: null,
     note: null,
@@ -39,14 +42,28 @@ describe("money dashboard model", () => {
 
   it("selects the active payout with the earliest estimated arrival", () => {
     const next = selectNextPayout([
-      payout({ payout_id: "later", amount: "90.00", sent_at: "2026-07-20T12:00:00.000Z" }),
-      payout({ payout_id: "next", amount: "40.00", sent_at: "2026-07-16T12:00:00.000Z" }),
+      payout({
+        payout_id: "later",
+        amount: "90.00",
+        requested_amount: "90.00",
+        net_amount: "89.00",
+        sent_at: "2026-07-20T12:00:00.000Z",
+      }),
+      payout({
+        payout_id: "next",
+        amount: "40.00",
+        requested_amount: "40.00",
+        net_amount: "39.00",
+        sent_at: "2026-07-16T12:00:00.000Z",
+      }),
       payout({ payout_id: "paid", status: "completed", completed_at: "2026-07-15T12:00:00.000Z" }),
     ]);
 
     expect(next).toEqual({
       payoutId: "next",
-      amount: "40.00",
+      amount: "39.00",
+      requestedAmount: "40.00",
+      feeAmount: "1.00",
       currencyCode: "usd",
       estimatedArrivalAt: "2026-07-21T12:00:00.000Z",
     });

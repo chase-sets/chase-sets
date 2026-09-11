@@ -63,4 +63,30 @@ describeDb("settlement schema upgrades", () => {
         AND tablename = 'settlement_support_holds'`);
     expect(indexes.rows.map((row) => row.indexname)).toContain("settlement_support_holds_hold_id_idx");
   });
+
+  it("backfills historical payout requested, fee, and net amounts", async () => {
+    const pool = pools.settlement;
+    await bootstrapContextDatabase(settlementModule, pool);
+    await pool.query(
+      `INSERT INTO settlement_payout_pages (
+         payout_id, account_id, amount, currency_code, display_reference, status, requested_at, updated_at
+       ) VALUES ('pyo_legacy_fee_backfill', 'acc_legacy_fee_backfill', 42.00, 'usd', 'PYO-LEGACY', 'completed', now(), now())`,
+    );
+    await pool.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260911_settlement_payout_fee_amounts'",
+    );
+
+    await bootstrapContextDatabase(settlementModule, pool);
+
+    const result = await pool.query<{
+      requested_amount: string;
+      fee_amount: string;
+      net_amount: string;
+    }>(
+      `SELECT requested_amount::text, fee_amount::text, net_amount::text
+       FROM settlement_payout_pages
+       WHERE payout_id = 'pyo_legacy_fee_backfill'`,
+    );
+    expect(result.rows).toEqual([{ requested_amount: "42.00", fee_amount: "0.00", net_amount: "42.00" }]);
+  });
 });

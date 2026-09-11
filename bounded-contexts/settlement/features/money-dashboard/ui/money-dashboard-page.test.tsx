@@ -46,6 +46,9 @@ function payout(overrides: Partial<SettlementPayoutRow> = {}): SettlementPayoutR
     payout_id: "pay-1",
     account_id: "acct-1",
     amount: "80.00",
+    requested_amount: "80.00",
+    fee_amount: "1.00",
+    net_amount: "79.00",
     currency_code: "usd",
     destination_reference: null,
     note: null,
@@ -83,6 +86,9 @@ describe("SettlementMoneyDashboardPage", () => {
             payout_id: "next",
             display_reference: "PYO-NEXT",
             amount: "45.00",
+            requested_amount: "45.00",
+            fee_amount: "1.00",
+            net_amount: "44.00",
             status: "in-transit",
             provider_payout_reference: "provider-next-secret",
             failure_reason: null,
@@ -99,7 +105,7 @@ describe("SettlementMoneyDashboardPage", () => {
     );
 
     expect(html).toContain("$125.00");
-    expect(html).toContain("$45.00");
+    expect(html).toContain("$44.00");
     expect(html).toContain("Jul 20, 2026");
     expect(html).toContain("1 payout needs attention");
     expect(html).toContain("Review the recent payout failure before requesting more funds.");
@@ -128,6 +134,51 @@ describe("SettlementMoneyDashboardPage", () => {
 
     expect(html).toContain("Finish payout setup");
     expect(html).toContain("/account/desk/settings");
+  });
+
+  it("shows requested amount, payout fee, and net payout before confirmation", () => {
+    const html = renderToString(
+      <SettlementMoneyDashboardPage
+        wallet={wallet}
+        entries={[]}
+        payouts={[]}
+        payoutReadiness={readiness}
+        evaluatedAt="2026-07-15T12:00:00.000Z"
+        canRequestPayouts
+        canSetupPayouts
+        canReconcilePayouts={false}
+        actionState={{
+          confirmation: {
+            amount: "12.50",
+            note: null,
+            preview: {
+              account_id: "acct-1",
+              requested_amount: "12.50",
+              fee_amount: "0.29",
+              net_amount: "12.21",
+              monthly_active_fee_amount: "0.00",
+              is_first_payout_of_month: true,
+              fee_policy_version: "fallback",
+              fee_lines: [{ code: "payout-fee", label: "Payout fee", amount: "0.29" }],
+              currency_code: "usd",
+              available_balance_amount: "125.00",
+              platform_available_amount: "1000.00",
+              estimated_wallet_balance_after: "112.50",
+              can_request: true,
+              unavailable_reasons: [],
+              unavailable_reason_details: [],
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(html).toContain("Requested amount");
+    expect(html).toContain("Payout fee");
+    expect(html).toContain("Net payout");
+    expect(html).toContain("$12.50");
+    expect(html).toContain("$0.29");
+    expect(html).toContain("$12.21");
   });
 
   it("caps the full-available shortcut label through the payout policy", () => {

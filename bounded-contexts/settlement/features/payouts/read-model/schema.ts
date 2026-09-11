@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS settlement_payout_pages (
   payout_id text PRIMARY KEY,
   account_id text NOT NULL,
   amount numeric(12, 2) NOT NULL,
+  requested_amount numeric(12, 2) NOT NULL DEFAULT 0.00,
+  fee_amount numeric(12, 2) NOT NULL DEFAULT 0.00,
+  net_amount numeric(12, 2) NOT NULL DEFAULT 0.00,
   currency_code text NOT NULL,
   destination_reference text NULL,
   note text NULL,
@@ -152,6 +155,15 @@ ALTER TABLE settlement_payout_pages
 ALTER TABLE settlement_payout_pages
   ADD COLUMN IF NOT EXISTS display_reference text NOT NULL DEFAULT '';
 
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS requested_amount numeric(12, 2) NOT NULL DEFAULT 0.00;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS fee_amount numeric(12, 2) NOT NULL DEFAULT 0.00;
+
+ALTER TABLE settlement_payout_pages
+  ADD COLUMN IF NOT EXISTS net_amount numeric(12, 2) NOT NULL DEFAULT 0.00;
+
 ALTER TABLE settlement_money_movement_webhook_events
   ADD COLUMN IF NOT EXISTS event_kind text NULL;
 
@@ -203,6 +215,20 @@ export const settlementPayoutSchemaMigrations: readonly BcSchemaMigration[] = [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS settlement_payout_pages_provider_payout_idx
   ON settlement_payout_pages (provider_payout_reference)
   WHERE provider_payout_reference IS NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260911_settlement_payout_fee_amounts",
+    description:
+      "Backfill historical payouts so requested equals the legacy amount, fee is zero, and net equals requested.",
+    statements: [
+      `UPDATE settlement_payout_pages
+       SET requested_amount = amount,
+           fee_amount = 0.00,
+           net_amount = amount
+       WHERE requested_amount = 0.00
+         AND fee_amount = 0.00
+         AND net_amount = 0.00`,
     ],
   },
 ];

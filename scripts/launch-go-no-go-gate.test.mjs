@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -150,6 +150,28 @@ function fullDecisionInput(overrides = {}) {
 }
 
 describe("launch go/no-go gate: composed evidence rows", () => {
+  it("keeps the payout-fee approval pair as launch attestation with no runtime flag", () => {
+    expect(REQUIRED_PRODUCTION_APPROVAL_CATEGORIES).toContain("PRODUCTION_PAYOUT_FEE_APPROVED");
+    const workflow = readFileSync(path.join(repoRoot, ".github/workflows/platform-production.yml"), "utf8");
+    const variables = readFileSync(path.join(repoRoot, "infrastructure/digitalocean/platform/variables.tf"), "utf8");
+    const terraform = readFileSync(path.join(repoRoot, "infrastructure/digitalocean/platform/main.tf"), "utf8");
+    const payoutRuntime = readFileSync(
+      path.join(repoRoot, "bounded-contexts/settlement/features/payouts/api/runtime.ts"),
+      "utf8",
+    );
+
+    expect(workflow).toContain("vars.PRODUCTION_PAYOUT_FEE_APPROVED");
+    expect(workflow).toContain("vars.PRODUCTION_PAYOUT_FEE_REFERENCE");
+    expect(variables).toContain(
+      '!var.production_payout_fee_approved || trimspace(var.production_payout_fee_reference) != ""',
+    );
+    expect(terraform).toContain('check "production_payout_fee_approval"');
+    expect(terraform).toContain("!var.production_marketplace_public_enabled || (");
+    expect(terraform).toContain("var.production_payout_fee_approved");
+    expect(payoutRuntime).not.toContain("PRODUCTION_PAYOUT_FEE_APPROVED");
+    expect(payoutRuntime).not.toContain("PRODUCTION_PAYOUT_FEE_REFERENCE");
+  });
+
   it("passes every row and records a go decision once every sibling gate (including a landed campaign-start-gate) reports green", () => {
     // Exercises the fully-green path against a synthetic repository, rather
     // than the real one, because scripts/campaign-start-gate.mjs (PR #5110)

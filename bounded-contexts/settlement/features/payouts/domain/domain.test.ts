@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decidePayout, evolvePayout, initialPayoutState } from "./domain";
+import { decidePayout, evolvePayout, initialPayoutState, type PayoutRequestedEvent } from "./domain";
 
 describe("settlement payout domain", () => {
   it("requests, sends, and completes a payout", () => {
@@ -7,7 +7,9 @@ describe("settlement payout domain", () => {
       type: "RequestPayout",
       payoutId: "pyo_1" as never,
       accountId: "acc_seller" as never,
-      amount: "25.00",
+      requestedAmount: "25.00",
+      feeAmount: "1.00",
+      netAmount: "24.00",
       currencyCode: "usd",
       destinationReference: "bank_123",
       note: "Weekly payout",
@@ -27,6 +29,43 @@ describe("settlement payout domain", () => {
     expect(completedState.status).toBe("completed");
     expect(completedState.sentAt).toBe("2026-04-02T01:00:00.000Z");
     expect(completedState.completedAt).toBe("2026-04-02T02:00:00.000Z");
+    expect(
+      decidePayout(completedState, {
+        type: "CompletePayout",
+        completedAt: "2026-04-03T02:00:00.000Z",
+      }),
+    ).toEqual([]);
+  });
+
+  it("carries requested, fee, and net amounts through every lifecycle event", () => {
+    const requestedEvents = decidePayout(initialPayoutState, {
+      type: "RequestPayout",
+      payoutId: "pyo_amounts" as never,
+      accountId: "acc_seller" as never,
+      requestedAmount: "25.00",
+      feeAmount: "1.00",
+      netAmount: "24.00",
+      currencyCode: "usd",
+      requestedAt: "2026-04-02T00:00:00.000Z",
+    });
+    const requested = requestedEvents.reduce(evolvePayout, initialPayoutState);
+    const inTransitEvents = decidePayout(requested, {
+      type: "MarkPayoutInTransit",
+      sentAt: "2026-04-02T01:00:00.000Z",
+    });
+    const inTransit = inTransitEvents.reduce(evolvePayout, requested);
+    const failedEvents = decidePayout(inTransit, {
+      type: "FailPayout",
+      failedAt: "2026-04-02T02:00:00.000Z",
+    });
+
+    for (const event of [...requestedEvents, ...inTransitEvents, ...failedEvents]) {
+      expect(event.data).toMatchObject({
+        requestedAmount: "25.00",
+        feeAmount: "1.00",
+        netAmount: "24.00",
+      });
+    }
   });
 
   it("records provider references without changing payout status", () => {
@@ -34,7 +73,9 @@ describe("settlement payout domain", () => {
       type: "RequestPayout",
       payoutId: "pyo_1" as never,
       accountId: "acc_seller" as never,
-      amount: "25.00",
+      requestedAmount: "25.00",
+      feeAmount: "1.00",
+      netAmount: "24.00",
       currencyCode: "usd",
       requestedAt: "2026-04-02T00:00:00.000Z",
     }).reduce(evolvePayout, initialPayoutState);
@@ -57,7 +98,9 @@ describe("settlement payout domain", () => {
       type: "RequestPayout",
       payoutId: "pyo_1" as never,
       accountId: "acc_seller" as never,
-      amount: "25.00",
+      requestedAmount: "25.00",
+      feeAmount: "1.00",
+      netAmount: "24.00",
       currencyCode: "usd",
       requestedAt: "2026-04-02T00:00:00.000Z",
     }).reduce(evolvePayout, initialPayoutState);
@@ -84,7 +127,9 @@ describe("settlement payout domain", () => {
         type: "RequestPayout" as const,
         payoutId: "pyo_1" as never,
         accountId: "acc_seller" as never,
-        amount: "25.00",
+        requestedAmount: "25.00",
+        feeAmount: "1.00",
+        netAmount: "24.00",
         currencyCode: "usd" as const,
         requestedAt: "2026-04-02T00:00:00.000Z",
       },
@@ -101,5 +146,27 @@ describe("settlement payout domain", () => {
         completedAt: "2026-04-02T02:00:00.000Z",
       }),
     ).toThrow("Only requested or in-transit payouts can complete.");
+  });
+
+  it("payout-fee-legacy-replay evolves a historical request with zero fee and net equal to requested", () => {
+    const legacyEvent = {
+      type: "settlement.payout.requested",
+      data: {
+        payoutId: "pyo_legacy" as never,
+        accountId: "acc_seller" as never,
+        amount: "25.00",
+        currencyCode: "usd",
+        destinationReference: null,
+        note: null,
+        notificationEmail: null,
+        requestedAt: "2026-04-02T00:00:00.000Z",
+      },
+    } satisfies PayoutRequestedEvent;
+
+    expect(evolvePayout(initialPayoutState, legacyEvent)).toMatchObject({
+      requestedAmount: "25.00",
+      feeAmount: "0.00",
+      netAmount: "25.00",
+    });
   });
 });

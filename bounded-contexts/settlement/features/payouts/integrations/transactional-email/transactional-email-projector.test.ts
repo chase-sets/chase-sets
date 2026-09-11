@@ -25,8 +25,22 @@ describe("settlement transactional email projector", () => {
         notificationEmail: "seller@example.com",
         payoutId: "po_1",
         amount: "42.00",
+        requestedAmount: "42.00",
+        feeAmount: "0.36",
+        netAmount: "41.64",
       },
     } as never);
     expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          templateData: expect.objectContaining({
+            requestedAmount: "42.00",
+            feeAmount: "0.36",
+            netAmount: "41.64",
+          }),
+        }),
+      }),
+    );
   });
 });
