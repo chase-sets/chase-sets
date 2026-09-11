@@ -270,7 +270,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
       buildTransportEvent("channels.channel-listing.desired-state-changed", origin.payload, {
         id: origin.event_id,
         streamId: origin.stream_id,
-        streamVersion: origin.stream_version,
+        streamVersion: Number(origin.stream_version),
         globalPosition: origin.global_position,
         timing: {
           occurredAt: new Date(origin.occurred_at).toISOString(),
