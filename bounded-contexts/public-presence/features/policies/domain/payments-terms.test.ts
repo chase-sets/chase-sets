@@ -284,9 +284,9 @@ describe("payments terms artifact", () => {
         (question) => /disclos/i.test(question) && /sufficient/i.test(question),
       ),
     ).toBe(true);
-    expect(
-      payoutFee?.reviewManifest.openQuestions.some((question) => /not yet implemented/i.test(question)),
-    ).toBe(true);
+    expect(payoutFee?.reviewManifest.openQuestions.some((question) => /not yet implemented/i.test(question))).toBe(
+      true,
+    );
     for (const assumption of payoutFee?.reviewManifest.assumptions ?? []) {
       expect(assumption.evidenceRef.length).toBeGreaterThan(0);
     }

@@ -196,9 +196,9 @@ describe("Seller Agreement policy artifact", () => {
     expect(feesAndDeductions?.draftText).not.toMatch(/\d/);
 
     expect(feesAndDeductions?.reviewManifest.decisionRefs).toEqual(expect.arrayContaining([7818, 7819]));
-    expect(
-      feesAndDeductions?.reviewManifest.productTruthRefs.some((ref) => ref.includes("sales-fees.en.md")),
-    ).toBe(true);
+    expect(feesAndDeductions?.reviewManifest.productTruthRefs.some((ref) => ref.includes("sales-fees.en.md"))).toBe(
+      true,
+    );
     expect(
       feesAndDeductions?.reviewManifest.openQuestions.some(
         (question) => /disclos/i.test(question) && /sufficient/i.test(question),
