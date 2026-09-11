@@ -52,6 +52,7 @@ export type PlatformWorkerConfig = Readonly<{
   jobMaxConcurrentRunners: number;
   dispatchMaxConcurrentRunners: number;
   scheduledMaxConcurrentRunners: number;
+  channelsOutboundOperationLaneCount: number;
   sourceObservationBulkJobLaneCount: number;
   sourceObservationBulkJobWorkflowMaxActiveClaims: number;
   sourceObservationBulkJobMaxActiveClaimsPerJob: number;
@@ -337,6 +338,7 @@ export function loadConfig(): PlatformWorkerConfig {
     jobMaxConcurrentRunners: getPositiveNumberEnv("WORKER_JOB_MAX_CONCURRENT_RUNNERS", 1),
     dispatchMaxConcurrentRunners: getPositiveNumberEnv("WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS", 1),
     scheduledMaxConcurrentRunners: getPositiveNumberEnv("WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS", 1),
+    channelsOutboundOperationLaneCount: getPositiveNumberEnv("CHANNELS_OUTBOUND_OPERATION_LANE_COUNT", 1),
     sourceObservationBulkJobLaneCount: getPositiveNumberEnv("SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT", 1),
     sourceObservationBulkJobWorkflowMaxActiveClaims: getPositiveNumberEnv(
       "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",

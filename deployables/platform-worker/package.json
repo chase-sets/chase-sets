@@ -24,6 +24,7 @@
     "@chase-sets/auth": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/catalog": "workspace:*",
+    "@chase-sets/channels": "workspace:*",
     "@chase-sets/checkout": "workspace:*",
     "@chase-sets/collections": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",

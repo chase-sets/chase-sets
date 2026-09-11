@@ -9,6 +9,7 @@ import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
+import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
 import AccountChannelsPublicationConnectionRoute, {
   action,
   loader,
@@ -185,7 +186,12 @@ function routeHarness(initialPermissions: string[]) {
       };
       root.route(
         "/api/channels",
-        buildChannelsApi({ connections: connectionServices(), listingComposition: counted, projectors: [] }),
+        buildChannelsApi({
+          connections: connectionServices(),
+          listingComposition: counted,
+          outboundSync: createUnavailableOutboundSyncServices(),
+          projectors: [],
+        }),
       );
       api = root;
     },

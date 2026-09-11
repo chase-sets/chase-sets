@@ -4,6 +4,7 @@ import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
 import { channelConnectionRoutes } from "../api/route";
 import type { ChannelConnectionServices, ChannelConnectionState, PublicChannelConnection } from "../domain/contracts";
 import { testContext } from "./test-support";
+import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
 import { createUnavailableListingCompositionServices } from "../../listing-composition/tests/service-stub";
 
 const dto: PublicChannelConnection = {
@@ -80,6 +81,7 @@ function createApp(services: ChannelConnectionServices, permissions = ["channels
     "/api/channels",
     buildChannelsApi({
       connections: services,
+      outboundSync: createUnavailableOutboundSyncServices(),
       listingComposition: createUnavailableListingCompositionServices(),
       projectors: [],
     }),

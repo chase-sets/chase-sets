@@ -1,4 +1,32 @@
-export const channelsMessages = {
+export const channelsEnglishTranslations = {
+  "channels.outboundSync.connection.notFound": "Channel connection not found.",
+  "channels.outboundSync.connection.title": "Channel connection | Marketplace",
+  "channels.outboundSync.operationLog.title": "Publication activity",
+  "channels.outboundSync.operationLog.description":
+    "Track the latest listing publication work and provider acknowledgements for this channel connection.",
+  "channels.outboundSync.operationLog.column.operation": "Operation",
+  "channels.outboundSync.operationLog.column.listing": "Listing",
+  "channels.outboundSync.operationLog.column.status": "Status",
+  "channels.outboundSync.operationLog.column.attempts": "Attempts",
+  "channels.outboundSync.operationLog.column.latency": "Event-to-ack",
+  "channels.outboundSync.operationLog.latency.pending": "Pending",
+  "channels.outboundSync.operationLog.latency.value": "{milliseconds} ms",
+  "channels.outboundSync.operationLog.metric.total": "Operations",
+  "channels.outboundSync.operationLog.metric.succeeded": "Succeeded",
+  "channels.outboundSync.operationLog.metric.failed": "Failed",
+  "channels.outboundSync.operationLog.metric.blocked": "Blocked lanes",
+  "channels.outboundSync.operationLog.empty.title": "No publication activity",
+  "channels.outboundSync.operationLog.empty.description":
+    "Publication operations will appear here when listing state is sent to this channel.",
+  "channels.outboundSync.operationLog.incomplete.title": "Activity is still being reconciled",
+  "channels.outboundSync.operationLog.incomplete.description":
+    "The complete operation count could not be proved. No partial result is presented as complete.",
+  "channels.outboundSync.operationLog.error.title": "Publication activity is unavailable",
+  "channels.outboundSync.operationLog.error.description":
+    "We could not load this connection's publication activity. Try again in a moment.",
+  "channels.outboundSync.operationLog.pagination.first": "First activity page",
+  "channels.outboundSync.operationLog.pagination.previous": "Previous activity page",
+  "channels.outboundSync.operationLog.pagination.next": "Next activity page",
   "channels.publication.eyebrow": "Sales Channels",
   "channels.publication.title": "Publication",
   "channels.publication.description": "Configure how your listings are prepared for each connected sales channel.",

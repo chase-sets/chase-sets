@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
 import { buildChannelsApi, type ChannelsActor, type ChannelsApiEnv } from "../../../api";
+import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
 import type { ChannelListingCompositionServices } from "../api/runtime";
 import type { ChannelPublicationConnectionDetail } from "../domain/contracts";
 
@@ -123,7 +124,12 @@ describe("channel-mapping-review-route", () => {
 
 function routeHarness(observedAccounts: string[]) {
   const listingComposition = services(observedAccounts);
-  const api = buildChannelsApi({ connections: connectionServices(), listingComposition, projectors: [] });
+  const api = buildChannelsApi({
+    connections: connectionServices(),
+    listingComposition,
+    outboundSync: createUnavailableOutboundSyncServices(),
+    projectors: [],
+  });
   const root = new Hono<ChannelsApiEnv>();
   root.use("*", async (c, next) => {
     c.set("actor", {

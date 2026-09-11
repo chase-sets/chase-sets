@@ -13,6 +13,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { RouterForm } from "@chase-sets/design-system/react-router";
+import type { ReactNode } from "react";
 import type { ChannelConnectionStatus, PublicChannelConnection } from "../domain/contracts";
 
 const listFilters: readonly Readonly<{ status: ChannelConnectionStatus | "default"; labelKey: string }>[] = [
@@ -160,9 +161,11 @@ export type ChannelConnectionDetailPageState =
 export function ChannelConnectionDetailPage({
   state,
   pendingIntent = null,
+  children,
 }: {
   state: ChannelConnectionDetailPageState;
   pendingIntent?: ChannelConnectionAllowedAction | null;
+  children?: ReactNode;
 }) {
   const connection = state.kind === "not-found" ? null : state.connection;
   return (
@@ -198,6 +201,7 @@ export function ChannelConnectionDetailPage({
         <MarketplaceNotice tone="danger" title={t("channels.connections.error.title")} description={state.message} />
       ) : null}
       {connection ? <ConnectionDetailSections connection={connection} pendingIntent={pendingIntent} /> : null}
+      {connection ? children : null}
     </Page>
   );
 }

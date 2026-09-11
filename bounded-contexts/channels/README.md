@@ -6,7 +6,8 @@ Channels owns the seller-facing lifecycle for connecting an Account to a Sales
 Channel and the provider-neutral contract for publishing listings through it.
 The connection slice keeps setup authority injected, while the publication
 port and listing-composition slice project authoritative facts into one closed,
-provider-neutral desired state. Production composition profiles remain empty.
+provider-neutral desired state. Outbound sync durably orders that state for
+provider execution, and production composition profiles remain empty.
 
 ## Owns
 
@@ -20,6 +21,8 @@ provider-neutral desired state. Production composition profiles remain empty.
 - Channel Connection setup, lifecycle, projection, and account-scoped history
 - Channel Publication contracts, provider capability declarations, and the
   immutable Channel Provider Registry
+- Durable latest-state Channel Outbound Operations, execution admission,
+  claimed reservations, provider budgets, and per-link poison isolation
 - Channel Publication Facts, Profiles, Settings, Eligibility, Desired State,
   Links, and durable Reconciliation Runs
 
@@ -85,4 +88,4 @@ Injected setup, credential, policy, and storage-location authority resolvers.
 
 Run `pnpm --filter @chase-sets/channels run test:watch` for the watch-mode inner
 loop. Use `test:unit` for the finite non-database partition and `test:db` for the
-two explicitly enrolled disposable-Postgres suites.
+three explicitly enrolled disposable-Postgres suites.

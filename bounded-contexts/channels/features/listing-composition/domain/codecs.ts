@@ -66,7 +66,7 @@ export const channelListingEventCodec: DomainEventCodec<ChannelListingEvent> = {
             "desiredStateHash",
             "delist",
           ]);
-          delist(data.delist);
+          assertChannelListingDelistDirectivePayload(data.delist);
         } else {
           member(intent, ["publish", "update"]);
           closed(data, [
@@ -197,7 +197,7 @@ function draft(value: unknown): void {
     string(attribute.value);
   }
 }
-function delist(value: unknown): void {
+export function assertChannelListingDelistDirectivePayload(value: unknown): void {
   const data = record(value);
   closed(data, ["channelListingId", "listingRevision", "lastPublishedPrice", "lastPublishedQuantity", "delistReasons"]);
   text(data.channelListingId);

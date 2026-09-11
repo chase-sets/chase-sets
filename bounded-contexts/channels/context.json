@@ -12,9 +12,9 @@
   ],
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
-  "slices": ["connections", "publication-port", "listing-composition"],
+  "slices": ["connections", "publication-port", "listing-composition", "outbound-sync"],
   "allowedSupportDirectories": ["request-support"],
-  "publicExports": [".", "./context", "./routes/*"],
+  "publicExports": [".", "./context", "./server", "./routes/*"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [],
@@ -183,6 +183,18 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "channels",
+      "reactionName": "channel-outbound-operation-enqueue",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["channels.channel-listing.desired-state-changed"],
+      "order": 64,
+      "reactionHandlerSetNames": ["channel-outbound-operation-enqueue"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
     }
   ],
   "projectionGroups": [
@@ -236,6 +248,15 @@
       "projectionName": "channel-listing-desired-state-reaction",
       "handlerKind": "reaction",
       "sourceContextNames": ["marketplace", "catalog", "inventory", "channels"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-outbound-operation-enqueue",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["channels"],
       "ownedTables": [],
       "sideEffectOnly": true,
       "requiredDuringBootstrap": false,
@@ -417,11 +438,17 @@
       "expectedConsumers": ["Channels account publication route adapters"],
       "crossCuttingRuntimeComposition": true
     },
+    "outbound-sync": {
+      "classification": "slice",
+      "purpose": "Own Channels outbound-sync operations, execution admission, leases, and connection-scoped activity.",
+      "expectedConsumers": ["Internal Channels module composition", "Channel connector and manual claim workflows"]
+    },
     "routes": {
       "classification": "routes",
-      "purpose": "Reserve Channels route metadata for future seller browser-route contributions.",
-      "expectedConsumers": ["Future generated deployable route adapters"]
+      "purpose": "Expose Channels-owned account route modules consumed by generated deployable adapters.",
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": ["platform-worker"]
+  "runtimeDeployables": ["platform-worker"],
+  "localeCatalogs": ["contracts/localization/locales/en/channels.ts"]
 }

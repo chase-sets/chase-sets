@@ -3,6 +3,7 @@ import type { DomainEvent } from "@chase-sets/event-core";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { DeploymentEnvironment } from "@chase-sets/platform-runtime/config-schema";
+import type { OutboundSyncServices } from "../../outbound-sync/domain/contracts";
 
 export const channelEnvironments = ["sandbox", "production"] as const;
 export type ChannelEnvironment = (typeof channelEnvironments)[number];
@@ -236,5 +237,6 @@ export interface ChannelConnectionServices {
 
 export type ChannelsServices = Readonly<{
   connections: ChannelConnectionServices;
+  outboundSync: OutboundSyncServices;
   projectors: readonly ProjectionHandlerSet[];
 }>;

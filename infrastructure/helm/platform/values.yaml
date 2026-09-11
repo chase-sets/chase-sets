@@ -604,6 +604,8 @@ components:
         value: "1"
       - name: "CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
         value: "1"
+      - name: "CHANNELS_OUTBOUND_OPERATION_LANE_COUNT"
+        value: "1"
       - name: "CATALOG_INTEGRATION_ACTIVATION_MODE"
         value: "open"
       - name: "CATALOG_INTEGRATION_CONTROL_PLANE_MODE"

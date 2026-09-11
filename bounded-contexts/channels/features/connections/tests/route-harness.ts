@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
 import type { ChannelListingCompositionServices } from "../../listing-composition/api/runtime";
+import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
 import {
   ChannelConnectionError,
   channelConnectionStatuses,
@@ -150,7 +151,12 @@ export function mountConnectionRouteHarness(
   });
   root.route(
     "/api/channels",
-    buildChannelsApi({ connections: connectionServices, listingComposition: listingCompositionStub(), projectors: [] }),
+    buildChannelsApi({
+      connections: connectionServices,
+      listingComposition: listingCompositionStub(),
+      outboundSync: createUnavailableOutboundSyncServices(),
+      projectors: [],
+    }),
   );
 
   vi.stubGlobal(
