@@ -229,6 +229,7 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.api.runtime.wallet.credited": "Wallet credited",
   "settlement.features.payouts.api.runtime.wallet.debited": "Wallet debited",
   "settlement.features.payouts.ui.netPayout": "Net payout",
+  "settlement.features.payouts.ui.netPayoutAmount": "Net payout: {amount}",
   "settlement.features.payouts.ui.payoutFee": "Payout fee",
   "settlement.features.payouts.ui.requestedAmount": "Requested amount",
   "settlement.features.payouts.readModel.queries.and.provider.payout.reference.is.null":

@@ -51,6 +51,7 @@ describe("payout detail recovery paths", () => {
     expect(html).toContain("Requested amount");
     expect(html).toContain("Payout fee");
     expect(html).toContain("Net payout");
+    expect(html).toContain("Net payout: $124.00");
     expect(html).toContain("$125.00");
     expect(html).toContain("$1.00");
     expect(html).toContain("$124.00");

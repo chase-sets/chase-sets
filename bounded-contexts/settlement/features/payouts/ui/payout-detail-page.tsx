@@ -55,7 +55,9 @@ export function SettlementPayoutDetailPage({
         title={t("settlement.features.payouts.ui.payoutDetailPage.payout.title", {
           payoutReference: payout.display_reference,
         })}
-        description={`${t("settlement.features.payouts.ui.netPayout")}: ${formatMoney(payout.net_amount, payout.currency_code)}`}
+        description={t("settlement.features.payouts.ui.netPayoutAmount", {
+          amount: formatMoney(payout.net_amount, payout.currency_code),
+        })}
         actions={
           <LinkButton href={backHref} tone="secondary">
             {t("settlement.features.payouts.ui.payoutDetailPage.back.to.payouts")}
