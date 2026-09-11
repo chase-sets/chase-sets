@@ -97,6 +97,18 @@
       ],
       "order": 40,
       "projectionHandlerSetNames": ["channel-connection-publication-facts", "channel-listing-state-projection"]
+    },
+    {
+      "sourceContextName": "channels",
+      "projectionName": "tcgplayer-csv-projection",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "channels.tcgplayer-sync-run.composed",
+        "channels.tcgplayer-sync-run.transitioned"
+      ],
+      "order": 50,
+      "projectionHandlerSetNames": ["tcgplayer-csv-projection"]
     }
   ],
   "eventReactions": [
@@ -176,7 +188,6 @@
         "channels.channel-publication-configuration.settings-replaced",
         "channels.channel-publication-configuration.mapping-candidate-recorded",
         "channels.channel-publication-configuration.mapping-review-decided",
-        "channels.channel-listing.desired-state-changed",
         "channels.channel-listing-reconciliation.run-enqueued",
         "channels.channel-listing-reconciliation.chunk-drained",
         "channels.channel-listing-reconciliation.run-settled"

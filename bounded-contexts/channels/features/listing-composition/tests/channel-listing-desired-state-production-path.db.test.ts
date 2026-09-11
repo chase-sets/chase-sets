@@ -12,7 +12,6 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import { module as channelsModule } from "../../../index";
 import { createChannelListingCompositionRuntime } from "../api/runtime";
 import { createChannelCompositionProfileRegistry } from "../domain/canonical";
-import { buildChannelOwnedDesiredStateReactionHandlers } from "../integrations/reactions";
 import { buildChannelOutboundOperationReactionHandlers } from "../../outbound-sync/integrations/listing-composition";
 import { channelProviderRegistry } from "../../publication-port/api/registry";
 import { buildChannelConnectionProjectionHandlers } from "../../connections/read-model/projection";
@@ -252,10 +251,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
     expect(desired[0]!.payload.desiredStateHash).not.toBe(desired[1]!.payload.desiredStateHash);
 
     const rootServices = channelsModule.createServices(pools.channels, {});
-    const ownedReaction = buildChannelOwnedDesiredStateReactionHandlers(
-      rootServices.listingComposition,
-      rootServices.outboundSync,
-    );
+    const outboundReaction = buildChannelOutboundOperationReactionHandlers(rootServices.outboundSync);
     const sourceEvent = await pools.channels.query<{
       event_id: string;
       stream_id: string;
@@ -270,7 +266,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
        ORDER BY stream_version LIMIT 1`,
     );
     const origin = sourceEvent.rows[0]!;
-    await ownedReaction["channels.channel-listing.desired-state-changed"]!(
+    await outboundReaction["channels.channel-listing.desired-state-changed"]!(
       buildTransportEvent("channels.channel-listing.desired-state-changed", origin.payload, {
         id: origin.event_id,
         streamId: origin.stream_id,
@@ -335,7 +331,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
       ),
     ).toMatchObject({ rows: [{ event_type: "channels.channel-listing.publication-recorded" }] });
     await expect(
-      ownedReaction["channels.channel-listing.desired-state-changed"]!(
+      outboundReaction["channels.channel-listing.desired-state-changed"]!(
         buildTransportEvent(
           "channels.channel-listing.desired-state-changed",
           {

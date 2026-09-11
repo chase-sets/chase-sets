@@ -160,6 +160,7 @@ import {
   buildChannelMarketplaceFactsProjectionHandlers,
 } from "./features/listing-composition/read-model/facts-projection";
 import { buildChannelListingStateProjectionHandlers } from "./features/listing-composition/read-model/state-projection";
+import { buildTcgplayerCsvProjectionHandlers } from "./features/tcgplayer-csv/read-model/projection";
 import { channelProviderRegistry } from "./features/publication-port/api/registry";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createOutboundSyncRuntime } from "./features/outbound-sync/api/runtime";
@@ -170,7 +171,6 @@ import {
 } from "./features/outbound-sync/integrations/listing-composition";
 import type { OutboundSyncServices } from "./features/outbound-sync/domain/contracts";
 import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "./features/outbound-sync/read-model/schema";
-import { assertChannelListingDelistDirective } from "./features/listing-composition/domain/codecs";
 import { createTcgplayerCsvRuntime, type TcgplayerCsvServices } from "./features/tcgplayer-csv/api/runtime";
 import { tcgplayerCompositionProfiles } from "./features/tcgplayer-csv/domain/profile";
 import { createTcgplayerClaimedReservationRunSettlementPort } from "./features/tcgplayer-csv/integrations/outbound-sync-settlement";
@@ -270,6 +270,7 @@ export const module = defineBoundedContextModule<
           ...buildChannelConnectionFactsProjectionHandlers(services.db),
           ...buildChannelListingStateProjectionHandlers(services.db),
         }),
+        "channels.tcgplayer-csv-projection": () => buildTcgplayerCsvProjectionHandlers(services.db),
       },
     }),
     ...buildEventReactionsFromManifest({
