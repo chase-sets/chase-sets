@@ -182,8 +182,8 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         "deducted from the requested amount before Chase Sets sends the remainder toward your payout " +
         "destination. Chase Sets shows you the fee before you confirm a payout request. If the Payout Fee " +
         "policy document also sets a separate monthly active-account amount, that amount applies only once, on " +
-        "the first payout your account requests in a calendar month, and does not apply again to a later " +
-        "payout requested in that same month. This document does not restate the payout fee's rate or amount; " +
+        "your account's first payout of each calendar month, and does not apply again to a later payout in " +
+        "that same month. This document does not restate the payout fee's rate or amount; " +
         "the figures in effect are published in the Payout Fee policy document.",
       reviewStatus: "counsel-required",
       reviewManifest: {

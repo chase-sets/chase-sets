@@ -207,5 +207,10 @@ describe("Seller Agreement policy artifact", () => {
     expect(
       feesAndDeductions?.reviewManifest.openQuestions.some((question) => /not yet implemented/i.test(question)),
     ).toBe(true);
+    expect(
+      feesAndDeductions?.reviewManifest.openQuestions.some(
+        (question) => /help article/i.test(question) && /not yet|absent|built by/i.test(question),
+      ),
+    ).toBe(true);
   });
 });
