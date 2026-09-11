@@ -845,7 +845,9 @@ describeDb(
       await runtime.enqueueDesiredState(desiredState("listing-invalid-rate", 1, 7, "event-invalid-rate"));
       const before = await operationAdmissionStates(pools.channels);
 
-      await expect(runtime.processNextInlineOperation({ registry, claimOwnerId: "worker-invalid-rate" })).rejects.toMatchObject({
+      await expect(
+        runtime.processNextInlineOperation({ registry, claimOwnerId: "worker-invalid-rate" }),
+      ).rejects.toMatchObject({
         code: "invalid-input",
       });
       expect(providerCalls).toBe(0);
