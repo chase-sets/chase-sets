@@ -74,56 +74,6 @@ export {
   type ResolvedChannelPublication,
   type UpdatePriceQuantityInput,
 } from "./features/publication-port/domain/contracts";
-export {
-  createTcgplayerCsvRuntime,
-  type ComposeTcgplayerSyncRunInput,
-  type IngestTcgplayerExportSnapshotInput,
-  type RunFenceInput,
-  type TcgplayerCsvRuntimeDependencies,
-  type TcgplayerCsvServices,
-} from "./features/tcgplayer-csv/api/runtime";
-export {
-  composeTcgplayerReservation,
-  planStagedImportBatches,
-  type ComposedTcgplayerReservation,
-  type ComposeTcgplayerReservationInput,
-} from "./features/tcgplayer-csv/domain/composition";
-export { parseTcgplayerFullExport } from "./features/tcgplayer-csv/domain/csv";
-export {
-  channelExportCompletenessStates,
-  channelExportSurfaces,
-  channelSyncRunMemberKinds,
-  channelSyncRunStates,
-  channelSyncRunTriggers,
-  tcgplayerLocalRefusalReasons,
-  tcgplayerRowRefusalReasons,
-  type ChannelExportCompleteness,
-  type ChannelExportSchemaDescriptor,
-  type ChannelExportSchemaPin,
-  type ChannelExportSurface,
-  type ChannelInventorySnapshot,
-  type ChannelInventorySnapshotRow,
-  type ChannelSyncRun,
-  type ChannelSyncRunComposedEvent,
-  type ChannelSyncRunEvent,
-  type ChannelSyncRunMember,
-  type ChannelSyncRunMemberKind,
-  type ChannelSyncRunState,
-  type ChannelSyncRunTransitionedEvent,
-  type ChannelSyncRunTrigger,
-  type ManualClaimLeasePolicySnapshot,
-  type StagedImportBatch,
-  type TcgplayerExportIngestLimits,
-  type TcgplayerExportParseResult,
-  type TcgplayerImportSummary,
-  type TcgplayerLocalRefusalReason,
-  type TcgplayerRowRefusalReason,
-} from "./features/tcgplayer-csv/domain/contracts";
-export { channelSyncRunTransitions, decideChannelSyncRunTransition } from "./features/tcgplayer-csv/domain/lifecycle";
-export { tcgplayerStagedImportPolicy } from "./features/tcgplayer-csv/domain/policy";
-export { tcgplayerExportSchemaDescriptors } from "./features/tcgplayer-csv/domain/profile";
-export { readLatestSnapshotRows, readRun } from "./features/tcgplayer-csv/read-model/queries";
-
 import {
   buildEventReactionsFromManifest,
   buildEventSubscriptionsFromManifest,
@@ -161,10 +111,7 @@ import { channelProviderRegistry } from "./features/publication-port/api/registr
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createOutboundSyncRuntime } from "./features/outbound-sync/api/runtime";
 import { outboundOperationBudgetPolicy } from "./features/outbound-sync/domain/policy";
-import {
-  buildChannelOutboundOperationReactionHandlers,
-  createChannelListingPublicationOutcomeRecorder,
-} from "./features/outbound-sync/integrations/listing-composition";
+import { createChannelListingPublicationOutcomeRecorder } from "./features/outbound-sync/integrations/listing-composition";
 import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "./features/outbound-sync/read-model/schema";
 import { createTcgplayerCsvRuntime } from "./features/tcgplayer-csv/api/runtime";
 import { tcgplayerCompositionProfiles } from "./features/tcgplayer-csv/domain/profile";
@@ -307,9 +254,7 @@ export const module = defineBoundedContextModule<ChannelsRuntimeServices, PgTran
         "inventory.channel-listing-desired-state-reaction": () =>
           buildChannelInventoryDesiredStateReactionHandlers(services.db, services.listingComposition),
         "channels.channel-listing-desired-state-reaction": () =>
-          buildChannelOwnedDesiredStateReactionHandlers(services.listingComposition),
-        "channels.channel-outbound-operation-enqueue": () =>
-          buildChannelOutboundOperationReactionHandlers(services.outboundSync),
+          buildChannelOwnedDesiredStateReactionHandlers(services.listingComposition, services.outboundSync),
       },
     }),
   ],
