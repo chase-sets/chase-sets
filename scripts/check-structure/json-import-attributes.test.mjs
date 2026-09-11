@@ -10,7 +10,7 @@ import {
   manifestHostRegistrationFields,
   validateJsonImportAttributes,
 } from "./json-import-attributes.mjs";
-import { findContextRootExportViolation } from "./run.mjs";
+import { findContextRootExportViolation, isApprovedCrossContextTypeContractImport } from "./run.mjs";
 
 function withFixture(files, callback) {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "json-import-attributes-"));
@@ -791,5 +791,48 @@ describe("findContextRootExportViolation", () => {
     expect(
       findContextRootExportViolation(`${channelsRoot}\nexport const extra = true;`, "bounded-contexts/channels"),
     ).toBe(diagnostic);
+  });
+});
+
+describe("approved cross-context type contracts", () => {
+  it("accepts only the registered public type contracts at their Economics consumers", () => {
+    expect(
+      isApprovedCrossContextTypeContractImport(
+        "bounded-contexts/pricing/features/economics/domain/contracts.ts",
+        "@chase-sets/channels",
+        'import type { ChannelEnvironment, ChannelProviderIdentity } from "@chase-sets/channels";',
+      ),
+    ).toBe(true);
+    expect(
+      isApprovedCrossContextTypeContractImport(
+        "bounded-contexts/pricing/features/economics/integrations/native-commercial-terms/provider.ts",
+        "@chase-sets/commercial-terms/server",
+        'import type { CommercialTermsResolver } from "@chase-sets/commercial-terms/server";',
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects value imports, unregistered symbols, and consumers outside Economics", () => {
+    expect(
+      isApprovedCrossContextTypeContractImport(
+        "bounded-contexts/pricing/features/economics/domain/contracts.ts",
+        "@chase-sets/channels",
+        'import { ChannelProviderIdentity } from "@chase-sets/channels";',
+      ),
+    ).toBe(false);
+    expect(
+      isApprovedCrossContextTypeContractImport(
+        "bounded-contexts/pricing/features/economics/domain/contracts.ts",
+        "@chase-sets/channels",
+        'import type { ChannelProviderRegistry } from "@chase-sets/channels";',
+      ),
+    ).toBe(false);
+    expect(
+      isApprovedCrossContextTypeContractImport(
+        "bounded-contexts/pricing/features/recommendations/domain/contracts.ts",
+        "@chase-sets/channels",
+        'import type { ChannelProviderIdentity } from "@chase-sets/channels";',
+      ),
+    ).toBe(false);
   });
 });

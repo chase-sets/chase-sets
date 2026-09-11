@@ -21,7 +21,14 @@
     "listing-snapshot",
     "listing-ask-depth",
     "anonymous-capture-seller-ordinal",
-    "own-sale-observation"
+    "own-sale-observation",
+    "economics",
+    "economics-fact",
+    "fact-source",
+    "policy-owned",
+    "observed-hold",
+    "observed-turnaround",
+    "daily-return-hurdle"
   ],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
@@ -35,11 +42,17 @@
     "repricing-engine",
     "public-market-pages",
     "bulk-reprice-ingestion",
-    "own-sale-observations"
+    "own-sale-observations",
+    "economics"
   ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
-  "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory"],
+  "allowedContextDependencies": [
+    "@chase-sets/channels",
+    "@chase-sets/commercial-terms",
+    "@chase-sets/marketplace",
+    "@chase-sets/inventory"
+  ],
   "seedRequirements": [
     "catalog",
     "identity",
@@ -131,7 +144,7 @@
     {
       "sourceContextName": "ordering",
       "projectionName": "pricing-market-trades-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": [
         "ordering.order.created",
@@ -239,7 +252,8 @@
       "ownedTables": [
         "pricing_inventory_item_inputs",
         "pricing_inventory_hold_inputs",
-        "pricing_own_sale_observations"
+        "pricing_own_sale_observations",
+        "pricing_inventory_acquisition_lots"
       ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
@@ -279,6 +293,13 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "pricing-economics-overrides-projection",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": ["pricing_economics_overrides"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "pricing-repricing-evaluation-reaction",
       "handlerKind": "reaction",
       "sourceContextNames": ["marketplace", "pricing"],
@@ -289,6 +310,16 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "commercialTermsResolver",
+      "providedBy": "commercial-terms",
+      "purpose": "Resolve the four Commercial Terms-owned Economics facts at the caller-supplied evaluation instant."
+    },
+    {
+      "portName": "channelConnectionIdentityReader",
+      "providedBy": "channels",
+      "purpose": "Resolve account-qualified Channel Connection identity before provider selection for the channel-connection Economics scope."
+    },
     {
       "portName": "tcgplayerMarketTransport",
       "providedBy": "platform-api, platform-worker",
@@ -403,6 +434,40 @@
           "bounded-contexts/pricing/features/recommendations/ui/recommendation-list-page.test.tsx"
         ]
       }
+    },
+    {
+      "id": "pricing.economics-resolution-observation",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "read-model-neutral",
+      "surfaces": ["api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /resolve"],
+      "exception": {
+        "owner": "pricing",
+        "reason": "Economics resolution is a read-only calculation over authoritative provider facts, policy, acquisition and sale evidence, and account-scoped overrides. The POST body carries the calculation coordinates; the route appends no event and creates no post-write read.",
+        "reviewBy": "2027-03-08",
+        "issue": "#7707"
+      }
+    },
+    {
+      "id": "pricing.economics-override-command-snapshots",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /overrides/set",
+        "api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /overrides/clear",
+        "api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /overrides/clear-all"
+      ],
+      "visibleDestination": {
+        "description": "Override command responses return the command-folded Economics override entries and aggregate version, so callers do not depend on the asynchronously projected override table for post-write state."
+      },
+      "proof": {
+        "authoritativeResponse": "EconomicsOverrideRuntime.execute appends with expected-version concurrency, folds the emitted events into aggregate state, and the API returns that state's version and entries directly.",
+        "tests": [
+          "bounded-contexts/pricing/features/economics/api/override-runtime.test.ts",
+          "bounded-contexts/pricing/features/economics/api/route.test.ts"
+        ]
+      }
     }
   ],
   "deployableContributions": [
@@ -501,6 +566,14 @@
     }
   ],
   "directoryIntent": {
+    "economics": {
+      "classification": "slice",
+      "purpose": "Resolve replayable native-marketplace or Channel Connection Economics facts, evidence, and overrides for Pricing consumers.",
+      "expectedConsumers": [
+        "Internal pricing module composition",
+        "Pricing Goal consumers through the Pricing server contract"
+      ]
+    },
     "recommendations": {
       "classification": "slice",
       "purpose": "Own recommendations feature behavior, read models, and UI contracts for the pricing context.",
@@ -554,7 +627,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by pricing-owned features and composition seams.",
-      "expectedConsumers": ["recommendations"]
+      "expectedConsumers": ["economics", "recommendations"]
     },
     "realtime-support": {
       "classification": "support",

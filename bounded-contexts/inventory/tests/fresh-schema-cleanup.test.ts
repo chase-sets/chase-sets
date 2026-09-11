@@ -13,6 +13,8 @@ describe("fresh inventory schemas", () => {
     expect(inventoryItemSchemaSql).toContain("channel text NULL");
     expect(inventoryItemSchemaSql).toContain("result_collision jsonb NULL");
     expect(inventoryItemSchemaSql).toContain("claim_generation text NOT NULL");
+    expect(inventoryItemSchemaSql).toContain("acquisition_cost_currency_code text NULL");
+    expect(inventoryItemSchemaSql).toContain("acquisition_cost_amount IS NOT NULL");
     expect(inventoryItemSchemaSql).not.toContain("inventory_item_ledger_item_occurred_idx");
     expect(inventoryItemSchemaSql).not.toContain("inventory_item_ledger_account_item_idx");
     expect(migrationSql).toContain("CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_item_ledger_item_occurred_idx");
@@ -31,5 +33,8 @@ describe("fresh inventory schemas", () => {
     );
     expect(migrationSql).toContain("SET LOCAL lock_timeout = '5s'");
     expect(migrationSql).toContain("ALTER COLUMN claim_generation SET NOT NULL");
+    expect(migrationSql).toContain("ADD COLUMN IF NOT EXISTS acquisition_cost_currency_code text NULL");
+    expect(migrationSql).toContain("inventory_items_acquisition_cost_currency_check");
+    expect(migrationSql).not.toContain("SET acquisition_cost_currency_code");
   });
 });

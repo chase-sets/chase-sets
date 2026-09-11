@@ -140,6 +140,7 @@ export function collectStructuralRedeclarations(files: SourceFileMap, contractsS
 function isProductionSourcePath(relativePath: string): boolean {
   const normalized = relativePath.replaceAll("\\", "/");
   if (!/\.(?:[cm]?[jt]sx?)$/.test(normalized)) return false;
+  if (normalized.startsWith("scripts/check-structure/fixtures/")) return false;
   if (/(?:^|\/)tests?(?:\/|$)|(?:^|\/)__tests__(?:\/|$)|\.(?:test|spec)\.[^.]+$/.test(normalized)) return false;
   return true;
 }

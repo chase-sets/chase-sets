@@ -20,6 +20,8 @@ export type { InventoryImportSourceProfile } from "./features/import-batches/dom
 export type { InventoryImportBatchJobStatus } from "./features/import-batches/api/runtime";
 export type { InventoryAccountSellerSkuItemResolution } from "./features/import-batches/read-model/account-sku-mappings";
 export type {
+  InventoryAdjustItemRequest,
+  InventoryCreateItemRequest,
   InventoryItemDetail,
   InventoryEnsuredListingStock,
   InventoryItemListItem,
@@ -36,6 +38,8 @@ export type { InventoryRestockDecision } from "./features/restock-decisions/api/
 export type { InventoryRecoveredItemRow } from "./features/recovered-items/read-model/queries";
 
 import type {
+  InventoryAdjustItemRequest,
+  InventoryCreateItemRequest,
   InventoryEnsuredListingStock,
   InventoryItemDetail,
   InventoryItemListItem,
@@ -257,7 +261,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async createItem(body: Record<string, unknown>) {
+    async createItem(body: InventoryCreateItemRequest) {
       return parseJsonResponse(await client.items.$post({ json: body, header: headers }));
     },
     async ensureListingStock(body: Record<string, unknown>): Promise<InventoryEnsuredListingStock> {
@@ -268,7 +272,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async adjustItem(id: string, body: Record<string, unknown>) {
+    async adjustItem(id: string, body: InventoryAdjustItemRequest) {
       return parseJsonResponse(
         await client.items[":id"].adjustments.$post({
           param: { id },

@@ -27,6 +27,7 @@ import type {
   IdentityFounderNumberClaimedPayload,
   InventoryHoldPlacedPayload,
   InventoryExternalChannelSaleRecordedPayload,
+  InventoryItemCreatedPayload,
   InventoryItemOfflineSaleRecordedPayload,
   MarketplaceEventPayloads,
   MarketplaceListingCreatedPayload,
@@ -234,6 +235,10 @@ const aggregateTypeIdentity = {
     ChaseSetsEventPayloads["inventory.hold.placed"],
     InventoryHoldPlacedPayload
   >,
+  "inventory.item.created": true satisfies IsExactly<
+    ChaseSetsEventPayloads["inventory.item.created"],
+    InventoryItemCreatedPayload
+  >,
   "inventory.item.offline-sale-recorded": true satisfies IsExactly<
     ChaseSetsEventPayloads["inventory.item.offline-sale-recorded"],
     InventoryItemOfflineSaleRecordedPayload
@@ -325,6 +330,17 @@ const aggregateTypeIdentity = {
   "experience.platform-feedback.submitted": true satisfies IsExactly<
     ChaseSetsEventPayloads["experience.platform-feedback.submitted"],
     PlatformFeedbackSubmittedPayload
+  >,
+} as const;
+
+const inventoryItemCreatedAcquisitionCurrencyContract = {
+  currentCurrency: true satisfies IsExactly<
+    NonNullable<InventoryItemCreatedPayload["acquisitionCostCurrencyCode"]>,
+    string
+  >,
+  retainedCurrency: true satisfies IsExactly<
+    InventoryItemCreatedPayload["acquisitionCostCurrencyCode"],
+    string | null | undefined
   >,
 } as const;
 
@@ -458,7 +474,8 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(31);
+    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(32);
+    expect(Object.values(inventoryItemCreatedAcquisitionCurrencyContract).every(Boolean)).toBe(true);
   });
 
   it("publishes optional External Channel Sale line money on the existing v1 payload", () => {

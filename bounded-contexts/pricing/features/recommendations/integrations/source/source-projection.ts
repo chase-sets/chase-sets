@@ -141,19 +141,12 @@ async function markPricingInventoryHoldTerminal(
 
 export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "inventory.item.created": async (event) => {
-      const data = event.data as {
-        itemId: string;
-        accountId: string;
-        catalogItemId: string;
-        productId: string;
-        totalQuantity: number;
-        acquisitionCostAmount?: string | null;
-        acquisitionCostCurrencyCode?: string | null;
-      };
+    ...defineProjectorHandlers<Pick<ChaseSetsEventPayloads, "inventory.item.created">>({
+      "inventory.item.created": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `INSERT INTO pricing_inventory_item_inputs (
+        await db.query(
+          `INSERT INTO pricing_inventory_item_inputs (
            item_id,
            seller_account_id,
            catalog_catalog_item_id,
@@ -174,19 +167,20 @@ export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): P
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE pricing_inventory_item_inputs.last_stream_version < EXCLUDED.last_stream_version`,
-        [
-          data.itemId,
-          data.accountId,
-          data.catalogItemId,
-          data.productId,
-          data.totalQuantity,
-          data.acquisitionCostAmount ?? null,
-          data.acquisitionCostCurrencyCode ?? null,
-          event.timing.recordedAt,
-          event.streamVersion,
-        ],
-      );
-    },
+          [
+            data.itemId,
+            data.accountId,
+            data.catalogItemId,
+            data.productId,
+            data.totalQuantity,
+            data.acquisitionCostAmount ?? null,
+            data.acquisitionCostCurrencyCode ?? null,
+            event.timing.recordedAt,
+            event.streamVersion,
+          ],
+        );
+      },
+    }),
     "inventory.item.adjusted": async (event) => {
       const data = event.data as {
         itemId: string;

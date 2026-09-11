@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
 import { module as orderingModule } from "@chase-sets/ordering";
+import type { PricingHostPorts } from "@chase-sets/pricing/server";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
 import {
   createFakeMoneyMovementGateway,
@@ -18,6 +20,12 @@ import {
  */
 
 type OrderingServices = ReturnType<typeof orderingModule.createServices>;
+const syntheticPricingHostPorts = {
+  tcgplayerMarketTransport: { kind: "not-mounted" },
+  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+  commercialTermsResolver: createNoopCommercialTermsResolver(),
+  channelConnectionIdentityReader: { resolve: async () => null },
+} satisfies PricingHostPorts;
 
 function orderingServicesOf(services: Readonly<Record<string, unknown>>): OrderingServices {
   const ordering = services.ordering;
@@ -47,6 +55,7 @@ function workerHostPorts(overrides: Readonly<Record<string, unknown>> = {}) {
       resolveShipmentOrderId: async () => null,
       resolveWebhookTargets: async () => [],
     },
+    ...syntheticPricingHostPorts,
     ...overrides,
   };
 }

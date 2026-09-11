@@ -190,7 +190,9 @@ type ValidatedImportRow = Readonly<{
   selectedOptions: readonly InventorySelectedOptionEntry[];
   storageLocationId: string | null;
   totalQuantity: number | null;
+  acquisitionOccurredAt: string | null;
   acquisitionCostAmount: string | null;
+  acquisitionCostCurrencyCode: string | null;
   sellerSku: string | null;
   listingPriceAmount: string | null;
   listingPriceCurrencyCode: string | null;
@@ -357,6 +359,18 @@ function optionalMoneyAmount(value: string | null, fieldName: string, errors: st
   }
 
   return Number(value).toFixed(2);
+}
+
+function optionalAcquisitionOccurredAt(value: string | null, errors: string[]): string | null {
+  if (!value) return null;
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
+    !Number.isFinite(Date.parse(value))
+  ) {
+    errors.push("acquisitionOccurredAt must be a valid timezone-bearing RFC3339 instant.");
+    return null;
+  }
+  return value;
 }
 
 function wholeNumber(value: string | null, fieldName: string, errors: string[]) {
@@ -979,11 +993,20 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       }
     }
 
-    const acquisitionCostAmount = optionalMoneyAmount(
-      clean(values.acquisitionCostAmount),
-      "acquisitionCostAmount",
-      errors,
-    );
+    const acquisitionCostValue = clean(values.acquisitionCostAmount);
+    const acquisitionCostCurrencyValue = clean(values.acquisitionCostCurrencyCode);
+    const acquisitionCostAmount = optionalMoneyAmount(acquisitionCostValue, "acquisitionCostAmount", errors);
+    const acquisitionCostCurrencyCode =
+      acquisitionCostCurrencyValue && /^[A-Z]{3}$/.test(acquisitionCostCurrencyValue)
+        ? acquisitionCostCurrencyValue
+        : null;
+    if (Boolean(acquisitionCostValue) !== Boolean(acquisitionCostCurrencyValue)) {
+      errors.push("acquisitionCostAmount and acquisitionCostCurrencyCode must be supplied together.");
+    }
+    if (acquisitionCostCurrencyValue && !acquisitionCostCurrencyCode) {
+      errors.push("acquisitionCostCurrencyCode must be an uppercase three-letter ISO-4217 code.");
+    }
+    const acquisitionOccurredAt = optionalAcquisitionOccurredAt(clean(values.acquisitionOccurredAt), errors);
     const listingPriceValue = clean(values.listingPriceAmount);
     const listingCurrencyValue = clean(values.listingPriceCurrencyCode) ?? "";
     const listingCapValue = clean(values.listingQuantityCap);
@@ -1032,7 +1055,9 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       selectedOptions,
       storageLocationId,
       totalQuantity: imported.displayQuantity,
+      acquisitionOccurredAt,
       acquisitionCostAmount,
+      acquisitionCostCurrencyCode,
       sellerSku: clean(values.sellerSku),
       listingPriceAmount: hasListingDraftFields ? listingPriceAmount : null,
       listingPriceCurrencyCode: hasListingDraftFields ? listingPriceCurrencyCode : null,
@@ -1180,18 +1205,19 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
            resolution_status = 'resolved',
            catalog_item_id = $9,
            product_id = $10,
-           selected_options = $11::jsonb,
-           storage_location_id = $12,
-           total_quantity = $13,
-           acquisition_cost_amount = $14,
-           seller_sku = $15,
-           listing_price_amount = $16,
-           listing_quantity_cap = $17,
-           row_note = $18,
-           validation_errors = $19::jsonb,
-           updated_at = now()
-       WHERE row_id = $1
-         AND batch_id = $20
+            selected_options = $11::jsonb,
+            storage_location_id = $12,
+            total_quantity = $13,
+            acquisition_occurred_at = $14,
+            acquisition_cost_amount = $15,
+            seller_sku = $16,
+            listing_price_amount = $17,
+            listing_quantity_cap = $18,
+            row_note = $19,
+            validation_errors = $20::jsonb,
+            updated_at = now()
+        WHERE row_id = $1
+          AND batch_id = $21
          AND status <> 'committed'`,
       [
         row.row_id,
@@ -1207,6 +1233,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         JSON.stringify(validated.selectedOptions),
         validated.storageLocationId,
         validated.totalQuantity,
+        validated.acquisitionOccurredAt,
         validated.acquisitionCostAmount,
         validated.sellerSku,
         validated.listingPriceAmount,
@@ -1281,6 +1308,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             storageLocationId: row.storage_location_id,
             totalQuantity: quantityDelta,
             acquisitionCostAmount: row.acquisition_cost_amount,
+            acquisitionCostCurrencyCode: row.acquisition_cost_currency_code,
+            acquisitionOccurrence: row.acquisition_occurred_at
+              ? { kind: "occurred", occurredAt: row.acquisition_occurred_at, source: "import-supplied" }
+              : { kind: "unknown" },
             itemIdOverride: itemIdForRow(row.row_id),
           },
           context,
@@ -1295,6 +1326,17 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             reason: row.quantity_mode === "replace" ? "Import exact quantity" : "Import quantity adjustment",
             reasonCode: row.quantity_mode === "replace" || quantityDelta < 0 ? "correction" : "intake",
             idempotencyKey: importRowInventoryAdjustmentKey(row.row_id),
+            ...(quantityDelta > 0
+              ? {
+                  acquisitionOccurrence: row.acquisition_occurred_at
+                    ? {
+                        kind: "occurred" as const,
+                        occurredAt: row.acquisition_occurred_at,
+                        source: "import-supplied" as const,
+                      }
+                    : { kind: "unknown" as const },
+                }
+              : {}),
           },
           context,
         );
@@ -1449,6 +1491,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           selected_options,
           storage_location_id,
           total_quantity,
+          acquisition_occurred_at,
           acquisition_cost_amount,
           seller_sku,
           listing_price_amount,
@@ -1460,7 +1503,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
           $11, $12, $13, $14, $15, $16, $17, $18,
-          $19, $20, $21, $22, $23, now(), now()
+          $19, $20, $21, $22, $23, $24, now(), now()
         )
         ON CONFLICT (batch_id, row_number) DO UPDATE
         SET row_id = EXCLUDED.row_id,
@@ -1478,6 +1521,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             selected_options = EXCLUDED.selected_options,
             storage_location_id = EXCLUDED.storage_location_id,
             total_quantity = EXCLUDED.total_quantity,
+            acquisition_occurred_at = EXCLUDED.acquisition_occurred_at,
             acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
             seller_sku = EXCLUDED.seller_sku,
             listing_price_amount = EXCLUDED.listing_price_amount,
@@ -1493,6 +1537,9 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           validated.status,
           JSON.stringify({
             ...row.rawRow,
+            ...(validated.acquisitionCostCurrencyCode
+              ? { acquisitionCostCurrencyCode: validated.acquisitionCostCurrencyCode }
+              : {}),
             ...(validated.listingPriceCurrencyCode
               ? { listingPriceCurrencyCode: validated.listingPriceCurrencyCode }
               : {}),
@@ -1509,6 +1556,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           JSON.stringify(validated.selectedOptions),
           validated.storageLocationId,
           validated.totalQuantity,
+          validated.acquisitionOccurredAt,
           validated.acquisitionCostAmount,
           validated.sellerSku,
           validated.listingPriceAmount,
@@ -1611,6 +1659,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         selected_options,
         storage_location_id,
         total_quantity,
+        acquisition_occurred_at,
         acquisition_cost_amount,
         seller_sku,
         listing_price_amount,
@@ -1622,7 +1671,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18,
-        $19, $20, $21, $22, $23, now(), now()
+        $19, $20, $21, $22, $23, $24, now(), now()
       )
       ON CONFLICT (batch_id, row_number) DO UPDATE
       SET row_id = EXCLUDED.row_id,
@@ -1640,6 +1689,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           selected_options = EXCLUDED.selected_options,
           storage_location_id = EXCLUDED.storage_location_id,
           total_quantity = EXCLUDED.total_quantity,
+          acquisition_occurred_at = EXCLUDED.acquisition_occurred_at,
           acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
           seller_sku = EXCLUDED.seller_sku,
           listing_price_amount = EXCLUDED.listing_price_amount,
@@ -1653,7 +1703,15 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         batchId,
         row.rowNumber,
         validated.status,
-        JSON.stringify(row.rawRow),
+        JSON.stringify({
+          ...row.rawRow,
+          ...(validated.acquisitionCostCurrencyCode
+            ? { acquisitionCostCurrencyCode: validated.acquisitionCostCurrencyCode }
+            : {}),
+          ...(validated.listingPriceCurrencyCode
+            ? { listingPriceCurrencyCode: validated.listingPriceCurrencyCode }
+            : {}),
+        }),
         validated.externalReference ? JSON.stringify(validated.externalReference) : null,
         validated.rowFingerprint,
         validated.quantityMode,
@@ -1666,6 +1724,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         JSON.stringify(validated.selectedOptions),
         validated.storageLocationId,
         validated.totalQuantity,
+        validated.acquisitionOccurredAt,
         validated.acquisitionCostAmount,
         validated.sellerSku,
         validated.listingPriceAmount,

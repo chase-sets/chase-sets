@@ -220,6 +220,7 @@ function fingerprint(
     values.catalogItemId ?? "",
     values.storageLocationId ?? "",
     values.totalQuantity ?? "",
+    values.acquisitionOccurredAt ?? "",
     values.listingPriceAmount ?? "",
     values.listingPriceCurrencyCode ?? "",
   ].join("|");

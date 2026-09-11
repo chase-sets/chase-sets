@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type {
+  AcquisitionOccurrence,
   InventoryAdjustmentReason,
   InventoryAdjustmentSourceRef,
   InventoryOfflineSaleChannel,
@@ -18,6 +19,7 @@ type ExistingInventoryAdjustmentCommandFingerprintInput = Readonly<{
   salePriceAmount?: string | null;
   channel?: InventoryOfflineSaleChannel;
   collisionMode?: "protect-orders" | "honor-offline";
+  acquisitionOccurrence?: AcquisitionOccurrence;
 }>;
 
 type ExternalChannelSaleCommandFingerprintInput = Readonly<{
@@ -109,6 +111,8 @@ export function inventoryAdjustmentCommandFingerprint(input: InventoryAdjustment
           collisionMode: input.collisionMode ?? "protect-orders",
         }
       : {};
+  const acquisition =
+    input.acquisitionOccurrence?.kind === "occurred" ? { acquisitionOccurrence: input.acquisitionOccurrence } : {};
 
   return createHash("sha256")
     .update(
@@ -120,6 +124,7 @@ export function inventoryAdjustmentCommandFingerprint(input: InventoryAdjustment
         sourceRef: input.sourceRef ?? null,
         ...extendedReason,
         ...sale,
+        ...acquisition,
       }),
     )
     .digest("hex");
@@ -176,6 +181,7 @@ export async function recoverInventoryAdjustmentIdempotency(
     reasonCode?: InventoryAdjustmentReason;
     note?: string | null;
     sourceRef?: InventoryAdjustmentSourceRef;
+    acquisitionOccurrence?: AcquisitionOccurrence;
   }>,
 ): Promise<{ itemId: string; version: number } | null> {
   const createdAt = new Date(input.existing.created_at).getTime();
@@ -196,6 +202,7 @@ export async function recoverInventoryAdjustmentIdempotency(
       reasonCode?: unknown;
       note?: unknown;
       sourceRef?: unknown;
+      acquisitionOccurrence?: unknown;
     };
     const extendedReasonMatches =
       input.reasonCode === undefined && input.note === undefined
@@ -208,6 +215,8 @@ export async function recoverInventoryAdjustmentIdempotency(
       payload.reason === normalizedReason &&
       extendedReasonMatches &&
       JSON.stringify(payload.sourceRef ?? null) === JSON.stringify(input.sourceRef ?? null) &&
+      JSON.stringify(knownAcquisitionOccurrence(payload.acquisitionOccurrence)) ===
+        JSON.stringify(knownAcquisitionOccurrence(input.acquisitionOccurrence)) &&
       event.forAccountId === input.accountId
     );
   });
@@ -225,6 +234,10 @@ export async function recoverInventoryAdjustmentIdempotency(
     resultCollision: null,
   });
   return completed ? { itemId: input.itemId, version } : null;
+}
+
+function knownAcquisitionOccurrence(value: unknown): unknown {
+  return typeof value === "object" && value !== null && "kind" in value && value.kind === "occurred" ? value : null;
 }
 
 export async function completeInventoryAdjustmentIdempotency<TCollision>(

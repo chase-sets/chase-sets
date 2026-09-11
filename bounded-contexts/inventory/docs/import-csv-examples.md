@@ -9,19 +9,21 @@ Use this when the file already contains Chase Sets catalog identifiers and stora
 Sellers can also export current inventory from the Inventory import page. That export uses the same native import headers, includes the account's current `catalogItemId`, `storageLocationId`, selected option columns, `totalQuantity`, and acquisition cost when available, and can be edited and uploaded again without typing Chase Sets internal identifiers.
 
 ```csv
-catalogItemId,storageLocation,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote
-cat_seed_charizard_base_set,Main shelf,2,Raw,Near Mint,75.00,box-a-001,125.00,1,Base Set restock
+catalogItemId,storageLocation,totalQuantity,option:form,option:condition,acquisitionCostAmount,acquisitionCostCurrencyCode,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote
+cat_seed_charizard_base_set,Main shelf,2,Raw,Near Mint,75.00,USD,box-a-001,125.00,USD,1,Base Set restock
 ```
 
 Use `storageLocation` for the visible active storage location name. `storageLocationId` is still accepted and is what the current-inventory export uses so reuploads target the exact same storage location.
 
 Option columns may use Catalog dimension ids or visible dimension labels. Option values may use option ids, codes, or visible labels.
 
+`acquisitionCostAmount` and `acquisitionCostCurrencyCode` are optional, but must be supplied together. The currency is the seller-authored uppercase three-letter acquisition denomination; imports do not infer or convert it.
+
 If an account SKU mapping already exists, native rows may use `sellerSku` or `Seller SKU` without a `catalogItemId`. Seller SKU mappings are owned by Inventory and scoped to the importing account, so the same SKU text can safely map to different Products for different sellers. Unknown or duplicate mappings stay in import review.
 
 ```csv
-Seller SKU,storageLocation,totalQuantity,acquisitionCostAmount,listingPriceAmount,listingQuantityCap,rowNote
-box-a-001,Main shelf,2,75.00,125.00,1,Restock by account SKU
+Seller SKU,storageLocation,totalQuantity,acquisitionCostAmount,acquisitionCostCurrencyCode,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote
+box-a-001,Main shelf,2,75.00,USD,125.00,USD,1,Restock by account SKU
 ```
 
 ## TCGplayer CSV

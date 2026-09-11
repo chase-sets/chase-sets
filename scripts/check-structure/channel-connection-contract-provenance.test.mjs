@@ -19,6 +19,12 @@ describe("channel-connection-contract-provenance", () => {
         "scripts/check-structure/fixtures/channel-connection-contract/canonical.ts",
       ),
     ).toEqual([]);
+    expect(
+      findChannelConnectionContractProvenanceViolations(
+        readFixture("economics-public-root.ts"),
+        "bounded-contexts/pricing/features/economics/domain/fixture.ts",
+      ),
+    ).toEqual([]);
   });
 
   it("rejects a structurally identical local environment alias", () => {
@@ -28,6 +34,29 @@ describe("channel-connection-contract-provenance", () => {
         "local-redeclaration.ts",
       ),
     ).toEqual(expect.arrayContaining([expect.stringContaining("redeclares ChannelEnvironment")]));
+  });
+
+  it("rejects a Pricing Economics deep import that bypasses the public Channels contract", () => {
+    expect(
+      findChannelConnectionContractProvenanceViolations(
+        readFixture("economics-deep-import.ts"),
+        "bounded-contexts/pricing/features/economics/domain/fixture.ts",
+      ),
+    ).toEqual(expect.arrayContaining([expect.stringContaining("without importing it from @chase-sets/channels")]));
+  });
+
+  it("rejects Pricing Economics aliases for either Channels-owned identity contract", () => {
+    expect(
+      findChannelConnectionContractProvenanceViolations(
+        readFixture("economics-local-alias.ts"),
+        "bounded-contexts/pricing/features/economics/domain/fixture.ts",
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("redeclares ChannelEnvironment"),
+        expect.stringContaining("redeclares ChannelProviderIdentity"),
+      ]),
+    );
   });
 
   it("rejects a structural resolver cast", () => {

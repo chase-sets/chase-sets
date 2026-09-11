@@ -123,6 +123,10 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.view.order": "View order {orderId}",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost": "Acquisition cost",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost.2": "Acquisition Cost",
+  "inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost.currency.code":
+    "Acquisition cost currency",
+  "inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost.currency.not.recorded":
+    "{amount} (currency not recorded)",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.actions": "Actions",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.available": "Available",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item": "Catalog item",

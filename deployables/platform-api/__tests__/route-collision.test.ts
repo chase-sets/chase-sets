@@ -44,7 +44,7 @@ describe("platform API route collision assembly", () => {
 
     const mounts = Reflect.apply(resolveApiHostMounts, undefined, [runtime]);
     const report = assertApiRouteTableHasNoCollisions(mounts);
-    expect(report).toEqual({ scanned: 31, total: 31, routeCount: 779, duplicateGroups: [] });
+    expect(report).toEqual({ scanned: 31, total: 31, routeCount: 783, duplicateGroups: [] });
     console.info(
       `route-collision-census candidate entryShape=keyed rows=${rawEntries.length}/31 scanned=${report.scanned}/${report.total} routes=${report.routeCount} groups=${report.duplicateGroups.length}`,
     );

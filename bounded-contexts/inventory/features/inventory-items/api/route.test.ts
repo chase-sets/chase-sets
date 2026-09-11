@@ -44,6 +44,7 @@ const listingStockResult = {
     totalQuantity: 1,
     availableQuantity: 1,
     acquisitionCostAmount: null,
+    acquisitionCostCurrencyCode: null,
   },
 } satisfies Awaited<ReturnType<InventoryItemServices["ensureListingStock"]>>;
 
@@ -109,6 +110,71 @@ function createHoldServices(): InventoryHoldServices {
 }
 
 describe("inventory item routes", () => {
+  it("maps seller acquisition time on create and positive adjustment without accepting a source", async () => {
+    const createItem = vi.fn<InventoryItemServices["createItem"]>(async () => ({
+      itemId: "itm_1" as never,
+      version: 1,
+    }));
+    const adjustItem = vi.fn<InventoryItemServices["adjustItem"]>(async () => ({ itemId: "itm_1", version: 2 }));
+    const app = buildApp(createItemServices({ createItem, adjustItem }));
+    const acquiredAt = "2026-09-01T05:00:00-05:00";
+
+    expect(
+      (
+        await app.request("/items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            catalogItemId: "cat_1",
+            selectedOptions: [],
+            storageLocationId: "loc_1",
+            totalQuantity: 1,
+            acquisitionOccurredAt: acquiredAt,
+            acquisitionSource: "forged",
+          }),
+        })
+      ).status,
+    ).toBe(201);
+    expect(createItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        acquisitionOccurrence: { kind: "occurred", occurredAt: acquiredAt, source: "seller-supplied" },
+      }),
+      context,
+    );
+
+    expect(
+      (
+        await app.request("/items/itm_1/adjustments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quantityDelta: 1, reason: "Intake", acquisitionOccurredAt: acquiredAt }),
+        })
+      ).status,
+    ).toBe(200);
+    expect(adjustItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        acquisitionOccurrence: { kind: "occurred", occurredAt: acquiredAt, source: "seller-supplied" },
+      }),
+      context,
+    );
+  });
+
+  it("rejects acquisition time on a stock reduction before collision handling", async () => {
+    const reduceItem = vi.fn<InventoryHoldCollisionServices["reduceItem"]>();
+    const app = buildApp(createItemServices(), { holdCollisions: { reduceItem, projectors: [] } });
+    const response = await app.request("/items/itm_1/adjustments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantityDelta: -1,
+        reason: "Reduction",
+        acquisitionOccurredAt: "2026-09-01T00:00:00Z",
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(reduceItem).not.toHaveBeenCalled();
+  });
+
   it("passes a valid graded card shape into listing stock creation", async () => {
     const ensureListingStock = vi.fn<InventoryItemServices["ensureListingStock"]>(async () => listingStockResult);
     const app = buildApp(createItemServices({ ensureListingStock }));

@@ -77,6 +77,7 @@ describe("restock decision runtime", () => {
         quantityDelta: 2,
         reason: "return-restocked",
         reasonCode: "return-restocked",
+        acquisitionOccurrence: { kind: "unknown" },
       }),
       context,
     );

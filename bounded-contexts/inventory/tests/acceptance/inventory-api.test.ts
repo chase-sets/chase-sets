@@ -241,6 +241,7 @@ describe("inventory api", () => {
         storageLocationId: locationBody.id,
         totalQuantity: 10,
         acquisitionCostAmount: "4.50",
+        acquisitionCostCurrencyCode: "USD",
       }),
     });
     expect(itemResponse.status).toBe(201);
@@ -918,6 +919,7 @@ describe("inventory api", () => {
           storageLocationId: location.storageLocationId,
           totalQuantity: 3,
           acquisitionCostAmount: "75.00",
+          acquisitionCostCurrencyCode: "USD",
         },
         inventoryContext,
       );

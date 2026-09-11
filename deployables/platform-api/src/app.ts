@@ -20,6 +20,7 @@ import {
   createCommercialTermsResolver,
   createStandardScheduleResolver,
   type CommercialTermsAccountSource,
+  type CommercialTermsResolver,
 } from "@chase-sets/commercial-terms/server";
 import {
   createDiscoveryUcpHandlers,
@@ -32,7 +33,12 @@ import {
   resolveCatalogProductSelection,
 } from "@chase-sets/catalog/server";
 import type { SavedListProductCatalog } from "@chase-sets/collections/server";
-import { pricingRealtimeManifest, type PricingHostPorts } from "@chase-sets/pricing/server";
+import {
+  pricingRealtimeManifest,
+  type ChannelConnectionIdentityReader,
+  type PricingHostPorts,
+} from "@chase-sets/pricing/server";
+import { module as channelsModule } from "@chase-sets/channels";
 import { module as identityModule } from "@chase-sets/identity";
 import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
 import {
@@ -92,6 +98,7 @@ import {
   marketAnalyticsDisplayPolicy,
   marketEstimatePolicy,
   marketStatHygienePolicy,
+  economicsPolicy,
   priceSignalPolicy,
   providerObservationPolicy,
   repricingEnginePolicy,
@@ -383,6 +390,7 @@ export function createPlatformApiHost(
         marketStatHygienePolicy,
         marketAnalyticsDisplayPolicy,
         marketEstimatePolicy,
+        economicsPolicy,
         priceSignalPolicy,
         providerObservationPolicy,
         repricingEnginePolicy,
@@ -516,10 +524,16 @@ export function createPlatformApiHost(
 
     return createBatch(params, context);
   };
-  const pricingHostPorts: PricingHostPorts = {
-    tcgplayerMarketTransport: { kind: "not-mounted" },
-    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
-  };
+  const pricingHostPorts: PricingHostPorts | undefined = pricingPool
+    ? {
+        tcgplayerMarketTransport: { kind: "not-mounted" },
+        tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+        commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
+        channelConnectionIdentityReader: createChannelConnectionIdentityReader(
+          () => runtime?.services.channels as ReturnType<typeof channelsModule.createServices> | undefined,
+        ),
+      }
+    : undefined;
 
   runtime = createApiHost(apiContextRegistry, "platform-api", {
     ...options,
@@ -542,7 +556,7 @@ export function createPlatformApiHost(
       draftListingCreator,
       inventoryCleanupAuthority,
       inventorySavedListImportBatchCreator,
-      ...pricingHostPorts,
+      ...(pricingHostPorts ?? {}),
     },
   });
   return runtime;
@@ -603,6 +617,30 @@ function lazyPolicyConsoleWritePort(
       requirePolicies().revisePolicyDocument(definition, documentId, params, context),
     resolvePolicy: (definition, params) => requirePolicies().resolvePolicy(definition, params),
   };
+}
+
+function createChannelConnectionIdentityReader(
+  getServices: () => ReturnType<typeof channelsModule.createServices> | undefined,
+): ChannelConnectionIdentityReader {
+  return {
+    resolve: async (input) => {
+      const connection = await getServices()?.connections.getConnection(input);
+      return connection
+        ? {
+            connectionId: connection.connectionId,
+            providerKey: connection.providerKey,
+            environment: connection.environment,
+          }
+        : null;
+    },
+  };
+}
+
+function requirePricingCommercialTermsResolver(resolver: CommercialTermsResolver | undefined): CommercialTermsResolver {
+  if (!resolver) {
+    throw new Error("Pricing cannot be mounted without the Commercial Terms resolver host port.");
+  }
+  return resolver;
 }
 
 /**

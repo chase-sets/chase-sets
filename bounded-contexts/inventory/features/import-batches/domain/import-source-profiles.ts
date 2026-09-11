@@ -68,16 +68,22 @@ const listingPriceCurrencyCode = {
   headers: ["listingPriceCurrencyCode", "Currency Code", "Currency"],
 } as const satisfies InventoryImportValueMapping;
 
+const acquisitionOccurredAt = {
+  targetKey: "acquisitionOccurredAt",
+  headers: ["acquisitionOccurredAt", "Acquisition Occurred At", "Acquired At", "Acquisition Date", "Purchase Date"],
+} as const satisfies InventoryImportValueMapping;
+
 export const inventoryImportSourceProfiles = [
   {
     sourceKey: "native-csv",
     label: "Chase Sets CSV",
     kind: "csv",
-    adapterVersion: 1,
+    adapterVersion: 2,
     nativePassthrough: true,
     displayNameValueKeys: [],
     values: [
       defaultStorage,
+      acquisitionOccurredAt,
       { targetKey: "sellerSku", headers: ["sellerSku", "Seller SKU"] },
       { targetKey: "gtin", headers: ["gtin", "GTIN", "Barcode", "UPC", "EAN"] },
     ],
@@ -101,10 +107,10 @@ export const inventoryImportSourceProfiles = [
     sourceKey: "saved-list",
     label: "Saved List",
     kind: "api",
-    adapterVersion: 1,
+    adapterVersion: 2,
     nativePassthrough: true,
     displayNameValueKeys: [],
-    values: [],
+    values: [acquisitionOccurredAt],
     externalReferenceCandidates: [],
     selectedOptionInference: [],
   },
@@ -112,10 +118,11 @@ export const inventoryImportSourceProfiles = [
     sourceKey: "tcgplayer-csv",
     label: "TCGplayer CSV",
     kind: "csv",
-    adapterVersion: 1,
+    adapterVersion: 2,
     displayNameValueKeys: ["title", "setName", "condition"],
     values: [
       defaultStorage,
+      acquisitionOccurredAt,
       { targetKey: "tcgplayerSku", headers: ["SKU", "TCGplayer SKU", "TCGplayerSku", "Product SKU"] },
       {
         targetKey: "tcgplayerProductId",
@@ -170,10 +177,11 @@ export const inventoryImportSourceProfiles = [
     sourceKey: "ebay-csv",
     label: "eBay CSV",
     kind: "csv",
-    adapterVersion: 1,
+    adapterVersion: 2,
     displayNameValueKeys: ["title", "condition"],
     values: [
       defaultStorage,
+      acquisitionOccurredAt,
       { targetKey: "ebayItemId", headers: ["Item ID", "ItemId", "Listing ID", "ListingId"] },
       { targetKey: "ebayVariationId", headers: ["Variation ID", "VariationId"] },
       { targetKey: "sellerSku", headers: ["Custom label", "Custom Label", "SKU", "Seller SKU", "Inventory SKU"] },
@@ -216,10 +224,11 @@ export const inventoryImportSourceProfiles = [
     sourceKey: "shopify-csv",
     label: "Shopify CSV",
     kind: "csv",
-    adapterVersion: 1,
+    adapterVersion: 2,
     displayNameValueKeys: ["title", "variantTitle"],
     values: [
       defaultStorage,
+      acquisitionOccurredAt,
       { targetKey: "shopifyProductId", headers: ["Product ID", "ProductId", "ID"] },
       { targetKey: "shopifyVariantId", headers: ["Variant ID", "VariantId"] },
       { targetKey: "handle", headers: ["Handle"] },
@@ -268,10 +277,11 @@ export const inventoryImportSourceProfiles = [
     sourceKey: "whatnot-csv",
     label: "Whatnot CSV",
     kind: "csv",
-    adapterVersion: 1,
+    adapterVersion: 2,
     displayNameValueKeys: ["title", "condition"],
     values: [
       defaultStorage,
+      acquisitionOccurredAt,
       { targetKey: "whatnotProductId", headers: ["Product ID", "ProductId"] },
       { targetKey: "whatnotListingId", headers: ["Listing ID", "ListingId", "Item ID"] },
       { targetKey: "whatnotInventoryId", headers: ["Inventory ID", "InventoryId"] },
@@ -316,10 +326,11 @@ export const inventoryImportSourceProfiles = [
     sourceKey: "cardtrader-csv",
     label: "CardTrader CSV",
     kind: "csv",
-    adapterVersion: 1,
+    adapterVersion: 2,
     displayNameValueKeys: ["title", "expansion", "condition"],
     values: [
       defaultStorage,
+      acquisitionOccurredAt,
       { targetKey: "cardTraderProductId", headers: ["Product ID", "ProductId", "CardTrader Product ID"] },
       { targetKey: "cardTraderBlueprintId", headers: ["Blueprint ID", "BlueprintId", "CardTrader Blueprint ID"] },
       { targetKey: "cardTraderArticleId", headers: ["Article ID", "ArticleId", "Inventory ID"] },

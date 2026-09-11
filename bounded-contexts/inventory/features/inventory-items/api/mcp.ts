@@ -72,6 +72,13 @@ function readQuantityDelta(args: Readonly<Record<string, unknown>>) {
   return value;
 }
 
+function sellerSuppliedAcquisitionOccurrence(args: Readonly<Record<string, unknown>>) {
+  const raw = args.acquisitionOccurredAt;
+  if (raw === undefined || raw === null || raw === "") return { kind: "unknown" as const };
+  if (typeof raw !== "string") throw new Error("acquisitionOccurredAt must be a string instant.");
+  return { kind: "occurred" as const, occurredAt: raw, source: "seller-supplied" as const };
+}
+
 function readAvailability(args: Readonly<Record<string, unknown>>) {
   const availability = readMcpStringArgument(args, "availability") ?? readMcpStringArgument(args, "status");
   if (!availability) {
@@ -194,6 +201,9 @@ export function createInventoryItemMcpHandlers(
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const quantityDelta = readQuantityDelta(args);
+    if (quantityDelta < 0 && args.acquisitionOccurredAt !== undefined) {
+      throw new Error("Stock reductions cannot claim an acquisition occurrence.");
+    }
     const itemId = readMcpTypedIdArgument(args, "inventoryItemId", "inv");
     const mode = readMcpStringArgument(args, "collisionMode") ?? "protect-orders";
     const suppliedReasonCode = readMcpStringArgument(args, "reasonCode");
@@ -244,6 +254,7 @@ export function createInventoryItemMcpHandlers(
               ...(reasonCode !== undefined ? { reasonCode } : {}),
               ...(note !== undefined ? { note } : {}),
               idempotencyKey: readMcpStringArgument(args, "idempotencyKey"),
+              acquisitionOccurrence: sellerSuppliedAcquisitionOccurrence(args),
             },
             createActorEventStoreContext(scopedActor),
           );

@@ -11,8 +11,10 @@ import {
   createTcgplayerAutomationCatalogClient,
   createTcgplayerAutomationHttpClients,
 } from "@chase-sets/catalog/server";
+import { module as channelsModule } from "@chase-sets/channels";
 import {
   createObjectStorageTcgplayerMarketCaptureReceiptSink,
+  type ChannelConnectionIdentityReader,
   type PricingHostPorts,
 } from "@chase-sets/pricing/server";
 import { createSesEmailNotificationAdapter, createSesSendRequest } from "@chase-sets/ses-email";
@@ -38,6 +40,7 @@ import {
   createCheckoutProcessingFeePolicyResolver,
   createCommercialTermsResolver,
   type CommercialTermsAccountSource,
+  type CommercialTermsResolver,
 } from "@chase-sets/commercial-terms/server";
 import {
   createSettlementBalanceCreditResolver,
@@ -209,10 +212,6 @@ const tcgplayerAutomationHttpClients = config.tcgplayerAutomation
 const tcgplayerAutomationCatalogClient = tcgplayerAutomationHttpClients
   ? createTcgplayerAutomationCatalogClient(tcgplayerAutomationHttpClients)
   : undefined;
-const pricingHostPorts: PricingHostPorts = {
-  tcgplayerMarketTransport: tcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
-};
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
 const commercialTermsResolver = pools["commercial-terms"]
@@ -222,6 +221,16 @@ const commercialTermsResolver = pools["commercial-terms"]
         () => runtime?.services.identity as WorkerIdentityServices | undefined,
       ),
     })
+  : undefined;
+const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
+  ? {
+      tcgplayerMarketTransport: tcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
+      tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
+      commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
+      channelConnectionIdentityReader: createChannelConnectionIdentityReader(
+        () => runtime?.services.channels as ReturnType<typeof channelsModule.createServices> | undefined,
+      ),
+    }
   : undefined;
 const termsAcceptanceResolver = pools.identity ? createIdentityTermsAcceptanceResolver(pools.identity) : undefined;
 const balanceCreditResolver = pools.settlement
@@ -264,7 +273,7 @@ runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     addressVerificationProvider: postageLabelProvider,
     catalogAssetStorage,
     ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
-    ...pricingHostPorts,
+    ...(pricingHostPorts ?? {}),
     sourceObservationTelemetry,
     ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
     ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
@@ -294,6 +303,30 @@ type WorkerIdentityServices = Readonly<{
     }> | null>;
   }>;
 }>;
+
+function createChannelConnectionIdentityReader(
+  getServices: () => ReturnType<typeof channelsModule.createServices> | undefined,
+): ChannelConnectionIdentityReader {
+  return {
+    resolve: async (input) => {
+      const connection = await getServices()?.connections.getConnection(input);
+      return connection
+        ? {
+            connectionId: connection.connectionId,
+            providerKey: connection.providerKey,
+            environment: connection.environment,
+          }
+        : null;
+    },
+  };
+}
+
+function requirePricingCommercialTermsResolver(resolver: CommercialTermsResolver | undefined): CommercialTermsResolver {
+  if (!resolver) {
+    throw new Error("Pricing cannot be mounted without the Commercial Terms resolver host port.");
+  }
+  return resolver;
+}
 
 function createIdentityCommercialTermsAccountSource(
   getIdentityServices: () => WorkerIdentityServices | undefined,

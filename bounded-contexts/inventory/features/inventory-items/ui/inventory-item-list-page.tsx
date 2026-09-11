@@ -47,9 +47,14 @@ function displayItemLabel(item: InventoryItemListItem) {
 }
 
 function displayCost(item: InventoryItemListItem) {
-  return item.acquisition_cost_amount
-    ? formatMoney(item.acquisition_cost_amount, "USD")
-    : t("inventory.features.inventoryItems.ui.inventoryItemListPage.not.set");
+  if (!item.acquisition_cost_amount) {
+    return t("inventory.features.inventoryItems.ui.inventoryItemListPage.not.set");
+  }
+  return item.acquisition_cost_currency_code
+    ? formatMoney(item.acquisition_cost_amount, item.acquisition_cost_currency_code)
+    : t("inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost.currency.not.recorded", {
+        amount: item.acquisition_cost_amount,
+      });
 }
 
 function catalogItemOptionLabel(item: InventoryCatalogItemSnapshot) {
@@ -355,7 +360,7 @@ export function InventoryItemListPage({
                     label: location.name,
                   }))}
                 />
-                <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                <Grid columns={{ base: 1, md: 3 }} gap={3}>
                   <NumberField
                     label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.total.quantity")}
                     name="totalQuantity"
@@ -367,6 +372,14 @@ export function InventoryItemListPage({
                     name="acquisitionCostAmount"
                     placeholder="4.25"
                     inputMode="decimal"
+                  />
+                  <TextInput
+                    label={t(
+                      "inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost.currency.code",
+                    )}
+                    name="acquisitionCostCurrencyCode"
+                    placeholder="USD"
+                    maxLength={3}
                   />
                 </Grid>
                 <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "center" }} gap={2}>

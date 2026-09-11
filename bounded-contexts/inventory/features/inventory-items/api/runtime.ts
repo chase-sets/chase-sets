@@ -10,6 +10,7 @@ import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/prim
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type {
+  AcquisitionOccurrence,
   InventoryAdjustmentReason,
   InventoryAdjustmentSourceRef,
 } from "@chase-sets/event-core/public-event-payloads";
@@ -82,6 +83,8 @@ export type InventoryItemServices = Readonly<{
       storageLocationId: string;
       totalQuantity: number;
       acquisitionCostAmount?: string | null;
+      acquisitionCostCurrencyCode?: string | null;
+      acquisitionOccurrence?: AcquisitionOccurrence;
       itemIdOverride?: InventoryItemId;
     }>,
     context: EventStoreContext,
@@ -96,6 +99,7 @@ export type InventoryItemServices = Readonly<{
       note?: string | null;
       idempotencyKey?: string | null;
       sourceRef?: InventoryAdjustmentSourceRef;
+      acquisitionOccurrence?: AcquisitionOccurrence;
     }>,
     context: EventStoreContext,
   ) => Promise<{ itemId: string; version: number }>;
@@ -180,6 +184,7 @@ export function createInventoryItemRuntime(
   return {
     commandHandler,
     createItem: async (params, context) => {
+      const commandOccurredAt = new Date().toISOString();
       const location = await getStorageLocation(deps.db, params.storageLocationId, params.accountId);
 
       if (!location) {
@@ -243,6 +248,9 @@ export function createInventoryItemRuntime(
           storageLocationId: params.storageLocationId,
           totalQuantity: params.totalQuantity,
           acquisitionCostAmount: params.acquisitionCostAmount ?? null,
+          acquisitionCostCurrencyCode: params.acquisitionCostCurrencyCode ?? null,
+          acquisitionOccurrence: params.acquisitionOccurrence ?? { kind: "unknown" },
+          commandOccurredAt,
         },
         context,
       });
@@ -253,6 +261,9 @@ export function createInventoryItemRuntime(
       };
     },
     adjustItem: async (params, context) => {
+      const commandOccurredAt = new Date().toISOString();
+      const acquisitionOccurrence =
+        params.quantityDelta > 0 ? (params.acquisitionOccurrence ?? { kind: "unknown" as const }) : undefined;
       const idempotencyKey = normalizeInventoryIdempotencyKey(params.idempotencyKey);
       const claimGeneration = createId("iaj");
       const normalizedNote = params.note === undefined ? undefined : normalizeInventoryAdjustmentNote(params.note);
@@ -264,6 +275,7 @@ export function createInventoryItemRuntime(
         reasonCode: params.reasonCode,
         note: normalizedNote,
         sourceRef: params.sourceRef ?? null,
+        acquisitionOccurrence,
       });
       if (idempotencyKey) {
         const existing = await claimInventoryAdjustmentIdempotency(deps.db, {
@@ -294,6 +306,7 @@ export function createInventoryItemRuntime(
             reasonCode: params.reasonCode,
             note: normalizedNote,
             sourceRef: params.sourceRef ?? null,
+            acquisitionOccurrence,
           });
           if (recovered) {
             return recovered;
@@ -337,6 +350,7 @@ export function createInventoryItemRuntime(
               ...(params.reasonCode !== undefined ? { reasonCode: params.reasonCode } : {}),
               ...(normalizedNote !== undefined ? { note: normalizedNote } : {}),
               sourceRef: params.sourceRef ?? null,
+              ...(params.quantityDelta > 0 ? { acquisitionOccurrence, commandOccurredAt } : {}),
             },
             context,
           });
@@ -487,6 +501,9 @@ export function createInventoryItemRuntime(
             storageLocationId: location.storage_location_id,
             totalQuantity: params.quantity,
             acquisitionCostAmount: null,
+            acquisitionCostCurrencyCode: null,
+            acquisitionOccurrence: { kind: "unknown" },
+            commandOccurredAt: new Date().toISOString(),
           },
           context,
         });
@@ -509,6 +526,8 @@ export function createInventoryItemRuntime(
             heldQuantity: existingItem?.held_quantity ?? 0,
             reason: "Automatic listing stock",
             reasonCode: "intake",
+            acquisitionOccurrence: { kind: "unknown" },
+            commandOccurredAt: new Date().toISOString(),
           },
           context,
         });
@@ -539,6 +558,7 @@ export function createInventoryItemRuntime(
           totalQuantity,
           availableQuantity,
           acquisitionCostAmount: null,
+          acquisitionCostCurrencyCode: null,
         },
       };
     },

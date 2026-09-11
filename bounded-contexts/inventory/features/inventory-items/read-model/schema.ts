@@ -12,9 +12,16 @@ CREATE TABLE IF NOT EXISTS inventory_items (
   total_quantity integer NOT NULL CHECK (total_quantity >= 0),
   last_stream_version bigint NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0),
   acquisition_cost_amount numeric(12,2) NULL,
+  acquisition_cost_currency_code text NULL CONSTRAINT inventory_items_acquisition_cost_currency_check CHECK (
+    acquisition_cost_currency_code IS NULL OR
+    (acquisition_cost_amount IS NOT NULL AND acquisition_cost_currency_code ~ '^[A-Z]{3}$')
+  ),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE inventory_items
+  ADD COLUMN IF NOT EXISTS acquisition_cost_currency_code text NULL;
 
 CREATE INDEX IF NOT EXISTS inventory_items_account_idx
   ON inventory_items (account_id, updated_at DESC);
@@ -126,6 +133,33 @@ $migration$`,
       `SET LOCAL lock_timeout = '5s'`,
       `ALTER TABLE inventory_item_adjustment_idempotency
   ALTER COLUMN claim_generation SET NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20260909_inventory_acquisition_cost_currency",
+    description: "Preserve Inventory-authored acquisition cost denomination; retained amount-only rows stay null.",
+    statements: [
+      `ALTER TABLE inventory_items
+  ADD COLUMN IF NOT EXISTS acquisition_cost_currency_code text NULL`,
+      `DO $migration$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'inventory_items_acquisition_cost_currency_check'
+      AND conrelid = 'inventory_items'::regclass
+  ) THEN
+    ALTER TABLE inventory_items
+      ADD CONSTRAINT inventory_items_acquisition_cost_currency_check
+      CHECK (
+        acquisition_cost_currency_code IS NULL OR
+        (acquisition_cost_amount IS NOT NULL AND acquisition_cost_currency_code ~ '^[A-Z]{3}$')
+      ) NOT VALID;
+  END IF;
+END
+$migration$`,
+      `ALTER TABLE inventory_items
+  VALIDATE CONSTRAINT inventory_items_acquisition_cost_currency_check`,
     ],
   },
 ];

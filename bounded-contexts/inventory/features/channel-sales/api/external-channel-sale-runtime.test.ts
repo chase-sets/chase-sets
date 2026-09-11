@@ -149,6 +149,9 @@ function createHarness(options: Readonly<{ total?: number; activeHolds?: readonl
       storageLocationId: "loc_main",
       totalQuantity: options.total ?? 10,
       acquisitionCostAmount: "4.00",
+      acquisitionCostCurrencyCode: "USD",
+      acquisitionOccurrence: { kind: "unknown" },
+      commandOccurredAt: "2026-09-07T06:00:00Z",
     });
     await memory.eventStore.appendToStream({
       streamId: "inventory.item-inv_item",

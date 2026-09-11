@@ -49,6 +49,7 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
         sellerAccountId: string;
         lines: Array<{
           lineId: string;
+          inventoryItemId?: string;
           catalogItemId: string;
           productId: string;
           unitPriceAmount: string;
@@ -66,12 +67,13 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
                SELECT 1
                FROM pricing_market_trade_linkage_clusters AS cluster
                WHERE cluster.flagged = true
-                 AND cluster.account_ids @> ARRAY[$3, $4]::text[]
+                 AND cluster.account_ids @> ARRAY[$4, $5]::text[]
              ) AS self_dealing
            )
            INSERT INTO pricing_market_trades (
              order_id,
              line_id,
+             inventory_item_id,
              seller_account_id,
              buyer_account_id,
              catalog_catalog_item_id,
@@ -88,13 +90,14 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
              updated_at
            )
            SELECT
-             $1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, NULL, false,
+             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, NULL, false,
              linkage.self_dealing,
              CASE WHEN linkage.self_dealing THEN 'self-dealing' ELSE NULL END,
-             $10
+             $11
            FROM linkage
            ON CONFLICT (order_id, line_id) DO UPDATE
-           SET seller_account_id = EXCLUDED.seller_account_id,
+           SET inventory_item_id = EXCLUDED.inventory_item_id,
+               seller_account_id = EXCLUDED.seller_account_id,
                buyer_account_id = EXCLUDED.buyer_account_id,
                catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
                product_id = EXCLUDED.product_id,
@@ -105,6 +108,7 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
           [
             data.orderId,
             line.lineId,
+            line.inventoryItemId ?? null,
             data.sellerAccountId,
             data.buyerAccountId,
             line.catalogItemId,

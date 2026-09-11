@@ -27,7 +27,9 @@ export type InventoryImportBatchRow = Readonly<{
   selected_options: readonly { dimensionId: string; optionId: string }[];
   storage_location_id: string | null;
   total_quantity: number | null;
+  acquisition_occurred_at: string | null;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
   seller_sku: string | null;
   listing_price_amount: string | null;
   listing_price_currency_code: string | null;
@@ -85,6 +87,10 @@ END`;
 function normalizeRow(row: RawImportBatchRow): InventoryImportBatchRow {
   return {
     ...row,
+    acquisition_occurred_at:
+      row.acquisition_occurred_at === null || row.acquisition_occurred_at === undefined
+        ? null
+        : new Date(row.acquisition_occurred_at).toISOString(),
     raw_row:
       typeof row.raw_row === "object" && row.raw_row !== null && !Array.isArray(row.raw_row)
         ? (row.raw_row as Record<string, string>)
@@ -154,7 +160,9 @@ export async function getImportBatch(
        selected_options,
        storage_location_id,
        total_quantity,
+       acquisition_occurred_at::text,
        acquisition_cost_amount::text,
+       NULLIF(raw_row->>'acquisitionCostCurrencyCode', '') AS acquisition_cost_currency_code,
        seller_sku,
        listing_price_amount::text,
        NULLIF(raw_row->>'listingPriceCurrencyCode', '') AS listing_price_currency_code,

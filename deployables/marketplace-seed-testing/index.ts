@@ -23,6 +23,7 @@ import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
 import { module as orderingModule } from "@chase-sets/ordering";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as pricingModule } from "@chase-sets/pricing";
+import type { PricingHostPorts } from "@chase-sets/pricing/server";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { module as platformOperationsModule } from "@chase-sets/platform-operations";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
@@ -149,6 +150,16 @@ export function createMarketplaceSeedRuntime(
     db: pools["commercial-terms"],
   });
   const listingPhotoStorage = createMarketplaceSeedListingPhotoStorage();
+  const pricingHostPorts: PricingHostPorts = {
+    tcgplayerMarketTransport: { kind: "not-mounted" },
+    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+    commercialTermsResolver,
+    channelConnectionIdentityReader: {
+      // This host has no Channels database. The unmistakably synthetic reader
+      // keeps seed construction explicit and can never alias a real account.
+      resolve: async () => null,
+    },
+  };
 
   return createMountedContextTestRuntime([
     { contextName: "catalog", module: catalogModule, pool: pools.catalog, ports: options.catalogPorts },
@@ -200,7 +211,7 @@ export function createMarketplaceSeedRuntime(
         processorGateway: createFakePaymentProcessorGateway(),
       },
     },
-    { contextName: "pricing", module: pricingModule, pool: pools.pricing, ports: undefined },
+    { contextName: "pricing", module: pricingModule, pool: pools.pricing, ports: pricingHostPorts },
     {
       contextName: "settlement",
       module: settlementModule,

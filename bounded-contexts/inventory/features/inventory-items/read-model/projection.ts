@@ -14,6 +14,7 @@ export function buildInventoryItemProjectionHandlers(db: PgQueryable): Projector
         storageLocationId,
         totalQuantity,
         acquisitionCostAmount,
+        acquisitionCostCurrencyCode,
       } = event.data as {
         itemId: string;
         accountId: string;
@@ -24,6 +25,7 @@ export function buildInventoryItemProjectionHandlers(db: PgQueryable): Projector
         storageLocationId: string;
         totalQuantity: number;
         acquisitionCostAmount: string | null;
+        acquisitionCostCurrencyCode?: string | null;
       };
 
       await db.query(
@@ -38,10 +40,11 @@ export function buildInventoryItemProjectionHandlers(db: PgQueryable): Projector
            total_quantity,
            last_stream_version,
            acquisition_cost_amount,
+           acquisition_cost_currency_code,
            created_at,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
          ON CONFLICT (item_id) DO UPDATE
          SET account_id = $2,
              catalog_catalog_item_id = $3,
@@ -52,7 +55,8 @@ export function buildInventoryItemProjectionHandlers(db: PgQueryable): Projector
              total_quantity = $8,
              last_stream_version = $9,
              acquisition_cost_amount = $10,
-             updated_at = $11
+             acquisition_cost_currency_code = $11,
+             updated_at = $12
          WHERE inventory_items.last_stream_version < $9`,
         [
           itemId,
@@ -65,6 +69,7 @@ export function buildInventoryItemProjectionHandlers(db: PgQueryable): Projector
           totalQuantity,
           event.streamVersion,
           acquisitionCostAmount,
+          acquisitionCostCurrencyCode ?? null,
           event.timing.recordedAt,
         ],
       );

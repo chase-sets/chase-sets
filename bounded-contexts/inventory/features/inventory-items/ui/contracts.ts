@@ -87,6 +87,7 @@ export type InventoryItemListItem = Readonly<{
   held_quantity: number;
   available_quantity: number;
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
   created_at: string;
   updated_at: string;
 }>;

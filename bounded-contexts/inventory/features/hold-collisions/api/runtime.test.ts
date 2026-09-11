@@ -132,6 +132,8 @@ function createRecoveryHarness(
   const seedItem = async () => {
     const [created] = decideInventoryItem(initialInventoryItemState, {
       type: "CreateInventoryItem",
+      acquisitionOccurrence: { kind: "unknown" },
+      commandOccurredAt: "2026-09-07T06:00:00Z",
       itemId: "inv_1" as never,
       accountId: "acc_seller" as never,
       catalogItemId: "cat_1" as never,
@@ -140,6 +142,7 @@ function createRecoveryHarness(
       storageLocationId: "loc_1",
       totalQuantity: 3,
       acquisitionCostAmount: "75.00",
+      acquisitionCostCurrencyCode: "USD",
     });
     await eventStore.appendToStream({
       streamId: "inventory.item-inv_1",

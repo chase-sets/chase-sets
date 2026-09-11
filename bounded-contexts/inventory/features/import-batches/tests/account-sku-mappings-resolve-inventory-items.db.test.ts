@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -107,5 +108,30 @@ describeDb("inventory batch seller-SKU -> item resolution (#4328 reuse of m71)",
 
     // cat_2's only inventory item (inv_other_account) belongs to a different account, so it must not resolve.
     expect(resolutions).toEqual([{ sellerSku: "SKU-CROSS", status: "unmapped-item", catalogItemId: "cat_2" }]);
+  });
+
+  it("upgrades deployed import staging with an idempotent acquisition occurrence column", async () => {
+    const pool = pools.inventory;
+    await bootstrapContextDatabase(inventoryModule, pool);
+    await pool.query("ALTER TABLE inventory_import_batch_rows DROP COLUMN acquisition_occurred_at");
+    await pool.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260908_inventory_import_acquisition_occurrence'",
+    );
+
+    await bootstrapContextDatabase(inventoryModule, pool);
+    await bootstrapContextDatabase(inventoryModule, pool);
+
+    const result = await pool.query<{ nullable: string; applied_count: number }>(
+      `SELECT
+         (SELECT is_nullable
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'inventory_import_batch_rows'
+            AND column_name = 'acquisition_occurred_at') AS nullable,
+         (SELECT COUNT(*)::integer
+          FROM bounded_context_schema_migrations
+          WHERE migration_id = '20260908_inventory_import_acquisition_occurrence') AS applied_count`,
+    );
+    expect(result.rows).toEqual([{ nullable: "YES", applied_count: 1 }]);
   });
 });

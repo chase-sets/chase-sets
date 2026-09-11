@@ -237,6 +237,7 @@ export const action = defineFormAction({
         storageLocationId: formData.get("storageLocationId"),
         totalQuantity: Number(formData.get("totalQuantity") ?? 0),
         acquisitionCostAmount: String(formData.get("acquisitionCostAmount") ?? "").trim() || null,
+        acquisitionCostCurrencyCode: String(formData.get("acquisitionCostCurrencyCode") ?? "").trim() || null,
       })) as { id?: string };
       if (result.id) {
         const returnTo = safeAccountReturnTo(formData.get("returnTo"));

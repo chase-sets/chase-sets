@@ -49,6 +49,7 @@ function createInventoryDb(
       held_quantity: 0,
       available_quantity: 1,
       acquisition_cost_amount: null,
+      acquisition_cost_currency_code: null,
       created_at: "2026-06-24T00:00:00.000Z",
       updated_at: "2026-06-24T00:00:00.000Z",
     },

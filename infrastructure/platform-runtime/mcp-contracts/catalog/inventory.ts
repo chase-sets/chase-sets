@@ -308,6 +308,9 @@ export const inventoryService = {
               ...inventoryCallerSelectableAdjustmentReasons,
             ]),
             note: stringProperty("Optional operator note for the stock adjustment."),
+            acquisitionOccurredAt: stringProperty(
+              "Optional timezone-bearing acquisition occurrence for positive stock intake. Omit when unknown; forbidden for reductions.",
+            ),
             idempotencyKey: idempotencyKeyProperty(),
             confirmationText: stringProperty("Exact user or policy confirmation text."),
             dryRun: booleanProperty("Validate the action without committing it."),

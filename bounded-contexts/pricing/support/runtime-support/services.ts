@@ -15,12 +15,17 @@ import { createRepricingPolicyRuntime } from "../../features/repricing-policies/
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
 import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
+import type { CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import type { ChannelConnectionIdentityReader } from "../../features/economics/domain/contracts";
+import { createEconomicsServices, type EconomicsServices } from "../../features/economics/api/services";
 import type { TcgplayerMarketTransportCapability } from "../../features/price-signals/integrations/tcgplayer/transport-port";
 import type { TcgplayerMarketCaptureReceiptSinkCapability } from "../../features/price-signals/integrations/tcgplayer/capture-sanitizer";
 
 export type PricingHostPorts = Readonly<{
   tcgplayerMarketTransport: TcgplayerMarketTransportCapability;
   tcgplayerMarketCaptureReceiptSink: TcgplayerMarketCaptureReceiptSinkCapability;
+  commercialTermsResolver: CommercialTermsResolver;
+  channelConnectionIdentityReader: ChannelConnectionIdentityReader;
 }>;
 
 export type PricingServices = Readonly<{
@@ -41,18 +46,19 @@ export type PricingServices = Readonly<{
    */
   policies: PolicyRuntime;
   bulkRepriceIngestion: ReturnType<typeof createBulkRepriceIngestionRuntime>;
+  economics: EconomicsServices;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
 
-export function createPricingServices(
-  pool: PgTransactionalPool,
-  ports: PricingHostPorts = {
-    tcgplayerMarketTransport: { kind: "not-mounted" },
-    tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
-  },
-): PricingServices {
+export function createPricingServices(pool: PgTransactionalPool, ports: PricingHostPorts): PricingServices {
+  if (
+    typeof ports?.commercialTermsResolver?.resolveListingTerms !== "function" ||
+    typeof ports?.channelConnectionIdentityReader?.resolve !== "function"
+  ) {
+    throw new Error("Pricing requires Commercial Terms and Channel Connection Economics host ports.");
+  }
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "pricing" }),
@@ -60,6 +66,13 @@ export function createPricingServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const policies = createPolicyRuntime({ eventStore, db });
+  const economics = createEconomicsServices({
+    eventStore,
+    db,
+    policies,
+    commercialTermsResolver: ports.commercialTermsResolver,
+    channelConnectionIdentityReader: ports.channelConnectionIdentityReader,
+  });
   const priceSignals = createPriceSignalRuntime({
     db,
     pool,
@@ -108,12 +121,14 @@ export function createPricingServices(
     publicMarketPages,
     policies,
     bulkRepriceIngestion,
+    economics,
     projectors: [
       ...priceSignals.projectors,
       ...recommendations.projectors,
       ...marketEstimates.projectors,
       ...repricingPolicies.projectors,
       ...repricingEngine.projectors,
+      ...economics.overrides.projectors,
       ...policies.projectors,
     ],
     pool,

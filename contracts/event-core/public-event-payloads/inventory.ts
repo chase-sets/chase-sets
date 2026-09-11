@@ -162,6 +162,28 @@ export function isInventoryCallerSelectableAdjustmentReason(
 
 export type InventoryAdjustmentSourceRef = InventoryHoldSourceRef;
 
+/** Inventory-owned evidence for when newly acquired stock actually entered the
+ * seller's capital cycle. Missing legacy evidence remains explicitly unknown;
+ * event recorded/import/upload time is never substituted. */
+export type AcquisitionOccurrence =
+  | Readonly<{
+      kind: "occurred";
+      occurredAt: string;
+      source: "seller-supplied" | "import-supplied";
+    }>
+  | Readonly<{ kind: "unknown" }>;
+
+export type InventoryItemCreatedPayload = Readonly<{
+  itemId: string;
+  accountId: AccountId;
+  catalogItemId: string;
+  productId: string;
+  totalQuantity: number;
+  acquisitionCostAmount: string | null;
+  acquisitionCostCurrencyCode?: string | null;
+  acquisitionOccurrence?: AcquisitionOccurrence;
+}>;
+
 export type InventoryItemAdjustedPayload = Readonly<{
   itemId: string;
   quantityDelta: number;
@@ -169,6 +191,7 @@ export type InventoryItemAdjustedPayload = Readonly<{
   reasonCode?: InventoryAdjustmentReason;
   note?: string | null;
   sourceRef?: InventoryAdjustmentSourceRef;
+  acquisitionOccurrence?: AcquisitionOccurrence;
 }>;
 
 export const inventoryOfflineSaleChannels = ["in-store", "card-show", "other"] as const;
@@ -312,6 +335,7 @@ export type InventoryRecoveredItemValueReportedPayload = Readonly<{
 }>;
 
 export type InventoryEventPayloads = Readonly<{
+  "inventory.item.created": InventoryItemCreatedPayload;
   "inventory.item.adjusted": InventoryItemAdjustedPayload;
   "inventory.item.offline-sale-recorded": InventoryItemOfflineSaleRecordedPayload;
   "inventory.external-channel-sale.recorded": InventoryExternalChannelSaleRecordedPayload;

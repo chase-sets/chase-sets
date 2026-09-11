@@ -26,6 +26,7 @@ import {
 const sliceAdditions = [
   "channelExecutionModes",
   "ChannelExecutionMode",
+  "ChannelEnvironment",
   "channelPublicationRejectionCodes",
   "ChannelPublicationRejectionCode",
   "ChannelProviderIdentity",

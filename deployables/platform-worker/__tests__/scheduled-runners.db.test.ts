@@ -6,6 +6,8 @@ import {
   ensureMultiContextTestDatabases,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import type { PricingHostPorts } from "@chase-sets/pricing/server";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
@@ -34,6 +36,12 @@ const EXPECTED_REGISTERED_RUNNER_COUNT = 26;
 const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
+const syntheticPricingHostPorts = {
+  tcgplayerMarketTransport: { kind: "not-mounted" },
+  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+  commercialTermsResolver: createNoopCommercialTermsResolver(),
+  channelConnectionIdentityReader: { resolve: async () => null },
+} satisfies PricingHostPorts;
 
 const scheduledRunnerConfig: RegisteredScheduledRunnerConfig = {
   workerId: "scheduled-runner-db-test",
@@ -119,6 +127,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         operationsRecorder: { record: () => undefined },
         postageLabelProvider,
         addressVerificationProvider: postageLabelProvider,
+        ...syntheticPricingHostPorts,
         // Real-registry composition: the worker states the Ordering
         // cleanup-authority capability explicitly as not-mounted (#7222).
         inventoryCleanupAuthority: { kind: "not-mounted" },
