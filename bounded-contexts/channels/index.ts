@@ -206,7 +206,7 @@ export const module = defineBoundedContextModule<ChannelsRuntimeServices, PgTran
   ],
   retentionExemptions: manualSyncRetentionExemptions,
   seedProfiles: ["scenario-seed"],
-  seed: seedManualSyncScenario,
+  seed: (pool, services) => seedManualSyncScenario(pool, services),
   inspectSeedState: inspectManualSyncSeedState,
   createServices: (pool, ports) => {
     const eventStore = createPostgresEventStore({
