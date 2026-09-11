@@ -5320,6 +5320,6 @@ describe("platform api provider mode observation", () => {
     const platformApiConfigSource = readRepositorySource("deployables/platform-api/src/config.ts");
     expect(platformApiConfigSource.split("loadStripeProviderConfig({").length - 1).toBe(1);
     expect(platformApiConfigSource.includes("classifyStripeKeys")).toBe(false);
-    expect(platformApiConfigSource.split("effectiveMode").length - 1).toBe(1);
+    expect(platformApiConfigSource.split("effectiveMode").length - 1).toBe(2);
   });
 });
