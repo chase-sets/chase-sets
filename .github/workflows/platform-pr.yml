@@ -291,6 +291,27 @@ jobs:
         with:
           install: true
 
+      - name: Capture responsive evidence checkout identity
+        id: responsive-evidence-checkout
+        env:
+          RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
+        run: |
+          set -euo pipefail
+          checkout_commit="$(git rev-parse --verify 'HEAD^{commit}')"
+          checkout_tree="$(git rev-parse --verify 'HEAD^{tree}')"
+          checkout_parents="$(git show -s --diff-merges=off --format=%P HEAD)"
+          executed_base_sha="$(printf '%s\n' "$checkout_parents" | awk '{print $1}')"
+          executed_base_tree="$(git rev-parse --verify "${executed_base_sha}^{tree}")"
+          source_head_tree="$(git rev-parse --verify "${RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA}^{tree}")"
+          {
+            echo "checkout-commit=${checkout_commit}"
+            echo "checkout-tree=${checkout_tree}"
+            echo "checkout-parents=${checkout_parents}"
+            echo "executed-base-sha=${executed_base_sha}"
+            echo "executed-base-tree=${executed_base_tree}"
+            echo "source-head-tree=${source_head_tree}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Cache Playwright Chromium
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
@@ -316,11 +337,17 @@ jobs:
       - name: Prepare successful responsive evidence
         id: responsive-evidence
         env:
-          RESPONSIVE_EVIDENCE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}
+          RESPONSIVE_EVIDENCE_CHECKOUT_PARENTS: ${{ steps.responsive-evidence-checkout.outputs.checkout-parents }}
+          RESPONSIVE_EVIDENCE_CHECKOUT_SHA: ${{ steps.responsive-evidence-checkout.outputs.checkout-commit }}
+          RESPONSIVE_EVIDENCE_CHECKOUT_TREE_SHA: ${{ steps.responsive-evidence-checkout.outputs.checkout-tree }}
+          RESPONSIVE_EVIDENCE_EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}
+          RESPONSIVE_EVIDENCE_EXECUTED_BASE_SHA: ${{ steps.responsive-evidence-checkout.outputs.executed-base-sha }}
+          RESPONSIVE_EVIDENCE_EXECUTED_BASE_TREE_SHA: ${{ steps.responsive-evidence-checkout.outputs.executed-base-tree }}
           RESPONSIVE_EVIDENCE_JOB_INDEX: ${{ strategy.job-index }}
           RESPONSIVE_EVIDENCE_PRODUCER_LOG: ${{ runner.temp }}/responsive-evidence-producer.log
           RESPONSIVE_EVIDENCE_PRODUCER_OUTCOME: ${{ steps.e2e-producer.outcome }}
-          RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+          RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
+          RESPONSIVE_EVIDENCE_SOURCE_HEAD_TREE_SHA: ${{ steps.responsive-evidence-checkout.outputs.source-head-tree }}
         run: node ./scripts/validate-responsive-evidence-artifacts.mjs --prepare-hosted-artifact --suite-batch="${{ matrix.suite_batch }}"
 
       - name: Upload successful responsive evidence
