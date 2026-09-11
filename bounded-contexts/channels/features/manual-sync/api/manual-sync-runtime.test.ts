@@ -14,11 +14,14 @@ const context: EventStoreContext = {
 describe("manual-sync runtime binding", () => {
   it("keeps the actual closed connection query rejecting a synthetic run field", async () => {
     await expect(
-      getPublicChannelConnection(db() as never, {
-        accountId: "account-owner",
-        connectionId: "connection-tcg",
-        runId: "synthetic-extra-field",
-      } as never),
+      getPublicChannelConnection(
+        db() as never,
+        {
+          accountId: "account-owner",
+          connectionId: "connection-tcg",
+          runId: "synthetic-extra-field",
+        } as never,
+      ),
     ).rejects.toMatchObject({ code: "invalid-input" });
   });
 
@@ -169,7 +172,10 @@ describe("manual-sync runtime binding", () => {
     if (operation === "retryClamp") await runtime.retryClamp(input, context);
     if (operation === "release") await runtime.release(input, context);
     if (operation === "recordUploadAttempt") {
-      await runtime.recordUploadAttempt({ ...input, uploadAttemptedAt: "2026-09-10T12:10:00.000Z", fileName: "staged.csv" }, context);
+      await runtime.recordUploadAttempt(
+        { ...input, uploadAttemptedAt: "2026-09-10T12:10:00.000Z", fileName: "staged.csv" },
+        context,
+      );
     }
     if (operation === "recordValidationCancellation") await runtime.recordValidationCancellation(input, context);
     if (operation === "verify") {
@@ -177,7 +183,12 @@ describe("manual-sync runtime binding", () => {
         {
           ...input,
           verificationSnapshotId: "snapshot-newer-staged",
-          importSummary: { fileName: "staged.csv", dateImportedText: "09/10/2026", numberOfProducts: 1, recordedAt: "2026-09-10T12:12:00.000Z" },
+          importSummary: {
+            fileName: "staged.csv",
+            dateImportedText: "09/10/2026",
+            numberOfProducts: 1,
+            recordedAt: "2026-09-10T12:12:00.000Z",
+          },
         },
         context,
       );

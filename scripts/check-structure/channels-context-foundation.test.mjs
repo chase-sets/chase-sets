@@ -531,8 +531,8 @@ describe("channels glossary alias evidence", () => {
   });
 });
 
-describe("channels-foundation-no-deployable-registration", () => {
-  it("registers Channels in API, worker, and contributed marketplace-web registries and kills the behavior-free mutant", () => {
+describe("channels-foundation-deployable-registration", () => {
+  it("registers Channels in API, worker, and its marketplace route host while excluding unrelated hosts", () => {
     const root = createTempRepo("channels-metadata-");
     writeJson(path.join(root, "tsconfig.base.json"), { compilerOptions: { paths: {} } });
     const fixtureManifestPath = path.join(root, "bounded-contexts/channels/context.json");
