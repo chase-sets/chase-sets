@@ -208,9 +208,11 @@ describeDb(
       );
       await seedProductionCompositionFacts(pools.channels);
 
+      const eventStore = createPostgresEventStore({ pool: pools.channels });
       const listingComposition = createChannelListingCompositionRuntime({
         db: pools.channels,
-        eventStore: createPostgresEventStore({ pool: pools.channels }),
+        eventStore,
+        transactionalEventStore: eventStore,
         profiles: createChannelCompositionProfileRegistry([syntheticProfile]),
       });
       const recordOutcome = createChannelListingPublicationOutcomeRecorder(listingComposition);
