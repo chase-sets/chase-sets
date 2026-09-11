@@ -870,6 +870,11 @@ describeDb(
           );
           await pools.channels.query(`ALTER TABLE channel_provider_rate_state ALTER COLUMN ${column} SET NOT NULL`);
         }
+        const removedInvalidControl = await pools.channels.query(
+          "DELETE FROM channel_outbound_operations WHERE listing_id = $1 AND status = 'pending'",
+          [listingId],
+        );
+        expect(Number(removedInvalidControl.rowCount ?? 0)).toBe(1);
       }
 
       await pools.channels.query(
