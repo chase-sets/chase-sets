@@ -31,7 +31,7 @@ import { OutboundOperationLogPanel } from "../../features/outbound-sync/ui/opera
 type LoadedData = Readonly<{
   kind: "ready";
   connection: PublicChannelConnection;
-  manualSync: ManualSyncPanel | null;
+  manualSync: AuxiliaryRead<ManualSyncPanel>;
   operationLog:
     | Readonly<{
         kind: "loaded";
@@ -43,6 +43,7 @@ type LoadedData = Readonly<{
 }>;
 
 type RouteData = LoadedData | Readonly<{ kind: "not-found" }>;
+type AuxiliaryRead<T> = Readonly<{ kind: "loaded"; data: T }> | Readonly<{ kind: "read-error" }>;
 
 function required(value: string | undefined): string {
   if (!value) throw new Response("Not found", { status: 404 });
@@ -68,34 +69,26 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
   const query = new URLSearchParams({ limit: "50" });
   if (position.cursor !== null) query.set("cursor", position.cursor);
   const headers = createForwardedAuthHeaders(request, undefined, { readTargetContextName: "channels" });
-  let operationResponse: Response;
-  let manualSyncResponse: Response;
-  try {
-    [operationResponse, manualSyncResponse] = await Promise.all([
+  const [operationResult, manualSync] = await Promise.all([
+    readAuxiliary<Readonly<{ log: OutboundOperationLogPage; summary: OutboundOperationSummary }>>(
       fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/outbound-operations?${query}`, {
         credentials: "include",
         headers,
       }),
+    ),
+    readAuxiliary<ManualSyncPanel>(
       fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/manual-sync`, {
         credentials: "include",
         headers,
       }),
-    ]);
-  } catch {
-    return { kind: "ready", connection, manualSync: null, operationLog: { kind: "read-error" } };
-  }
+    ),
+  ]);
   // The connection read above is the authority for account isolation and not-found.
   // Auxiliary surfaces may be unavailable without hiding the canonical connection page.
 
-  let manualSync: ManualSyncPanel | null = null;
-  if (manualSyncResponse.ok) manualSync = (await manualSyncResponse.json()) as ManualSyncPanel;
-
   let operationLog: LoadedData["operationLog"] = { kind: "read-error" };
-  if (operationResponse.ok) {
-    const body = (await operationResponse.json()) as Readonly<{
-      log: OutboundOperationLogPage;
-      summary: OutboundOperationSummary;
-    }>;
+  if (operationResult.kind === "loaded") {
+    const body = operationResult.data;
     operationLog = {
       kind: "loaded",
       log: body.log,
@@ -104,6 +97,16 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
     };
   }
   return { kind: "ready", connection, manualSync, operationLog };
+}
+
+async function readAuxiliary<T>(response: Promise<Response>): Promise<AuxiliaryRead<T>> {
+  try {
+    const resolved = await response;
+    if (!resolved.ok) return { kind: "read-error" };
+    return { kind: "loaded", data: (await resolved.json()) as T };
+  } catch {
+    return { kind: "read-error" };
+  }
 }
 
 const connectionAction = defineFormAction({
@@ -259,7 +262,14 @@ export default function AccountChannelsConnectionRoute() {
               description={actionError}
             />
           ) : null}
-          {data.manualSync ? <ManualSyncPanelView panel={data.manualSync} /> : null}
+          {data.manualSync.kind === "loaded" ? <ManualSyncPanelView panel={data.manualSync.data} /> : null}
+          {data.manualSync.kind === "read-error" ? (
+            <OperationalStatusBanner
+              tone="danger"
+              title={t("channels.manualSync.error.title")}
+              description={t("channels.manualSync.error.description")}
+            />
+          ) : null}
           {data.operationLog.kind === "loaded" ? (
             <OutboundOperationLogPanel
               state={{
