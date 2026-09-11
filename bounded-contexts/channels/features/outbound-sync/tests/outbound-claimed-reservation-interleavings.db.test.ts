@@ -881,21 +881,19 @@ describeDb(
       const revision = await pools.channels.query<{ revision: string }>(
         "SELECT revision::text FROM channel_provider_rate_state WHERE provider_key = 'synthetic-inline' AND environment = 'sandbox'",
       );
-      expect(revision.rows).toEqual([{ revision: "9007199254740993" }]);
+      expect(revision.rows).toEqual([{ revision: "9007199254740994" }]);
 
       async function expectInvalidLockedRateState(claimOwnerId: string) {
         const beforeOperation = await operationAdmissionStates(pools.channels);
         const beforeRate = await lockedRateState(pools.channels, "synthetic-inline");
+        const beforeLanes = await laneAdmissionStates(pools.channels, "connection-a");
         await expect(runtime.processNextInlineOperation({ registry, claimOwnerId })).rejects.toMatchObject({
           code: "invalid-input",
         });
         expect(providerCalls).toBe(0);
         expect(await operationAdmissionStates(pools.channels)).toEqual(beforeOperation);
         expect(await lockedRateState(pools.channels, "synthetic-inline")).toEqual(beforeRate);
-        const lane = await pools.channels.query(
-          "SELECT blocked_operation_id, blocked_reason FROM channel_outbound_lanes WHERE connection_id = 'connection-a'",
-        );
-        expect(lane.rows).toEqual([{ blocked_operation_id: null, blocked_reason: null }]);
+        expect(await laneAdmissionStates(pools.channels, "connection-a")).toEqual(beforeLanes);
       }
     });
 
@@ -1930,6 +1928,18 @@ async function lockedRateState(db: PgTransactionalPool, providerKey: string) {
     [providerKey],
   );
   return result.rows[0];
+}
+
+async function laneAdmissionStates(db: PgTransactionalPool, connectionId: string) {
+  const result = await db.query(
+    `SELECT channel_listing_id, generation::text, blocked_operation_id, blocked_reason,
+            blocked_at::text, cleared_at::text, revision::text
+     FROM channel_outbound_lanes
+     WHERE connection_id = $1
+     ORDER BY channel_listing_id`,
+    [connectionId],
+  );
+  return result.rows;
 }
 
 async function seedBacklogFairnessDrill(db: PgTransactionalPool) {
