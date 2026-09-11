@@ -54,9 +54,7 @@ describe("channel-subscription-order-fence", () => {
       subscriptions[3]!.eventTypes.filter((eventType) => !separatelyOwnedChannelListingEvents.includes(eventType)),
     );
     expect(reactions[4]!.eventTypes).toEqual(["channels.channel-listing.desired-state-changed"]);
-    expect(
-      new Set(subscriptions.flatMap((entry) => ("eventTypes" in entry ? entry.eventTypes : []))).size,
-    ).toBe(37);
+    expect(new Set(subscriptions.flatMap((entry) => ("eventTypes" in entry ? entry.eventTypes : []))).size).toBe(37);
   });
 });
 
