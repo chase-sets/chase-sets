@@ -4,6 +4,8 @@ import { defineFormAction } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData, useNavigation } from "react-router";
+import { OutboundOperationLogPanel } from "../../features/outbound-sync/ui/operation-log-panel";
+import { loadOutboundOperationLog } from "../../features/outbound-sync/ui/operation-log-loader";
 import {
   ChannelConnectionDetailPage,
   type ChannelConnectionAllowedAction,
@@ -23,7 +25,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const connectionId = required(params.connectionId);
   try {
     const connection = await createChannelsConnectionsRequestApiClient(request).getConnection(connectionId);
-    return { kind: "ready" as const, connection };
+    const outbound = await loadOutboundOperationLog({ request, params });
+    if (outbound.kind === "not-found") return { kind: "not-found" as const };
+    return { kind: "ready" as const, connection, outbound };
   } catch (error) {
     if (error instanceof ChannelsConnectionsApiError && error.status === 404) {
       return { kind: "not-found" as const };
@@ -87,5 +91,20 @@ export default function AccountChannelsConnectionRoute() {
     );
   }
   const connection = actionData?.kind === "applied" ? actionData.connection : data.connection;
-  return <ChannelConnectionDetailPage state={{ kind: "ready", connection }} pendingIntent={pendingIntent} />;
+  return (
+    <ChannelConnectionDetailPage state={{ kind: "ready", connection }} pendingIntent={pendingIntent}>
+      <OutboundOperationLogPanel
+        state={
+          data.outbound.kind === "loaded"
+            ? {
+                kind: "loaded",
+                log: data.outbound.log,
+                summary: data.outbound.summary,
+                navigation: data.outbound.navigation,
+              }
+            : { kind: "read-error" }
+        }
+      />
+    </ChannelConnectionDetailPage>
+  );
 }
