@@ -258,7 +258,7 @@ describe("portable route manifest contract", () => {
 
     expect(violations).toEqual([]);
     expect({ routeCount, portableCount, webResourceOnlyCount }).toEqual({
-      routeCount: 81,
+      routeCount: 83,
       portableCount: 3,
       webResourceOnlyCount: 1,
     });

@@ -257,6 +257,40 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "channels-connections",
+          "routePath": "account/channels",
+          "fileExport": "./routes/marketplace/account-channels",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "server-only",
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account connection status is private." },
+          "availability": { "web": true, "mobile": false },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this account route."
+          }
+        },
+        {
+          "routeId": "channels-connection-detail",
+          "routePath": "account/channels/:connectionId",
+          "fileExport": "./routes/marketplace/account-channels-connection",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "server-only",
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account connection status is private." },
+          "availability": { "web": true, "mobile": false },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this account route."
+          }
+        },
+        {
           "routeId": "channels-publication",
           "routePath": "account/channels/publication",
           "fileExport": "./routes/marketplace/account-channels-publication",
@@ -301,7 +335,7 @@
       "key": "channels-publication",
       "label": "Channels",
       "icon": "store",
-      "href": "/account/channels/publication",
+      "href": "/account/channels",
       "order": 150,
       "visibility": "signed-in",
       "requiredPermissions": ["channels.view"]
@@ -316,16 +350,22 @@
       "surfaces": [
         "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/pause",
         "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/resume",
-        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/disconnect"
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/disconnect",
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H542755c24d1e#1",
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H16abbc610122#1",
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST Hf47bd35ee32b#1",
+        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hbd7dd2c17dad#1",
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx"
       ],
       "visibleDestination": {
-        "description": "Each public Channel Connection mutation returns the committed aggregate snapshot without waiting for or rereading the asynchronous projection."
+        "description": "Each public Channel Connection mutation returns the committed aggregate snapshot without waiting for or rereading the asynchronous projection. The seller connection list/detail UI renders only that committed snapshot: no optimistic status or action-set change is invented before the response resolves."
       },
       "proof": {
-        "authoritativeResponse": "The route maps CommandExecutionResult.state directly to the closed public DTO for writes and accepted no-ops.",
+        "authoritativeResponse": "The route maps CommandExecutionResult.state directly to the closed public DTO for writes and accepted no-ops; the detail route action returns the same committed connection to the page, which re-renders its status badge and allowed-action set from that value alone.",
         "tests": [
           "bounded-contexts/channels/features/connections/tests/channel-connection-http-contract.test.ts",
-          "bounded-contexts/channels/features/connections/tests/channel-connection-command-snapshot-responses.test.ts"
+          "bounded-contexts/channels/features/connections/tests/channel-connection-command-snapshot-responses.test.ts",
+          "bounded-contexts/channels/features/connections/tests/channel-connection-actions.test.tsx"
         ]
       }
     },
