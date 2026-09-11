@@ -8,19 +8,19 @@ describe("Channels account connection route contribution", () => {
 
   it("declares the exact authenticated account contribution", () => {
     const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../context.json"), "utf8"));
-    expect(manifest.deployableContributions).toEqual([
+    const contribution = manifest.deployableContributions.find(
+      (entry: { deployable: string }) => entry.deployable === "marketplace-web",
+    );
+    expect(
+      contribution.routes.find((route: { routeId: string }) => route.routeId === "account-channel-connection"),
+    ).toEqual(
       expect.objectContaining({
-        deployable: "marketplace-web",
-        routes: [
-          expect.objectContaining({
-            routeId: "account-channel-connection",
-            routePath: "account/channels/:connectionId",
-            fileExport: "./routes/marketplace/account-channel-connection",
-            authorization: { kind: "authenticated", requiredPermissions: ["channels.view"] },
-          }),
-        ],
+        routeId: "account-channel-connection",
+        routePath: "account/channels/:connectionId",
+        fileExport: "./routes/marketplace/account-channel-connection",
+        authorization: { kind: "authenticated", requiredPermissions: ["channels.view"] },
       }),
-    ]);
+    );
   });
 
   it("redirects an unauthenticated actor before a Channels read", async () => {

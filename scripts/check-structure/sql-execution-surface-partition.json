@@ -86,6 +86,7 @@
     "bounded-contexts/channels/features/listing-composition/read-model/state-projection.ts",
     "bounded-contexts/channels/features/outbound-sync/api/runtime.ts",
     "bounded-contexts/channels/features/outbound-sync/api/store.ts",
+    "bounded-contexts/channels/features/outbound-sync/integrations/listing-composition.ts",
     "bounded-contexts/checkout/features/cart/api/runtime.ts",
     "bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts",
     "bounded-contexts/checkout/features/cart/integrations/identity/identity-queries.ts",

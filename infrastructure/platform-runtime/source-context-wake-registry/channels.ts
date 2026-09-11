@@ -12,6 +12,7 @@ export const channelsWakeRegistryEntry = registryEntry({
   affectedProjectionNames: [
     "channels:channel-connection-projection",
     "channels:channel-listing-desired-state-reaction",
+    "channels:channel-outbound-operation-enqueue",
     "channels:channel-owned-publication-state",
   ],
   routeDependencyIds: [],

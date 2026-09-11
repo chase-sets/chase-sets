@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
+import { createUnavailableListingCompositionServices } from "../../listing-composition/tests/service-stub";
 import { OutboundSyncError, type OutboundSyncServices } from "../domain/contracts";
 import { createUnavailableOutboundSyncServices } from "./test-support";
 
@@ -158,7 +159,15 @@ function createApp(connectionsService: ChannelConnectionServices, outboundSync: 
     c.set("actor", { accountId: "acc-owner", permissions: ["channels.view"] });
     await next();
   });
-  app.route("/api/channels", buildChannelsApi({ connections: connectionsService, outboundSync, projectors: [] }));
+  app.route(
+    "/api/channels",
+    buildChannelsApi({
+      connections: connectionsService,
+      listingComposition: createUnavailableListingCompositionServices(),
+      outboundSync,
+      projectors: [],
+    }),
+  );
   return app;
 }
 

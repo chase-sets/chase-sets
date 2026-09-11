@@ -6,7 +6,7 @@ import contextManifest from "../../../context.json" with { type: "json" };
 const contextRoot = path.resolve(import.meta.dirname, "../../..");
 
 describe("channel-subscription-order-fence", () => {
-  it("keeps four singular source projections below all four reactions", () => {
+  it("keeps four singular source projections below all five reactions", () => {
     const subscriptions = contextManifest.eventSubscriptions;
     const reactions = contextManifest.eventReactions;
     expect(subscriptions.map((entry) => entry.sourceContextName)).toEqual([
@@ -19,14 +19,14 @@ describe("channel-subscription-order-fence", () => {
     expect(Math.max(...subscriptions.map((entry) => entry.order))).toBeLessThan(
       Math.min(...reactions.map((entry) => entry.order)),
     );
-    expect(reactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63]);
+    expect(reactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63, 64]);
   });
 
   it("enumerates every producer event once and reacts only after the owning projection", () => {
     const subscriptions = contextManifest.eventSubscriptions;
     const reactions = contextManifest.eventReactions;
     expect(subscriptions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 8, 14]);
-    expect(reactions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 8, 11]);
+    expect(reactions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 8, 11, 1]);
     expect(subscriptions.every((entry) => entry.subscriptionVersion === 1 && entry.filterToEventTypes)).toBe(true);
     expect(reactions.every((entry) => entry.subscriptionVersion === 1 && entry.filterToEventTypes)).toBe(true);
     for (let index = 0; index < 3; index += 1) {
@@ -40,6 +40,7 @@ describe("channel-subscription-order-fence", () => {
     expect(reactions[3]!.eventTypes).toEqual(
       subscriptions[3]!.eventTypes.filter((eventType) => !channelListingOutcomeEvents.includes(eventType)),
     );
+    expect(reactions[4]!.eventTypes).toEqual(["channels.channel-listing.desired-state-changed"]);
     expect(new Set(subscriptions.flatMap((entry) => entry.eventTypes)).size).toBe(37);
   });
 });
