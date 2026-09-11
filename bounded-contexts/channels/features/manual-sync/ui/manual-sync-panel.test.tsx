@@ -40,6 +40,7 @@ describe("channels-manual-sync-design-system", () => {
 
     expect(readyMarkup).toContain("Ready to download");
     expect(readyMarkup).toContain("Clamp and download CSV");
+    expect(readyMarkup).toContain('action="/account/channels/connection-tcg/manual-sync/download"');
     expect(readyMarkup).not.toContain('data-testid="manual-sync-recovery"');
     expect(recoveryMarkup).toContain('data-testid="manual-sync-recovery"');
     expect(recoveryMarkup).toContain("Inbound clamp recovery needs review");

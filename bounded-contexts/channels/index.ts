@@ -53,7 +53,6 @@ export {
   type ParseChannelListingCompositionInputResult,
 } from "./features/listing-composition/domain/contracts";
 export { type ChannelListingReconciliationScope } from "./features/listing-composition/domain/reconciliation";
-export { type ChannelEnvironment } from "./features/connections/domain/contracts";
 export {
   channelExecutionModes,
   channelPublicationRejectionCodes,

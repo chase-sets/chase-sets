@@ -77,6 +77,7 @@ export function ManualSyncPanelView({ panel }: Readonly<{ panel: ManualSyncPanel
             labelKey="channels.manualSync.action.download"
             runId={run.runId}
             revision={run.revision}
+            action={`/account/channels/${encodeURIComponent(panel.connection.connectionId)}/manual-sync/download`}
           />
         ) : null}
         {panel.actions.includes("record-validation-cancellation") && run ? (
@@ -138,14 +139,16 @@ function RunAction({
   labelKey,
   runId,
   revision,
+  action,
 }: Readonly<{
   intent: string;
   labelKey: Parameters<typeof t>[0];
   runId: string;
   revision: number;
+  action?: string;
 }>) {
   return (
-    <Form method="post" spacing="none">
+    <Form method="post" action={action} spacing="none">
       <HiddenInput name="intent" value={intent} />
       <HiddenInput name="runId" value={runId} />
       <HiddenInput name="expectedRevision" value={String(revision)} />

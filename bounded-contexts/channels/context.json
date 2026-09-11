@@ -362,6 +362,29 @@
           }
         },
         {
+          "routeId": "account-channel-connection-manual-sync-download",
+          "routePath": "account/channels/:connectionId/manual-sync/download",
+          "fileExport": "./routes/marketplace/account-channel-connection-manual-sync-download",
+          "routeType": "route",
+          "placement": "root",
+          "sourceContext": "channels",
+          "delivery": "web-resource-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": ["channels.manage"]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "The attachment response is not a standalone canonical document."
+          },
+          "availability": { "web": true, "mobile": false },
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "The route returns a web protocol resource rather than a portable page."
+          }
+        },
+        {
           "routeId": "channels-publication-connection",
           "routePath": "account/channels/publication/:connectionId",
           "fileExport": "./routes/marketplace/account-channels-publication-connection",
@@ -462,7 +485,8 @@
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/release",
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/upload-attempt",
         "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/validation-cancelled",
-        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/verify"
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/verify",
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-channel-connection",

@@ -273,6 +273,7 @@ describe("channels-context-foundation", () => {
     expect(manifest.deployableContributions[0].routes.map((route) => route.authorization.requiredPermissions)).toEqual([
       ["channels.view"],
       ["channels.view"],
+      ["channels.manage"],
       ["channels.view"],
       ["channels.view"],
     ]);
@@ -457,6 +458,7 @@ describe("channels-context-foundation", () => {
         "support/request-support/api-client.ts",
         "features/manual-sync/api/runtime.ts",
         "features/manual-sync/read-model/schema.ts",
+        "routes/marketplace/account-channel-connection-manual-sync-download.tsx",
         "tests/vitest.config.mjs",
       ]),
     );
