@@ -931,7 +931,7 @@ describe("canonical claim consistency guard", () => {
     // Privacy keeps the same settled claim but swaps one canonical citation for
     // an adjacent range that still resolves and still contains a required
     // keyword, so only the provenance-identity rule can catch it.
-    const adjacentRef = "infrastructure/stripe-payments/index.ts:1464-1494";
+    const adjacentRef = "infrastructure/stripe-payments/index.ts:1466-1496";
     expect(canonicalRefs).not.toContain(adjacentRef);
     const drifted = publicPolicyRegistry.map((entry) =>
       entry.artifact.metadata.policyKey === "privacy-policy"
