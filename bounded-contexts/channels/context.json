@@ -201,18 +201,6 @@
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
-    },
-    {
-      "sourceContextName": "channels",
-      "reactionName": "channel-outbound-operation-enqueue",
-      "subscriptionVersion": 1,
-      "filterToEventTypes": true,
-      "eventTypes": ["channels.channel-listing.desired-state-changed"],
-      "order": 64,
-      "reactionHandlerSetNames": ["channel-outbound-operation-enqueue"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
     }
   ],
   "projectionGroups": [

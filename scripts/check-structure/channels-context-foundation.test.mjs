@@ -191,8 +191,8 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     violations.push("allowedSupportDirectories");
   }
   if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
-  if (candidate.eventReactions?.length !== 5) violations.push("eventReactions");
-  if (candidate.deployableContributions?.[0]?.routes?.length !== 4) violations.push("deployableContributions");
+  if (candidate.eventReactions?.length !== 4) violations.push("eventReactions");
+  if (candidate.deployableContributions?.[0]?.routes?.length !== 5) violations.push("deployableContributions");
   if (candidate.shellContributions?.[0]?.requiredPermissions?.[0] !== "channels.view")
     violations.push("shellContributions");
   if (JSON.stringify(candidate.apiDeployables) !== JSON.stringify(["platform-api"])) violations.push("apiDeployables");
@@ -273,8 +273,9 @@ describe("channels-context-foundation", () => {
     expect(manifest.deployableContributions[0].routes.map((route) => route.authorization.requiredPermissions)).toEqual([
       ["channels.view"],
       ["channels.view"],
-      ["channels.manage"],
       ["channels.view"],
+      ["channels.view"],
+      ["channels.manage"],
       ["channels.view"],
     ]);
     expect(manifest.shellContributions[0]).toMatchObject({
