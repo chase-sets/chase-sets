@@ -118,10 +118,7 @@ describeDb("payout-fee-concurrency real Postgres wallet interleaving", () => {
       });
 
       await expect(
-        payouts.previewPayoutRequest(
-          { accountId: "acc_payout_fee_concurrency" as never, amount: "10.00" },
-          context,
-        ),
+        payouts.previewPayoutRequest({ accountId: "acc_payout_fee_concurrency" as never, amount: "10.00" }, context),
       ).resolves.toMatchObject({ fee_amount: "3.00", net_amount: "7.00", is_first_payout_of_month: true });
 
       await eventStore.appendToStream({
@@ -140,10 +137,7 @@ describeDb("payout-fee-concurrency real Postgres wallet interleaving", () => {
         ],
       });
       await expect(
-        payouts.previewPayoutRequest(
-          { accountId: "acc_payout_fee_concurrency" as never, amount: "10.00" },
-          context,
-        ),
+        payouts.previewPayoutRequest({ accountId: "acc_payout_fee_concurrency" as never, amount: "10.00" }, context),
       ).resolves.toMatchObject({ fee_amount: "1.00", net_amount: "9.00", is_first_payout_of_month: false });
 
       await eventStore.appendToStream({
@@ -153,10 +147,7 @@ describeDb("payout-fee-concurrency real Postgres wallet interleaving", () => {
         events: [{ eventType: "settlement.payout.failed", payload: { payoutId: "pyo_db_preview_failed" } }],
       });
       await expect(
-        payouts.previewPayoutRequest(
-          { accountId: "acc_payout_fee_concurrency" as never, amount: "10.00" },
-          context,
-        ),
+        payouts.previewPayoutRequest({ accountId: "acc_payout_fee_concurrency" as never, amount: "10.00" }, context),
       ).resolves.toMatchObject({ fee_amount: "3.00", net_amount: "7.00", is_first_payout_of_month: true });
 
       await eventStore.appendToStream({
@@ -176,10 +167,7 @@ describeDb("payout-fee-concurrency real Postgres wallet interleaving", () => {
       });
       vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
       await expect(
-        payouts.previewPayoutRequest(
-          { accountId: "acc_payout_fee_concurrency" as never, amount: "10.00" },
-          context,
-        ),
+        payouts.previewPayoutRequest({ accountId: "acc_payout_fee_concurrency" as never, amount: "10.00" }, context),
       ).resolves.toMatchObject({ fee_amount: "3.00", net_amount: "7.00", is_first_payout_of_month: true });
     } finally {
       vi.useRealTimers();
