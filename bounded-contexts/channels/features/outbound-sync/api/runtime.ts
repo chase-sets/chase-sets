@@ -670,6 +670,7 @@ async function lockRateState(
     [identity.providerKey, identity.environment],
   );
   const row = state.rows[0]!;
+  assertLockedProviderRateState(row);
   if (Date.parse(currentInstant) - Date.parse(timestamp(row.window_started_at)!) >= budget.windowMs) {
     state = await db.query<ProviderRateRow>(
       `UPDATE channel_provider_rate_state
@@ -681,6 +682,36 @@ async function lockRateState(
     );
   }
   return state.rows[0]!;
+}
+
+function assertLockedProviderRateState(row: ProviderRateRow): void {
+  if (
+    !isText(row.provider_key) ||
+    (row.environment !== "sandbox" && row.environment !== "production") ||
+    !persistedInstant(row.window_started_at) ||
+    !safeIntegerAtLeast(row.request_count, 0) ||
+    !safeIntegerBetween(row.adaptive_divisor, 1, 64) ||
+    (row.throttled_until !== null && !persistedInstant(row.throttled_until)) ||
+    !safeIntegerAtLeast(row.consecutive_successes, 0) ||
+    (row.last_rate_limit_at !== null && !persistedInstant(row.last_rate_limit_at)) ||
+    !safeIntegerAtLeast(row.revision, 1)
+  ) {
+    throw new OutboundSyncError("invalid-input", "Locked provider rate state is invalid.");
+  }
+}
+
+function persistedInstant(value: Date | string): boolean {
+  return value instanceof Date ? Number.isFinite(value.getTime()) : instant(value);
+}
+
+function safeIntegerAtLeast(value: string | number, minimum: number): boolean {
+  const numeric = Number(value);
+  return Number.isSafeInteger(numeric) && numeric >= minimum;
+}
+
+function safeIntegerBetween(value: string | number, minimum: number, maximum: number): boolean {
+  const numeric = Number(value);
+  return Number.isSafeInteger(numeric) && numeric >= minimum && numeric <= maximum;
 }
 
 async function settleInlineOperationBatch(

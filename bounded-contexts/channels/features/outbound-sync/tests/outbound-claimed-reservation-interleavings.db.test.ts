@@ -807,6 +807,66 @@ describeDb(
       });
     });
 
+    it("refuses an isolated invalid locked provider rate-state before admission without changing the operation or lane", async () => {
+      await pools.channels.query(
+        "UPDATE channel_connections SET provider_key = 'synthetic-inline' WHERE connection_id = 'connection-a'",
+      );
+      await pools.channels.query(
+        `INSERT INTO channel_provider_rate_state (
+           provider_key, environment, window_started_at, request_count, adaptive_divisor
+         ) VALUES ('synthetic-inline', 'sandbox', '2026-09-07T19:00:00.000Z', 0, 1)`,
+      );
+      const constraint = await pools.channels.query<{ conname: string; definition: string }>(
+        `SELECT conname, pg_get_constraintdef(oid) AS definition
+         FROM pg_constraint
+         WHERE conrelid = 'channel_provider_rate_state'::regclass
+           AND pg_get_constraintdef(oid) LIKE '%adaptive_divisor%'
+         ORDER BY conname`,
+      );
+      expect(constraint.rows).toHaveLength(1);
+      const { conname, definition } = constraint.rows[0]!;
+      expect(conname).toMatch(/^[a-z0-9_]+$/);
+      await pools.channels.query(`ALTER TABLE channel_provider_rate_state DROP CONSTRAINT ${conname}`);
+      await pools.channels.query(
+        "UPDATE channel_provider_rate_state SET adaptive_divisor = 0 WHERE provider_key = 'synthetic-inline' AND environment = 'sandbox'",
+      );
+
+      let providerCalls = 0;
+      const registry = createChannelProviderRegistry([
+        inlineDescriptor("synthetic-inline", async () => {
+          providerCalls += 1;
+          return { kind: "succeeded", externalListingId: "must-not-be-called" };
+        }),
+      ]);
+      const runtime = createOutboundSyncRuntime(
+        { db: pools.channels, recordOutcome: async () => "applied" },
+        { assertDelistDirective: () => undefined },
+      );
+      await runtime.enqueueDesiredState(desiredState("listing-invalid-rate", 1, 7, "event-invalid-rate"));
+      const before = await operationAdmissionStates(pools.channels);
+
+      await expect(runtime.processNextInlineOperation({ registry, claimOwnerId: "worker-invalid-rate" })).rejects.toMatchObject({
+        code: "invalid-input",
+      });
+      expect(providerCalls).toBe(0);
+      expect(await operationAdmissionStates(pools.channels)).toEqual(before);
+      const lane = await pools.channels.query(
+        "SELECT blocked_operation_id, blocked_reason FROM channel_outbound_lanes WHERE connection_id = 'connection-a'",
+      );
+      expect(lane.rows).toEqual([{ blocked_operation_id: null, blocked_reason: null }]);
+      expect(await rateState(pools.channels, "synthetic-inline")).toMatchObject({
+        request_count: 0,
+        adaptive_divisor: 0,
+      });
+
+      await pools.channels.query(
+        "UPDATE channel_provider_rate_state SET adaptive_divisor = 1 WHERE provider_key = 'synthetic-inline' AND environment = 'sandbox'",
+      );
+      await pools.channels.query(`ALTER TABLE channel_provider_rate_state ADD CONSTRAINT ${conname} ${definition}`);
+      expect(await runtime.processNextInlineOperation({ registry, claimOwnerId: "worker-valid-rate" })).toBe(1);
+      expect(providerCalls).toBe(1);
+    });
+
     it("enforces a durable per-connection cap while a fair neighboring connection advances", async () => {
       await pools.channels.query(
         "UPDATE channel_connections SET provider_key = 'synthetic-inline' WHERE connection_id = 'connection-a'",
