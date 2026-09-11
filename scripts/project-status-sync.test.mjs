@@ -177,7 +177,7 @@ describe("project status derivation", () => {
         ? []
         : [
             expect.objectContaining({
-              query: expect.stringContaining("number: $n"),
+              query: expect.stringMatching(/number:\s*\$n/),
               variables: { p: "project-id", i: "set", f: "outcome-field-id", n: 2 },
             }),
             expect.objectContaining({
