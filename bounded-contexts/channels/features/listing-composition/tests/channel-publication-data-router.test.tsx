@@ -10,7 +10,6 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
 import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
-import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
 import AccountChannelsPublicationConnectionRoute, {
   action,
   loader,
