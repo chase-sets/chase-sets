@@ -117,6 +117,7 @@ export async function inspectManualSyncSeedState(
     composed.data.run.connectionId === manualSyncScenarioSeed.connectionId &&
     composed.data.run.claimant.claimantKind === "manual" &&
     composed.data.run.state === "composed" &&
+    composed.data.run.membershipCompleteness.kind === "complete" &&
     composed.data.run.membershipCompleteness.total === 1 &&
     composed.data.run.members[0]?.listingId === manualSyncScenarioSeed.listingId &&
     decodedRunEvents.length === 1;
