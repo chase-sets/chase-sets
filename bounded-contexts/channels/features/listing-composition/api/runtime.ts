@@ -436,12 +436,25 @@ export function createChannelListingCompositionRuntime(
       if (decision.kind === "unchanged") {
         return { kind: "unchanged", value: undefined, streamVersion: loaded.version };
       }
+      const events = [channelListingEventCodec.encode(decision.event)];
+      if (decision.recompose) {
+        const postPublicationState = evolveChannelListing(loaded.state, decision.event);
+        const recomposition = await listingPublication.decideDesiredState(
+          { connectionId: input.connectionId, listingId: loaded.state.listingId },
+          postPublicationState,
+          postPublicationState.lastStreamVersion + 1,
+          db,
+        );
+        if (recomposition.kind === "append") {
+          events.push(channelListingEventCodec.encode(recomposition.event));
+        }
+      }
       const stored = await transactionalEventStore.appendToStreamInTransaction(db, {
         streamId: linkStreamId(input.channelListingId),
         expectedVersion: loaded.version,
         context,
         wakeSourceContextName: "channels",
-        events: [channelListingEventCodec.encode(decision.event)],
+        events,
       });
       return { kind: "applied", value: undefined, streamVersion: stored[0]!.streamVersion };
     },

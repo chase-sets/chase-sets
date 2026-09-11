@@ -203,9 +203,14 @@ describeDb(
     });
 
     it("outbound-stale-success-sequence-adoption", async () => {
-      await pools.channels.query(
-        "UPDATE channel_connections SET account_id='acc_owner', provider_key='synthetic-provider' WHERE connection_id='connection-a'",
-      );
+      expect(
+        await pools.channels.query(
+          `UPDATE channel_connections
+           SET account_id='acc_owner', provider_key='synthetic-provider'
+           WHERE connection_id='connection-a' AND account_id='acc-owner'
+             AND provider_key='synthetic-claimed' AND environment='sandbox' AND status='active'`,
+        ),
+      ).toMatchObject({ rowCount: 1 });
       await seedProductionCompositionFacts(pools.channels);
 
       const eventStore = createPostgresEventStore({ pool: pools.channels });
@@ -292,9 +297,13 @@ describeDb(
       expect(q1Operation.operationId).not.toBe(q1Operation.sourceEventId);
       expect(q1Operation.payloadDigest).not.toBe(q1Operation.sourceDesiredStateHash);
 
-      await pools.channels.query(
-        "UPDATE channels_inventory_item_facts SET total_quantity=2, item_stream_version=2 WHERE item_id='item-production-composed'",
-      );
+      expect(
+        await pools.channels.query(
+          `UPDATE channels_inventory_item_facts SET total_quantity=2, item_stream_version=2
+           WHERE item_id='item-production-composed' AND account_id='acc_owner'
+             AND catalog_item_id='catalog-production-composed' AND total_quantity=3 AND item_stream_version=1`,
+        ),
+      ).toMatchObject({ rowCount: 1 });
       const q2 = await listingComposition.recordChannelListingDesiredState(source, productionCompositionContext);
       expect(q2).toMatchObject({ kind: "applied", streamVersion: 2 });
       const q2Event = await desiredStateEvent(pools.channels, streamId, 2);
@@ -469,6 +478,118 @@ describeDb(
           },
         ],
       });
+    });
+
+    it("rolls back publication recomposition when the outer outbound settlement fails", async () => {
+      expect(
+        await pools.channels.query(
+          `UPDATE channel_connections
+           SET account_id='acc_owner', provider_key='synthetic-provider'
+           WHERE connection_id='connection-a' AND account_id='acc-owner'
+             AND provider_key='synthetic-claimed' AND environment='sandbox' AND status='active'`,
+        ),
+      ).toMatchObject({ rowCount: 1 });
+      await seedProductionCompositionFacts(pools.channels);
+
+      const eventStore = createPostgresEventStore({ pool: pools.channels });
+      const listingComposition = createChannelListingCompositionRuntime({
+        db: pools.channels,
+        eventStore,
+        transactionalEventStore: eventStore,
+        profiles: createChannelCompositionProfileRegistry([syntheticProfile]),
+      });
+      const recordOutcome = createChannelListingPublicationOutcomeRecorder(listingComposition);
+      const outbound = createOutboundSyncRuntime(
+        {
+          db: pools.channels,
+          recordOutcome: async (db, operation, outcome) => {
+            await recordOutcome(db, operation, outcome);
+            throw new Error("synthetic outer outbound settlement failure");
+          },
+        },
+        { assertDelistDirective: assertChannelListingDelistDirective },
+      );
+      const reaction = buildChannelOutboundOperationReactionHandlers(outbound);
+
+      let markPublishEntered!: () => void;
+      let releasePublish!: () => void;
+      const publishEntered = new Promise<void>((resolve) => {
+        markPublishEntered = resolve;
+      });
+      const publishRelease = new Promise<void>((resolve) => {
+        releasePublish = resolve;
+      });
+      const providerCalls: string[] = [];
+      const registry = createChannelProviderRegistry([
+        {
+          ...descriptorWithoutPublication("synthetic-provider"),
+          publication: {
+            execution: "inline",
+            publishListing: async (input) => {
+              providerCalls.push(input.operationId);
+              markPublishEntered();
+              await publishRelease;
+              return { kind: "succeeded", externalListingId: "synthetic-rollback-external-listing" };
+            },
+            updatePriceQuantity: async () => {
+              throw new Error("rollback control must not update");
+            },
+            delistListing: async () => {
+              throw new Error("rollback control must not delist");
+            },
+          },
+        },
+      ]);
+
+      const source = { connectionId: "connection-a", listingId: "listing-production-composed" };
+      const q1 = await listingComposition.recordChannelListingDesiredState(source, productionCompositionContext);
+      expect(q1).toMatchObject({ kind: "applied", streamVersion: 1 });
+      if (q1.kind === "refused") throw new Error("Expected rollback-control Q1 desired state.");
+      const streamId = `channels.channel-listing-${q1.value.channelListingId}`;
+      const q1Event = await desiredStateEvent(pools.channels, streamId, 1);
+      await dispatchDesiredState(reaction, q1Event);
+
+      const q1Execution = outbound.processNextInlineOperation({ registry, claimOwnerId: "synthetic-rollback-worker" });
+      await publishEntered;
+      const q1Operation = await outboundOperation(pools.channels, q1Event.event_id);
+
+      expect(
+        await pools.channels.query(
+          `UPDATE channels_inventory_item_facts SET total_quantity=2, item_stream_version=2
+           WHERE item_id='item-production-composed' AND account_id='acc_owner'
+             AND catalog_item_id='catalog-production-composed' AND total_quantity=3 AND item_stream_version=1`,
+        ),
+      ).toMatchObject({ rowCount: 1 });
+      const q2 = await listingComposition.recordChannelListingDesiredState(source, productionCompositionContext);
+      expect(q2).toMatchObject({ kind: "applied", streamVersion: 2 });
+      const q2Event = await desiredStateEvent(pools.channels, streamId, 2);
+      await dispatchDesiredState(reaction, q2Event);
+
+      releasePublish();
+      await expect(q1Execution).rejects.toThrow("synthetic outer outbound settlement failure");
+      expect(providerCalls).toEqual([q1Operation.operationId]);
+      expect(
+        (await producerEvents(pools.channels, streamId)).map((row) => [row.stream_version, row.event_type]),
+      ).toEqual([
+        [1, "channels.channel-listing.desired-state-changed"],
+        [2, "channels.channel-listing.desired-state-changed"],
+      ]);
+      expect(
+        await pools.channels.query(
+          "SELECT operation_id FROM channels_channel_publication_operations WHERE operation_id=$1",
+          [q1Operation.operationId],
+        ),
+      ).toMatchObject({ rows: [] });
+      expect(await outboundOperation(pools.channels, q1Event.event_id)).toMatchObject({
+        operationId: q1Operation.operationId,
+        status: "in-flight",
+        linkWriteState: "pending",
+      });
+      expect(await outboundOperation(pools.channels, q2Event.event_id)).toMatchObject({
+        status: "pending",
+        sourceDesiredStateSequence: 2,
+      });
+      expect(await laneBlockState(pools.channels, q1.value.channelListingId)).toEqual({ blocked_operation_id: null });
     });
 
     it("outbound-coalescing-latest-state-wins gives a pending replacement its own full retry budget", async () => {

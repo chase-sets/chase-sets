@@ -16,13 +16,62 @@ export type ChannelListingPublicationApplicationDeps = Readonly<{
   linkRepository: AggregateRepository<ChannelListingAggregateState, ChannelListingEvent>;
 }>;
 
+type ChannelListingDesiredStateDecision =
+  | Readonly<{ kind: "append"; channelListingId: string; event: ChannelListingEvent }>
+  | Readonly<{ kind: "unchanged"; channelListingId: string }>
+  | Readonly<{ kind: "refused"; code: "unknown-link" }>;
+
 export function createChannelListingPublicationApplication(deps: ChannelListingPublicationApplicationDeps): Readonly<{
+  decideDesiredState(
+    input: Readonly<{ connectionId: string; listingId: string }>,
+    state: ChannelListingAggregateState,
+    nextStreamVersion: number,
+    db: PgQueryable,
+  ): Promise<ChannelListingDesiredStateDecision>;
   recordDesiredState(
     input: Readonly<{ connectionId: string; listingId: string }>,
     context: EventStoreContext,
   ): Promise<ChannelCommandResult<Readonly<{ channelListingId: string }>>>;
 }> {
+  const decideDesiredState = async (
+    input: Readonly<{ connectionId: string; listingId: string }>,
+    state: ChannelListingAggregateState,
+    nextStreamVersion: number,
+    db: PgQueryable,
+  ): Promise<ChannelListingDesiredStateDecision> => {
+    const channelListingId = deriveChannelListingId(input.connectionId, input.listingId, deps.listingIdDigest);
+    const facts = await readChannelListingCompositionFacts(db, input, deps.profiles);
+    if (!facts) return { kind: "refused", code: "unknown-link" };
+    const profile = deps.profiles.get({
+      providerKey: facts.connection.providerKey,
+      environment: facts.connection.environment,
+    });
+    const candidate = {
+      ...facts,
+      profile: profile ? { kind: "registered" as const, profile } : { kind: "unregistered" as const },
+      link: state.exists ? { kind: "existing" as const, state: publicLinkState(state) } : { kind: "none" as const },
+    };
+    const parsed = parseChannelListingCompositionInput(candidate);
+    if (parsed.kind === "invalid") {
+      throw new Error(`Channel Listing Composition input rejected: ${parsed.programmingError}`);
+    }
+    const result = composeChannelListingPublication(parsed.input, deps.listingIdDigest);
+    const listingRevision = parsed.input.listing.kind === "present" ? parsed.input.listing.listingRevision : 0;
+    const decision = decideChannelListingComposition(state, {
+      connectionId: input.connectionId,
+      channelListingId,
+      listingId: input.listingId,
+      listingRevision,
+      nextStreamVersion,
+      result,
+    });
+    return decision.kind === "append"
+      ? { kind: "append", channelListingId, event: decision.event }
+      : { kind: "unchanged", channelListingId };
+  };
+
   return {
+    decideDesiredState,
     recordDesiredState: async (input, context) => {
       const channelListingId = deriveChannelListingId(input.connectionId, input.listingId, deps.listingIdDigest);
       const collision = await deps.db.query<{ connection_id: string; listing_id: string }>(
@@ -36,34 +85,9 @@ export function createChannelListingPublicationApplication(deps: ChannelListingP
         return { kind: "refused", code: "channel-listing-id-collision" };
       }
 
-      const facts = await readChannelListingCompositionFacts(deps.db, input, deps.profiles);
-      if (!facts) return { kind: "refused", code: "unknown-link" };
       const loaded = await deps.linkRepository.load(linkStreamId(channelListingId));
-      const profile = deps.profiles.get({
-        providerKey: facts.connection.providerKey,
-        environment: facts.connection.environment,
-      });
-      const candidate = {
-        ...facts,
-        profile: profile ? { kind: "registered" as const, profile } : { kind: "unregistered" as const },
-        link: loaded.state.exists
-          ? { kind: "existing" as const, state: publicLinkState(loaded.state) }
-          : { kind: "none" as const },
-      };
-      const parsed = parseChannelListingCompositionInput(candidate);
-      if (parsed.kind === "invalid") {
-        throw new Error(`Channel Listing Composition input rejected: ${parsed.programmingError}`);
-      }
-      const result = composeChannelListingPublication(parsed.input, deps.listingIdDigest);
-      const listingRevision = parsed.input.listing.kind === "present" ? parsed.input.listing.listingRevision : 0;
-      const decision = decideChannelListingComposition(loaded.state, {
-        connectionId: input.connectionId,
-        channelListingId,
-        listingId: input.listingId,
-        listingRevision,
-        nextStreamVersion: loaded.version + 1,
-        result,
-      });
+      const decision = await decideDesiredState(input, loaded.state, loaded.version + 1, deps.db);
+      if (decision.kind === "refused") return decision;
       if (decision.kind === "unchanged") {
         return { kind: "unchanged", value: { channelListingId }, streamVersion: loaded.version };
       }
