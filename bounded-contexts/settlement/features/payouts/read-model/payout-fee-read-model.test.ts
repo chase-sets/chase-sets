@@ -73,7 +73,7 @@ describe("payout-fee-reader-inventory read model", () => {
   it("selects all three amounts for list readers and counts only active UTC-month payouts", async () => {
     const queries: string[] = [];
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, _values?: readonly unknown[]) => {
         queries.push(sql);
         if (sql.includes("COUNT(*) AS count")) return { rows: [{ count: "0" }], rowCount: 1 };
         if (sql.includes("COUNT(*)::text AS count")) return { rows: [{ count: "2" }], rowCount: 1 };
@@ -95,7 +95,13 @@ describe("payout-fee-reader-inventory read model", () => {
     expect(queries.join("\n")).toContain("net_amount::text AS net_amount");
     expect(queries.join("\n")).toContain("requested.event_type = 'settlement.payout.requested'");
     expect(queries.join("\n")).toContain("failed.event_type = 'settlement.payout.failed'");
-    expect(queries.join("\n")).toContain("AT TIME ZONE 'UTC'");
+    const monthQuery = db.query.mock.calls.find(([sql]) => sql.includes("COUNT(*)::text AS count"));
+    expect(monthQuery?.[1]).toEqual([
+      "acc_reader",
+      "2026-09-01T00:00:00.000Z",
+      "2026-10-01T00:00:00.000Z",
+      "pyo_failed",
+    ]);
   });
 
   it("owns an additive schema and ledgered historical backfill", () => {
@@ -105,6 +111,9 @@ describe("payout-fee-reader-inventory read model", () => {
     const migration = settlementPayoutSchemaMigrations.find(
       (candidate) => candidate.migrationId === "20260911_settlement_payout_fee_amounts",
     );
+    expect(migration?.statements.join("\n")).toContain("ADD COLUMN IF NOT EXISTS requested_amount");
+    expect(migration?.statements.join("\n")).toContain("ADD COLUMN IF NOT EXISTS fee_amount");
+    expect(migration?.statements.join("\n")).toContain("ADD COLUMN IF NOT EXISTS net_amount");
     expect(migration?.statements.join("\n")).toContain("SET requested_amount = amount");
     expect(migration?.statements.join("\n")).toContain("fee_amount = 0.00");
     expect(migration?.statements.join("\n")).toContain("net_amount = amount");

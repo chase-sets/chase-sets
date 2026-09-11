@@ -222,6 +222,12 @@ export const settlementPayoutSchemaMigrations: readonly BcSchemaMigration[] = [
     description:
       "Backfill historical payouts so requested equals the legacy amount, fee is zero, and net equals requested.",
     statements: [
+      `ALTER TABLE settlement_payout_pages
+       ADD COLUMN IF NOT EXISTS requested_amount numeric(12, 2) NOT NULL DEFAULT 0.00`,
+      `ALTER TABLE settlement_payout_pages
+       ADD COLUMN IF NOT EXISTS fee_amount numeric(12, 2) NOT NULL DEFAULT 0.00`,
+      `ALTER TABLE settlement_payout_pages
+       ADD COLUMN IF NOT EXISTS net_amount numeric(12, 2) NOT NULL DEFAULT 0.00`,
       `UPDATE settlement_payout_pages
        SET requested_amount = amount,
            fee_amount = 0.00,

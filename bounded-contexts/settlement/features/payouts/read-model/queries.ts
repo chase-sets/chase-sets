@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { payoutUtcMonthWindow } from "../domain/domain";
 
 export type SettlementPayoutRow = Readonly<{
   payout_id: string;
@@ -343,21 +344,22 @@ export async function countActivePayoutsInUtcMonth(
   db: PgQueryable,
   params: Readonly<{ accountId: string; at: string; excludePayoutId?: string | null }>,
 ): Promise<number> {
+  const month = payoutUtcMonthWindow(params.at);
   const result = await db.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
      FROM event_store_events requested
      WHERE requested.event_type = 'settlement.payout.requested'
        AND requested.payload ->> 'accountId' = $1
-       AND (requested.payload ->> 'requestedAt')::timestamptz >= date_trunc('month', $2::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
-       AND (requested.payload ->> 'requestedAt')::timestamptz < date_trunc('month', $2::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' + INTERVAL '1 month'
-       AND ($3::text IS NULL OR requested.payload ->> 'payoutId' <> $3)
+       AND (requested.payload ->> 'requestedAt')::timestamptz >= $2::timestamptz
+       AND (requested.payload ->> 'requestedAt')::timestamptz < $3::timestamptz
+       AND ($4::text IS NULL OR requested.payload ->> 'payoutId' <> $4)
        AND NOT EXISTS (
          SELECT 1
          FROM event_store_events failed
          WHERE failed.stream_id = requested.stream_id
            AND failed.event_type = 'settlement.payout.failed'
        )`,
-    [params.accountId, params.at, params.excludePayoutId ?? null],
+    [params.accountId, month.startsAt, month.endsAt, params.excludePayoutId ?? null],
   );
   return Number(result.rows[0]?.count ?? 0);
 }

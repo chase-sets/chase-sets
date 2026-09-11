@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { decidePayout, evolvePayout, initialPayoutState, type PayoutRequestedEvent } from "./domain";
+import {
+  decidePayout,
+  evolvePayout,
+  initialPayoutState,
+  payoutUtcMonthWindow,
+  type PayoutRequestedEvent,
+} from "./domain";
 
 describe("settlement payout domain", () => {
   it("requests, sends, and completes a payout", () => {
@@ -167,6 +173,13 @@ describe("settlement payout domain", () => {
       requestedAmount: "25.00",
       feeAmount: "0.00",
       netAmount: "25.00",
+    });
+  });
+
+  it("derives exact UTC calendar-month boundaries", () => {
+    expect(payoutUtcMonthWindow("2026-12-31T23:59:59.999Z")).toEqual({
+      startsAt: "2026-12-01T00:00:00.000Z",
+      endsAt: "2027-01-01T00:00:00.000Z",
     });
   });
 });

@@ -550,3 +550,13 @@ export function payoutMonthStreamId(accountId: AccountId, occurredAt: string) {
   const timestamp = ensureIsoTimestamp(occurredAt, "Payout month selection must include a timestamp.");
   return `settlement.payout-month-${accountId}-${timestamp.slice(0, 7)}`;
 }
+
+export function payoutUtcMonthWindow(occurredAt: string) {
+  const timestamp = ensureIsoTimestamp(occurredAt, "Payout month selection must include a timestamp.");
+  const year = Number.parseInt(timestamp.slice(0, 4), 10);
+  const monthIndex = Number.parseInt(timestamp.slice(5, 7), 10) - 1;
+  return {
+    startsAt: new Date(Date.UTC(year, monthIndex, 1)).toISOString(),
+    endsAt: new Date(Date.UTC(year, monthIndex + 1, 1)).toISOString(),
+  } as const;
+}
