@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION } from "@chase-sets/settlement/server";
-import { initializeMarketplaceLabelPostageWorkerRuntime } from "../src/marketplace-label-postage-startup";
 
 const syntheticActivation = {
   policyVersion: MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION,
@@ -9,52 +8,121 @@ const syntheticActivation = {
 } as const;
 
 describe("marketplace label postage worker startup", () => {
-  it("bootstraps and reads activation before constructing the worker runtime", async () => {
+  async function executeMainStartupComposition(
+    input: Readonly<{
+      runtimeProfile: "landing" | "public";
+      bootstrapContextDatabase: () => Promise<void>;
+      activateMarketplaceLabelPostage: () => Promise<typeof syntheticActivation>;
+      constructWorkerRuntime: (activation?: typeof syntheticActivation) => unknown;
+      logger: Readonly<{
+        info: ReturnType<typeof vi.fn>;
+        error: ReturnType<typeof vi.fn>;
+      }>;
+      calls: string[];
+    }>,
+  ) {
+    const mainSource = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
+    const compositionStart = mainSource.indexOf('if (config.runtimeProfile === "landing") {');
+    const compositionEnd = mainSource.indexOf("\ntype WorkerIdentityServices", compositionStart);
+    expect(compositionStart).toBeGreaterThan(-1);
+    expect(compositionEnd).toBeGreaterThan(compositionStart);
+
+    const compositionSource = mainSource.slice(compositionStart, compositionEnd);
+    const AsyncFunction = Object.getPrototypeOf(async () => undefined).constructor as new (
+      ...args: string[]
+    ) => (...values: unknown[]) => Promise<unknown>;
+    const execute = new AsyncFunction(
+      "config",
+      "constructWorkerRuntime",
+      "runWorkerStartupDatabaseStep",
+      "bootstrapContextDatabase",
+      "settlementModule",
+      "pools",
+      "activateMarketplaceLabelPostage",
+      "logger",
+      `"use strict"; let runtime; ${compositionSource}; return runtime;`,
+    );
+
+    return execute(
+      { runtimeProfile: input.runtimeProfile },
+      input.constructWorkerRuntime,
+      async (operationName: string, run: () => Promise<unknown>) => {
+        input.calls.push(`step:${operationName}`);
+        return run();
+      },
+      input.bootstrapContextDatabase,
+      { kind: "synthetic-settlement-module" },
+      { settlement: { kind: "synthetic-settlement-pool" } },
+      input.activateMarketplaceLabelPostage,
+      input.logger,
+    );
+  }
+
+  it("bootstraps and reads activation before constructing the worker runtime without a success log", async () => {
     const calls: string[] = [];
     const runtime = { kind: "synthetic-worker-runtime" } as const;
+    const logger = { info: vi.fn(), error: vi.fn() };
 
     await expect(
-      initializeMarketplaceLabelPostageWorkerRuntime({
-        bootstrapSettlementDatabase: async () => {
+      executeMainStartupComposition({
+        runtimeProfile: "public",
+        bootstrapContextDatabase: async () => {
           calls.push("bootstrap");
         },
         activateMarketplaceLabelPostage: async () => {
-          calls.push("activate-and-read");
+          calls.push("activate");
           return syntheticActivation;
         },
-        constructRuntime: (activation) => {
+        constructWorkerRuntime: (activation) => {
+          if (!activation) throw new Error("Synthetic activation was not supplied.");
           calls.push(`construct:${activation.activatedAt}`);
           return runtime;
         },
+        logger,
+        calls,
       }),
     ).resolves.toBe(runtime);
 
-    expect(calls).toEqual(["bootstrap", "activate-and-read", `construct:${syntheticActivation.activatedAt}`]);
+    expect(calls).toEqual([
+      "step:bootstrap Settlement database",
+      "bootstrap",
+      "step:activate marketplace label postage",
+      "activate",
+      `construct:${syntheticActivation.activatedAt}`,
+    ]);
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["missing", null],
-    ["malformed version", { ...syntheticActivation, policyVersion: "synthetic-invalid-version" }],
-    ["malformed timestamp", { ...syntheticActivation, activatedAt: "synthetic-invalid-timestamp" }],
-  ])("fails closed for %s activation provenance and records the refusal", async (_case, activation) => {
-    const logger = { error: vi.fn() };
-    const constructRuntime = vi.fn();
+  it.each(["missing", "malformed version", "malformed timestamp"])(
+    "fails closed when the Settlement activation operation refuses %s provenance",
+    async (reason) => {
+      const calls: string[] = [];
+      const logger = { info: vi.fn(), error: vi.fn() };
+      const constructWorkerRuntime = vi.fn();
+      const activationError = new Error(`synthetic-${reason}`);
 
-    await expect(
-      initializeMarketplaceLabelPostageWorkerRuntime({
-        bootstrapSettlementDatabase: async () => undefined,
-        activateMarketplaceLabelPostage: async () => activation,
-        constructRuntime,
-        logger,
-      }),
-    ).rejects.toThrow("Marketplace label postage activation");
+      await expect(
+        executeMainStartupComposition({
+          runtimeProfile: "public",
+          bootstrapContextDatabase: async () => undefined,
+          activateMarketplaceLabelPostage: async () => {
+            throw activationError;
+          },
+          constructWorkerRuntime,
+          logger,
+          calls,
+        }),
+      ).rejects.toBe(activationError);
 
-    expect(constructRuntime).not.toHaveBeenCalled();
-    expect(logger.error).toHaveBeenCalledWith(
-      "Marketplace label postage runner activation refused.",
-      expect.objectContaining({ type: "settlement.marketplace_label_postage.activation_refused" }),
-    );
-  });
+      expect(constructWorkerRuntime).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledWith("Marketplace label postage runner activation refused.", {
+        type: "settlement.marketplace_label_postage.activation_refused",
+        error: activationError,
+      });
+    },
+  );
 
   it("keeps activation creation out of bootstrap and API startup paths", async () => {
     const [mainSource, bootstrapSource, apiRuntimeSource] = await Promise.all([

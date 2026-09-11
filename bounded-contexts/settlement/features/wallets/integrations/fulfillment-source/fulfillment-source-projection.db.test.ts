@@ -23,6 +23,7 @@ import {
   activateMarketplaceLabelPostage,
   MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION,
   readMarketplaceLabelPostageActivation,
+  validateMarketplaceLabelPostageActivation,
   type MarketplaceLabelPostageActivation,
 } from "./label-postage-policy";
 
@@ -401,6 +402,41 @@ describeDb("marketplace label postage Settlement integration", () => {
     );
     return result.rows;
   }
+
+  it("retains validated activation from createServices through the registered equality-time handler", async () => {
+    const activation = validateMarketplaceLabelPostageActivation({
+      policyVersion: MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION,
+      activatedAt: "2030-01-01T00:00:00.000Z",
+    });
+    await appendEvents(
+      "fulfillment.shipment-shp_synthetic_composition",
+      [
+        created("shp_synthetic_composition"),
+        labelAttached("shp_synthetic_composition", "pl_synthetic_composition", 825),
+      ],
+      [activation.activatedAt, activation.activatedAt],
+    );
+    const runtime = await createRuntime(activation);
+
+    await drain(runtime.fulfillmentRunner, "postage-synthetic-composition");
+    await projectWallet(runtime);
+
+    expect(await postageRows()).toEqual([
+      expect.objectContaining({
+        shipment_id: "shp_synthetic_composition",
+        postage_provider_label_id: "pl_synthetic_composition",
+        outcome: "debit-posted",
+      }),
+    ]);
+    expect(await ledgerRows()).toEqual([
+      expect.objectContaining({
+        kind: "platform-purchase",
+        direction: "debit",
+        amount: "8.25",
+        order_id: "ord_shp_synthetic_composition",
+      }),
+    ]);
+  });
 
   it("label-postage-debit-once: serializes concurrent runners, duplicate facts, and projection replay", async () => {
     await appendEvents("fulfillment.shipment-shp_once", [

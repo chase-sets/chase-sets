@@ -101,9 +101,6 @@ export function createSettlementServices(
     checkpointStore,
     db,
     policies,
-    ...(ports.marketplaceLabelPostageActivation
-      ? { marketplaceLabelPostageActivation: ports.marketplaceLabelPostageActivation }
-      : {}),
     notificationOutbox,
     ...(ports.negativeBalancePolicy ? { negativeBalancePolicy: ports.negativeBalancePolicy } : {}),
   });
@@ -146,6 +143,9 @@ export function createSettlementServices(
     liabilityReconciliation,
     accountLinkage,
     policies,
+    ...(ports.marketplaceLabelPostageActivation
+      ? { marketplaceLabelPostageActivation: ports.marketplaceLabelPostageActivation }
+      : {}),
     projectors: [
       ...wallets.projectors,
       ...protectionCoverage.projectors,

@@ -133,7 +133,6 @@ import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 import { createRegisteredScheduledRunners } from "./scheduled-runners";
 import { runStartupRetry } from "./startup-retry";
-import { initializeMarketplaceLabelPostageWorkerRuntime } from "./marketplace-label-postage-startup";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -311,21 +310,24 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     },
   });
 
-runtime =
-  config.runtimeProfile === "landing"
-    ? constructWorkerRuntime()
-    : await initializeMarketplaceLabelPostageWorkerRuntime({
-        bootstrapSettlementDatabase: () =>
-          runWorkerStartupDatabaseStep("bootstrap Settlement database", () =>
-            bootstrapContextDatabase(settlementModule, pools.settlement),
-          ),
-        activateMarketplaceLabelPostage: () =>
-          runWorkerStartupDatabaseStep("activate marketplace label postage", () =>
-            activateMarketplaceLabelPostage(pools.settlement),
-          ),
-        logger,
-        constructRuntime: constructWorkerRuntime,
-      });
+if (config.runtimeProfile === "landing") {
+  runtime = constructWorkerRuntime();
+} else {
+  await runWorkerStartupDatabaseStep("bootstrap Settlement database", () =>
+    bootstrapContextDatabase(settlementModule, pools.settlement),
+  );
+  const marketplaceLabelPostageActivation = await runWorkerStartupDatabaseStep(
+    "activate marketplace label postage",
+    () => activateMarketplaceLabelPostage(pools.settlement),
+  ).catch((error) => {
+    logger.error("Marketplace label postage runner activation refused.", {
+      type: "settlement.marketplace_label_postage.activation_refused",
+      error,
+    });
+    throw error;
+  });
+  runtime = constructWorkerRuntime(marketplaceLabelPostageActivation);
+}
 
 type WorkerIdentityServices = Readonly<{
   accounts?: Readonly<{

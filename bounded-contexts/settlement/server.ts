@@ -16,10 +16,7 @@ export type {
 export { createSettlementWalletSpendHoldPort } from "./features/wallets/api/balance-credit-hold-port";
 export {
   activateMarketplaceLabelPostage,
-  decodeMarketplaceLabelPostageActivation,
   MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION,
-  readMarketplaceLabelPostageActivation,
-  validateMarketplaceLabelPostageActivation,
 } from "./features/wallets/integrations/fulfillment-source/label-postage-policy";
 export type { MarketplaceLabelPostageActivation } from "./features/wallets/integrations/fulfillment-source/label-postage-policy";
 export type {
