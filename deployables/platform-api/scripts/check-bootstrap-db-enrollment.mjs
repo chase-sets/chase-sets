@@ -172,7 +172,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
         referenceDurationMs: 73270,
-        identity: "0c68e2995d4125d4",
+        identity: "0f201e38663b1ae5",
       }),
       Object.freeze({
         name: "enumerates stream-sourced seed-state coverage from the runtime mount list",
