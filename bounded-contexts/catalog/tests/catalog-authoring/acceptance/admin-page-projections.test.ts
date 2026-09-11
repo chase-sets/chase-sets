@@ -113,6 +113,7 @@ describe("Admin page projections", () => {
     const childCategoryId = "ctg_child";
     const itemId = "cat_charizard";
     const japaneseItemId = "cat_charizard_ja";
+    const displayTemplateId = "dtp_catalog_item_default";
 
     await sendCommand(services.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
       type: "CreateDimension",
@@ -219,6 +220,23 @@ describe("Admin page projections", () => {
       type: "PublishCategory",
     });
 
+    await drainCatalogProjectionSubscriptions();
+    await sendCommand(services.displayTemplates.commandHandler, `catalog.display-template-${displayTemplateId}`, {
+      type: "CreateDisplayTemplate",
+      displayTemplateId,
+      key: "catalog-item-default",
+      name: l10n("Catalog item default"),
+      description: l10n("Test publication identity"),
+      target: { kind: "global" },
+      priority: 0,
+      titleTemplate: "{item.title}",
+      subtitleTemplate: "{item.subtitle}",
+    });
+    await sendCommand(services.displayTemplates.commandHandler, `catalog.display-template-${displayTemplateId}`, {
+      type: "PublishDisplayTemplate",
+    });
+    await drainCatalogProjectionSubscriptions();
+
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "CreateCatalogItem",
       itemId,
@@ -249,6 +267,7 @@ describe("Admin page projections", () => {
       externalKey: "base-set-charizard",
       selectedOptions: [],
     });
+    await drainCatalogProjectionSubscriptions();
     await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
       type: "PublishCatalogItem",
       blueprintIsActive: true,
@@ -772,6 +791,102 @@ describe("Admin page projections", () => {
     });
   });
 
+  it("recovers one stale winning-template identity at publication and converges the admin snapshot", async () => {
+    const blueprintId = "bpr_template_drift";
+    const displayTemplateId = "dtp_template_drift";
+    const itemId = "cat_template_drift";
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "CreateBlueprint",
+      blueprintId,
+      key: "template-drift",
+      name: l10n("Template drift"),
+      description: l10n("Template drift test"),
+    });
+    await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
+      type: "PublishBlueprint",
+    });
+    await drainCatalogProjectionSubscriptions();
+    await sendCommand(services.displayTemplates.commandHandler, `catalog.display-template-${displayTemplateId}`, {
+      type: "CreateDisplayTemplate",
+      displayTemplateId,
+      key: "template-drift",
+      name: l10n("Template drift"),
+      description: l10n("Template drift test"),
+      target: { kind: "blueprint", id: blueprintId },
+      priority: 10,
+      titleTemplate: "First {item.title}",
+      subtitleTemplate: null,
+    });
+    await sendCommand(services.displayTemplates.commandHandler, `catalog.display-template-${displayTemplateId}`, {
+      type: "PublishDisplayTemplate",
+    });
+    await drainCatalogProjectionSubscriptions();
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "CreateCatalogItem",
+      itemId,
+      title: l10n("Charizard"),
+      subtitle: null,
+      description: l10n("Draft"),
+    });
+    await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "AssignBlueprintToCatalogItem",
+      blueprintId,
+    });
+    await drainCatalogProjectionSubscriptions();
+
+    const before = await pool.query<{ display_identity_hash: string; title: string }>(
+      `SELECT display_identity_hash, title FROM catalog_item_display_identities WHERE catalog_item_id = $1`,
+      [itemId],
+    );
+    await sendCommand(services.displayTemplates.commandHandler, `catalog.display-template-${displayTemplateId}`, {
+      type: "ReviseDisplayTemplate",
+      key: "template-drift",
+      name: l10n("Template drift"),
+      description: l10n("Template drift test"),
+      target: { kind: "blueprint", id: blueprintId },
+      priority: 10,
+      titleTemplate: "Second {item.title}",
+      subtitleTemplate: null,
+    });
+    await drainCatalogProjectionSubscriptions();
+    const stale = await pool.query<{ display_identity_hash: string; title: string }>(
+      `SELECT display_identity_hash, title FROM catalog_item_display_identities WHERE catalog_item_id = $1`,
+      [itemId],
+    );
+    expect(stale.rows[0]).toEqual(before.rows[0]);
+    const queued = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM catalog_item_display_identity_recompute_work WHERE status = 'pending'`,
+    );
+    expect(Number(queued.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+
+    const published = await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+      type: "PublishCatalogItem",
+      blueprintIsActive: true,
+      requiredFieldIds: [],
+    });
+    expect(published).toMatchObject({
+      state: { status: "active" },
+      newEvents: [{ type: "catalog.catalog-item.published" }],
+    });
+    const refreshed = await pool.query<{ display_identity_hash: string; title: string }>(
+      `SELECT display_identity_hash, title FROM catalog_item_display_identities WHERE catalog_item_id = $1`,
+      [itemId],
+    );
+    expect(refreshed.rows[0]?.display_identity_hash).not.toBe(before.rows[0]?.display_identity_hash);
+    expect(refreshed.rows[0]?.title).toBe("Second Charizard");
+    const divergentAdmin = await pool.query<{ title: string }>(
+      `SELECT title FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`,
+      [itemId],
+    );
+    expect(divergentAdmin.rows[0]?.title).toBe("First Charizard");
+    await drainCatalogProjectionSubscriptions();
+    const convergedAdmin = await pool.query<{ title: string }>(
+      `SELECT title FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`,
+      [itemId],
+    );
+    expect(convergedAdmin.rows[0]?.title).toBe("Second Charizard");
+  });
+
   it("bulk publishes valid source-filtered draft Catalog Items and reports invalid drafts", async () => {
     const fieldId = "fld_card_name";
     const blueprintId = "bpr_imported_card";
@@ -803,6 +918,23 @@ describe("Admin page projections", () => {
     await sendCommand(services.blueprints.commandHandler, `catalog.blueprint-${blueprintId}`, {
       type: "PublishBlueprint",
     });
+    await drainCatalogProjectionSubscriptions();
+    const displayTemplateId = "dtp_imported_card";
+    await sendCommand(services.displayTemplates.commandHandler, `catalog.display-template-${displayTemplateId}`, {
+      type: "CreateDisplayTemplate",
+      displayTemplateId,
+      key: "imported-card",
+      name: l10n("Imported card"),
+      description: l10n("Imported card publication identity"),
+      target: { kind: "blueprint", id: blueprintId },
+      priority: 10,
+      titleTemplate: "{item.title}",
+      subtitleTemplate: null,
+    });
+    await sendCommand(services.displayTemplates.commandHandler, `catalog.display-template-${displayTemplateId}`, {
+      type: "PublishDisplayTemplate",
+    });
+    await drainCatalogProjectionSubscriptions();
 
     await Promise.all(
       [validItemId, invalidItemId].map(async (itemId) => {

@@ -459,6 +459,48 @@ describe("resolveCatalogItemDisplayIdentity", () => {
     expect(second.hash).toBe(first.hash);
   });
 
+  it("changes the hash when raw identities change even if rendered text does not", async () => {
+    const db = displayIdentityDb({
+      fields: [
+        { field_id: "fld_a", key: "card-name" },
+        { field_id: "fld_b", key: "card-name" },
+      ],
+      references: [],
+      templates: [
+        {
+          key: "global-card",
+          target_kind: "global",
+          target_id: null,
+          priority: 1,
+          title_template: "{item.title}",
+          subtitle_template: null,
+          required_field_keys: [],
+        },
+      ],
+    });
+    const base = {
+      catalog_item_id: "cat_hash_identity",
+      language_code: "en",
+      title: "Same",
+      subtitle: null,
+      blueprint_id: "bpr_a",
+      category_ids: ["ctg_a"],
+      field_values: [{ fieldId: "fld_a", value: { referenceId: "ref_a", label: "Same" } }],
+    };
+    const variants = [
+      base,
+      { ...base, field_values: [{ fieldId: "fld_b", value: { referenceId: "ref_a", label: "Same" } }] },
+      { ...base, field_values: [{ fieldId: "fld_a", value: { referenceId: "ref_b", label: "Same" } }] },
+      { ...base, category_ids: ["ctg_b"] },
+      { ...base, blueprint_id: "bpr_b" },
+    ];
+    const hashes = await Promise.all(
+      variants.map(async (item) => (await resolveCatalogItemDisplayIdentity(db, item)).hash),
+    );
+
+    expect(new Set(hashes).size).toBe(hashes.length);
+  });
+
   it("persists resolved identity and reports whether the hash changed", async () => {
     const persistedWrites: unknown[][] = [];
     const db = displayIdentityDb(
@@ -511,6 +553,81 @@ describe("resolveCatalogItemDisplayIdentity", () => {
       "resolved",
       "[]",
     ]);
+  });
+
+  it("uses the guarded update RETURNING rows rather than optional rowCount", async () => {
+    const data = {
+      fields: [] as Array<{ field_id: string; key: string }>,
+      references: [] as Array<never>,
+      templates: [
+        {
+          key: "global-card",
+          target_kind: "global",
+          target_id: null,
+          priority: 1,
+          title_template: "{item.title}",
+          subtitle_template: null,
+          required_field_keys: [],
+        },
+      ],
+    };
+    const base = displayIdentityDb(data);
+    const item = {
+      catalog_item_id: "cat_guarded",
+      language_code: "en",
+      title_i18n: { defaultLocale: "en", values: { en: "Guarded" } },
+      title: "Guarded",
+      projected_title: "Guarded",
+      subtitle_i18n: null,
+      subtitle: null,
+      projected_subtitle: null,
+      blueprint_id: "bpr_card",
+      category_ids: [],
+      field_values: [],
+    };
+    const observedFact = {
+      catalog_item_id: "cat_guarded",
+      language_code: "en",
+      title: "Old",
+      subtitle: null,
+      display_template_key: "global-card",
+      display_template_target_kind: "global",
+      display_template_target_id: null,
+      display_identity_hash: "old-hash",
+      resolver_version: 3,
+      resolved_at: "2026-09-05T00:00:00.000Z",
+      resolution_status: "resolved",
+      missing_tokens: [],
+    };
+    const statements: string[] = [];
+    const db = {
+      async query<T>(sql: string, params?: readonly unknown[]) {
+        statements.push(sql);
+        if (sql.includes("UPDATE catalog_item_display_identities AS identity")) {
+          return { rows: [{ catalog_item_id: "cat_guarded" }] as T[], rowCount: 0 };
+        }
+        return base.query<T>(sql, params);
+      },
+    };
+
+    const won = await resolveAndPersistCatalogItemDisplayIdentity(db, item, "2026-09-05T00:01:00.000Z", {
+      guardedBy: { item, fact: observedFact },
+    });
+    expect(won.persisted).toBe(true);
+    expect(statements.find((sql) => sql.includes("UPDATE catalog_item_display_identities"))).toContain("RETURNING");
+
+    const lostRaceDb = {
+      async query<T>(sql: string, params?: readonly unknown[]) {
+        if (sql.includes("UPDATE catalog_item_display_identities AS identity")) {
+          return { rows: [] as T[], rowCount: 1 };
+        }
+        return base.query<T>(sql, params);
+      },
+    };
+    const lost = await resolveAndPersistCatalogItemDisplayIdentity(lostRaceDb, item, "2026-09-05T00:02:00.000Z", {
+      guardedBy: { item, fact: observedFact },
+    });
+    expect(lost.persisted).toBe(false);
   });
 
   it("degrades to the bare native title with the no-template sentinel when nothing matches", async () => {

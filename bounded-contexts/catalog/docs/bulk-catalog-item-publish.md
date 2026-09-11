@@ -10,6 +10,9 @@ Catalog owns bulk publishing for draft Catalog Items because publishing is the C
 - Confirmation publishes the previewed IDs, not a freshly evaluated filter.
 - Bulk publish uses partial success: valid drafts publish, while stale or invalid rows are skipped or failed with an operator-visible reason.
 - Server-side Catalog validation must derive blueprint status and required field IDs from Catalog read models before calling the aggregate command.
+- Every single, direct-service, seed, claimed-work-unit, legacy-job, and bulk publication reaches the same server adapter. The adapter requires the event-sourced Catalog Item, its current raw resolver tuple, the current persisted resolver-v3 fact, and a fresh resolver result to agree before the draft-to-active append.
+- Publication readiness is separate from stored display resolution and Product Contents resolution: `current-resolved`, `degraded`, `unavailable`, or `outdated`. Blocked items remain drafts and carry bounded retry reasons; an outdated persisted fact may receive one item/language guarded update-only refresh before the adapter re-reads and re-resolves it.
+- Confirmation may submit an all-outdated preview even when `ready_count` is zero, because each explicit previewed ID is revalidated at its own publication boundary. Failed and skipped IDs remain available for exact-ID retry, and result counts describe actual appends only.
 - Integration-created draft batches should be targeted with the source provider filter from external product references.
 
 ## Rationale
