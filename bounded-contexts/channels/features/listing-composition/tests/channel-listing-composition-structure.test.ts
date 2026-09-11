@@ -31,9 +31,9 @@ describe("channel-subscription-order-fence", () => {
   it("enumerates every producer event once and reacts only after the owning projection", () => {
     const subscriptions = contextManifest.eventSubscriptions;
     const reactions = contextManifest.eventReactions;
-    expect(subscriptions.map((entry) => ("eventTypes" in entry ? entry.eventTypes.length : 0))).toEqual([
-      9, 6, 8, 14, 0,
-    ]);
+    expect(
+      subscriptions.map((entry) => ("eventTypes" in entry && entry.eventTypes ? entry.eventTypes.length : 0)),
+    ).toEqual([9, 6, 8, 14, 0]);
     expect(reactions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 8, 11, 1]);
     expect(
       subscriptions
@@ -50,11 +50,16 @@ describe("channel-subscription-order-fence", () => {
       "channels.channel-listing.publication-blocked",
       "channels.channel-listing.publication-recorded",
     ];
+    const channelOwnedEventTypes = subscriptions[3]?.eventTypes;
+    expect(channelOwnedEventTypes).toBeDefined();
     expect(reactions[3]!.eventTypes).toEqual(
-      subscriptions[3]!.eventTypes.filter((eventType) => !separatelyOwnedChannelListingEvents.includes(eventType)),
+      (channelOwnedEventTypes ?? []).filter((eventType) => !separatelyOwnedChannelListingEvents.includes(eventType)),
     );
     expect(reactions[4]!.eventTypes).toEqual(["channels.channel-listing.desired-state-changed"]);
-    expect(new Set(subscriptions.flatMap((entry) => ("eventTypes" in entry ? entry.eventTypes : []))).size).toBe(37);
+    expect(
+      new Set(subscriptions.flatMap((entry) => ("eventTypes" in entry && entry.eventTypes ? entry.eventTypes : [])))
+        .size,
+    ).toBe(37);
   });
 });
 
