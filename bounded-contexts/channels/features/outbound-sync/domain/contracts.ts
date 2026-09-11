@@ -1,5 +1,5 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { GlobalPosition } from "@chase-sets/event-core/storage";
+import type { EventStoreContext, GlobalPosition } from "@chase-sets/event-core/storage";
 import type {
   ChannelProviderIdentity,
   ChannelProviderRegistry,
@@ -118,6 +118,14 @@ export type ClaimedOperationReservation = Readonly<{
   operations: readonly ClaimedOutboundOperation[];
 }>;
 
+export type ReserveClaimedOutboundOperationsInput = Readonly<{
+  registry: ChannelProviderRegistry;
+  connectionId: string;
+  claimant: ClaimedOperationClaimant;
+  maxOperations: number;
+  leaseMs: number;
+}>;
+
 export type ClaimedOperationOutcome = Readonly<{
   operationId: string;
   attemptId: string;
@@ -146,6 +154,24 @@ export type BoundClaimedReservationRun = Readonly<{
   outcomes: readonly ClaimedOperationOutcome[];
 }>;
 
+export type ClaimedReservationRunSettlement = Readonly<{
+  runId: string;
+  expectedRunRevision: number;
+  fromState: "composed" | "claimed" | "awaiting-verification";
+  toState: "applied" | "validation-rejected" | "application-unknown" | "superseded" | "stale-basis" | "abandoned";
+  verificationSnapshotId: string | null;
+  verificationSnapshotGeneration: number | null;
+  uploadAttemptedAt: string | null;
+  uploadFileName: string | null;
+  importSummary: Readonly<{
+    fileName: string;
+    dateImportedText: string;
+    numberOfProducts: number;
+    recordedAt: string;
+  }> | null;
+  context: EventStoreContext | null;
+}>;
+
 export interface ClaimedReservationRunSettlementPort {
   lockBoundRun(
     db: PgQueryable,
@@ -157,12 +183,8 @@ export interface ClaimedReservationRunSettlementPort {
   ): Promise<BoundClaimedReservationRun | null>;
   settleBoundRun(
     db: PgQueryable,
-    input: Readonly<{
-      runId: string;
-      expectedRunRevision: number;
-      fromState: Exclude<BoundClaimedReservationRun["state"], "terminal">;
-      toState: "abandoned" | "application-unknown";
-    }>,
+    input: ClaimedReservationRunSettlement &
+      Readonly<{ reservationId: string; outcomes: readonly ClaimedOperationOutcome[] }>,
   ): Promise<void>;
 }
 
@@ -228,20 +250,18 @@ export type OutboundOperationSummary = Readonly<{
 export interface OutboundSyncServices {
   enqueueDesiredState(input: EnqueueOutboundOperation): Promise<OutboundOperationRecord | null>;
   reserveClaimedOutboundOperations(
-    input: Readonly<{
-      registry: ChannelProviderRegistry;
-      connectionId: string;
-      claimant: ClaimedOperationClaimant;
-      maxOperations: number;
-      leaseMs: number;
-    }>,
+    input: ReserveClaimedOutboundOperationsInput,
+  ): Promise<ClaimedOperationReservation | null>;
+  reserveClaimedOutboundOperationsInTransaction(
+    input: ReserveClaimedOutboundOperationsInput,
+    db: PgQueryable,
   ): Promise<ClaimedOperationReservation | null>;
   reportClaimedOperationOutcomes(
     input: Readonly<{
       reservationId: string;
       claimant: ClaimedOperationClaimant;
       outcomes: readonly ClaimedOperationOutcome[];
-      runSettlement?: Readonly<{ runId: string; expectedRunRevision: number }>;
+      runSettlement?: ClaimedReservationRunSettlement;
     }>,
   ): Promise<void>;
   clearOutboundOperationLane(

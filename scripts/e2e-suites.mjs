@@ -290,6 +290,10 @@ const marketplaceRouteSuiteOwnership = [
 
 const boundedContextRouteSuiteOwnership = [
   {
+    pattern: /^bounded-contexts\/channels\/routes\/marketplace\/account-channel-connection\./,
+    suites: ["marketplace_account"],
+  },
+  {
     pattern:
       /^bounded-contexts\/fulfillment\/(?:routes\/admin\/return-intake|features\/return-shipments\/(?:api|ui)\/)/,
     suites: ["admin_commerce"],

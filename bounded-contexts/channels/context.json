@@ -8,11 +8,13 @@
     "channel-publication-settings",
     "channel-publication-eligibility",
     "channel-listing-desired-state",
-    "channel-listing-reconciliation-run"
+    "channel-listing-reconciliation-run",
+    "channel-inventory-snapshot",
+    "channel-sync-run"
   ],
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
-  "slices": ["connections", "publication-port", "listing-composition", "outbound-sync"],
+  "slices": ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
   "allowedSupportDirectories": ["request-support"],
   "publicExports": [".", "./context", "./server", "./routes/*"],
   "allowedContextDependencies": [],
@@ -95,6 +97,14 @@
       ],
       "order": 40,
       "projectionHandlerSetNames": ["channel-connection-publication-facts", "channel-listing-state-projection"]
+    },
+    {
+      "sourceContextName": "channels",
+      "projectionName": "tcgplayer-csv-projection",
+      "subscriptionVersion": 1,
+      "streamPrefixes": ["channels.tcgplayer-sync-run-"],
+      "order": 50,
+      "projectionHandlerSetNames": ["tcgplayer-csv-projection"]
     }
   ],
   "eventReactions": [
@@ -261,6 +271,19 @@
       "sideEffectOnly": true,
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "tcgplayer-csv-projection",
+      "sourceContextNames": ["channels"],
+      "ownedTables": [
+        "channel_export_schema_pins",
+        "channel_inventory_snapshots",
+        "channel_inventory_snapshot_rows",
+        "channel_sync_runs",
+        "channel_sync_run_rows"
+      ],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -442,6 +465,11 @@
       "classification": "slice",
       "purpose": "Own Channels outbound-sync operations, execution admission, leases, and connection-scoped activity.",
       "expectedConsumers": ["Internal Channels module composition", "Channel connector and manual claim workflows"]
+    },
+    "tcgplayer-csv": {
+      "classification": "slice",
+      "purpose": "The tcgplayer-csv slice owns TCGplayer export snapshots, staged CSV composition, and replayable Channel Sync Runs.",
+      "expectedConsumers": ["Channels manual and connector sync workflows"]
     },
     "routes": {
       "classification": "routes",

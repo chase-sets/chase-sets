@@ -3,11 +3,14 @@
 ## Purpose
 
 Channels owns the seller-facing lifecycle for connecting an Account to a Sales
-Channel and the provider-neutral contract for publishing listings through it.
-The connection slice keeps setup authority injected, while the publication
-port and listing-composition slice project authoritative facts into one closed,
-provider-neutral desired state. Outbound sync durably orders that state for
-provider execution, and production composition profiles remain empty.
+Channel, the provider-neutral contract for publishing listings through it, and
+durable reconciliation state for channel exports. The connection slice keeps
+setup authority injected, while the publication port and listing-composition
+slice project authoritative facts into one closed, provider-neutral desired
+state. Outbound sync durably orders that state for provider execution, and
+production composition profiles remain empty. The TCGplayer CSV slice
+composes a claimed outbound reservation into one Staged Import Batch and ingests
+Live or Staged exports without making a provider call.
 
 ## Owns
 
@@ -25,6 +28,8 @@ provider execution, and production composition profiles remain empty.
   claimed reservations, provider budgets, and per-link poison isolation
 - Channel Publication Facts, Profiles, Settings, Eligibility, Desired State,
   Links, and durable Reconciliation Runs
+- TCGplayer Channel Export schema pins, Channel Inventory Snapshots, Channel
+  Sync Runs, immutable reservation membership, and Staged Import Batches
 
 ## Does Not Own
 
@@ -32,8 +37,8 @@ provider execution, and production composition profiles remain empty.
 - Inventory quantity, allocation, reservation, or fulfillment rules (Inventory)
 - Listings and offers (Marketplace)
 - Notification delivery channels or preferences (Notifications)
-- Provider integrations, credential custody, OAuth, provider-specific
-  execution, health observations, attention policy, sync orchestration, or
+- Provider transport, credential custody, OAuth, browser automation, order
+  ingestion, drift classification, health observations, attention policy, or
   seller UI
 
 ## Ubiquitous Language
@@ -49,6 +54,11 @@ Channels terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 `ChannelListingReconciliationRun` are event sourced. A Link composes one
 material desired-state event at a time; reconciliation runs page multi-listing
 changes durably and settle only after an independent affected-count check.
+
+`ChannelSyncRun` retains one claimed reservation's complete membership and
+moves through `composed`, `claimed`, and `awaiting-verification` before one of
+its retained terminal outcomes. Only a newer parsed Staged snapshot can prove
+application.
 
 ## Incoming Dependencies
 
@@ -83,6 +93,10 @@ Injected setup, credential, policy, and storage-location authority resolvers.
    incomplete historical pairs block and are never assigned a default.
 6. Desired-state sequence, Marketplace listing revision, desired-state hash,
    publication operation ID, and consumer payload digest are distinct identities.
+7. TCGplayer composition uses Staged state only; Live is channel truth and
+   never a quantity-delta basis.
+8. The policy-served batch cap is independent of unknown provider capacity,
+   and every reservation member receives exactly one acknowledgement.
 
 ## Tests
 

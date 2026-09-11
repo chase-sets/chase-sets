@@ -16,6 +16,7 @@ import {
   assertUpdatePriceQuantityInput,
 } from "../domain/validation";
 import { ChannelConnectionError } from "../../connections/domain/contracts";
+import { tcgplayerProviderDescriptors } from "../../tcgplayer-csv/domain/profile";
 
 export function createChannelProviderRegistry(
   descriptors: readonly ChannelProviderDescriptor[],
@@ -62,7 +63,9 @@ export function createChannelProviderRegistry(
   });
 }
 
-const productionChannelProviderDescriptors: readonly ChannelProviderDescriptor[] = Object.freeze([]);
+const productionChannelProviderDescriptors: readonly ChannelProviderDescriptor[] = Object.freeze([
+  ...tcgplayerProviderDescriptors,
+]);
 
 export const channelProviderRegistry: ChannelProviderRegistry = createChannelProviderRegistry(
   productionChannelProviderDescriptors,

@@ -12,6 +12,8 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import { module as channelsModule } from "../../../index";
 import { createChannelListingCompositionRuntime } from "../api/runtime";
 import { createChannelCompositionProfileRegistry } from "../domain/canonical";
+import { buildChannelOutboundOperationReactionHandlers } from "../../outbound-sync/integrations/listing-composition";
+import { buildChannelConnectionProjectionHandlers } from "../../connections/read-model/projection";
 import {
   buildChannelCatalogFactsProjectionHandlers,
   buildChannelConnectionFactsProjectionHandlers,
@@ -20,7 +22,8 @@ import {
 } from "../read-model/facts-projection";
 import { buildChannelListingStateProjectionHandlers } from "../read-model/state-projection";
 import { syntheticProfile } from "./test-support";
-import { testContext } from "../../connections/tests/test-support";
+import { createConnectionHarness, testContext } from "../../connections/tests/test-support";
+import { deriveClaimedOperationOutcomes } from "../../tcgplayer-csv/domain/lifecycle";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
@@ -248,6 +251,268 @@ describeDb("channel-listing-desired-state-production-path", () => {
       payload: { reasons: ["missing-price"] },
     });
   });
+  it("drives the canonical TCGplayer connection aggregate through both projections, reservation settlement, replay, and malformed delist", async () => {
+    const connectionId = "connection-boundary";
+    const accountId = "account-boundary";
+    const policyAuthority = createConnectionHarness().ports.policyAuthority;
+    if (!policyAuthority) throw new Error("The canonical policy authority fixture is unavailable.");
+    const rootServices = channelsModule.createServices(pools.channels, {
+      clock: { now: () => "2026-09-09T12:00:00.000Z" },
+      policyAuthority,
+      storageLocationAuthority: {
+        resolve: async ({ storageLocationId }) => ({ accountId, storageLocationId, revision: 1, status: "active" }),
+      },
+    });
+    await expect(
+      rootServices.connections.connectChannel(
+        { connectionId, accountId, providerKey: "tcgplayer" },
+        { deploymentEnvironment: "local" },
+        testContext,
+      ),
+    ).resolves.toMatchObject({ state: { providerKey: "tcgplayer", environment: "sandbox" } });
+    await expect(
+      rootServices.connections.activateChannelConnection(
+        {
+          accountId,
+          connectionId,
+          credentialReference: null,
+          bindings: [{ storageLocationId: "location-boundary", revision: 1 }],
+        },
+        testContext,
+      ),
+    ).resolves.toMatchObject({ state: { status: "active" } });
+    await projectConnectionEvents(connectionId);
+    expect(
+      await pools.channels.query(
+        `SELECT connection_id,account_id,provider_key,environment,status FROM channel_connections WHERE connection_id=$1
+         UNION ALL
+         SELECT connection_id,account_id,provider_key,environment,status FROM channels_connection_facts WHERE connection_id=$1`,
+        [connectionId],
+      ),
+    ).toMatchObject({
+      rows: [
+        {
+          connection_id: connectionId,
+          account_id: accountId,
+          provider_key: "tcgplayer",
+          environment: "sandbox",
+          status: "active",
+        },
+        {
+          connection_id: connectionId,
+          account_id: accountId,
+          provider_key: "tcgplayer",
+          environment: "sandbox",
+          status: "active",
+        },
+      ],
+    });
+    expect(
+      await pools.channels.query(
+        "SELECT DISTINCT tenant_id,for_account_id FROM event_store_events WHERE stream_id=$1",
+        [`channels.connection-${connectionId}`],
+      ),
+    ).toMatchObject({ rows: [{ tenant_id: "tnt_channels", for_account_id: "acc_owner" }] });
+
+    const marketplace = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
+    const inventory = buildChannelInventoryFactsProjectionHandlers(pools.channels);
+    const catalog = buildChannelCatalogFactsProjectionHandlers(pools.channels);
+    const channels = {
+      ...buildChannelConnectionFactsProjectionHandlers(pools.channels),
+      ...buildChannelListingStateProjectionHandlers(pools.channels),
+    };
+    await marketplace["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        {
+          listingId: "listing-boundary",
+          accountId,
+          inventoryItemId: "item-boundary",
+          catalogItemId: "catalog-boundary",
+          priceAmount: "0.27",
+          priceCurrencyCode: "USD",
+          quantityCap: 10,
+          selectedOptions: [],
+          itemTitle: "Synthetic boundary card",
+          itemSubtitle: null,
+          productSummary: "Synthetic boundary proof",
+          gradedCard: null,
+        },
+        "marketplace.listing-listing-boundary",
+        1,
+      ),
+    );
+    await marketplace["marketplace.listing.published"]!(
+      event("marketplace.listing.published", {}, "marketplace.listing-listing-boundary", 2),
+    );
+    await inventory["inventory.item.created"]!(
+      event(
+        "inventory.item.created",
+        { itemId: "item-boundary", accountId, catalogItemId: "catalog-boundary", totalQuantity: 1 },
+        "inventory.item-item-boundary",
+        1,
+      ),
+    );
+    await catalog["catalog.catalog-item.category-assigned"]!(
+      event(
+        "catalog.catalog-item.category-assigned",
+        { categoryId: "cards" },
+        "catalog.catalog-item-catalog-boundary",
+        1,
+      ),
+    );
+    await catalog["catalog.catalog-item.external-catalog-item-reference-linked"]!(
+      event(
+        "catalog.catalog-item.external-catalog-item-reference-linked",
+        { providerKey: "tcgplayer", externalKey: "product:90000801" },
+        "catalog.catalog-item-catalog-boundary",
+        2,
+      ),
+    );
+    await channels["channels.channel-publication-configuration.settings-replaced"]!(
+      event(
+        "channels.channel-publication-configuration.settings-replaced",
+        {
+          connectionId,
+          settings: {
+            titlePrefix: "",
+            titleSuffix: "",
+            descriptionFooter: "",
+            categoryAllowlist: ["cards"],
+            excludedListingIds: [],
+          },
+        },
+        `channels.channel-publication-configuration-${connectionId}`,
+        1,
+      ),
+    );
+    await expect(
+      rootServices.listingComposition.recordChannelListingDesiredState(
+        { connectionId, listingId: "listing-boundary" },
+        testContext,
+      ),
+    ).resolves.toMatchObject({ kind: "applied", streamVersion: 1 });
+    await projectLinkEvents(channels);
+    const origin = await readDesiredStateOrigin("listing-boundary");
+    const outboundReaction = buildChannelOutboundOperationReactionHandlers(rootServices.outboundSync);
+    await outboundReaction["channels.channel-listing.desired-state-changed"]!(transport(origin));
+    expect(
+      await pools.channels.query(
+        "SELECT operation_kind,source_event_id FROM channel_outbound_operations WHERE source_event_id=$1",
+        [origin.event_id],
+      ),
+    ).toMatchObject({ rows: [{ operation_kind: "publish", source_event_id: origin.event_id }] });
+
+    const stagedHeader = "TCGplayer Id,Total Quantity,Add to Quantity,TCG Marketplace Price";
+    await rootServices.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+      snapshotId: "snapshot-boundary-basis",
+      connectionId,
+      surface: "staged",
+      csv: `${stagedHeader}\n90000801,2,0,0.2600`,
+      limits: { maxRecords: 1 },
+      ingestedAt: "2026-09-09T12:01:00Z",
+      capturedAt: "2026-09-09T12:01:00Z",
+      capturedAtSource: "operator-declared",
+    });
+    const composed = await rootServices.tcgplayerCsv.composeTcgplayerSyncRun(
+      {
+        runId: "run-boundary",
+        connectionId,
+        claimant: { claimantKind: "connector", claimantId: "connector-boundary" },
+        leaseMs: 60_000,
+        manualClaimLeasePolicySnapshot: null,
+        resolvedPolicy: { maxRowsPerBatch: 500 },
+        composedAt: "2026-09-09T12:02:00Z",
+      },
+      testContext,
+    );
+    const claimed = await rootServices.tcgplayerCsv.claimRun(
+      { runId: composed!.run.runId, expectedRevision: composed!.run.revision },
+      testContext,
+    );
+    const awaiting = await rootServices.tcgplayerCsv.recordUploadAttempt(
+      {
+        runId: claimed.runId,
+        expectedRevision: claimed.revision,
+        uploadAttemptedAt: "2026-09-09T12:02:30Z",
+        fileName: "boundary.csv",
+      },
+      testContext,
+    );
+    await rootServices.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+      snapshotId: "snapshot-boundary-proof",
+      connectionId,
+      surface: "staged",
+      csv: `${stagedHeader}\n90000801,1,0,0.2700`,
+      limits: { maxRecords: 1 },
+      ingestedAt: "2026-09-09T12:03:00Z",
+      capturedAt: "2026-09-09T12:03:00Z",
+      capturedAtSource: "operator-declared",
+    });
+    const summary = {
+      fileName: "boundary.csv",
+      dateImportedText: "9/9/2026 12:03 PM",
+      numberOfProducts: 1,
+      recordedAt: "2026-09-09T12:03:30Z",
+    };
+    const applied = await rootServices.tcgplayerCsv.verifyRun(
+      {
+        runId: awaiting.runId,
+        expectedRevision: awaiting.revision,
+        verificationSnapshotId: "snapshot-boundary-proof",
+        importSummary: summary,
+      },
+      testContext,
+    );
+    expect(applied.state).toBe("applied");
+    const replay = {
+      reservationId: applied.reservationId,
+      claimant: applied.claimant,
+      outcomes: deriveClaimedOperationOutcomes(applied),
+      runSettlement: {
+        runId: applied.runId,
+        expectedRunRevision: awaiting.revision,
+        fromState: "awaiting-verification" as const,
+        toState: "applied" as const,
+        verificationSnapshotId: "snapshot-boundary-proof",
+        verificationSnapshotGeneration: 2,
+        uploadAttemptedAt: null,
+        uploadFileName: null,
+        importSummary: summary,
+        context: testContext,
+      },
+    };
+    await expect(rootServices.outboundSync.reportClaimedOperationOutcomes(replay)).resolves.toBeUndefined();
+    await expect(
+      rootServices.outboundSync.reportClaimedOperationOutcomes({
+        ...replay,
+        outcomes: [{ ...replay.outcomes[0]!, desiredStateSequence: 99 }],
+      }),
+    ).rejects.toMatchObject({ code: "reservation-membership-mismatch" });
+    await expect(
+      outboundReaction["channels.channel-listing.desired-state-changed"]!(
+        buildTransportEvent(
+          "channels.channel-listing.desired-state-changed",
+          {
+            ...origin.payload,
+            intent: "delist",
+            delist: {
+              channelListingId: origin.payload.channelListingId,
+              listingRevision: origin.payload.listingRevision,
+              lastPublishedQuantity: 1,
+              delistReasons: ["sold-out"],
+            },
+          },
+          { id: "invalid-boundary-delist", streamId: origin.stream_id, streamVersion: 1, globalPosition: "999" },
+        ),
+      ),
+    ).rejects.toThrow();
+    expect(
+      await pools.channels.query(
+        "SELECT 1 FROM channel_outbound_operations WHERE source_event_id='invalid-boundary-delist'",
+      ),
+    ).toMatchObject({ rows: [] });
+  });
 });
 
 function candidate(dimension: string, sourceKey: string, proposedTargetKey: string) {
@@ -262,6 +527,57 @@ function candidate(dimension: string, sourceKey: string, proposedTargetKey: stri
 
 function event(type: string, data: Record<string, unknown>, streamId: string, streamVersion: number) {
   return buildTransportEvent(type, data, { streamId, streamVersion, globalPosition: `${streamId}:${streamVersion}` });
+}
+
+type StoredOrigin = Readonly<{
+  event_id: string;
+  event_type: string;
+  stream_id: string;
+  stream_version: number | string;
+  global_position: string;
+  occurred_at: string | Date;
+  recorded_at: string | Date;
+  payload: Record<string, unknown>;
+}>;
+
+async function projectConnectionEvents(connectionId: string): Promise<void> {
+  const canonical = buildChannelConnectionProjectionHandlers(pools.channels);
+  const facts = buildChannelConnectionFactsProjectionHandlers(pools.channels);
+  const rows = await pools.channels.query<StoredOrigin>(
+    `SELECT event_id,event_type,stream_id,stream_version,global_position::text,occurred_at,recorded_at,payload
+     FROM event_store_events WHERE stream_id=$1 ORDER BY stream_version`,
+    [`channels.connection-${connectionId}`],
+  );
+  for (const row of rows.rows) {
+    const projected = transport(row);
+    await canonical[row.event_type]!(projected);
+    await facts[row.event_type]!(projected);
+  }
+}
+
+async function readDesiredStateOrigin(listingId: string): Promise<StoredOrigin> {
+  const result = await pools.channels.query<StoredOrigin>(
+    `SELECT event_id,event_type,stream_id,stream_version,global_position::text,occurred_at,recorded_at,payload
+     FROM event_store_events
+     WHERE event_type='channels.channel-listing.desired-state-changed' AND payload->>'listingId'=$1`,
+    [listingId],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("Desired-state origin was unavailable.");
+  return row;
+}
+
+function transport(origin: StoredOrigin) {
+  return buildTransportEvent(origin.event_type, origin.payload, {
+    id: origin.event_id,
+    streamId: origin.stream_id,
+    streamVersion: Number(origin.stream_version),
+    globalPosition: origin.global_position,
+    timing: {
+      occurredAt: new Date(origin.occurred_at).toISOString(),
+      recordedAt: new Date(origin.recorded_at).toISOString(),
+    },
+  });
 }
 
 async function projectLinkEvents(

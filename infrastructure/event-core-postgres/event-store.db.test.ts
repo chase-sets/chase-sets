@@ -146,6 +146,70 @@ describeDb("postgres event store real database integration", () => {
     });
   });
 
+  it("keeps transaction-bound appends and wake notifications inside the caller's commit boundary", async () => {
+    const notificationChannel = "event_store_transaction_test";
+    const notifications: string[] = [];
+    const listener = (await schema.pool.connect()) as PgPoolClient &
+      Readonly<{ on(event: "notification", handler: (message: { payload?: string }) => void): void }>;
+    listener.on("notification", (message) => notifications.push(message.payload ?? ""));
+    await listener.query(`LISTEN ${notificationChannel}`);
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+      wakeNotifications: { enabled: true, channel: notificationChannel },
+    });
+    const input = {
+      streamId: "channels.tcgplayer-sync-run-transaction",
+      expectedVersion: "no_stream" as const,
+      context: eventContext("tenant_a"),
+      events: [eventToStore("channels.tcgplayer-sync-run.transitioned", { runId: "run-transaction" })],
+    };
+
+    const rolledBack = await schema.pool.connect();
+    try {
+      await rolledBack.query("BEGIN");
+      await store.appendToStreamInTransaction(rolledBack, input);
+      await expect(rolledBack.query("SELECT 1")).resolves.toMatchObject({ rows: [{ "?column?": 1 }] });
+      await expect(
+        schema.pool.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM event_store_events WHERE stream_id=$1",
+          [input.streamId],
+        ),
+      ).resolves.toMatchObject({ rows: [{ count: "0" }] });
+      expect(notifications).toEqual([]);
+      await rolledBack.query("ROLLBACK");
+    } finally {
+      rolledBack.release();
+    }
+    await expect(
+      schema.pool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM event_store_events WHERE stream_id=$1",
+        [input.streamId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: "0" }] });
+    expect(notifications).toEqual([]);
+
+    const committed = await schema.pool.connect();
+    try {
+      await committed.query("BEGIN");
+      await store.appendToStreamInTransaction(committed, input);
+      expect(notifications).toEqual([]);
+      await committed.query("COMMIT");
+    } finally {
+      committed.release();
+    }
+    await waitFor(() => notifications.length === 1);
+    await expect(
+      schema.pool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM event_store_events WHERE stream_id=$1",
+        [input.streamId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: "1" }] });
+    expect(notifications).toHaveLength(1);
+    listener.release();
+  });
+
   it("rolls back earlier stream appends when a later stream append conflicts", async () => {
     const store = createPostgresEventStore({
       pool: schema.pool,
@@ -1368,6 +1432,14 @@ function fulfilledResults<T>(results: readonly PromiseSettledResult<T>[]): T[] {
   return results
     .filter((result): result is PromiseFulfilledResult<T> => result.status === "fulfilled")
     .map((result) => result.value);
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Timed out waiting for the committed Postgres notification.");
 }
 
 function rejectedResults<T>(results: readonly PromiseSettledResult<T>[]): unknown[] {

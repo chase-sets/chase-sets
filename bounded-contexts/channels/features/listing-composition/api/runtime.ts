@@ -3,7 +3,7 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import type { EventStore, EventStoreError } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import type { ChannelListingIdDigest } from "../domain/canonical";
 import {
   assertChannelMappingCandidatesPayload,
@@ -69,6 +69,7 @@ import { createChannelListingPublicationApplication } from "./listing-publicatio
 
 export type ChannelListingCompositionRuntimeDeps = Readonly<{
   eventStore: EventStore;
+  transactionalEventStore?: Pick<PostgresEventStore, "appendToStreamInTransaction">;
   db: PgQueryable;
   profiles: ChannelCompositionProfileRegistry;
   listingIdDigest?: ChannelListingIdDigest;
@@ -120,6 +121,20 @@ export interface ChannelListingCompositionServices {
       expectedStreamVersion: number;
     }>,
     context: EventStoreContext,
+  ): Promise<ChannelCommandResult>;
+  recordChannelListingPublicationOutcomeInTransaction(
+    input: Readonly<{
+      connectionId: string;
+      channelListingId: string;
+      operationId: string;
+      reportedDesiredStateSequence: number;
+      reportedListingRevision: number;
+      reportedDesiredStateHash: string;
+      outcome: ChannelPublicationOutcome;
+      expectedStreamVersion: number;
+    }>,
+    context: EventStoreContext,
+    db: PgQueryable,
   ): Promise<ChannelCommandResult>;
   enqueueChannelListingDesiredStateBackfill(
     input: Readonly<{ connectionId: string }>,
@@ -385,6 +400,63 @@ export function createChannelListingCompositionRuntime(
         }
       }
       return { kind: "refused", code: "stream-version-conflict" };
+    },
+    recordChannelListingPublicationOutcomeInTransaction: async (input, context, db) => {
+      assertClosed(input, [
+        "connectionId",
+        "channelListingId",
+        "operationId",
+        "reportedDesiredStateSequence",
+        "reportedListingRevision",
+        "reportedDesiredStateHash",
+        "outcome",
+        "expectedStreamVersion",
+      ]);
+      assertText(input.connectionId, 128);
+      assertText(input.channelListingId, 128);
+      assertText(input.operationId, 512);
+      assertVersion(input.reportedDesiredStateSequence);
+      assertVersion(input.reportedListingRevision);
+      if (!/^[a-f0-9]{64}$/.test(input.reportedDesiredStateHash)) {
+        throw new Error("Desired-state hash is invalid.");
+      }
+      assertChannelPublicationOutcomePayload(input.outcome);
+      assertVersion(input.expectedStreamVersion);
+      if (input.expectedStreamVersion !== input.reportedDesiredStateSequence) {
+        return { kind: "refused", code: "desired-state-mismatch" };
+      }
+      const transactionalEventStore = deps.transactionalEventStore;
+      if (!transactionalEventStore) throw new Error("The transaction-bound event store is not installed.");
+      const loaded = await linkRepository.load(linkStreamId(input.channelListingId));
+      const decision = decideChannelListingPublicationOutcome(loaded.state, input);
+      if (decision.kind === "refused") return decision;
+      if (!(await reservePublicationOperation(db, input))) {
+        return { kind: "refused", code: "operation-rebound" };
+      }
+      if (decision.kind === "unchanged") {
+        return { kind: "unchanged", value: undefined, streamVersion: loaded.version };
+      }
+      const events = [channelListingEventCodec.encode(decision.event)];
+      if (decision.recompose) {
+        const postPublicationState = evolveChannelListing(loaded.state, decision.event);
+        const recomposition = await listingPublication.decideDesiredState(
+          { connectionId: input.connectionId, listingId: loaded.state.listingId },
+          postPublicationState,
+          postPublicationState.lastStreamVersion + 1,
+          db,
+        );
+        if (recomposition.kind === "append") {
+          events.push(channelListingEventCodec.encode(recomposition.event));
+        }
+      }
+      const stored = await transactionalEventStore.appendToStreamInTransaction(db, {
+        streamId: linkStreamId(input.channelListingId),
+        expectedVersion: loaded.version,
+        context,
+        wakeSourceContextName: "channels",
+        events,
+      });
+      return { kind: "applied", value: undefined, streamVersion: stored[0]!.streamVersion };
     },
     enqueueChannelListingDesiredStateBackfill: (input, context) =>
       enqueue({ connectionId: input.connectionId, scope: "connection", scopeKey: input.connectionId }, context),

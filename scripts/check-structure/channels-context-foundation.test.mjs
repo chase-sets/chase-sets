@@ -149,14 +149,14 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (
     JSON.stringify(candidate.slices) !==
-    JSON.stringify(["connections", "publication-port", "listing-composition", "outbound-sync"])
+    JSON.stringify(["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"])
   ) {
     violations.push("slices");
   }
   if (JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support"])) {
     violations.push("allowedSupportDirectories");
   }
-  if (candidate.eventSubscriptions?.length !== 4) violations.push("eventSubscriptions");
+  if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
   if (candidate.eventReactions?.length !== 5) violations.push("eventReactions");
   if (candidate.deployableContributions?.[0]?.routes?.length !== 4) violations.push("deployableContributions");
   if (candidate.shellContributions?.[0]?.requiredPermissions?.[0] !== "channels.view")
@@ -197,17 +197,18 @@ describe("channels-context-foundation", () => {
         "channel-listing-desired-state",
         "channel-listing-reconciliation-run",
       ]),
-      slices: ["connections", "publication-port", "listing-composition", "outbound-sync"],
+      slices: ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
       allowedSupportDirectories: ["request-support"],
       publicExports: [".", "./context", "./server", "./routes/*"],
       allowedContextDependencies: [],
       hostPorts: [],
     });
-    expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([10, 20, 30, 40]);
+    expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([10, 20, 30, 40, 50]);
     expect(manifest.eventSubscriptions.map((entry) => entry.sourceContextName)).toEqual([
       "marketplace",
       "catalog",
       "inventory",
+      "channels",
       "channels",
     ]);
     expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63, 64]);
@@ -642,6 +643,7 @@ describe("channels-wake-registry-derivation", () => {
         "channels:channel-listing-desired-state-reaction",
         "channels:channel-outbound-operation-enqueue",
         "channels:channel-owned-publication-state",
+        "channels:tcgplayer-csv-projection",
       ],
       routeDependencyIds: [],
     });
@@ -663,6 +665,7 @@ describe("channels-wake-registry-derivation", () => {
       "channels:channel-listing-desired-state-reaction",
       "channels:channel-outbound-operation-enqueue",
       "channels:channel-owned-publication-state",
+      "channels:tcgplayer-csv-projection",
       "neutral-consumer:connection-view",
     ]);
     expect(projectionMutant.affectedProjectionNames).not.toEqual(entry.affectedProjectionNames);

@@ -125,6 +125,7 @@ function listingCompositionStub(): ChannelListingCompositionServices {
     decideChannelMappingReview: vi.fn(),
     recordChannelListingDesiredState: vi.fn(),
     recordChannelListingPublicationOutcome: vi.fn(),
+    recordChannelListingPublicationOutcomeInTransaction: vi.fn(),
     enqueueChannelListingDesiredStateBackfill: vi.fn(),
     enqueueChannelListingDesiredStateReconciliation: vi.fn(),
     drainChannelListingDesiredStateReconciliation: vi.fn(),

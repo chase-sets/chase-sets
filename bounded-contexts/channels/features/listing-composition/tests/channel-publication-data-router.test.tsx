@@ -8,8 +8,8 @@ import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
-import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
 import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
+import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
 import AccountChannelsPublicationConnectionRoute, {
   action,
   loader,
@@ -219,6 +219,7 @@ function services(
     },
     recordChannelListingDesiredState: vi.fn(),
     recordChannelListingPublicationOutcome: vi.fn(),
+    recordChannelListingPublicationOutcomeInTransaction: vi.fn(),
     enqueueChannelListingDesiredStateBackfill: vi.fn(),
     enqueueChannelListingDesiredStateReconciliation: vi.fn(),
     drainChannelListingDesiredStateReconciliation: vi.fn(),

@@ -2,6 +2,7 @@ export { default as contextManifest } from "./context.json" with { type: "json" 
 export { channelProviderRegistry, createChannelProviderRegistry } from "./features/publication-port/api/registry";
 export { createChannelListingCompositionRuntime } from "./features/listing-composition/api/runtime";
 export { type ChannelListingCompositionServices } from "./features/listing-composition/api/runtime";
+export { assertChannelListingDelistDirective } from "./features/listing-composition/domain/codecs";
 export {
   buildChannelCategorySourceKeys,
   buildChannelConditionSourceKeys,
@@ -74,6 +75,56 @@ export {
   type ResolvedChannelPublication,
   type UpdatePriceQuantityInput,
 } from "./features/publication-port/domain/contracts";
+export {
+  createTcgplayerCsvRuntime,
+  type ComposeTcgplayerSyncRunInput,
+  type IngestTcgplayerExportSnapshotInput,
+  type RunFenceInput,
+  type TcgplayerCsvRuntimeDependencies,
+  type TcgplayerCsvServices,
+} from "./features/tcgplayer-csv/api/runtime";
+export {
+  composeTcgplayerReservation,
+  planStagedImportBatches,
+  type ComposedTcgplayerReservation,
+  type ComposeTcgplayerReservationInput,
+} from "./features/tcgplayer-csv/domain/composition";
+export { parseTcgplayerFullExport } from "./features/tcgplayer-csv/domain/csv";
+export {
+  channelExportCompletenessStates,
+  channelExportSurfaces,
+  channelSyncRunMemberKinds,
+  channelSyncRunStates,
+  channelSyncRunTriggers,
+  tcgplayerLocalRefusalReasons,
+  tcgplayerRowRefusalReasons,
+  type ChannelExportCompleteness,
+  type ChannelExportSchemaDescriptor,
+  type ChannelExportSchemaPin,
+  type ChannelExportSurface,
+  type ChannelInventorySnapshot,
+  type ChannelInventorySnapshotRow,
+  type ChannelSyncRun,
+  type ChannelSyncRunComposedEvent,
+  type ChannelSyncRunEvent,
+  type ChannelSyncRunMember,
+  type ChannelSyncRunMemberKind,
+  type ChannelSyncRunState,
+  type ChannelSyncRunTransitionedEvent,
+  type ChannelSyncRunTrigger,
+  type ManualClaimLeasePolicySnapshot,
+  type StagedImportBatch,
+  type TcgplayerExportIngestLimits,
+  type TcgplayerExportParseResult,
+  type TcgplayerImportSummary,
+  type TcgplayerLocalRefusalReason,
+  type TcgplayerRowRefusalReason,
+} from "./features/tcgplayer-csv/domain/contracts";
+export { channelSyncRunTransitions, decideChannelSyncRunTransition } from "./features/tcgplayer-csv/domain/lifecycle";
+export { tcgplayerStagedImportPolicy } from "./features/tcgplayer-csv/domain/policy";
+export { tcgplayerExportSchemaDescriptors } from "./features/tcgplayer-csv/domain/profile";
+export { readLatestSnapshotRows, readRun } from "./features/tcgplayer-csv/read-model/queries";
+
 import {
   buildEventReactionsFromManifest,
   buildEventSubscriptionsFromManifest,
@@ -90,7 +141,8 @@ import {
   createChannelListingCompositionRuntime,
   type ChannelListingCompositionServices,
 } from "./features/listing-composition/api/runtime";
-import { channelCompositionProfileRegistry } from "./features/listing-composition/domain/canonical";
+import { assertChannelListingDelistDirective } from "./features/listing-composition/domain/codecs";
+import { createChannelCompositionProfileRegistry } from "./features/listing-composition/domain/canonical";
 import {
   buildChannelCatalogDesiredStateReactionHandlers,
   buildChannelInventoryDesiredStateReactionHandlers,
@@ -108,6 +160,7 @@ import {
   buildChannelMarketplaceFactsProjectionHandlers,
 } from "./features/listing-composition/read-model/facts-projection";
 import { buildChannelListingStateProjectionHandlers } from "./features/listing-composition/read-model/state-projection";
+import { buildTcgplayerCsvProjectionHandlers } from "./features/tcgplayer-csv/read-model/projection";
 import { channelProviderRegistry } from "./features/publication-port/api/registry";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createOutboundSyncRuntime } from "./features/outbound-sync/api/runtime";
@@ -116,8 +169,12 @@ import {
   buildChannelOutboundOperationReactionHandlers,
   createChannelListingPublicationOutcomeRecorder,
 } from "./features/outbound-sync/integrations/listing-composition";
+import type { OutboundSyncServices } from "./features/outbound-sync/domain/contracts";
 import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "./features/outbound-sync/read-model/schema";
-import { assertChannelListingDelistDirectivePayload } from "./features/listing-composition/domain/codecs";
+import { createTcgplayerCsvRuntime, type TcgplayerCsvServices } from "./features/tcgplayer-csv/api/runtime";
+import { tcgplayerCompositionProfiles } from "./features/tcgplayer-csv/domain/profile";
+import { createTcgplayerClaimedReservationRunSettlementPort } from "./features/tcgplayer-csv/integrations/outbound-sync-settlement";
+import { tcgplayerCsvSchemaMigrations, tcgplayerCsvSchemaSql } from "./features/tcgplayer-csv/read-model/schema";
 import {
   channelConnectionSchemaMigrations,
   channelConnectionSchemaSql,
@@ -125,7 +182,12 @@ import {
 
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsRuntimeServices = ChannelsServices &
-  Readonly<{ listingComposition: ChannelListingCompositionServices; db: PgTransactionalPool }>;
+  Readonly<{
+    listingComposition: ChannelListingCompositionServices;
+    outboundSync: OutboundSyncServices;
+    tcgplayerCsv: TcgplayerCsvServices;
+    db: PgTransactionalPool;
+  }>;
 
 export const module = defineBoundedContextModule<
   ChannelsRuntimeServices,
@@ -133,11 +195,12 @@ export const module = defineBoundedContextModule<
   ChannelConnectionHostPorts
 >({
   manifest: channelsContextManifest,
-  schemaSql: `${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}`,
+  schemaSql: `${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
     ...outboundSyncSchemaMigrations,
+    ...tcgplayerCsvSchemaMigrations,
   ],
   createServices: (pool, ports) => {
     const eventStore = createPostgresEventStore({
@@ -154,10 +217,12 @@ export const module = defineBoundedContextModule<
         setupResolver: ports?.setupResolver ?? channelProviderRegistry.setupResolver,
       },
     );
+    const compositionProfiles = createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles);
     const listingComposition = createChannelListingCompositionRuntime({
       eventStore,
+      transactionalEventStore: eventStore,
       db: pool,
-      profiles: channelCompositionProfileRegistry,
+      profiles: compositionProfiles,
     });
     const policies = createPolicyRuntime({ eventStore, db: pool });
     const outboundSync = createOutboundSyncRuntime(
@@ -165,17 +230,28 @@ export const module = defineBoundedContextModule<
         db: pool,
         resolveBudgetPolicy: async () => (await policies.resolvePolicy(outboundOperationBudgetPolicy)).value,
         recordOutcome: createChannelListingPublicationOutcomeRecorder(listingComposition),
+        claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(eventStore),
       },
       {
-        assertDelistDirective: assertChannelListingDelistDirectivePayload,
+        assertDelistDirective: assertChannelListingDelistDirective,
       },
     );
+    const tcgplayerCsv = createTcgplayerCsvRuntime({
+      db: pool,
+      eventStore,
+      transactionalEventStore: eventStore,
+      outboundSync,
+      listingComposition,
+      providerRegistry: channelProviderRegistry,
+      compositionProfiles,
+    });
     return {
       connections,
       listingComposition,
       outboundSync,
+      tcgplayerCsv,
       db: pool,
-      projectors: [...connections.projectors, ...listingComposition.projectors],
+      projectors: [...connections.projectors, ...listingComposition.projectors, ...tcgplayerCsv.projectors],
     };
   },
   buildApis: (services) => [{ mountPath: "/api/channels", contextMountOrdinal: 1, router: buildChannelsApi(services) }],
@@ -194,6 +270,7 @@ export const module = defineBoundedContextModule<
           ...buildChannelConnectionFactsProjectionHandlers(services.db),
           ...buildChannelListingStateProjectionHandlers(services.db),
         }),
+        "channels.tcgplayer-csv-projection": () => buildTcgplayerCsvProjectionHandlers(services.db),
       },
     }),
     ...buildEventReactionsFromManifest({
