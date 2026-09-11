@@ -34,6 +34,7 @@ export const orderingWakeRegistryEntry = registryEntry({
     "pricing:pricing-market-trades-projection",
     "marketplace:marketplace-review-order-source-projection",
     "marketplace:marketplace-seller-metrics-order-source-projection",
+    "platform-operations:seller-compliance-sales-projection",
     "platform-operations:support-order-source-projection",
     "platform-operations:support-affected-line-amount-projection",
   ],
