@@ -9,6 +9,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as inventoryModule } from "@chase-sets/inventory";
+import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { contextManifest, module as pricingModule } from "../../../index";
 import { buildPricingInventoryInputProjectionHandlers } from "../../recommendations/integrations/source/source-projection";
 import { buildPricingOwnSaleObservationProjectionHandlers } from "../integrations/inventory/projection";
@@ -395,6 +396,8 @@ function pricingServices(pool: PgTransactionalPool) {
   return pricingModule.createServices(pool, {
     tcgplayerMarketTransport: { kind: "not-mounted" },
     tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+    commercialTermsResolver: createNoopCommercialTermsResolver(),
+    channelConnectionIdentityReader: { resolve: async () => null },
   });
 }
 
