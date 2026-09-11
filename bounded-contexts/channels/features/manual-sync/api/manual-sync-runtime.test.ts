@@ -150,7 +150,13 @@ describe("manual-sync runtime binding", () => {
       marketplaceClamp: {
         kind: "available",
         port: {
-          engage: vi.fn(async () => ({ kind: "engaged" as const, requestedListingCount: 1, affectedListingCount: 1 })),
+          engage: vi.fn(async () => ({
+            kind: "engaged" as const,
+            requestedListingCount: 1,
+            affectedListingCount: 1,
+            clampedListingCount: 1,
+            recoveryListingCount: 0,
+          })),
           recover: vi.fn(async () => ({
             kind: "released" as const,
             examinedListingCount: 1,
