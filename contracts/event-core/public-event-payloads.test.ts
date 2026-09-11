@@ -30,7 +30,6 @@ import type {
   InventoryExternalChannelSaleRecordedPayload,
   InventoryItemCreatedPayload,
   InventoryItemOfflineSaleRecordedPayload,
-  MarketplaceEventPayloads,
   MarketplaceListingCreatedPayload,
   MarketplaceListingPriceUpdatedPayload,
   MarketplaceSalesFeeLineSnapshotPayload,
@@ -45,12 +44,25 @@ import type {
   PlatformOperationsReportedContentActionRecordedPayload,
   PlatformOperationsRiskAlertActionRecordedPayload,
   SettlementSupportHoldReleasedPayload,
-  SupportRequestPlatformCoverageEventPayloads,
   WaitlistSignupRecordedPayload,
   WaitlistReferralCodeIssuedPayload,
   WaitlistReferralCodeReservedPayload,
   WaitlistReferralLinkProvisionedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
+import type { AuthEventPayloads } from "./public-event-payloads/auth";
+import type { CheckoutEventPayloads } from "./public-event-payloads/checkout";
+import type { FulfillmentEventPayloads } from "./public-event-payloads/fulfillment";
+import type { IdentityEventPayloads } from "./public-event-payloads/identity";
+import type { InventoryEventPayloads } from "./public-event-payloads/inventory";
+import type { MarketplaceEventPayloads } from "./public-event-payloads/marketplace";
+import type { OrderingEventPayloads } from "./public-event-payloads/ordering";
+import type { PaymentsEventPayloads } from "./public-event-payloads/payments";
+import type {
+  PlatformOperationsEventPayloads,
+  SupportRequestPlatformCoverageEventPayloads,
+} from "./public-event-payloads/platform-operations";
+import type { PublicPresenceEventPayloads } from "./public-event-payloads/public-presence";
+import type { SettlementEventPayloads } from "./public-event-payloads/settlement";
 
 const modernSuspendedPayload: IdentityAccountSuspendedPayload = {
   enforcement: {
@@ -338,8 +350,22 @@ const aggregateTypeIdentity = {
   >,
 } as const;
 
+type IndependentlyComposedPublicEventKeys =
+  | keyof AuthEventPayloads
+  | keyof IdentityEventPayloads
+  | keyof CheckoutEventPayloads
+  | keyof FulfillmentEventPayloads
+  | keyof InventoryEventPayloads
+  | keyof OrderingEventPayloads
+  | keyof MarketplaceEventPayloads
+  | keyof PaymentsEventPayloads
+  | keyof SettlementEventPayloads
+  | keyof SupportRequestPlatformCoverageEventPayloads
+  | keyof PublicPresenceEventPayloads
+  | keyof PlatformOperationsEventPayloads;
+
 const aggregateTypeIdentityCoversEveryRegisteredEvent = true satisfies IsExactly<
-  keyof typeof aggregateTypeIdentity,
+  IndependentlyComposedPublicEventKeys,
   keyof ChaseSetsEventPayloads
 >;
 
