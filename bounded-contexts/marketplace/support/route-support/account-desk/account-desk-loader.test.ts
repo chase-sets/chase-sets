@@ -57,7 +57,11 @@ describe("Seller Desk home loader", () => {
       ok: true,
       json: async () => ({
         items: [{ source: "offer-response" }, { source: "listing-action" }],
-        rollup: { total: 2, bySeverity: { critical: 0, warning: 1, info: 1 }, bySource: { "offer-response": 1, "listing-action": 1 } },
+        rollup: {
+          total: 2,
+          bySeverity: { critical: 0, warning: 1, info: 1 },
+          bySource: { "offer-response": 1, "listing-action": 1 },
+        },
         sources: [
           { id: "offer-response", status: "available", itemCount: 1, reason: null },
           { id: "listing-action", status: "available", itemCount: 1, reason: null },
