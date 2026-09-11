@@ -15,6 +15,7 @@ import {
   type ObservationPackObjectStorage,
 } from "../bounded-contexts/catalog/features/source-observations/api/observation-pack.ts";
 import { captureObservationPack as captureObservationPackFromAdapter } from "../bounded-contexts/catalog/features/source-observations/api/observation-pack-capture.ts";
+import { resolveTcgdexImageReference } from "../bounded-contexts/catalog/features/source-observations/api/providers/tcgdex/image-reference.ts";
 import {
   getActiveCatalogProviderIntegrationProfileVersion,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -305,8 +306,7 @@ function createConfiguredAssetFetch(
   }
   return (resource, options) => {
     const source = typeof resource === "string" ? resource : resource instanceof URL ? resource.href : resource.url;
-    const suffix = `/${connector.highQualityAssetVariant}`;
-    return fetch(source.endsWith(suffix) ? source : `${source.replace(/\/$/, "")}${suffix}`, options);
+    return fetch(resolveTcgdexImageReference(source, connector.highQualityAssetVariant), options);
   };
 }
 
