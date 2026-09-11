@@ -7,7 +7,7 @@ import { CHANNEL_STOCK_ALLOCATION_SUBSCRIPTION_VERSION } from "../integrations/r
 const contextRoot = path.resolve(import.meta.dirname, "../../..");
 
 describe("channel-subscription-order-fence", () => {
-  it("keeps five ordered projection subscriptions below all five reactions", () => {
+  it("keeps five ordered projection subscriptions below all four reactions", () => {
     const subscriptions = contextManifest.eventSubscriptions;
     const reactions = contextManifest.eventReactions;
     expect(subscriptions.map((entry) => entry.sourceContextName)).toEqual([
@@ -26,7 +26,7 @@ describe("channel-subscription-order-fence", () => {
     expect(Math.max(...subscriptions.map((entry) => entry.order))).toBeLessThan(
       Math.min(...reactions.map((entry) => entry.order)),
     );
-    expect(reactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63, 64]);
+    expect(reactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63]);
   });
 
   it("enumerates every producer event once and reacts only after the owning projection", () => {
@@ -35,7 +35,7 @@ describe("channel-subscription-order-fence", () => {
     expect(
       subscriptions.map((entry) => ("eventTypes" in entry && entry.eventTypes ? entry.eventTypes.length : 0)),
     ).toEqual([9, 6, 9, 14, 0]);
-    expect(reactions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 9, 11, 1]);
+    expect(reactions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 9, 12]);
     expect(subscriptions.map((entry) => entry.subscriptionVersion)).toEqual([
       1,
       1,
@@ -48,7 +48,6 @@ describe("channel-subscription-order-fence", () => {
       1,
       CHANNEL_STOCK_ALLOCATION_SUBSCRIPTION_VERSION,
       1,
-      1,
     ]);
     expect(subscriptions.slice(0, 4).every((entry) => "filterToEventTypes" in entry && entry.filterToEventTypes)).toBe(
       true,
@@ -58,17 +57,18 @@ describe("channel-subscription-order-fence", () => {
     for (let index = 0; index < 3; index += 1) {
       expect(reactions[index]!.eventTypes).toEqual(subscriptions[index]!.eventTypes);
     }
-    const separatelyOwnedChannelListingEvents = [
-      "channels.channel-listing.desired-state-changed",
+    const channelListingOutcomeEvents = [
       "channels.channel-listing.publication-blocked",
       "channels.channel-listing.publication-recorded",
     ];
     const channelOwnedEventTypes = subscriptions[3]?.eventTypes;
     expect(channelOwnedEventTypes).toBeDefined();
     expect(reactions[3]!.eventTypes).toEqual(
-      (channelOwnedEventTypes ?? []).filter((eventType) => !separatelyOwnedChannelListingEvents.includes(eventType)),
+      (channelOwnedEventTypes ?? []).filter((eventType) => !channelListingOutcomeEvents.includes(eventType)),
     );
-    expect(reactions[4]!.eventTypes).toEqual(["channels.channel-listing.desired-state-changed"]);
+    expect(
+      reactions[3]!.eventTypes.filter((eventType) => eventType === "channels.channel-listing.desired-state-changed"),
+    ).toEqual(["channels.channel-listing.desired-state-changed"]);
     expect(
       new Set(subscriptions.flatMap((entry) => ("eventTypes" in entry && entry.eventTypes ? entry.eventTypes : [])))
         .size,

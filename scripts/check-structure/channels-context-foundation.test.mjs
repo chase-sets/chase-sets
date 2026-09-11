@@ -287,7 +287,7 @@ describe("channels-context-foundation", () => {
       "channels",
       "channels",
     ]);
-    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63, 64]);
+    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63]);
     expect(manifest.deployableContributions[0].routes.map((route) => route.authorization.requiredPermissions)).toEqual([
       ["channels.view"],
       ["channels.view"],
@@ -735,7 +735,6 @@ describe("channels-wake-registry-derivation", () => {
       affectedProjectionNames: [
         "channels:channel-connection-projection",
         "channels:channel-listing-desired-state-reaction",
-        "channels:channel-outbound-operation-enqueue",
         "channels:channel-owned-publication-state",
         "channels:platform-policy-document-projection",
         "channels:tcgplayer-csv-projection",
@@ -758,7 +757,6 @@ describe("channels-wake-registry-derivation", () => {
     expect(projectionMutant.affectedProjectionNames).toEqual([
       "channels:channel-connection-projection",
       "channels:channel-listing-desired-state-reaction",
-      "channels:channel-outbound-operation-enqueue",
       "channels:channel-owned-publication-state",
       "channels:platform-policy-document-projection",
       "channels:tcgplayer-csv-projection",
