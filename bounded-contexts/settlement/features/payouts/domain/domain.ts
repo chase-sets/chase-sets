@@ -2,6 +2,7 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import type { AccountId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import {
+  addMoney,
   assert,
   assertNever,
   ensureIsoTimestamp,
@@ -15,7 +16,9 @@ import {
 export type PayoutState = Readonly<{
   payoutId: PayoutId | null;
   accountId: AccountId | null;
-  amount: string | null;
+  requestedAmount: string | null;
+  feeAmount: string | null;
+  netAmount: string | null;
   currencyCode: CurrencyCode | null;
   destinationReference: string | null;
   note: string | null;
@@ -36,7 +39,9 @@ export type PayoutState = Readonly<{
 export const initialPayoutState: PayoutState = {
   payoutId: null,
   accountId: null,
-  amount: null,
+  requestedAmount: null,
+  feeAmount: null,
+  netAmount: null,
   currencyCode: null,
   destinationReference: null,
   note: null,
@@ -58,7 +63,9 @@ export type RequestPayoutCommand = Readonly<{
   type: "RequestPayout";
   payoutId: PayoutId;
   accountId: AccountId;
-  amount: string;
+  requestedAmount: string;
+  feeAmount: string;
+  netAmount: string;
   currencyCode: CurrencyCode;
   destinationReference?: string | null;
   note?: string | null;
@@ -110,7 +117,10 @@ export type PayoutRequestedEvent = DomainEvent<
   Readonly<{
     payoutId: PayoutId;
     accountId: AccountId;
+    /** Requested amount. Retained as `amount` for historical event compatibility. */
     amount: string;
+    feeAmount?: string;
+    netAmount?: string;
     currencyCode: CurrencyCode;
     destinationReference: string | null;
     note: string | null;
@@ -147,7 +157,11 @@ export type PayoutCompletedEvent = DomainEvent<
     payoutId: PayoutId;
     accountId: AccountId;
     providerStatus: string | null;
+    /** Net amount delivered to the connected payout account. */
     amount: string;
+    requestedAmount: string;
+    feeAmount: string;
+    netAmount: string;
     notificationEmail: string | null;
     completedAt: string;
     csatOutcomeFact?: JsonObject;
@@ -175,17 +189,28 @@ export type PayoutEvent =
 
 export const decidePayout: AggregateDecider<PayoutState, PayoutCommand, PayoutEvent> = (state, command) => {
   switch (command.type) {
-    case "RequestPayout":
+    case "RequestPayout": {
       assert(state.payoutId === null, "Payout has already been requested.");
+      const requestedAmount = normalizeMoneyAmount(command.requestedAmount, {
+        fieldName: "Payout requested amount",
+      });
+      const feeAmount = normalizeMoneyAmount(command.feeAmount, {
+        fieldName: "Payout fee amount",
+        allowZero: true,
+      });
+      const netAmount = normalizeMoneyAmount(command.netAmount, {
+        fieldName: "Payout net amount",
+      });
+      assert(addMoney(netAmount, feeAmount) === requestedAmount, "Payout net amount plus fee must equal requested amount.");
       return [
         {
           type: "settlement.payout.requested",
           data: {
             payoutId: command.payoutId,
             accountId: command.accountId,
-            amount: normalizeMoneyAmount(command.amount, {
-              fieldName: "Payout amount",
-            }),
+            amount: requestedAmount,
+            feeAmount,
+            netAmount,
             currencyCode: normalizeCurrencyCode(command.currencyCode),
             destinationReference: normalizeOptionalText(command.destinationReference),
             note: normalizeOptionalText(command.note),
@@ -194,6 +219,7 @@ export const decidePayout: AggregateDecider<PayoutState, PayoutCommand, PayoutEv
           },
         },
       ];
+    }
     case "RecordPayoutProviderReferences": {
       assert(state.payoutId !== null, "Payout must be requested first.");
       assert(
@@ -247,7 +273,9 @@ export const decidePayout: AggregateDecider<PayoutState, PayoutCommand, PayoutEv
     case "CompletePayout":
       assert(state.payoutId !== null, "Payout must be requested first.");
       assert(state.accountId !== null, "Payout must reference an account before completion.");
-      assert(state.amount !== null, "Payout must include an amount before completion.");
+      assert(state.requestedAmount !== null, "Payout must include a requested amount before completion.");
+      assert(state.feeAmount !== null, "Payout must include a fee amount before completion.");
+      assert(state.netAmount !== null, "Payout must include a net amount before completion.");
       if (state.status === "completed") {
         return [];
       }
@@ -262,7 +290,10 @@ export const decidePayout: AggregateDecider<PayoutState, PayoutCommand, PayoutEv
             payoutId: state.payoutId,
             accountId: state.accountId,
             providerStatus: normalizeOptionalText(command.providerStatus),
-            amount: state.amount,
+            amount: state.netAmount,
+            requestedAmount: state.requestedAmount,
+            feeAmount: state.feeAmount,
+            netAmount: state.netAmount,
             notificationEmail: state.notificationEmail,
             completedAt: ensureIsoTimestamp(command.completedAt, "Payout completion must record a timestamp."),
             ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
@@ -299,7 +330,9 @@ export const evolvePayout: AggregateEvolver<PayoutState, PayoutEvent> = (state, 
       return {
         payoutId: event.data.payoutId,
         accountId: event.data.accountId,
-        amount: event.data.amount,
+        requestedAmount: event.data.amount,
+        feeAmount: event.data.feeAmount ?? "0.00",
+        netAmount: event.data.netAmount ?? event.data.amount,
         currencyCode: event.data.currencyCode,
         destinationReference: event.data.destinationReference,
         note: event.data.note,
@@ -359,3 +392,37 @@ export const evolvePayout: AggregateEvolver<PayoutState, PayoutEvent> = (state, 
       return assertNever(event);
   }
 };
+
+export type PayoutMonthState = Readonly<{
+  activePayoutIds: readonly PayoutId[];
+}>;
+
+export const initialPayoutMonthState: PayoutMonthState = { activePayoutIds: [] };
+
+export type PayoutMonthEvent =
+  | DomainEvent<
+      "settlement.payout.monthly-request-counted",
+      Readonly<{ accountId: AccountId; payoutId: PayoutId; requestedAt: string }>
+    >
+  | DomainEvent<
+      "settlement.payout.monthly-request-released",
+      Readonly<{ accountId: AccountId; payoutId: PayoutId; failedAt: string }>
+    >;
+
+export const evolvePayoutMonth: AggregateEvolver<PayoutMonthState, PayoutMonthEvent> = (state, event) => {
+  switch (event.type) {
+    case "settlement.payout.monthly-request-counted":
+      return state.activePayoutIds.includes(event.data.payoutId)
+        ? state
+        : { activePayoutIds: [...state.activePayoutIds, event.data.payoutId] };
+    case "settlement.payout.monthly-request-released":
+      return { activePayoutIds: state.activePayoutIds.filter((payoutId) => payoutId !== event.data.payoutId) };
+    default:
+      return assertNever(event);
+  }
+};
+
+export function payoutMonthStreamId(accountId: AccountId, occurredAt: string) {
+  const timestamp = ensureIsoTimestamp(occurredAt, "Payout month selection must include a timestamp.");
+  return `settlement.payout-month-${accountId}-${timestamp.slice(0, 7)}`;
+}

@@ -60,9 +60,14 @@ import {
 } from "./operations";
 import {
   assertPayoutAmountWithinPolicy,
+  payoutFeeAmount,
   payoutAmountPolicy,
+  quotePayoutFee,
   settlementPayoutBoundsPolicy,
+  settlementPayoutFeePolicy,
+  SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE,
   type SettlementPayoutBoundsPolicyValue,
+  type SettlementPayoutFeePolicyValue,
 } from "../domain/payout-policy";
 import { createPayoutCompletedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { buildPayoutProjectionHandlers } from "../read-model/projection";
@@ -102,10 +107,14 @@ import {
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
 import {
   decidePayout,
+  evolvePayoutMonth,
   evolvePayout,
+  initialPayoutMonthState,
   initialPayoutState,
+  payoutMonthStreamId,
   type PayoutCommand,
   type PayoutEvent,
+  type PayoutMonthEvent,
   type PayoutState,
 } from "../domain/domain";
 
@@ -123,6 +132,8 @@ type PayoutRuntimeDeps = Readonly<{
   webhookTelemetry?: ProviderWebhookTelemetry;
   /** The Settlement-owned resolver dependency for payout policies; standalone usage retains compiled fallbacks. */
   policies?: Pick<PolicyRuntime, "resolvePolicy">;
+  /** Synthetic domain-control hook used only to prove recovery from a post-net/pre-fee interruption. */
+  payoutPostingFault?: (stage: "after-net-debit") => Promise<void> | void;
 }>;
 
 export type PayoutDestinationFrictionPolicy = Readonly<{
@@ -165,6 +176,8 @@ type PayoutWalletLedgerEntry = Readonly<{
   kind?: string;
   direction?: string;
   payoutId?: string | null;
+  amount?: string;
+  currencyCode?: string;
 }>;
 
 export type PayoutReconciliationJobPayload = Readonly<{
@@ -216,7 +229,9 @@ export function toPayoutReconciliationJobStatus(job: PayoutReconciliationJob): P
 export type PayoutCommandSnapshot = Readonly<{
   payout_id: string;
   account_id: string;
-  amount: string;
+  requested_amount: string;
+  fee_amount: string;
+  net_amount: string;
   currency_code: string;
   destination_reference: string | null;
   note: string | null;
@@ -295,6 +310,12 @@ export type PayoutServices = Readonly<{
     Readonly<{
       account_id: string;
       requested_amount: string;
+      fee_amount: string;
+      net_amount: string;
+      monthly_active_fee_amount: string;
+      is_first_payout_of_month: boolean;
+      fee_policy_version: string;
+      fee_lines: readonly Readonly<{ code: "payout-fee" | "monthly-active-fee"; label: string; amount: string }>[];
       currency_code: string;
       available_balance_amount: string;
       platform_available_amount: string;
@@ -498,7 +519,9 @@ function requirePayoutSnapshot(state: PayoutState, version: number): PayoutComma
   if (
     !state.payoutId ||
     !state.accountId ||
-    !state.amount ||
+    !state.requestedAmount ||
+    state.feeAmount === null ||
+    !state.netAmount ||
     !state.currencyCode ||
     !state.status ||
     !state.requestedAt
@@ -509,7 +532,9 @@ function requirePayoutSnapshot(state: PayoutState, version: number): PayoutComma
   return {
     payout_id: state.payoutId,
     account_id: state.accountId,
-    amount: state.amount,
+    requested_amount: state.requestedAmount,
+    fee_amount: state.feeAmount,
+    net_amount: state.netAmount,
     currency_code: state.currencyCode,
     destination_reference: state.destinationReference,
     note: state.note,
@@ -557,6 +582,27 @@ async function resolvePayoutBoundsPolicy(
   return resolved.value;
 }
 
+type ResolvedPayoutFeePolicy = Readonly<{
+  value: SettlementPayoutFeePolicyValue;
+  version: string;
+  resolvedAt: string;
+}>;
+
+async function resolvePayoutFeePolicy(
+  deps: Pick<PayoutRuntimeDeps, "policies">,
+  at: string,
+): Promise<ResolvedPayoutFeePolicy> {
+  if (!deps.policies) {
+    return { value: SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE, version: "fallback", resolvedAt: at };
+  }
+  const resolved = await deps.policies.resolvePolicy(settlementPayoutFeePolicy, { at });
+  return {
+    value: resolved.value,
+    version: resolved.documentId ?? "fallback",
+    resolvedAt: resolved.resolvedAt,
+  };
+}
+
 export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   const jobStore = createPostgresDurableJobStore<
     PayoutReconciliationJobPayload,
@@ -595,12 +641,21 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   };
   const destinationFrictionPolicy = payoutDestinationFrictionPolicy(deps.payoutDestinationFrictionPolicy);
   const sensitiveActionVerifier = deps.sensitiveActionVerifier ?? (async () => false);
+  const payoutCodec = createPassthroughDomainEventCodec<PayoutEvent>();
+  const payoutMonthCodec = createPassthroughDomainEventCodec<PayoutMonthEvent>();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<PayoutEvent>(),
+    codec: payoutCodec,
     initialState: () => initialPayoutState,
     evolve: evolvePayout,
     decide: decidePayout,
+  });
+  const { repository: payoutMonthRepository } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: payoutMonthCodec,
+    initialState: () => initialPayoutMonthState,
+    evolve: evolvePayoutMonth,
+    decide: (_state, event: PayoutMonthEvent) => [event],
   });
 
   async function recordOperation(
