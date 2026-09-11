@@ -4,6 +4,7 @@ const requireActorFromAuthApi = vi.fn();
 const listOfferMatches = vi.fn();
 const listSellerListings = vi.fn();
 const getSellerOpenOrderCount = vi.fn();
+const fetchQueue = vi.fn();
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   requireActorFromAuthApi: (...args: unknown[]) => requireActorFromAuthApi(...args),
@@ -19,6 +20,8 @@ vi.mock("../../request-support/ordering-open-orders-api-client", () => ({
     getSellerOpenOrderCount: (...args: unknown[]) => getSellerOpenOrderCount(...args),
   }),
 }));
+
+vi.stubGlobal("fetch", (...args: unknown[]) => fetchQueue(...args));
 
 const { loader } = await import("./account-desk-loader");
 
@@ -50,6 +53,18 @@ describe("Seller Desk home loader", () => {
       statusCounts: { active: 7, draft: 1, paused: 0, withdrawn: 0 },
     });
     getSellerOpenOrderCount.mockResolvedValue(3);
+    fetchQueue.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [{ source: "offer-response" }, { source: "listing-action" }],
+        rollup: { total: 2, bySeverity: { critical: 0, warning: 1, info: 1 }, bySource: { "offer-response": 1, "listing-action": 1 } },
+        sources: [
+          { id: "offer-response", status: "available", itemCount: 1, reason: null },
+          { id: "listing-action", status: "available", itemCount: 1, reason: null },
+        ],
+        degraded: false,
+      }),
+    });
 
     const data = await loader({ request: request() } as Parameters<typeof loader>[0]);
 
@@ -62,6 +77,10 @@ describe("Seller Desk home loader", () => {
     expect(data.queue.rollup.total).toBe(2);
     expect(data.queue.items.map((item) => item.source)).toEqual(["offer-response", "listing-action"]);
     expect(data.queue.degraded).toBe(false);
+    expect(fetchQueue).toHaveBeenCalledWith(
+      "https://example.test/api/marketplace/account/seller-attention-queue",
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
   });
 
   it("degrades the offer source and the KPI tile when the reads fail", async () => {
@@ -72,6 +91,7 @@ describe("Seller Desk home loader", () => {
       statusCounts: { active: 2, draft: 0, paused: 0, withdrawn: 0 },
     });
     getSellerOpenOrderCount.mockRejectedValue(new Error("ordering down"));
+    fetchQueue.mockRejectedValue(new Error("seller attention queue down"));
 
     const data = await loader({ request: request() } as Parameters<typeof loader>[0]);
 

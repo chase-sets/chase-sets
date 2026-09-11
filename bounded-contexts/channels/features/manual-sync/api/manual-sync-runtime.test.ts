@@ -3,6 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
 import type { TcgplayerCsvServices } from "../../tcgplayer-csv/api/runtime";
 import type { ChannelSyncRun, ChannelSyncRunMember } from "../../tcgplayer-csv/domain/contracts";
+import { getPublicChannelConnection } from "../../connections/read-model/queries";
 import { createManualSyncRuntime } from "./runtime";
 
 const context: EventStoreContext = {
@@ -11,6 +12,16 @@ const context: EventStoreContext = {
 };
 
 describe("manual-sync runtime binding", () => {
+  it("keeps the actual closed connection query rejecting a synthetic run field", async () => {
+    await expect(
+      getPublicChannelConnection(db() as never, {
+        accountId: "account-owner",
+        connectionId: "connection-tcg",
+        runId: "synthetic-extra-field",
+      } as never),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+  });
+
   it("refuses a missing connection before policy resolution or producer composition", async () => {
     const tcgplayerCsv = producer();
     const resolvePolicy = vi.fn();
@@ -111,6 +122,71 @@ describe("manual-sync runtime binding", () => {
     );
     expect(result.batch.rows).toHaveLength(1);
     expect(tcgplayerCsv.claimRun).toHaveBeenCalledWith({ runId: composed.runId, expectedRevision: 1 }, context);
+  });
+
+  it.each([
+    ["claimAndDownload", "composed"],
+    ["retryClamp", "composed"],
+    ["release", "claimed"],
+    ["recordUploadAttempt", "claimed"],
+    ["recordValidationCancellation", "claimed"],
+    ["verify", "awaiting-verification"],
+  ] as const)("passes only the closed connection input for the %s run action", async (operation, state) => {
+    const current = { ...run(), state } as ChannelSyncRun;
+    const channelConnections = connections(activeConnection());
+    const tcgplayerCsv = producer(current);
+    tcgplayerCsv.releaseRun = vi.fn(async () => ({ ...current, state: "composed" as const, revision: 2 }));
+    tcgplayerCsv.recordUploadAttempt = vi.fn(async () => current);
+    tcgplayerCsv.recordValidationCancellation = vi.fn(async () => current);
+    tcgplayerCsv.verifyRun = vi.fn(async () => current);
+    const runtime = createManualSyncRuntime({
+      db: db() as never,
+      connections: channelConnections,
+      tcgplayerCsv,
+      policies: { resolvePolicy: vi.fn() },
+      marketplaceClamp: {
+        kind: "available",
+        port: {
+          engage: vi.fn(async () => ({ kind: "engaged" as const, requestedListingCount: 1, affectedListingCount: 1 })),
+          recover: vi.fn(async () => ({
+            kind: "released" as const,
+            examinedListingCount: 1,
+            releasedListingCount: 1,
+            retainedListingCount: 0,
+            recoveryListingCount: 0,
+          })),
+        },
+      },
+    });
+    const input = {
+      accountId: "account-owner",
+      connectionId: current.connectionId,
+      runId: current.runId,
+      expectedRevision: current.revision,
+    };
+
+    if (operation === "claimAndDownload") await runtime.claimAndDownload(input, context);
+    if (operation === "retryClamp") await runtime.retryClamp(input, context);
+    if (operation === "release") await runtime.release(input, context);
+    if (operation === "recordUploadAttempt") {
+      await runtime.recordUploadAttempt({ ...input, uploadAttemptedAt: "2026-09-10T12:10:00.000Z", fileName: "staged.csv" }, context);
+    }
+    if (operation === "recordValidationCancellation") await runtime.recordValidationCancellation(input, context);
+    if (operation === "verify") {
+      await runtime.verify(
+        {
+          ...input,
+          verificationSnapshotId: "snapshot-newer-staged",
+          importSummary: { fileName: "staged.csv", dateImportedText: "09/10/2026", numberOfProducts: 1, recordedAt: "2026-09-10T12:12:00.000Z" },
+        },
+        context,
+      );
+    }
+
+    expect(channelConnections.getConnection).toHaveBeenCalledWith({
+      accountId: "account-owner",
+      connectionId: current.connectionId,
+    });
   });
 
   it("refuses foreign and duplicate run membership before clamp or producer claim", async () => {
