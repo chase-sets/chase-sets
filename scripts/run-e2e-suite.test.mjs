@@ -371,6 +371,6 @@ describe("run e2e suite", () => {
     ).toEqual(["marketplace_account"]);
     expect(
       e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx"),
-    ).toEqual(["marketplace_account"]);
+    ).toEqual(["marketplace_account", "marketplace_seller"]);
   });
 });

@@ -269,7 +269,7 @@ describe("portable route manifest contract", () => {
       ({ route }) => route.delivery === "web-resource-only",
     );
 
-    expect(resourceModules).toHaveLength(1);
+    expect(resourceModules).toHaveLength(2);
     for (const { route, source, modulePath } of resourceModules) {
       expect(route.pageComponentExport).toBeUndefined();
       expect(validatePageComponentExport({ route, source, modulePath })).toEqual([]);
