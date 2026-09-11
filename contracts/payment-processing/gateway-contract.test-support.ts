@@ -57,6 +57,50 @@ export function testPaymentProcessorGatewayContract(
       options.assertIdempotency?.();
     });
 
+    it("converges setup-session cancellation through the exact closed result contract", async () => {
+      const gateway = await createPreparedGateway();
+
+      await expect(gateway.cancelSetupSession("seti_gateway_contract")).resolves.toStrictEqual({
+        outcome: "cancelled",
+        processorStatus: "canceled",
+      });
+      await expect(gateway.cancelSetupSession("seti_gateway_contract")).resolves.toStrictEqual({
+        outcome: "already-terminal",
+        processorStatus: "canceled",
+      });
+    });
+
+    it("converges concurrent setup-session cancellation on an allowed result multiset", async () => {
+      const gateway = await createPreparedGateway();
+
+      const results = await Promise.all([
+        gateway.cancelSetupSession("seti_gateway_contract"),
+        gateway.cancelSetupSession("seti_gateway_contract"),
+      ]);
+      const outcomes = results.map((result) => result.outcome).sort();
+
+      expect([
+        ["cancelled", "cancelled"],
+        ["already-terminal", "cancelled"],
+      ]).toContainEqual(outcomes);
+      expect(results.every((result) => result.outcome === "cancelled" || result.outcome === "already-terminal")).toBe(
+        true,
+      );
+    });
+
+    it.each(["pi_payment", "cs_session", "", "   ", "unknown_reference"])(
+      "refuses invalid setup-session reference %j",
+      async (reference) => {
+        const gateway = await createPreparedGateway();
+
+        await expect(gateway.cancelSetupSession(reference)).resolves.toStrictEqual({
+          outcome: "refused",
+          reason: "invalid-reference",
+          httpStatus: null,
+        });
+      },
+    );
+
     it.each([
       ["payment-captured" as const, "payment-captured"],
       ["payment-failed" as const, "payment-failed"],

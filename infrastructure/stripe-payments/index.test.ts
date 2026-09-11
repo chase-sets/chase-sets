@@ -1,5 +1,9 @@
-import { createHmac } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { execFileSync } from "node:child_process";
+import { createHash, createHmac } from "node:crypto";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createStripePaymentProcessorGateway } from ".";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 import { testPaymentProcessorGatewayContract } from "@chase-sets/payment-processing/gateway-contract";
@@ -11,6 +15,37 @@ function signature(rawBody: string, secret: string, timestamp: number) {
 
 function formSnapshot(body: BodyInit | null | undefined) {
   return Object.fromEntries(new URLSearchParams(String(body)).entries());
+}
+
+const syntheticSetupReferenceA = "seti_SYNTHETIC_6732_A";
+const syntheticSetupReferenceB = "seti_SYNTHETIC_6732_B";
+const syntheticSetupCancellationKeyA =
+  "payments:setup-intent-cancel:v1:5d6f7dc35331f6fc22f97064baca7be1bd0fc3b6df178944dd93e942d6f4e851";
+const syntheticSetupCancellationKeyB =
+  "payments:setup-intent-cancel:v1:222f8bf9de2e3a05eb232016d8e67c19a5ec98c92367af6adb0e666e53cbdaba";
+
+function stripeGateway(apiBaseUrl = "https://stripe.test") {
+  return createStripePaymentProcessorGateway({
+    secretKey: "sk_test",
+    publishableKey: "pk_test",
+    webhookSecret: "whsec_test",
+    apiBaseUrl,
+  });
+}
+
+function stripeResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function requestIdempotencyKey(init: RequestInit | undefined) {
+  return new Headers(init?.headers).get("Idempotency-Key");
+}
+
+function containsForbiddenSetupCancellationEvidenceMarker(value: string) {
+  return /seti_|sk_(?:test|live)_|whsec_/i.test(value);
 }
 
 const contractWebhookSecret = "whsec_gateway_contract";
@@ -26,7 +61,14 @@ testPaymentProcessorGatewayContract(
     }),
   {
     prepare: () => {
-      contractFetchMock = vi.fn(async (url: string) => {
+      let setupStatus = "requires_payment_method";
+      contractFetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes("/v1/setup_intents/seti_gateway_contract")) {
+          if (init?.method === "POST") {
+            setupStatus = "canceled";
+          }
+          return Response.json({ id: "seti_gateway_contract", status: setupStatus });
+        }
         if (url.includes("/v1/payment_intents/")) {
           return Response.json({ id: "pi_gateway_contract", status: "requires_payment_method", payment_method: null });
         }
@@ -72,6 +114,11 @@ testPaymentProcessorGatewayContract(
 );
 
 describe("Stripe payment processor gateway", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it("rejects statement descriptor suffixes outside Stripe's constraints", () => {
     expect(() =>
       createStripePaymentProcessorGateway({
@@ -693,6 +740,776 @@ describe("Stripe payment processor gateway", () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe("https://stripe.test/v1/payment_methods/pm_123");
 
     vi.unstubAllGlobals();
+  });
+
+  describe("SetupIntent cancellation convergence", () => {
+    it.each(["pi_payment", "cs_session", "", "   ", "customer_123"])(
+      "refuses non-SetupIntent reference %j before any network call",
+      async (reference) => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal("fetch", fetchMock);
+
+        await expect(stripeGateway().cancelSetupSession(reference)).resolves.toStrictEqual({
+          outcome: "refused",
+          reason: "invalid-reference",
+          httpStatus: null,
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["requires_payment_method", "requires_confirmation", "requires_action"])(
+      "cancels eligible initial status %s with one keyed write",
+      async (status) => {
+        const fetchMock = vi
+          .fn()
+          .mockResolvedValueOnce(stripeResponse({ id: syntheticSetupReferenceA, status }))
+          .mockResolvedValueOnce(stripeResponse({ id: syntheticSetupReferenceA, status: "canceled" }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        await expect(stripeGateway().cancelSetupSession(syntheticSetupReferenceA)).resolves.toStrictEqual({
+          outcome: "cancelled",
+          processorStatus: "canceled",
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        const [readUrl, readInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+        const [writeUrl, writeInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+        expect([readInit.method, writeInit.method]).toStrictEqual(["GET", "POST"]);
+        expect(readUrl).toBe(`https://stripe.test/v1/setup_intents/${syntheticSetupReferenceA}`);
+        expect(writeUrl).toBe(`https://stripe.test/v1/setup_intents/${syntheticSetupReferenceA}/cancel`);
+        expect(requestIdempotencyKey(readInit)).toBeNull();
+        expect(requestIdempotencyKey(writeInit)).toBe(syntheticSetupCancellationKeyA);
+      },
+    );
+
+    it.each([
+      [syntheticSetupReferenceA, syntheticSetupCancellationKeyA],
+      [syntheticSetupReferenceB, syntheticSetupCancellationKeyB],
+      [`  ${syntheticSetupReferenceA}\t`, syntheticSetupCancellationKeyA],
+    ])("emits the fixed known-answer key for %j across gateway instances", async (reference, expectedKey) => {
+      const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
+        stripeResponse({
+          id: reference.trim(),
+          status: init?.method === "POST" ? "canceled" : "requires_payment_method",
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const results = await Promise.all([
+        stripeGateway().cancelSetupSession(reference),
+        stripeGateway().cancelSetupSession(reference),
+      ]);
+
+      expect(results).toStrictEqual([
+        { outcome: "cancelled", processorStatus: "canceled" },
+        { outcome: "cancelled", processorStatus: "canceled" },
+      ]);
+      const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+      const reads = calls.filter(([, init]) => init.method === "GET");
+      const writes = calls.filter(([, init]) => init.method === "POST");
+      expect(reads).toHaveLength(2);
+      expect(writes).toHaveLength(2);
+      expect(reads.every(([, init]) => requestIdempotencyKey(init) === null)).toBe(true);
+      expect(writes.map(([, init]) => requestIdempotencyKey(init))).toStrictEqual([expectedKey, expectedKey]);
+      expect(writes.every(([url]) => !url.includes("%20") && url.endsWith(`/${reference.trim()}/cancel`))).toBe(true);
+      expect(expectedKey).toHaveLength(96);
+      expect(expectedKey).toMatch(/^payments:setup-intent-cancel:v1:[0-9a-f]{64}$/);
+      expect(expectedKey).not.toContain(reference.trim());
+    });
+
+    it("kills missing, nondeterministic, raw-reference, wrong-domain, input-encoding, digest, and case key mutants", () => {
+      const mutantKeys = [
+        null,
+        `${syntheticSetupCancellationKeyA}:nonce`,
+        syntheticSetupReferenceA,
+        syntheticSetupCancellationKeyA.replace("v1:", "v2:"),
+        "payments:setup-intent-cancel:v1:e2678ce3fb3748d88f2bcc963524cfb129f11530b05f76ec48f916733ab11e5f",
+        `payments:setup-intent-cancel:v1:${createHash("sha512")
+          .update(syntheticSetupReferenceA, "utf8")
+          .digest("hex")}`,
+        syntheticSetupCancellationKeyA.toUpperCase(),
+      ];
+
+      for (const mutantKey of mutantKeys) {
+        expect(mutantKey).not.toBe(syntheticSetupCancellationKeyA);
+      }
+    });
+
+    it("rejects raw-reference and credential-marker acceptance artifacts", () => {
+      expect(
+        containsForbiddenSetupCancellationEvidenceMarker(
+          JSON.stringify({ idempotencyKey: syntheticSetupCancellationKeyA, outcome: "cancelled" }),
+        ),
+      ).toBe(false);
+      for (const marker of [syntheticSetupReferenceA, "sk_test_PLANTED", "sk_live_PLANTED", "whsec_PLANTED"]) {
+        expect(containsForbiddenSetupCancellationEvidenceMarker(JSON.stringify({ marker }))).toBe(true);
+      }
+    });
+
+    it.each([
+      ["canceled", { outcome: "already-terminal", processorStatus: "canceled" }],
+      ["succeeded", { outcome: "already-terminal", processorStatus: "succeeded" }],
+      ["processing", { outcome: "refused", reason: "unexpected-status", httpStatus: 200 }],
+      [null, { outcome: "refused", reason: "unexpected-status", httpStatus: 200 }],
+      ["unrecognized", { outcome: "refused", reason: "unexpected-status", httpStatus: 200 }],
+    ])("performs one read and zero writes for initial status %j", async (status, expected) => {
+      const fetchMock = vi.fn(async () =>
+        stripeResponse({ id: syntheticSetupReferenceA, ...(status === null ? {} : { status }) }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(stripeGateway().cancelSetupSession(syntheticSetupReferenceA)).resolves.toStrictEqual(expected);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [[, init]] = fetchMock.mock.calls as unknown as [string, RequestInit][];
+      expect(init.method).toBe("GET");
+      expect(requestIdempotencyKey(init)).toBeNull();
+    });
+
+    it.each([
+      [404, { outcome: "not-found" }],
+      [401, { outcome: "refused", reason: "provider-rejected", httpStatus: 401 }],
+      [503, { outcome: "refused", reason: "provider-rejected", httpStatus: 503 }],
+    ])("bounds initial HTTP failure %i without attempting a write", async (status, expected) => {
+      const fetchMock = vi.fn(async () => stripeResponse({ error: { message: "PLANTED_PROVIDER_BODY" } }, status));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(stripeGateway().cancelSetupSession(syntheticSetupReferenceA)).resolves.toStrictEqual(expected);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("bounds an initial transport failure without exposing its exception", async () => {
+      const marker = "PLANTED_TRANSPORT_SECRET_seti_DO_NOT_LEAK";
+      const fetchMock = vi.fn(async () => {
+        throw new Error(marker);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await stripeGateway().cancelSetupSession(syntheticSetupReferenceA);
+
+      expect(result).toStrictEqual({ outcome: "refused", reason: "transport-failure", httpStatus: null });
+      expect(JSON.stringify(result)).not.toContain(marker);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      {
+        name: "initial read",
+        responses: [null],
+        requestCount: 1,
+      },
+      {
+        name: "write response",
+        responses: [
+          { id: syntheticSetupReferenceA, status: "requires_payment_method" },
+          null,
+          {
+            id: syntheticSetupReferenceA,
+            status: "requires_action",
+          },
+        ],
+        requestCount: 3,
+      },
+      {
+        name: "reconciliation read",
+        responses: [
+          { id: syntheticSetupReferenceA, status: "requires_payment_method" },
+          { id: syntheticSetupReferenceA, status: "processing" },
+          null,
+        ],
+        requestCount: 3,
+      },
+    ])("fails closed for a null JSON $name body", async ({ responses, requestCount }) => {
+      const queue = [...responses];
+      const fetchMock = vi.fn(async () => stripeResponse(queue.shift()));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(stripeGateway().cancelSetupSession(syntheticSetupReferenceA)).resolves.toStrictEqual({
+        outcome: "refused",
+        reason: "unexpected-status",
+        httpStatus: 200,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(requestCount);
+    });
+
+    type ReconciliationAction =
+      | Readonly<{ kind: "response"; status?: string | null; httpStatus?: number }>
+      | Readonly<{ kind: "transport" }>;
+    type ReconciliationCase = Readonly<{
+      name: string;
+      write: ReconciliationAction;
+      reconciliation: ReconciliationAction;
+      expected: unknown;
+    }>;
+
+    const reconciliationCases: readonly ReconciliationCase[] = [
+      {
+        name: "successful non-canceled write reconciles canceled",
+        write: { kind: "response", status: "requires_confirmation" },
+        reconciliation: { kind: "response", status: "canceled" },
+        expected: { outcome: "already-terminal", processorStatus: "canceled" },
+      },
+      {
+        name: "successful non-canceled write reconciles succeeded",
+        write: { kind: "response", status: "processing" },
+        reconciliation: { kind: "response", status: "succeeded" },
+        expected: { outcome: "already-terminal", processorStatus: "succeeded" },
+      },
+      {
+        name: "reconciliation 404 wins",
+        write: { kind: "response", status: "processing" },
+        reconciliation: { kind: "response", httpStatus: 404 },
+        expected: { outcome: "not-found" },
+      },
+      {
+        name: "reconciliation HTTP failure wins",
+        write: { kind: "response", status: "processing" },
+        reconciliation: { kind: "response", httpStatus: 429 },
+        expected: { outcome: "refused", reason: "provider-rejected", httpStatus: 429 },
+      },
+      {
+        name: "reconciliation transport failure wins",
+        write: { kind: "response", status: "processing" },
+        reconciliation: { kind: "transport" },
+        expected: { outcome: "refused", reason: "transport-failure", httpStatus: null },
+      },
+      {
+        name: "reconciled processing fails closed",
+        write: { kind: "response", status: "processing" },
+        reconciliation: { kind: "response", status: "processing" },
+        expected: { outcome: "refused", reason: "unexpected-status", httpStatus: 200 },
+      },
+      {
+        name: "reconciled missing status fails closed",
+        write: { kind: "response", status: "processing" },
+        reconciliation: { kind: "response", status: null },
+        expected: { outcome: "refused", reason: "unexpected-status", httpStatus: 200 },
+      },
+      {
+        name: "reconciled unknown status fails closed",
+        write: { kind: "response", status: "processing" },
+        reconciliation: { kind: "response", status: "new_status" },
+        expected: { outcome: "refused", reason: "unexpected-status", httpStatus: 200 },
+      },
+      {
+        name: "successful write still eligible is unexpected",
+        write: { kind: "response", status: "requires_confirmation" },
+        reconciliation: { kind: "response", status: "requires_action" },
+        expected: { outcome: "refused", reason: "unexpected-status", httpStatus: 200 },
+      },
+      {
+        name: "write rejection survives eligible reconciliation",
+        write: { kind: "response", httpStatus: 409 },
+        reconciliation: { kind: "response", status: "requires_payment_method" },
+        expected: { outcome: "refused", reason: "provider-rejected", httpStatus: 409 },
+      },
+      {
+        name: "write ambiguity survives eligible reconciliation",
+        write: { kind: "transport" },
+        reconciliation: { kind: "response", status: "requires_confirmation" },
+        expected: { outcome: "refused", reason: "transport-failure", httpStatus: null },
+      },
+      {
+        name: "terminal reconciliation wins over write rejection",
+        write: { kind: "response", httpStatus: 409 },
+        reconciliation: { kind: "response", status: "canceled" },
+        expected: { outcome: "already-terminal", processorStatus: "canceled" },
+      },
+      {
+        name: "terminal reconciliation wins over write ambiguity",
+        write: { kind: "transport" },
+        reconciliation: { kind: "response", status: "canceled" },
+        expected: { outcome: "already-terminal", processorStatus: "canceled" },
+      },
+    ];
+
+    it.each(reconciliationCases)(
+      "uses the total post-write table: $name",
+      async ({ write, reconciliation, expected }) => {
+        const actions: ReconciliationAction[] = [
+          { kind: "response", status: "requires_payment_method" },
+          write,
+          reconciliation,
+        ];
+        const fetchMock = vi.fn(async () => {
+          const action = actions.shift();
+          if (!action || action.kind === "transport") {
+            throw new Error("PLANTED_AMBIGUOUS_WRITE_OR_READ");
+          }
+          if (action.httpStatus) {
+            return stripeResponse({ error: { message: "PLANTED_PROVIDER_REJECTION" } }, action.httpStatus);
+          }
+          return stripeResponse({
+            id: syntheticSetupReferenceA,
+            ...(action.status === null ? {} : { status: action.status }),
+          });
+        });
+        vi.stubGlobal("fetch", fetchMock);
+
+        await expect(stripeGateway().cancelSetupSession(syntheticSetupReferenceA)).resolves.toStrictEqual(expected);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+        expect(calls.map(([, init]) => init.method)).toStrictEqual(["GET", "POST", "GET"]);
+        expect(calls.filter(([, init]) => init.method === "POST")).toHaveLength(1);
+        expect(requestIdempotencyKey(calls[0]?.[1])).toBeNull();
+        expect(requestIdempotencyKey(calls[1]?.[1])).toBe(syntheticSetupCancellationKeyA);
+        expect(requestIdempotencyKey(calls[2]?.[1])).toBeNull();
+      },
+    );
+
+    async function runConcurrentCancellation(mode: "replay" | "conflict") {
+      let setupStatus = "requires_payment_method";
+      let effectiveCancellations = 0;
+      let preReads = 0;
+      let releasePreReads!: () => void;
+      const bothPreReadsStarted = new Promise<void>((resolve) => {
+        releasePreReads = resolve;
+      });
+      const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === "GET" && preReads < 2) {
+          preReads += 1;
+          if (preReads === 2) {
+            releasePreReads();
+          }
+          await bothPreReadsStarted;
+          return stripeResponse({ id: syntheticSetupReferenceA, status: "requires_payment_method" });
+        }
+        if (init?.method === "POST") {
+          if (setupStatus !== "canceled") {
+            effectiveCancellations += 1;
+            setupStatus = "canceled";
+            return stripeResponse({ id: syntheticSetupReferenceA, status: "canceled" });
+          }
+          return mode === "replay"
+            ? stripeResponse({ id: syntheticSetupReferenceA, status: "canceled" })
+            : stripeResponse({ error: { message: "PLANTED_SAME_KEY_CONFLICT" } }, 409);
+        }
+        return stripeResponse({ id: syntheticSetupReferenceA, status: setupStatus });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const results = await Promise.all([
+        stripeGateway("https://stripe-a.test").cancelSetupSession(syntheticSetupReferenceA),
+        stripeGateway("https://stripe-b.test").cancelSetupSession(syntheticSetupReferenceA),
+      ]);
+      return { effectiveCancellations, fetchMock, results, setupStatus };
+    }
+
+    it.each([
+      ["replay" as const, ["cancelled", "cancelled"]],
+      ["conflict" as const, ["already-terminal", "cancelled"]],
+    ])("converges concurrent same-key callers through provider %s", async (mode, expectedOutcomes) => {
+      const { effectiveCancellations, fetchMock, results, setupStatus } = await runConcurrentCancellation(mode);
+      const outcomes = results.map((result) => result.outcome).sort();
+      const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+      const writes = calls.filter(([, init]) => init.method === "POST");
+      const reconciliationReads = calls.slice(2).filter(([, init]) => init.method === "GET");
+
+      expect(outcomes).toStrictEqual(expectedOutcomes);
+      expect(effectiveCancellations).toBe(1);
+      expect(setupStatus).toBe("canceled");
+      expect(writes).toHaveLength(2);
+      expect(writes.map(([, init]) => requestIdempotencyKey(init))).toStrictEqual([
+        syntheticSetupCancellationKeyA,
+        syntheticSetupCancellationKeyA,
+      ]);
+      expect(reconciliationReads).toHaveLength(mode === "conflict" ? 1 : 0);
+      for (const host of ["stripe-a.test", "stripe-b.test"]) {
+        const hostCalls = calls.filter(([url]) => new URL(url).host === host);
+        expect(hostCalls.length).toBeLessThanOrEqual(3);
+        expect(hostCalls.filter(([, init]) => init.method === "GET").length).toBeLessThanOrEqual(2);
+        expect(hostCalls.filter(([, init]) => init.method === "POST")).toHaveLength(1);
+      }
+    });
+
+    it("requires reconciliation after a losing concurrent write", async () => {
+      const { results } = await runConcurrentCancellation("conflict");
+      const reconciled = results.find((result) => result.outcome === "already-terminal");
+      const reconciliationDeletedMutant = {
+        outcome: "refused",
+        reason: "provider-rejected",
+        httpStatus: 409,
+      };
+
+      expect(reconciled).toStrictEqual({ outcome: "already-terminal", processorStatus: "canceled" });
+      expect(reconciliationDeletedMutant).not.toStrictEqual(reconciled);
+    });
+
+    it("keeps provider bodies, exception messages, secrets, and references out of results and logs", async () => {
+      const markers = [
+        "PLANTED_BODY_SECRET_6732",
+        "PLANTED_EXCEPTION_SECRET_6732",
+        syntheticSetupReferenceA,
+        "sk_test_PLANTED_SECRET_6732",
+      ];
+      const logs: string[] = [];
+      for (const level of ["error", "warn", "info", "log"] as const) {
+        vi.spyOn(console, level).mockImplementation((...values: unknown[]) => {
+          logs.push(values.map(String).join(" "));
+        });
+      }
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(stripeResponse({ id: syntheticSetupReferenceA, status: "requires_payment_method" }))
+        .mockResolvedValueOnce(stripeResponse({ error: { message: markers[0] } }, 409))
+        .mockRejectedValueOnce(new Error(markers[1]));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await createStripePaymentProcessorGateway({
+        secretKey: markers[3]!,
+        publishableKey: "pk_test",
+        webhookSecret: "whsec_test",
+        apiBaseUrl: "https://stripe.test",
+      }).cancelSetupSession(syntheticSetupReferenceA);
+      const retainedText = `${JSON.stringify(result)}\n${logs.join("\n")}`;
+
+      expect(result).toStrictEqual({ outcome: "refused", reason: "transport-failure", httpStatus: null });
+      for (const marker of markers) {
+        expect(retainedText).not.toContain(marker);
+      }
+    });
+
+    it.skipIf(process.env["CHASE_SETS_6732_STRIPE_OPERATOR_WINDOW"] !== "confirmed-test-mode")(
+      "accepts SetupIntent cancellation in bounded Stripe test mode",
+      async () => {
+        const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
+        const artifactDirectory = fileURLToPath(new URL("../../artifacts/", import.meta.url));
+        const artifactPath = fileURLToPath(new URL("../../artifacts/6732-setup-intent-cancel.json", import.meta.url));
+        const temporaryArtifactPath = `${artifactPath}.${process.pid}.tmp`;
+        await mkdir(artifactDirectory, { recursive: true });
+        await rm(artifactPath, { force: true });
+        await rm(temporaryArtifactPath, { force: true });
+
+        const secretKey = process.env["STRIPE_SECRET_KEY"]?.trim() ?? "";
+        if (!secretKey.startsWith("sk_test_") || secretKey.startsWith("sk_live_")) {
+          throw new Error("AC09 requires a separately confirmed Stripe test-mode secret key.");
+        }
+
+        type TestModeSetupIntent = Readonly<{ id: string; status: string; livemode: false }>;
+        type RecordedRequest = Readonly<{
+          responseSequence: number;
+          kind: "read" | "cancel";
+          idempotencyKey: string | null;
+          httpStatus: number;
+        }>;
+        type AcceptancePayload = Readonly<{
+          schemaVersion: "setup-intent-cancel-acceptance/v1";
+          apiVersion: string;
+          candidateHead: string;
+          startedAt: string;
+          completedAt: string;
+          sequential: readonly Readonly<{
+            initialStatus: string;
+            firstOutcome: unknown;
+            repeatOutcome: unknown;
+            terminalStatus: string;
+            firstCall: unknown;
+            repeatCall: unknown;
+          }>[];
+          overlapping: Readonly<{
+            initialStatus: "requires_payment_method";
+            outcomes: readonly unknown[];
+            terminalStatus: string;
+            calls: readonly unknown[];
+            secondWriteDisposition: "replayed-canceled" | "rejected-then-reconciled";
+          }>;
+          redaction: Readonly<{
+            rawSetupReferenceMatches: 0;
+            credentialMarkerMatches: 0;
+          }>;
+        }>;
+
+        const startedAt = new Date().toISOString();
+        const candidateHead = execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+        }).trim();
+        if (process.env["CHASE_SETS_6732_CANDIDATE_HEAD"]?.trim() !== candidateHead) {
+          throw new Error("AC09 requires an explicit candidate-head confirmation for this exact commit.");
+        }
+        const providerFetch = globalThis.fetch.bind(globalThis);
+        const createdReferences: string[] = [];
+        const requestContext = new AsyncLocalStorage<string>();
+        const requestsByCall = new Map<string, RecordedRequest[]>();
+        let responseSequence = 0;
+        let overlappingReference: string | null = null;
+        let overlappingPreReads = 0;
+        let releaseOverlappingReads!: () => void;
+        const bothOverlappingReadsStarted = new Promise<void>((resolve) => {
+          releaseOverlappingReads = resolve;
+        });
+
+        const providerRequest = async (
+          operation: string,
+          path: string,
+          init: RequestInit,
+        ): Promise<TestModeSetupIntent> => {
+          let response: Response;
+          try {
+            response = await providerFetch(`https://api.stripe.com${path}`, {
+              ...init,
+              headers: {
+                Authorization: `Basic ${Buffer.from(`${secretKey}:`).toString("base64")}`,
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Stripe-Version": STRIPE_API_VERSION,
+                ...Object.fromEntries(new Headers(init.headers).entries()),
+              },
+            });
+          } catch {
+            throw new Error(`Stripe test-mode ${operation} had a transport failure.`);
+          }
+          const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+          if (!response.ok) {
+            throw new Error(`Stripe test-mode ${operation} failed with HTTP ${response.status}.`);
+          }
+          if (!body || typeof body.id !== "string" || typeof body.status !== "string" || body.livemode !== false) {
+            throw new Error(`Stripe test-mode ${operation} returned an invalid or non-test-mode object.`);
+          }
+          return { id: body.id, status: body.status, livemode: false };
+        };
+
+        const createSetupIntentAt = async (targetStatus: string) => {
+          const form = new URLSearchParams({
+            usage: "off_session",
+            "payment_method_types[0]": "card",
+            "metadata[acceptance_case]": `issue-6732-${targetStatus}`,
+          });
+          if (targetStatus === "requires_confirmation") {
+            form.set("payment_method", "pm_card_visa");
+          } else if (targetStatus === "requires_action") {
+            form.set("payment_method", "pm_card_threeDSecure2Required");
+            form.set("confirm", "true");
+            form.set("return_url", "https://example.test/issue-6732/return");
+          }
+          const setupIntent = await providerRequest("create", "/v1/setup_intents", {
+            method: "POST",
+            body: form,
+          });
+          createdReferences.push(setupIntent.id);
+          if (setupIntent.status !== targetStatus) {
+            throw new Error(`Stripe test-mode create did not reach required status ${targetStatus}.`);
+          }
+          return setupIntent.id;
+        };
+
+        const retrieveSetupIntent = (reference: string) =>
+          providerRequest("terminal read", `/v1/setup_intents/${encodeURIComponent(reference)}`, {
+            method: "GET",
+          });
+
+        const cleanupSetupIntent = async (reference: string) => {
+          const observed = await retrieveSetupIntent(reference);
+          if (observed.status !== "canceled" && observed.status !== "succeeded") {
+            const cleanupKey = `payments:setup-intent-cancel:v1:${createHash("sha256")
+              .update(reference, "utf8")
+              .digest("hex")}`;
+            await providerRequest("cleanup cancel", `/v1/setup_intents/${encodeURIComponent(reference)}/cancel`, {
+              method: "POST",
+              body: new URLSearchParams(),
+              headers: { "Idempotency-Key": cleanupKey },
+            });
+          }
+          const terminal = await retrieveSetupIntent(reference);
+          return terminal.status === "canceled" || terminal.status === "succeeded";
+        };
+
+        vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+          const callLabel = requestContext.getStore();
+          const requestUrl = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+          const isSetupIntentRequest = requestUrl.pathname.startsWith("/v1/setup_intents/");
+          const kind = requestUrl.pathname.endsWith("/cancel") ? "cancel" : "read";
+          const isOverlappingInitialRead =
+            callLabel?.startsWith("overlap-") &&
+            isSetupIntentRequest &&
+            kind === "read" &&
+            overlappingReference &&
+            requestUrl.pathname.endsWith(`/${overlappingReference}`) &&
+            !requestsByCall.get(callLabel)?.length;
+
+          const response = await providerFetch(input, init);
+          if (callLabel && isSetupIntentRequest) {
+            const requests = requestsByCall.get(callLabel) ?? [];
+            requests.push({
+              responseSequence: ++responseSequence,
+              kind,
+              idempotencyKey: requestIdempotencyKey(init),
+              httpStatus: response.status,
+            });
+            requestsByCall.set(callLabel, requests);
+          }
+          if (isOverlappingInitialRead) {
+            overlappingPreReads += 1;
+            if (overlappingPreReads === 2) {
+              releaseOverlappingReads();
+            }
+            await bothOverlappingReadsStarted;
+          }
+          return response;
+        });
+
+        const createLiveGateway = () =>
+          createStripePaymentProcessorGateway({
+            secretKey,
+            publishableKey: "pk_test_operator_only",
+            webhookSecret: "whsec_test_operator_only",
+          });
+        const runCancellation = (callLabel: string, reference: string) =>
+          requestContext.run(callLabel, () => createLiveGateway().cancelSetupSession(reference));
+        const summarizeCall = (callLabel: string) => {
+          const requests = requestsByCall.get(callLabel) ?? [];
+          return {
+            requestCount: requests.length,
+            preReadCount: requests[0]?.kind === "read" ? 1 : 0,
+            writeCount: requests.filter((request) => request.kind === "cancel").length,
+            reconciliationReadCount: Math.max(0, requests.filter((request) => request.kind === "read").length - 1),
+            requests,
+          };
+        };
+
+        let payload: AcceptancePayload | null = null;
+        let failedPhase: string | null = null;
+        let cleanupFailed = false;
+        try {
+          const sequential = [];
+          for (const initialStatus of [
+            "requires_payment_method",
+            "requires_confirmation",
+            "requires_action",
+          ] as const) {
+            const reference = await createSetupIntentAt(initialStatus);
+            const firstLabel = `sequential-${initialStatus}-first`;
+            const repeatLabel = `sequential-${initialStatus}-repeat`;
+            const firstOutcome = await runCancellation(firstLabel, reference);
+            const repeatOutcome = await runCancellation(repeatLabel, reference);
+            const terminal = await retrieveSetupIntent(reference);
+            if (
+              firstOutcome.outcome !== "cancelled" ||
+              repeatOutcome.outcome !== "already-terminal" ||
+              repeatOutcome.processorStatus !== "canceled" ||
+              terminal.status !== "canceled"
+            ) {
+              throw new Error(`Sequential ${initialStatus} acceptance did not converge.`);
+            }
+            sequential.push({
+              initialStatus,
+              firstOutcome,
+              repeatOutcome,
+              terminalStatus: terminal.status,
+              firstCall: summarizeCall(firstLabel),
+              repeatCall: summarizeCall(repeatLabel),
+            });
+          }
+
+          overlappingReference = await createSetupIntentAt("requires_payment_method");
+          const overlappingOutcomes = await Promise.all([
+            runCancellation("overlap-a", overlappingReference),
+            runCancellation("overlap-b", overlappingReference),
+          ]);
+          const terminal = await retrieveSetupIntent(overlappingReference);
+          const sortedOutcomes = overlappingOutcomes.map((outcome) => outcome.outcome).sort();
+          const allowedMultiset =
+            JSON.stringify(sortedOutcomes) === JSON.stringify(["cancelled", "cancelled"]) ||
+            JSON.stringify(sortedOutcomes) === JSON.stringify(["already-terminal", "cancelled"]);
+          const overlappingCalls = [summarizeCall("overlap-a"), summarizeCall("overlap-b")];
+          const writes = overlappingCalls
+            .flatMap((call) => call.requests)
+            .filter((request) => request.kind === "cancel")
+            .sort((left, right) => left.responseSequence - right.responseSequence);
+          const expectedKey = `payments:setup-intent-cancel:v1:${createHash("sha256")
+            .update(overlappingReference, "utf8")
+            .digest("hex")}`;
+          if (
+            !allowedMultiset ||
+            terminal.status !== "canceled" ||
+            writes.length !== 2 ||
+            writes.some((write) => write.idempotencyKey !== expectedKey) ||
+            overlappingCalls.some(
+              (call) =>
+                call.requestCount > 3 ||
+                call.preReadCount !== 1 ||
+                call.writeCount !== 1 ||
+                call.reconciliationReadCount > 1 ||
+                call.requests.some(
+                  (request) =>
+                    (request.kind === "read" && request.idempotencyKey !== null) ||
+                    (request.kind === "cancel" && request.idempotencyKey !== expectedKey),
+                ),
+            )
+          ) {
+            throw new Error("Overlapping Stripe test-mode acceptance did not converge within the call budget.");
+          }
+          const secondWrite = writes[1] ?? writes[0]!;
+          const secondWriteDisposition =
+            secondWrite.httpStatus >= 200 && secondWrite.httpStatus < 300
+              ? "replayed-canceled"
+              : "rejected-then-reconciled";
+
+          payload = {
+            schemaVersion: "setup-intent-cancel-acceptance/v1",
+            apiVersion: STRIPE_API_VERSION,
+            candidateHead,
+            startedAt,
+            completedAt: new Date().toISOString(),
+            sequential,
+            overlapping: {
+              initialStatus: "requires_payment_method",
+              outcomes: overlappingOutcomes,
+              terminalStatus: terminal.status,
+              calls: overlappingCalls,
+              secondWriteDisposition,
+            },
+            redaction: {
+              rawSetupReferenceMatches: 0,
+              credentialMarkerMatches: 0,
+            },
+          };
+        } catch {
+          failedPhase = "provider lifecycle or convergence assertions";
+        } finally {
+          for (const reference of createdReferences) {
+            try {
+              cleanupFailed = !(await cleanupSetupIntent(reference)) || cleanupFailed;
+            } catch {
+              cleanupFailed = true;
+            }
+          }
+        }
+
+        if (failedPhase || cleanupFailed || !payload) {
+          await rm(temporaryArtifactPath, { force: true });
+          await rm(artifactPath, { force: true });
+          throw new Error(
+            cleanupFailed
+              ? "AC09 failed its cleanup and terminal checks; no receipt was published."
+              : `AC09 failed during ${failedPhase ?? "receipt construction"}; no receipt was published.`,
+          );
+        }
+
+        const digest = createHash("sha256").update(JSON.stringify(payload), "utf8").digest("hex");
+        const artifactText = `${JSON.stringify({ ...payload, digest }, null, 2)}\n`;
+        if (containsForbiddenSetupCancellationEvidenceMarker(artifactText)) {
+          throw new Error("AC09 receipt redaction marker scan failed; no receipt was published.");
+        }
+        await writeFile(temporaryArtifactPath, artifactText, { encoding: "utf8", flag: "wx" });
+        await rename(temporaryArtifactPath, artifactPath);
+
+        expect(JSON.parse(artifactText)).toMatchObject({
+          candidateHead,
+          apiVersion: STRIPE_API_VERSION,
+          redaction: { rawSetupReferenceMatches: 0, credentialMarkerMatches: 0 },
+          digest,
+        });
+      },
+    );
+
+    it("keeps cancelPayment restricted to PaymentIntent references", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(stripeGateway().cancelPayment(syntheticSetupReferenceA)).rejects.toThrow(
+        "Only direct payment intents can be cancelled",
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 
   it("charges selected Stripe saved payment methods with customer and payment method references", async () => {

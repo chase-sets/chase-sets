@@ -51,6 +51,7 @@ function createMissingProcessorGateway(): PaymentProcessorGateway {
     createCustomer: async () => fail(),
     createSetupSession: async () => fail(),
     retrieveSetupSessionResult: async () => fail(),
+    cancelSetupSession: async () => fail(),
     retrieveSavedPaymentMethod: async () => fail(),
     detachSavedPaymentMethod: async () => fail(),
     createPaymentSession: async () => fail(),
