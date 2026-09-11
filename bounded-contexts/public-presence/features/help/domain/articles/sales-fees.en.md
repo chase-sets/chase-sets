@@ -1,18 +1,21 @@
 ---
 slug: sales-fees
 path: /sales-fees
-title: Marketplace sales and checkout fees
-description: See the live standard sales-fee schedule, listing-time fee locks, the founders window, and buyer checkout processing fees.
+title: Marketplace sales, payout, and checkout fees
+description: See the live standard sales-fee, payout-fee, and checkout-fee schedules, listing-time fee locks, and the founders window.
 audience: seller
 category: selling
 reviewedAt: "2026-07-14"
-citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"]
+citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee", "settlement.payout-fee"]
 relatedFlows: ["listing-confirmation", "checkout-price-breakdown"]
 claimCategories: ["fees"]
 promiseTable:
   - claim: Published fee figures resolve from the current ratified policy documents.
     issues: ["#4353"]
     tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"]
+  - claim: Published payout-fee figures resolve from the current Settlement payout-fee policy document.
+    issues: ["#7819"]
+    tests: ["bounded-contexts/public-presence/tests/help-route.test.tsx", "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts"]
   - claim: Confirming a listing locks the resolved fee terms for its units, and later schedule revisions never change locked units.
     issues: ["#4067"]
     tests: ["bounded-contexts/marketplace/features/listings/domain/domain.test.ts", "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.test.ts"]
@@ -65,6 +68,10 @@ Buyers see the applicable checkout fee before payment. The current processing ra
 - Card: {{policy:checkout-processing-fee.card.bps}} plus {{policy:checkout-processing-fee.card.fixed}}
 - Bank account: {{policy:checkout-processing-fee.bank-account.bps}} plus {{policy:checkout-processing-fee.bank-account.fixed}}
 - Chase Sets credit: {{policy:checkout-processing-fee.platform-credit.bps}} plus {{policy:checkout-processing-fee.platform-credit.fixed}}
+
+## Payout fees
+
+The published payout-fee policy's standard components are {{policy:settlement.payout-fee.bps}} of the requested amount plus {{policy:settlement.payout-fee.fixed}}. Its separately configurable fixed component for the first payout of a calendar month is {{policy:settlement.payout-fee.monthly}}.
 
 ## Order Protection and shipping
 

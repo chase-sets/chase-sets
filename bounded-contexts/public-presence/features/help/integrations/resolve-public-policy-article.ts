@@ -12,7 +12,7 @@ type PublicPolicyValueType = PublicPolicyValue["type"];
 type UnavailableClassification = PublicPolicyValuesFailureClassification | "missing";
 type PublicPolicyScalarContract =
   | Readonly<{ primitive: "integer"; minimum: number; maximum: number }>
-  | Readonly<{ primitive: "money"; minimumCents: number }>;
+  | Readonly<{ primitive: "money"; minimumCents: number; maximumCents?: number }>;
 type ExpectedPublicPolicyValue = Readonly<{
   type: PublicPolicyValueType;
   currency?: string;
@@ -190,7 +190,8 @@ function isValidPolicyPayload(value: unknown, contract: PublicPolicyScalarContra
     if (typeof value !== "string" || !/^(?:0|[1-9]\d*)\.\d{2}$/.test(value)) return false;
     const [whole = "0", fraction = "00"] = value.split(".");
     const cents = BigInt(whole) * 100n + BigInt(fraction);
-    return cents >= BigInt(contract.minimumCents) && cents <= BigInt(Number.MAX_SAFE_INTEGER);
+    const maximumCents = contract.maximumCents ?? Number.MAX_SAFE_INTEGER;
+    return cents >= BigInt(contract.minimumCents) && cents <= BigInt(maximumCents);
   }
 
   return (
@@ -264,7 +265,14 @@ function isPublicPolicyValueType(value: unknown): value is PublicPolicyValueType
 function isPublicPolicyScalarContract(value: unknown): value is PublicPolicyScalarContract {
   if (!isRecord(value)) return false;
   if (value.primitive === "money") {
-    return hasOnlyKeys(value, ["primitive", "minimumCents"]) && isNonNegativeSafeInteger(value.minimumCents);
+    return (
+      Object.keys(value).every((key) => ["primitive", "minimumCents", "maximumCents"].includes(key)) &&
+      Object.hasOwn(value, "primitive") &&
+      Object.hasOwn(value, "minimumCents") &&
+      isNonNegativeSafeInteger(value.minimumCents) &&
+      (value.maximumCents === undefined ||
+        (isNonNegativeSafeInteger(value.maximumCents) && value.maximumCents >= value.minimumCents))
+    );
   }
   return (
     value.primitive === "integer" &&

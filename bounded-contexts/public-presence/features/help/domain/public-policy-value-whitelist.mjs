@@ -4,7 +4,9 @@
  * may read. Adding a policy definition or field never exposes it implicitly.
  */
 const basisPointsContract = { primitive: "integer", minimum: 0, maximum: 10_000 };
+const payoutFeeBasisPointsContract = { primitive: "integer", minimum: 0, maximum: 1_000 };
 const nonNegativeMoneyContract = { primitive: "money", minimumCents: 0 };
+const payoutFeeFixedAmountContract = { primitive: "money", minimumCents: 0, maximumCents: 500 };
 const positiveMoneyContract = { primitive: "money", minimumCents: 1 };
 const clearanceDaysContract = { primitive: "integer", minimum: 0, maximum: 30 };
 const supportDeadlineHoursContract = { primitive: "integer", minimum: 4, maximum: 336 };
@@ -94,6 +96,29 @@ export const publicPolicyValueWhitelist = [
     currency: "USD",
     valueContract: positiveMoneyContract,
     selector: { path: ["maximumAmount"] },
+  },
+  {
+    key: "settlement.payout-fee.bps",
+    policyKey: "settlement.payout-fee",
+    type: "bps",
+    valueContract: payoutFeeBasisPointsContract,
+    selector: { path: ["percentageBps"] },
+  },
+  {
+    key: "settlement.payout-fee.fixed",
+    policyKey: "settlement.payout-fee",
+    type: "money",
+    currency: "USD",
+    valueContract: payoutFeeFixedAmountContract,
+    selector: { path: ["fixedAmount"] },
+  },
+  {
+    key: "settlement.payout-fee.monthly",
+    policyKey: "settlement.payout-fee",
+    type: "money",
+    currency: "USD",
+    valueContract: payoutFeeFixedAmountContract,
+    selector: { path: ["firstPayoutOfMonthFixedAmount"] },
   },
   {
     key: "support-deadlines.product-not-received.seller-response.hours",

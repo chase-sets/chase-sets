@@ -90,6 +90,9 @@ function createPolicyValuesResponse(): Readonly<{
       "settlement.clearance.high-value-threshold": policyValue("money", "250.00"),
       "settlement.payout.minimum": policyValue("money", "5.00"),
       "settlement.payout.maximum": policyValue("money", "10000.00"),
+      "settlement.payout-fee.bps": policyValue("bps", 25),
+      "settlement.payout-fee.fixed": policyValue("money", "0.25"),
+      "settlement.payout-fee.monthly": policyValue("money", "0.00"),
       "marketplace-sales-fee.standard.bps": policyValue("bps", 500),
       "marketplace-sales-fee.standard.fixed": policyValue("money", "0.00"),
       "marketplace-sales-fee.standard.cap": policyValue("money", "25.00"),
@@ -228,6 +231,54 @@ describe("public help routes", () => {
     const { markers, aggregateKeys } = renderedUnresolvedKeys(data.article as HelpArticle);
     expect(markers).toEqual([]);
     expect(aggregateKeys).toEqual([]);
+  });
+
+  it("sales-fees-payout-fee-citation resolves all three bounded document values", async () => {
+    stubPolicyValuesFetch();
+    const source = publicHelpArticles.find((article) => article.slug === "sales-fees");
+    expect(source).toBeDefined();
+
+    const article = await resolvePublicPolicyArticle(request, source!, "/sales-fees");
+
+    const rendered = JSON.stringify(article.blocks);
+    expect(article.citedPolicies).toContain("settlement.payout-fee");
+    expect(article.policyValueKeys).toEqual(
+      expect.arrayContaining([
+        "settlement.payout-fee.bps",
+        "settlement.payout-fee.fixed",
+        "settlement.payout-fee.monthly",
+      ]),
+    );
+    expect(rendered).toContain("0.25%");
+    expect(rendered).toContain("$0.25");
+    expect(rendered).toContain("$0.00");
+    expect(rendered).not.toContain('"type":"policy-value"');
+  });
+
+  it("keeps valid payout-fee values while malformed bounded values render unavailable, never NaN", async () => {
+    const response = createPolicyValuesResponse();
+    response.values["settlement.payout-fee.bps"] = policyValue("bps", 1001);
+    response.values["settlement.payout-fee.fixed"] = policyValue("money", "5.01");
+    response.values["settlement.payout-fee.monthly"] = policyValue("money", "0.00");
+    stubPolicyResponse(response);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const source = publicHelpArticles.find((article) => article.slug === "sales-fees");
+    expect(source).toBeDefined();
+
+    const article = await resolvePublicPolicyArticle(request, source!, "/sales-fees");
+
+    const rendered = JSON.stringify(article.blocks);
+    expect(rendered).toContain("$0.00");
+    expect(rendered).toContain('"type":"policy-value-unavailable"');
+    expect(rendered).not.toContain("NaN");
+    expect(rendered).not.toContain("1001");
+    expect(rendered).not.toContain("$5.01");
+    expect(error).toHaveBeenCalledWith("[public-presence] Public policy values are unavailable.", {
+      event: "public-policy-values.unavailable",
+      route: "/sales-fees",
+      unresolvedKeys: ["settlement.payout-fee.bps", "settlement.payout-fee.fixed"],
+      classification: "malformed",
+    });
   });
 
   it.each([

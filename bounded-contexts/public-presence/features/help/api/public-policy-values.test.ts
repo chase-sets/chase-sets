@@ -20,6 +20,12 @@ const currentValues: Record<string, unknown> = {
   },
   "settlement.clearance-window": { baseClearanceDays: 2, extendedClearanceDays: 7, highValueThresholdAmount: "250.00" },
   "settlement.payout-bounds": { currencyCode: "usd", minimumAmount: "5.00", maximumAmount: "10000.00" },
+  "settlement.payout-fee": {
+    label: "Payout fee",
+    percentageBps: 25,
+    fixedAmount: "0.25",
+    firstPayoutOfMonthFixedAmount: "0.00",
+  },
   "platform-operations.rate-limits": { incidentMultiplier: 1, surfaces: { "internal.admin": { disabled: true } } },
   "platform-operations.support-deadlines": {
     "product-not-received": {
@@ -59,6 +65,9 @@ describe("public policy values", () => {
     expect(result.values["checkout-processing-fee.bank-account.fixed"].value).toBe("0.00");
     expect(result.values["settlement.clearance.base.days"].value).toBe(2);
     expect(result.values["settlement.payout.maximum"].value).toBe("10000.00");
+    expect(result.values["settlement.payout-fee.bps"].value).toBe(25);
+    expect(result.values["settlement.payout-fee.fixed"].value).toBe("0.25");
+    expect(result.values["settlement.payout-fee.monthly"].value).toBe("0.00");
     expect(result.values["rate-limits.waitlist.maximum-requests"].value).toBe(20);
     expect(result.values["rate-limits.waitlist.window"].value).toBe(600000);
     expect(result.values["support-deadlines.product-not-received.seller-response.hours"]).toMatchObject({
@@ -80,6 +89,7 @@ describe("public policy values", () => {
     expect(serialized).not.toContain("internalMarginTargetBps");
     expect(serialized).not.toContain("internal.admin");
     expect(serialized).not.toContain("commercial-terms.authenticity-fee");
+    expect(serialized).not.toContain("Payout fee");
     expect(Object.keys(result.values).every((key) => !key.includes("document"))).toBe(true);
   });
 
