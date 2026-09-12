@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import * as channelsClient from "../bounded-contexts/channels/client.ts";
 import {
   batchE2eSuiteIds,
   chromiumProbeCallerViolations,
@@ -60,6 +61,11 @@ describe("run e2e suite", () => {
   });
 
   it("pins the probe candidate to the Channels client contract", () => {
+    expect(Object.keys(channelsClient).sort()).toEqual([
+      "TCGPLAYER_CONNECTOR_EXTENSION_ID",
+      "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
+      "TCGPLAYER_CONNECTOR_REDIRECT_URI",
+    ]);
     expect({ extensionIdCandidate, extensionKeyCandidate, extensionRedirectUriCandidate }).toEqual({
       extensionIdCandidate: TCGPLAYER_CONNECTOR_EXTENSION_ID,
       extensionKeyCandidate: TCGPLAYER_CONNECTOR_EXTENSION_KEY,
