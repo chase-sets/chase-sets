@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { ChannelsServices } from "@chase-sets/channels/server";
 import { describe, expect, it, vi } from "vitest";
 import { createChannelsOutboundRunners } from "../src/channels-outbound-runners";
 
@@ -82,8 +83,9 @@ function validChannelsCandidate(
     connections: { getConnection: async () => null },
     listingComposition: {},
     outboundSync,
+    reconciliation: { reconcileDueConnections: async () => [] },
     tcgplayerCsv: {},
     projectors: [],
     db: {},
-  };
+  } satisfies Record<keyof ChannelsServices, unknown>;
 }
