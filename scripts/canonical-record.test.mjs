@@ -208,6 +208,8 @@ const compilerWork = {
   preprocessorCalls: 0,
   astParses: 0,
   visitedNodes: 0,
+  prunedSubtrees: 0,
+  filesWithoutSpecifiers: 0,
   ancestorAllocations: 0,
   resolverProcesses: 0,
   resolverCandidates: 0,
@@ -291,26 +293,27 @@ function scriptKindFor(path) {
 }
 
 function joinCompilerSpans(sourceFile, spans) {
-  const indexed = new Map();
-  spans.forEach((span, index) => {
-    const positions = indexed.get(span.fileName) ?? new Map();
-    positions.set(span.pos, { index, span });
-    indexed.set(span.fileName, positions);
-  });
+  const ordered = spans
+    .map((span, index) => ({ index, span }))
+    .sort(
+      (left, right) => left.span.pos - right.span.pos || left.span.end - right.span.end || left.index - right.index,
+    );
   const matches = new Array(spans.length);
   const ancestors = [];
+  let next = 0;
   const visit = (node) => {
     compilerWork.visitedNodes += 1;
+    const current = ordered[next];
+    if (!current) return;
+    if (current.span.pos >= node.end) {
+      compilerWork.prunedSubtrees += 1;
+      return;
+    }
     if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      const positions = indexed.get(node.text);
-      if (positions) {
-        const current = positions.get(node.getStart(sourceFile));
-        if (current && current.span.end <= node.end) {
-          positions.delete(current.span.pos);
-          if (positions.size === 0) indexed.delete(node.text);
-          matches[current.index] = { node, ancestors: [...ancestors].reverse() };
-          compilerWork.ancestorAllocations += 1;
-        }
+      if (current.span.pos >= node.pos && current.span.end <= node.end) {
+        matches[current.index] = { node, ancestors: [...ancestors].reverse() };
+        compilerWork.ancestorAllocations += 1;
+        next += 1;
       }
     }
     ancestors.push(node);
@@ -369,12 +372,16 @@ function compilerRows(path, source, options = {}) {
     if (options.forceScanFailure) throw new Error("injected scan failure");
     compilerWork.preprocessorCalls += 1;
     preprocessed = ts.preProcessFile(source, true, true);
+    compilerWork.specifiers += preprocessed.importedFiles.length;
+    if (preprocessed.importedFiles.length === 0) {
+      compilerWork.filesWithoutSpecifiers += 1;
+      return [];
+    }
     compilerWork.astParses += 1;
     sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, false, scriptKindFor(path));
   } catch (error) {
     importerRefuse("IMPORTER_SCAN_FAILURE", `${path}: ${error.message}`);
   }
-  compilerWork.specifiers += preprocessed.importedFiles.length;
   const matches = joinCompilerSpans(sourceFile, preprocessed.importedFiles);
   return preprocessed.importedFiles.map((span, index) => {
     const classification = classifyCompilerSpan(sourceFile, span, matches[index], options);
@@ -1258,6 +1265,11 @@ describe.sequential("canonical importer authority", () => {
         Object.fromEntries(Object.keys(timing.work).map((key) => [key, (total[key] ?? 0) + timing.work[key]])),
       {},
     );
+    expect(work.preprocessorCalls).toBe(candidateEntries().length);
+    expect(work.astParses + work.filesWithoutSpecifiers).toBe(work.preprocessorCalls);
+    expect(work.filesWithoutSpecifiers).toBeGreaterThan(0);
+    expect(work.ancestorAllocations).toBe(work.specifiers);
+    expect(work.prunedSubtrees).toBeGreaterThan(0);
     expect(total).toBeLessThan(aggregateBudget);
     console.info(
       JSON.stringify({
@@ -1267,10 +1279,7 @@ describe.sequential("canonical importer authority", () => {
         groups: capabilityGroups.length,
         candidates: candidateEntries().length,
         specifiers: censusRows.length,
-        workComparison: {
-          before: { ...work, ancestorAllocations: work.visitedNodes },
-          after: work,
-        },
+        workInventory: work,
         capabilityTimings,
         censusTimings,
       }),
