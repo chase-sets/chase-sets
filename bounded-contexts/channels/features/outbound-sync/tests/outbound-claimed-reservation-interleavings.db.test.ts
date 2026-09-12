@@ -333,17 +333,16 @@ describeDb(
       );
       expect(inlineCalls).toEqual([inlineDesiredOperation!.operationId, inlineRepair!.operationId]);
 
-      const repairRows = await pools.channels.query<{ operation_id: string; row_count: number }>(
-        `SELECT operation_id,COUNT(*) OVER ()::integer AS row_count
+      const repairRows = await pools.channels.query<{ operation_id: string }>(
+        `SELECT operation_id
          FROM channel_outbound_operations
-         WHERE operation_id=ANY($1::text[])
+         WHERE operation_origin='reconciliation-repair' AND channel_listing_id=ANY($1::text[])
          ORDER BY operation_id`,
-        [[claimedRepair!.operationId, inlineRepair!.operationId]],
+        [[claimedDesired.channelListingId, inlineDesired.channelListingId]],
       );
-      expect(repairRows.rows).toEqual([
-        expect.objectContaining({ row_count: 2 }),
-        expect.objectContaining({ row_count: 2 }),
-      ]);
+      expect(repairRows.rows.map((row) => row.operation_id)).toEqual(
+        [claimedRepair!.operationId, inlineRepair!.operationId].sort(),
+      );
     });
 
     it.each(["claimed", "inline"] as const)(
