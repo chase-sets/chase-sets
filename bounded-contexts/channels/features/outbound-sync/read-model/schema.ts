@@ -109,10 +109,11 @@ const createOutboundIndexes = [
   WHERE status = 'in-flight' AND claimant_kind = 'inline'`,
 ] as const;
 
-const createPendingLaneOrderIndex = `CREATE INDEX IF NOT EXISTS channel_outbound_operations_pending_lane_order_idx
+const pendingLaneOrderIndexDefinition = `channel_outbound_operations_pending_lane_order_idx
   ON channel_outbound_operations (connection_id, channel_listing_id, enqueued_at,
     (CASE operation_origin WHEN 'reconciliation-repair' THEN 1 ELSE 0 END), operation_id)
   WHERE status = 'pending'`;
+const createPendingLaneOrderIndex = `CREATE INDEX IF NOT EXISTS ${pendingLaneOrderIndexDefinition}`;
 
 export const outboundSyncSchemaSql = `
 ${createOutboundOperationsTable};
@@ -175,6 +176,6 @@ export const outboundSyncSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260912_channels_outbound_pending_lane_order",
     description: "Index pending operations across every origin in their per-lane execution order.",
-    statements: [createPendingLaneOrderIndex.replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")],
+    statements: [`CREATE INDEX CONCURRENTLY IF NOT EXISTS ${pendingLaneOrderIndexDefinition}`],
   },
 ];
