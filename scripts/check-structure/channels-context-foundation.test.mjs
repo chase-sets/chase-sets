@@ -96,6 +96,9 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (!relativeFiles.some((file) => file.startsWith("support/request-support/"))) {
     violations.push("request-support-files");
   }
+  if (!relativeFiles.some((file) => file.startsWith("support/runtime-support/"))) {
+    violations.push("runtime-support-files");
+  }
   if (
     relativeFiles.some(
       (file) =>
@@ -153,7 +156,9 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("slices");
   }
-  if (JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support"])) {
+  if (
+    JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support", "runtime-support"])
+  ) {
     violations.push("allowedSupportDirectories");
   }
   if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
@@ -198,7 +203,7 @@ describe("channels-context-foundation", () => {
         "channel-listing-reconciliation-run",
       ]),
       slices: ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
-      allowedSupportDirectories: ["request-support"],
+      allowedSupportDirectories: ["request-support", "runtime-support"],
       publicExports: [".", "./context", "./server", "./routes/*"],
       allowedContextDependencies: [],
       hostPorts: [],
@@ -316,6 +321,11 @@ describe("channels-context-foundation", () => {
           purpose:
             "Own Channels outbound-sync operations, execution admission, leases, and connection-scoped activity.",
           expectedConsumers: ["Internal Channels module composition", "Channel connector and manual claim workflows"],
+        },
+        "runtime-support": {
+          classification: "support",
+          purpose: "Own the context-level Channels runtime service composition contract.",
+          expectedConsumers: ["Root Channels module and API composition"],
         },
         routes: {
           classification: "routes",

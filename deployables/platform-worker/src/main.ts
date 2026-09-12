@@ -11,7 +11,7 @@ import {
   createTcgplayerAutomationCatalogClient,
   createTcgplayerAutomationHttpClients,
 } from "@chase-sets/catalog/server";
-import { module as channelsModule } from "@chase-sets/channels";
+import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
   createObjectStorageTcgplayerMarketCaptureReceiptSink,
   type ChannelConnectionIdentityReader,
@@ -242,7 +242,10 @@ const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
       tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
       channelConnectionIdentityReader: createChannelConnectionIdentityReader(
-        () => runtime?.services.channels as ReturnType<typeof channelsModule.createServices> | undefined,
+        () => {
+          const services = runtime?.services.channels;
+          return isChannelsServices(services) ? services : undefined;
+        },
       ),
     }
   : undefined;
@@ -341,7 +344,7 @@ type WorkerIdentityServices = Readonly<{
 }>;
 
 function createChannelConnectionIdentityReader(
-  getServices: () => ReturnType<typeof channelsModule.createServices> | undefined,
+  getServices: () => ChannelsServices | undefined,
 ): ChannelConnectionIdentityReader {
   return {
     resolve: async (input) => {

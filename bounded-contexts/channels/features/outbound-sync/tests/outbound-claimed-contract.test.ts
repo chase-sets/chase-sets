@@ -1,5 +1,4 @@
 import { describe, expectTypeOf, it } from "vitest";
-import type { ChannelsServices } from "../../connections/domain/contracts";
 import type {
   ClaimedOperationOutcome,
   ClaimedOperationReservation,
@@ -36,7 +35,6 @@ describe("outbound claimed public contract", () => {
     expectTypeOf<keyof ClaimedOperationOutcome>().toEqualTypeOf<
       "operationId" | "attemptId" | "claimGeneration" | "desiredStateSequence" | "outcome"
     >();
-    expectTypeOf<keyof ChannelsServices>().toEqualTypeOf<"connections" | "outboundSync" | "projectors">();
   });
 });
 

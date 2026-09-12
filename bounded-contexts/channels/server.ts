@@ -1,4 +1,8 @@
-export { type ChannelsServices } from "./features/connections/domain/contracts";
+export {
+  channelsServicesMembers,
+  isChannelsServices,
+  type ChannelsServices,
+} from "./support/runtime-support/services";
 export {
   OutboundSyncError,
   type ClaimedOperationClaimant,
