@@ -124,7 +124,75 @@ describeDb("outbound-sync schema upgrades", () => {
     expect(await migrationAndTableCounts()).toEqual(first);
     expect(first).toEqual({ migration: "1", table: "channel_outbound_reservation_settlements" });
   });
+
+  it("upgrades a populated pending queue through the index migration with fresh-boot parity", async () => {
+    const migrationId = "20260912_channels_outbound_pending_lane_order";
+    const migration = outboundSyncSchemaMigrations.find((entry) => entry.migrationId === migrationId)!;
+    const bootIndex = migration.statements[0]!.replace("CREATE INDEX CONCURRENTLY", "CREATE INDEX");
+    const predecessor = {
+      ...channelsModule,
+      schemaSql: channelsModule.schemaSql.replace(`${bootIndex};`, ""),
+      schemaMigrations: channelsModule.schemaMigrations!.filter((entry) => entry.migrationId !== migrationId),
+    };
+    await bootstrapContextDatabase(predecessor, pools.channels);
+    expect(await pendingLaneIndex()).toEqual([]);
+    await pools.channels.query(
+      `INSERT INTO channel_connections
+       (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,bindings,projection_updated_at,last_stream_version)
+       VALUES ('connection-upgrade','account-upgrade','tcgplayer','sandbox','active',now(),now(),'[]'::jsonb,now(),1)`,
+    );
+    const runtime = createOutboundSyncRuntime(
+      {
+        db: pools.channels,
+        recordOutcome: async () => "applied",
+        readAdditionalOutboundHold: async () => ({ held: false, sources: [] }),
+      },
+      { assertDelistDirective: () => undefined },
+    );
+    await runtime.enqueueDesiredState(desiredState());
+    const before = await pools.channels.query("SELECT * FROM channel_outbound_operations ORDER BY operation_id");
+    expect(before.rows).toHaveLength(1);
+
+    // Omit boot DDL so only the real ledgered migration can supply the missing index.
+    await bootstrapContextDatabase({ ...channelsModule, schemaSql: "" }, pools.channels);
+    const upgradedIndex = await pendingLaneIndex();
+    expect(upgradedIndex).toHaveLength(1);
+    expect(upgradedIndex[0]).toMatchObject({ indisvalid: true, indisready: true });
+    expect(
+      (await pools.channels.query("SELECT * FROM channel_outbound_operations ORDER BY operation_id")).rows,
+    ).toEqual(before.rows);
+    expect(
+      (
+        await pools.channels.query("SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id=$1", [
+          migrationId,
+        ])
+      ).rows,
+    ).toEqual([{ migration_id: migrationId }]);
+    const reservation = await runtime.reserveClaimedOutboundOperations({
+      registry: channelProviderRegistry,
+      connectionId: "connection-upgrade",
+      claimant: { claimantKind: "connector", claimantId: "synthetic-index-upgrade" },
+      maxOperations: 1,
+      leaseMs: 60_000,
+    });
+    expect(reservation?.operations).toHaveLength(1);
+    expect(reservation?.operations[0]?.operationId).toBe(before.rows[0]!.operation_id);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    expect(await pendingLaneIndex()).toEqual(upgradedIndex);
+
+    await resetMultiContextTestSchemas(pools);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    expect(await pendingLaneIndex()).toEqual(upgradedIndex);
+  });
 });
+
+async function pendingLaneIndex() {
+  const result = await pools.channels.query(
+    `SELECT pg_get_indexdef(indexrelid) AS definition, indisvalid, indisready
+     FROM pg_index WHERE indexrelid=to_regclass('channel_outbound_operations_pending_lane_order_idx')`,
+  );
+  return result.rows;
+}
 
 function desiredState() {
   return {
