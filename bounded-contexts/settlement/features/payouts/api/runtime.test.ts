@@ -141,7 +141,7 @@ function createPayoutArithmeticRuntime(
           }
           return { rows: [], rowCount: 0 };
         }
-        if (sql.includes("WITH ins AS")) {
+        if (sql.includes("INSERT INTO settlement_payout_request_idempotency")) {
           if (existing) {
             return { rows: [{ ...existing, reserved: false }], rowCount: 1 };
           }
@@ -648,7 +648,7 @@ describe("settlement payout runtime", () => {
         if (sql.includes("settlement_payout_request_idempotency")) {
           const key = `${String(values?.[0])}:${String(values?.[1])}`;
           const existing = reservations.get(key);
-          if (sql.includes("WITH ins AS")) {
+          if (sql.includes("INSERT INTO settlement_payout_request_idempotency")) {
             if (existing) return { rows: [{ ...existing, reserved: false }], rowCount: 1 };
             const inserted = {
               payout_id: String(values?.[2]),
