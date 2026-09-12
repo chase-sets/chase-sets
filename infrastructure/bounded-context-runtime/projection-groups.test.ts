@@ -256,7 +256,7 @@ describe("bounded context projection groups", () => {
     const revisionSyncToken = await resetProjectionGroup(group);
 
     expect(getTruncateLog(targetPool)).toEqual([["inventory_catalog_items"]]);
-    expect(revisionSyncToken).toBe("2");
+    expect(revisionSyncToken).toMatchObject({ generation: "2" });
     await expect(
       loadProjectionGroupGeneration(targetPool as never, {
         targetContextName: "inventory",
@@ -267,11 +267,13 @@ describe("bounded context projection groups", () => {
     const ordinaryStatus = await group.refreshStatus();
     expect(Object.hasOwn(ordinaryStatus, "revisionSyncToken")).toBe(false);
     await expect(group.refreshStatus({ captureRevisionSyncToken: true })).resolves.toMatchObject({
-      revisionSyncToken: "2",
+      revisionSyncToken: { generation: "2" },
     });
 
     await group.markRevisionSynced(revisionSyncToken);
-    expect(getProjectionGroupGenerationStore(targetPool).get("inventory:inventory-catalog-item-projection")).toEqual({
+    expect(
+      getProjectionGroupGenerationStore(targetPool).get("inventory:inventory-catalog-item-projection"),
+    ).toMatchObject({
       active_generation: "2",
       rebuilding_generation: null,
       state: "active",

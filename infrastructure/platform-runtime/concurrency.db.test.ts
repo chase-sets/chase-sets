@@ -1,7 +1,16 @@
+import { createProjectionGroupWorkerRunner } from "./worker";
+import {
+  bootstrapContextDatabase,
+  loadProjectionGroupGeneration,
+  resetProjectionGroup,
+  syncProjectionGroup,
+} from "@chase-sets/bounded-context-runtime";
+import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
+  createMountedContextTestRuntime,
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
@@ -1253,5 +1262,129 @@ describe("platform runtime Postgres concurrency guards", () => {
       "SELECT COUNT(*)::integer AS total_count FROM evidence_window",
     );
     expect(retained.rows[0]).toEqual({ total_count: 2 });
+  });
+});
+
+describe("projection-group-recovery-marker Postgres", () => {
+  let pools: Readonly<Record<"marker", PgTransactionalPool>>;
+  let failProjection = false;
+  const module = defineBoundedContextModule({
+    manifest: {
+      contextName: "marker",
+      apiBasePath: "/marker",
+      streamPrefix: "marker.",
+      eventSubscriptions: [
+        {
+          sourceContextName: "marker",
+          projectionName: "worker-marker",
+          subscriptionVersion: 1,
+          projectionHandlerSetNames: ["worker-marker"],
+          eventTypes: ["marker.recorded"],
+          streamPrefixes: ["marker."],
+        },
+      ],
+      projectionGroups: [
+        {
+          projectionName: "worker-marker",
+          sourceContextNames: ["marker"],
+          ownedTables: ["worker_marker_items"],
+          resetStrategy: "truncate-owned-tables",
+        },
+      ],
+    },
+    schemaSql: "CREATE TABLE worker_marker_items (item_id text PRIMARY KEY)",
+    createServices: () => ({}),
+    buildApis: () => [],
+    buildSubscriptions: () => [
+      {
+        subscriptionName: "marker.worker",
+        projectionName: "worker-marker",
+        sourceContextName: "marker",
+        subscriptionVersion: 1,
+        eventTypes: ["marker.recorded"],
+        streamPrefixes: ["marker."],
+        handlers: {
+          "marker.recorded": async (event, context) => {
+            if (failProjection) throw new Error("marker projection blocked");
+            await context!.db!.query("INSERT INTO worker_marker_items VALUES ($1) ON CONFLICT DO NOTHING", [
+              event.streamId,
+            ]);
+          },
+        },
+      },
+    ],
+  });
+  beforeAll(async () => {
+    if (!adminDatabaseUrl) throw new Error("TEST_DATABASE_URL is required for worker recovery DB tests.");
+    const urls = createMultiContextTestDatabaseUrls(adminDatabaseUrl, ["marker"], "worker_marker");
+    await ensureMultiContextTestDatabases(adminDatabaseUrl, urls);
+    pools = createMultiContextTestPools(urls);
+    await resetMultiContextTestSchemas(pools);
+    await bootstrapContextDatabase(module, pools.marker);
+  });
+  afterAll(async () => {
+    if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it("recovery reset, busy/blocked retention, stale capture and restart settle use the database token", async () => {
+    const makeGroup = () =>
+      createMountedContextTestRuntime([{ contextName: "marker", module, pool: pools.marker, ports: {} }])
+        .projectionGroups[0];
+    const group = makeGroup();
+    const key = { targetContextName: "marker", projectionName: "worker-marker" };
+    const read = () => loadProjectionGroupGeneration(pools.marker, key);
+    const store = createPostgresEventStore({ pool: pools.marker });
+    const append = (streamId: string) =>
+      store.appendToStream({
+        streamId,
+        expectedVersion: "no_stream",
+        events: [{ eventType: "marker.recorded", payload: {} }],
+        context: {
+          tenantId: "tenant_test" as never,
+          audit: { performedByUserId: "user_test" as never, forAccountId: "account_test" as never },
+        },
+      });
+    await append("marker.first");
+    await syncProjectionGroup(group);
+    await pools.marker.query("DELETE FROM event_projection_recovery_markers");
+    const runner = group.subscriptionRunners[0];
+    await runner.refreshStatus();
+    expect(group.getStatus().recoveryRequired).toBe(true);
+    const worker = createProjectionGroupWorkerRunner(group);
+    await expect(worker.runOnce()).resolves.toMatchObject({ processed: 1 });
+    await expect(read()).resolves.toEqual({ activeGeneration: "1", rebuildingGeneration: "2", state: "rebuilding" });
+    await append("marker.second");
+    failProjection = true;
+    await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 1 });
+    await expect(read()).resolves.toMatchObject({ rebuildingGeneration: "2", state: "rebuilding" });
+    failProjection = false;
+    await expect(resetProjectionGroup(group)).resolves.toMatchObject({ generation: "3" });
+    await expect(worker.runOnce()).resolves.toMatchObject({ processed: 2, blockedStreams: 0 });
+    await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 0 });
+    await expect(read()).resolves.toMatchObject({ rebuildingGeneration: "3", state: "rebuilding" });
+    const restarted = createProjectionGroupWorkerRunner(makeGroup());
+    await expect(restarted.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 0 });
+    await expect(read()).resolves.toEqual({ activeGeneration: "3", rebuildingGeneration: null, state: "active" });
+    await resetProjectionGroup(group);
+    const crashed = createProjectionGroupWorkerRunner({
+      ...group,
+      subscriptionRunners: [
+        {
+          ...runner,
+          runOnce: async () => {
+            throw new Error("worker process crashed");
+          },
+        },
+      ],
+    });
+    await expect(crashed.runOnce()).rejects.toThrow("worker process crashed");
+    await expect(read()).resolves.toMatchObject({ rebuildingGeneration: "4", state: "rebuilding" });
+    const recovered = createProjectionGroupWorkerRunner(makeGroup());
+    await expect(recovered.runOnce()).resolves.toMatchObject({ processed: 2 });
+    await expect(read()).resolves.toMatchObject({ state: "rebuilding" });
+    await recovered.runOnce();
+    await expect(read()).resolves.toEqual({ activeGeneration: "4", rebuildingGeneration: null, state: "active" });
+    await restarted.runOnce();
+    await expect(read()).resolves.toEqual({ activeGeneration: "4", rebuildingGeneration: null, state: "active" });
   });
 });

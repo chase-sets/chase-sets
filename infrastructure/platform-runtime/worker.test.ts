@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
+import type { ContextProjectionGroup } from "@chase-sets/bounded-context-runtime";
 import type { PlatformControlPlane, PlatformLease, ProjectionOperationRecord } from "./control-plane";
 import {
   collectProjectionOperationRunners,
@@ -1553,8 +1554,11 @@ describe("worker runner loop", () => {
       { processed: 0, blockedStreams: 1 },
       { processed: 0, blockedStreams: 0 },
     ];
-    const capturedTokens = ["2", "3", "4"];
-    const markedTokens: Array<string | null> = [];
+    const capturedTokens = ["2", "3", "4"].map((generation) =>
+      Object.freeze({ generation, startedAt: "2026-01-01T00:00:00.000Z" }),
+    );
+    const firstToken = capturedTokens[0];
+    const markedTokens: Array<Parameters<ContextProjectionGroup["markRevisionSynced"]>[0]> = [];
     const subscriptionRunner = {
       targetContextName: "inventory",
       checkpointKey: "inventory-catalog-item-projection:catalog:v1",
@@ -1567,7 +1571,7 @@ describe("worker runner loop", () => {
       subscriptionRunners: [subscriptionRunner],
       refreshStatus: async () => ({
         revisionStale: false,
-        revisionSyncToken: capturedTokens.shift() ?? "5",
+        revisionSyncToken: capturedTokens.shift(),
       }),
       markRevisionSynced: async (expectedToken) => {
         markedTokens.push(expectedToken);
@@ -1586,8 +1590,8 @@ describe("worker runner loop", () => {
     expect(markedTokens).toEqual([]);
     await expect(runner.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 0 });
 
-    expect(markedTokens).toEqual(["2"]);
-    expect(markedTokens).not.toEqual(["4"]); // shared-group-token mutant
+    expect(markedTokens).toEqual([firstToken]);
+    expect(markedTokens[0]).toBe(firstToken); // call-local identity survives later captures
     expect(markedTokens).not.toEqual([null]); // settle-without-token mutant
   });
 
@@ -2386,9 +2390,13 @@ function createClaimedOperationRecord(overrides: Partial<ProjectionOperationReco
 function createProjectionGroup(
   overrides: Readonly<{
     subscriptionRunners?: readonly unknown[];
-    refreshStatus?: () => Promise<Readonly<{ revisionStale: boolean; revisionSyncToken?: string | null }>>;
+    refreshStatus?: (
+      ...args: Parameters<ContextProjectionGroup["refreshStatus"]>
+    ) => Promise<
+      Pick<Awaited<ReturnType<ContextProjectionGroup["refreshStatus"]>>, "revisionStale" | "revisionSyncToken">
+    >;
     recoveryRequired?: () => boolean;
-    markRevisionSynced?: (expectedToken: string | null) => Promise<void>;
+    markRevisionSynced?: ContextProjectionGroup["markRevisionSynced"];
     reset?: () => Promise<void>;
   }> = {},
 ) {

@@ -41,6 +41,7 @@ export const projectionGroupGenerationsByPool = new Map<
   Map<
     string,
     {
+      started_at?: string;
       active_generation: string;
       rebuilding_generation: string | null;
       state: "active" | "rebuilding" | "failed";
@@ -319,7 +320,11 @@ export function createMockPool(): MockPool {
         };
       }
 
-      if (sql.includes("projection_revision") && sql.includes("event_projection_group_revisions")) {
+      if (
+        sql.includes("SELECT") &&
+        sql.includes("projection_revision") &&
+        sql.includes("event_projection_group_revisions")
+      ) {
         const key = `${params[0]}:${params[1]}`;
         const value = getProjectionRevisionStore(pool).get(key);
         const generation = getProjectionGroupGenerationStore(pool).get(key);
@@ -331,6 +336,7 @@ export function createMockPool(): MockPool {
                 generation_active_generation: generation?.active_generation ?? null,
                 generation_rebuilding_generation: generation?.rebuilding_generation ?? null,
                 generation_state: generation?.state ?? null,
+                generation_started_at: generation?.started_at ?? null,
               },
             ],
           };
@@ -347,12 +353,24 @@ export function createMockPool(): MockPool {
           const expectedToken = String(params[2]);
           return {
             rows:
-              generation?.state === "rebuilding" && generation.rebuilding_generation === expectedToken
-                ? [{ rebuilding_generation: expectedToken }]
+              generation?.state === "rebuilding" &&
+              generation.rebuilding_generation === expectedToken &&
+              generation.started_at === params[3]
+                ? [{ rebuilding_generation: expectedToken, started_at: generation.started_at }]
                 : [],
           };
         }
-        return { rows: generation ? [{ ...generation }] : [] };
+        return {
+          rows: generation
+            ? [
+                {
+                  active_generation: generation.active_generation,
+                  rebuilding_generation: generation.rebuilding_generation,
+                  state: generation.state,
+                },
+              ]
+            : [],
+        };
       }
 
       if (sql.includes("SELECT event_id, status") && sql.includes("FROM event_subscription_applications")) {
@@ -473,12 +491,19 @@ export function createMockPool(): MockPool {
           const rebuildingGeneration = BigInt(current?.rebuilding_generation ?? activeGeneration);
           const nextGeneration =
             (activeGeneration > rebuildingGeneration ? activeGeneration : rebuildingGeneration) + 1n;
+          const startedAt = new Date(
+            current?.started_at ? Date.parse(current.started_at) + 1 : Date.UTC(2026, 0, 1),
+          ).toISOString();
           store.set(key, {
+            started_at: startedAt,
             active_generation: activeGeneration.toString(),
             rebuilding_generation: nextGeneration.toString(),
             state: "rebuilding",
           });
-          return { rows: [{ rebuilding_generation: nextGeneration.toString() }], rowCount: 1 } as never;
+          return {
+            rows: [{ rebuilding_generation: nextGeneration.toString(), started_at: startedAt }],
+            rowCount: 1,
+          } as never;
         }
         if (!current) {
           store.set(key, { active_generation: "1", rebuilding_generation: null, state: "active" });
@@ -497,7 +522,11 @@ export function createMockPool(): MockPool {
         const store = getProjectionGroupGenerationStore(pool);
         const current = store.get(key);
         const expectedToken = String(params[2]);
-        if (current?.state !== "rebuilding" || current.rebuilding_generation !== expectedToken) {
+        if (
+          current?.state !== "rebuilding" ||
+          current.rebuilding_generation !== expectedToken ||
+          current.started_at !== params[3]
+        ) {
           return { rows: [], rowCount: 0 } as never;
         }
         if (sql.includes("state = 'failed'")) {
@@ -506,6 +535,7 @@ export function createMockPool(): MockPool {
           return { rows: [], rowCount: 1 } as never;
         }
         store.set(key, {
+          started_at: current.started_at,
           active_generation: expectedToken,
           rebuilding_generation: null,
           state: "active",
