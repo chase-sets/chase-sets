@@ -6,6 +6,7 @@ import {
   OutboundSyncError,
   type ClaimedOperationReservation,
   type EnqueueOutboundOperation,
+  type EnqueueOutboundRepush,
   type OutboundConnection,
   type OutboundOperationLane,
   type OutboundOperationRecord,
@@ -162,11 +163,63 @@ export function createOutboundOperationStore(
       });
     },
 
+    enqueueRepush: async (input: EnqueueOutboundRepush): Promise<OutboundOperationRecord | null> => {
+      assertEnqueueOutboundOperation(input, options.assertDelistDirective, ["repushOperationId"]);
+      if (!input.repushOperationId || input.repushOperationId.length > 512)
+        throw new OutboundSyncError("invalid-input");
+      const digest = payloadDigest(input.payload);
+      const operationId = `cop_${createHash("sha256")
+        .update(`repush\0${input.connectionId}\0${input.channelListingId}\0${input.repushOperationId}`, "utf8")
+        .digest("hex")
+        .slice(0, 40)}`;
+      return withPgTransaction(dependencies.db, async (db) => {
+        const replay = await db.query<OperationRow>(
+          `SELECT ${operationColumns} FROM channel_outbound_operations WHERE operation_id=$1`,
+          [operationId],
+        );
+        if (replay.rows[0]) return mapOperation(replay.rows[0]);
+        await db.query(
+          `INSERT INTO channel_outbound_lanes (connection_id,channel_listing_id) VALUES ($1,$2)
+           ON CONFLICT DO NOTHING`,
+          [input.connectionId, input.channelListingId],
+        );
+        await db.query(
+          `SELECT revision FROM channel_outbound_lanes
+           WHERE connection_id=$1 AND channel_listing_id=$2 FOR UPDATE`,
+          [input.connectionId, input.channelListingId],
+        );
+        const current = await db.query<Pick<OperationRow, "status" | "source_desired_state_sequence">>(
+          `SELECT status,source_desired_state_sequence FROM channel_outbound_operations
+           WHERE connection_id=$1 AND channel_listing_id=$2 ORDER BY source_desired_state_sequence DESC,revision DESC FOR UPDATE`,
+          [input.connectionId, input.channelListingId],
+        );
+        if (current.rows.some((row) => row.status === "pending" || row.status === "in-flight")) return null;
+        if (
+          current.rows.length > 0 &&
+          Number(current.rows[0]!.source_desired_state_sequence) !== input.desiredStateSequence
+        ) {
+          throw new OutboundSyncError("stale-fence", "Repush basis is not the current desired state.");
+        }
+        const enqueuedAt = now();
+        const result = await db.query<OperationRow>(
+          `INSERT INTO channel_outbound_operations (
+             operation_id,connection_id,channel_listing_id,listing_id,operation_kind,
+             listing_revision,source_desired_state_sequence,payload,payload_digest,status,revision,next_attempt_at,
+             source_event_id,source_stream_id,source_stream_version,source_global_position,
+             source_desired_state_hash,source_occurred_at,enqueued_at
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,'pending',1,$10,$11,$12,$13,$14,$15,$16,$10)
+           RETURNING ${operationColumns}`,
+          operationValues(operationId, input, digest, enqueuedAt),
+        );
+        return mapOperation(result.rows[0]!);
+      });
+    },
+
     reserveClaimedOutboundOperations: async (
       input: ReserveClaimedOutboundOperationsInput,
     ): Promise<ClaimedOperationReservation | null> => {
       assertReserveClaimedOutboundOperationsInput(input);
-      return withPgTransaction(dependencies.db, (db) => reserveClaimedOutboundOperations(db, input, now));
+      return withPgTransaction(dependencies.db, (db) => reserveClaimedOutboundOperations(dependencies, db, input, now));
     },
 
     reserveClaimedOutboundOperationsInTransaction: async (
@@ -174,7 +227,7 @@ export function createOutboundOperationStore(
       db: PgQueryable,
     ): Promise<ClaimedOperationReservation | null> => {
       assertReserveClaimedOutboundOperationsInput(input);
-      return reserveClaimedOutboundOperations(db, input, now);
+      return reserveClaimedOutboundOperations(dependencies, db, input, now);
     },
   };
 }
@@ -190,6 +243,7 @@ function assertReserveClaimedOutboundOperationsInput(input: ReserveClaimedOutbou
 }
 
 async function reserveClaimedOutboundOperations(
+  dependencies: OutboundSyncRuntimeDependencies,
   db: PgQueryable,
   input: ReserveClaimedOutboundOperationsInput,
   now: () => string,
@@ -199,6 +253,12 @@ async function reserveClaimedOutboundOperations(
   if (connection.status !== "active") throw new OutboundSyncError("connection-not-active");
   const admission = resolveConnectionExecutionAdmission(input.registry, connection);
   if (admission.kind !== "claimed") throw new OutboundSyncError("execution-mode-mismatch");
+  const additionalHold = await dependencies.readAdditionalOutboundHold({
+    connectionId: connection.connectionId,
+    providerIdentity: admission.providerIdentity,
+  });
+  assertAdditionalOutboundHold(additionalHold);
+  if (additionalHold.held) return null;
   const selected = await db.query<OperationRow>(
     `SELECT ${operationColumns.replaceAll(/\b([a-z][a-z0-9_]*)\b/g, "operation.$1")}
            FROM channel_outbound_operations AS operation
@@ -274,6 +334,24 @@ async function reserveClaimedOutboundOperations(
     leaseExpiresAt,
     operations,
   };
+}
+
+function assertAdditionalOutboundHold(value: unknown): asserts value is Readonly<{
+  held: boolean;
+  sources: readonly ("health" | "operator-kill")[];
+}> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new OutboundSyncError("invalid-input");
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).some((key) => key !== "held" && key !== "sources") ||
+    typeof record.held !== "boolean" ||
+    !Array.isArray(record.sources) ||
+    record.sources.some((source) => source !== "health" && source !== "operator-kill") ||
+    new Set(record.sources).size !== record.sources.length ||
+    record.held !== record.sources.length > 0
+  ) {
+    throw new OutboundSyncError("invalid-input", "Additional outbound hold result is invalid.");
+  }
 }
 
 async function readConnection(

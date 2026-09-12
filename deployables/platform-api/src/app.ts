@@ -42,11 +42,14 @@ import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/
 import { module as identityModule } from "@chase-sets/identity";
 import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
 import {
+  createInventoryExternalChannelSaleRecorderForPool,
   createImportResolutionAttentionSourceFromReadModel,
   createInventoryHoldCleanupAuthorityForPool,
+  type RecordExternalChannelSale,
   type InventoryDraftListingCreator,
   type InventorySavedListImportBatchCreator,
 } from "@chase-sets/inventory/server";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   createOrderingUcpHandlers,
   lookupOrderBySupportId,
@@ -517,6 +520,7 @@ export function createPlatformApiHost(
   const inventoryCleanupAuthority: OrderingInventoryCleanupAuthorityCapability = inventoryPool
     ? { kind: "available", port: createInventoryHoldCleanupAuthorityForPool(inventoryPool) }
     : { kind: "not-mounted" };
+  const channelSaleRecorder = inventoryPool ? createPlatformApiChannelSaleRecorder(inventoryPool) : undefined;
   const inventorySavedListImportBatchCreator: SavedListInventoryImportBatchCreator = async (params, context) => {
     const inventoryServices = runtime?.services.inventory as
       | {
@@ -564,6 +568,7 @@ export function createPlatformApiHost(
       publicPolicySources,
       draftListingCreator,
       inventoryCleanupAuthority,
+      ...(channelSaleRecorder ? { channelSaleRecorder } : {}),
       inventorySavedListImportBatchCreator,
       ...(pricingHostPorts ?? {}),
     },
@@ -598,6 +603,19 @@ function createPublicPolicySource<Value>(
 
 function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {
   return value && typeof value === "object" && "query" in value ? (value as PgTransactionalPool) : undefined;
+}
+
+function createPlatformApiChannelSaleRecorder(pool: PgTransactionalPool): RecordExternalChannelSale {
+  return async (command) => {
+    const context: EventStoreContext = {
+      tenantId: "tnt_channels_api" as never,
+      audit: {
+        performedByUserId: "usr_channels_api" as never,
+        forAccountId: command.accountId as never,
+      },
+    };
+    return createInventoryExternalChannelSaleRecorderForPool(pool, context)(command);
+  };
 }
 
 /**

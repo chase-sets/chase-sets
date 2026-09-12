@@ -6,7 +6,7 @@ import packageJson from "../../../package.json" with { type: "json" };
 import { collectPublicationCallerEvidence, listTrackedProductionSources, repoRoot } from "./source-evidence";
 
 describe("channel-publication-port-scope-fence", () => {
-  it("ships only domain, api, and tests with no provider, host-port, export-subpath, or mutable registry surface", () => {
+  it("ships only domain, api, and tests without owning provider or mutable registry surfaces", () => {
     const sliceRoot = path.resolve(import.meta.dirname, "..");
     const relativeFiles = listFiles(sliceRoot);
     expect([...new Set(relativeFiles.map((file) => file.split("/")[0]))].sort()).toEqual(["api", "domain", "tests"]);
@@ -16,8 +16,16 @@ describe("channel-publication-port-scope-fence", () => {
       "listing-composition",
       "tcgplayer-csv",
       "outbound-sync",
+      "reconciliation",
     ]);
-    expect(manifest.hostPorts).toEqual([]);
+    expect(manifest.hostPorts).toEqual([
+      {
+        portName: "channelSaleRecorder",
+        providedBy: "inventory",
+        purpose:
+          "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
+      },
+    ]);
     expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support"]);
     expect(manifest.publicExports).toEqual([".", "./context", "./server", "./routes/*"]);
     expect(packageJson.exports).toEqual({

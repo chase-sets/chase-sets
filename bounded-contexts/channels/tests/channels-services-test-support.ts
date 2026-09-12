@@ -6,5 +6,5 @@ export function createChannelsServicesForTest() {
   const unavailable = async (): Promise<never> => {
     throw new Error("Unexpected database access in a Channels route unit test");
   };
-  return channelsModule.createServices({ query: unavailable, connect: unavailable }, {});
+  return channelsModule.createServices({ query: unavailable, connect: unavailable }, { channelSaleRecorder: unavailable });
 }

@@ -29,6 +29,10 @@ export const retentionCoverageExemptions = new Map([
   ["settlement_work_claims", "Claim rows are mutable coordination state, not append-only history."],
   ["platform_control_lease_fencing_tokens", "Monotonic fencing tokens must survive lease row cleanup."],
   ["platform_control_leases", "Lease acquisition already deletes expired lease rows."],
+  [
+    "channel_reconciliation_state",
+    "Durable one-row-per-connection current state is updated in place and must survive between scheduled runs; historical runs live in the event ledger and bounded metrics table.",
+  ],
   ["platform_post_write_tokens", "The post-write token store prunes expired rows on store access."],
   ["platform_projection_checkpoint_readiness", "The scheduled work-signal cleanup runner owns this table."],
   ["platform_projection_checkpoint_waiters", "The scheduled work-signal cleanup runner owns this table."],

@@ -262,7 +262,8 @@ async function seedFacts(db: PgTransactionalPool): Promise<void> {
     VALUES ('listing-synthetic','account-synthetic','item-synthetic','catalog-synthetic','20.00','USD',10,
       '[{"dimensionId":"condition","optionId":"near-mint"}]'::jsonb,'condition:near-mint','active',NULL,
       'Synthetic card',NULL,'Synthetic description',NULL,now(),7);
-    INSERT INTO channels_inventory_item_facts VALUES
+    INSERT INTO channels_inventory_item_facts
+      (item_id,account_id,catalog_item_id,total_quantity,updated_at,item_stream_version) VALUES
       ('item-synthetic','account-synthetic','catalog-synthetic',3,now(),1);
     INSERT INTO channels_catalog_item_category_facts VALUES
       ('catalog-synthetic','cards',true,now(),1);
@@ -290,7 +291,8 @@ async function seedSecondListing(db: PgTransactionalPool): Promise<void> {
     VALUES ('listing-second','account-synthetic','item-second','catalog-synthetic','20.00','USD',10,
       '[{"dimensionId":"condition","optionId":"near-mint"}]'::jsonb,'condition:near-mint','active',NULL,
       'Synthetic second card',NULL,'Synthetic description',NULL,now(),7);
-    INSERT INTO channels_inventory_item_facts VALUES
+    INSERT INTO channels_inventory_item_facts
+      (item_id,account_id,catalog_item_id,total_quantity,updated_at,item_stream_version) VALUES
       ('item-second','account-synthetic','catalog-synthetic',3,now(),1);
   `);
 }

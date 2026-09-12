@@ -10,16 +10,34 @@
     "channel-listing-desired-state",
     "channel-listing-reconciliation-run",
     "channel-inventory-snapshot",
-    "channel-sync-run"
+    "channel-sync-run",
+    "channel-drift",
+    "channel-drift-decision",
+    "channel-reconciliation-run",
+    "missed-sale-gap",
+    "channel-outbound-hold"
   ],
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
-  "slices": ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
+  "slices": [
+    "connections",
+    "publication-port",
+    "listing-composition",
+    "tcgplayer-csv",
+    "outbound-sync",
+    "reconciliation"
+  ],
   "allowedSupportDirectories": ["request-support", "runtime-support"],
   "publicExports": [".", "./context", "./server", "./routes/*"],
-  "allowedContextDependencies": [],
+  "allowedContextDependencies": ["@chase-sets/inventory"],
   "seedRequirements": [],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "channelSaleRecorder",
+      "providedBy": "inventory",
+      "purpose": "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation."
+    }
+  ],
   "eventSubscriptions": [
     {
       "sourceContextName": "marketplace",
@@ -488,6 +506,11 @@
       "classification": "slice",
       "purpose": "The tcgplayer-csv slice owns TCGplayer export snapshots, staged CSV composition, and replayable Channel Sync Runs.",
       "expectedConsumers": ["Channels manual and connector sync workflows"]
+    },
+    "reconciliation": {
+      "classification": "slice",
+      "purpose": "Own Channel Drift classification, decisions, reconciliation runs, missed-sale gaps, outbound holds, and bounded metrics.",
+      "expectedConsumers": ["Channels worker composition, connection detail, and downstream health and snapshot owners"]
     },
     "routes": {
       "classification": "routes",

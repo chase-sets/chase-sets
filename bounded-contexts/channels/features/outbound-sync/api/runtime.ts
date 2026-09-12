@@ -560,6 +560,12 @@ async function claimNextInlineBatch(
         continue;
       }
       if (admission.kind !== "inline") continue;
+      const additionalHold = await dependencies.readAdditionalOutboundHold({
+        connectionId: connection.connectionId,
+        providerIdentity: admission.providerIdentity,
+      });
+      assertAdditionalOutboundHold(additionalHold);
+      if (additionalHold.held) continue;
       const resolved = resolveOutboundOperationBudget(
         policy,
         admission.providerIdentity,
@@ -641,6 +647,24 @@ async function claimNextInlineBatch(
     }
     return { claims, configurationBlocked };
   });
+}
+
+function assertAdditionalOutboundHold(value: unknown): asserts value is Readonly<{
+  held: boolean;
+  sources: readonly ("health" | "operator-kill")[];
+}> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new OutboundSyncError("invalid-input");
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).some((key) => key !== "held" && key !== "sources") ||
+    typeof record.held !== "boolean" ||
+    !Array.isArray(record.sources) ||
+    record.sources.some((source) => source !== "health" && source !== "operator-kill") ||
+    new Set(record.sources).size !== record.sources.length ||
+    record.held !== record.sources.length > 0
+  ) {
+    throw new OutboundSyncError("invalid-input", "Additional outbound hold result is invalid.");
+  }
 }
 
 async function invokeInlineOperation(claim: {

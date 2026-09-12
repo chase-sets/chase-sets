@@ -30,7 +30,24 @@ describe("outbound-provider-state-disposition-table", () => {
     const updatePriceQuantity = vi.fn();
     const delistListing = vi.fn();
     const inline = createChannelProviderRegistry([
-      { identity, setup, publication: { execution: "inline", publishListing, updatePriceQuantity, delistListing } },
+      {
+        identity,
+        setup,
+        publication: {
+          execution: "inline",
+          publishListing,
+          updatePriceQuantity,
+          delistListing,
+          fetchChannelState: async () => ({
+            kind: "complete",
+            items: [],
+            collectedCount: 0,
+            authorityTotal: 0,
+            pageCount: 1,
+          }),
+          fetchSales: async () => ({ kind: "complete", lines: [], collectedCount: 0, authorityTotal: 0, pageCount: 1 }),
+        },
+      },
     ] satisfies readonly ChannelProviderDescriptor[]);
     expect(resolveConnectionExecutionAdmission(inline, connection)).toMatchObject({
       kind: "inline",

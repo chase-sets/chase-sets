@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createApiHost } from "@chase-sets/platform-runtime/api";
 import { module as orderingModule } from "@chase-sets/ordering";
+import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/inventory/server";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPlatformApiHost } from "../src/app";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -83,7 +85,10 @@ describe("cleanup-authority-inventory-host-capability", () => {
         createApiHost(apiContextRegistry, "platform-api", {
           pools,
           runtimeProfile: "public",
-          hostPorts: { processorGateway: createFakePaymentProcessorGateway() },
+          hostPorts: {
+            processorGateway: createFakePaymentProcessorGateway(),
+            channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, accountContext),
+          },
         }),
       ).toThrowError(/inventoryCleanupAuthority host capability/);
     } finally {
@@ -97,3 +102,11 @@ describe("cleanup-authority-inventory-host-capability", () => {
     expect((entry?.manifest.hostPorts ?? []).map((port) => port.portName)).toContain("inventoryCleanupAuthority");
   });
 });
+
+const accountContext: EventStoreContext = {
+  tenantId: "tnt_cleanup_capability_test" as never,
+  audit: {
+    performedByUserId: "usr_cleanup_capability_test" as never,
+    forAccountId: "acc_cleanup_capability_test" as never,
+  },
+};

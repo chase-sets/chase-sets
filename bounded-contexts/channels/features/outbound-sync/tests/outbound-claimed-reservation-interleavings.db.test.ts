@@ -25,12 +25,13 @@ import type {
   PublishListingInput,
   UpdatePriceQuantityInput,
 } from "../../publication-port/domain/contracts";
-import { createOutboundSyncRuntime } from "../api/runtime";
+import { createOutboundSyncRuntime as createOwnedOutboundSyncRuntime } from "../api/runtime";
 import { mapOutboundOperationRow, outboundOperationSqlColumns } from "../api/store";
 import type {
   BoundClaimedReservationRun,
   ClaimedOperationOutcome,
   ClaimedReservationRunSettlementPort,
+  OutboundSyncRuntimeDependencies,
 } from "../domain/contracts";
 import {
   buildChannelOutboundOperationReactionHandlers,
@@ -50,6 +51,22 @@ const productionCompositionContext: EventStoreContext = {
 };
 
 const claimedRegistry = createChannelProviderRegistry([descriptor("synthetic-claimed", "claimed")]);
+const readNoAdditionalOutboundHold: OutboundSyncRuntimeDependencies["readAdditionalOutboundHold"] = async () => ({
+  held: false,
+  sources: [],
+});
+const createOutboundSyncRuntime = (
+  dependencies: Omit<OutboundSyncRuntimeDependencies, "readAdditionalOutboundHold"> &
+    Partial<Pick<OutboundSyncRuntimeDependencies, "readAdditionalOutboundHold">>,
+  options: Parameters<typeof createOwnedOutboundSyncRuntime>[1],
+) =>
+  createOwnedOutboundSyncRuntime(
+    {
+      ...dependencies,
+      readAdditionalOutboundHold: dependencies.readAdditionalOutboundHold ?? readNoAdditionalOutboundHold,
+    },
+    options,
+  );
 
 describeDb(
   "outbound-transition-matrix / outbound-steady-state-and-restart / outbound-claimed-reservation-interleavings",
@@ -270,6 +287,20 @@ describeDb(
                 providerRevision: "synthetic-provider-r3",
               };
             },
+            fetchChannelState: async () => ({
+              kind: "complete",
+              items: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
+            fetchSales: async () => ({
+              kind: "complete",
+              lines: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
           },
         },
       ]);
@@ -537,6 +568,20 @@ describeDb(
             delistListing: async () => {
               throw new Error("rollback control must not delist");
             },
+            fetchChannelState: async () => ({
+              kind: "complete",
+              items: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
+            fetchSales: async () => ({
+              kind: "complete",
+              lines: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
           },
         },
       ]);
@@ -900,7 +945,26 @@ describeDb(
       const registry = createChannelProviderRegistry([
         {
           ...descriptorWithoutPublication("synthetic-inline"),
-          publication: { execution: "inline", publishListing, updatePriceQuantity, delistListing },
+          publication: {
+            execution: "inline",
+            publishListing,
+            updatePriceQuantity,
+            delistListing,
+            fetchChannelState: async () => ({
+              kind: "complete",
+              items: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
+            fetchSales: async () => ({
+              kind: "complete",
+              lines: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
+          },
         },
       ]);
       const runtime = createOutboundSyncRuntime(
@@ -1696,7 +1760,8 @@ async function seedProductionCompositionFacts(db: PgTransactionalPool): Promise<
       '20.00','USD',10,
       '[{"dimensionId":"condition","optionId":"near-mint"}]'::jsonb,'condition:near-mint','active',NULL,
       'Synthetic production composition card',NULL,'Synthetic production composition fixture',NULL,now(),7);
-    INSERT INTO channels_inventory_item_facts VALUES
+    INSERT INTO channels_inventory_item_facts
+      (item_id,account_id,catalog_item_id,total_quantity,updated_at,item_stream_version) VALUES
       ('item-production-composed','acc_owner','catalog-production-composed',3,now(),1);
     INSERT INTO channels_catalog_item_category_facts VALUES
       ('catalog-production-composed','cards',true,now(),1);
@@ -1752,6 +1817,14 @@ function inlineDescriptor(
       publishListing: (input) => execute(input.connectionId),
       updatePriceQuantity: (input) => execute(input.connectionId),
       delistListing: (input) => execute(input.connectionId),
+      fetchChannelState: async () => ({
+        kind: "complete",
+        items: [],
+        collectedCount: 0,
+        authorityTotal: 0,
+        pageCount: 1,
+      }),
+      fetchSales: async () => ({ kind: "complete", lines: [], collectedCount: 0, authorityTotal: 0, pageCount: 1 }),
     },
   };
 }
