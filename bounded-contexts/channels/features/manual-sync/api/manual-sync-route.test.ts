@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
+import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
 import { createUnavailableListingCompositionServices } from "../../listing-composition/tests/service-stub";
 import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
@@ -198,6 +199,7 @@ function app(manualSync: ReturnType<typeof manualServices>, permissions: readonl
   root.route(
     "/api/channels",
     buildChannelsApi({
+      ...createChannelsServicesForTest(),
       connections: connections(),
       listingComposition: createUnavailableListingCompositionServices(),
       outboundSync: createUnavailableOutboundSyncServices(),

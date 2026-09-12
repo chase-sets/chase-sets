@@ -5,6 +5,7 @@ import type { ConnectionHealthServices } from "../../features/connection-health/
 import type { ChannelListingCompositionServices } from "../../features/listing-composition/api/runtime";
 import type { OutboundSyncServices } from "../../features/outbound-sync/domain/contracts";
 import type { TcgplayerCsvServices } from "../../features/tcgplayer-csv/api/runtime";
+import type { ManualSyncServices } from "../../features/manual-sync/api/runtime";
 
 export type ChannelsServices = Readonly<{
   connections: ChannelConnectionServices;
@@ -12,6 +13,7 @@ export type ChannelsServices = Readonly<{
   listingComposition: ChannelListingCompositionServices;
   outboundSync: OutboundSyncServices;
   tcgplayerCsv: TcgplayerCsvServices;
+  manualSync: ManualSyncServices;
   projectors: readonly ProjectionHandlerSet[];
   db: PgTransactionalPool;
 }>;
@@ -22,6 +24,7 @@ export const channelsServicesMembers = defineChannelsServicesMembers([
   "listingComposition",
   "outboundSync",
   "tcgplayerCsv",
+  "manualSync",
   "projectors",
   "db",
 ] as const);
@@ -34,6 +37,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   const listingComposition = Reflect.get(value, "listingComposition");
   const outboundSync = Reflect.get(value, "outboundSync");
   const tcgplayerCsv = Reflect.get(value, "tcgplayerCsv");
+  const manualSync = Reflect.get(value, "manualSync");
   const projectors = Reflect.get(value, "projectors");
   const db = Reflect.get(value, "db");
 
@@ -49,6 +53,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     typeof Reflect.get(outboundSync, "recoverExpiredClaimedOperations") === "function" &&
     typeof Reflect.get(outboundSync, "processNextInlineOperation") === "function" &&
     isObject(tcgplayerCsv) &&
+    isObject(manualSync) &&
     Array.isArray(projectors) &&
     isObject(db)
   );

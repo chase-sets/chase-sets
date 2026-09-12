@@ -141,6 +141,7 @@ function validChannelsCandidate(
     listingComposition: {},
     outboundSync,
     tcgplayerCsv: {},
+    manualSync: {},
     projectors: [],
     db: {},
   } satisfies Record<keyof ChannelsServices, unknown>;

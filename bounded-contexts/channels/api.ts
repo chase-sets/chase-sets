@@ -20,7 +20,7 @@ export type ChannelsApiEnv = {
 };
 
 export function buildChannelsApi(
-  services: ChannelsServices &
+  services: Omit<ChannelsServices, "manualSync"> &
     Readonly<{
       manualSync?: ManualSyncServices;
     }>,

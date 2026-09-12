@@ -62,6 +62,7 @@ function validCandidate() {
       processNextInlineOperation: async () => 0,
     },
     tcgplayerCsv: {},
+    manualSync: {},
     projectors: [],
     db: {},
   } satisfies Record<keyof ChannelsServices, unknown>;
