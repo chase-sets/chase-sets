@@ -614,12 +614,31 @@ describe("Epic and Tracking derivation contract", () => {
 });
 
 describe("planner correction and lane ownership", () => {
+  it("schedules reconciliation hourly including nights and weekends", () => {
+    const workflow = parse(readFileSync(path.join(repoRoot, ".github/workflows/project-status-sync.yml"), "utf8"));
+    expect(workflow.on.schedule).toEqual([{ cron: "17 * * * *" }]);
+  });
+
   const LANE_OWNED_STATUSES = ["In lane", "In review"];
-  const CURRENT_STATUSES = [null, "Backlog", "Refined", "Blocked", "Epic", "Tracking", ...LANE_OWNED_STATUSES];
+  const CURRENT_STATUSES = [
+    null,
+    "Backlog",
+    "Refined",
+    "Blocked",
+    "Epic",
+    "Tracking",
+    ...LANE_OWNED_STATUSES,
+    ...TERMINAL_STATUSES,
+  ];
   const PLANNER_SUBJECTS = [
     {
       name: "native Epic",
       subject: issue({ number: 5496, issueType: { name: "Epic" }, labels: [], milestone: null }),
+      derived: "Epic",
+    },
+    {
+      name: "untyped legacy Epic",
+      subject: issue({ labels: [{ name: "kind:epic" }], milestone: null }),
       derived: "Epic",
     },
     {
@@ -644,11 +663,16 @@ describe("planner correction and lane ownership", () => {
   ];
 
   it.each(PLANNER_SUBJECTS)(
-    "corrects every wrong repository-derived status and preserves lane ownership for a $name",
+    "corrects non-executable placement and preserves executable lane ownership for a $name",
     ({ subject, derived }) => {
       const items = CURRENT_STATUSES.map((status, index) => ({ itemId: `item-${index}`, status, issue: subject }));
       const expected = CURRENT_STATUSES.map((status, index) => ({ status, index }))
-        .filter(({ status }) => !LANE_OWNED_STATUSES.includes(status) && status !== derived)
+        .filter(
+          ({ status }) =>
+            status !== derived &&
+            (["Epic", "Tracking"].includes(derived) ||
+              ![...LANE_OWNED_STATUSES, ...TERMINAL_STATUSES].includes(status)),
+        )
         .map(({ status, index }) => ({
           itemId: `item-${index}`,
           number: subject.number,

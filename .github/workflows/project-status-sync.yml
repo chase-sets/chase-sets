@@ -2,9 +2,8 @@ name: Project Status Sync
 
 on:
   schedule:
-    # Hourly during the working day; Blocked -> Refined is the transition that
-    # matters and it happens whenever a blocker closes.
-    - cron: "17 12-23 * * 1-5"
+    # Delivery and issue creation continue overnight and on weekends.
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -35,7 +34,8 @@ jobs:
       # from dependencies, milestone, and labels. Closed issues reconcile to
       # Landed or Canceled from GitHub's closure reason; explicitly reopened
       # terminal issues return to derived ownership. Active In lane / In review
-      # states remain lane-owned and are never overwritten. DELIVERY_STATUS_OPTION_IDS
+      # states remain lane-owned only for executable work. Open Epic and Tracking
+      # records always return to their derived columns. DELIVERY_STATUS_OPTION_IDS
       # must map every derived and terminal status, including Epic and Tracking,
       # or the script fails before it reads or writes anything.
       - name: Sync status
