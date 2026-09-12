@@ -76,7 +76,7 @@ describe("authoritative seed resume", () => {
     expect(frozenSeedIdentityCorpus, "the pinned corpus literal must be in canonical sorted order").toEqual(
       [...frozenSeedIdentityCorpus].sort(),
     );
-    expect(frozenSeedIdentityCorpus, "the frozen corpus cardinality must remain exact").toHaveLength(293);
+    expect(frozenSeedIdentityCorpus, "the frozen corpus cardinality must remain exact").toHaveLength(295);
 
     const runtime = createHost();
     await exerciseRetainedBasePayoutFeeCompatibility(runtime);
@@ -349,7 +349,7 @@ describe("authoritative seed resume", () => {
       indeterminateReport.report.eventCount,
     );
     const defaultArmViolations = corpusViolations(defaultArmMutant);
-    expect(defaultArmViolations).toContain("corpus cardinality 294 does not equal the pinned 293");
+    expect(defaultArmViolations).toContain("corpus cardinality 296 does not equal the pinned 295");
     expect(mountBindingViolations(defaultArmMutant), "the default-arm mutant must stay green on mount binding").toEqual(
       [],
     );
