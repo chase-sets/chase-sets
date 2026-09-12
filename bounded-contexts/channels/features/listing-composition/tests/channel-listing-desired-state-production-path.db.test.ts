@@ -257,6 +257,9 @@ describeDb("channel-listing-desired-state-production-path", () => {
     const policyAuthority = createConnectionHarness().ports.policyAuthority;
     if (!policyAuthority) throw new Error("The canonical policy authority fixture is unavailable.");
     const rootServices = channelsModule.createServices(pools.channels, {
+      channelSaleRecorder: async (): Promise<never> => {
+        throw new Error("not reached");
+      },
       clock: { now: () => "2026-09-09T12:00:00.000Z" },
       policyAuthority,
       storageLocationAuthority: {

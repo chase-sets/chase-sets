@@ -33,6 +33,7 @@ export function assertOutboundClaimLeaseMs(value: unknown): asserts value is num
 export function assertEnqueueOutboundOperation(
   value: unknown,
   assertDelistDirective: (value: unknown) => void,
+  additionalKeys: readonly string[] = [],
 ): asserts value is EnqueueOutboundOperation {
   const input = closed(
     value,
@@ -46,6 +47,7 @@ export function assertEnqueueOutboundOperation(
       "desiredStateHash",
       "payload",
       "envelope",
+      ...additionalKeys,
     ],
     "outbound desired state",
   );

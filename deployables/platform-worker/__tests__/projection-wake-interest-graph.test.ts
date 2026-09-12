@@ -16,6 +16,7 @@ import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/
 import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
 import { describe, expect, it } from "vitest";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -426,6 +427,7 @@ function createPlatformWorkerHost(runtimeProfile: "landing" | "proof" | "public"
       // Real-registry composition: the worker states the Ordering
       // cleanup-authority capability explicitly as not-mounted (#7222).
       inventoryCleanupAuthority: { kind: "not-mounted" },
+      channelSaleRecorder: createPlatformChannelSaleRecorder(createUnusedPool()),
       notificationAdapter: { send: async () => undefined },
       agentWebhookOrderResolvers: {
         resolveOrderRecipient: async () => null,

@@ -41,6 +41,11 @@ export type EnqueueOutboundOperation = Readonly<{
   envelope: OutboundDesiredStateEnvelope;
 }>;
 
+export type EnqueueOutboundRepush = EnqueueOutboundOperation & Readonly<{ repushOperationId: string }>;
+
+export type EnqueueOutboundReconciliationRepair = EnqueueOutboundOperation &
+  Readonly<{ reconciliationRepairId: string }>;
+
 export type OutboundOperationRecord = Readonly<{
   operationId: string;
   connectionId: string;
@@ -74,6 +79,19 @@ export type OutboundOperationRecord = Readonly<{
   firstClaimedAt: string | null;
   terminalAt: string | null;
 }>;
+
+export type OutboundOperationStatusRecord = Pick<
+  OutboundOperationRecord,
+  | "operationId"
+  | "connectionId"
+  | "channelListingId"
+  | "listingId"
+  | "operationKind"
+  | "listingRevision"
+  | "sourceDesiredStateSequence"
+  | "sourceDesiredStateHash"
+  | "status"
+>;
 
 export type OutboundOperationLane = Readonly<{
   connectionId: string;
@@ -249,6 +267,11 @@ export type OutboundOperationSummary = Readonly<{
 
 export interface OutboundSyncServices {
   enqueueDesiredState(input: EnqueueOutboundOperation): Promise<OutboundOperationRecord | null>;
+  enqueueRepush(input: EnqueueOutboundRepush): Promise<OutboundOperationRecord | null>;
+  enqueueReconciliationRepair(input: EnqueueOutboundReconciliationRepair): Promise<OutboundOperationRecord | null>;
+  readOutboundOperationsByIds(
+    input: Readonly<{ connectionId: string; operationIds: readonly string[] }>,
+  ): Promise<readonly OutboundOperationStatusRecord[]>;
   reserveClaimedOutboundOperations(
     input: ReserveClaimedOutboundOperationsInput,
   ): Promise<ClaimedOperationReservation | null>;
@@ -306,6 +329,12 @@ export type OutboundSyncRuntimeDependencies = Readonly<{
       | Readonly<{ kind: "outcome-unknown" }>,
   ) => Promise<"applied" | "link-write-refused">;
   claimedReservationRunSettlement?: ClaimedReservationRunSettlementPort;
+  readAdditionalOutboundHold: (
+    input: Readonly<{
+      connectionId: string;
+      providerIdentity: ChannelProviderIdentity;
+    }>,
+  ) => Promise<Readonly<{ held: boolean; sources: readonly ("health" | "operator-kill")[] }>>;
 }>;
 
 export class OutboundSyncError extends Error {

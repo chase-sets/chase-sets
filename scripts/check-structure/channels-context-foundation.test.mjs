@@ -135,7 +135,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("outbound-sync-buckets");
   }
-  const emptyArrayFields = ["allowedContextDependencies", "seedRequirements", "hostPorts"];
+  const emptyArrayFields = ["seedRequirements"];
   const absentManifestFields = [
     "sourceRuntimeDeployables",
     "sourceRuntimeProfiles",
@@ -152,12 +152,35 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (
     JSON.stringify(candidate.slices) !==
-    JSON.stringify(["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"])
+    JSON.stringify([
+      "connections",
+      "publication-port",
+      "listing-composition",
+      "tcgplayer-csv",
+      "outbound-sync",
+      "reconciliation",
+    ])
   ) {
     violations.push("slices");
   }
   if (JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support", "runtime-support"])) {
     violations.push("allowedSupportDirectories");
+  }
+  if (JSON.stringify(candidate.allowedContextDependencies) !== JSON.stringify(["@chase-sets/inventory"])) {
+    violations.push("allowedContextDependencies");
+  }
+  if (
+    JSON.stringify(candidate.hostPorts) !==
+    JSON.stringify([
+      {
+        portName: "channelSaleRecorder",
+        providedBy: "inventory",
+        purpose:
+          "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
+      },
+    ])
+  ) {
+    violations.push("hostPorts");
   }
   if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
   if (candidate.eventReactions?.length !== 5) violations.push("eventReactions");
@@ -207,11 +230,25 @@ describe("channels-context-foundation", () => {
         "channel-listing-desired-state",
         "channel-listing-reconciliation-run",
       ]),
-      slices: ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
+      slices: [
+        "connections",
+        "publication-port",
+        "listing-composition",
+        "tcgplayer-csv",
+        "outbound-sync",
+        "reconciliation",
+      ],
       allowedSupportDirectories: ["request-support", "runtime-support"],
       publicExports: [".", "./context", "./server", "./routes/*"],
-      allowedContextDependencies: [],
-      hostPorts: [],
+      allowedContextDependencies: ["@chase-sets/inventory"],
+      hostPorts: [
+        {
+          portName: "channelSaleRecorder",
+          providedBy: "inventory",
+          purpose:
+            "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
+        },
+      ],
     });
     expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([10, 20, 30, 40, 50]);
     expect(manifest.eventSubscriptions.map((entry) => entry.sourceContextName)).toEqual([

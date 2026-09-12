@@ -50,8 +50,13 @@ describe("channel-provider-registry-defaults", () => {
     }
 
     const pool = createEmptyPool();
-    const first = channelsModule.createServices(pool, {});
-    const second = channelsModule.createServices(pool, {});
+    const testPorts = {
+      channelSaleRecorder: async (): Promise<never> => {
+        throw new Error("not reached");
+      },
+    };
+    const first = channelsModule.createServices(pool, testPorts);
+    const second = channelsModule.createServices(pool, testPorts);
     for (const services of [first, second]) {
       await expect(
         services.connections.connectChannel(
@@ -170,6 +175,8 @@ describe("channel-provider-registry-defaults", () => {
         publishListing: throwsUnchanged,
         updatePriceQuantity: throwsUnchanged,
         delistListing: throwsUnchanged,
+        fetchChannelState: throwsUnchanged,
+        fetchSales: throwsUnchanged,
       }),
     ]);
     expect(calls).toBe(0);
@@ -209,7 +216,13 @@ describe("channel-provider-registry-defaults", () => {
 
   it("captures all inline publication methods during registry construction", async () => {
     const calls: string[] = [];
-    const capability = {
+    type MutableInlineCapability = {
+      -readonly [K in keyof Extract<ChannelPublicationCapability, { execution: "inline" }>]: Extract<
+        ChannelPublicationCapability,
+        { execution: "inline" }
+      >[K];
+    };
+    const capability: MutableInlineCapability = {
       execution: "inline" as const,
       publishListing: async () => {
         calls.push("original-publish");
@@ -223,6 +236,20 @@ describe("channel-provider-registry-defaults", () => {
         calls.push("original-delist");
         return { kind: "succeeded" as const, externalListingId: "fixture-external-listing" };
       },
+      fetchChannelState: async () => ({
+        kind: "complete" as const,
+        items: [],
+        collectedCount: 0,
+        authorityTotal: 0,
+        pageCount: 1,
+      }),
+      fetchSales: async () => ({
+        kind: "complete" as const,
+        lines: [],
+        collectedCount: 0,
+        authorityTotal: 0,
+        pageCount: 1,
+      }),
     };
     const registry = createChannelProviderRegistry([createInlineDescriptor(capability)]);
     capability.publishListing = async () => {
@@ -237,6 +264,8 @@ describe("channel-provider-registry-defaults", () => {
       calls.push("mutated-delist");
       return { kind: "succeeded", externalListingId: "fixture-mutated-listing" };
     };
+    capability.fetchChannelState = async () => ({ kind: "bounded-unknown", reason: "source-error" });
+    capability.fetchSales = async () => ({ kind: "bounded-unknown", reason: "source-error" });
 
     const publication = registry.get(fixtureInlineIdentity)?.publication;
     if (!publication || publication.execution !== "inline") throw new Error("Expected fixture inline capability.");
@@ -319,6 +348,14 @@ function createCountingCapability(onCall: () => void): Extract<ChannelPublicatio
       onCall();
       return { kind: "succeeded", externalListingId: "fixture-external-listing" };
     },
+    fetchChannelState: async () => ({
+      kind: "complete",
+      items: [],
+      collectedCount: 0,
+      authorityTotal: 0,
+      pageCount: 1,
+    }),
+    fetchSales: async () => ({ kind: "complete", lines: [], collectedCount: 0, authorityTotal: 0, pageCount: 1 }),
   };
 }
 

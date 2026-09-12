@@ -33,6 +33,11 @@ const sliceAdditions = [
   "ChannelPublicationPrice",
   "ChannelPublicationAttribute",
   "ChannelPublicationDraft",
+  "ChannelFetchBoundedUnknownReason",
+  "ChannelStateLineV1",
+  "ChannelStateFetchResult",
+  "ChannelSaleLineV1",
+  "ChannelSaleFetchResult",
   "PublishListingInput",
   "UpdatePriceQuantityInput",
   "DelistListingInput",
@@ -206,13 +211,13 @@ describe("channel-publication-port-contract", () => {
   it("exposes the exact claimed, inline, lookup, and result signatures", () => {
     type Inline = Extract<ChannelPublicationCapability, { execution: "inline" }>;
     type Claimed = Extract<ChannelPublicationCapability, { execution: "claimed" }>;
-    expectTypeOf<keyof Inline>().toEqualTypeOf<
-      "execution" | "publishListing" | "updatePriceQuantity" | "delistListing"
-    >();
     expectTypeOf<keyof Claimed>().toEqualTypeOf<"execution">();
     expectTypeOf<Parameters<Inline["publishListing"]>[0]>().toEqualTypeOf<PublishListingInput>();
     expectTypeOf<Parameters<Inline["updatePriceQuantity"]>[0]>().toEqualTypeOf<UpdatePriceQuantityInput>();
     expectTypeOf<Parameters<Inline["delistListing"]>[0]>().toEqualTypeOf<DelistListingInput>();
+    expectTypeOf<keyof Inline>().toEqualTypeOf<
+      "execution" | "publishListing" | "updatePriceQuantity" | "delistListing" | "fetchChannelState" | "fetchSales"
+    >();
     expectTypeOf<ReturnType<Inline["publishListing"]>>().toEqualTypeOf<Promise<ChannelPublicationResult>>();
     expectTypeOf<ResolvedChannelProvider["publication"]>().not.toEqualTypeOf<undefined>();
     expectTypeOf<Parameters<ChannelProviderRegistry["get"]>[0]["environment"]>().toEqualTypeOf<
@@ -236,7 +241,9 @@ function compileNegativeContracts(registry: ChannelProviderRegistry): void {
     publishListing: asyncResult,
     updatePriceQuantity: asyncResult,
     delistListing: asyncResult,
-    // @ts-expect-error inline capabilities expose exactly three methods
+    fetchChannelState: async () => ({ kind: "bounded-unknown", reason: "source-error" }),
+    fetchSales: async () => ({ kind: "bounded-unknown", reason: "source-error" }),
+    // @ts-expect-error inline capabilities expose exactly five methods
     fourthMethod: asyncResult,
   };
   const descriptorWithFourthKey: ChannelProviderDescriptor = {

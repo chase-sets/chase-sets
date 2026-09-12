@@ -13,6 +13,8 @@ import {
   type ChannelPublicationDraft,
   type ChannelPublicationPrice,
   type ChannelPublicationResult,
+  type ChannelSaleFetchResult,
+  type ChannelStateFetchResult,
   type DelistListingInput,
   type PublishListingInput,
   type UpdatePriceQuantityInput,
@@ -146,6 +148,122 @@ export function assertChannelPublicationResult(
   invalid(`${label}.kind is invalid.`);
 }
 
+export function assertChannelStateFetchResult(value: unknown): asserts value is ChannelStateFetchResult {
+  const result = assertBoundedFetchResult(value, "channel state result", "items");
+  if (result.kind === "bounded-unknown") return;
+  const items = result.items as unknown[];
+  const identities = new Set<string>();
+  for (const [index, candidate] of items.entries()) {
+    const label = `channel state result.items[${index}]`;
+    assertClosedRecord(
+      candidate,
+      ["externalListingId", "externalOfferId", "revision", "price", "quantity", "fingerprint"],
+      label,
+    );
+    assertScalarString(candidate.externalListingId, 1, 512, `${label}.externalListingId`);
+    if (candidate.externalOfferId !== null)
+      assertScalarString(candidate.externalOfferId, 1, 512, `${label}.externalOfferId`);
+    assertScalarString(candidate.revision, 1, 512, `${label}.revision`);
+    assertChannelPublicationPrice(candidate.price, `${label}.price`);
+    assertBoundedQuantity(candidate.quantity, `${label}.quantity`);
+    if (typeof candidate.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(candidate.fingerprint)) {
+      invalid(`${label}.fingerprint is invalid.`);
+    }
+    const identity = `${candidate.externalListingId}\u0000${candidate.externalOfferId ?? ""}`;
+    if (identities.has(identity)) invalid("channel state result contains a duplicate identity.");
+    identities.add(identity);
+  }
+}
+
+export function assertChannelSaleFetchResult(value: unknown): asserts value is ChannelSaleFetchResult {
+  const result = assertBoundedFetchResult(value, "channel sale result", "lines");
+  if (result.kind === "bounded-unknown") return;
+  const lines = result.lines as unknown[];
+  const identities = new Set<string>();
+  for (const [index, candidate] of lines.entries()) {
+    const label = `channel sale result.lines[${index}]`;
+    assertClosedRecord(
+      candidate,
+      [
+        "saleKey",
+        "externalListingId",
+        "externalOfferId",
+        "requestedQuantity",
+        "unitPriceAmount",
+        "currencyCode",
+        "soldAt",
+      ],
+      label,
+    );
+    assertClosedRecord(
+      candidate.saleKey,
+      ["version", "providerKey", "sellerEnvironmentLineage", "orderLineIdentity"],
+      `${label}.saleKey`,
+    );
+    if (candidate.saleKey.version !== "v1") invalid(`${label}.saleKey.version is invalid.`);
+    for (const key of ["providerKey", "sellerEnvironmentLineage", "orderLineIdentity"] as const) {
+      assertScalarString(candidate.saleKey[key], 1, 512, `${label}.saleKey.${key}`);
+    }
+    assertScalarString(candidate.externalListingId, 1, 512, `${label}.externalListingId`);
+    if (candidate.externalOfferId !== null)
+      assertScalarString(candidate.externalOfferId, 1, 512, `${label}.externalOfferId`);
+    if (
+      !Number.isSafeInteger(candidate.requestedQuantity) ||
+      Number(candidate.requestedQuantity) < 1 ||
+      Number(candidate.requestedQuantity) > 1_000_000
+    ) {
+      invalid(`${label}.requestedQuantity must be an integer from 1 to 1000000.`);
+    }
+    const hasPrice = Object.hasOwn(candidate, "unitPriceAmount");
+    const hasCurrency = Object.hasOwn(candidate, "currencyCode");
+    if (hasPrice !== hasCurrency) invalid(`${label}.unitPriceAmount and currencyCode must be paired.`);
+    if (hasPrice) assertScalarString(candidate.unitPriceAmount, 1, 128, `${label}.unitPriceAmount`);
+    if (hasCurrency && (typeof candidate.currencyCode !== "string" || !CURRENCY.test(candidate.currencyCode))) {
+      invalid(`${label}.currencyCode is invalid.`);
+    }
+    if (Object.hasOwn(candidate, "soldAt")) assertCanonicalInstant(candidate.soldAt, `${label}.soldAt`);
+    const identity = JSON.stringify(candidate.saleKey);
+    if (identities.has(identity)) invalid("channel sale result contains a duplicate sale key.");
+    identities.add(identity);
+  }
+}
+
+function assertBoundedFetchResult(
+  value: unknown,
+  label: string,
+  collectionKey: "items" | "lines",
+): Record<string, unknown> {
+  assertClosedRecord(value, ["kind", collectionKey, "collectedCount", "authorityTotal", "pageCount", "reason"], label);
+  if (value.kind === "bounded-unknown") {
+    assertClosedRecord(value, ["kind", "reason"], label);
+    if (
+      ![
+        "hard-cap",
+        "authority-total-mismatch",
+        "unsafe-next-link",
+        "duplicate-identity",
+        "missing-identity",
+        "missing-authority-total",
+        "source-error",
+      ].includes(String(value.reason))
+    )
+      invalid(`${label}.reason is invalid.`);
+    return value;
+  }
+  if (value.kind !== "complete") invalid(`${label}.kind is invalid.`);
+  assertClosedRecord(value, ["kind", collectionKey, "collectedCount", "authorityTotal", "pageCount"], label);
+  const collection = value[collectionKey];
+  if (!Array.isArray(collection) || collection.length > 100_000) invalid(`${label}.${collectionKey} is invalid.`);
+  for (const key of ["collectedCount", "authorityTotal", "pageCount"] as const) {
+    if (!Number.isSafeInteger(value[key]) || Number(value[key]) < (key === "pageCount" ? 1 : 0))
+      invalid(`${label}.${key} is invalid.`);
+  }
+  if (value.collectedCount !== collection.length || value.collectedCount !== value.authorityTotal) {
+    invalid(`${label} completeness counts do not reconcile.`);
+  }
+  return value;
+}
+
 function assertBoundedQuantity(value: unknown, label: string): asserts value is number {
   if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > 1_000_000) {
     invalid(`${label} must be an integer from 0 to 1000000.`);
@@ -168,6 +286,16 @@ function isScalarString(value: string): boolean {
     if (codePoint >= 0xd800 && codePoint <= 0xdfff) return false;
   }
   return true;
+}
+
+export function assertCanonicalInstant(value: unknown, label: string): asserts value is string {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) ||
+    new Date(value).toISOString() !== value
+  ) {
+    invalid(`${label} must be a canonical UTC instant.`);
+  }
 }
 
 function invalid(message: string): never {

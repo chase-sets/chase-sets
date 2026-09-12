@@ -80,8 +80,24 @@ export function createDelistInput(overrides: Partial<DelistListingInput> = {}): 
 }
 
 export function createInlineDescriptor(
-  publication: Extract<ChannelPublicationCapability, { execution: "inline" }>,
+  publication: Omit<
+    Extract<ChannelPublicationCapability, { execution: "inline" }>,
+    "fetchChannelState" | "fetchSales"
+  > &
+    Partial<Pick<Extract<ChannelPublicationCapability, { execution: "inline" }>, "fetchChannelState" | "fetchSales">>,
   identity: ChannelProviderIdentity = fixtureInlineIdentity,
 ): ChannelProviderDescriptor {
-  return { identity, setup: createFixtureSetup(identity), publication };
+  return {
+    identity,
+    setup: createFixtureSetup(identity),
+    publication: {
+      ...publication,
+      fetchChannelState:
+        publication.fetchChannelState ??
+        (async () => ({ kind: "complete", items: [], collectedCount: 0, authorityTotal: 0, pageCount: 1 })),
+      fetchSales:
+        publication.fetchSales ??
+        (async () => ({ kind: "complete", lines: [], collectedCount: 0, authorityTotal: 0, pageCount: 1 })),
+    },
+  };
 }

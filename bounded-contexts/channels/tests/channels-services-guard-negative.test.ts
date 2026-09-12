@@ -29,6 +29,7 @@ describe("channels-services-guard-negative", () => {
   it("rejects every omitted consumer method", () => {
     const candidate = validCandidate();
     expect(isChannelsServices({ ...candidate, connections: {} })).toBe(false);
+    expect(isChannelsServices({ ...candidate, reconciliation: {} })).toBe(false);
     expect(
       isChannelsServices({
         ...candidate,
@@ -52,6 +53,7 @@ function validCandidate() {
       recoverExpiredClaimedOperations: async () => 0,
       processNextInlineOperation: async () => 0,
     },
+    reconciliation: { reconcileDueConnections: async () => [] },
     tcgplayerCsv: {},
     projectors: [],
     db: {},

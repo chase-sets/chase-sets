@@ -174,6 +174,7 @@ const contextRootExportContracts = new Map([
       "ChannelEnvironment",
       "channelExecutionModes",
       "ChannelExecutionMode",
+      "ChannelFetchBoundedUnknownReason",
       "channelPublicationRejectionCodes",
       "ChannelPublicationRejectionCode",
       "ChannelEnvironment",
@@ -187,6 +188,10 @@ const contextRootExportContracts = new Map([
       "ChannelPublicationSuccess",
       "ChannelPublicationRejection",
       "ChannelPublicationResult",
+      "ChannelStateLineV1",
+      "ChannelStateFetchResult",
+      "ChannelSaleLineV1",
+      "ChannelSaleFetchResult",
       "ChannelPublicationCapability",
       "ChannelProviderDescriptor",
       "ResolvedChannelPublication",
@@ -303,6 +308,14 @@ const approvedCrossContextTypeContracts = new Map([
       importer:
         /^(?:bounded-contexts\/pricing\/features\/economics\/(?:api\/services|integrations\/native-commercial-terms\/provider)|bounded-contexts\/pricing\/support\/runtime-support\/services)\.ts$/,
       symbols: new Set(["CommercialTermsResolver"]),
+    },
+  ],
+  [
+    "@chase-sets/inventory/server",
+    {
+      importer:
+        /^bounded-contexts\/channels\/(?:index|features\/(?:publication-port|reconciliation)\/domain\/contracts)\.ts$/,
+      symbols: new Set(["ExternalChannelSaleKeyV1", "RecordExternalChannelSale"]),
     },
   ],
 ]);

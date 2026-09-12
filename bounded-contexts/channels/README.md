@@ -10,7 +10,10 @@ slice project authoritative facts into one closed, provider-neutral desired
 state. Outbound sync durably orders that state for provider execution, and
 production composition profiles remain empty. The TCGplayer CSV slice
 composes a claimed outbound reservation into one Staged Import Batch and ingests
-Live or Staged exports without making a provider call.
+Live or Staged exports without making a provider call. Reconciliation compares
+complete inline channel observations with expected Link state, retains seller
+drift decisions, records missed external sales through Inventory, and applies
+outbound-only health and operator holds.
 
 ## Owns
 
@@ -30,6 +33,8 @@ Live or Staged exports without making a provider call.
   Links, and durable Reconciliation Runs
 - TCGplayer Channel Export schema pins, Channel Inventory Snapshots, Channel
   Sync Runs, immutable reservation membership, and Staged Import Batches
+- Channel Reconciliation Runs, Drift Classification and Decisions, Missed-Sale
+  Gaps, outbound kill-switch policy, bounded health observations and metrics
 
 ## Does Not Own
 
@@ -37,9 +42,8 @@ Live or Staged exports without making a provider call.
 - Inventory quantity, allocation, reservation, or fulfillment rules (Inventory)
 - Listings and offers (Marketplace)
 - Notification delivery channels or preferences (Notifications)
-- Provider transport, credential custody, OAuth, browser automation, order
-  ingestion, drift classification, health observations, attention policy, or
-  seller UI
+- Provider transport, credential custody, OAuth, browser automation, provider-
+  specific paging, health scoring, attention policy, or seller UI
 
 ## Ubiquitous Language
 
@@ -59,6 +63,11 @@ changes durably and settle only after an independent affected-count check.
 moves through `composed`, `claimed`, and `awaiting-verification` before one of
 its retained terminal outcomes. Only a newer parsed Staged snapshot can prove
 application.
+
+`ChannelReconciliationRun` is a guarded per-connection process with `idle`,
+`due`, `running`, `completed`, `bounded-unknown`, and `held` states. Its steady
+state is a retained complete `in-sync` run. `ChannelDriftDecision` retains only
+the accepted observed/expected fingerprint pair or a repush request.
 
 ## Incoming Dependencies
 
@@ -97,6 +106,10 @@ Injected setup, credential, policy, and storage-location authority resolvers.
    never a quantity-delta basis.
 8. The policy-served batch cap is independent of unknown provider capacity,
    and every reservation member receives exactly one acknowledgement.
+9. Claimed reconciliation reads persisted snapshots through #7034; it never
+   invokes a claimed provider. An incomplete source never proves absence.
+10. Seller, health, and operator holds block outbound provider work only;
+    account-scoped Inventory sale recording remains admitted.
 
 ## Tests
 
