@@ -6,6 +6,7 @@ import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
 import { module as orderingModule } from "@chase-sets/ordering";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -43,6 +44,7 @@ function createUnusedPool() {
 }
 
 function workerHostPorts(overrides: Readonly<Record<string, unknown>> = {}) {
+  const pool = createUnusedPool();
   return {
     processorGateway: createFakePaymentProcessorGateway(),
     moneyMovementGateway: createFakeMoneyMovementGateway(),
@@ -55,6 +57,7 @@ function workerHostPorts(overrides: Readonly<Record<string, unknown>> = {}) {
       resolveShipmentOrderId: async () => null,
       resolveWebhookTargets: async () => [],
     },
+    channelSaleRecorder: createPlatformChannelSaleRecorder(pool),
     ...syntheticPricingHostPorts,
     ...overrides,
   };

@@ -41,6 +41,8 @@ export type EnqueueOutboundOperation = Readonly<{
   envelope: OutboundDesiredStateEnvelope;
 }>;
 
+export type EnqueueOutboundRepush = EnqueueOutboundOperation & Readonly<{ repushOperationId: string }>;
+
 export type OutboundOperationRecord = Readonly<{
   operationId: string;
   connectionId: string;
@@ -249,6 +251,7 @@ export type OutboundOperationSummary = Readonly<{
 
 export interface OutboundSyncServices {
   enqueueDesiredState(input: EnqueueOutboundOperation): Promise<OutboundOperationRecord | null>;
+  enqueueRepush(input: EnqueueOutboundRepush): Promise<OutboundOperationRecord | null>;
   reserveClaimedOutboundOperations(
     input: ReserveClaimedOutboundOperationsInput,
   ): Promise<ClaimedOperationReservation | null>;
@@ -306,6 +309,12 @@ export type OutboundSyncRuntimeDependencies = Readonly<{
       | Readonly<{ kind: "outcome-unknown" }>,
   ) => Promise<"applied" | "link-write-refused">;
   claimedReservationRunSettlement?: ClaimedReservationRunSettlementPort;
+  readAdditionalOutboundHold: (
+    input: Readonly<{
+      connectionId: string;
+      providerIdentity: ChannelProviderIdentity;
+    }>,
+  ) => Promise<Readonly<{ held: boolean; sources: readonly ("health" | "operator-kill")[] }>>;
 }>;
 
 export class OutboundSyncError extends Error {

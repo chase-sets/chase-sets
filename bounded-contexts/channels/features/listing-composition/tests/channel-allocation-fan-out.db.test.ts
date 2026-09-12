@@ -64,7 +64,11 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
     const eventStore = createPostgresEventStore({ pool: pools.channels });
     const policies = createPolicyRuntime({ eventStore, db: pools.channels });
     return {
-      ...channelsModule.createServices(pools.channels, {}),
+      ...channelsModule.createServices(pools.channels, {
+        channelSaleRecorder: async (): Promise<never> => {
+          throw new Error("not reached");
+        },
+      }),
       listingComposition: createChannelListingCompositionRuntime({
         eventStore,
         transactionalEventStore: eventStore,

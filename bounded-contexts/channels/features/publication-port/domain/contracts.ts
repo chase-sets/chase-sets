@@ -3,6 +3,7 @@ import type {
   ChannelConnectionSetupResolver,
   ChannelEnvironment,
 } from "../../connections/domain/contracts";
+import type { ExternalChannelSaleKeyV1 } from "@chase-sets/inventory/server";
 
 export const channelExecutionModes = ["inline", "claimed"] as const;
 export type ChannelExecutionMode = (typeof channelExecutionModes)[number];
@@ -66,6 +67,54 @@ export type DelistListingInput = Readonly<{
   listingRevision: number;
 }>;
 
+export type ChannelFetchBoundedUnknownReason =
+  | "hard-cap"
+  | "authority-total-mismatch"
+  | "unsafe-next-link"
+  | "duplicate-identity"
+  | "missing-identity"
+  | "missing-authority-total"
+  | "source-error";
+
+export type ChannelStateLineV1 = Readonly<{
+  externalListingId: string;
+  externalOfferId: string | null;
+  revision: string;
+  price: ChannelPublicationPrice;
+  quantity: number;
+  fingerprint: string;
+}>;
+
+export type ChannelSaleLineV1 = Readonly<{
+  saleKey: ExternalChannelSaleKeyV1;
+  externalListingId: string;
+  externalOfferId: string | null;
+  requestedQuantity: number;
+  unitPriceAmount?: string;
+  currencyCode?: string;
+  soldAt?: string;
+}>;
+
+export type ChannelStateFetchResult =
+  | Readonly<{
+      kind: "complete";
+      items: readonly ChannelStateLineV1[];
+      collectedCount: number;
+      authorityTotal: number;
+      pageCount: number;
+    }>
+  | Readonly<{ kind: "bounded-unknown"; reason: ChannelFetchBoundedUnknownReason }>;
+
+export type ChannelSaleFetchResult =
+  | Readonly<{
+      kind: "complete";
+      lines: readonly ChannelSaleLineV1[];
+      collectedCount: number;
+      authorityTotal: number;
+      pageCount: number;
+    }>
+  | Readonly<{ kind: "bounded-unknown"; reason: ChannelFetchBoundedUnknownReason }>;
+
 export type ChannelPublicationSuccess = Readonly<{
   kind: "succeeded";
   externalListingId: string;
@@ -87,6 +136,8 @@ export type ChannelPublicationCapability = Readonly<
       publishListing(input: PublishListingInput): Promise<ChannelPublicationResult>;
       updatePriceQuantity(input: UpdatePriceQuantityInput): Promise<ChannelPublicationResult>;
       delistListing(input: DelistListingInput): Promise<ChannelPublicationResult>;
+      fetchChannelState(input: Readonly<{ connectionId: string }>): Promise<ChannelStateFetchResult>;
+      fetchSales(input: Readonly<{ connectionId: string; since: string }>): Promise<ChannelSaleFetchResult>;
     }
 >;
 

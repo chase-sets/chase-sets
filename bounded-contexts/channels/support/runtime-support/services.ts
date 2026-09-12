@@ -4,6 +4,7 @@ import type { ChannelConnectionServices } from "../../features/connections/domai
 import type { ConnectionHealthServices } from "../../features/connection-health/domain/contracts";
 import type { ChannelListingCompositionServices } from "../../features/listing-composition/api/runtime";
 import type { OutboundSyncServices } from "../../features/outbound-sync/domain/contracts";
+import type { ChannelReconciliationServices } from "../../features/reconciliation/domain/contracts";
 import type { TcgplayerCsvServices } from "../../features/tcgplayer-csv/api/runtime";
 import type { ManualSyncServices } from "../../features/manual-sync/api/runtime";
 
@@ -12,6 +13,7 @@ export type ChannelsServices = Readonly<{
   connectionHealth: ConnectionHealthServices;
   listingComposition: ChannelListingCompositionServices;
   outboundSync: OutboundSyncServices;
+  reconciliation: ChannelReconciliationServices;
   tcgplayerCsv: TcgplayerCsvServices;
   manualSync: ManualSyncServices;
   projectors: readonly ProjectionHandlerSet[];
@@ -23,6 +25,7 @@ export const channelsServicesMembers = defineChannelsServicesMembers([
   "connectionHealth",
   "listingComposition",
   "outboundSync",
+  "reconciliation",
   "tcgplayerCsv",
   "manualSync",
   "projectors",
@@ -36,6 +39,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   const connectionHealth = Reflect.get(value, "connectionHealth");
   const listingComposition = Reflect.get(value, "listingComposition");
   const outboundSync = Reflect.get(value, "outboundSync");
+  const reconciliation = Reflect.get(value, "reconciliation");
   const tcgplayerCsv = Reflect.get(value, "tcgplayerCsv");
   const manualSync = Reflect.get(value, "manualSync");
   const projectors = Reflect.get(value, "projectors");
@@ -52,6 +56,8 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     isObject(outboundSync) &&
     typeof Reflect.get(outboundSync, "recoverExpiredClaimedOperations") === "function" &&
     typeof Reflect.get(outboundSync, "processNextInlineOperation") === "function" &&
+    isObject(reconciliation) &&
+    typeof Reflect.get(reconciliation, "reconcileDueConnections") === "function" &&
     isObject(tcgplayerCsv) &&
     isObject(manualSync) &&
     Array.isArray(projectors) &&

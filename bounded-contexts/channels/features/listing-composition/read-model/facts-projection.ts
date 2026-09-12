@@ -42,10 +42,11 @@ export function buildChannelInventoryFactsProjectionHandlers(db: PgQueryable): P
       const data = record(event.data);
       await db.query(
         `INSERT INTO channels_inventory_item_facts
-           (item_id, account_id, catalog_item_id, total_quantity, updated_at, item_stream_version)
-         VALUES ($1,$2,$3,$4,$5,$6)
+           (item_id, account_id, catalog_item_id, storage_location_id, total_quantity, updated_at, item_stream_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (item_id) DO UPDATE SET
            account_id = EXCLUDED.account_id, catalog_item_id = EXCLUDED.catalog_item_id,
+           storage_location_id = EXCLUDED.storage_location_id,
            total_quantity = EXCLUDED.total_quantity, updated_at = EXCLUDED.updated_at,
            item_stream_version = EXCLUDED.item_stream_version
          WHERE channels_inventory_item_facts.item_stream_version < EXCLUDED.item_stream_version`,
@@ -53,6 +54,7 @@ export function buildChannelInventoryFactsProjectionHandlers(db: PgQueryable): P
           data.itemId,
           data.accountId,
           data.catalogItemId,
+          data.storageLocationId,
           data.totalQuantity,
           event.timing.recordedAt,
           event.streamVersion,

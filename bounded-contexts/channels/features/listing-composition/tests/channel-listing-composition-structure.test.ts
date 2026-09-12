@@ -108,7 +108,7 @@ describe("channel-listing-composition-export-surface", () => {
       expect(runtime, symbol).toContain(symbol);
     expect(root).not.toContain("@chase-sets/marketplace");
     expect(root).not.toContain("@chase-sets/catalog");
-    expect(root).not.toContain("@chase-sets/inventory");
+    expect(root).toContain('import type { RecordExternalChannelSale } from "@chase-sets/inventory/server"');
   });
 
   it("R12 rejects the fragmented eight-file entry-to-effect trace mutant", () => {

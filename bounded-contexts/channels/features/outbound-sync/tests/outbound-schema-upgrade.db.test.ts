@@ -74,7 +74,11 @@ describeDb("outbound-sync schema upgrades", () => {
        VALUES ('connection-upgrade','account-upgrade','tcgplayer','sandbox','active',now(),now(),'[]'::jsonb,now(),1)`,
     );
     const runtime = createOutboundSyncRuntime(
-      { db: pools.channels, recordOutcome: async () => "applied" },
+      {
+        db: pools.channels,
+        recordOutcome: async () => "applied",
+        readAdditionalOutboundHold: async () => ({ held: false, sources: [] }),
+      },
       { assertDelistDirective: () => undefined },
     );
     await runtime.enqueueDesiredState(desiredState());

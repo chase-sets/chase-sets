@@ -34,7 +34,10 @@ export type {
  * composition root binds this to Ordering's `inventoryCleanupAuthority` host
  * capability; Ordering never imports Inventory code.
  */
-export { createInventoryHoldCleanupAuthorityForPool } from "./support/runtime-support/services";
+export {
+  createInventoryExternalChannelSaleRecorderForPool,
+  createInventoryHoldCleanupAuthorityForPool,
+} from "./support/runtime-support/services";
 export {
   INVENTORY_HOLD_AUTHORITY_MAX_EVENTS,
   INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_ROWS,

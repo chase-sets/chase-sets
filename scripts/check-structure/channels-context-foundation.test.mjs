@@ -186,12 +186,29 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
       "outbound-sync",
       "connection-health",
       "manual-sync",
+      "reconciliation",
     ])
   ) {
     violations.push("slices");
   }
   if (JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support", "runtime-support"])) {
     violations.push("allowedSupportDirectories");
+  }
+  if (JSON.stringify(candidate.allowedContextDependencies) !== JSON.stringify(["@chase-sets/inventory"])) {
+    violations.push("allowedContextDependencies");
+  }
+  if (
+    JSON.stringify(candidate.hostPorts) !==
+    JSON.stringify([
+      {
+        portName: "channelSaleRecorder",
+        providedBy: "inventory",
+        purpose:
+          "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
+      },
+    ])
+  ) {
+    violations.push("hostPorts");
   }
   if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
   if (candidate.eventReactions?.length !== 4) violations.push("eventReactions");
@@ -610,7 +627,7 @@ describe("channels-foundation-surface-fence", () => {
       ),
     ).toEqual(["runtime-support-files"]);
     expect(
-      collectChannelsSurfaceViolations({ ...manifest, allowedSupportDirectories: ["request-support"] }, files),
+      collectChannelsSurfaceViolations({ ...manifest, allowedSupportDirectories: ["request-support", "runtime-support"] }, files),
     ).toEqual(["allowedSupportDirectories"]);
 
     const landingMutant = { ...manifest, apiRuntimeProfiles: ["proof", "public", "landing"] };

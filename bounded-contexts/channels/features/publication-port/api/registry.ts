@@ -1,5 +1,5 @@
 import type { ChannelConnectionSetupDeclaration } from "../../connections/domain/contracts";
-import { assertClosedRecord, assertSetupDeclaration } from "../../connections/domain/validation";
+import { assertClosedRecord, assertOpaqueId, assertSetupDeclaration } from "../../connections/domain/validation";
 import type {
   ChannelProviderDescriptor,
   ChannelProviderIdentity,
@@ -11,6 +11,9 @@ import type {
 import {
   assertChannelProviderIdentity,
   assertChannelPublicationResult,
+  assertCanonicalInstant,
+  assertChannelSaleFetchResult,
+  assertChannelStateFetchResult,
   assertDelistListingInput,
   assertPublishListingInput,
   assertUpdatePriceQuantityInput,
@@ -72,7 +75,11 @@ export const channelProviderRegistry: ChannelProviderRegistry = createChannelPro
 );
 
 function resolvePublication(value: unknown, label: string): ResolvedChannelPublication {
-  assertClosedRecord(value, ["execution", "publishListing", "updatePriceQuantity", "delistListing"], label);
+  assertClosedRecord(
+    value,
+    ["execution", "publishListing", "updatePriceQuantity", "delistListing", "fetchChannelState", "fetchSales"],
+    label,
+  );
   if (value.execution === "claimed") {
     assertClosedRecord(value, ["execution"], label);
     return Object.freeze({ execution: "claimed" });
@@ -82,6 +89,8 @@ function resolvePublication(value: unknown, label: string): ResolvedChannelPubli
     publishListing: value.publishListing,
     updatePriceQuantity: value.updatePriceQuantity,
     delistListing: value.delistListing,
+    fetchChannelState: value.fetchChannelState,
+    fetchSales: value.fetchSales,
   });
   return Object.freeze({
     execution: "inline",
@@ -103,6 +112,21 @@ function resolvePublication(value: unknown, label: string): ResolvedChannelPubli
       assertChannelPublicationResult(result);
       return result;
     },
+    fetchChannelState: async (input) => {
+      assertClosedRecord(input, ["connectionId"], "fetchChannelState input");
+      assertOpaqueId(input.connectionId, "fetchChannelState input.connectionId");
+      const result = await registeredMethods.fetchChannelState(input);
+      assertChannelStateFetchResult(result);
+      return result;
+    },
+    fetchSales: async (input) => {
+      assertClosedRecord(input, ["connectionId", "since"], "fetchSales input");
+      assertOpaqueId(input.connectionId, "fetchSales input.connectionId");
+      assertCanonicalInstant(input.since, "fetchSales input.since");
+      const result = await registeredMethods.fetchSales(input);
+      assertChannelSaleFetchResult(result);
+      return result;
+    },
   });
 }
 
@@ -110,11 +134,17 @@ function assertInlinePublicationCapability(
   value: unknown,
   label: string,
 ): asserts value is Extract<ChannelPublicationCapability, { execution: "inline" }> {
-  assertClosedRecord(value, ["execution", "publishListing", "updatePriceQuantity", "delistListing"], label);
+  assertClosedRecord(
+    value,
+    ["execution", "publishListing", "updatePriceQuantity", "delistListing", "fetchChannelState", "fetchSales"],
+    label,
+  );
   if (value.execution !== "inline") invalid(`${label}.execution is invalid.`);
   if (typeof value.publishListing !== "function") invalid(`${label}.publishListing must be a function.`);
   if (typeof value.updatePriceQuantity !== "function") invalid(`${label}.updatePriceQuantity must be a function.`);
   if (typeof value.delistListing !== "function") invalid(`${label}.delistListing must be a function.`);
+  if (typeof value.fetchChannelState !== "function") invalid(`${label}.fetchChannelState must be a function.`);
+  if (typeof value.fetchSales !== "function") invalid(`${label}.fetchSales must be a function.`);
 }
 
 function freezeIdentity(identity: ChannelProviderIdentity): ChannelProviderIdentity {
