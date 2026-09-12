@@ -498,6 +498,13 @@ async function claimNextInlineBatch(
            WHERE pending.connection_id = eligible.connection_id
              AND pending.status = 'pending' AND pending.next_attempt_at <= $1
              AND pending_lane.blocked_operation_id IS NULL
+             AND pending.operation_id = (
+               SELECT earliest.operation_id FROM channel_outbound_operations AS earliest
+               WHERE earliest.connection_id=pending.connection_id
+                 AND earliest.channel_listing_id=pending.channel_listing_id
+                 AND earliest.status='pending'
+               ORDER BY earliest.enqueued_at,earliest.operation_id LIMIT 1
+             )
              AND NOT EXISTS (
                SELECT 1 FROM channel_outbound_operations AS sibling
                WHERE sibling.connection_id = pending.connection_id

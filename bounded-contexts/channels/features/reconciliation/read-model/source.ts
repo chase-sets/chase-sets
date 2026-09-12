@@ -79,6 +79,7 @@ export async function readExpectedReconciliationListings(
        AND link.last_desired_state_sequence IS NOT NULL
        AND link.last_desired_listing_revision IS NOT NULL AND link.last_desired_state_hash IS NOT NULL
        AND link.last_desired_payload IS NOT NULL
+       AND NOT (link.last_desired_intent='delist' AND link.publish_state='delisted')
      ORDER BY link.channel_listing_id LIMIT $2`,
     [input.connectionId, input.limit + 1],
   );

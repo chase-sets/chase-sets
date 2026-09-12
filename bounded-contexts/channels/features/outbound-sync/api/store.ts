@@ -6,6 +6,7 @@ import {
   OutboundSyncError,
   type ClaimedOperationReservation,
   type EnqueueOutboundOperation,
+  type EnqueueOutboundReconciliationRepair,
   type EnqueueOutboundRepush,
   type OutboundConnection,
   type OutboundOperationLane,
@@ -21,6 +22,7 @@ type OperationRow = Readonly<{
   channel_listing_id: string;
   listing_id: string;
   operation_kind: "publish" | "update" | "delist";
+  operation_origin: "desired-state" | "repush" | "reconciliation-repair";
   listing_revision: string | number;
   source_desired_state_sequence: string | number;
   payload: unknown;
@@ -67,7 +69,7 @@ type LaneRow = Readonly<{
   revision: string | number;
 }>;
 
-const operationColumns = `operation_id, connection_id, channel_listing_id, listing_id, operation_kind,
+const operationColumns = `operation_id, connection_id, channel_listing_id, listing_id, operation_kind, operation_origin,
   listing_revision, source_desired_state_sequence, payload, payload_digest, status, revision,
   attempt_id, claim_generation, claimant_kind, claim_owner_id, reservation_id, claimed_until,
   attempt_count, next_attempt_at, last_rejection_code, terminal_reason, link_write_state,
@@ -99,9 +101,12 @@ export function createOutboundOperationStore(
           [input.connectionId, input.channelListingId],
         );
         const current = await db.query<
-          Pick<OperationRow, "operation_id" | "status" | "revision" | "source_desired_state_sequence">
+          Pick<
+            OperationRow,
+            "operation_id" | "operation_origin" | "status" | "revision" | "source_desired_state_sequence"
+          >
         >(
-          `SELECT operation_id, status, revision, source_desired_state_sequence
+          `SELECT operation_id, operation_origin, status, revision, source_desired_state_sequence
            FROM channel_outbound_operations
            WHERE connection_id = $1 AND channel_listing_id = $2
            ORDER BY source_desired_state_sequence DESC
@@ -110,13 +115,35 @@ export function createOutboundOperationStore(
         );
         if (current.rows.some((row) => Number(row.source_desired_state_sequence) >= input.desiredStateSequence))
           return null;
-        const pending = current.rows.find((row) => row.status === "pending");
         const enqueuedAt = now();
+        const supersededRepairs = current.rows
+          .filter(
+            (row) =>
+              row.status === "pending" &&
+              row.operation_origin === "reconciliation-repair" &&
+              Number(row.source_desired_state_sequence) < input.desiredStateSequence,
+          )
+          .map((row) => ({ operation_id: row.operation_id, revision: Number(row.revision) }));
+        await db.query(
+          `WITH candidates AS (
+             SELECT * FROM jsonb_to_recordset($1::jsonb) AS candidate(operation_id text,revision bigint)
+           )
+           UPDATE channel_outbound_operations AS operation
+           SET status='failed',revision=operation.revision+1,
+               terminal_reason='superseded-by-newer-desired-state',terminal_at=$2
+           FROM candidates AS candidate
+           WHERE operation.operation_id=candidate.operation_id AND operation.revision=candidate.revision
+             AND operation.status='pending' AND operation.operation_origin='reconciliation-repair'`,
+          [JSON.stringify(supersededRepairs), enqueuedAt],
+        );
+        const pending = current.rows.find(
+          (row) => row.status === "pending" && row.operation_origin === "desired-state",
+        );
         const values = operationValues(operationId, input, digest, enqueuedAt);
         const result = pending
           ? await db.query<OperationRow>(
               `UPDATE channel_outbound_operations
-               SET operation_id = $1, listing_id = $2, operation_kind = $3, listing_revision = $4,
+               SET operation_id = $1, listing_id = $2, operation_kind = $3, operation_origin = 'desired-state', listing_revision = $4,
                    source_desired_state_sequence = $5, payload = $6::jsonb, payload_digest = $7,
                    revision = revision + 1, attempt_id = NULL, claimant_kind = NULL,
                    claim_owner_id = NULL, reservation_id = NULL, claimed_until = NULL,
@@ -148,12 +175,12 @@ export function createOutboundOperationStore(
             )
           : await db.query<OperationRow>(
               `INSERT INTO channel_outbound_operations (
-                 operation_id, connection_id, channel_listing_id, listing_id, operation_kind,
+                 operation_id, connection_id, channel_listing_id, listing_id, operation_kind, operation_origin,
                  listing_revision, source_desired_state_sequence, payload, payload_digest,
                  status, revision, next_attempt_at, source_event_id, source_stream_id,
                  source_stream_version, source_global_position, source_desired_state_hash,
                  source_occurred_at, enqueued_at
-               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,'pending',1,$10,$11,$12,$13,$14,$15,$16,$10)
+               ) VALUES ($1,$2,$3,$4,$5,'desired-state',$6,$7,$8::jsonb,$9,'pending',1,$10,$11,$12,$13,$14,$15,$16,$10)
                RETURNING ${operationColumns}`,
               values,
             );
@@ -203,15 +230,73 @@ export function createOutboundOperationStore(
         const enqueuedAt = now();
         const result = await db.query<OperationRow>(
           `INSERT INTO channel_outbound_operations (
-             operation_id,connection_id,channel_listing_id,listing_id,operation_kind,
+             operation_id,connection_id,channel_listing_id,listing_id,operation_kind,operation_origin,
              listing_revision,source_desired_state_sequence,payload,payload_digest,status,revision,next_attempt_at,
              source_event_id,source_stream_id,source_stream_version,source_global_position,
              source_desired_state_hash,source_occurred_at,enqueued_at
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,'pending',1,$10,$11,$12,$13,$14,$15,$16,$10)
+           ) VALUES ($1,$2,$3,$4,$5,'repush',$6,$7,$8::jsonb,$9,'pending',1,$10,$11,$12,$13,$14,$15,$16,$10)
            RETURNING ${operationColumns}`,
           operationValues(operationId, input, digest, enqueuedAt),
         );
         return mapOperation(result.rows[0]!);
+      });
+    },
+
+    enqueueReconciliationRepair: async (
+      input: EnqueueOutboundReconciliationRepair,
+    ): Promise<OutboundOperationRecord | null> => {
+      assertEnqueueOutboundOperation(input, options.assertDelistDirective, ["reconciliationRepairId"]);
+      if (!input.reconciliationRepairId || input.reconciliationRepairId.length > 512) {
+        throw new OutboundSyncError("invalid-input");
+      }
+      const payloadHash = payloadDigest(input.payload);
+      const operationId = `cop_${createHash("sha256")
+        .update(
+          `reconciliation-repair\0${input.connectionId}\0${input.channelListingId}\0${input.reconciliationRepairId}`,
+          "utf8",
+        )
+        .digest("hex")
+        .slice(0, 40)}`;
+      return withPgTransaction(dependencies.db, async (db) => {
+        const replay = await db.query<OperationRow>(
+          `SELECT ${operationColumns} FROM channel_outbound_operations WHERE operation_id=$1 FOR UPDATE`,
+          [operationId],
+        );
+        if (replay.rows[0]) {
+          assertRepairReplay(replay.rows[0], input, payloadHash);
+          return replay.rows[0].status === "failed" ? null : mapOperation(replay.rows[0]);
+        }
+        await db.query(
+          `INSERT INTO channel_outbound_lanes (connection_id,channel_listing_id) VALUES ($1,$2)
+           ON CONFLICT DO NOTHING`,
+          [input.connectionId, input.channelListingId],
+        );
+        await db.query(
+          `SELECT revision FROM channel_outbound_lanes
+           WHERE connection_id=$1 AND channel_listing_id=$2 FOR UPDATE`,
+          [input.connectionId, input.channelListingId],
+        );
+        const latest = await db.query<Pick<OperationRow, "source_desired_state_sequence">>(
+          `SELECT source_desired_state_sequence FROM channel_outbound_operations
+           WHERE connection_id=$1 AND channel_listing_id=$2
+           ORDER BY source_desired_state_sequence DESC,revision DESC LIMIT 1 FOR UPDATE`,
+          [input.connectionId, input.channelListingId],
+        );
+        if (latest.rows[0] && Number(latest.rows[0].source_desired_state_sequence) > input.desiredStateSequence) {
+          throw new OutboundSyncError("stale-fence", "Reconciliation repair basis is not current.");
+        }
+        const enqueuedAt = now();
+        const inserted = await db.query<OperationRow>(
+          `INSERT INTO channel_outbound_operations (
+             operation_id,connection_id,channel_listing_id,listing_id,operation_kind,operation_origin,
+             listing_revision,source_desired_state_sequence,payload,payload_digest,status,revision,next_attempt_at,
+             source_event_id,source_stream_id,source_stream_version,source_global_position,
+             source_desired_state_hash,source_occurred_at,enqueued_at
+           ) VALUES ($1,$2,$3,$4,$5,'reconciliation-repair',$6,$7,$8::jsonb,$9,'pending',1,$10,$11,$12,$13,$14,$15,$16,$10)
+           RETURNING ${operationColumns}`,
+          operationValues(operationId, input, payloadHash, enqueuedAt),
+        );
+        return mapOperation(inserted.rows[0]!);
       });
     },
 
@@ -269,6 +354,13 @@ async function reserveClaimedOutboundOperations(
              AND operation.status = 'pending'
              AND operation.next_attempt_at <= $2
              AND lane.blocked_operation_id IS NULL
+             AND operation.operation_id = (
+               SELECT earliest.operation_id FROM channel_outbound_operations AS earliest
+               WHERE earliest.connection_id=operation.connection_id
+                 AND earliest.channel_listing_id=operation.channel_listing_id
+                 AND earliest.status='pending'
+               ORDER BY earliest.enqueued_at,earliest.operation_id LIMIT 1
+             )
              AND NOT EXISTS (
                SELECT 1 FROM channel_outbound_operations AS active
                WHERE active.connection_id = operation.connection_id
@@ -395,6 +487,26 @@ function operationValues(operationId: string, input: EnqueueOutboundOperation, d
     input.desiredStateHash,
     input.envelope.sourceOccurredAt,
   ] as const;
+}
+
+function assertRepairReplay(
+  row: OperationRow,
+  input: EnqueueOutboundReconciliationRepair,
+  expectedPayloadDigest: string,
+): void {
+  if (
+    row.operation_origin !== "reconciliation-repair" ||
+    row.connection_id !== input.connectionId ||
+    row.channel_listing_id !== input.channelListingId ||
+    row.listing_id !== input.listingId ||
+    row.operation_kind !== input.operationKind ||
+    Number(row.listing_revision) !== input.listingRevision ||
+    Number(row.source_desired_state_sequence) !== input.desiredStateSequence ||
+    row.source_desired_state_hash !== input.desiredStateHash ||
+    row.payload_digest !== expectedPayloadDigest
+  ) {
+    throw new OutboundSyncError("stale-fence", "Reconciliation repair identity was reused with different input.");
+  }
 }
 
 function deriveOperationId(input: EnqueueOutboundOperation): string {

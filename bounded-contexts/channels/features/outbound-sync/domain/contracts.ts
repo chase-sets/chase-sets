@@ -43,6 +43,9 @@ export type EnqueueOutboundOperation = Readonly<{
 
 export type EnqueueOutboundRepush = EnqueueOutboundOperation & Readonly<{ repushOperationId: string }>;
 
+export type EnqueueOutboundReconciliationRepair = EnqueueOutboundOperation &
+  Readonly<{ reconciliationRepairId: string }>;
+
 export type OutboundOperationRecord = Readonly<{
   operationId: string;
   connectionId: string;
@@ -252,6 +255,7 @@ export type OutboundOperationSummary = Readonly<{
 export interface OutboundSyncServices {
   enqueueDesiredState(input: EnqueueOutboundOperation): Promise<OutboundOperationRecord | null>;
   enqueueRepush(input: EnqueueOutboundRepush): Promise<OutboundOperationRecord | null>;
+  enqueueReconciliationRepair(input: EnqueueOutboundReconciliationRepair): Promise<OutboundOperationRecord | null>;
   reserveClaimedOutboundOperations(
     input: ReserveClaimedOutboundOperationsInput,
   ): Promise<ClaimedOperationReservation | null>;

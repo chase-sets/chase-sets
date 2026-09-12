@@ -3,6 +3,7 @@ import type {
   ChannelDriftAttentionContribution,
   ChannelDriftDecision,
   ChannelHealthObservationV1,
+  ChannelHealthObservationIdentity,
   ChannelReconciliationCounts,
   ChannelReconciliationMetrics,
 } from "../domain/contracts";
@@ -177,6 +178,61 @@ export async function readPendingHealthObservations(
     [limit],
   );
   return result.rows.map((row) => row.payload);
+}
+
+export async function acknowledgeHealthObservations(
+  db: PgQueryable,
+  input: Readonly<{ observations: readonly ChannelHealthObservationIdentity[]; consumedAt: string }>,
+): Promise<Readonly<{ consumed: number }>> {
+  if (input.observations.length < 1 || input.observations.length > 1_000) {
+    throw new Error("Channel Reconciliation health acknowledgment must contain 1 to 1000 observations.");
+  }
+  const identities = input.observations.map((observation) => {
+    const actualKeys = Object.keys(observation).sort();
+    const expectedKeys = ["resultOrdinal", "sourceAttempt", "sourceWorkId"];
+    if (
+      actualKeys.length !== expectedKeys.length ||
+      actualKeys.some((key, index) => key !== expectedKeys[index]) ||
+      typeof observation.sourceWorkId !== "string" ||
+      observation.sourceWorkId.length < 1 ||
+      observation.sourceWorkId.length > 512 ||
+      !Number.isSafeInteger(observation.sourceAttempt) ||
+      observation.sourceAttempt < 1 ||
+      !Number.isSafeInteger(observation.resultOrdinal) ||
+      observation.resultOrdinal < 1
+    ) {
+      throw new Error("Channel Reconciliation health acknowledgment identity is invalid.");
+    }
+    return {
+      source_work_id: observation.sourceWorkId,
+      source_attempt: observation.sourceAttempt,
+      result_ordinal: observation.resultOrdinal,
+    };
+  });
+  const identityKeys = identities.map(
+    (identity) => `${identity.source_work_id}\0${identity.source_attempt}\0${identity.result_ordinal}`,
+  );
+  if (new Set(identityKeys).size !== identityKeys.length) {
+    throw new Error("Channel Reconciliation health acknowledgment identities must be unique.");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(input.consumedAt)) {
+    throw new Error("Channel Reconciliation health acknowledgment instant is invalid.");
+  }
+  const updated = await db.query(
+    `WITH candidates AS (
+       SELECT * FROM jsonb_to_recordset($1::jsonb)
+       AS candidate(source_work_id text,source_attempt integer,result_ordinal integer)
+     )
+     UPDATE channel_reconciliation_health_observations AS observation
+     SET consumed_at=$2::timestamptz
+     FROM candidates AS candidate
+     WHERE observation.source_work_id=candidate.source_work_id
+       AND observation.source_attempt=candidate.source_attempt
+       AND observation.result_ordinal=candidate.result_ordinal
+       AND observation.consumed_at IS NULL`,
+    [JSON.stringify(identities), input.consumedAt],
+  );
+  return { consumed: Number(updated.rowCount ?? 0) };
 }
 
 async function sha256(value: string): Promise<string> {

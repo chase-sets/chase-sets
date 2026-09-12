@@ -7,9 +7,11 @@ const tables = [
     state text NOT NULL CHECK (state IN ('idle','due','running','completed','bounded-unknown','held')),
     generation bigint NOT NULL CHECK (generation >= 0), revision bigint NOT NULL CHECK (revision >= 1),
     run_fingerprint text NULL CHECK (run_fingerprint IS NULL OR run_fingerprint ~ '^[a-f0-9]{64}$'),
+    lease_expires_at timestamptz NULL,
     cadence_policy_revision bigint NOT NULL CHECK (cadence_policy_revision >= 0),
     next_due_at timestamptz NOT NULL, last_clean_run_at timestamptz NULL,
-    counts jsonb NOT NULL, updated_at timestamptz NOT NULL
+    counts jsonb NOT NULL, updated_at timestamptz NOT NULL,
+    CHECK ((state='running') = (lease_expires_at IS NOT NULL))
   )`,
   `CREATE TABLE IF NOT EXISTS channel_drift_decisions (
     connection_id text NOT NULL, channel_listing_id text NOT NULL,
@@ -31,7 +33,9 @@ const tables = [
     run_generation bigint NOT NULL CHECK (run_generation >= 1),
     classification text NOT NULL CHECK (classification IN ('in-sync','repairable','foreign-edit','structural','source-unavailable')),
     observed_fingerprint text NULL, expected_material_fingerprint text NOT NULL,
+    repair_operation_id text NULL, repair_succeeded_generation bigint NULL,
     settled boolean NOT NULL, updated_at timestamptz NOT NULL, revision bigint NOT NULL CHECK (revision >= 1),
+    CHECK (repair_succeeded_generation IS NULL OR repair_operation_id IS NOT NULL),
     PRIMARY KEY (connection_id, channel_listing_id)
   )`,
   `CREATE TABLE IF NOT EXISTS channel_missed_sale_gaps (
@@ -89,6 +93,22 @@ export const channelReconciliationSchemaMigrations: readonly BcSchemaMigration[]
     migrationId: "20260912_channels_reconciliation",
     description: "Create guarded Channel Reconciliation runs, decisions, gaps, health producer outbox, and metrics.",
     statements: [...tables, ...migrationIndexes],
+  },
+  {
+    migrationId: "20260912_channels_reconciliation_repair_lifecycle",
+    description: "Add recoverable run leases and authoritative corrective-operation metric provenance.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s'",
+      "ALTER TABLE channel_reconciliation_state ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz NULL",
+      `ALTER TABLE channel_reconciliation_state DROP CONSTRAINT IF EXISTS channel_reconciliation_state_run_lease_ck`,
+      `ALTER TABLE channel_reconciliation_state ADD CONSTRAINT channel_reconciliation_state_run_lease_ck
+       CHECK ((state='running') = (lease_expires_at IS NOT NULL))`,
+      "ALTER TABLE channel_reconciliation_items ADD COLUMN IF NOT EXISTS repair_operation_id text NULL",
+      "ALTER TABLE channel_reconciliation_items ADD COLUMN IF NOT EXISTS repair_succeeded_generation bigint NULL",
+      `ALTER TABLE channel_reconciliation_items DROP CONSTRAINT IF EXISTS channel_reconciliation_items_repair_success_ck`,
+      `ALTER TABLE channel_reconciliation_items ADD CONSTRAINT channel_reconciliation_items_repair_success_ck
+       CHECK (repair_succeeded_generation IS NULL OR repair_operation_id IS NOT NULL)`,
+    ],
   },
 ];
 

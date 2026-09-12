@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
+  resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import {
   createChannelProviderRegistry,
@@ -45,6 +46,10 @@ describeDb("Channels reconciliation real scheduled runner", () => {
     );
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
     pools = createMultiContextTestPools(urls);
+  });
+
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
     await bootstrapContextDatabase(channelsModule, pools.channels);
     await bootstrapPlatformControlPlane(pools.control);

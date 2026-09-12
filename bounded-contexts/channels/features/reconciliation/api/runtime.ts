@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import { withPgTransaction, type PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresAggregateSnapshotStore,
+  withPgTransaction,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import { classifyChannelDrift } from "../domain/classification";
 import type {
@@ -22,6 +26,7 @@ import {
   readChannelDriftAttentionContribution,
   readChannelDriftDecision,
   readChannelReconciliationMetrics,
+  acknowledgeHealthObservations,
   readPendingHealthObservations,
 } from "../read-model/queries";
 import {
@@ -38,6 +43,7 @@ import type {
   ChannelStateFetchResult,
   ChannelStateLineV1,
 } from "../../publication-port/domain/contracts";
+import type { OutboundOperationRecord } from "../../outbound-sync/domain/contracts";
 
 const zeroCounts = (): MutableCounts => ({
   listingsReconciled: 0,
@@ -52,6 +58,10 @@ const zeroCounts = (): MutableCounts => ({
 });
 
 type MutableCounts = { -readonly [K in keyof ChannelReconciliationCounts]: ChannelReconciliationCounts[K] };
+
+const RECONCILIATION_RUN_LEASE_MS = 1_800_000;
+const RUN_HISTORY_TAIL_LIMIT = 10_000;
+const RUN_SNAPSHOT_SCHEMA_VERSION = 1;
 
 export function createChannelReconciliationRuntime(
   dependencies: ChannelReconciliationRuntimeDependencies,
@@ -84,166 +94,166 @@ export function createChannelReconciliationRuntime(
     const startedAt = now();
     const claim = await claimRun(dependencies, connection, resolvedPolicy.revision, startedAt, context);
     const counts = zeroCounts();
-    if (hold.held) {
-      return finishRun(dependencies, connection, claim, "held", counts, false, policy.cadenceMs, startedAt, context);
-    }
-
-    const expected = await readExpectedReconciliationListings(dependencies.db, {
-      connectionId: connection.connectionId,
-      limit: policy.maxListingsPerRun,
-    });
-    const provider = input.registry.get({ providerKey: connection.providerKey, environment: connection.environment });
-    const publication = provider?.publication ?? null;
-    let stateResult: ChannelStateFetchResult = { kind: "bounded-unknown", reason: "source-error" };
-    if (expected.bounded) {
-      stateResult = { kind: "bounded-unknown", reason: "hard-cap" };
-    } else if (publication?.execution === "inline") {
-      try {
-        stateResult = await publication.fetchChannelState({ connectionId: connection.connectionId });
-      } catch {
-        stateResult = { kind: "bounded-unknown", reason: "source-error" };
+    try {
+      if (hold.held) {
+        return finishRun(dependencies, connection, claim, "held", counts, false, policy.cadenceMs, startedAt, context);
       }
-    }
-    const absentByDesign = publication?.execution !== "inline";
-    const sourceAuthority: ChannelDriftObservationV1["sourceAuthority"] = absentByDesign
-      ? {
-          kind: "absent-by-design",
-          reason:
-            publication?.execution === "claimed"
-              ? "claimed-snapshot-not-installed"
-              : "reconciliation-capability-unregistered",
+
+      const expected = await readExpectedReconciliationListings(dependencies.db, {
+        connectionId: connection.connectionId,
+        limit: policy.maxListingsPerRun,
+      });
+      const provider = input.registry.get({ providerKey: connection.providerKey, environment: connection.environment });
+      const publication = provider?.publication ?? null;
+      let stateResult: ChannelStateFetchResult = { kind: "bounded-unknown", reason: "source-error" };
+      if (expected.bounded) {
+        stateResult = { kind: "bounded-unknown", reason: "hard-cap" };
+      } else if (publication?.execution === "inline") {
+        try {
+          stateResult = await publication.fetchChannelState({ connectionId: connection.connectionId });
+        } catch {
+          stateResult = { kind: "bounded-unknown", reason: "source-error" };
         }
-      : stateResult.kind === "complete"
-        ? { kind: "complete", collectedCount: stateResult.collectedCount, authorityTotal: stateResult.authorityTotal }
-        : { kind: "declared-incomplete", reason: stateResult.reason };
-    const observedByIdentity =
-      stateResult.kind === "complete" ? indexObservedState(stateResult.items) : new Map<string, ChannelStateLineV1>();
-    let resultOrdinal = 0;
-    const priorAttention = await readPriorAttentionState(dependencies.db, connection.connectionId);
-
-    await closeTransientFindings(
-      dependencies.db,
-      connection.connectionId,
-      claim.generation,
-      stateResult.kind === "complete",
-      startedAt,
-    );
-    for (const listing of expected.items) {
-      const decision = await readChannelDriftDecision(dependencies.db, listing);
-      const observed = resolveObserved(listing, observedByIdentity);
-      if (listing.externalListingId) {
-        observedByIdentity.delete(externalIdentity(listing.externalListingId, listing.externalOfferId));
       }
-      const observation: ChannelDriftObservationV1 = {
-        connectionId: listing.connectionId,
-        channelListingId: listing.channelListingId,
-        expectedRevision: listing.expectedRevision,
-        expectedPrice: listing.expectedPrice,
-        expectedQuantity: listing.expectedQuantity,
-        expectedMaterialFingerprint: listing.expectedMaterialFingerprint,
-        lastAppliedRevision: listing.lastAppliedRevision,
-        acceptedForeignEdit: decision.accepted,
-        observed,
-        sourceAuthority,
-      };
-      const classification = classifyChannelDrift(observation);
-      counts.listingsReconciled += 1;
-      incrementClassification(counts, classification);
-      await writeReconciliationItem(dependencies.db, listing, claim.generation, classification, observed, startedAt);
+      const absentByDesign = publication?.execution !== "inline";
+      const sourceAuthority: ChannelDriftObservationV1["sourceAuthority"] = absentByDesign
+        ? {
+            kind: "absent-by-design",
+            reason:
+              publication?.execution === "claimed"
+                ? "claimed-snapshot-not-installed"
+                : "reconciliation-capability-unregistered",
+          }
+        : stateResult.kind === "complete"
+          ? { kind: "complete", collectedCount: stateResult.collectedCount, authorityTotal: stateResult.authorityTotal }
+          : { kind: "declared-incomplete", reason: stateResult.reason };
+      const observedByIdentity =
+        stateResult.kind === "complete" ? indexObservedState(stateResult.items) : new Map<string, ChannelStateLineV1>();
+      let resultOrdinal = 0;
+      const priorAttention = await readPriorAttentionState(dependencies.db, connection.connectionId);
 
-      if (classification === "repairable") {
-        await dependencies.outboundSync.enqueueDesiredState(listing.desired);
-        counts.repairsEnqueued += 1;
-      } else if (classification === "foreign-edit" && decision.repushRequested && decision.operationId) {
-        await dependencies.outboundSync.enqueueRepush({
-          ...listing.desired,
-          repushOperationId: decision.operationId,
-        });
-        counts.repairsEnqueued += 1;
-        await markRepushConsumed(dependencies, decision, context, startedAt);
-      }
-
-      resultOrdinal += 1;
-      const health = input.healthAuthority
-        ? mapChannelDriftToHealthObservation({
-            connectionId: connection.connectionId,
-            runGeneration: claim.generation,
-            sourceAttempt: input.sourceAttempt,
-            resultOrdinal,
-            policyRevision: input.healthAuthority.policyRevision,
-            evaluationGeneration: input.healthAuthority.evaluationGeneration,
-            classification,
-            sourceAuthority,
-            materialFingerprint: observed.present ? observed.fingerprint : listing.expectedMaterialFingerprint,
-            occurredAt: startedAt,
-          })
-        : null;
-      if (health) await writeHealthObservation(dependencies.db, health);
-    }
-
-    if (stateResult.kind === "complete") {
-      for (const [identity, item] of observedByIdentity) {
+      await closeTransientFindings(
+        dependencies.db,
+        connection.connectionId,
+        claim.generation,
+        stateResult.kind === "complete",
+        false,
+        startedAt,
+      );
+      const priorRepairs = await readPriorRepairStates(
+        dependencies.db,
+        connection.connectionId,
+        expected.items.map((listing) => listing.channelListingId),
+      );
+      for (const listing of expected.items) {
+        const decision = await readChannelDriftDecision(dependencies.db, listing);
+        const observed = resolveObserved(listing, observedByIdentity);
+        if (listing.externalListingId) {
+          observedByIdentity.delete(externalIdentity(listing.externalListingId, listing.externalOfferId));
+        }
+        const observation: ChannelDriftObservationV1 = {
+          connectionId: listing.connectionId,
+          channelListingId: listing.channelListingId,
+          expectedRevision: listing.expectedRevision,
+          expectedPrice: listing.expectedPrice,
+          expectedQuantity: listing.expectedQuantity,
+          expectedMaterialFingerprint: listing.expectedMaterialFingerprint,
+          lastAppliedRevision: listing.lastAppliedRevision,
+          acceptedForeignEdit: decision.accepted,
+          observed,
+          sourceAuthority,
+        };
+        const classification = classifyChannelDrift(observation);
         counts.listingsReconciled += 1;
-        counts.structural += 1;
-        await writeFinding(
-          dependencies.db,
-          connection.connectionId,
-          `state-${digest(identity)}`,
-          claim.generation,
-          "unmapped-channel-state",
-          null,
-          item.fingerprint,
-          "channel-state-link-not-found",
-          startedAt,
-        );
-        if (input.healthAuthority) {
-          resultOrdinal += 1;
-          await writeHealthObservation(
+        incrementClassification(counts, classification);
+        const priorRepair = priorRepairs.get(listing.channelListingId) ?? null;
+        let repairOperationId: string | null = null;
+        let repairSucceededGeneration: number | null = null;
+
+        if (classification === "repairable") {
+          const repairGeneration = sameRepairableBasis(priorRepair, listing)
+            ? priorRepair.runGeneration
+            : claim.generation;
+          const operation = await dependencies.outboundSync.enqueueReconciliationRepair({
+            ...listing.desired,
+            reconciliationRepairId: digest(
+              `${listing.connectionId}\0${listing.channelListingId}\0${repairGeneration}\0${listing.expectedMaterialFingerprint}`,
+            ),
+          });
+          repairOperationId = operation?.operationId ?? null;
+          if (operation && (operation.status === "pending" || operation.status === "in-flight")) {
+            counts.repairsEnqueued += 1;
+          }
+        } else if (classification === "foreign-edit" && decision.repushRequested && decision.operationId) {
+          const operation = await dependencies.outboundSync.enqueueRepush({
+            ...listing.desired,
+            repushOperationId: decision.operationId,
+          });
+          if (operation && queuedOperationMatchesDesired(operation, listing)) {
+            counts.repairsEnqueued += 1;
+            await markRepushConsumed(dependencies, decision, context, startedAt);
+          }
+        } else if (
+          classification === "in-sync" &&
+          sourceAuthority.kind === "complete" &&
+          priorRepair?.classification === "repairable" &&
+          priorRepair.repairOperationId !== null &&
+          priorRepair.repairSucceededGeneration === null
+        ) {
+          repairOperationId = priorRepair.repairOperationId;
+          repairSucceededGeneration = claim.generation;
+          counts.repairsSucceeded += 1;
+        }
+
+        if (classification !== "source-unavailable") {
+          await writeReconciliationItem(
             dependencies.db,
-            mapChannelDriftToHealthObservation({
+            listing,
+            claim.generation,
+            classification,
+            observed,
+            startedAt,
+            {
+              repairOperationId,
+              repairSucceededGeneration,
+            },
+          );
+        }
+
+        resultOrdinal += 1;
+        const health = input.healthAuthority
+          ? mapChannelDriftToHealthObservation({
               connectionId: connection.connectionId,
               runGeneration: claim.generation,
               sourceAttempt: input.sourceAttempt,
               resultOrdinal,
               policyRevision: input.healthAuthority.policyRevision,
               evaluationGeneration: input.healthAuthority.evaluationGeneration,
-              classification: "structural",
+              classification,
               sourceAuthority,
-              materialFingerprint: item.fingerprint,
+              materialFingerprint: observed.present ? observed.fingerprint : listing.expectedMaterialFingerprint,
               occurredAt: startedAt,
-            })!,
-          );
-        }
+            })
+          : null;
+        if (health) await writeHealthObservation(dependencies.db, health);
       }
-    }
 
-    let saleComplete = true;
-    let saleAuthorityComplete = false;
-    if (publication?.execution === "inline") {
-      let saleResult: ChannelSaleFetchResult;
-      try {
-        saleResult = await publication.fetchSales({
-          connectionId: connection.connectionId,
-          since: new Date(Date.parse(startedAt) - policy.saleLookbackMs).toISOString(),
-        });
-      } catch {
-        saleResult = { kind: "bounded-unknown", reason: "source-error" };
-      }
-      saleComplete = saleResult.kind === "complete" && saleResult.lines.length <= policy.maxSaleLinesPerRun;
-      if (saleComplete && saleResult.kind === "complete") {
-        saleAuthorityComplete = true;
-        for (const line of saleResult.lines) {
-          const result = await recordSaleLine(
-            dependencies,
-            connection,
-            line,
+      if (stateResult.kind === "complete") {
+        for (const [identity, item] of observedByIdentity) {
+          counts.listingsReconciled += 1;
+          counts.structural += 1;
+          await writeFinding(
+            dependencies.db,
+            connection.connectionId,
+            `state-${digest(identity)}`,
             claim.generation,
-            policy.backdatingAttentionAfterMs,
+            "unmapped-channel-state",
+            null,
+            item.fingerprint,
+            "channel-state-link-not-found",
             startedAt,
           );
-          if (result.gap) counts.missedSaleGaps += 1;
-          if (result.structural) counts.structural += 1;
-          if (result.structural && input.healthAuthority) {
+          if (input.healthAuthority) {
             resultOrdinal += 1;
             await writeHealthObservation(
               dependencies.db,
@@ -255,96 +265,164 @@ export function createChannelReconciliationRuntime(
                 policyRevision: input.healthAuthority.policyRevision,
                 evaluationGeneration: input.healthAuthority.evaluationGeneration,
                 classification: "structural",
-                sourceAuthority: {
-                  kind: "complete",
-                  collectedCount: saleResult.collectedCount,
-                  authorityTotal: saleResult.authorityTotal,
-                },
-                materialFingerprint: digest(JSON.stringify(line.saleKey)),
+                sourceAuthority,
+                materialFingerprint: item.fingerprint,
                 occurredAt: startedAt,
               })!,
             );
           }
         }
-      } else {
-        counts.sourceUnavailable += 1;
-        resultOrdinal += 1;
-        if (input.healthAuthority)
-          await writeHealthObservation(
-            dependencies.db,
-            mapChannelDriftToHealthObservation({
-              connectionId: connection.connectionId,
-              runGeneration: claim.generation,
-              sourceAttempt: input.sourceAttempt,
-              resultOrdinal,
-              policyRevision: input.healthAuthority.policyRevision,
-              evaluationGeneration: input.healthAuthority.evaluationGeneration,
-              classification: "source-unavailable",
-              sourceAuthority: { kind: "declared-incomplete", reason: safeSaleReason(saleResult) },
-              materialFingerprint: "sale-source",
-              occurredAt: startedAt,
-            })!,
-          );
       }
-    }
 
-    const persistentGaps = saleAuthorityComplete
-      ? await readPersistentGapFingerprints(
+      let saleComplete = true;
+      let saleAuthorityComplete = false;
+      if (publication?.execution === "inline") {
+        let saleResult: ChannelSaleFetchResult;
+        try {
+          saleResult = await publication.fetchSales({
+            connectionId: connection.connectionId,
+            since: new Date(Date.parse(startedAt) - policy.saleLookbackMs).toISOString(),
+          });
+        } catch {
+          saleResult = { kind: "bounded-unknown", reason: "source-error" };
+        }
+        saleComplete = saleResult.kind === "complete" && saleResult.lines.length <= policy.maxSaleLinesPerRun;
+        if (saleComplete && saleResult.kind === "complete") {
+          saleAuthorityComplete = true;
+          for (const line of saleResult.lines) {
+            const result = await recordSaleLine(
+              dependencies,
+              connection,
+              line,
+              claim.generation,
+              policy.backdatingAttentionAfterMs,
+              startedAt,
+            );
+            if (result.gap) counts.missedSaleGaps += 1;
+            if (result.structural) counts.structural += 1;
+            if (result.structural && input.healthAuthority) {
+              resultOrdinal += 1;
+              await writeHealthObservation(
+                dependencies.db,
+                mapChannelDriftToHealthObservation({
+                  connectionId: connection.connectionId,
+                  runGeneration: claim.generation,
+                  sourceAttempt: input.sourceAttempt,
+                  resultOrdinal,
+                  policyRevision: input.healthAuthority.policyRevision,
+                  evaluationGeneration: input.healthAuthority.evaluationGeneration,
+                  classification: "structural",
+                  sourceAuthority: {
+                    kind: "complete",
+                    collectedCount: saleResult.collectedCount,
+                    authorityTotal: saleResult.authorityTotal,
+                  },
+                  materialFingerprint: digest(JSON.stringify(line.saleKey)),
+                  occurredAt: startedAt,
+                })!,
+              );
+            }
+          }
+          await closeTransientFindings(
+            dependencies.db,
+            connection.connectionId,
+            claim.generation,
+            false,
+            true,
+            startedAt,
+          );
+        } else {
+          counts.sourceUnavailable += 1;
+          resultOrdinal += 1;
+          if (input.healthAuthority)
+            await writeHealthObservation(
+              dependencies.db,
+              mapChannelDriftToHealthObservation({
+                connectionId: connection.connectionId,
+                runGeneration: claim.generation,
+                sourceAttempt: input.sourceAttempt,
+                resultOrdinal,
+                policyRevision: input.healthAuthority.policyRevision,
+                evaluationGeneration: input.healthAuthority.evaluationGeneration,
+                classification: "source-unavailable",
+                sourceAuthority: { kind: "declared-incomplete", reason: safeSaleReason(saleResult) },
+                materialFingerprint: "sale-source",
+                occurredAt: startedAt,
+              })!,
+            );
+        }
+      }
+
+      const persistentGaps = saleAuthorityComplete
+        ? await readPersistentGapFingerprints(
+            dependencies.db,
+            connection.connectionId,
+            claim.generation,
+            policy.gapPersistenceRuns,
+          )
+        : [];
+      for (const gapFingerprint of persistentGaps) {
+        await ensurePersistentGapFinding(
           dependencies.db,
           connection.connectionId,
-          claim.generation,
-          policy.gapPersistenceRuns,
-        )
-      : [];
-    for (const gapFingerprint of persistentGaps) {
-      await ensurePersistentGapFinding(
-        dependencies.db,
-        connection.connectionId,
-        gapFingerprint,
-        claim.generation,
-        startedAt,
-      );
-      if (!input.healthAuthority) continue;
-      resultOrdinal += 1;
-      await writeHealthObservation(
-        dependencies.db,
-        mapPersistentGapToHealthObservation({
-          connectionId: connection.connectionId,
-          runGeneration: claim.generation,
-          sourceAttempt: input.sourceAttempt,
-          resultOrdinal,
-          policyRevision: input.healthAuthority.policyRevision,
-          evaluationGeneration: input.healthAuthority.evaluationGeneration,
           gapFingerprint,
-          occurredAt: startedAt,
-        }),
-      );
-    }
+          claim.generation,
+          startedAt,
+        );
+        if (!input.healthAuthority) continue;
+        resultOrdinal += 1;
+        await writeHealthObservation(
+          dependencies.db,
+          mapPersistentGapToHealthObservation({
+            connectionId: connection.connectionId,
+            runGeneration: claim.generation,
+            sourceAttempt: input.sourceAttempt,
+            resultOrdinal,
+            policyRevision: input.healthAuthority.policyRevision,
+            evaluationGeneration: input.healthAuthority.evaluationGeneration,
+            gapFingerprint,
+            occurredAt: startedAt,
+          }),
+        );
+      }
 
-    const openFindingCount = await countOpenFindings(dependencies.db, connection.connectionId);
-    const clean =
-      stateResult.kind === "complete" &&
-      saleComplete &&
-      counts.repairable === 0 &&
-      counts.foreignEdit === 0 &&
-      counts.structural === 0 &&
-      counts.sourceUnavailable === 0 &&
-      openFindingCount === 0;
-    if (clean && priorAttention.count > 0) {
-      await writeAttentionResolution(
-        dependencies.db,
-        connection.connectionId,
-        claim.generation,
-        priorAttention.fingerprint,
-        priorAttention.allForeign &&
-          (await allPriorForeignEditsAccepted(dependencies.db, priorAttention.channelListingIds))
-          ? "handled-on-channel"
-          : "recovered-automatically",
+      const openFindingCount = await countOpenFindings(dependencies.db, connection.connectionId);
+      const clean =
+        stateResult.kind === "complete" &&
+        saleComplete &&
+        counts.repairable === 0 &&
+        counts.foreignEdit === 0 &&
+        counts.structural === 0 &&
+        counts.sourceUnavailable === 0 &&
+        openFindingCount === 0;
+      if (clean && priorAttention.count > 0) {
+        await writeAttentionResolution(
+          dependencies.db,
+          connection.connectionId,
+          priorAttention.generation,
+          priorAttention.fingerprint,
+          priorAttention.allForeign &&
+            (await allPriorForeignEditsAccepted(dependencies.db, priorAttention.channelListingIds))
+            ? "handled-on-channel"
+            : "recovered-automatically",
+          startedAt,
+        );
+      }
+      const state = stateResult.kind === "complete" && saleComplete ? "completed" : "bounded-unknown";
+      return finishRun(dependencies, connection, claim, state, counts, clean, policy.cadenceMs, startedAt, context);
+    } catch {
+      return finishRun(
+        dependencies,
+        connection,
+        claim,
+        "bounded-unknown",
+        counts,
+        false,
+        policy.cadenceMs,
         startedAt,
+        context,
       );
     }
-    const state = stateResult.kind === "complete" && saleComplete ? "completed" : "bounded-unknown";
-    return finishRun(dependencies, connection, claim, state, counts, clean, policy.cadenceMs, startedAt, context);
   }
 
   return {
@@ -359,17 +437,21 @@ export function createChannelReconciliationRuntime(
       for (const connectionId of ids) {
         const connection = await readReconciliationConnection(dependencies.db, connectionId);
         if (!connection) continue;
-        results.push(
-          await reconcileConnection(
-            {
-              connectionId,
-              registry: input.registry,
-              sourceAttempt: input.sourceAttempt,
-              healthAuthority: input.healthAuthority,
-            },
-            contextForAccount(connection.accountId),
-          ),
-        );
+        try {
+          results.push(
+            await reconcileConnection(
+              {
+                connectionId,
+                registry: input.registry,
+                sourceAttempt: input.sourceAttempt,
+                healthAuthority: input.healthAuthority,
+              },
+              contextForAccount(connection.accountId),
+            ),
+          );
+        } catch {
+          // A connection that cannot be claimed/finalized must not starve later due connections.
+        }
       }
       return results;
     },
@@ -379,6 +461,8 @@ export function createChannelReconciliationRuntime(
     readChannelDriftAttentionContribution: (input) => readChannelDriftAttentionContribution(dependencies.db, input),
     readChannelReconciliationMetrics: (input) => readChannelReconciliationMetrics(dependencies.db, input),
     readPendingHealthObservations: (input) => readPendingHealthObservations(dependencies.db, input),
+    acknowledgeHealthObservations: (input) =>
+      acknowledgeHealthObservations(dependencies.db, { ...input, consumedAt: now() }),
   };
 }
 
@@ -408,11 +492,27 @@ async function claimRun(
   policyRevision: number,
   startedAt: string,
   context: EventStoreContext,
-): Promise<Readonly<{ generation: number; revision: number; runFingerprint: string; streamVersion: number }>> {
+): Promise<
+  Readonly<{
+    generation: number;
+    revision: number;
+    runFingerprint: string;
+    streamVersion: number;
+    policyRevision: number;
+  }>
+> {
   const history = await loadRunHistory(dependencies, connection.connectionId);
-  if (history.state === "running") throw new Error("Channel Reconciliation run is already claimed.");
+  if (
+    history.state === "running" &&
+    history.leaseExpiresAt !== null &&
+    Date.parse(history.leaseExpiresAt) > Date.parse(startedAt)
+  ) {
+    throw new Error("Channel Reconciliation run is already claimed.");
+  }
+  const recovering = history.state === "running";
   const generation = history.generation + 1;
   const runFingerprint = digest(`${connection.connectionId}\0${generation}\0${policyRevision}`);
+  const leaseExpiresAt = new Date(Date.parse(startedAt) + RECONCILIATION_RUN_LEASE_MS).toISOString();
   return withPgTransaction(dependencies.db, async (db) => {
     const empty = JSON.stringify(zeroCounts());
     await db.query(
@@ -431,18 +531,35 @@ async function claimRun(
         empty,
       ],
     );
-    const current = await db.query<{ generation: string | number; revision: string | number; state: string }>(
-      `SELECT generation,revision,state FROM channel_reconciliation_state WHERE connection_id=$1 FOR UPDATE`,
+    const current = await db.query<{
+      generation: string | number;
+      revision: string | number;
+      state: string;
+      run_fingerprint: string | null;
+      lease_expires_at: Date | string | null;
+      cadence_policy_revision: string | number;
+    }>(
+      `SELECT generation,revision,state,run_fingerprint,lease_expires_at,cadence_policy_revision
+       FROM channel_reconciliation_state WHERE connection_id=$1 FOR UPDATE`,
       [connection.connectionId],
     );
     const row = current.rows[0]!;
-    if (Number(row.generation) !== history.generation || row.state !== history.state) {
+    if (
+      Number(row.generation) !== history.generation ||
+      row.state !== history.state ||
+      row.run_fingerprint !== history.runFingerprint ||
+      databaseInstant(row.lease_expires_at) !== history.leaseExpiresAt ||
+      (history.generation > 0 && Number(row.cadence_policy_revision) !== history.policyRevision)
+    ) {
       throw new Error("Channel Reconciliation run projection does not match its event history.");
     }
     const updated = await db.query<{ revision: string | number }>(
       `UPDATE channel_reconciliation_state SET state='running',generation=$2,revision=revision+1,
-         run_fingerprint=$3,cadence_policy_revision=$4,updated_at=$5
-       WHERE connection_id=$1 AND generation=$6 AND revision=$7 AND state=$8 RETURNING revision`,
+         run_fingerprint=$3,lease_expires_at=$9,cadence_policy_revision=$4,updated_at=$5
+       WHERE connection_id=$1 AND generation=$6 AND revision=$7 AND state=$8
+         AND run_fingerprint IS NOT DISTINCT FROM $10
+         AND lease_expires_at IS NOT DISTINCT FROM $11::timestamptz
+       RETURNING revision`,
       [
         connection.connectionId,
         generation,
@@ -452,6 +569,9 @@ async function claimRun(
         row.generation,
         row.revision,
         row.state,
+        leaseExpiresAt,
+        history.runFingerprint,
+        history.leaseExpiresAt,
       ],
     );
     if (!updated.rows[0]) throw new Error("Channel Reconciliation run claim lost its generation fence.");
@@ -461,6 +581,22 @@ async function claimRun(
       context,
       wakeSourceContextName: "channels",
       events: [
+        ...(recovering
+          ? [
+              {
+                eventType: "channels.channel-reconciliation.finished",
+                payload: {
+                  connectionId: connection.connectionId,
+                  generation: history.generation,
+                  runFingerprint: history.runFingerprint!,
+                  state: "bounded-unknown",
+                  counts: zeroCounts(),
+                  clean: false,
+                  completedAt: startedAt,
+                },
+              },
+            ]
+          : []),
         {
           eventType: "channels.channel-reconciliation.due",
           payload: {
@@ -479,15 +615,25 @@ async function claimRun(
             runFingerprint,
             cadencePolicyRevision: policyRevision,
             startedAt,
+            leaseExpiresAt,
           },
         },
       ],
     });
+    if (recovering) {
+      await db.query(
+        `INSERT INTO channel_reconciliation_metrics
+           (connection_id,account_id,run_generation,completed_at,run_state,clean,counts)
+         VALUES ($1,$2,$3,$4,'bounded-unknown',false,$5::jsonb) ON CONFLICT DO NOTHING`,
+        [connection.connectionId, connection.accountId, history.generation, startedAt, JSON.stringify(zeroCounts())],
+      );
+    }
     return {
       generation,
       revision: Number(updated.rows[0].revision),
       runFingerprint,
-      streamVersion: history.version + 2,
+      streamVersion: history.version + (recovering ? 3 : 2),
+      policyRevision,
     };
   });
 }
@@ -495,7 +641,13 @@ async function claimRun(
 async function finishRun(
   dependencies: ChannelReconciliationRuntimeDependencies,
   connection: ReconciliationConnectionSource,
-  claim: Readonly<{ generation: number; revision: number; runFingerprint: string; streamVersion: number }>,
+  claim: Readonly<{
+    generation: number;
+    revision: number;
+    runFingerprint: string;
+    streamVersion: number;
+    policyRevision: number;
+  }>,
   state: ChannelReconciliationRunResult["state"],
   counts: MutableCounts,
   clean: boolean,
@@ -505,7 +657,7 @@ async function finishRun(
 ): Promise<ChannelReconciliationRunResult> {
   await withPgTransaction(dependencies.db, async (db) => {
     const result = await db.query(
-      `UPDATE channel_reconciliation_state SET state=$3,revision=revision+1,counts=$4::jsonb,
+      `UPDATE channel_reconciliation_state SET state=$3,revision=revision+1,counts=$4::jsonb,lease_expires_at=NULL,
          next_due_at=$5,last_clean_run_at=CASE WHEN $6 THEN $7 ELSE last_clean_run_at END,updated_at=$7
        WHERE connection_id=$1 AND generation=$2 AND revision=$8 AND state='running' AND run_fingerprint=$9`,
       [
@@ -556,6 +708,14 @@ async function finishRun(
         },
       ],
     });
+  });
+  await saveRunSnapshot(dependencies, connection.connectionId, {
+    version: claim.streamVersion + 1,
+    generation: claim.generation,
+    state,
+    runFingerprint: claim.runFingerprint,
+    leaseExpiresAt: null,
+    policyRevision: claim.policyRevision,
   });
   return { connectionId: connection.connectionId, generation: claim.generation, state, counts, clean };
 }
@@ -716,12 +876,13 @@ async function writeReconciliationItem(
   classification: ReturnType<typeof classifyChannelDrift>,
   observed: ChannelDriftObservationV1["observed"],
   updatedAt: string,
+  repair: Readonly<{ repairOperationId: string | null; repairSucceededGeneration: number | null }>,
 ): Promise<void> {
   await db.query(
     `INSERT INTO channel_reconciliation_items
        (connection_id,channel_listing_id,listing_id,run_generation,classification,observed_fingerprint,
-        expected_material_fingerprint,settled,updated_at,revision)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1)
+        expected_material_fingerprint,repair_operation_id,repair_succeeded_generation,settled,updated_at,revision)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,1)
      ON CONFLICT (connection_id,channel_listing_id) DO UPDATE SET listing_id=EXCLUDED.listing_id,
        run_generation=CASE
          WHEN channel_reconciliation_items.classification=EXCLUDED.classification
@@ -731,7 +892,9 @@ async function writeReconciliationItem(
          THEN channel_reconciliation_items.run_generation ELSE EXCLUDED.run_generation END,
        classification=EXCLUDED.classification,
        observed_fingerprint=EXCLUDED.observed_fingerprint,
-       expected_material_fingerprint=EXCLUDED.expected_material_fingerprint,settled=EXCLUDED.settled,
+       expected_material_fingerprint=EXCLUDED.expected_material_fingerprint,
+       repair_operation_id=EXCLUDED.repair_operation_id,
+       repair_succeeded_generation=EXCLUDED.repair_succeeded_generation,settled=EXCLUDED.settled,
        updated_at=EXCLUDED.updated_at,revision=channel_reconciliation_items.revision+1
      WHERE channel_reconciliation_items.run_generation < EXCLUDED.run_generation`,
     [
@@ -742,9 +905,80 @@ async function writeReconciliationItem(
       classification,
       observed.present ? observed.fingerprint : null,
       listing.expectedMaterialFingerprint,
+      repair.repairOperationId,
+      repair.repairSucceededGeneration,
       classification === "in-sync" || classification === "repairable",
       updatedAt,
     ],
+  );
+}
+
+type PriorRepairState = Readonly<{
+  runGeneration: number;
+  classification: string;
+  expectedMaterialFingerprint: string;
+  repairOperationId: string | null;
+  repairSucceededGeneration: number | null;
+}>;
+
+async function readPriorRepairStates(
+  db: PgQueryable,
+  connectionId: string,
+  channelListingIds: readonly string[],
+): Promise<ReadonlyMap<string, PriorRepairState>> {
+  if (channelListingIds.length === 0) return new Map();
+  const result = await db.query<{
+    channel_listing_id: string;
+    run_generation: string | number;
+    classification: string;
+    expected_material_fingerprint: string;
+    repair_operation_id: string | null;
+    repair_succeeded_generation: string | number | null;
+  }>(
+    `SELECT channel_listing_id,run_generation,classification,expected_material_fingerprint,
+            repair_operation_id,repair_succeeded_generation
+     FROM channel_reconciliation_items
+     WHERE connection_id=$1 AND channel_listing_id=ANY($2::text[])`,
+    [connectionId, channelListingIds],
+  );
+  return new Map(
+    result.rows.map((row) => [
+      row.channel_listing_id,
+      {
+        runGeneration: Number(row.run_generation),
+        classification: row.classification,
+        expectedMaterialFingerprint: row.expected_material_fingerprint,
+        repairOperationId: row.repair_operation_id,
+        repairSucceededGeneration:
+          row.repair_succeeded_generation === null ? null : Number(row.repair_succeeded_generation),
+      },
+    ]),
+  );
+}
+
+function sameRepairableBasis(
+  prior: PriorRepairState | null,
+  listing: ReconciliationExpectedListing,
+): prior is PriorRepairState {
+  return (
+    prior?.classification === "repairable" &&
+    prior.expectedMaterialFingerprint === listing.expectedMaterialFingerprint &&
+    prior.repairSucceededGeneration === null
+  );
+}
+
+function queuedOperationMatchesDesired(
+  operation: OutboundOperationRecord,
+  listing: ReconciliationExpectedListing,
+): boolean {
+  return (
+    operation.connectionId === listing.connectionId &&
+    operation.channelListingId === listing.channelListingId &&
+    operation.listingId === listing.listingId &&
+    operation.listingRevision === listing.desired.listingRevision &&
+    operation.sourceDesiredStateSequence === listing.desired.desiredStateSequence &&
+    operation.sourceDesiredStateHash === listing.desired.desiredStateHash &&
+    (operation.status === "pending" || operation.status === "in-flight" || operation.status === "succeeded")
   );
 }
 
@@ -761,14 +995,14 @@ async function recordSaleLine(
     `SELECT 1 FROM channel_recorded_sale_receipts WHERE connection_id=$1 AND sale_key_fingerprint=$2`,
     [connection.connectionId, saleKeyFingerprint],
   );
-  if (receipt.rows.length > 0) return { gap: false, structural: false };
-  await openGap(dependencies.db, connection.connectionId, saleKeyFingerprint, generation, now);
+  const locallyObservedBefore = receipt.rows.length > 0;
   const target = await resolveChannelExternalSaleTarget(dependencies.db, {
     connectionId: connection.connectionId,
     externalListingId: line.externalListingId,
     externalOfferId: line.externalOfferId,
   });
   if (target.kind === "unmappable") {
+    await openGap(dependencies.db, connection.connectionId, saleKeyFingerprint, generation, now);
     await writeFinding(
       dependencies.db,
       connection.connectionId,
@@ -795,10 +1029,29 @@ async function recordSaleLine(
     connectionAuditReference: connection.connectionId,
   });
   if (!("status" in outcome) || outcome.status !== "committed") {
+    await openGap(dependencies.db, connection.connectionId, saleKeyFingerprint, generation, now);
     const reason = "code" in outcome ? outcome.code : "recording-refused";
     await leaveGapOpen(dependencies.db, connection.connectionId, saleKeyFingerprint, reason, generation, now);
     return { gap: true, structural: false };
   }
+  if (
+    !sameSaleKey(outcome.sale.saleKey, line.saleKey) ||
+    outcome.sale.accountId !== target.accountId ||
+    outcome.sale.inventoryItemId !== target.inventoryItemId ||
+    outcome.sale.storageLocationId !== target.storageLocationId
+  ) {
+    throw new Error("Inventory external sale result does not match the exact reconciliation target.");
+  }
+  const committedBeforeSweep = Date.parse(outcome.sale.committedAt) < Date.parse(now);
+  if (committedBeforeSweep) {
+    await rememberRecordedSale(dependencies.db, connection.connectionId, saleKeyFingerprint, now);
+    if (!locallyObservedBefore) {
+      await closeExistingGap(dependencies.db, connection.connectionId, saleKeyFingerprint, generation, now);
+    }
+    await closeFinding(dependencies.db, connection.connectionId, `sale-${saleKeyFingerprint}`, now);
+    return { gap: false, structural: false };
+  }
+  await openGap(dependencies.db, connection.connectionId, saleKeyFingerprint, generation, now);
   await closeFinding(dependencies.db, connection.connectionId, `sale-${saleKeyFingerprint}`, now);
   await closeGap(dependencies.db, connection.connectionId, saleKeyFingerprint, generation, now);
   if (line.soldAt && Date.parse(now) - Date.parse(line.soldAt) >= backdatingAttentionAfterMs) {
@@ -815,6 +1068,38 @@ async function recordSaleLine(
     );
   }
   return { gap: true, structural: false };
+}
+
+function sameSaleKey(left: ChannelSaleLineV1["saleKey"], right: ChannelSaleLineV1["saleKey"]): boolean {
+  return (
+    left.version === right.version &&
+    left.providerKey === right.providerKey &&
+    left.sellerEnvironmentLineage === right.sellerEnvironmentLineage &&
+    left.orderLineIdentity === right.orderLineIdentity
+  );
+}
+
+async function rememberRecordedSale(db: PgQueryable, connectionId: string, fingerprint: string, recordedAt: string) {
+  await db.query(
+    `INSERT INTO channel_recorded_sale_receipts (connection_id,sale_key_fingerprint,recorded_at)
+     VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+    [connectionId, fingerprint, recordedAt],
+  );
+}
+
+async function closeExistingGap(
+  db: PgQueryable,
+  connectionId: string,
+  fingerprint: string,
+  generation: number,
+  now: string,
+) {
+  const existing = await db.query(
+    `SELECT 1 FROM channel_missed_sale_gaps
+     WHERE connection_id=$1 AND sale_key_fingerprint=$2 AND open=true`,
+    [connectionId, fingerprint],
+  );
+  if (existing.rows.length > 0) await closeGap(db, connectionId, fingerprint, generation, now);
 }
 
 async function openGap(db: PgQueryable, connectionId: string, fingerprint: string, generation: number, now: string) {
@@ -856,11 +1141,7 @@ async function closeGap(db: PgQueryable, connectionId: string, fingerprint: stri
     [connectionId, fingerprint, generation, now, current.rows[0]!.revision],
   );
   if (Number(updated.rowCount ?? 0) !== 1) throw new Error("Missed-Sale Gap close lost its revision fence.");
-  await db.query(
-    `INSERT INTO channel_recorded_sale_receipts (connection_id,sale_key_fingerprint,recorded_at)
-     VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-    [connectionId, fingerprint, now],
-  );
+  await rememberRecordedSale(db, connectionId, fingerprint, now);
   await closeFinding(db, connectionId, `gap-${fingerprint}`, now);
 }
 
@@ -924,13 +1205,14 @@ async function closeTransientFindings(
   connectionId: string,
   generation: number,
   completeState: boolean,
+  completeSales: boolean,
   now: string,
 ) {
   await db.query(
     `UPDATE channel_reconciliation_findings SET open=false,updated_at=$3,revision=revision+1
      WHERE connection_id=$1 AND open=true AND run_generation < $2
-       AND (kind='backdated-sale' OR ($4 AND kind='unmapped-channel-state'))`,
-    [connectionId, generation, now, completeState],
+       AND (($4 AND kind='unmapped-channel-state') OR ($5 AND kind='backdated-sale'))`,
+    [connectionId, generation, now, completeState, completeSales],
   );
 }
 
@@ -967,26 +1249,42 @@ async function readPriorAttentionState(
     allForeign: boolean;
     channelListingIds: readonly string[];
     fingerprint: string;
+    generation: number;
   }>
 > {
-  const items = await db.query<{ channel_listing_id: string; classification: string; fingerprint: string }>(
-    `SELECT channel_listing_id,classification,COALESCE(observed_fingerprint,expected_material_fingerprint) AS fingerprint
+  const items = await db.query<{
+    channel_listing_id: string;
+    classification: string;
+    fingerprint: string;
+    run_generation: string | number;
+  }>(
+    `SELECT channel_listing_id,classification,run_generation,
+            COALESCE(observed_fingerprint,expected_material_fingerprint) AS fingerprint
      FROM channel_reconciliation_items
      WHERE connection_id=$1 AND classification IN ('foreign-edit','structural') AND settled=false
      ORDER BY channel_listing_id LIMIT 1001`,
     [connectionId],
   );
-  const findings = await db.query<{ fingerprint: string }>(
-    `SELECT fingerprint FROM channel_reconciliation_findings WHERE connection_id=$1 AND open
+  const findings = await db.query<{ fingerprint: string; run_generation: string | number }>(
+    `SELECT fingerprint,run_generation FROM channel_reconciliation_findings WHERE connection_id=$1 AND open
      ORDER BY finding_id LIMIT 1001`,
     [connectionId],
   );
+  const contribution = await readChannelDriftAttentionContribution(db, { connectionId, limit: 1_000 });
   const fingerprints = [...items.rows.map((row) => row.fingerprint), ...findings.rows.map((row) => row.fingerprint)];
   return {
     count: fingerprints.length,
     allForeign: findings.rows.length === 0 && items.rows.every((row) => row.classification === "foreign-edit"),
     channelListingIds: items.rows.map((row) => row.channel_listing_id),
-    fingerprint: digest(fingerprints.join("\0")),
+    fingerprint: contribution?.resolution === null ? contribution.fingerprint : digest(fingerprints.join("\0")),
+    generation:
+      contribution?.resolution === null
+        ? contribution.generation
+        : Math.max(
+            0,
+            ...items.rows.map((row) => Number(row.run_generation)),
+            ...findings.rows.map((row) => Number(row.run_generation)),
+          ),
   };
 }
 
@@ -1008,12 +1306,22 @@ async function writeAttentionResolution(
   resolution: "handled-on-channel" | "recovered-automatically",
   resolvedAt: string,
 ) {
-  await db.query(
+  const inserted = await db.query(
     `INSERT INTO channel_reconciliation_attention_resolutions
        (connection_id,run_generation,fingerprint,resolution,resolved_at)
-     VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+     VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING connection_id`,
     [connectionId, generation, fingerprint, resolution, resolvedAt],
   );
+  if (Number(inserted.rowCount ?? 0) === 1) return;
+  const existing = await db.query<{ matches: boolean }>(
+    `SELECT fingerprint=$3 AND resolution=$4 AS matches
+     FROM channel_reconciliation_attention_resolutions
+     WHERE connection_id=$1 AND run_generation=$2`,
+    [connectionId, generation, fingerprint, resolution],
+  );
+  if (existing.rows[0]?.matches !== true) {
+    throw new Error("Channel Reconciliation attention resolution conflicts with its open generation.");
+  }
 }
 
 async function readPersistentGapFingerprints(
@@ -1067,19 +1375,28 @@ type RunHistory = Readonly<{
   generation: number;
   state: "idle" | "due" | ChannelReconciliationRunResult["state"] | "running";
   runFingerprint: string | null;
+  leaseExpiresAt: string | null;
+  policyRevision: number;
 }>;
+
+type RunSnapshotState = Omit<RunHistory, "version">;
 
 async function loadRunHistory(
   dependencies: ChannelReconciliationRuntimeDependencies,
   connectionId: string,
 ): Promise<RunHistory> {
+  const streamId = runStreamId(connectionId);
+  const snapshot = await loadRunSnapshot(dependencies, streamId);
   const events = await readCompleteStream(dependencies.eventStore, {
-    streamId: runStreamId(connectionId),
-    maxEvents: 10_000,
+    streamId,
+    ...(snapshot ? { fromVersion: snapshot.version + 1 } : {}),
+    maxEvents: RUN_HISTORY_TAIL_LIMIT,
   });
-  let state: RunHistory["state"] = "idle";
-  let generation = 0;
-  let runFingerprint: string | null = null;
+  let state: RunHistory["state"] = snapshot?.state ?? "idle";
+  let generation = snapshot?.generation ?? 0;
+  let runFingerprint: string | null = snapshot?.runFingerprint ?? null;
+  let leaseExpiresAt: string | null = snapshot?.leaseExpiresAt ?? null;
+  let policyRevision = snapshot?.policyRevision ?? 0;
   for (const event of events) {
     if (event.eventType === "channels.channel-reconciliation.due") {
       if (state === "running" || state === "due") invalidRunHistory("a run became due while another run was active");
@@ -1091,17 +1408,19 @@ async function loadRunHistory(
         "runFingerprint",
       ]);
       const nextGeneration = positiveEventInteger(payload.generation, "generation");
-      const policyRevision = nonNegativeEventInteger(payload.cadencePolicyRevision, "cadencePolicyRevision");
+      const nextPolicyRevision = nonNegativeEventInteger(payload.cadencePolicyRevision, "cadencePolicyRevision");
       const fingerprint = eventDigest(payload.runFingerprint, "runFingerprint");
       if (payload.connectionId !== connectionId || nextGeneration !== generation + 1) {
         invalidRunHistory("a due event has the wrong identity or generation");
       }
-      if (fingerprint !== digest(`${connectionId}\0${nextGeneration}\0${policyRevision}`)) {
+      if (fingerprint !== digest(`${connectionId}\0${nextGeneration}\0${nextPolicyRevision}`)) {
         invalidRunHistory("a due event has the wrong run fingerprint");
       }
       eventInstant(payload.dueAt, "dueAt");
       generation = nextGeneration;
       runFingerprint = fingerprint;
+      leaseExpiresAt = null;
+      policyRevision = nextPolicyRevision;
       state = "due";
       continue;
     }
@@ -1111,6 +1430,7 @@ async function loadRunHistory(
         "cadencePolicyRevision",
         "connectionId",
         "generation",
+        "leaseExpiresAt",
         "runFingerprint",
         "startedAt",
       ]);
@@ -1124,6 +1444,10 @@ async function loadRunHistory(
         invalidRunHistory("a start event has the wrong run fingerprint");
       }
       eventInstant(payload.startedAt, "startedAt");
+      leaseExpiresAt = eventInstant(payload.leaseExpiresAt, "leaseExpiresAt");
+      if (Date.parse(leaseExpiresAt) <= Date.parse(String(payload.startedAt))) {
+        invalidRunHistory("a run lease does not extend past its start");
+      }
       state = "running";
       continue;
     }
@@ -1151,12 +1475,99 @@ async function loadRunHistory(
       if (typeof payload.clean !== "boolean") invalidRunHistory("a finish event has an invalid clean flag");
       validateEventCounts(payload.counts);
       eventInstant(payload.completedAt, "completedAt");
+      leaseExpiresAt = null;
       state = payload.state;
       continue;
     }
     invalidRunHistory("an unexpected event type is present");
   }
-  return { version: events.length, generation, state, runFingerprint };
+  const version = events.length > 0 ? events[events.length - 1]!.streamVersion : (snapshot?.version ?? 0);
+  return { version, generation, state, runFingerprint, leaseExpiresAt, policyRevision };
+}
+
+async function loadRunSnapshot(
+  dependencies: ChannelReconciliationRuntimeDependencies,
+  streamId: string,
+): Promise<RunHistory | null> {
+  try {
+    const snapshot = await createPostgresAggregateSnapshotStore<unknown>({ db: dependencies.db }).loadLatest(streamId);
+    if (!snapshot || snapshot.schemaVersion !== RUN_SNAPSHOT_SCHEMA_VERSION) return null;
+    const state = snapshot.state;
+    if (typeof state !== "object" || state === null || Array.isArray(state)) return null;
+    const record = state as Record<string, unknown>;
+    const expectedKeys = ["generation", "leaseExpiresAt", "policyRevision", "runFingerprint", "state"];
+    const actualKeys = Object.keys(record).sort();
+    if (actualKeys.length !== expectedKeys.length || actualKeys.some((key, index) => key !== expectedKeys[index])) {
+      return null;
+    }
+    const generation = Number(record.generation);
+    if (!Number.isSafeInteger(generation) || generation < 0) return null;
+    const policyRevision = Number(record.policyRevision);
+    if (!Number.isSafeInteger(policyRevision) || policyRevision < 0) return null;
+    const allowedStates: readonly RunHistory["state"][] = [
+      "idle",
+      "due",
+      "running",
+      "completed",
+      "bounded-unknown",
+      "held",
+    ];
+    if (!allowedStates.includes(record.state as RunHistory["state"])) return null;
+    const runFingerprint = record.runFingerprint;
+    if (runFingerprint !== null && (typeof runFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(runFingerprint))) {
+      return null;
+    }
+    const leaseExpiresAt = record.leaseExpiresAt;
+    if (
+      leaseExpiresAt !== null &&
+      (typeof leaseExpiresAt !== "string" || eventInstantOrNull(leaseExpiresAt) === null)
+    ) {
+      return null;
+    }
+    if ((record.state === "running") !== (leaseExpiresAt !== null)) return null;
+    if ((generation === 0) !== (runFingerprint === null)) return null;
+    if (
+      generation > 0 &&
+      runFingerprint !==
+        digest(`${streamId.slice("channels.channel-reconciliation-".length)}\0${generation}\0${policyRevision}`)
+    ) {
+      return null;
+    }
+    return {
+      version: snapshot.streamVersion,
+      generation,
+      state: record.state as RunHistory["state"],
+      runFingerprint: runFingerprint as string | null,
+      leaseExpiresAt: leaseExpiresAt as string | null,
+      policyRevision,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function saveRunSnapshot(
+  dependencies: ChannelReconciliationRuntimeDependencies,
+  connectionId: string,
+  history: RunHistory,
+): Promise<void> {
+  const state: RunSnapshotState = {
+    generation: history.generation,
+    state: history.state,
+    runFingerprint: history.runFingerprint,
+    leaseExpiresAt: history.leaseExpiresAt,
+    policyRevision: history.policyRevision,
+  };
+  try {
+    await createPostgresAggregateSnapshotStore<RunSnapshotState>({ db: dependencies.db }).save({
+      streamId: runStreamId(connectionId),
+      streamVersion: history.version,
+      schemaVersion: RUN_SNAPSHOT_SCHEMA_VERSION,
+      state,
+    });
+  } catch {
+    // Snapshots are a disposable load-time cache; the canonical event stream remains sufficient.
+  }
 }
 
 type DecisionHistory = Readonly<{
@@ -1344,6 +1755,14 @@ function eventInstant(value: unknown, label: string): string {
     throw new Error(`Invalid reconciliation event history: ${label} is invalid.`);
   }
   return value;
+}
+
+function eventInstantOrNull(value: unknown): string | null {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) ? value : null;
+}
+
+function databaseInstant(value: Date | string | null): string | null {
+  return value === null ? null : value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
 function runStreamId(connectionId: string): string {

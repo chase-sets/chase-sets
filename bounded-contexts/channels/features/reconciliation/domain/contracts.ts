@@ -64,6 +64,11 @@ export type ChannelHealthObservationV1 = Readonly<{
   occurredAt: string;
 }>;
 
+export type ChannelHealthObservationIdentity = Pick<
+  ChannelHealthObservationV1,
+  "sourceWorkId" | "sourceAttempt" | "resultOrdinal"
+>;
+
 export type ChannelDriftDecision = Readonly<{
   connectionId: string;
   channelListingId: string;
@@ -163,12 +168,16 @@ export interface ChannelReconciliationServices {
     input: Readonly<{ accountId: string; connectionId: string; window: Readonly<{ from: string; to: string }> }>,
   ): Promise<ChannelReconciliationMetrics>;
   readPendingHealthObservations(input: Readonly<{ limit?: number }>): Promise<readonly ChannelHealthObservationV1[]>;
+  /** Called by the owning health consumer only after its intake transaction commits. */
+  acknowledgeHealthObservations(
+    input: Readonly<{ observations: readonly ChannelHealthObservationIdentity[] }>,
+  ): Promise<Readonly<{ consumed: number }>>;
 }
 
 export type ChannelReconciliationRuntimeDependencies = Readonly<{
   db: PgTransactionalPool;
   eventStore: Pick<PostgresEventStore, "appendToStreamInTransaction" | "readStream">;
-  outboundSync: Pick<OutboundSyncServices, "enqueueDesiredState" | "enqueueRepush">;
+  outboundSync: Pick<OutboundSyncServices, "enqueueReconciliationRepair" | "enqueueRepush">;
   channelSaleRecorder: RecordExternalChannelSale;
   resolvePolicy: () => Promise<
     Readonly<{

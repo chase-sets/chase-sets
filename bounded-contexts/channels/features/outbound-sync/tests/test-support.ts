@@ -7,6 +7,7 @@ export function createUnavailableOutboundSyncServices(): OutboundSyncServices {
   return {
     enqueueDesiredState: unavailable,
     enqueueRepush: unavailable,
+    enqueueReconciliationRepair: unavailable,
     reserveClaimedOutboundOperations: unavailable,
     reserveClaimedOutboundOperationsInTransaction: unavailable,
     reportClaimedOperationOutcomes: unavailable,
