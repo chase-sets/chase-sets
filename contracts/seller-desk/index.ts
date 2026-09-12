@@ -31,6 +31,7 @@ export type SellerDeskSurfaceId =
   | "payout"
   | "sell-list"
   | "seller-settings"
+  | "channel-connection"
   | "resolution-drawer"
   | "activity-drawer";
 
@@ -109,6 +110,13 @@ export const SELLER_DESK_SURFACES: readonly SellerDeskSurface[] = [
     job: "Govern the rarely-touched seller controls — payout account setup, storage locations, and seller policies.",
   },
   {
+    id: "channel-connection",
+    kind: "page",
+    routePath: "/account/channels/:connectionId",
+    title: "Channel connection",
+    job: "Run a manual channel sync, inspect its exact state, and resolve dark-inbound attention.",
+  },
+  {
     id: "resolution-drawer",
     kind: "drawer",
     routePath: null,
@@ -136,7 +144,8 @@ export type SellerEntityId =
   | "shipment"
   | "offer"
   | "payout"
-  | "wallet-adjustment";
+  | "wallet-adjustment"
+  | "channel-connection";
 
 export type SellerEntity = Readonly<{
   id: SellerEntityId;
@@ -153,6 +162,7 @@ export const SELLER_ENTITIES: readonly SellerEntity[] = [
   { id: "offer", label: "Offer", homeSurface: "sell-list" },
   { id: "payout", label: "Payout", homeSurface: "payout" },
   { id: "wallet-adjustment", label: "Wallet adjustment", homeSurface: "settlement-dashboard" },
+  { id: "channel-connection", label: "Channel connection", homeSurface: "channel-connection" },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -178,7 +188,9 @@ export type SellerPermission =
   | "orders.view"
   | "orders.manage"
   | "pricing.view"
-  | "pricing.manage";
+  | "pricing.manage"
+  | "channels.view"
+  | "channels.manage";
 
 // ---------------------------------------------------------------------------
 // Action vocabulary. Every current seller form intent maps to exactly one
@@ -215,6 +227,15 @@ export type SellerDeskAction = Readonly<{
 }>;
 
 export const SELLER_DESK_ACTIONS: readonly SellerDeskAction[] = [
+  // Channel connection
+  {
+    id: "channel-connection.open-manual-sync",
+    entity: "channel-connection",
+    permission: "channels.manage",
+    feedback: "status-banner",
+    disclosure: "page",
+    replaces: ["open-manual-sync"],
+  },
   // Inventory item
   {
     id: "inventory-item.create",
@@ -1023,16 +1044,18 @@ export type SellerAttentionSourceId =
   | "settlement-blocked-payout"
   | "dispute-response"
   | "inventory-resolution"
+  | "channel-action"
   | "offer-response"
   | "listing-action";
 
 // Tiebreak priority for items of equal severity and deadline. Ship-by deadlines and
 // blocked money outrank stale listings — the policy the blueprint mandates.
 export const SELLER_ATTENTION_SOURCE_PRIORITY: Readonly<Record<SellerAttentionSourceId, number>> = {
-  "fulfillment-ship-by": 6,
-  "settlement-blocked-payout": 5,
-  "dispute-response": 4,
-  "inventory-resolution": 3,
+  "fulfillment-ship-by": 7,
+  "settlement-blocked-payout": 6,
+  "dispute-response": 5,
+  "inventory-resolution": 4,
+  "channel-action": 3,
   "offer-response": 2,
   "listing-action": 1,
 };
@@ -1073,6 +1096,14 @@ export const SELLER_ATTENTION_SOURCES: readonly SellerAttentionSource[] = [
     ownerContext: "inventory",
     entity: "import-batch",
     target: "resolution-drawer",
+    peakSeverity: "warning",
+    availability: "live",
+  },
+  {
+    id: "channel-action",
+    ownerContext: "channels",
+    entity: "channel-connection",
+    target: "channel-connection",
     peakSeverity: "warning",
     availability: "live",
   },

@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { createChannelsOutboundRunners } from "../src/channels-outbound-runners";
+import {
+  createChannelsOutboundRunners,
+  createPlatformWorkerMarketplaceChannelInboundClampBinding,
+} from "../src/channels-outbound-runners";
 
 describe("Channels outbound worker wiring", () => {
   it("registers the isolated Channels runner in the existing jobs group", () => {
@@ -67,6 +70,55 @@ describe("Channels outbound worker wiring", () => {
       "worker-1:job:channels.outbound-operations.lane-2",
     ]);
   });
+
+  it("mounts the real Marketplace-owned inbound clamp capability for Channels", () => {
+    const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+    const bindingSource = readFileSync(new URL("../src/channels-outbound-runners.ts", import.meta.url), "utf8");
+    expect(source).toContain("createPlatformWorkerMarketplaceChannelInboundClampBinding(");
+    expect(bindingSource).toContain("createMarketplaceChannelInboundClampCapability(");
+    expect(source).toContain("Boolean(pools.marketplace)");
+    expect(source).toContain("runtime?.services.marketplace as MarketplaceServices | undefined");
+    expect(source).toContain("marketplaceChannelInboundClamp,");
+    expect(source).not.toContain("services.channelInboundClamp.engage(input, context)");
+    expect(source).not.toContain("services.channelInboundClamp.recover(input, context)");
+    expect(source).not.toContain("listingIds.slice(0, 500)");
+  });
+
+  it("executes engage and recover through the actual worker-host Channels-facing binding", async () => {
+    const engage = vi.fn(async () => ({
+      kind: "engaged" as const,
+      requestedListingCount: 1,
+      affectedListingCount: 1,
+      clampedListingCount: 1,
+      recoveryListingCount: 0,
+    }));
+    const recover = vi.fn(async () => ({
+      kind: "released" as const,
+      examinedListingCount: 1,
+      releasedListingCount: 1,
+      retainedListingCount: 0,
+      recoveryListingCount: 0,
+    }));
+    const capability = createPlatformWorkerMarketplaceChannelInboundClampBinding(true, () => ({
+      channelInboundClamp: { engage, recover },
+    }));
+    if (capability.kind !== "available") throw new Error("Expected worker-host Marketplace clamp binding.");
+    const input = {
+      accountId: "account-synthetic-worker-host",
+      connectionId: "connection-synthetic-worker-host",
+      runId: "run-synthetic-worker-host",
+      listingIds: ["listing-synthetic-worker-host"],
+    };
+    const context = {
+      tenantId: "tenant-synthetic-worker-host",
+      audit: { performedByUserId: "user-synthetic-worker-host", forAccountId: input.accountId },
+    } as never;
+
+    await expect(capability.port.engage(input, context)).resolves.toMatchObject({ kind: "engaged" });
+    await expect(capability.port.recover(input, context)).resolves.toMatchObject({ kind: "released" });
+    expect(engage).toHaveBeenCalledWith(input, context);
+    expect(recover).toHaveBeenCalledWith(input, context);
+  });
 });
 
 function validChannelsCandidate(
@@ -83,6 +135,7 @@ function validChannelsCandidate(
     listingComposition: {},
     outboundSync,
     tcgplayerCsv: {},
+    manualSync: {},
     projectors: [],
     db: {},
   };

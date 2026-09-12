@@ -220,6 +220,7 @@ export const frozenProfileDiagnostics: Readonly<Record<string, ProfileUniverse>>
 export const frozenEligibleScenarioSeedContexts = [
   "auth",
   "catalog",
+  "channels",
   "checkout",
   "commercial-terms",
   "fulfillment",
@@ -238,6 +239,7 @@ export const frozenEligibleScenarioSeedContexts = [
 export const frozenInspectingSeedContexts = [
   "auth",
   "catalog",
+  "channels",
   "checkout",
   "fulfillment",
   "identity",
@@ -265,6 +267,7 @@ export const frozenNonInspectingSeedContexts = ["commercial-terms", "pricing", "
 export const seedInspectorDerivationSources: Readonly<Record<string, string>> = {
   auth: "bounded-contexts/auth/support/runtime-support/seed.ts inspectAuthSeedState",
   catalog: "bounded-contexts/catalog/support/seed-support/catalog-integration-state.ts inspectCatalogSeedState",
+  channels: "bounded-contexts/channels/features/manual-sync/api/seed.ts inspectManualSyncSeedState",
   checkout: "bounded-contexts/checkout/support/runtime-support/seed.ts inspectCheckoutSeedState",
   fulfillment: "bounded-contexts/fulfillment/support/runtime-support/seed.ts inspectFulfillmentSeedState",
   identity: "bounded-contexts/identity/support/runtime-support/seed.ts inspectIdentitySeedState",
@@ -420,6 +423,8 @@ export const frozenSeedIdentityCorpus: readonly string[] = [
   "catalog|Reference Type|rft_seed_product_line|product-line",
   "catalog|Reference Type|rft_seed_series|series",
   "catalog|Reference Type|rft_seed_set|set",
+  "channels|Channel Connection|connection-seed-tcgplayer-manual|tcgplayer-manual-recovery",
+  "channels|Channel Sync Run|run-seed-tcgplayer-manual-recovery|manual-recovery",
   "checkout|Cart Line|cli_seed_demo_charizard_base_set_near_mint|lst_seed_charizard_base_set_nm",
   "checkout|Cart Line|cli_seed_demo_pikachu_jungle_excellent|lst_seed_pikachu_jungle_lp",
   "checkout|Checkout Session|chk_seed_started_cart|started-cart",

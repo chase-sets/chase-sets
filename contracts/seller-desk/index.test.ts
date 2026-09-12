@@ -33,7 +33,7 @@ describe("Seller Desk surfaces", () => {
       }
       expect(surface.routePath).not.toBeNull();
       const routePath = surface.routePath as string;
-      expect(routePath.startsWith("/account/desk")).toBe(true);
+      expect(routePath.startsWith("/account/desk") || routePath === "/account/channels/:connectionId").toBe(true);
       expect(routes.has(routePath)).toBe(false);
       routes.add(routePath);
     }
@@ -138,6 +138,7 @@ describe("Action vocabulary", () => {
       "run-reconciliation",
       "write-off",
       "reverse",
+      "open-manual-sync",
     ];
     for (const intent of currentSellerIntents) {
       const owners = intentOwners.get(intent) ?? [];
@@ -218,6 +219,15 @@ describe("Attention-queue ordering policy", () => {
     expect(SELLER_ATTENTION_SOURCE_PRIORITY["settlement-blocked-payout"]).toBeGreaterThan(
       SELLER_ATTENTION_SOURCE_PRIORITY["offer-response"],
     );
+    expect(SELLER_ATTENTION_SOURCE_PRIORITY).toEqual({
+      "fulfillment-ship-by": 7,
+      "settlement-blocked-payout": 6,
+      "dispute-response": 5,
+      "inventory-resolution": 4,
+      "channel-action": 3,
+      "offer-response": 2,
+      "listing-action": 1,
+    });
   });
 
   it("points every source at a real deep-link surface and a known entity", () => {

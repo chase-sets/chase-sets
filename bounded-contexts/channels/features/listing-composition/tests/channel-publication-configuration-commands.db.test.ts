@@ -152,7 +152,9 @@ describeDb("channel-publication-configuration-commands real DB", () => {
        FROM event_store_events WHERE event_type LIKE 'channels.channel-publication-configuration.%'
        ORDER BY stream_version`,
     );
-    const reactions = buildChannelOwnedDesiredStateReactionHandlers(services);
+    const reactions = buildChannelOwnedDesiredStateReactionHandlers(services, {
+      enqueueDesiredState: async () => null,
+    });
     for (const event of configurationEvents.rows) {
       expect(() =>
         channelPublicationConfigurationEventCodec.decode({

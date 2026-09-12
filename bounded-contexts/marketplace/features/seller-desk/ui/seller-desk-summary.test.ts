@@ -67,6 +67,17 @@ describe("resolveAttentionSummary", () => {
     });
     expect(resolveAttentionSummary(item)).toBe("An item needs your attention");
   });
+
+  it("renders the Channels-owned recovery reason from the Channels catalog", () => {
+    const item = buildSellerAttentionItem({
+      source: "channel-action",
+      entityId: "connection-tcg",
+      severity: "warning",
+      summary: { code: "channel-recovery", params: { connectionId: "connection-tcg" } },
+      observedAt: "2026-09-10T12:00:00.000Z",
+    });
+    expect(resolveAttentionSummary(item)).toBe("Inbound clamp recovery needs review for connection connection-tcg");
+  });
 });
 
 describe("labels", () => {
@@ -74,9 +85,11 @@ describe("labels", () => {
     expect(attentionActionLabel("fulfillment-ship-by")).toBe("Pack shipment");
     expect(attentionActionLabel("offer-response")).toBe("Review offer");
     expect(attentionActionLabel("inventory-resolution")).toBe("Resolve import");
+    expect(attentionActionLabel("channel-action")).toBe("Open manual sync");
   });
 
   it("names the source for the degraded marker", () => {
     expect(attentionSourceLabel("settlement-blocked-payout")).toBe("Blocked payouts");
+    expect(attentionSourceLabel("channel-action")).toBe("Channel sync");
   });
 });

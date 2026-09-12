@@ -14,12 +14,18 @@
   ],
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
-  "slices": ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
+  "slices": ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync", "manual-sync"],
   "allowedSupportDirectories": ["request-support", "runtime-support"],
   "publicExports": [".", "./context", "./server", "./routes/*"],
-  "allowedContextDependencies": [],
-  "seedRequirements": [],
-  "hostPorts": [],
+  "allowedContextDependencies": ["@chase-sets/marketplace"],
+  "seedRequirements": ["inventory"],
+  "hostPorts": [
+    {
+      "portName": "marketplaceChannelInboundClamp",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark."
+    }
+  ],
   "eventSubscriptions": [
     {
       "sourceContextName": "marketplace",
@@ -186,24 +192,13 @@
         "channels.channel-publication-configuration.settings-replaced",
         "channels.channel-publication-configuration.mapping-candidate-recorded",
         "channels.channel-publication-configuration.mapping-review-decided",
+        "channels.channel-listing.desired-state-changed",
         "channels.channel-listing-reconciliation.run-enqueued",
         "channels.channel-listing-reconciliation.chunk-drained",
         "channels.channel-listing-reconciliation.run-settled"
       ],
       "order": 63,
       "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
-      "idempotencyPolicy": "idempotent-command-dispatch",
-      "retryPolicy": "retry-from-last-checkpoint",
-      "failurePolicy": "surface-as-reaction-failure"
-    },
-    {
-      "sourceContextName": "channels",
-      "reactionName": "channel-outbound-operation-enqueue",
-      "subscriptionVersion": 1,
-      "filterToEventTypes": true,
-      "eventTypes": ["channels.channel-listing.desired-state-changed"],
-      "order": 64,
-      "reactionHandlerSetNames": ["channel-outbound-operation-enqueue"],
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
@@ -214,7 +209,7 @@
       "projectionName": "channel-connection-projection",
       "sourceContextNames": ["channels"],
       "ownedTables": ["channel_connections"],
-      "requiredDuringBootstrap": false,
+      "requiredDuringBootstrap": true,
       "resetStrategy": "truncate-owned-tables"
     },
     {
@@ -277,15 +272,6 @@
       "resetStrategy": "replay-only"
     },
     {
-      "projectionName": "channel-outbound-operation-enqueue",
-      "handlerKind": "reaction",
-      "sourceContextNames": ["channels"],
-      "ownedTables": [],
-      "sideEffectOnly": true,
-      "requiredDuringBootstrap": false,
-      "resetStrategy": "replay-only"
-    },
-    {
       "projectionName": "tcgplayer-csv-projection",
       "sourceContextNames": ["channels"],
       "ownedTables": [
@@ -295,7 +281,7 @@
         "channel_sync_runs",
         "channel_sync_run_rows"
       ],
-      "requiredDuringBootstrap": false,
+      "requiredDuringBootstrap": true,
       "resetStrategy": "truncate-owned-tables"
     }
   ],
@@ -365,6 +351,29 @@
           }
         },
         {
+          "routeId": "account-channel-connection-manual-sync-download",
+          "routePath": "account/channels/:connectionId/manual-sync/download",
+          "fileExport": "./routes/marketplace/account-channel-connection-manual-sync-download",
+          "routeType": "route",
+          "placement": "root",
+          "sourceContext": "channels",
+          "delivery": "web-resource-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": ["channels.manage"]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "The attachment response is not a standalone canonical document."
+          },
+          "availability": { "web": true, "mobile": false },
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "The route returns a web protocol resource rather than a portable page."
+          }
+        },
+        {
           "routeId": "channels-publication-connection",
           "routePath": "account/channels/publication/:connectionId",
           "fileExport": "./routes/marketplace/account-channels-publication-connection",
@@ -412,7 +421,7 @@
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H16abbc610122#1",
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST Hf47bd35ee32b#1",
         "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hbd7dd2c17dad#1",
-        "route-action:bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx"
+        "route-action:bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx"
       ],
       "visibleDestination": {
         "description": "Each public Channel Connection mutation returns the committed aggregate snapshot without waiting for or rereading the asynchronous projection. The seller connection list/detail UI renders only that committed snapshot: no optimistic status or action-set change is invented before the response resolves."
@@ -450,6 +459,62 @@
           "bounded-contexts/channels/features/listing-composition/tests/channel-mapping-review-route.test.ts"
         ]
       }
+    },
+    {
+      "id": "channels.manual-sync-command-snapshots",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/channels/features/manual-sync/api/route.ts:POST Hb42b68759444#1",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/compose",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/ingest",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/download",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/retry-clamp",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/release",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/upload-attempt",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/validation-cancelled",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/verify",
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "description": "Every manual sync API mutation returns the committed producer run/panel, exact CSV, ingest receipt, or verification snapshot; failures return a closed error without claiming projected success."
+      },
+      "proof": {
+        "authoritativeResponse": "The route returns the exact result from the imported TCGplayer run service and Marketplace clamp port. Run revisions fence every lifecycle write, and bounded upload refusal occurs before the producer parser/write call.",
+        "tests": [
+          "bounded-contexts/channels/features/manual-sync/api/manual-sync-route.test.ts",
+          "bounded-contexts/channels/features/manual-sync/api/manual-sync-runtime.test.ts",
+          "bounded-contexts/channels/features/manual-sync/domain/manual-sync-contracts.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "channels.manual-sync-panel-optimistic-correction",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "optimistic-with-correction",
+      "surfaces": [
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#1",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#2",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#3",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#4",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#5",
+        "route-action:bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "description": "The connection page exposes only actions admitted by the exact loaded run revision, keeps action errors visible, and revalidates the account-scoped panel after successful writes."
+      },
+      "proof": {
+        "correction": "Successful actions redirect to the same connection route so its authenticated loader replaces the panel with the latest producer revision; failures render a canonical error banner and stale or unlisted actions write nothing.",
+        "tests": [
+          "bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.test.tsx",
+          "bounded-contexts/channels/features/manual-sync/api/manual-sync-route.test.ts",
+          "bounded-contexts/channels/features/manual-sync/domain/manual-sync-contracts.test.ts"
+        ]
+      }
     }
   ],
   "directoryIntent": {
@@ -470,14 +535,24 @@
     },
     "request-support": {
       "classification": "support",
-      "purpose": "Compose authenticated Channels publication requests for marketplace-web routes.",
-      "expectedConsumers": ["Channels account publication route adapters"],
+      "purpose": "Compose authenticated Channels publication requests and adapt request-time Marketplace capabilities at the context boundary.",
+      "expectedConsumers": ["connections", "manual-sync"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Own the context-level Channels runtime service composition contract.",
       "expectedConsumers": ["Root Channels module and API composition"]
+    },
+    "tcgplayer-csv": {
+      "classification": "slice",
+      "purpose": "The tcgplayer-csv slice owns TCGplayer export snapshots, staged CSV composition, and replayable Channel Sync Runs.",
+      "expectedConsumers": ["Channels manual and connector sync workflows"]
+    },
+    "manual-sync": {
+      "classification": "slice",
+      "purpose": "Own the manual-sync Channel Sync Run panel, frozen manual lease policy resolution, bounded export ingress, Marketplace clamp coordination, and channel attention source.",
+      "expectedConsumers": ["Channels account connection route, platform API, platform worker, and Seller Desk"]
     },
     "outbound-sync": {
       "classification": "slice",

@@ -7,6 +7,7 @@ const SELLER_ATTENTION_PERMISSIONS = [
   "offers.view",
   "fulfillment.view",
   "payouts.view",
+  "channels.view",
 ] as const;
 
 export type SellerDeskMcpHandlers = Readonly<{

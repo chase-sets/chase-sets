@@ -9,6 +9,7 @@ import { marketplaceReviewSourceProjectionSchemaSql } from "../../features/revie
 import { reviewSchemaSql } from "../../features/reviews/read-model/schema";
 import { marketplaceSellerMetricsSourceSchemaSql } from "../../features/seller-metrics/integrations/source/source-schema";
 import { marketplaceSellerMetricsSummarySchemaSql } from "../../features/seller-metrics/read-model/schema";
+import { marketplaceChannelInboundClampSchemaSql } from "../../features/channel-inbound-clamp/read-model/schema";
 
 export const marketplaceSchemaSql = [
   eventCorePostgresSchemaSql,
@@ -23,6 +24,7 @@ export const marketplaceSchemaSql = [
   reviewSchemaSql,
   marketplaceSellerMetricsSourceSchemaSql,
   marketplaceSellerMetricsSummarySchemaSql,
+  marketplaceChannelInboundClampSchemaSql,
   realtimeOutboxSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the listing-gate policy -- see ../../features/listings/domain/listing-gate-policy.

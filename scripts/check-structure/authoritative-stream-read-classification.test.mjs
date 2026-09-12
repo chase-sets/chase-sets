@@ -28,18 +28,18 @@ const excludedStandaloneTestRoot = "bounded-contexts/inventory/features/inventor
 describe("authoritative-stream-read-classification-acceptance-control", () => {
   it("loads the exact tracked Program corpus and reports the anchor-tree classification", () => {
     expect(ts.version).toBe("6.0.3");
-    expect(production.roots).toHaveLength(3_048);
+    expect(production.roots).toHaveLength(3_066);
     expect(production.roots).toContain("bounded-contexts/channels/support/runtime-support/services.ts");
     expect(production.roots.filter((root) => root.endsWith("/offline-sale-form.tsx"))).toEqual([
       approvedStandaloneRoot,
     ]);
     expect(production.roots).not.toContain(excludedStandaloneTestRoot);
     expect(production.totals).toMatchObject({
-      roots: 3_048,
-      loadedRoots: 3_048,
+      roots: 3_066,
+      loadedRoots: 3_066,
       extensionCounts: {
-        ".ts": 2_403,
-        ".tsx": 624,
+        ".ts": 2_418,
+        ".tsx": 627,
         ".mts": 7,
         ".cts": 0,
         ".js": 0,
@@ -47,8 +47,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
         ".mjs": 14,
         ".cjs": 0,
       },
-      discoveredCallCandidates: 8,
-      authoritativeSites: 8,
+      discoveredCallCandidates: 10,
+      authoritativeSites: 10,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -67,6 +67,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
         "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts",
         "CANONICAL",
       ],
+      ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
+      ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
       ["bounded-contexts/discovery/support/request-support/csat-outcome-facts.ts", "CANONICAL"],
       ["bounded-contexts/identity/api.ts", "CANONICAL"],
       ["bounded-contexts/identity/support/request-support/csat-outcome-facts.ts", "CANONICAL"],

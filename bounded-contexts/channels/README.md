@@ -102,4 +102,4 @@ Injected setup, credential, policy, and storage-location authority resolvers.
 
 Run `pnpm --filter @chase-sets/channels run test:watch` for the watch-mode inner
 loop. Use `test:unit` for the finite non-database partition and `test:db` for the
-three explicitly enrolled disposable-Postgres suites.
+explicitly enrolled disposable-Postgres suites.

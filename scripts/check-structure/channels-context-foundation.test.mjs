@@ -135,7 +135,15 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("outbound-sync-buckets");
   }
-  const emptyArrayFields = ["allowedContextDependencies", "seedRequirements", "hostPorts"];
+  if (
+    relativeFiles.some(
+      (file) =>
+        file.startsWith("features/manual-sync/") &&
+        !/^features\/manual-sync\/(?:api|domain|read-model|ui)\//.test(file),
+    )
+  ) {
+    violations.push("manual-sync-buckets");
+  }
   const absentManifestFields = [
     "sourceRuntimeDeployables",
     "sourceRuntimeProfiles",
@@ -144,15 +152,38 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     "readAfterWriteRouteInventory",
   ];
 
-  for (const field of emptyArrayFields) {
-    if (!Array.isArray(candidate[field]) || candidate[field].length !== 0) violations.push(field);
-  }
   for (const field of absentManifestFields) {
     if (field in candidate) violations.push(field);
   }
+  if (JSON.stringify(candidate.allowedContextDependencies) !== JSON.stringify(["@chase-sets/marketplace"])) {
+    violations.push("allowedContextDependencies");
+  }
+  if (JSON.stringify(candidate.seedRequirements) !== JSON.stringify(["inventory"])) {
+    violations.push("seedRequirements");
+  }
+  if (
+    JSON.stringify(candidate.hostPorts) !==
+    JSON.stringify([
+      {
+        portName: "marketplaceChannelInboundClamp",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark.",
+      },
+    ])
+  ) {
+    violations.push("hostPorts");
+  }
   if (
     JSON.stringify(candidate.slices) !==
-    JSON.stringify(["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"])
+    JSON.stringify([
+      "connections",
+      "publication-port",
+      "listing-composition",
+      "tcgplayer-csv",
+      "outbound-sync",
+      "manual-sync",
+    ])
   ) {
     violations.push("slices");
   }
@@ -160,8 +191,8 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     violations.push("allowedSupportDirectories");
   }
   if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
-  if (candidate.eventReactions?.length !== 5) violations.push("eventReactions");
-  if (candidate.deployableContributions?.[0]?.routes?.length !== 4) violations.push("deployableContributions");
+  if (candidate.eventReactions?.length !== 4) violations.push("eventReactions");
+  if (candidate.deployableContributions?.[0]?.routes?.length !== 5) violations.push("deployableContributions");
   if (candidate.shellContributions?.[0]?.requiredPermissions?.[0] !== "channels.view")
     violations.push("shellContributions");
   if (JSON.stringify(candidate.apiDeployables) !== JSON.stringify(["platform-api"])) violations.push("apiDeployables");
@@ -206,12 +237,29 @@ describe("channels-context-foundation", () => {
         "channel-publication-eligibility",
         "channel-listing-desired-state",
         "channel-listing-reconciliation-run",
+        "channel-inventory-snapshot",
+        "channel-sync-run",
       ]),
-      slices: ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
+      slices: [
+        "connections",
+        "publication-port",
+        "listing-composition",
+        "tcgplayer-csv",
+        "outbound-sync",
+        "manual-sync",
+      ],
       allowedSupportDirectories: ["request-support", "runtime-support"],
       publicExports: [".", "./context", "./server", "./routes/*"],
-      allowedContextDependencies: [],
-      hostPorts: [],
+      allowedContextDependencies: ["@chase-sets/marketplace"],
+      seedRequirements: ["inventory"],
+      hostPorts: [
+        {
+          portName: "marketplaceChannelInboundClamp",
+          providedBy: "platform-api, platform-worker",
+          purpose:
+            "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark.",
+        },
+      ],
     });
     expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([10, 20, 30, 40, 50]);
     expect(manifest.eventSubscriptions.map((entry) => entry.sourceContextName)).toEqual([
@@ -221,11 +269,12 @@ describe("channels-context-foundation", () => {
       "channels",
       "channels",
     ]);
-    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63, 64]);
+    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63]);
     expect(manifest.deployableContributions[0].routes.map((route) => route.authorization.requiredPermissions)).toEqual([
       ["channels.view"],
       ["channels.view"],
       ["channels.view"],
+      ["channels.manage"],
       ["channels.view"],
     ]);
     expect(manifest.shellContributions[0]).toMatchObject({
@@ -407,6 +456,9 @@ describe("channels-context-foundation", () => {
         "features/listing-composition/read-model/schema.ts",
         "routes/marketplace/account-channels-publication.tsx",
         "support/request-support/api-client.ts",
+        "features/manual-sync/api/runtime.ts",
+        "features/manual-sync/read-model/schema.ts",
+        "routes/marketplace/account-channel-connection-manual-sync-download.tsx",
         "tests/vitest.config.mjs",
       ]),
     );
@@ -481,8 +533,8 @@ describe("channels glossary alias evidence", () => {
   });
 });
 
-describe("channels-foundation-no-deployable-registration", () => {
-  it("registers Channels in API, worker, and contributed marketplace-web registries and kills the behavior-free mutant", () => {
+describe("channels-foundation-deployable-registration", () => {
+  it("registers Channels in API, worker, and its marketplace route host while excluding unrelated hosts", () => {
     const root = createTempRepo("channels-metadata-");
     writeJson(path.join(root, "tsconfig.base.json"), { compilerOptions: { paths: {} } });
     const fixtureManifestPath = path.join(root, "bounded-contexts/channels/context.json");
@@ -665,7 +717,6 @@ describe("channels-wake-registry-derivation", () => {
       affectedProjectionNames: [
         "channels:channel-connection-projection",
         "channels:channel-listing-desired-state-reaction",
-        "channels:channel-outbound-operation-enqueue",
         "channels:channel-owned-publication-state",
         "channels:platform-policy-document-projection",
         "channels:tcgplayer-csv-projection",
@@ -688,7 +739,6 @@ describe("channels-wake-registry-derivation", () => {
     expect(projectionMutant.affectedProjectionNames).toEqual([
       "channels:channel-connection-projection",
       "channels:channel-listing-desired-state-reaction",
-      "channels:channel-outbound-operation-enqueue",
       "channels:channel-owned-publication-state",
       "channels:platform-policy-document-projection",
       "channels:tcgplayer-csv-projection",
