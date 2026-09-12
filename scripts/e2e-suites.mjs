@@ -122,6 +122,7 @@ export const e2eSuites = Object.freeze([
     journeys: ["extension identity", "callback authority", "action popup capability"],
     grep: "@tcgplayer-connector-extension-authority",
     command: ["--filter", "@chase-sets/app-tcgplayer-connector-extension", "run", "test:chromium"],
+    requiresDisplay: true,
     estimatedDurationSeconds: 60,
   },
 ]);

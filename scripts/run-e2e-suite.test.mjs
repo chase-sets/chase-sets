@@ -10,7 +10,7 @@ import {
   isE2eSpecFile,
   isRouteFile,
 } from "./e2e-suites.mjs";
-import { buildSuiteGrep, parseSuiteArgs } from "./run-e2e-suite.mjs";
+import { buildSuiteGrep, commandSuiteInvocation, parseSuiteArgs } from "./run-e2e-suite.mjs";
 import {
   TCGPLAYER_CONNECTOR_EXTENSION_ID,
   TCGPLAYER_CONNECTOR_EXTENSION_KEY,
@@ -30,6 +30,16 @@ function walkFiles(dir) {
 }
 
 describe("run e2e suite", () => {
+  it("provides a display for the headed Chromium command on Linux without changing package scripts", () => {
+    const suite = e2eSuites.find((entry) => entry.id === "tcgplayer_connector_extension");
+    const ordinary = commandSuiteInvocation(suite, "win32", {});
+    expect(commandSuiteInvocation(suite, "linux", {})).toEqual({
+      command: "xvfb-run",
+      args: ["--auto-servernum", ordinary.command, ...ordinary.args],
+    });
+    expect(commandSuiteInvocation(suite, "linux", { DISPLAY: ":99" })).toEqual(ordinary);
+    expect(commandSuiteInvocation({ ...suite, requiresDisplay: false }, "linux", {})).toEqual(ordinary);
+  });
   it("pins the Chromium probe package to its root caller and kills the caller-removed mutant", () => {
     const packageJson = JSON.parse(readFileSync("deployables/tcgplayer-connector-extension/package.json", "utf8"));
     expect(chromiumProbeCallerViolations([{ packageJson }])).toEqual([]);
