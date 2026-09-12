@@ -1,8 +1,4 @@
-export {
-  channelsServicesMembers,
-  isChannelsServices,
-  type ChannelsServices,
-} from "./support/runtime-support/services";
+export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
 export {
   OutboundSyncError,
   type ClaimedOperationClaimant,

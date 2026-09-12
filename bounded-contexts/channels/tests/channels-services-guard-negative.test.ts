@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { isChannelsServices } from "../server";
+import { channelsServicesMembers, isChannelsServices } from "../support/runtime-support/services";
 
 describe("channels-services-guard-negative", () => {
+  it.each([null, undefined, false, 0, "channels", []])("rejects non-aggregate input %s", (candidate) => {
+    expect(isChannelsServices(candidate)).toBe(false);
+  });
+
+  it.each(channelsServicesMembers)("rejects missing or invalid %s", (member) => {
+    const candidate = validCandidate();
+    const missing = Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== member));
+    expect(isChannelsServices(missing)).toBe(false);
+    expect(isChannelsServices({ ...candidate, [member]: null })).toBe(false);
+    expect(isChannelsServices({ ...candidate, [member]: "invalid" })).toBe(false);
+  });
+
   it("rejects partial aggregate candidates", () => {
     expect(
       isChannelsServices({

@@ -156,9 +156,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("slices");
   }
-  if (
-    JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support", "runtime-support"])
-  ) {
+  if (JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support", "runtime-support"])) {
     violations.push("allowedSupportDirectories");
   }
   if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
@@ -188,6 +186,13 @@ afterEach(() => {
 });
 
 describe("channels-context-foundation", () => {
+  it("enrols real service composition in the DB profile and excludes it from unit runs", () => {
+    const scripts = readJson(packagePath).scripts;
+    const test = "tests/channels-services-composition.db.test.ts";
+    expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+    expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
+  });
+
   it("supersedes the foundation with the exact connection slice, module, finite tests, and README contract", () => {
     const manifest = readJson(manifestPath);
     expect(manifest).toMatchObject({
@@ -528,6 +533,15 @@ describe("channels-foundation-surface-fence", () => {
     const manifest = readJson(manifestPath);
     const files = listFiles(channelsRoot);
     expect(collectChannelsSurfaceViolations(manifest, files)).toEqual([]);
+    expect(
+      collectChannelsSurfaceViolations(
+        manifest,
+        files.filter((file) => !file.startsWith("support/runtime-support/")),
+      ),
+    ).toEqual(["runtime-support-files"]);
+    expect(
+      collectChannelsSurfaceViolations({ ...manifest, allowedSupportDirectories: ["request-support"] }, files),
+    ).toEqual(["allowedSupportDirectories"]);
 
     const landingMutant = { ...manifest, apiRuntimeProfiles: ["proof", "public", "landing"] };
     expect(collectChannelsSurfaceViolations(landingMutant, files)).toEqual(["apiRuntimeProfiles", "landing"]);

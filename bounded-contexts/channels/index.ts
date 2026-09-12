@@ -184,11 +184,7 @@ import type { ChannelsServices } from "./support/runtime-support/services";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
 
-export const module = defineBoundedContextModule<
-  ChannelsServices,
-  PgTransactionalPool,
-  ChannelConnectionHostPorts
->({
+export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelConnectionHostPorts>({
   manifest: channelsContextManifest,
   schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}`,
   schemaMigrations: [

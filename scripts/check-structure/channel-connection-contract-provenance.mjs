@@ -55,6 +55,14 @@ export function findChannelConnectionContractProvenanceViolations(source, relati
           const exportedName = element.propertyName?.text ?? element.name.text;
           const localName = element.name.text;
           const canonicalPath = channelConnectionCanonicalContractPathBySymbol.get(exportedName);
+          if (exportedName === "ChannelsServices") {
+            if (resolved !== canonicalPath && `${resolved}.ts` !== canonicalPath) {
+              violations.push(`${relativeFile}: imports or re-exports ChannelsServices from a non-canonical path`);
+            }
+            if (ts.isExportDeclaration(statement) && normalizedRelativeFile !== "bounded-contexts/channels/server.ts") {
+              violations.push(`${relativeFile}: re-exports ChannelsServices outside the server surface`);
+            }
+          }
           if (canonicalPath && (resolved === canonicalPath || `${resolved}.ts` === canonicalPath)) {
             importedCanonicalSymbols.add(exportedName);
             importedCanonicalSymbols.add(localName);

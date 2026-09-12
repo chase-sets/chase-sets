@@ -537,12 +537,10 @@ export function createPlatformApiHost(
         tcgplayerMarketTransport: { kind: "not-mounted" },
         tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
         commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
-        channelConnectionIdentityReader: createChannelConnectionIdentityReader(
-          () => {
-            const services = runtime?.services.channels;
-            return isChannelsServices(services) ? services : undefined;
-          },
-        ),
+        channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
+          const services = runtime?.services.channels;
+          return isChannelsServices(services) ? services : undefined;
+        }),
       }
     : undefined;
 

@@ -83,6 +83,33 @@ describe("channel-connection-contract-provenance", () => {
     ).toEqual(expect.arrayContaining([expect.stringContaining("without importing it from @chase-sets/channels")]));
   });
 
+  it("does not let a canonical import mask an aliased non-canonical import", () => {
+    expect(
+      findChannelConnectionContractProvenanceViolations(
+        'import type { ChannelsServices } from "./support/runtime-support/services";\n' +
+          'import type { ChannelsServices as StaleServices } from "./features/connections/domain/contracts";',
+        "bounded-contexts/channels/api.ts",
+      ),
+    ).toEqual(expect.arrayContaining([expect.stringContaining("non-canonical path")]));
+  });
+
+  it("rejects a feature or root re-export even when it names the canonical home", () => {
+    for (const [file, specifier] of [
+      ["bounded-contexts/channels/index.ts", "./support/runtime-support/services"],
+      [
+        "bounded-contexts/channels/features/connections/domain/contracts.ts",
+        "../../../support/runtime-support/services",
+      ],
+    ]) {
+      expect(
+        findChannelConnectionContractProvenanceViolations(
+          `export type { ChannelsServices } from "${specifier}";`,
+          file,
+        ),
+      ).toEqual(expect.arrayContaining([expect.stringContaining("outside the server surface")]));
+    }
+  });
+
   it("rejects Pricing Economics aliases for either Channels-owned identity contract", () => {
     expect(
       findChannelConnectionContractProvenanceViolations(

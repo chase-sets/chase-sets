@@ -241,12 +241,10 @@ const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
       tcgplayerMarketTransport: tcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
       tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
-      channelConnectionIdentityReader: createChannelConnectionIdentityReader(
-        () => {
-          const services = runtime?.services.channels;
-          return isChannelsServices(services) ? services : undefined;
-        },
-      ),
+      channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
+        const services = runtime?.services.channels;
+        return isChannelsServices(services) ? services : undefined;
+      }),
     }
   : undefined;
 const termsAcceptanceResolver = pools.identity ? createIdentityTermsAcceptanceResolver(pools.identity) : undefined;
