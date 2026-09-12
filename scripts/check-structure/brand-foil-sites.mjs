@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -608,6 +608,13 @@ export const brandFoilRegistry = [
 ];
 
 const recognizedIndexModes = new Set(["100644", "100755", "120000"]);
+const discoveryRepositories = new Map();
+const discoveryIndexes = new Map();
+const discoveryBlobs = new Map();
+
+function count(work, key, amount = 1) {
+  if (work) work[key] = (work[key] ?? 0) + amount;
+}
 function nulRecords(bytes, label) {
   const records = [];
   let start = 0;
@@ -654,51 +661,104 @@ export function reconcileIndexedPathRecords(enumerated, staged) {
   });
 }
 
-function indexedPathEntries(repoRoot) {
+function discoveryRepository(repoRoot, work) {
+  const canonicalRoot = realpathSync(repoRoot);
+  const repositoryKey = [
+    canonicalRoot,
+    process.env.GIT_DIR ?? "",
+    process.env.GIT_WORK_TREE ?? "",
+    process.env.GIT_INDEX_FILE ?? "",
+    process.env.GIT_COMMON_DIR ?? "",
+  ].join("\0");
+  const cached = discoveryRepositories.get(repositoryKey);
+  if (cached) return cached;
   const options = {
-    cwd: repoRoot,
+    cwd: canonicalRoot,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 32 * 1024 * 1024,
     windowsHide: true,
   };
-  return {
-    entries: reconcileIndexedPathRecords(
-      execFileSync("git", ["ls-files", "-z"], options),
-      execFileSync("git", ["ls-files", "--stage", "-z"], options),
-    ),
-    options,
-  };
+  count(work, "gitProcesses");
+  const metadata = execFileSync("git", ["rev-parse", "--git-path", "index", "--show-object-format"], options)
+    .toString("utf8")
+    .trim()
+    .split(/\r?\n/u);
+  if (metadata.length !== 2) throw new Error("Git repository metadata has unexpected cardinality");
+  const [reportedIndexPath, objectFormat] = metadata;
+  const indexPath = path.resolve(canonicalRoot, reportedIndexPath);
+  if (objectFormat !== "sha1" && objectFormat !== "sha256")
+    throw new Error(`unsupported Git object format ${objectFormat}`);
+  const repository = { canonicalRoot, indexPath, objectFormat, options };
+  discoveryRepositories.set(repositoryKey, repository);
+  return repository;
 }
 
-function readIndexedPath(repoRoot, entry, options) {
-  const worktreePath = Buffer.concat([Buffer.from(path.resolve(repoRoot) + path.sep), entry.pathBytes]);
-  if (entry.mode === "100644" || entry.mode === "100755") return readFileSync(worktreePath);
+function indexedPathEntries(repoRoot, work) {
+  count(work, "uncachedGitProcesses", 2);
+  const repository = discoveryRepository(repoRoot, work);
+  const indexSha256 = createHash("sha256").update(readFileSync(repository.indexPath)).digest("hex");
+  count(work, "indexReads");
+  const identity = `${repository.canonicalRoot}\0${indexSha256}\0${repository.objectFormat}`;
+  let entries = discoveryIndexes.get(identity);
+  if (!entries) {
+    count(work, "gitProcesses", 2);
+    entries = reconcileIndexedPathRecords(
+      execFileSync("git", ["ls-files", "-z"], repository.options),
+      execFileSync("git", ["ls-files", "--stage", "-z"], repository.options),
+    );
+    discoveryIndexes.set(identity, entries);
+  } else count(work, "indexCacheHits");
+  return { entries, identity, indexSha256, ...repository };
+}
+
+function readIndexedPath(repository, entry, work) {
+  const worktreePath = Buffer.concat([Buffer.from(repository.canonicalRoot + path.sep), entry.pathBytes]);
+  if (entry.mode === "100644" || entry.mode === "100755") {
+    count(work, "regularReads");
+    return readFileSync(worktreePath);
+  }
 
   lstatSync(worktreePath);
-  const bytes = execFileSync("git", ["cat-file", "blob", entry.oid], options);
-  const algorithm = entry.oid.length === 40 ? "sha1" : "sha256";
-  const actualOid = createHash(algorithm).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+  count(work, "symlinkLstats");
+  count(work, "uncachedGitProcesses");
+  const blobIdentity = `${repository.identity}\0${entry.pathBytes.toString("hex")}\0${entry.mode}\0${entry.stage}\0${repository.objectFormat}\0${entry.oid}`;
+  const cached = discoveryBlobs.get(blobIdentity);
+  if (cached) {
+    count(work, "blobCacheHits");
+    const actualOid = createHash(repository.objectFormat)
+      .update(`blob ${cached.length}\0`)
+      .update(cached)
+      .digest("hex");
+    if (actualOid !== entry.oid) throw new Error(`Git object mismatch for ${entry.oid}`);
+    return cached;
+  }
+  count(work, "gitProcesses");
+  const bytes = execFileSync("git", ["cat-file", "blob", entry.oid], repository.options);
+  const actualOid = createHash(repository.objectFormat).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
   if (actualOid !== entry.oid) throw new Error(`Git object mismatch for ${entry.oid}`);
+  discoveryBlobs.set(blobIdentity, bytes);
+  count(work, "blobReads");
   return bytes;
 }
 
-export function discoverBrandFoilSites(repoRoot) {
+export function discoverBrandFoilSites(repoRoot, work) {
+  count(work, "readerCalls");
   const result = { tracked: 0, scanned: 0, bytes: 0, nul: 0, readFailures: [], carriers: [] };
-  let entries;
-  let options;
+  let repository;
   try {
-    ({ entries, options } = indexedPathEntries(repoRoot));
+    repository = indexedPathEntries(repoRoot, work);
   } catch (error) {
     result.readFailures.push(`Git index: ${error.message}`);
     return result;
   }
+  const { entries } = repository;
   result.tracked = entries.length;
   for (const entry of entries) {
     const { pathBytes } = entry;
     const relativePath = pathBytes.toString("utf8");
     try {
-      const bytes = readIndexedPath(repoRoot, entry, options);
+      const bytes = readIndexedPath(repository, entry, work);
       result.scanned++;
       result.bytes += bytes.length;
       if (bytes.includes(0)) result.nul++;

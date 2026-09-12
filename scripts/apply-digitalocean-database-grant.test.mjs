@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 import {
@@ -24,26 +25,51 @@ const SECRET_MARKERS = [
   "postgresql://",
 ];
 
-// Check the real JS body independently of its declaration, then assign all of
-// its exports to the published module contract. The virtual filename avoids
-// TypeScript resolving the implementation import straight to the .d.mts.
-function grantBoundaryDiagnostics(mutate = (source) => source, caller = "") {
-  const runtimePath = join(import.meta.dirname, "apply-digitalocean-database-grant.implementation.mjs");
-  const callerPath = join(import.meta.dirname, "apply-digitalocean-database-grant.boundary.mts");
-  const sources = new Map(
-    [
-      [runtimePath, mutate(readFileSync(new URL("./apply-digitalocean-database-grant.mjs", import.meta.url), "utf8"))],
-      [
-        callerPath,
-        `
-      import * as implementation from "./apply-digitalocean-database-grant.implementation.mjs";
+// Compile the real body and both independent mutants in one declaration graph.
+// Unique virtual paths keep every diagnostic attributable to exactly one case
+// while the real .d.mts, Node, and pg declarations are parsed only once.
+function grantBoundaryMatrix() {
+  const runtimeSource = readFileSync(new URL("./apply-digitalocean-database-grant.mjs", import.meta.url), "utf8");
+  const cases = [
+    { id: "base", mutate: (source) => source, caller: "" },
+    {
+      id: "implementation-mutant",
+      mutate: (source) =>
+        source
+          .replace("await client.query(statement);", "await client.query({ sql: statement });")
+          .replace("return 0;", 'return "success";'),
+      caller: "",
+    },
+    {
+      id: "caller-mutant",
+      mutate: (source) =>
+        source.replace("export async function applyDatabaseGrants", "async function applyDatabaseGrants"),
+      caller: `boundary.runDatabaseGrantMain({}, { statementsForGrant: () => [42] });`,
+    },
+  ].map((testCase) => {
+    const runtimePath = join(
+      import.meta.dirname,
+      `apply-digitalocean-database-grant.${testCase.id}.implementation.mjs`,
+    ).replaceAll("\\", "/");
+    const callerPath = join(
+      import.meta.dirname,
+      `apply-digitalocean-database-grant.${testCase.id}.boundary.mts`,
+    ).replaceAll("\\", "/");
+    return { ...testCase, runtimePath, callerPath };
+  });
+  const sources = new Map();
+  for (const testCase of cases) {
+    sources.set(testCase.runtimePath, testCase.mutate(runtimeSource));
+    sources.set(
+      testCase.callerPath,
+      `
+      import * as implementation from "./apply-digitalocean-database-grant.${testCase.id}.implementation.mjs";
       import type * as contract from "./apply-digitalocean-database-grant.mjs";
       const boundary: typeof contract = implementation;
-      ${caller}
+      ${testCase.caller}
     `,
-      ],
-    ].map(([path, source]) => [path.replaceAll("\\", "/"), source]),
-  );
+    );
+  }
   const options = {
     allowJs: true,
     strict: true,
@@ -59,44 +85,57 @@ function grantBoundaryDiagnostics(mutate = (source) => source, caller = "") {
   const exists = host.fileExists;
   host.readFile = (path) => sources.get(path.replaceAll("\\", "/")) ?? read(path);
   host.fileExists = (path) => sources.has(path.replaceAll("\\", "/")) || exists(path);
-  const program = ts.createProgram({ rootNames: [callerPath], options, host });
-  return ts.getPreEmitDiagnostics(program).map((diagnostic) => ({
-    file: diagnostic.file?.fileName,
+  const started = performance.now();
+  const program = ts.createProgram({ rootNames: cases.map(({ callerPath }) => callerPath), options, host });
+  const diagnostics = ts.getPreEmitDiagnostics(program).map((diagnostic) => ({
+    file: diagnostic.file?.fileName.replaceAll("\\", "/"),
     code: diagnostic.code,
     message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
   }));
+  const elapsedMs = performance.now() - started;
+  const paths = new Map(
+    cases.flatMap((testCase) => [
+      [testCase.runtimePath, testCase.id],
+      [testCase.callerPath, testCase.id],
+    ]),
+  );
+  const byCase = Object.fromEntries(cases.map(({ id }) => [id, []]));
+  const unpartitioned = [];
+  for (const diagnostic of diagnostics) {
+    const id = paths.get(diagnostic.file);
+    (id ? byCase[id] : unpartitioned).push(diagnostic);
+  }
+  return {
+    byCase,
+    unpartitioned,
+    work: {
+      programs: { before: 3, after: 1 },
+      rootNames: cases.length,
+      virtualSources: sources.size,
+      diagnostics: Object.fromEntries(cases.map(({ id }) => [id, byCase[id].length])),
+      elapsedMs,
+    },
+  };
 }
 
 describe("database grant typed module boundary", () => {
-  it("checks the real implementation and all exports against real pg types with declaration checking enabled", () => {
-    expect(grantBoundaryDiagnostics()).toEqual([]);
-  });
-
-  it("detects implementation drift in the actual pg query call and the CLI result", () => {
-    const diagnostics = grantBoundaryDiagnostics((source) =>
-      source
-        .replace("await client.query(statement);", "await client.query({ sql: statement });")
-        .replace("return 0;", 'return "success";'),
-    );
-    expect(diagnostics).toEqual(
+  it("checks the real boundary and rejects both mutants in one declaration graph", () => {
+    const matrix = grantBoundaryMatrix();
+    expect(matrix.unpartitioned).toEqual([]);
+    expect(matrix.byCase.base).toEqual([]);
+    expect(matrix.byCase["implementation-mutant"]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: 2769, message: expect.stringContaining("sql") }),
         expect.objectContaining({ code: 2322, message: expect.stringContaining("0 | 1") }),
       ]),
     );
-  });
-
-  it("detects a removed runtime export and rejects incompatible caller/composition dependencies", () => {
-    const diagnostics = grantBoundaryDiagnostics(
-      (source) => source.replace("export async function applyDatabaseGrants", "async function applyDatabaseGrants"),
-      `boundary.runDatabaseGrantMain({}, { statementsForGrant: () => [42] });`,
-    );
-    expect(diagnostics).toEqual(
+    expect(matrix.byCase["caller-mutant"]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: 2741, message: expect.stringContaining("applyDatabaseGrants") }),
         expect.objectContaining({ code: 2322, message: expect.stringContaining("number") }),
       ]),
     );
+    console.info(JSON.stringify({ boundaryMatrix: matrix.work }));
   });
 });
 

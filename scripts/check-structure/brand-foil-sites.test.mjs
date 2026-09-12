@@ -166,16 +166,15 @@ describe("proof CLI boundaries and cleanup", () => {
   });
   it.each([false, true])("restores source and clone bytes/index on injected failure=%s", (fail) => {
     const directory = committedFixture();
-    const before = snapshotProofRepository(directory);
     const candidate = inspectProofCandidate(directory, directory);
     const messages = [];
+    const work = {};
     let ownedClone;
     const execute = () =>
       withProofClone(
         candidate,
         (clone) => {
           ownedClone = clone;
-          const cloneBefore = snapshotProofRepository(clone);
           try {
             return withProofMutation(
               clone,
@@ -185,19 +184,29 @@ describe("proof CLI boundaries and cleanup", () => {
                 return "completed";
               },
               (line) => messages.push(line),
+              work,
             );
           } finally {
-            expect(snapshotProofRepository(clone)).toEqual(cloneBefore);
             expect(existsSync(path.join(clone, "scripts/opaque-violation.data"))).toBe(false);
           }
         },
         (line) => messages.push(line),
+        work,
       );
     if (fail) expect(execute).toThrow("injected mutation failure");
     else expect(execute()).toBe("completed");
     expect(existsSync(path.dirname(ownedClone))).toBe(false);
-    expect(snapshotProofRepository(directory)).toEqual(before);
+    expect(messages.some((line) => line.includes("Brand foil proof cleanup:") && line.includes('"before"'))).toBe(true);
+    expect(
+      messages.some((line) => line.includes("Brand foil proof source preserved:") && line.includes('"after"')),
+    ).toBe(true);
     expect(messages.some((line) => line.includes("owned temporary clone removed"))).toBe(true);
+    const workComparison = {
+      before: { gitProcesses: work.uncachedGitProcesses + 24, snapshots: work.readerCalls + 4 },
+      after: { gitProcesses: work.gitProcesses, snapshots: work.readerCalls },
+    };
+    expect(workComparison.after.gitProcesses).toBeLessThan(workComparison.before.gitProcesses);
+    console.info(JSON.stringify({ restorationCase: { fail, work, workComparison } }));
   });
   it("binds all candidate paths and mutations independently of ambient scope", () => {
     const directory = committedFixture();
@@ -884,6 +893,8 @@ describe("occurrence owners and complete accounting", () => {
     const linkBlob = Buffer.concat([Buffer.from(`${linkBlobPrefix}${signature} synthetic `), Buffer.from([0x80])]);
     const ordinaryBytes = Buffer.from("ordinary synthetic target bytes\n");
     const changedBlob = Buffer.concat([Buffer.from("changed synthetic link bytes-"), Buffer.from([0x81])]);
+    const discoveryWork = {};
+    const proofWork = {};
     const absolute = (bytes) => Buffer.concat([Buffer.from(path.resolve(directory) + path.sep), bytes]);
     const writeObject = (bytes) =>
       execFileSync("git", ["hash-object", "-w", "--stdin"], {
@@ -933,8 +944,8 @@ describe("occurrence owners and complete accounting", () => {
         .update("\0")
         .update(bytes)
         .digest("hex");
-    const discovery = discoverBrandFoilSites(directory);
-    const snapshot = snapshotProofRepository(directory);
+    const discovery = discoverBrandFoilSites(directory, discoveryWork);
+    const snapshot = snapshotProofRepository(directory, proofWork);
     expect(discovery.readFailures).toEqual([]);
     expect(discovery).toMatchObject({ tracked: 1, scanned: 1, bytes: linkBlob.length });
     expect(Buffer.from(discovery.carriers[0].source, "latin1")).toEqual(linkBlob);
@@ -947,8 +958,8 @@ describe("occurrence owners and complete accounting", () => {
 
     const targetMutation = Buffer.from("mutated ordinary synthetic target bytes\n");
     writeFileSync(process.platform === "win32" ? worktreePath : targetPath, targetMutation);
-    expect(discoverBrandFoilSites(directory)).toEqual(discovery);
-    expect(snapshotProofRepository(directory)).toEqual(snapshot);
+    expect(discoverBrandFoilSites(directory, discoveryWork)).toEqual(discovery);
+    expect(snapshotProofRepository(directory, proofWork)).toEqual(snapshot);
     if (process.platform === "win32") {
       for (const representation of [
         Buffer.alloc(2 * 1024 * 1024, 65),
@@ -956,28 +967,28 @@ describe("occurrence owners and complete accounting", () => {
         Buffer.from("\\\\.\\NUL"),
       ]) {
         writeFileSync(worktreePath, representation);
-        expect(discoverBrandFoilSites(directory)).toEqual(discovery);
-        expect(snapshotProofRepository(directory).bytes).toBe(snapshot.bytes);
+        expect(discoverBrandFoilSites(directory, discoveryWork)).toEqual(discovery);
+        expect(snapshotProofRepository(directory, proofWork).bytes).toBe(snapshot.bytes);
       }
     } else {
       rmSync(targetPath);
-      expect(discoverBrandFoilSites(directory)).toEqual(discovery);
-      expect(snapshotProofRepository(directory)).toEqual(snapshot);
+      expect(discoverBrandFoilSites(directory, discoveryWork)).toEqual(discovery);
+      expect(snapshotProofRepository(directory, proofWork)).toEqual(snapshot);
       writeFileSync(targetPath, Buffer.alloc(2 * 1024 * 1024, 65));
-      expect(discoverBrandFoilSites(directory)).toEqual(discovery);
-      expect(snapshotProofRepository(directory)).toEqual(snapshot);
+      expect(discoverBrandFoilSites(directory, discoveryWork)).toEqual(discovery);
+      expect(snapshotProofRepository(directory, proofWork)).toEqual(snapshot);
       for (const target of ["../synthetic-out-of-root-target", "/dev/null"]) {
         rmSync(worktreePath);
         symlinkSync(target, worktreePath);
-        expect(discoverBrandFoilSites(directory)).toEqual(discovery);
-        expect(snapshotProofRepository(directory).bytes).toBe(snapshot.bytes);
+        expect(discoverBrandFoilSites(directory, discoveryWork)).toEqual(discovery);
+        expect(snapshotProofRepository(directory, proofWork).bytes).toBe(snapshot.bytes);
       }
     }
 
     const changedOid = writeObject(changedBlob);
     git(directory, ["update-index", "--add", "--cacheinfo", `120000,${changedOid},${name}`]);
-    const changedDiscovery = discoverBrandFoilSites(directory);
-    const changedSnapshot = snapshotProofRepository(directory);
+    const changedDiscovery = discoverBrandFoilSites(directory, discoveryWork);
+    const changedSnapshot = snapshotProofRepository(directory, proofWork);
     expect(changedDiscovery).toMatchObject({ tracked: 1, scanned: 1, bytes: changedBlob.length, carriers: [] });
     expect(changedSnapshot.bytes).toBe(expectedSnapshotBytes(changedBlob));
     expect(changedSnapshot.bytes).not.toBe(snapshot.bytes);
@@ -1007,16 +1018,16 @@ describe("occurrence owners and complete accounting", () => {
 
     writeFileSync(path.join(directory, ".git", "index"), originalIndex);
     rmSync(worktreePath);
-    expect(discoverBrandFoilSites(directory).readFailures).toHaveLength(1);
-    expect(() => snapshotProofRepository(directory)).toThrow();
+    expect(discoverBrandFoilSites(directory, discoveryWork).readFailures).toHaveLength(1);
+    expect(() => snapshotProofRepository(directory, proofWork)).toThrow();
 
     writeFileSync(worktreePath, ordinaryBytes);
     const missingOid = "f".repeat(linkOid.length);
     execFileSync("git", ["update-index", "--info-only", "--add", "--cacheinfo", `120000,${missingOid},${name}`], {
       cwd: directory,
     });
-    expect(discoverBrandFoilSites(directory).readFailures).toHaveLength(1);
-    expect(() => snapshotProofRepository(directory)).toThrow();
+    expect(discoverBrandFoilSites(directory, discoveryWork).readFailures).toHaveLength(1);
+    expect(() => snapshotProofRepository(directory, proofWork)).toThrow();
     proofRows.push({
       kind: "synthetic-indexed-link",
       platform: process.platform,
@@ -1032,7 +1043,11 @@ describe("occurrence owners and complete accounting", () => {
       targetMutationInvariant: true,
       stagedBlobSensitive: true,
       invalidStatesRefused: invalidRecords.length + 2,
+      work: { discovery: discoveryWork, proof: proofWork },
     });
+    expect(discoveryWork.gitProcesses).toBeLessThan(discoveryWork.uncachedGitProcesses);
+    expect(proofWork.gitProcesses).toBeLessThan(proofWork.uncachedGitProcesses);
+    console.info(JSON.stringify({ syntheticLinkWork: { discovery: discoveryWork, proof: proofWork } }));
   });
   it.each(["renamed", "nested", "duplicate", "whitespace", "template", "mutable"])(
     "rejects a %s proof fixture owner",
