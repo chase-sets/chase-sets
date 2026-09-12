@@ -7,7 +7,9 @@ Channel, the provider-neutral contract for publishing listings through it, and
 durable reconciliation state for channel exports. The connection slice keeps
 setup authority injected, while the publication port and listing-composition
 slice project authoritative facts into one closed, provider-neutral desired
-state. Outbound sync durably orders that state for provider execution, and
+state. The connector-client slice publishes the Chromium-observed TCGplayer
+connector extension identity and callback constants to its thin deployable.
+Outbound sync durably orders that state for provider execution, and
 production composition profiles remain empty. The TCGplayer CSV slice
 composes a claimed outbound reservation into one Staged Import Batch and ingests
 Live or Staged exports without making a provider call. Reconciliation compares
@@ -39,6 +41,7 @@ outbound-only health and operator holds.
   Gaps, outbound kill-switch policy, bounded health observations and metrics
 - Channel Action health-attention generations, independent resolution facts,
   and one shared Seller Desk contribution combining health and manual work
+- The public-key-backed TCGplayer connector extension identity and callback URI
 
 ## Does Not Own
 

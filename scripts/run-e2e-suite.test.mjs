@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   batchE2eSuiteIds,
+  chromiumProbeCallerViolations,
   e2eNoSuiteExclusionForChangedFile,
   e2eSuiteIdsForChangedFile,
   e2eSuites,
@@ -10,6 +11,16 @@ import {
   isRouteFile,
 } from "./e2e-suites.mjs";
 import { buildSuiteGrep, parseSuiteArgs } from "./run-e2e-suite.mjs";
+import {
+  TCGPLAYER_CONNECTOR_EXTENSION_ID,
+  TCGPLAYER_CONNECTOR_EXTENSION_KEY,
+  TCGPLAYER_CONNECTOR_REDIRECT_URI,
+} from "../bounded-contexts/channels/features/connector-client/domain/identity.ts";
+import {
+  extensionIdCandidate,
+  extensionKeyCandidate,
+  extensionRedirectUriCandidate,
+} from "../deployables/tcgplayer-connector-extension/src/authority-candidate.ts";
 
 function walkFiles(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -19,6 +30,44 @@ function walkFiles(dir) {
 }
 
 describe("run e2e suite", () => {
+  it("pins the Chromium probe package to its root caller and kills the caller-removed mutant", () => {
+    const packageJson = JSON.parse(readFileSync("deployables/tcgplayer-connector-extension/package.json", "utf8"));
+    expect(chromiumProbeCallerViolations([{ packageJson }])).toEqual([]);
+    expect(
+      chromiumProbeCallerViolations(
+        [{ packageJson }],
+        e2eSuites.filter((suite) => suite.id !== "tcgplayer_connector_extension"),
+      ),
+    ).toEqual([
+      "@chase-sets/app-tcgplayer-connector-extension test:chromium must have exactly one registered E2E command caller",
+    ]);
+    expect(e2eSuites.find((suite) => suite.id === "tcgplayer_connector_extension")?.command).toEqual([
+      "--filter",
+      "@chase-sets/app-tcgplayer-connector-extension",
+      "run",
+      "test:chromium",
+    ]);
+  });
+
+  it("pins the probe candidate to the Channels client contract", () => {
+    expect({ extensionIdCandidate, extensionKeyCandidate, extensionRedirectUriCandidate }).toEqual({
+      extensionIdCandidate: TCGPLAYER_CONNECTOR_EXTENSION_ID,
+      extensionKeyCandidate: TCGPLAYER_CONNECTOR_EXTENSION_KEY,
+      extensionRedirectUriCandidate: TCGPLAYER_CONNECTOR_REDIRECT_URI,
+    });
+  });
+
+  it("routes the Chromium probe package and owning Channels slice to the registered caller", () => {
+    expect(e2eSuiteIdsForChangedFile("deployables/tcgplayer-connector-extension/src/background.ts")).toEqual([
+      "tcgplayer_connector_extension",
+    ]);
+    expect(
+      e2eSuiteIdsForChangedFile(
+        "bounded-contexts/channels/features/connector-client/domain/derive-chrome-extension-id.ts",
+      ),
+    ).toEqual(["tcgplayer_connector_extension"]);
+  });
+
   it("accepts comma-separated and positional suite ids", () => {
     const suites = parseSuiteArgs([
       "marketplace_browse,marketplace_account",
