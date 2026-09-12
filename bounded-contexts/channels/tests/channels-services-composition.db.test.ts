@@ -26,14 +26,21 @@ function createServices() {
   return channelsModule.createServices(pools.channels, {
     channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, {
       tenantId: "tnt_channels_composition" as never,
-      audit: { performedByUserId: "usr_channels_composition" as never, forAccountId: "account_channels_composition" as never },
+      audit: {
+        performedByUserId: "usr_channels_composition" as never,
+        forAccountId: "account_channels_composition" as never,
+      },
     }),
   });
 }
 
 describeDb("channels-services-composition", () => {
   beforeAll(async () => {
-    const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["channels", "inventory"], "channels_services_composition");
+    const urls = createMultiContextTestDatabaseUrls(
+      databaseBaseUrl!,
+      ["channels", "inventory"],
+      "channels_services_composition",
+    );
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
     pools = createMultiContextTestPools(urls);
     await bootstrapContextDatabase(channelsModule, pools.channels);
