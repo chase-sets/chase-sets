@@ -13,6 +13,7 @@ describe("outbound-bootstrap-and-manifest", () => {
       "channel_outbound_operations_one_inflight_per_lane_uidx",
       "channel_outbound_operations_connection_claim_idx",
       "channel_outbound_operations_inline_expiry_idx",
+      "channel_outbound_operations_pending_lane_order_idx",
       "source_desired_state_sequence",
       "source_desired_state_hash",
       "payload_digest",
@@ -25,6 +26,7 @@ describe("outbound-bootstrap-and-manifest", () => {
       "20260907_channels_outbound_sync",
       "20260910_channels_outbound_reservation_settlements",
       "20260912_channels_reconciliation_repair_origin",
+      "20260912_channels_outbound_pending_lane_order",
     ]);
     expect(outboundSyncSchemaMigrations[0]?.statements.join("\n")).not.toContain(
       "channel_outbound_reservation_settlements",
