@@ -115,6 +115,15 @@ export const e2eSuites = Object.freeze([
     ],
     estimatedDurationSeconds: 90,
   },
+  {
+    id: "tcgplayer_connector_extension",
+    label: "TCGplayer Connector Extension Chromium Authority",
+    deployable: "tcgplayer-connector-extension",
+    journeys: ["extension identity", "callback authority", "action popup capability"],
+    grep: "@tcgplayer-connector-extension-authority",
+    command: ["--filter", "@chase-sets/app-tcgplayer-connector-extension", "run", "test:chromium"],
+    estimatedDurationSeconds: 60,
+  },
 ]);
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
@@ -655,6 +664,13 @@ function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
 export function e2eSuiteIdsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
 
+  if (
+    normalized.startsWith("deployables/tcgplayer-connector-extension/") ||
+    normalized.startsWith("bounded-contexts/channels/features/connector-client/")
+  ) {
+    return ["tcgplayer_connector_extension"];
+  }
+
   if (isE2eSpecFile(normalized)) {
     return e2eSpecSuiteIdsForChangedFile(normalized);
   }
@@ -691,4 +707,18 @@ export function e2eSuiteIdsForChangedFile(filePath) {
   }
 
   return boundedContextSuiteIdsForChangedFile(normalized, boundedContextMatch[1] ?? "");
+}
+
+export function chromiumProbeCallerViolations(workspaces, suites = e2eSuites) {
+  return workspaces.flatMap((workspace) => {
+    const packageJson = workspace.packageJson ?? workspace;
+    if (typeof packageJson?.scripts?.["test:chromium"] !== "string") return [];
+    const expectedCommand = ["--filter", packageJson.name, "run", "test:chromium"];
+    const callers = suites.filter(
+      (suite) => Array.isArray(suite.command) && JSON.stringify(suite.command) === JSON.stringify(expectedCommand),
+    );
+    return callers.length === 1
+      ? []
+      : [`${packageJson.name} test:chromium must have exactly one registered E2E command caller`];
+  });
 }

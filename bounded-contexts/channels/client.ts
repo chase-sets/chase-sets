@@ -1,0 +1,5 @@
+export {
+  TCGPLAYER_CONNECTOR_EXTENSION_ID,
+  TCGPLAYER_CONNECTOR_EXTENSION_KEY,
+  TCGPLAYER_CONNECTOR_REDIRECT_URI,
+} from "./features/connector-client/domain/identity";
