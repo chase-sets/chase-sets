@@ -11,6 +11,7 @@ import {
   createStoredEvent,
   getCheckpointStore,
   getGenerationRetentionStore,
+  getProjectionGroupGenerationStore,
   getProjectionRevisionStore,
   getTruncateLog,
   resetMockPoolState,
@@ -25,6 +26,7 @@ import { createMountedRuntime, createProjectionGroupRuntime } from "./index-test
 import {
   cleanupRuntimeProjectionGenerations,
   createSubscriptionRunner,
+  loadProjectionGroupGeneration,
   rebuildProjectionGroup,
   refreshProjectionGroupStatuses,
   resetProjectionGroup,
@@ -251,9 +253,68 @@ describe("bounded context projection groups", () => {
       [runner],
     );
 
-    await resetProjectionGroup(group);
+    const revisionSyncToken = await resetProjectionGroup(group);
 
     expect(getTruncateLog(targetPool)).toEqual([["inventory_catalog_items"]]);
+    expect(revisionSyncToken).toMatchObject({ generation: "2" });
+    await expect(
+      loadProjectionGroupGeneration(targetPool as never, {
+        targetContextName: "inventory",
+        projectionName: "inventory-catalog-item-projection",
+      }),
+    ).resolves.toEqual({ activeGeneration: "1", rebuildingGeneration: "2", state: "rebuilding" });
+
+    const ordinaryStatus = await group.refreshStatus();
+    expect(Object.hasOwn(ordinaryStatus, "revisionSyncToken")).toBe(false);
+    await expect(group.refreshStatus({ captureRevisionSyncToken: true })).resolves.toMatchObject({
+      revisionSyncToken: { generation: "2" },
+    });
+
+    await group.markRevisionSynced(revisionSyncToken);
+    expect(
+      getProjectionGroupGenerationStore(targetPool).get("inventory:inventory-catalog-item-projection"),
+    ).toMatchObject({
+      active_generation: "2",
+      rebuilding_generation: null,
+      state: "active",
+    });
+  });
+
+  it("load-projection-group-generation preserves decimal identity and fails closed for partial or invalid rows", async () => {
+    const load = (row: Record<string, unknown>) =>
+      loadProjectionGroupGeneration(
+        {
+          query: async () => ({ rows: [row] }),
+        } as never,
+        { targetContextName: "inventory", projectionName: "inventory-catalog-item-projection" },
+      );
+
+    await expect(
+      load({
+        active_generation: "9223372036854775806",
+        rebuilding_generation: "9223372036854775807",
+        state: "rebuilding",
+      }),
+    ).resolves.toEqual({
+      activeGeneration: "9223372036854775806",
+      rebuildingGeneration: "9223372036854775807",
+      state: "rebuilding",
+    });
+
+    const invalidRows = [
+      { active_generation: "1", rebuilding_generation: null },
+      { active_generation: "1", rebuilding_generation: null, state: "unknown" },
+      { active_generation: "0", rebuilding_generation: null, state: "active" },
+      { active_generation: Number.MAX_SAFE_INTEGER + 1, rebuilding_generation: null, state: "active" },
+      { active_generation: "2", rebuilding_generation: "2", state: "rebuilding" },
+      { active_generation: "2", rebuilding_generation: null, state: "rebuilding" },
+      { active_generation: "2", rebuilding_generation: "3", state: "active" },
+      { active_generation: "2", rebuilding_generation: null, state: "active", unexpected: true },
+    ];
+
+    for (const row of invalidRows) {
+      await expect(load(row)).resolves.toBeNull();
+    }
   });
 
   it("rebuilding a projection group replays from origin without truncating live read tables", async () => {

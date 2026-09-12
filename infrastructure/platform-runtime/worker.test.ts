@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
+import type { ContextProjectionGroup } from "@chase-sets/bounded-context-runtime";
 import type { PlatformControlPlane, PlatformLease, ProjectionOperationRecord } from "./control-plane";
 import {
   collectProjectionOperationRunners,
@@ -1547,6 +1548,53 @@ describe("worker runner loop", () => {
     expect(markedRevision).toBe(true);
   });
 
+  it("projection-group-recovery-marker retains its captured token across busy and blocked passes", async () => {
+    const passResults = [
+      { processed: 1, blockedStreams: 0 },
+      { processed: 0, blockedStreams: 1 },
+      { processed: 0, blockedStreams: 0 },
+    ];
+    const capturedTokens = ["2", "3", "4"].map((generation) =>
+      Object.freeze({ generation, startedAt: "2026-01-01T00:00:00.000Z" }),
+    );
+    const firstToken = capturedTokens[0];
+    const markedTokens: Array<Parameters<ContextProjectionGroup["markRevisionSynced"]>[0]> = [];
+    const subscriptionRunner = {
+      targetContextName: "inventory",
+      checkpointKey: "inventory-catalog-item-projection:catalog:v1",
+      runOnce: async () => ({
+        ...(passResults.shift() ?? { processed: 0, blockedStreams: 0 }),
+        lastGlobalPosition: "2" as never,
+      }),
+    };
+    const group = createProjectionGroup({
+      subscriptionRunners: [subscriptionRunner],
+      refreshStatus: async () => ({
+        revisionStale: false,
+        revisionSyncToken: capturedTokens.shift(),
+      }),
+      markRevisionSynced: async (expectedToken) => {
+        markedTokens.push(expectedToken);
+      },
+    });
+    const [runner] = collectWorkerRunners({
+      mountedContexts: [],
+      services: {},
+      projectors: [],
+      projectionGroups: [group],
+      subscriptionRunners: [subscriptionRunner],
+    } as never);
+
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 1, blockedStreams: 0 });
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 1 });
+    expect(markedTokens).toEqual([]);
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 0 });
+
+    expect(markedTokens).toEqual([firstToken]);
+    expect(markedTokens[0]).toBe(firstToken); // call-local identity survives later captures
+    expect(markedTokens).not.toEqual([null]); // settle-without-token mutant
+  });
+
   it("resets crash-truncated projection groups to checkpoint zero before replay", async () => {
     const resets: string[] = [];
     let recoveryRequired = true;
@@ -2342,9 +2390,13 @@ function createClaimedOperationRecord(overrides: Partial<ProjectionOperationReco
 function createProjectionGroup(
   overrides: Readonly<{
     subscriptionRunners?: readonly unknown[];
-    refreshStatus?: () => Promise<Readonly<{ revisionStale: boolean }>>;
+    refreshStatus?: (
+      ...args: Parameters<ContextProjectionGroup["refreshStatus"]>
+    ) => Promise<
+      Pick<Awaited<ReturnType<ContextProjectionGroup["refreshStatus"]>>, "revisionStale" | "revisionSyncToken">
+    >;
     recoveryRequired?: () => boolean;
-    markRevisionSynced?: () => Promise<void>;
+    markRevisionSynced?: ContextProjectionGroup["markRevisionSynced"];
     reset?: () => Promise<void>;
   }> = {},
 ) {
