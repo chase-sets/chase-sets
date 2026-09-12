@@ -145,7 +145,7 @@ describeDb("channel-outbound-hold-matrix at real outbound admission", () => {
       const runtime = createChannelReconciliationRuntime({
         db: pools.channels,
         eventStore: createPostgresEventStore({ pool: pools.channels }),
-        outboundSync: { enqueueDesiredState: async () => null, enqueueRepush: async () => null },
+        outboundSync: { enqueueReconciliationRepair: async () => null, enqueueRepush: async () => null },
         channelSaleRecorder: async () => ({
           code: "external-channel-sale-history-invalid",
           saleStreamId: "unused",

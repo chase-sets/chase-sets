@@ -6,6 +6,8 @@ const createOutboundOperationsTable = `CREATE TABLE IF NOT EXISTS channel_outbou
   channel_listing_id text NOT NULL,
   listing_id text NOT NULL,
   operation_kind text NOT NULL CHECK (operation_kind IN ('publish', 'update', 'delist')),
+  operation_origin text NOT NULL DEFAULT 'desired-state'
+    CHECK (operation_origin IN ('desired-state', 'repush', 'reconciliation-repair')),
   listing_revision bigint NOT NULL CHECK (listing_revision >= 1),
   source_desired_state_sequence bigint NOT NULL CHECK (source_desired_state_sequence >= 1),
   payload jsonb NOT NULL,
@@ -84,10 +86,10 @@ const createOutboundLanesTable = `CREATE TABLE IF NOT EXISTS channel_outbound_la
 
 const createOutboundIndexes = [
   `CREATE UNIQUE INDEX IF NOT EXISTS channel_outbound_operations_source_event_uidx
-  ON channel_outbound_operations (source_event_id)`,
+  ON channel_outbound_operations (source_event_id) WHERE operation_origin = 'desired-state'`,
   `CREATE UNIQUE INDEX IF NOT EXISTS channel_outbound_operations_one_pending_per_lane_uidx
   ON channel_outbound_operations (connection_id, channel_listing_id)
-  WHERE status = 'pending'`,
+  WHERE status = 'pending' AND operation_origin = 'desired-state'`,
   `CREATE UNIQUE INDEX IF NOT EXISTS channel_outbound_operations_one_inflight_per_lane_uidx
   ON channel_outbound_operations (connection_id, channel_listing_id)
   WHERE status = 'in-flight'`,
@@ -130,5 +132,38 @@ export const outboundSyncSchemaMigrations: readonly BcSchemaMigration[] = [
     migrationId: "20260910_channels_outbound_reservation_settlements",
     description: "Create durable claimed-reservation settlement receipts.",
     statements: [createReservationSettlementsTable],
+  },
+  {
+    migrationId: "20260912_channels_reconciliation_repair_origin",
+    description:
+      "Give reconciliation repairs a distinct durable queue identity without weakening desired-event idempotency.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s'",
+      `ALTER TABLE channel_outbound_operations
+       ADD COLUMN IF NOT EXISTS operation_origin text NOT NULL DEFAULT 'desired-state'`,
+      `DO $migration$
+       BEGIN
+         IF NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint
+           WHERE conname = 'channel_outbound_operations_operation_origin_check'
+             AND conrelid = 'channel_outbound_operations'::regclass
+         ) THEN
+           ALTER TABLE channel_outbound_operations
+             ADD CONSTRAINT channel_outbound_operations_operation_origin_check
+             CHECK (operation_origin IN ('desired-state', 'repush', 'reconciliation-repair')) NOT VALID;
+         END IF;
+       END
+       $migration$`,
+      `ALTER TABLE channel_outbound_operations
+       VALIDATE CONSTRAINT channel_outbound_operations_operation_origin_check`,
+      "DROP INDEX CONCURRENTLY IF EXISTS channel_outbound_operations_source_event_uidx",
+      "DROP INDEX CONCURRENTLY IF EXISTS channel_outbound_operations_one_pending_per_lane_uidx",
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS channel_outbound_operations_source_event_uidx
+       ON channel_outbound_operations (source_event_id) WHERE operation_origin = 'desired-state'`,
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS channel_outbound_operations_one_pending_per_lane_uidx
+       ON channel_outbound_operations (connection_id, channel_listing_id)
+       WHERE status = 'pending' AND operation_origin = 'desired-state'`,
+    ],
   },
 ];

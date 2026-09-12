@@ -16,6 +16,7 @@ describe("outbound-bootstrap-and-manifest", () => {
       "source_desired_state_sequence",
       "source_desired_state_hash",
       "payload_digest",
+      "operation_origin",
     ]) {
       expect(outboundSyncSchemaSql).toContain(expected);
       expect(migrationSql).toContain(expected);
@@ -23,6 +24,7 @@ describe("outbound-bootstrap-and-manifest", () => {
     expect(outboundSyncSchemaMigrations.map((migration) => migration.migrationId)).toEqual([
       "20260907_channels_outbound_sync",
       "20260910_channels_outbound_reservation_settlements",
+      "20260912_channels_reconciliation_repair_origin",
     ]);
     expect(outboundSyncSchemaMigrations[0]?.statements.join("\n")).not.toContain(
       "channel_outbound_reservation_settlements",
@@ -30,5 +32,6 @@ describe("outbound-bootstrap-and-manifest", () => {
     expect(outboundSyncSchemaMigrations[1]?.statements.join("\n")).toContain(
       "channel_outbound_reservation_settlements",
     );
+    expect(outboundSyncSchemaMigrations[2]?.statements.join("\n")).toContain("operation_origin = 'desired-state'");
   });
 });
