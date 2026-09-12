@@ -135,6 +135,8 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("outbound-sync-buckets");
   }
+  if (!relativeFiles.some((file) => file.startsWith("features/connection-health/")))
+    violations.push("connection-health-files");
   const emptyArrayFields = ["allowedContextDependencies", "seedRequirements", "hostPorts"];
   const absentManifestFields = [
     "sourceRuntimeDeployables",
@@ -152,7 +154,14 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (
     JSON.stringify(candidate.slices) !==
-    JSON.stringify(["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"])
+    JSON.stringify([
+      "connections",
+      "publication-port",
+      "listing-composition",
+      "tcgplayer-csv",
+      "outbound-sync",
+      "connection-health",
+    ])
   ) {
     violations.push("slices");
   }
@@ -186,6 +195,20 @@ afterEach(() => {
 });
 
 describe("channels-context-foundation", () => {
+  it("enrols all connection-health DB proofs and refuses a missing production slice", () => {
+    const scripts = readJson(packagePath).scripts;
+    for (const name of ["observation-idempotency", "policy-revision", "generation-interleavings"]) {
+      const test = `features/connection-health/tests/channel-health-${name}.db.test.ts`;
+      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+      expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
+    }
+    expect(
+      collectChannelsSurfaceViolations(
+        readJson(manifestPath),
+        listFiles(channelsRoot).filter((file) => !file.startsWith("features/connection-health/")),
+      ),
+    ).toEqual(["connection-health-files"]);
+  });
   it("enrols real service composition in the DB profile and excludes it from unit runs", () => {
     const scripts = readJson(packagePath).scripts;
     const test = "tests/channels-services-composition.db.test.ts";
@@ -207,7 +230,14 @@ describe("channels-context-foundation", () => {
         "channel-listing-desired-state",
         "channel-listing-reconciliation-run",
       ]),
-      slices: ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
+      slices: [
+        "connections",
+        "publication-port",
+        "listing-composition",
+        "tcgplayer-csv",
+        "outbound-sync",
+        "connection-health",
+      ],
       allowedSupportDirectories: ["request-support", "runtime-support"],
       publicExports: [".", "./context", "./server", "./routes/*"],
       allowedContextDependencies: [],

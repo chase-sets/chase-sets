@@ -35,6 +35,12 @@ A **Channel Webhook** is the inbound event subscription configured for a Sales C
 ## Channel Health
 
 **Channel Health** is the account-visible operational state of a Sales Channel connection.
+It is separate from the seller-owned connection lifecycle: `unknown` has no
+complete healthy authority, `healthy` has every reason closed, `degraded` has an
+open reason below its failure thresholds, and `failing` is a system pause.
+Reason generations bind a fingerprint and retain their opening work lineage.
+System pause holds outbound publication and polling while independently verified
+inbound sale observations remain available; it never clears a seller pause.
 
 ## Channel Mapping
 

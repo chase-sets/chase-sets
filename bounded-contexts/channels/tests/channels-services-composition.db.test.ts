@@ -39,7 +39,23 @@ describeDb("channels-services-composition", () => {
     expect(Object.keys(services).sort()).toEqual([...channelsServicesMembers].sort());
     expect(isChannelsServices(services)).toBe(true);
     expectTypeOf<(typeof channelsServicesMembers)[number]>().toEqualTypeOf<keyof ChannelsServices>();
+    expect(channelsServicesMembers).toContain("connectionHealth");
   });
+
+  it.each(["submitObservation", "readConnectionHealth", "listOpenReasonGenerations"])(
+    "rejects real composition when the health %s source is omitted",
+    (member) => {
+      const services = channelsModule.createServices(pools.channels, {});
+      expect(
+        isChannelsServices({
+          ...services,
+          connectionHealth: Object.fromEntries(
+            Object.entries(services.connectionHealth).filter(([key]) => key !== member),
+          ),
+        }),
+      ).toBe(false);
+    },
+  );
 
   it.each(channelsServicesMembers)("rejects real composition with %s omitted", (member) => {
     const services = channelsModule.createServices(pools.channels, {});
