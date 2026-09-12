@@ -375,7 +375,7 @@ describe("GitHub boundary and convergence", () => {
     expect(client.paginate).not.toHaveBeenCalled();
   });
 
-  it("follows every API page and rejects unsafe or malformed next links", async () => {
+  it("follows every API page and stops on terminal prev/first links while rejecting unsafe next links", async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce({
@@ -384,9 +384,18 @@ describe("GitHub boundary and convergence", () => {
         json: async () => [{ id: 1 }],
         headers: { get: () => '<https://api.github.com/repos/chase-sets/chase-sets/pulls/1/files?page=2>; rel="next"' },
       })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => [{ id: 2 }], headers: { get: () => null } });
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => [{ id: 2 }],
+        headers: {
+          get: () =>
+            '<https://api.github.com/repos/chase-sets/chase-sets/pulls/1/files?page=1>; rel="prev", <https://api.github.com/repos/chase-sets/chase-sets/pulls/1/files?page=1>; rel="first"',
+        },
+      });
     const client = createGithubClient({ repository: "chase-sets/chase-sets", token: "test", fetchImpl });
     expect(await client.paginate("/pulls/1/files")).toEqual([{ id: 1 }, { id: 2 }]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
 
     const unsafe = createGithubClient({
       repository: "chase-sets/chase-sets",
@@ -399,6 +408,22 @@ describe("GitHub boundary and convergence", () => {
       }),
     });
     await expect(unsafe.paginate("/pulls/1/files")).rejects.toMatchObject({ code: "api-pagination-shape" });
+  });
+
+  it.each([
+    "malformed",
+    '<https://api.github.com/page/1>; rel="prev", malformed',
+    '<https://api.github.com/page/2>; rel="next", malformed',
+  ])("rejects malformed pagination headers instead of claiming completion: %s", async (header) => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: 1 }],
+      headers: { get: () => header },
+    }));
+    const client = createGithubClient({ repository: "chase-sets/chase-sets", token: "test", fetchImpl });
+    await expect(client.paginate("/pulls/1/files")).rejects.toMatchObject({ code: "api-pagination-shape" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("maps secret-bearing boundary exceptions to a bounded safe code", async () => {
