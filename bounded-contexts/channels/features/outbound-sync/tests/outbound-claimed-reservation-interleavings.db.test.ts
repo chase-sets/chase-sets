@@ -219,6 +219,228 @@ describeDb(
       ]);
     });
 
+    it("orders equal-time desired work before its deterministic repair on claimed and inline paths", async () => {
+      const fixedClock = { now: () => new Date("2026-09-12T12:00:00.000Z") };
+      const claimedRuntime = createOutboundSyncRuntime(
+        { db: pools.channels, clock: fixedClock, recordOutcome: async () => "applied" },
+        { assertDelistDirective: () => undefined },
+      );
+      const claimedDesired = desiredState("listing-tie-claimed", 1, 7, "event-tie-1");
+      const claimedDesiredOperation = await claimedRuntime.enqueueDesiredState(claimedDesired);
+      const claimedRepair = await claimedRuntime.enqueueReconciliationRepair({
+        ...claimedDesired,
+        reconciliationRepairId: "repair-tie-1",
+      });
+      expect(claimedDesiredOperation!.enqueuedAt).toBe(claimedRepair!.enqueuedAt);
+      expect(claimedDesiredOperation!.operationId > claimedRepair!.operationId).toBe(true);
+      await expect(
+        claimedRuntime.enqueueReconciliationRepair({
+          ...claimedDesired,
+          reconciliationRepairId: "repair-tie-1",
+        }),
+      ).resolves.toMatchObject({ operationId: claimedRepair!.operationId });
+
+      const firstClaimed = await claimedRuntime.reserveClaimedOutboundOperations({
+        registry: claimedRegistry,
+        connectionId: "connection-a",
+        claimant: { claimantKind: "connector", claimantId: "tie-claimed-1" },
+        maxOperations: 1,
+        leaseMs: 60_000,
+      });
+      expect(firstClaimed!.operations.map((operation) => operation.operationId)).toEqual([
+        claimedDesiredOperation!.operationId,
+      ]);
+      await claimedRuntime.reportClaimedOperationOutcomes({
+        reservationId: firstClaimed!.reservationId,
+        claimant: firstClaimed!.claimant,
+        outcomes: [
+          memberOutcome(firstClaimed!.operations[0]!, {
+            kind: "applied",
+            result: {
+              kind: "succeeded",
+              externalListingId: "claimed-tie-listing",
+              externalOfferId: null,
+              providerRevision: "claimed-tie-r1",
+            },
+          }),
+        ],
+      });
+      const secondClaimed = await claimedRuntime.reserveClaimedOutboundOperations({
+        registry: claimedRegistry,
+        connectionId: "connection-a",
+        claimant: { claimantKind: "connector", claimantId: "tie-claimed-2" },
+        maxOperations: 1,
+        leaseMs: 60_000,
+      });
+      expect(secondClaimed!.operations.map((operation) => operation.operationId)).toEqual([claimedRepair!.operationId]);
+
+      const repushBasis = desiredState("listing-tie-repush", 1, 7, "unused-repush-event");
+      const equalTimeRepush = await claimedRuntime.enqueueRepush({
+        ...repushBasis,
+        repushOperationId: "repush-tie-1",
+      });
+      const repushRepair = await claimedRuntime.enqueueReconciliationRepair({
+        ...repushBasis,
+        reconciliationRepairId: "repair-tie-2",
+      });
+      expect(equalTimeRepush!.enqueuedAt).toBe(repushRepair!.enqueuedAt);
+      expect(equalTimeRepush!.operationId > repushRepair!.operationId).toBe(true);
+      const claimedRepush = await claimedRuntime.reserveClaimedOutboundOperations({
+        registry: claimedRegistry,
+        connectionId: "connection-a",
+        claimant: { claimantKind: "connector", claimantId: "tie-repush-1" },
+        maxOperations: 1,
+        leaseMs: 60_000,
+      });
+      expect(claimedRepush!.operations.map((operation) => operation.operationId)).toEqual([
+        equalTimeRepush!.operationId,
+      ]);
+
+      await insertConnection(pools.channels, "connection-inline", "synthetic-inline");
+      const inlineCalls: string[] = [];
+      const inlineRuntime = createOutboundSyncRuntime(
+        { db: pools.channels, clock: fixedClock, recordOutcome: async () => "applied" },
+        { assertDelistDirective: () => undefined },
+      );
+      const inlineDesired = desiredState("listing-tie-inline", 1, 7, "event-tie-1", "connection-inline");
+      const inlineDesiredOperation = await inlineRuntime.enqueueDesiredState(inlineDesired);
+      const inlineRepair = await inlineRuntime.enqueueReconciliationRepair({
+        ...inlineDesired,
+        reconciliationRepairId: "repair-tie-2",
+      });
+      expect(inlineDesiredOperation!.enqueuedAt).toBe(inlineRepair!.enqueuedAt);
+      expect(inlineDesiredOperation!.operationId > inlineRepair!.operationId).toBe(true);
+      await expect(
+        inlineRuntime.enqueueReconciliationRepair({
+          ...inlineDesired,
+          reconciliationRepairId: "repair-tie-2",
+        }),
+      ).resolves.toMatchObject({ operationId: inlineRepair!.operationId });
+      const registry = createChannelProviderRegistry([
+        recordingInlineDescriptor("synthetic-inline", async (operationId) => {
+          inlineCalls.push(operationId);
+          return {
+            kind: "succeeded",
+            externalListingId: "inline-tie-listing",
+            externalOfferId: null,
+            providerRevision: `inline-tie-r${inlineCalls.length}`,
+          };
+        }),
+      ]);
+      await expect(inlineRuntime.processNextInlineOperation({ registry, claimOwnerId: "tie-inline-1" })).resolves.toBe(
+        1,
+      );
+      await expect(inlineRuntime.processNextInlineOperation({ registry, claimOwnerId: "tie-inline-2" })).resolves.toBe(
+        1,
+      );
+      expect(inlineCalls).toEqual([inlineDesiredOperation!.operationId, inlineRepair!.operationId]);
+
+      const repairRows = await pools.channels.query<{ operation_id: string; row_count: number }>(
+        `SELECT operation_id,COUNT(*) OVER ()::integer AS row_count
+         FROM channel_outbound_operations
+         WHERE operation_id=ANY($1::text[])
+         ORDER BY operation_id`,
+        [[claimedRepair!.operationId, inlineRepair!.operationId]],
+      );
+      expect(repairRows.rows).toEqual([
+        expect.objectContaining({ row_count: 2 }),
+        expect.objectContaining({ row_count: 2 }),
+      ]);
+    });
+
+    it.each(["claimed", "inline"] as const)(
+      "supersedes an obsolete pending repush before the newer desired state reaches the %s claim path",
+      async (execution) => {
+        const providerKey = execution === "claimed" ? "synthetic-claimed" : "synthetic-inline";
+        if (execution === "inline") {
+          await pools.channels.query(
+            `UPDATE channel_connections SET provider_key=$2
+             WHERE connection_id=$1 AND provider_key='synthetic-claimed'`,
+            ["connection-a", providerKey],
+          );
+        }
+        const providerCalls: string[] = [];
+        const runtime = createOutboundSyncRuntime(
+          {
+            db: pools.channels,
+            clock: { now: () => new Date("2026-09-12T12:30:00.000Z") },
+            recordOutcome: async () => "applied",
+          },
+          { assertDelistDirective: () => undefined },
+        );
+        const desiredOne = desiredState("listing-repush-supersession", 1, 7, "event-desired-1");
+        const terminalDesired = await runtime.enqueueDesiredState(desiredOne);
+        await pools.channels.query(
+          `UPDATE channel_outbound_operations SET status='succeeded',terminal_at=$2
+           WHERE operation_id=$1 AND status='pending'`,
+          [terminalDesired!.operationId, "2026-09-12T12:30:00.000Z"],
+        );
+        const repush = await runtime.enqueueRepush({ ...desiredOne, repushOperationId: "repush-1" });
+        const desiredTwo = desiredState("listing-repush-supersession", 2, 8, "event-desired-2");
+        const latestDesired = await runtime.enqueueDesiredState(desiredTwo);
+        await expect(runtime.enqueueDesiredState(desiredTwo)).resolves.toBeNull();
+        await expect(runtime.enqueueRepush({ ...desiredOne, repushOperationId: "repush-1" })).resolves.toMatchObject({
+          operationId: repush!.operationId,
+          status: "failed",
+          terminalReason: "superseded-by-newer-desired-state",
+        });
+
+        const operationRows = await pools.channels.query<{
+          operation_id: string;
+          operation_origin: string;
+          source_desired_state_sequence: string;
+          status: string;
+          terminal_reason: string | null;
+        }>(
+          `SELECT operation_id,operation_origin,source_desired_state_sequence::text,status,terminal_reason
+           FROM channel_outbound_operations
+           WHERE channel_listing_id=$1
+           ORDER BY source_desired_state_sequence,operation_origin`,
+          [desiredOne.channelListingId],
+        );
+        expect(operationRows.rows.filter((row) => row.status === "pending")).toEqual([
+          expect.objectContaining({
+            operation_id: latestDesired!.operationId,
+            operation_origin: "desired-state",
+            source_desired_state_sequence: "2",
+          }),
+        ]);
+        expect(operationRows.rows.find((row) => row.operation_id === repush!.operationId)).toMatchObject({
+          status: "failed",
+          terminal_reason: "superseded-by-newer-desired-state",
+        });
+
+        if (execution === "claimed") {
+          const reservation = await runtime.reserveClaimedOutboundOperations({
+            registry: claimedRegistry,
+            connectionId: "connection-a",
+            claimant: { claimantKind: "connector", claimantId: "repush-supersession" },
+            maxOperations: 10,
+            leaseMs: 60_000,
+          });
+          expect(reservation!.operations.map((operation) => operation.operationId)).toEqual([
+            latestDesired!.operationId,
+          ]);
+        } else {
+          const registry = createChannelProviderRegistry([
+            recordingInlineDescriptor(providerKey, async (operationId) => {
+              providerCalls.push(operationId);
+              return {
+                kind: "succeeded",
+                externalListingId: "inline-repush-supersession",
+                externalOfferId: null,
+                providerRevision: "inline-repush-supersession-r1",
+              };
+            }),
+          ]);
+          await expect(
+            runtime.processNextInlineOperation({ registry, claimOwnerId: "repush-supersession" }),
+          ).resolves.toBe(1);
+          expect(providerCalls).toEqual([latestDesired!.operationId]);
+        }
+      },
+    );
+
     it("outbound-stale-success-sequence-adoption", async () => {
       expect(
         await pools.channels.query(
@@ -1817,6 +2039,29 @@ function inlineDescriptor(
       publishListing: (input) => execute(input.connectionId),
       updatePriceQuantity: (input) => execute(input.connectionId),
       delistListing: (input) => execute(input.connectionId),
+      fetchChannelState: async () => ({
+        kind: "complete",
+        items: [],
+        collectedCount: 0,
+        authorityTotal: 0,
+        pageCount: 1,
+      }),
+      fetchSales: async () => ({ kind: "complete", lines: [], collectedCount: 0, authorityTotal: 0, pageCount: 1 }),
+    },
+  };
+}
+
+function recordingInlineDescriptor(
+  providerKey: string,
+  execute: (operationId: string) => Promise<ChannelPublicationResult>,
+): ChannelProviderDescriptor {
+  return {
+    ...descriptorWithoutPublication(providerKey),
+    publication: {
+      execution: "inline",
+      publishListing: (input) => execute(input.operationId),
+      updatePriceQuantity: (input) => execute(input.operationId),
+      delistListing: (input) => execute(input.operationId),
       fetchChannelState: async () => ({
         kind: "complete",
         items: [],

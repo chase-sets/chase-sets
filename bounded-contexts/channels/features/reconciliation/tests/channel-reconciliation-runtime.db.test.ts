@@ -65,7 +65,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
     const runtime = createChannelReconciliationRuntime({
       db: pools.channels,
       eventStore: createPostgresEventStore({ pool: pools.channels }),
-      outboundSync: { enqueueReconciliationRepair, enqueueRepush: vi.fn(async () => null) },
+      outboundSync: {
+        enqueueReconciliationRepair,
+        enqueueRepush: vi.fn(async () => null),
+        readOutboundOperationsByIds: async () => [],
+      },
       channelSaleRecorder: vi.fn(async () => ({
         code: "external-channel-sale-history-invalid" as const,
         saleStreamId: "unused",
@@ -317,7 +321,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
     const runtime = createChannelReconciliationRuntime({
       db: pools.channels,
       eventStore: createPostgresEventStore({ pool: pools.channels }),
-      outboundSync: { enqueueReconciliationRepair: async () => null, enqueueRepush: async () => null },
+      outboundSync: {
+        enqueueReconciliationRepair: async () => null,
+        enqueueRepush: async () => null,
+        readOutboundOperationsByIds: async () => [],
+      },
       channelSaleRecorder: recordSale,
       resolvePolicy: async () => ({ value: CHANNEL_RECONCILIATION_POLICY_FALLBACK, revision: 0 }),
       resolveKillSwitch: async () => ({ heldProviderKeys: [], heldConnectionIds: [] }),
@@ -470,7 +478,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
     const runtime = createChannelReconciliationRuntime({
       db: pools.channels,
       eventStore: createPostgresEventStore({ pool: pools.channels }),
-      outboundSync: { enqueueReconciliationRepair: async () => null, enqueueRepush: async () => null },
+      outboundSync: {
+        enqueueReconciliationRepair: async () => null,
+        enqueueRepush: async () => null,
+        readOutboundOperationsByIds: async () => [],
+      },
       channelSaleRecorder: recorder,
       resolvePolicy: async () => ({ value: CHANNEL_RECONCILIATION_POLICY_FALLBACK, revision: 0 }),
       resolveKillSwitch: async () => ({ heldProviderKeys: [], heldConnectionIds: [] }),
@@ -516,7 +528,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
     const runtime = createChannelReconciliationRuntime({
       db: pools.channels,
       eventStore: createPostgresEventStore({ pool: pools.channels }),
-      outboundSync: { enqueueReconciliationRepair: async () => null, enqueueRepush: async () => null },
+      outboundSync: {
+        enqueueReconciliationRepair: async () => null,
+        enqueueRepush: async () => null,
+        readOutboundOperationsByIds: async () => [],
+      },
       channelSaleRecorder: async () => ({
         status: "committed",
         sale: {
@@ -564,7 +580,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
     const runtime = createChannelReconciliationRuntime({
       db: pools.channels,
       eventStore: createPostgresEventStore({ pool: pools.channels }),
-      outboundSync: { enqueueReconciliationRepair: async () => null, enqueueRepush: async () => null },
+      outboundSync: {
+        enqueueReconciliationRepair: async () => null,
+        enqueueRepush: async () => null,
+        readOutboundOperationsByIds: async () => [],
+      },
       channelSaleRecorder: async () => ({
         code: "external-channel-sale-history-invalid",
         saleStreamId: "inventory.external-channel-sale-unrecorded",
@@ -640,7 +660,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
     const runtime = createChannelReconciliationRuntime({
       db: pools.channels,
       eventStore: createPostgresEventStore({ pool: pools.channels }),
-      outboundSync: { enqueueReconciliationRepair: async () => null, enqueueRepush },
+      outboundSync: {
+        enqueueReconciliationRepair: async () => null,
+        enqueueRepush,
+        readOutboundOperationsByIds: async () => [],
+      },
       channelSaleRecorder: async () => ({
         code: "external-channel-sale-history-invalid",
         saleStreamId: "unused",
@@ -699,9 +723,75 @@ describeDb("Channel Reconciliation guarded production path", () => {
     ).resolves.toMatchObject({ repushRequested: true });
   });
 
-  it("queues one distinct reconciliation repair behind a terminal desired operation and records one later success", async () => {
+  it.each(["pending", "failed"] as const)(
+    "does not count a %s correction as succeeded after matching provider state",
+    async (repairStatus) => {
+      await seedConnectionAndListings(pools.channels);
+      const outbound = realOutboundRuntime();
+      const readOutboundOperationsByIds = vi.spyOn(outbound, "readOutboundOperationsByIds");
+      const expected = await readExpectedReconciliationListings(pools.channels, {
+        connectionId: "connection-1",
+        limit: 10,
+      });
+      const repairable = expected.items.find((item) => item.channelListingId === "channel-repairable")!;
+      const original = await outbound.enqueueDesiredState(repairable.desired);
+      await pools.channels.query(
+        `UPDATE channel_outbound_operations SET status='succeeded',terminal_at=$2
+         WHERE operation_id=$1 AND status='pending'`,
+        [original!.operationId, "2026-09-12T05:30:00.000Z"],
+      );
+      let observed = matchingItems({ repairableRevision: "6" });
+      const runtime = reconciliationWithOutbound(outbound, () => observed);
+      await expect(
+        runtime.reconcileConnection(
+          {
+            connectionId: "connection-1",
+            registry: inlineRegistry(() => observed),
+            sourceAttempt: 1,
+            healthAuthority: null,
+          },
+          context,
+        ),
+      ).resolves.toMatchObject({ counts: { repairable: 1, repairsEnqueued: 1, repairsSucceeded: 0 } });
+      const repair = await pools.channels.query<{ operation_id: string; status: string }>(
+        `SELECT operation_id,status FROM channel_outbound_operations
+         WHERE channel_listing_id='channel-repairable' AND operation_origin='reconciliation-repair'`,
+      );
+      expect(repair.rows).toEqual([expect.objectContaining({ status: "pending" })]);
+      if (repairStatus === "failed") {
+        await pools.channels.query(
+          `UPDATE channel_outbound_operations
+           SET status='failed',terminal_reason='retry-exhausted',terminal_at=$2
+           WHERE operation_id=$1 AND status='pending'`,
+          [repair.rows[0]!.operation_id, "2026-09-12T05:45:00.000Z"],
+        );
+      }
+
+      observed = matchingItems();
+      const matchingInput = {
+        connectionId: "connection-1",
+        registry: inlineRegistry(() => observed),
+        sourceAttempt: 1,
+        healthAuthority: null,
+      } as const;
+      await expect(runtime.reconcileConnection(matchingInput, context)).resolves.toMatchObject({
+        clean: true,
+        counts: { repairsSucceeded: 0 },
+      });
+      expect(readOutboundOperationsByIds).toHaveBeenLastCalledWith({
+        connectionId: "connection-1",
+        operationIds: [repair.rows[0]!.operation_id],
+      });
+      await expect(runtime.reconcileConnection(matchingInput, context)).resolves.toMatchObject({
+        counts: { repairsSucceeded: 0 },
+      });
+    },
+  );
+
+  it("queues one distinct reconciliation repair behind a terminal desired operation and records one exact later success", async () => {
     await seedConnectionAndListings(pools.channels);
     const outbound = realOutboundRuntime();
+    const readOutboundOperationsByIds = vi.spyOn(outbound, "readOutboundOperationsByIds");
     const expected = await readExpectedReconciliationListings(pools.channels, {
       connectionId: "connection-1",
       limit: 10,
@@ -803,6 +893,10 @@ describeDb("Channel Reconciliation guarded production path", () => {
         context,
       ),
     ).resolves.toMatchObject({ clean: true, counts: { repairsSucceeded: 1 } });
+    expect(readOutboundOperationsByIds).toHaveBeenLastCalledWith({
+      connectionId: "connection-1",
+      operationIds: [repair.operation_id],
+    });
     await expect(
       runtime.reconcileConnection(
         {
@@ -958,6 +1052,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
             return pendingOperation(input);
           },
           enqueueRepush: async () => null,
+          readOutboundOperationsByIds: async () => [],
         },
         channelSaleRecorder: async () => {
           if (failure === "inventory") throw new Error("synthetic inventory failure");
@@ -1204,7 +1299,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
     const runtime = createChannelReconciliationRuntime({
       db: pools.channels,
       eventStore: createPostgresEventStore({ pool: pools.channels }),
-      outboundSync: { enqueueReconciliationRepair: async () => null, enqueueRepush: async () => null },
+      outboundSync: {
+        enqueueReconciliationRepair: async () => null,
+        enqueueRepush: async () => null,
+        readOutboundOperationsByIds: async () => [],
+      },
       channelSaleRecorder: async () => ({
         status: "committed",
         sale: {
@@ -1357,7 +1456,11 @@ function createRuntime(_registry: ReturnType<typeof createChannelProviderRegistr
   return createChannelReconciliationRuntime({
     db: pools.channels,
     eventStore: createPostgresEventStore({ pool: pools.channels }),
-    outboundSync: { enqueueReconciliationRepair: async () => null, enqueueRepush: async () => null },
+    outboundSync: {
+      enqueueReconciliationRepair: async () => null,
+      enqueueRepush: async () => null,
+      readOutboundOperationsByIds: async () => [],
+    },
     channelSaleRecorder: async () => ({
       code: "external-channel-sale-history-invalid",
       saleStreamId: "unused",
@@ -1514,7 +1617,11 @@ function reconciliationAt(at: Date) {
   return createChannelReconciliationRuntime({
     db: pools.channels,
     eventStore: createPostgresEventStore({ pool: pools.channels }),
-    outboundSync: { enqueueReconciliationRepair: async () => null, enqueueRepush: async () => null },
+    outboundSync: {
+      enqueueReconciliationRepair: async () => null,
+      enqueueRepush: async () => null,
+      readOutboundOperationsByIds: async () => [],
+    },
     channelSaleRecorder: async () => ({
       code: "external-channel-sale-history-invalid",
       saleStreamId: "unused",

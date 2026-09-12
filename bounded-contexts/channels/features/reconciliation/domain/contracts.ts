@@ -177,7 +177,10 @@ export interface ChannelReconciliationServices {
 export type ChannelReconciliationRuntimeDependencies = Readonly<{
   db: PgTransactionalPool;
   eventStore: Pick<PostgresEventStore, "appendToStreamInTransaction" | "readStream">;
-  outboundSync: Pick<OutboundSyncServices, "enqueueReconciliationRepair" | "enqueueRepush">;
+  outboundSync: Pick<
+    OutboundSyncServices,
+    "enqueueReconciliationRepair" | "enqueueRepush" | "readOutboundOperationsByIds"
+  >;
   channelSaleRecorder: RecordExternalChannelSale;
   resolvePolicy: () => Promise<
     Readonly<{

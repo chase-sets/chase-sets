@@ -11,6 +11,7 @@ import {
   type OutboundConnection,
   type OutboundOperationLane,
   type OutboundOperationRecord,
+  type OutboundOperationStatusRecord,
   type OutboundSyncRuntimeDependencies,
   type ReserveClaimedOutboundOperationsInput,
 } from "../domain/contracts";
@@ -116,15 +117,15 @@ export function createOutboundOperationStore(
         if (current.rows.some((row) => Number(row.source_desired_state_sequence) >= input.desiredStateSequence))
           return null;
         const enqueuedAt = now();
-        const supersededRepairs = current.rows
+        const supersededOperations = current.rows
           .filter(
             (row) =>
               row.status === "pending" &&
-              row.operation_origin === "reconciliation-repair" &&
+              row.operation_origin !== "desired-state" &&
               Number(row.source_desired_state_sequence) < input.desiredStateSequence,
           )
           .map((row) => ({ operation_id: row.operation_id, revision: Number(row.revision) }));
-        await db.query(
+        const terminalized = await db.query(
           `WITH candidates AS (
              SELECT * FROM jsonb_to_recordset($1::jsonb) AS candidate(operation_id text,revision bigint)
            )
@@ -133,9 +134,12 @@ export function createOutboundOperationStore(
                terminal_reason='superseded-by-newer-desired-state',terminal_at=$2
            FROM candidates AS candidate
            WHERE operation.operation_id=candidate.operation_id AND operation.revision=candidate.revision
-             AND operation.status='pending' AND operation.operation_origin='reconciliation-repair'`,
-          [JSON.stringify(supersededRepairs), enqueuedAt],
+             AND operation.status='pending' AND operation.operation_origin<>'desired-state'`,
+          [JSON.stringify(supersededOperations), enqueuedAt],
         );
+        if (Number(terminalized.rowCount ?? 0) !== supersededOperations.length) {
+          throw new OutboundSyncError("stale-fence");
+        }
         const pending = current.rows.find(
           (row) => row.status === "pending" && row.operation_origin === "desired-state",
         );
@@ -300,6 +304,56 @@ export function createOutboundOperationStore(
       });
     },
 
+    readOutboundOperationsByIds: async (
+      input: Readonly<{ connectionId: string; operationIds: readonly string[] }>,
+    ): Promise<readonly OutboundOperationStatusRecord[]> => {
+      if (
+        !input.connectionId ||
+        input.connectionId.length > 512 ||
+        !Array.isArray(input.operationIds) ||
+        input.operationIds.length > 100_000 ||
+        new Set(input.operationIds).size !== input.operationIds.length ||
+        input.operationIds.some(
+          (operationId) => typeof operationId !== "string" || !/^cop_[a-f0-9]{40}$/.test(operationId),
+        )
+      ) {
+        throw new OutboundSyncError("invalid-input", "Outbound operation IDs must be unique and bounded.");
+      }
+      if (input.operationIds.length === 0) return [];
+      const result = await dependencies.db.query<
+        Pick<
+          OperationRow,
+          | "operation_id"
+          | "connection_id"
+          | "channel_listing_id"
+          | "listing_id"
+          | "operation_kind"
+          | "listing_revision"
+          | "source_desired_state_sequence"
+          | "source_desired_state_hash"
+          | "status"
+        >
+      >(
+        `SELECT operation_id,connection_id,channel_listing_id,listing_id,operation_kind,listing_revision,
+                source_desired_state_sequence,source_desired_state_hash,status
+         FROM channel_outbound_operations
+         WHERE connection_id=$1 AND operation_id=ANY($2::text[])
+         ORDER BY operation_id`,
+        [input.connectionId, input.operationIds],
+      );
+      return result.rows.map((row) => ({
+        operationId: row.operation_id,
+        connectionId: row.connection_id,
+        channelListingId: row.channel_listing_id,
+        listingId: row.listing_id,
+        operationKind: row.operation_kind,
+        listingRevision: Number(row.listing_revision),
+        sourceDesiredStateSequence: Number(row.source_desired_state_sequence),
+        sourceDesiredStateHash: row.source_desired_state_hash,
+        status: row.status,
+      }));
+    },
+
     reserveClaimedOutboundOperations: async (
       input: ReserveClaimedOutboundOperationsInput,
     ): Promise<ClaimedOperationReservation | null> => {
@@ -359,7 +413,10 @@ async function reserveClaimedOutboundOperations(
                WHERE earliest.connection_id=operation.connection_id
                  AND earliest.channel_listing_id=operation.channel_listing_id
                  AND earliest.status='pending'
-               ORDER BY earliest.enqueued_at,earliest.operation_id LIMIT 1
+               ORDER BY earliest.enqueued_at,
+                        CASE earliest.operation_origin WHEN 'reconciliation-repair' THEN 1 ELSE 0 END,
+                        earliest.operation_id
+               LIMIT 1
              )
              AND NOT EXISTS (
                SELECT 1 FROM channel_outbound_operations AS active

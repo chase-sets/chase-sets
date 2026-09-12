@@ -503,7 +503,10 @@ async function claimNextInlineBatch(
                WHERE earliest.connection_id=pending.connection_id
                  AND earliest.channel_listing_id=pending.channel_listing_id
                  AND earliest.status='pending'
-               ORDER BY earliest.enqueued_at,earliest.operation_id LIMIT 1
+               ORDER BY earliest.enqueued_at,
+                        CASE earliest.operation_origin WHEN 'reconciliation-repair' THEN 1 ELSE 0 END,
+                        earliest.operation_id
+               LIMIT 1
              )
              AND NOT EXISTS (
                SELECT 1 FROM channel_outbound_operations AS sibling

@@ -80,6 +80,19 @@ export type OutboundOperationRecord = Readonly<{
   terminalAt: string | null;
 }>;
 
+export type OutboundOperationStatusRecord = Pick<
+  OutboundOperationRecord,
+  | "operationId"
+  | "connectionId"
+  | "channelListingId"
+  | "listingId"
+  | "operationKind"
+  | "listingRevision"
+  | "sourceDesiredStateSequence"
+  | "sourceDesiredStateHash"
+  | "status"
+>;
+
 export type OutboundOperationLane = Readonly<{
   connectionId: string;
   channelListingId: string;
@@ -256,6 +269,9 @@ export interface OutboundSyncServices {
   enqueueDesiredState(input: EnqueueOutboundOperation): Promise<OutboundOperationRecord | null>;
   enqueueRepush(input: EnqueueOutboundRepush): Promise<OutboundOperationRecord | null>;
   enqueueReconciliationRepair(input: EnqueueOutboundReconciliationRepair): Promise<OutboundOperationRecord | null>;
+  readOutboundOperationsByIds(
+    input: Readonly<{ connectionId: string; operationIds: readonly string[] }>,
+  ): Promise<readonly OutboundOperationStatusRecord[]>;
   reserveClaimedOutboundOperations(
     input: ReserveClaimedOutboundOperationsInput,
   ): Promise<ClaimedOperationReservation | null>;
