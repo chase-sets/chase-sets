@@ -17,6 +17,13 @@ import {
   publicHelpArticlePaths,
   publicHelpArticles,
 } from "./article-catalog";
+import {
+  complianceLegalReviewArticleSlugs,
+  complianceLegalReviewLocale,
+  dmcaComplianceArticleSlug,
+  dmcaUnverifiedRegistrationMarker,
+  incorporatedHelpArticleSlugs,
+} from "./compliance-legal-review-corpus";
 import type { HelpArticle } from "./article-model";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..");
@@ -56,6 +63,30 @@ const complianceArticles = [
     bodySha256: "45170b5493e4ffe63e58ded0069f7f791e97d1ad0cd8d08964ef635702964b98",
   },
 ] as const;
+
+/**
+ * The independent test-only oracle for #5695's source-owned legal-review
+ * manifest. This literal tuple is the exact reviewed membership and order, held
+ * here and NEVER exported, so a deletion or reorder in
+ * `compliance-legal-review-corpus.ts` is detectable by something that does not
+ * read that module. The packet and the launch audit consume the manifest; they
+ * never consume this list, so there is still exactly one production membership
+ * source.
+ */
+const reviewedComplianceMembershipOracle = complianceArticles.map(({ slug }) => slug);
+
+function assertManifestMatchesReviewedMembership(candidate: readonly string[]) {
+  if (candidate.length !== reviewedComplianceMembershipOracle.length) {
+    throw new Error(
+      `legal-review manifest must carry exactly ${reviewedComplianceMembershipOracle.length} reviewed compliance members`,
+    );
+  }
+  candidate.forEach((slug, index) => {
+    if (slug !== reviewedComplianceMembershipOracle[index]) {
+      throw new Error(`legal-review manifest member ${index} must be '${reviewedComplianceMembershipOracle[index]}'`);
+    }
+  });
+}
 
 function corpusSources() {
   return readdirSync(articlesDirectory)
@@ -398,5 +429,48 @@ describe("#5693 compliance policy articles", () => {
       expect(article).not.toHaveProperty("consentActivatable");
     }
     expect(articleText(findArticle("intellectual-property-and-dmca"))).toContain(unverifiedRegistrationToken);
+  });
+});
+
+describe("#5695 source-owned legal-review corpus manifest", () => {
+  it("carries the exact reviewed compliance membership and order, and fails on a deletion or reorder", () => {
+    expect(() => assertManifestMatchesReviewedMembership([...complianceLegalReviewArticleSlugs])).not.toThrow();
+    expect(complianceLegalReviewLocale).toBe("en");
+
+    const deleted = complianceLegalReviewArticleSlugs.filter((slug) => slug !== "sales-tax");
+    expect(() => assertManifestMatchesReviewedMembership(deleted)).toThrow(
+      "must carry exactly 5 reviewed compliance members",
+    );
+
+    const reordered = [
+      complianceLegalReviewArticleSlugs[1],
+      complianceLegalReviewArticleSlugs[0],
+      ...complianceLegalReviewArticleSlugs.slice(2),
+    ];
+    expect(() => assertManifestMatchesReviewedMembership(reordered)).toThrow(
+      "member 0 must be 'community-guidelines-and-enforcement'",
+    );
+  });
+
+  it("declares three summary-only incorporated references that resolve once and never overlap the members", () => {
+    expect([...incorporatedHelpArticleSlugs]).toEqual([
+      "condition-and-photo-standards",
+      "order-protection",
+      "refunds-and-returns",
+    ]);
+    for (const slug of incorporatedHelpArticleSlugs) {
+      expect(complianceLegalReviewArticleSlugs).not.toContain(slug as never);
+      expect(
+        publicHelpArticles.filter((article) => article.slug === slug && article.locale === complianceLegalReviewLocale),
+      ).toHaveLength(1);
+      const fileNames = readdirSync(articlesDirectory).filter((fileName) => fileName.startsWith(`${slug}.`));
+      expect(fileNames).toEqual([`${slug}.en.md`]);
+    }
+  });
+
+  it("keeps the DMCA marker constants bound to the checked-in fail-closed source", () => {
+    expect(dmcaComplianceArticleSlug).toBe("intellectual-property-and-dmca");
+    expect(dmcaUnverifiedRegistrationMarker).toBe(unverifiedRegistrationToken);
+    expect(complianceSource(dmcaComplianceArticleSlug).source).toContain(dmcaUnverifiedRegistrationMarker);
   });
 });
