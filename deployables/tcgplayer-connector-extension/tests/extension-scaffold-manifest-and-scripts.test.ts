@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import * as channelsClient from "@chase-sets/channels/client";
 import { extensionKeyCandidate } from "../src/authority-candidate";
 import { createProbeManifest } from "../src/manifest";
 
@@ -9,6 +10,13 @@ const packageJson = JSON.parse(readFileSync(resolve(import.meta.dirname, "../pac
 };
 
 describe("extension-scaffold-manifest-and-scripts", () => {
+  it("connector-client-public-surface exposes exactly three constants to the extension consumer", () => {
+    expect(Object.keys(channelsClient).sort()).toEqual([
+      "TCGPLAYER_CONNECTOR_EXTENSION_ID",
+      "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
+      "TCGPLAYER_CONNECTOR_REDIRECT_URI",
+    ]);
+  });
   it("pins the five package scripts and omits the DB-profile-only unit alias", () => {
     expect(packageJson.scripts).toEqual({
       build: "vite build",
