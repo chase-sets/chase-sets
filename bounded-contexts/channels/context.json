@@ -14,9 +14,16 @@
   ],
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
-  "slices": ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
+  "slices": [
+    "connections",
+    "connector-client",
+    "publication-port",
+    "listing-composition",
+    "tcgplayer-csv",
+    "outbound-sync"
+  ],
   "allowedSupportDirectories": ["request-support", "runtime-support"],
-  "publicExports": [".", "./context", "./server", "./routes/*"],
+  "publicExports": [".", "./client", "./context", "./server", "./routes/*"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [],
@@ -457,6 +464,11 @@
       "classification": "slice",
       "purpose": "Own the connections slice lifecycle, setup authority, HTTP contract, and projection.",
       "expectedConsumers": ["Internal Channels module composition"]
+    },
+    "connector-client": {
+      "classification": "slice",
+      "purpose": "The connector-client slice owns the Chromium-observed TCGplayer connector extension identity and callback constants.",
+      "expectedConsumers": ["TCGplayer connector extension composition"]
     },
     "publication-port": {
       "classification": "slice",

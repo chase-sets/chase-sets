@@ -171,6 +171,9 @@ const contextRootExportContracts = new Map([
     new Set([
       "contextManifest",
       "module",
+      "TCGPLAYER_CONNECTOR_EXTENSION_ID",
+      "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
+      "TCGPLAYER_CONNECTOR_REDIRECT_URI",
       "ChannelEnvironment",
       "channelExecutionModes",
       "ChannelExecutionMode",
@@ -1356,7 +1359,15 @@ function isApiDeployableFile(relativeFile) {
   return /deployables\/(platform-api|platform-worker)\//.test(relativeFile);
 }
 
-function isAllowedDeployableBoundedContextImport(relativeFile, specifier) {
+export function isAllowedDeployableBoundedContextImport(relativeFile, specifier) {
+  const normalizedFile = relativeFile.replaceAll("\\", "/");
+  if (
+    normalizedFile.startsWith("deployables/tcgplayer-connector-extension/") &&
+    specifier === "@chase-sets/channels/client"
+  ) {
+    return true;
+  }
+
   if (isWebDeployableFile(relativeFile) && !isTestFile(relativeFile)) {
     return /^@chase-sets\/[^/]+\/(context|host-config|web|server|routes\/.+)$/.test(specifier);
   }
@@ -2878,7 +2889,7 @@ export async function runStructureCheck(options = {}) {
       !relativeFile.endsWith("/seed.test.ts") &&
       !relativeFile.includes("/seed-support/") &&
       !relativeFile.includes("/scripts/") &&
-      !/\/(?:vite|vitest)\.config\.ts$/.test(relativeFile);
+      !/\/(?:playwright|vite|vitest)\.config\.ts$/.test(relativeFile);
 
     if (isRuntimeSource && importsScripts) {
       addViolation(file, `runtime code must not import scripts (${specifier})`);
