@@ -18,12 +18,16 @@ async function captureSandboxedPopup(): Promise<void> {
   if (chromeType !== "undefined") {
     try {
       storageLocalReachable = Boolean(await extensionChrome?.storage.local.get("authority"));
-      storageSessionReachable = Boolean(await extensionChrome?.storage.session.get("authority"));
     } catch {
       // Chromium's refusal is the measured capability.
     }
+    try {
+      storageSessionReachable = Boolean(await extensionChrome?.storage.session.get("authority"));
+    } catch {
+      // Probe each storage area independently even when local storage refuses.
+    }
   }
-  const opened = window.open("about:blank");
+  const opened = window.open(SYNTHETIC_PLATFORM_URL);
   const record = {
     origin: location.origin,
     chromeType,
@@ -34,11 +38,6 @@ async function captureSandboxedPopup(): Promise<void> {
     windowOpenReturnedWindow: opened !== null,
   };
   document.querySelector("#result")!.textContent = JSON.stringify(record);
-  if (opened) {
-    const observationUrl = new URL(SYNTHETIC_PLATFORM_URL);
-    observationUrl.searchParams.set("observation", JSON.stringify(record));
-    opened.location.href = observationUrl.toString();
-  }
 }
 
 void captureSandboxedPopup();

@@ -4,7 +4,7 @@
     { "workspace": "@chase-sets/app-admin-web", "script": "test", "estimatedDurationSeconds": 32 },
     { "workspace": "@chase-sets/app-marketplace-web", "script": "test", "estimatedDurationSeconds": 34 },
     { "workspace": "@chase-sets/app-public-web", "script": "test", "estimatedDurationSeconds": 16 },
-    { "workspace": "@chase-sets/app-tcgplayer-connector-extension", "script": "test", "estimatedDurationSeconds": 2 },
+    { "workspace": "@chase-sets/app-tcgplayer-connector-extension", "script": "test", "estimatedDurationSeconds": 3 },
     { "workspace": "@chase-sets/auth-context", "script": "test", "estimatedDurationSeconds": 4 },
     { "workspace": "@chase-sets/authenticity", "script": "test", "estimatedDurationSeconds": 8 },
     { "workspace": "@chase-sets/bounded-context-module", "script": "test", "estimatedDurationSeconds": 3 },

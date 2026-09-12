@@ -1,3 +1,4 @@
+// Vite loads its config before source aliases exist. The root caller test pins this bootstrap mirror to Channels.
 export const extensionKeyCandidate =
   "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4VQNK5zHsQJA2zEumgCmt2Rl6Msb3DmMkX/wcoPTc8RCnSXh0FDKPKZcoI7u49LiVNadhDrcBoZpQyyYdrPvH1zTy5XNheC5iJxOdf4zrC5jHbyxFGIIpoab8VOLzOgRLo2RJ884u7PHiPxFZZQTB6yRXdjkHjpLiqntrwxkRqLzAiHCVplPldpB0RelV2SYLcyjpjfDa/CMv4Ohc95b1pu54x3MsfkU/aDG1Nkkc9teX0NEz12nsgcXjKXHgZl8hJnahHIsBy/mECBYI4m4q7DEwYXDZzTYIZkm0MUorOBg/Lq2gY3ttqcpe2hur3GattOHhb1+ZoX9omsu79gK8QIDAQAB";
 export const extensionIdCandidate = "ebnhngdhefamkdjajldafonajgkadfhh";

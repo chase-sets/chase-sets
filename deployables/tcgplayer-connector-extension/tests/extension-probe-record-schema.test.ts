@@ -50,7 +50,9 @@ const capability = {
     popupCleared: true,
     openPopupAttempted: true,
     openPopupRejected: true,
-    onClickedFired: false,
+    actionTrigger: "Extensions.triggerAction",
+    onClickedAfterOpenPopup: false,
+    onClickedFired: true,
     badgeTextSucceeded: true,
     titleSucceeded: true,
   },
@@ -85,6 +87,21 @@ describe("extension-probe-record-schema", () => {
         differentKey: { ...controls.differentKey, nestedUnknown: true },
       }),
     ).toThrow("differentKey must contain exactly");
+  });
+
+  it("refuses tab observations promoted to actual popup proof and absent action stimuli", () => {
+    expect(() =>
+      parsePopupCapabilityProbeRecord({
+        ...capability,
+        sandboxedPopup: { ...capability.sandboxedPopup, observationMode: "actual-action-popup" },
+      }),
+    ).toThrow("observation mode must agree");
+    expect(() =>
+      parsePopupCapabilityProbeRecord({
+        ...capability,
+        popupLessAction: { ...capability.popupLessAction, actionTrigger: "openPopup" },
+      }),
+    ).toThrow("actionTrigger");
   });
 
   it("refuses date-only instants, empty origins, and non-boolean facts", () => {

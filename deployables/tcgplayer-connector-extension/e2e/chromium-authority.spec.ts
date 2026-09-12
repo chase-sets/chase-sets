@@ -11,32 +11,29 @@ import {
   parseIdentityNegativeControlsRecord,
   parseIdentityProbeRecord,
   parsePopupCapabilityProbeRecord,
+  type PopupCapabilityProbeRecord,
 } from "../src/probe-records";
 
 const packageRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(packageRoot, "../..");
 const distRoot = resolve(packageRoot, "dist");
 const artifactRoot = resolve(repoRoot, "artifacts/chromium-authority");
+const activeContexts: BrowserContext[] = [];
+
+test.afterEach(async () => {
+  for (const context of activeContexts.splice(0)) await context.close();
+});
 const differentPublicKey =
   "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApFhoONA2G33rY2UWGXzOJcnx+SwgBC99JLq+I2GKGxERrYYNEq++7Mxd/NAUTzb5mkXsyjZcVSJzEBsOWS/n3o90mZAagGlMAwUYa2qn/0MY7t1DpLt02hISSjj9mbXu2kqzy6ZXndumuMJrjIuLF0uDClL6lZ5SCwmiRMFvrTikfKtGFzJxX0t3aQM6HgUpnAPYFjyPSTI/3Md7V6sAfr51N4do2pE5ueH9PSGSV9H0Rp67nG/7igkwRaXrw6+v2V2qiSQxEBtsTLsJ5K+khbwMVosXjlMgtEEAYrbqhKwJPK4FOnNHHm9zMyhzGDoD9fh2DLnt8LTxwNa7K5g6XQIDAQAB";
 
-type TrustedObservation = Readonly<{
-  origin: string;
-  storageLocalCanaryReadable: boolean;
-  storageSessionCanaryReadable: boolean;
-  indexedDbCanaryReadable: boolean;
-  workerMessageReached: boolean;
-}>;
-
-type SandboxedObservation = Readonly<{
-  origin: string;
-  chromeType: string;
-  storageLocalReachable: boolean;
-  storageSessionReachable: boolean;
-  indexedDbReachable: boolean;
-  queryReceived: boolean;
-  windowOpenReturnedWindow: boolean;
-}>;
+type TrustedObservation = Omit<
+  PopupCapabilityProbeRecord["trustedPopup"],
+  "actionPopupOpened" | "observationMode" | "fallbackTabNavigationUsed"
+>;
+type SandboxedObservation = Omit<
+  PopupCapabilityProbeRecord["sandboxedPopup"],
+  "setPopupSucceeded" | "actionPopupOpened" | "observationMode" | "fallbackTabNavigationUsed"
+>;
 
 function listFiles(root: string, directory = root): string[] {
   return readdirSync(directory, { withFileTypes: true })
@@ -73,9 +70,15 @@ async function launchExtension(extensionRoot: string): Promise<{
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
     headless: false,
-    args: [`--disable-extensions-except=${extensionRoot}`, `--load-extension=${extensionRoot}`],
+    args: [
+      `--disable-extensions-except=${extensionRoot}`,
+      `--load-extension=${extensionRoot}`,
+      "--enable-unsafe-extension-debugging",
+      "--host-resolver-rules=MAP * ~NOTFOUND",
+    ],
   });
   const externalRequests: string[] = [];
+  activeContexts.push(context);
   await context.route(/^https?:\/\//, async (route) => {
     externalRequests.push(route.request().url());
     await route.abort("blockedbyclient");
@@ -112,6 +115,52 @@ async function openActionPopup(worker: Worker): Promise<boolean> {
     .catch(() => false);
 }
 
+async function readActionPopupRecord<T>(context: BrowserContext, popupUrl: string): Promise<T> {
+  const session = await context.browser()!.newBrowserCDPSession();
+  try {
+    const target = (await session.send("Target.getTargets")).targetInfos.find((entry) => entry.url === popupUrl);
+    if (!target) throw new Error(`Chromium opened a popup but exposed no target for ${popupUrl}`);
+    const { sessionId } = await session.send("Target.attachToTarget", { targetId: target.targetId });
+    let nextId = 0;
+    const readResult = async (): Promise<string | undefined> => {
+      const id = ++nextId;
+      const response = new Promise<string | undefined>((resolve, reject) => {
+        const listener = (event: { sessionId: string; message: string }) => {
+          if (event.sessionId !== sessionId) return;
+          const message = JSON.parse(event.message);
+          if (message.id !== id) return;
+          session.off("Target.receivedMessageFromTarget", listener);
+          if (message.error || message.result?.exceptionDetails) reject(new Error("Chromium popup evaluation failed"));
+          else resolve(message.result?.result?.value);
+        };
+        session.on("Target.receivedMessageFromTarget", listener);
+      });
+      await session.send("Target.sendMessageToTarget", {
+        sessionId,
+        message: JSON.stringify({
+          id,
+          method: "Runtime.evaluate",
+          params: {
+            expression: "document.querySelector('#result')?.textContent",
+            returnByValue: true,
+          },
+        }),
+      });
+      return response;
+    };
+    let result: string | undefined;
+    await expect
+      .poll(async () => {
+        result = await readResult();
+        return result !== undefined && result !== "pending";
+      })
+      .toBe(true);
+    return JSON.parse(result!) as T;
+  } finally {
+    await session.detach();
+  }
+}
+
 async function captureTrustedPopup(
   context: BrowserContext,
   worker: Worker,
@@ -141,6 +190,9 @@ async function captureTrustedPopup(
         }
       ).__chaseSetsChromiumAuthorityProbe.trustedPopupObservation(),
     );
+    expect(
+      await readActionPopupRecord<TrustedObservation>(context, `chrome-extension://${extensionId}/popup.html`),
+    ).toEqual(observation);
     await context.pages()[0]?.bringToFront();
     return {
       observation: observation as TrustedObservation,
@@ -164,22 +216,18 @@ async function captureSandboxedPopup(
   worker: Worker,
   extensionId: string,
   popupPath: string,
-  externalRequests: string[],
+  setPopupSucceeded: boolean,
 ): Promise<{
   observation: SandboxedObservation;
   actionPopupOpened: boolean;
   fallbackTabNavigationUsed: boolean;
   observationMode: "actual-action-popup" | "tab-navigation-fallback";
 }> {
-  const requestsBefore = externalRequests.length;
-  if (await openActionPopup(worker)) {
-    await expect
-      .poll(() => externalRequests.slice(requestsBefore).find((url) => url.startsWith(`${SYNTHETIC_PLATFORM_URL}?`)))
-      .toBeTruthy();
-    const reportUrl = externalRequests
-      .slice(requestsBefore)
-      .find((url) => url.startsWith(`${SYNTHETIC_PLATFORM_URL}?`))!;
-    const observation = JSON.parse(new URL(reportUrl).searchParams.get("observation") ?? "") as SandboxedObservation;
+  if (setPopupSucceeded && (await openActionPopup(worker))) {
+    const observation = await readActionPopupRecord<SandboxedObservation>(
+      context,
+      `chrome-extension://${extensionId}/${popupPath}`,
+    );
     await context.pages()[0]?.bringToFront();
     return {
       observation,
@@ -218,6 +266,7 @@ test("extension-pinned-identity-chromium-probe", async () => {
     capturedAt: new Date().toISOString(),
   });
   writeJson("extension-pinned-identity-chromium-probe.json", identity);
+  activeContexts.splice(activeContexts.indexOf(baseline.context), 1);
   await baseline.context.close();
 
   const mutantRoot = mkdtempSync(join(tmpdir(), "chase-sets-chromium-authority-mutants-"));
@@ -237,15 +286,42 @@ test("extension-pinned-identity-chromium-probe", async () => {
     "utf8",
   );
 
-  const keyRemoved = await launchExtension(keyRemovedRoot);
-  await keyRemoved.context.close();
-  const differentKey = await launchExtension(differentKeyRoot);
-  await differentKey.context.close();
+  for (const mutant of [keyRemovedRoot, differentKeyRoot]) {
+    expect(listFiles(mutant).map((file) => relative(mutant, file))).toEqual(
+      listFiles(distRoot).map((file) => relative(distRoot, file)),
+    );
+    for (const file of listFiles(distRoot)) {
+      if (relative(distRoot, file) !== "manifest.json") {
+        expect(readFileSync(resolve(mutant, relative(distRoot, file)))).toEqual(readFileSync(file));
+      }
+    }
+    const { key: _mutantKey, ...otherFields } = JSON.parse(readFileSync(resolve(mutant, "manifest.json"), "utf8"));
+    expect(otherFields).toEqual(keyRemovedManifest);
+  }
+
+  const manifestPath = resolve(distRoot, "manifest.json");
+  const baselineManifestBytes = readFileSync(manifestPath);
+  async function captureMutant(mutant: string) {
+    try {
+      // Keep the load path fixed: Chromium uses it for an extension without a key.
+      writeFileSync(manifestPath, readFileSync(resolve(mutant, "manifest.json")));
+      expect(directorySha256(distRoot)).toBe(directorySha256(mutant));
+      const launched = await launchExtension(distRoot);
+      activeContexts.splice(activeContexts.indexOf(launched.context), 1);
+      await launched.context.close();
+      return { assignedId: launched.assignedId, distSha256: directorySha256(mutant) };
+    } finally {
+      writeFileSync(manifestPath, baselineManifestBytes);
+    }
+  }
+  const keyRemoved = await captureMutant(keyRemovedRoot);
+  const differentKey = await captureMutant(differentKeyRoot);
+  expect(directorySha256(distRoot)).toBe(baseDistSha256);
   const controls = parseIdentityNegativeControlsRecord({
     schemaVersion: 1,
     baseline: { assignedId: identity.assignedId, distSha256: identity.distSha256 },
-    keyRemoved: { assignedId: keyRemoved.assignedId, distSha256: directorySha256(keyRemovedRoot) },
-    differentKey: { assignedId: differentKey.assignedId, distSha256: directorySha256(differentKeyRoot) },
+    keyRemoved,
+    differentKey,
     mutationContract: "only manifest.key varied; key-removed omits it and different-key replaces it",
     capturedAt: new Date().toISOString(),
   });
@@ -292,10 +368,10 @@ test("extension-popup-capability-chromium-probe", async () => {
     launched.worker,
     launched.assignedId,
     sandboxedPath,
-    launched.externalRequests,
+    setPopupSucceeded,
   );
 
-  const popupLessAction = await launched.worker.evaluate(async () => {
+  const popupLessOpenPopup = await launched.worker.evaluate(async () => {
     await chrome.action.setPopup({ popup: "" });
     const popupCleared = (await chrome.action.getPopup({})) === "";
     const probe = (
@@ -337,6 +413,47 @@ test("extension-popup-capability-chromium-probe", async () => {
     };
   });
 
+  const actionPage = launched.context.pages()[0]!;
+  await actionPage.goto("data:text/html,<title>Synthetic Chromium action canary</title>");
+  await actionPage.bringToFront();
+  const browserSession = await launched.context.browser()!.newBrowserCDPSession();
+  const actionTargets = (
+    await browserSession.send("Target.getTargets", {
+      filter: [{ type: "tab" }, { exclude: true }],
+    })
+  ).targetInfos.filter((target) => target.url === actionPage.url());
+  expect(actionTargets).toHaveLength(1);
+  // Chromium owns this action dispatch; calling openPopup is not an action click.
+  await browserSession.send("Extensions.triggerAction", {
+    id: launched.assignedId,
+    targetId: actionTargets[0]!.targetId,
+  });
+  await expect
+    .poll(() =>
+      launched.worker.evaluate(() =>
+        (
+          globalThis as typeof globalThis & {
+            __chaseSetsChromiumAuthorityProbe: { actionClickCount(): number };
+          }
+        ).__chaseSetsChromiumAuthorityProbe.actionClickCount(),
+      ),
+    )
+    .toBeGreaterThan(0);
+  await browserSession.detach();
+  const popupLessAction = {
+    ...popupLessOpenPopup,
+    actionTrigger: "Extensions.triggerAction",
+    onClickedAfterOpenPopup: popupLessOpenPopup.onClickedFired,
+    onClickedFired: await launched.worker.evaluate(
+      () =>
+        (
+          globalThis as typeof globalThis & {
+            __chaseSetsChromiumAuthorityProbe: { actionClickCount(): number };
+          }
+        ).__chaseSetsChromiumAuthorityProbe.actionClickCount() > 0,
+    ),
+  };
+
   const capability = parsePopupCapabilityProbeRecord({
     schemaVersion: 1,
     publicKeySha256,
@@ -361,19 +478,21 @@ test("extension-popup-capability-chromium-probe", async () => {
   });
   writeJson("extension-popup-capability-chromium-probe.json", capability);
 
-  expect(launched.externalRequests.every((url) => url.startsWith(`${SYNTHETIC_PLATFORM_URL}?observation=`))).toBe(true);
+  expect(
+    launched.externalRequests.every(
+      (url) => url === SYNTHETIC_PLATFORM_URL || url.startsWith(`${SYNTHETIC_PLATFORM_URL}?observation=`),
+    ),
+  ).toBe(true);
   expect(capability.trustedPopup.storageLocalCanaryReadable).toBe(true);
   expect(capability.trustedPopup.storageSessionCanaryReadable).toBe(true);
   expect(capability.trustedPopup.indexedDbCanaryReadable).toBe(true);
   expect(capability.trustedPopup.workerMessageReached).toBe(true);
   expect(capability.trustedPopup.actionPopupOpened).toBe(true);
   expect(capability.sandboxedPopup.queryReceived).toBe(true);
-  expect(capability.sandboxedPopup.setPopupSucceeded).toBe(true);
 
   const distText = listFiles(distRoot)
     .map((file) => readFileSync(file, "utf8"))
     .join("\n");
   expect(distText).not.toMatch(/PRIVATE KEY|privateKey|BEGIN (?:RSA )?PRIVATE KEY/);
   expect(JSON.parse(readFileSync(resolve(distRoot, "manifest.json"), "utf8"))).not.toHaveProperty("host_permissions");
-  await launched.context.close();
 });

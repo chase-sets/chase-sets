@@ -36,8 +36,9 @@ describe("extension-scaffold-manifest-and-scripts", () => {
 
   it("kills a host-permission mutant", () => {
     const mutant = { ...createProbeManifest(), host_permissions: ["https://provider.invalid/synthetic-host-mutant/*"] };
-    expect(mutant).toHaveProperty("host_permissions");
-    expect(createProbeManifest()).not.toHaveProperty("host_permissions");
+    const assertNoHostPermission = (manifest: unknown) => expect(manifest).not.toHaveProperty("host_permissions");
+    assertNoHostPermission(createProbeManifest());
+    expect(() => assertNoHostPermission(mutant)).toThrow();
   });
 
   it("keeps private key material out of the package source contract", () => {

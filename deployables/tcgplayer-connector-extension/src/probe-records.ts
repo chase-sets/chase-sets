@@ -55,6 +55,8 @@ export type PopupCapabilityProbeRecord = Readonly<{
     popupCleared: boolean;
     openPopupAttempted: boolean;
     openPopupRejected: boolean;
+    actionTrigger: "Extensions.triggerAction";
+    onClickedAfterOpenPopup: boolean;
     onClickedFired: boolean;
     badgeTextSucceeded: boolean;
     titleSucceeded: boolean;
@@ -224,12 +226,18 @@ export function parsePopupCapabilityProbeRecord(value: unknown): PopupCapability
       "popupCleared",
       "openPopupAttempted",
       "openPopupRejected",
+      "actionTrigger",
+      "onClickedAfterOpenPopup",
       "onClickedFired",
       "badgeTextSucceeded",
       "titleSucceeded",
     ],
     "popupLessAction",
   );
+
+  if (popupLess.actionTrigger !== "Extensions.triggerAction") {
+    throw new Error("popupLessAction.actionTrigger must name Chromium's action dispatch");
+  }
 
   const trustedMode = observationMode(trusted.observationMode, "trustedPopup.observationMode");
   const trustedOpened = boolean(trusted.actionPopupOpened, "trustedPopup.actionPopupOpened");
@@ -290,6 +298,8 @@ export function parsePopupCapabilityProbeRecord(value: unknown): PopupCapability
       popupCleared: boolean(popupLess.popupCleared, "popupLessAction.popupCleared"),
       openPopupAttempted: boolean(popupLess.openPopupAttempted, "popupLessAction.openPopupAttempted"),
       openPopupRejected: boolean(popupLess.openPopupRejected, "popupLessAction.openPopupRejected"),
+      actionTrigger: popupLess.actionTrigger,
+      onClickedAfterOpenPopup: boolean(popupLess.onClickedAfterOpenPopup, "popupLessAction.onClickedAfterOpenPopup"),
       onClickedFired: boolean(popupLess.onClickedFired, "popupLessAction.onClickedFired"),
       badgeTextSucceeded: boolean(popupLess.badgeTextSucceeded, "popupLessAction.badgeTextSucceeded"),
       titleSucceeded: boolean(popupLess.titleSucceeded, "popupLessAction.titleSucceeded"),

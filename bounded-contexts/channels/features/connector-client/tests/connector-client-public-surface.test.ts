@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import * as client from "../../../client";
 import { deriveChromeExtensionId } from "../domain/derive-chrome-extension-id";
 import {
   TCGPLAYER_CONNECTOR_EXTENSION_ID,
@@ -15,6 +16,7 @@ describe("connector-client-public-surface", () => {
       "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
     ];
+    expect(Object.keys(client).sort()).toEqual(expectedExports);
     const clientSource = readFileSync(resolve(import.meta.dirname, "../../../client.ts"), "utf8");
     const clientExports = [...clientSource.matchAll(/^\s*(TCGPLAYER_[A-Z_]+),?$/gm)].map((match) => match[1]).sort();
     expect(clientExports).toEqual(expectedExports);
