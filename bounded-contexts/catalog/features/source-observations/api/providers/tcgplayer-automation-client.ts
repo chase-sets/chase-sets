@@ -441,7 +441,11 @@ class TcgplayerAutomationRequestThrottler {
   private readonly deps: TcgplayerAutomationRequestThrottlerDeps;
   private lastRequestStartTime = 0;
   private rateLimitedUntil = 0;
-  private readonly startQueue: Array<() => void> = [];
+  private readonly startQueue: Array<{
+    signal?: AbortSignal;
+    resolve: () => void;
+    reject: (error: unknown) => void;
+  }> = [];
   private processingQueue = false;
   private consecutiveSuccesses = 0;
 
@@ -456,14 +460,32 @@ class TcgplayerAutomationRequestThrottler {
   }
 
   async waitToStart(signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     const now = this.deps.now();
     if (this.rateLimitedUntil > now) {
       await this.deps.sleep(this.rateLimitedUntil - now, signal);
     }
 
-    await new Promise<void>((resolve) => {
-      this.startQueue.push(resolve);
-      void this.processQueue(signal);
+    await new Promise<void>((resolve, reject) => {
+      const entry = {
+        signal,
+        resolve: () => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        },
+        reject: (error: unknown) => {
+          signal?.removeEventListener("abort", onAbort);
+          reject(error);
+        },
+      };
+      const onAbort = () => {
+        const index = this.startQueue.indexOf(entry);
+        if (index >= 0) this.startQueue.splice(index, 1);
+        entry.reject(signal?.reason);
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      this.startQueue.push(entry);
+      void this.processQueue();
     });
   }
 
@@ -514,23 +536,32 @@ class TcgplayerAutomationRequestThrottler {
     await this.deps.sleep(config.rateLimitCooldownMs, signal);
   }
 
-  private async processQueue(signal?: AbortSignal): Promise<void> {
+  private async processQueue(): Promise<void> {
     if (this.processingQueue) {
       return;
     }
 
     this.processingQueue = true;
-    while (this.startQueue.length > 0) {
-      const config = await this.configStore.loadDomainConfig(this.domainKey);
-      const remainingDelay = config.requestDelayMs - (this.deps.now() - this.lastRequestStartTime);
-      if (remainingDelay > 0) {
-        await this.deps.sleep(remainingDelay, signal);
+    try {
+      for (let entry = this.startQueue.shift(); entry; entry = this.startQueue.shift()) {
+        try {
+          entry.signal?.throwIfAborted();
+          const config = await this.configStore.loadDomainConfig(this.domainKey);
+          entry.signal?.throwIfAborted();
+          const remainingDelay = config.requestDelayMs - (this.deps.now() - this.lastRequestStartTime);
+          if (remainingDelay > 0) {
+            await this.deps.sleep(remainingDelay, entry.signal);
+          }
+          entry.signal?.throwIfAborted();
+          this.lastRequestStartTime = this.deps.now();
+          entry.resolve();
+        } catch (error) {
+          entry.reject(error);
+        }
       }
-
-      this.lastRequestStartTime = this.deps.now();
-      this.startQueue.shift()?.();
+    } finally {
+      this.processingQueue = false;
     }
-    this.processingQueue = false;
   }
 }
 
@@ -596,20 +627,22 @@ function backoffMs(attempt: number, baseDelayMs: number, random: () => number): 
 }
 
 async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   if (ms <= 0) {
     return;
   }
 
   await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timeout);
-        reject(new DOMException("The operation was aborted.", "AbortError"));
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      reject(signal?.reason);
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
