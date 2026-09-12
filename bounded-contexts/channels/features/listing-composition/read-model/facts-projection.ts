@@ -37,26 +37,7 @@ export function buildChannelCatalogFactsProjectionHandlers(db: PgQueryable): Pro
 
 export function buildChannelInventoryFactsProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "inventory.channel-stock-allocation.set": async (event) => {
-      const data = event.data as InventoryChannelStockAllocationSetPayload;
-      await db.query(
-        `INSERT INTO channels_inventory_allocation_facts
-           (item_id,account_id,mode,partitions,updated_at,allocation_stream_version)
-         VALUES ($1,$2,$3,$4::jsonb,$5,$6)
-         ON CONFLICT (item_id) DO UPDATE SET
-           account_id=EXCLUDED.account_id, mode=EXCLUDED.mode, partitions=EXCLUDED.partitions,
-           updated_at=EXCLUDED.updated_at, allocation_stream_version=EXCLUDED.allocation_stream_version
-         WHERE channels_inventory_allocation_facts.allocation_stream_version < EXCLUDED.allocation_stream_version`,
-        [
-          data.inventoryItemId,
-          data.accountId,
-          data.mode,
-          JSON.stringify(data.partitions),
-          event.timing.recordedAt,
-          event.streamVersion,
-        ],
-      );
-    },
+    "inventory.channel-stock-allocation.set": async (event) => projectChannelInventoryAllocationFact(db, event),
     "inventory.item.created": async (event) => {
       const data = record(event.data);
       await db.query(
@@ -106,6 +87,27 @@ export function buildChannelInventoryFactsProjectionHandlers(db: PgQueryable): P
     "inventory.hold.expired": async (event) => projectHoldStatus(db, event, "expired"),
     "inventory.hold.consumed": async (event) => projectHoldStatus(db, event, "consumed"),
   };
+}
+
+export async function projectChannelInventoryAllocationFact(db: PgQueryable, event: Transport): Promise<void> {
+  const data = event.data as InventoryChannelStockAllocationSetPayload;
+  await db.query(
+    `INSERT INTO channels_inventory_allocation_facts
+       (item_id,account_id,mode,partitions,updated_at,allocation_stream_version)
+     VALUES ($1,$2,$3,$4::jsonb,$5,$6)
+     ON CONFLICT (item_id) DO UPDATE SET
+       account_id=EXCLUDED.account_id, mode=EXCLUDED.mode, partitions=EXCLUDED.partitions,
+       updated_at=EXCLUDED.updated_at, allocation_stream_version=EXCLUDED.allocation_stream_version
+     WHERE channels_inventory_allocation_facts.allocation_stream_version < EXCLUDED.allocation_stream_version`,
+    [
+      data.inventoryItemId,
+      data.accountId,
+      data.mode,
+      JSON.stringify(data.partitions),
+      event.timing.recordedAt,
+      event.streamVersion,
+    ],
+  );
 }
 
 export function buildChannelConnectionFactsProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {

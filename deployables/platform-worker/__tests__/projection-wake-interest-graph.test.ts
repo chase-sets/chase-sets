@@ -37,6 +37,14 @@ const ORDERING_CREATED_INVENTORY_RESERVATION_TARGET = {
   checkpointKey: "inventory-order-reservation-workflow:ordering:v1",
 } as const;
 
+const INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET = {
+  sourceContextName: "inventory",
+  eventType: "inventory.channel-stock-allocation.set",
+  targetContextName: "inventory",
+  projectionName: "inventory-channel-stock-allocation-projection",
+  checkpointKey: "inventory-channel-stock-allocation-projection:inventory:v1",
+} as const;
+
 const AGENT_WEBHOOK_TARGETS = [
   {
     sourceContextName: "ordering",
@@ -201,6 +209,47 @@ describe("platform worker projection wake interest graph", () => {
         }),
       ]),
     );
+  });
+
+  it("wires an Inventory allocation commit to its exact production projection partition", () => {
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    const entries = lookupProjectionInterests(index, {
+      sourceContextName: INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.sourceContextName,
+      eventType: INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.eventType,
+    });
+
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetContextName: INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.targetContextName,
+          projectionName: INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.projectionName,
+          checkpointKey: INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.checkpointKey,
+          sourceContextName: INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.sourceContextName,
+          enabled: true,
+          eventTypes: [INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.eventType],
+        }),
+      ]),
+    );
+    expect(
+      lookupProjectionInterests(index, {
+        sourceContextName: "inventory",
+        eventType: "inventory.item.adjusted",
+      }).some(
+        (entry) =>
+          entry.targetContextName === INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.targetContextName &&
+          entry.projectionName === INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.projectionName,
+      ),
+    ).toBe(false);
+    expect(
+      lookupProjectionInterests(index, {
+        sourceContextName: "catalog",
+        eventType: INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.eventType,
+      }).some(
+        (entry) =>
+          entry.targetContextName === INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.targetContextName &&
+          entry.projectionName === INVENTORY_CHANNEL_STOCK_ALLOCATION_TARGET.projectionName,
+      ),
+    ).toBe(false);
   });
 
   it("subscribes the Auth agent webhook projection to order, shipment, and refund updates", () => {

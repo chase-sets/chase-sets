@@ -2,6 +2,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ChannelListingCompositionServices } from "../api/runtime";
+import { projectChannelInventoryAllocationFact } from "../read-model/facts-projection";
 
 type SignalEvent = Readonly<{
   id: string;
@@ -12,6 +13,7 @@ type SignalEvent = Readonly<{
   tenantId: string;
   audit: Readonly<{ performedByUserId: string; forAccountId: string }>;
 }>;
+type ProjectionEvent = Parameters<ProjectorHandlerMap[string]>[0];
 
 const listingEvents = [
   "marketplace.listing.created",
@@ -119,7 +121,11 @@ export function buildChannelInventoryDesiredStateReactionHandlers(
     inventoryEvents.map((eventType) => [
       eventType,
       async (value: unknown) => {
-        const event = value as SignalEvent;
+        const transportEvent = value as ProjectionEvent;
+        const event = transportEvent as unknown as SignalEvent;
+        if (event.type === "inventory.channel-stock-allocation.set") {
+          await projectChannelInventoryAllocationFact(db, transportEvent);
+        }
         const itemId =
           event.type === "inventory.channel-stock-allocation.set"
             ? String(event.data.inventoryItemId)

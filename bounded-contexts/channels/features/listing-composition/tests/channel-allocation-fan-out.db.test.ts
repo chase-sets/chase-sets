@@ -150,6 +150,58 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
     ]);
   });
 
+  it("persists the allocation fact before reaction-first reconciliation drains", async () => {
+    const services = createTestChannelServices();
+    const inventoryServices = inventoryModule.createServices(pools.inventory, {});
+    await seedInitialDesiredStates(services.listingComposition);
+    const beforeAllocation = await desiredStates(pools.channels);
+    expect(beforeAllocation).toContainEqual({
+      connectionId: "connection-a",
+      listingId: "listing-target",
+      quantity: 10,
+    });
+
+    const subscriptions = subscriptionsFor(services);
+    const runners = createRunners(subscriptions);
+    await setAllocation(inventoryServices.channelStockAllocations, 0, [
+      { channelConnectionId: "connection-a", units: 2 },
+      { channelConnectionId: "connection-b", units: 4 },
+    ]);
+
+    await drain(runners.inventoryReaction);
+    const causallyPersisted = await pools.channels.query<{
+      allocation_stream_version: string;
+      partitions: unknown;
+    }>(
+      "SELECT allocation_stream_version::text,partitions FROM channels_inventory_allocation_facts WHERE item_id='item-target'",
+    );
+    expect(causallyPersisted.rows).toEqual([
+      {
+        allocation_stream_version: "1",
+        partitions: [
+          { channelConnectionId: "connection-a", units: 2 },
+          { channelConnectionId: "connection-b", units: 4 },
+        ],
+      },
+    ]);
+
+    await drain(runners.channelsReaction);
+    const reactionFirstChanges = (await desiredStates(pools.channels)).slice(beforeAllocation.length);
+    expect(reactionFirstChanges).toContainEqual({
+      connectionId: "connection-a",
+      listingId: "listing-target",
+      quantity: 2,
+    });
+
+    await drain(runners.inventoryProjection);
+    expect(await desiredStates(pools.channels)).toEqual([...beforeAllocation, ...reactionFirstChanges]);
+    expect(
+      await pools.channels.query(
+        "SELECT allocation_stream_version::text,partitions FROM channels_inventory_allocation_facts WHERE item_id='item-target'",
+      ),
+    ).toMatchObject({ rows: causallyPersisted.rows });
+  });
+
   it("fans a synthetic recorded external sale adjustment to every other connection and writes no next-day desired state", async () => {
     const services = createTestChannelServices();
     const inventoryServices = inventoryModule.createServices(pools.inventory, {});
