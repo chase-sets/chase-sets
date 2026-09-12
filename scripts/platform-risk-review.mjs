@@ -233,11 +233,11 @@ export function evaluateApprovalState({ pullRequest, reviews, config, teamEligib
 
 function nextLink(header) {
   if (!header) return null;
-  const next = header
-    .split(",")
-    .map((part) => part.trim().match(/^<([^>]+)>;\s*rel="([^"]+)"$/))
-    .find((match) => match?.[2] === "next");
-  if (!next?.[1] || !next[1].startsWith("https://api.github.com/")) fail("api-pagination-shape");
+  const links = header.split(",").map((part) => part.trim().match(/^<([^>]+)>;\s*rel="([^"]+)"$/));
+  if (links.some((link) => !link)) fail("api-pagination-shape");
+  const next = links.find((link) => link[2] === "next");
+  if (!next) return null;
+  if (!next[1].startsWith("https://api.github.com/")) fail("api-pagination-shape");
   return next[1];
 }
 
