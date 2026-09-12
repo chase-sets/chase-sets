@@ -14,6 +14,114 @@ import {
 } from "./tcgplayer-automation-client";
 
 describe("TCGplayer automation HTTP client", () => {
+  it("rejects an aborted throttle wait and lets later requests retain their own signal and spacing", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T12:00:00Z"));
+    try {
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL) => jsonResponse({ ok: true }));
+      const client = new TcgplayerAutomationDomainHttpClient(
+        TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_SEARCH_API,
+        "https://mp-search-api.tcgplayer.com",
+        createInMemoryTcgplayerAutomationHttpConfigStore({
+          maxRetries: 0,
+          domainConfigs: domainConfigs({ requestDelayMs: 1_000, maxConcurrentRequests: 3, adaptiveEnabled: false }),
+        }),
+        { fetch: fetchMock },
+      );
+      await client.get("/prime");
+      const controller = new AbortController();
+      let abortedOutcome: unknown;
+      const aborted = client.get("/aborted", {}, { signal: controller.signal }).catch((error: unknown) => {
+        abortedOutcome = error;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      const later = client.get("/later");
+      await vi.advanceTimersByTimeAsync(0);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(abortedOutcome).toMatchObject({ name: "AbortError" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(later).resolves.toEqual({ ok: true });
+      await aborted;
+      expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+        "https://mp-search-api.tcgplayer.com/prime",
+        "https://mp-search-api.tcgplayer.com/later",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a queued throttle request immediately without canceling the active waiter", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T12:00:00Z"));
+    try {
+      const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
+      const client = new TcgplayerAutomationDomainHttpClient(
+        TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_SEARCH_API,
+        "https://mp-search-api.tcgplayer.com",
+        createInMemoryTcgplayerAutomationHttpConfigStore({
+          maxRetries: 0,
+          domainConfigs: domainConfigs({ requestDelayMs: 1_000, maxConcurrentRequests: 3, adaptiveEnabled: false }),
+        }),
+        { fetch: fetchMock },
+      );
+      await client.get("/prime");
+      const active = client.get("/active");
+      const controller = new AbortController();
+      let queuedOutcome: unknown;
+      const queued = client.get("/queued", {}, { signal: controller.signal }).catch((error: unknown) => {
+        queuedOutcome = error;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(queuedOutcome).toMatchObject({ name: "AbortError" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(active).resolves.toEqual({ ok: true });
+      await queued;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("propagates a throttle configuration failure and recovers for the next request", async () => {
+    const store = createInMemoryTcgplayerAutomationHttpConfigStore({
+      maxRetries: 0,
+      domainConfigs: domainConfigs({ requestDelayMs: 0, adaptiveEnabled: false }),
+    });
+    const config = await store.loadDomainConfig(TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_SEARCH_API);
+    const failure = new Error("Synthetic configuration failure");
+    vi.spyOn(store, "loadDomainConfig").mockResolvedValueOnce(config).mockRejectedValueOnce(failure);
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
+    const client = new TcgplayerAutomationDomainHttpClient(
+      TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_SEARCH_API,
+      "https://mp-search-api.tcgplayer.com",
+      store,
+      { fetch: fetchMock },
+    );
+    await expect(client.get("/failed")).rejects.toBe(failure);
+    await expect(client.get("/recovered")).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an already-aborted request before starting a provider call", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
+    const client = clientWithConfig({ maxRetries: 0 }, { fetch: fetchMock });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(client.get("/aborted", {}, { signal: controller.signal })).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("sends the automation-app cookie and user agent without exposing them in provider errors", async () => {
     const requests: Request[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
