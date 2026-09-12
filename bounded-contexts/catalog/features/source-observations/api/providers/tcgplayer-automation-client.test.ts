@@ -94,7 +94,7 @@ describe("TCGplayer automation HTTP client", () => {
   it("propagates a throttle configuration failure and recovers for the next request", async () => {
     const store = createInMemoryTcgplayerAutomationHttpConfigStore({
       maxRetries: 0,
-      domainConfigs: domainConfigs({ requestDelayMs: 0, adaptiveEnabled: false }),
+      domainConfigs: domainConfigs({ requestDelayMs: 0, maxConcurrentRequests: 1, adaptiveEnabled: false }),
     });
     const config = await store.loadDomainConfig(TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_SEARCH_API);
     const failure = new Error("Synthetic configuration failure");
