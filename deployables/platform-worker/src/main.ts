@@ -467,10 +467,9 @@ const scheduledJobRunners = platformWorkerGroupsEnabled
           },
         }),
       }),
-      ...createChannelsReconciliationRunners({
-        services: runtime.services.channels as ReturnType<typeof channelsModule.createServices>,
-        controlPlane,
-      }),
+      ...(isChannelsServices(runtime.services.channels)
+        ? createChannelsReconciliationRunners({ services: runtime.services.channels, controlPlane })
+        : []),
     ]
   : [];
 // Projection-group-level wake kill switch (WORKER_WAKE_DISABLED_PROJECTIONS):
