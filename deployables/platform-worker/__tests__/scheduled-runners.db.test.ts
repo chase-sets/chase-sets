@@ -7,6 +7,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import { isChannelsServices } from "@chase-sets/channels/server";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
 import {
   bootstrapPlatformControlPlane,
@@ -20,6 +21,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformWorkerContextsForRuntimeProfile } from "../src/config";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
 import { createRegisteredScheduledRunners, type RegisteredScheduledRunnerConfig } from "../src/scheduled-runners";
+import { createChannelsOutboundRunners } from "../src/channels-outbound-runners";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -174,6 +176,22 @@ describeDatabase("registered platform-worker scheduled runners", () => {
 
     expect(registeredRunners.length).toBeGreaterThanOrEqual(EXPECTED_REGISTERED_RUNNER_COUNT);
     expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("executes the exact Channels outbound runner set with real composed services", async () => {
+    expect(isChannelsServices(runtime.services.channels)).toBe(true);
+    const runners = createChannelsOutboundRunners(runtime.services, {
+      workerId: "channels-composition-db-test",
+      channelsOutboundOperationLaneCount: 2,
+    });
+    expect(runners.map((runner) => runner.name)).toEqual([
+      "job:channels.outbound-operations.lane-1",
+      "job:channels.outbound-operations.lane-2",
+    ]);
+    for (const runner of runners) {
+      await expect(runner.runOnce()).resolves.toEqual({ processed: 0, lastGlobalPosition: "0" });
+    }
+    expect(externalFetch).not.toHaveBeenCalled();
   });
 
   it("executes every registered runner once against its bootstrapped context database", async () => {

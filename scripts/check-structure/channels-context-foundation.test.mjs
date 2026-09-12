@@ -96,6 +96,9 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (!relativeFiles.some((file) => file.startsWith("support/request-support/"))) {
     violations.push("request-support-files");
   }
+  if (!relativeFiles.some((file) => file.startsWith("support/runtime-support/"))) {
+    violations.push("runtime-support-files");
+  }
   if (
     relativeFiles.some(
       (file) =>
@@ -153,7 +156,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("slices");
   }
-  if (JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support"])) {
+  if (JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support", "runtime-support"])) {
     violations.push("allowedSupportDirectories");
   }
   if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
@@ -183,6 +186,13 @@ afterEach(() => {
 });
 
 describe("channels-context-foundation", () => {
+  it("enrols real service composition in the DB profile and excludes it from unit runs", () => {
+    const scripts = readJson(packagePath).scripts;
+    const test = "tests/channels-services-composition.db.test.ts";
+    expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+    expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
+  });
+
   it("supersedes the foundation with the exact connection slice, module, finite tests, and README contract", () => {
     const manifest = readJson(manifestPath);
     expect(manifest).toMatchObject({
@@ -198,7 +208,7 @@ describe("channels-context-foundation", () => {
         "channel-listing-reconciliation-run",
       ]),
       slices: ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
-      allowedSupportDirectories: ["request-support"],
+      allowedSupportDirectories: ["request-support", "runtime-support"],
       publicExports: [".", "./context", "./server", "./routes/*"],
       allowedContextDependencies: [],
       hostPorts: [],
@@ -316,6 +326,11 @@ describe("channels-context-foundation", () => {
           purpose:
             "Own Channels outbound-sync operations, execution admission, leases, and connection-scoped activity.",
           expectedConsumers: ["Internal Channels module composition", "Channel connector and manual claim workflows"],
+        },
+        "runtime-support": {
+          classification: "support",
+          purpose: "Own the context-level Channels runtime service composition contract.",
+          expectedConsumers: ["Root Channels module and API composition"],
         },
         routes: {
           classification: "routes",
@@ -518,6 +533,15 @@ describe("channels-foundation-surface-fence", () => {
     const manifest = readJson(manifestPath);
     const files = listFiles(channelsRoot);
     expect(collectChannelsSurfaceViolations(manifest, files)).toEqual([]);
+    expect(
+      collectChannelsSurfaceViolations(
+        manifest,
+        files.filter((file) => !file.startsWith("support/runtime-support/")),
+      ),
+    ).toEqual(["runtime-support-files"]);
+    expect(
+      collectChannelsSurfaceViolations({ ...manifest, allowedSupportDirectories: ["request-support"] }, files),
+    ).toEqual(["allowedSupportDirectories"]);
 
     const landingMutant = { ...manifest, apiRuntimeProfiles: ["proof", "public", "landing"] };
     expect(collectChannelsSurfaceViolations(landingMutant, files)).toEqual(["apiRuntimeProfiles", "landing"]);

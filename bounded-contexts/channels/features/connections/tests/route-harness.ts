@@ -1,3 +1,4 @@
+import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
 import { Hono } from "hono";
 import { vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -153,6 +154,7 @@ export function mountConnectionRouteHarness(
   root.route(
     "/api/channels",
     buildChannelsApi({
+      ...createChannelsServicesForTest(),
       connections: connectionServices,
       listingComposition: listingCompositionStub(),
       outboundSync: createUnavailableOutboundSyncServices(),

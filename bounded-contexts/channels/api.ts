@@ -1,9 +1,8 @@
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { ChannelsServices } from "./features/connections/domain/contracts";
+import type { ChannelsServices } from "./support/runtime-support/services";
 import { channelConnectionRoutes } from "./features/connections/api/route";
 import { createOutboundOperationRoutes } from "./features/outbound-sync/api/route";
-import type { ChannelListingCompositionServices } from "./features/listing-composition/api/runtime";
 import { channelListingCompositionRoutes } from "./features/listing-composition/api/route";
 
 export type ChannelsActor = Readonly<{
@@ -18,9 +17,7 @@ export type ChannelsApiEnv = {
   };
 };
 
-export function buildChannelsApi(
-  services: ChannelsServices & Readonly<{ listingComposition: ChannelListingCompositionServices }>,
-) {
+export function buildChannelsApi(services: ChannelsServices) {
   const app = new Hono<ChannelsApiEnv>();
 
   app.use("*", async (c, next) => {

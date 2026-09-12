@@ -3,18 +3,20 @@ import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { collectFiles } from "../lib/files.mjs";
 
-const canonicalContractPath = "bounded-contexts/channels/features/connections/domain/contracts.ts";
+const connectionContractPath = "bounded-contexts/channels/features/connections/domain/contracts.ts";
+const channelsServicesContractPath = "bounded-contexts/channels/support/runtime-support/services.ts";
 const channelsRootSpecifier = "@chase-sets/channels";
-const channelConnectionSymbols = new Set([
-  "ChannelEnvironment",
-  "ChannelConnectionSetupResolver",
-  "ChannelCredentialAuthorityResolver",
-  "ChannelStorageLocationAuthorityResolver",
-  "ChannelPolicyAuthorityResolver",
-  "ChannelConnectionServices",
-  "ChannelConnectionHostPorts",
-  "ChannelsServices",
+export const channelConnectionCanonicalContractPathBySymbol = new Map([
+  ["ChannelEnvironment", connectionContractPath],
+  ["ChannelConnectionSetupResolver", connectionContractPath],
+  ["ChannelCredentialAuthorityResolver", connectionContractPath],
+  ["ChannelStorageLocationAuthorityResolver", connectionContractPath],
+  ["ChannelPolicyAuthorityResolver", connectionContractPath],
+  ["ChannelConnectionServices", connectionContractPath],
+  ["ChannelConnectionHostPorts", connectionContractPath],
+  ["ChannelsServices", channelsServicesContractPath],
 ]);
+const channelConnectionSymbols = new Set(channelConnectionCanonicalContractPathBySymbol.keys());
 const economicsPublicSymbols = new Set(["ChannelEnvironment", "ChannelProviderIdentity"]);
 const economicsRoot = "bounded-contexts/pricing/features/economics";
 
@@ -30,9 +32,9 @@ export function findChannelConnectionContractProvenanceViolations(source, relati
 
   for (const statement of parsed.statements) {
     if (
-      normalizedRelativeFile !== canonicalContractPath &&
-      ts.isTypeAliasDeclaration(statement) &&
-      requiredSymbols.has(statement.name.text)
+      (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)) &&
+      requiredSymbols.has(statement.name.text) &&
+      normalizedRelativeFile !== channelConnectionCanonicalContractPathBySymbol.get(statement.name.text)
     ) {
       violations.push(`${relativeFile}: redeclares ${statement.name.text} instead of importing the canonical contract`);
     }
@@ -52,7 +54,16 @@ export function findChannelConnectionContractProvenanceViolations(source, relati
         for (const element of bindings.elements) {
           const exportedName = element.propertyName?.text ?? element.name.text;
           const localName = element.name.text;
-          if (resolved === canonicalContractPath || `${resolved}.ts` === canonicalContractPath) {
+          const canonicalPath = channelConnectionCanonicalContractPathBySymbol.get(exportedName);
+          if (exportedName === "ChannelsServices") {
+            if (resolved !== canonicalPath && `${resolved}.ts` !== canonicalPath) {
+              violations.push(`${relativeFile}: imports or re-exports ChannelsServices from a non-canonical path`);
+            }
+            if (ts.isExportDeclaration(statement) && normalizedRelativeFile !== "bounded-contexts/channels/server.ts") {
+              violations.push(`${relativeFile}: re-exports ChannelsServices outside the server surface`);
+            }
+          }
+          if (canonicalPath && (resolved === canonicalPath || `${resolved}.ts` === canonicalPath)) {
             importedCanonicalSymbols.add(exportedName);
             importedCanonicalSymbols.add(localName);
           }
@@ -76,8 +87,9 @@ export function findChannelConnectionContractProvenanceViolations(source, relati
   }
   visit(parsed);
 
-  if (normalizedRelativeFile !== canonicalContractPath) {
-    for (const symbol of referencedCanonicalSymbols) {
+  for (const symbol of referencedCanonicalSymbols) {
+    const canonicalPath = channelConnectionCanonicalContractPathBySymbol.get(symbol);
+    if (normalizedRelativeFile !== canonicalPath) {
       const importedFromRequiredBoundary = isEconomicsFile
         ? importedPublicSymbols.has(symbol)
         : importedCanonicalSymbols.has(symbol);
@@ -85,7 +97,7 @@ export function findChannelConnectionContractProvenanceViolations(source, relati
         violations.push(
           isEconomicsFile
             ? `${relativeFile}: references ${symbol} without importing it from ${channelsRootSpecifier}`
-            : `${relativeFile}: references ${symbol} without importing it from the canonical contract module`,
+            : `${relativeFile}: references ${symbol} without importing it from ${canonicalPath}`,
         );
       }
     }

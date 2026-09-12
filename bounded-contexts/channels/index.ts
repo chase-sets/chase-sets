@@ -136,11 +136,8 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import contextManifest from "./context.json" with { type: "json" };
 import { buildChannelsApi } from "./api";
 import { createChannelConnectionRuntime } from "./features/connections/api/runtime";
-import type { ChannelConnectionHostPorts, ChannelsServices } from "./features/connections/domain/contracts";
-import {
-  createChannelListingCompositionRuntime,
-  type ChannelListingCompositionServices,
-} from "./features/listing-composition/api/runtime";
+import type { ChannelConnectionHostPorts } from "./features/connections/domain/contracts";
+import { createChannelListingCompositionRuntime } from "./features/listing-composition/api/runtime";
 import { assertChannelListingDelistDirective } from "./features/listing-composition/domain/codecs";
 import { createChannelCompositionProfileRegistry } from "./features/listing-composition/domain/canonical";
 import {
@@ -169,9 +166,8 @@ import {
   buildChannelOutboundOperationReactionHandlers,
   createChannelListingPublicationOutcomeRecorder,
 } from "./features/outbound-sync/integrations/listing-composition";
-import type { OutboundSyncServices } from "./features/outbound-sync/domain/contracts";
 import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "./features/outbound-sync/read-model/schema";
-import { createTcgplayerCsvRuntime, type TcgplayerCsvServices } from "./features/tcgplayer-csv/api/runtime";
+import { createTcgplayerCsvRuntime } from "./features/tcgplayer-csv/api/runtime";
 import { tcgplayerCompositionProfiles } from "./features/tcgplayer-csv/domain/profile";
 import { createTcgplayerClaimedReservationRunSettlementPort } from "./features/tcgplayer-csv/integrations/outbound-sync-settlement";
 import { tcgplayerCsvSchemaMigrations, tcgplayerCsvSchemaSql } from "./features/tcgplayer-csv/read-model/schema";
@@ -184,21 +180,11 @@ import {
   channelConnectionSchemaMigrations,
   channelConnectionSchemaSql,
 } from "./features/connections/read-model/schema";
+import type { ChannelsServices } from "./support/runtime-support/services";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
-type ChannelsRuntimeServices = ChannelsServices &
-  Readonly<{
-    listingComposition: ChannelListingCompositionServices;
-    outboundSync: OutboundSyncServices;
-    tcgplayerCsv: TcgplayerCsvServices;
-    db: PgTransactionalPool;
-  }>;
 
-export const module = defineBoundedContextModule<
-  ChannelsRuntimeServices,
-  PgTransactionalPool,
-  ChannelConnectionHostPorts
->({
+export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelConnectionHostPorts>({
   manifest: channelsContextManifest,
   schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}`,
   schemaMigrations: [

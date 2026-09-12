@@ -18,7 +18,7 @@ describe("channel-publication-port-scope-fence", () => {
       "outbound-sync",
     ]);
     expect(manifest.hostPorts).toEqual([]);
-    expect(manifest.allowedSupportDirectories).toEqual(["request-support"]);
+    expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support"]);
     expect(manifest.publicExports).toEqual([".", "./context", "./server", "./routes/*"]);
     expect(packageJson.exports).toEqual({
       ".": "./index.ts",

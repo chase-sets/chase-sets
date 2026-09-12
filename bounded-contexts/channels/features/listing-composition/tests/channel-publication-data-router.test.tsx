@@ -1,3 +1,4 @@
+import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -187,6 +188,7 @@ function routeHarness(initialPermissions: string[]) {
       root.route(
         "/api/channels",
         buildChannelsApi({
+          ...createChannelsServicesForTest(),
           connections: connectionServices(),
           listingComposition: counted,
           outboundSync: createUnavailableOutboundSyncServices(),

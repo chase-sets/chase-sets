@@ -1,3 +1,4 @@
+import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Hono } from "hono";
@@ -162,6 +163,7 @@ function createApp(connectionsService: ChannelConnectionServices, outboundSync: 
   app.route(
     "/api/channels",
     buildChannelsApi({
+      ...createChannelsServicesForTest(),
       connections: connectionsService,
       listingComposition: createUnavailableListingCompositionServices(),
       outboundSync,

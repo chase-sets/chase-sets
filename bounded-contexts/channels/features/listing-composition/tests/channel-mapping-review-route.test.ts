@@ -1,3 +1,4 @@
+import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -125,6 +126,7 @@ describe("channel-mapping-review-route", () => {
 function routeHarness(observedAccounts: string[]) {
   const listingComposition = services(observedAccounts);
   const api = buildChannelsApi({
+    ...createChannelsServicesForTest(),
     connections: connectionServices(),
     listingComposition,
     outboundSync: createUnavailableOutboundSyncServices(),

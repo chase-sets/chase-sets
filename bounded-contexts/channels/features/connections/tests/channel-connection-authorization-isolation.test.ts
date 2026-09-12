@@ -1,3 +1,4 @@
+import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
@@ -19,6 +20,7 @@ describe("channel-connection-authorization-isolation and channel-connection-gran
     app.route(
       "/api/channels",
       buildChannelsApi({
+        ...createChannelsServicesForTest(),
         connections: services(),
         outboundSync: createUnavailableOutboundSyncServices(),
         listingComposition: createUnavailableListingCompositionServices(),

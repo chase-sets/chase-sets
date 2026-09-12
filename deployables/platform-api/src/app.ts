@@ -38,7 +38,7 @@ import {
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
 } from "@chase-sets/pricing/server";
-import { module as channelsModule } from "@chase-sets/channels";
+import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import { module as identityModule } from "@chase-sets/identity";
 import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
 import {
@@ -537,9 +537,10 @@ export function createPlatformApiHost(
         tcgplayerMarketTransport: { kind: "not-mounted" },
         tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
         commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
-        channelConnectionIdentityReader: createChannelConnectionIdentityReader(
-          () => runtime?.services.channels as ReturnType<typeof channelsModule.createServices> | undefined,
-        ),
+        channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
+          const services = runtime?.services.channels;
+          return isChannelsServices(services) ? services : undefined;
+        }),
       }
     : undefined;
 
@@ -628,7 +629,7 @@ function lazyPolicyConsoleWritePort(
 }
 
 function createChannelConnectionIdentityReader(
-  getServices: () => ReturnType<typeof channelsModule.createServices> | undefined,
+  getServices: () => ChannelsServices | undefined,
 ): ChannelConnectionIdentityReader {
   return {
     resolve: async (input) => {
