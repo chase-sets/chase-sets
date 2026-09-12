@@ -1,4 +1,5 @@
 export { default as contextManifest } from "./context.json" with { type: "json" };
+export { type ChannelEnvironment } from "./features/connections/domain/contracts";
 export { channelProviderRegistry, createChannelProviderRegistry } from "./features/publication-port/api/registry";
 export { createChannelListingCompositionRuntime } from "./features/listing-composition/api/runtime";
 export { type ChannelListingCompositionServices } from "./features/listing-composition/api/runtime";
