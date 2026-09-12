@@ -10,6 +10,7 @@ import { scanPlaywrightArtifactUploads } from "./playwright-artifact-upload-fenc
 import {
   observeGitIdentity,
   prepareHostedResponsiveEvidenceArtifact,
+  responsiveEvidenceGrepsForSuiteBatch,
   validateResponsiveEvidenceArtifacts,
 } from "./validate-responsive-evidence-artifacts.mjs";
 
@@ -19,6 +20,44 @@ const repoRoot = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("responsive evidence artifact validation", () => {
+  it("accepts the registered mixed hosted batch and rejects unknown suite IDs", () => {
+    expect(responsiveEvidenceGrepsForSuiteBatch("catalog_admin_modeling,tcgplayer_connector_extension")).toEqual([
+      "@catalog-admin-modeling",
+      "@tcgplayer-connector-extension-authority",
+    ]);
+    expect(() => responsiveEvidenceGrepsForSuiteBatch("catalog_admin_modeling,unknown")).toThrow(
+      "Unknown E2E suite 'unknown'.",
+    );
+  });
+
+  it("selects no responsive claims for a command-only batch", async () => {
+    const root = await fixture();
+    await rm(path.join(root, "artifacts/playwright/test-results"), { recursive: true, force: true });
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: responsiveEvidenceGrepsForSuiteBatch("tcgplayer_connector_extension"),
+      producer: { ...successfulProducer(), suiteBatch: "tcgplayer_connector_extension" },
+      producerLogPath: await producerLog(root),
+      gitIdentity: syntheticGitIdentity(),
+    });
+    expect(result).toMatchObject({ publish: false, violations: [], expectedClaimIds: [], files: [] });
+  });
+
+  it("retains required web evidence when a command suite shares the batch", async () => {
+    const root = await fixture();
+    await rm(path.join(root, screenshotPath));
+    const suiteBatch = "marketplace_browse,tcgplayer_connector_extension";
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: root,
+      selectedGreps: responsiveEvidenceGrepsForSuiteBatch(suiteBatch),
+      producer: { ...successfulProducer(), suiteBatch },
+      producerLogPath: await producerLog(root),
+      gitIdentity: syntheticGitIdentity(),
+    });
+    expect(result.publish).toBe(false);
+    expect(result.violations).toContainEqual(expect.stringContaining("required screenshot payload"));
+  });
+
   it("accepts a complete successful payload with no trace declaration", async () => {
     const root = await fixture();
 
@@ -110,8 +149,8 @@ describe("responsive evidence artifact validation", () => {
     const originalManifest = await readFile(path.join(root, runtimeManifestPath), "utf8");
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot: root,
-      selectedGreps: ["@marketplace-browse"],
-      producer: successfulProducer(),
+      selectedGreps: responsiveEvidenceGrepsForSuiteBatch("marketplace_browse,tcgplayer_connector_extension"),
+      producer: { ...successfulProducer(), suiteBatch: "marketplace_browse,tcgplayer_connector_extension" },
       producerLogPath: await producerLog(root),
       gitIdentity: syntheticGitIdentity(),
       outputRoot,
@@ -120,7 +159,13 @@ describe("responsive evidence artifact validation", () => {
     expect(result).toMatchObject({ publish: true, violations: [], expectedClaimIds: ["claim"] });
     expect(JSON.parse(await readFile(path.join(root, outputRoot, "provenance.json"), "utf8"))).toMatchObject({
       schemaVersion: "hosted-responsive-evidence/v2",
-      producer: { outcome: "success", runId: 123, runAttempt: 2, jobIndex: 3 },
+      producer: {
+        outcome: "success",
+        runId: 123,
+        runAttempt: 2,
+        jobIndex: 3,
+        suiteBatch: "marketplace_browse,tcgplayer_connector_extension",
+      },
       claims: [{ claimId: "claim" }],
     });
     expect(await readFile(path.join(root, outputRoot, "captures/claim/claim.png"), "utf8")).toBe("screenshot");
