@@ -102,9 +102,12 @@
     {
       "sourceContextName": "fulfillment",
       "projectionName": "settlement-fulfillment-source-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "fulfillment.shipment.created",
+        "fulfillment.shipment.label-attached",
+        "fulfillment.shipment.label-voided",
+        "fulfillment.shipment.label-refund-status-recorded",
         "fulfillment.shipment.dispatched",
         "fulfillment.shipment.delivered",
         "fulfillment.shipment.returned",
@@ -225,7 +228,7 @@
     {
       "projectionName": "settlement-fulfillment-source-projection",
       "sourceContextNames": ["fulfillment"],
-      "ownedTables": ["settlement_order_fulfillment_sources"],
+      "ownedTables": ["settlement_order_fulfillment_sources", "settlement_marketplace_label_postage"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
@@ -291,6 +294,11 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox consumed only by event projectors."
+    },
+    {
+      "portName": "marketplaceLabelPostageActivation",
+      "providedBy": "platform-worker",
+      "purpose": "Validated Settlement database activation provenance supplied before the marketplace label postage subscription runner is constructed."
     },
     {
       "portName": "termsAcceptanceResolver",

@@ -365,6 +365,7 @@
     "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-linkage-queries.ts",
     "bounded-contexts/settlement/features/wallets/integrations/account-risk-source/account-risk-source-projection.ts",
     "bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/fulfillment-source-projection.ts",
+    "bounded-contexts/settlement/features/wallets/integrations/fulfillment-source/label-postage-policy.ts",
     "bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.ts",
     "bounded-contexts/settlement/features/wallets/integrations/support-source/support-source-projection.ts",
     "bounded-contexts/settlement/features/wallets/read-model/projection.ts",

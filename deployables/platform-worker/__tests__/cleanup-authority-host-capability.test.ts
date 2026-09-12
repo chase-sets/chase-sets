@@ -95,16 +95,11 @@ describe("cleanup-authority-inventory-host-capability", () => {
     );
   });
 
-  it("pins the explicit variant in the worker's module-level composition roots", () => {
-    // `main.ts` and `bootstrap.ts` boot the worker as a side effect of import,
-    // so their wiring is pinned by source rather than executed here. Both are
-    // additionally covered by the repository typecheck and build gates.
-    for (const relativePath of ["main.ts", "bootstrap.ts"]) {
-      const source = readWorkerSource(relativePath);
-      expect({ relativePath, wired: source.includes('inventoryCleanupAuthority: { kind: "not-mounted" }') }).toEqual({
-        relativePath,
-        wired: true,
-      });
-    }
+  it("pins the explicit variant in the worker runtime composition root", () => {
+    // `main.ts` boots the worker as a side effect of import, so its wiring is
+    // pinned by source rather than executed here. The schema-only bootstrap
+    // executable intentionally constructs no services or runners.
+    const source = readWorkerSource("main.ts");
+    expect(source).toContain('inventoryCleanupAuthority: { kind: "not-mounted" }');
   });
 });

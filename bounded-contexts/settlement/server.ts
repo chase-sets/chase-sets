@@ -14,6 +14,11 @@ export type {
   WalletSpendHoldPort,
 } from "./features/wallets/api/balance-credit-resolver";
 export { createSettlementWalletSpendHoldPort } from "./features/wallets/api/balance-credit-hold-port";
+export {
+  activateMarketplaceLabelPostage,
+  MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION,
+} from "./features/wallets/integrations/fulfillment-source/label-postage-policy";
+export type { MarketplaceLabelPostageActivation } from "./features/wallets/integrations/fulfillment-source/label-postage-policy";
 export type {
   MoneyMovementGateway,
   MoneyMovementWebhookEvent,

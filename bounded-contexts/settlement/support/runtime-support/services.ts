@@ -22,6 +22,7 @@ import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createNoopSettlementOperationsRecorder, type SettlementOperationsRecorder } from "./operations";
 import type { PayoutDestinationFrictionPolicy, SensitiveActionVerifier } from "../../features/payouts/api/runtime";
 import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
+import type { MarketplaceLabelPostageActivation } from "../../features/wallets/integrations/fulfillment-source/label-postage-policy";
 
 export type SettlementHostPorts = Readonly<{
   moneyMovementGateway?: MoneyMovementGateway;
@@ -38,6 +39,7 @@ export type SettlementHostPorts = Readonly<{
    */
   sensitiveActionVerifier?: SensitiveActionVerifier;
   webhookTelemetry?: ProviderWebhookTelemetry;
+  marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation;
 }>;
 
 export type SettlementServices = Readonly<{
@@ -51,6 +53,7 @@ export type SettlementServices = Readonly<{
   accountLinkage: ReturnType<typeof createAccountLinkageRuntime>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents. */
   policies: PolicyRuntime;
+  marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -140,6 +143,9 @@ export function createSettlementServices(
     liabilityReconciliation,
     accountLinkage,
     policies,
+    ...(ports.marketplaceLabelPostageActivation
+      ? { marketplaceLabelPostageActivation: ports.marketplaceLabelPostageActivation }
+      : {}),
     projectors: [
       ...wallets.projectors,
       ...protectionCoverage.projectors,
