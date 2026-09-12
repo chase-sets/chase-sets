@@ -96,7 +96,7 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
     expect(subscriptions.inventoryReaction.subscriptionVersion).toBe(CHANNEL_STOCK_ALLOCATION_SUBSCRIPTION_VERSION);
     expect(subscriptions.inventoryProjection.eventTypes).toContain("inventory.channel-stock-allocation.set");
     expect(subscriptions.inventoryReaction.eventTypes).toContain("inventory.channel-stock-allocation.set");
-    expect(contextManifest.allowedContextDependencies).toEqual([]);
+    expect(contextManifest.allowedContextDependencies).toEqual(["@chase-sets/marketplace"]);
 
     const runners = createRunners(subscriptions);
     await setAllocation(inventoryServices.channelStockAllocations, 0, [
