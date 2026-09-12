@@ -76,14 +76,20 @@ export { createCheckpointKey, loadSubscriptionCheckpoint } from "./subscription-
 export type {
   ContextProjectionGroup,
   ContextProjectionGroupStatus,
+  ProjectionGroupGeneration,
+  ProjectionGroupGenerationState,
+  ProjectionGroupRevisionSyncToken,
+  ProjectionGroupStatusRefreshOptions,
   ProjectionReplayContextSummary,
   ProjectionReplaySummary,
+  RefreshedContextProjectionGroupStatus,
 } from "./projection-groups";
 export {
   cleanupRuntimeProjectionGenerations,
   getProjectionGroup,
   getProjectionReplaySummary,
   listProjectionGroupStatuses,
+  loadProjectionGroupGeneration,
   rebuildAllContextProjectionGroups,
   rebuildContextProjectionGroup,
   rebuildProjectionGroup,

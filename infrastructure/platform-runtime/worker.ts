@@ -1314,6 +1314,7 @@ export function createProjectionGroupWorkerRunner(
   const idleInTransactionSessionTimeoutMs =
     options.idleInTransactionSessionTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS;
   let rebuildingRevision: number | null = null;
+  let revisionSyncToken: string | null | undefined;
 
   return {
     name: createProjectionGroupRunnerName(group),
@@ -1338,14 +1339,17 @@ export function createProjectionGroupWorkerRunner(
       };
       try {
         runContext.throwIfLeaseLost?.();
-        const refreshedStatus = await group.refreshStatus();
+        const refreshedStatus = await group.refreshStatus({ captureRevisionSyncToken: true });
+        if (revisionSyncToken === undefined) {
+          revisionSyncToken = refreshedStatus.revisionSyncToken ?? null;
+        }
         const status = { ...refreshedStatus, recoveryRequired: group.getStatus().recoveryRequired };
         if (status.revisionStale && revisionStaleBehavior === "reject") {
           throw new ProjectionGroupRevisionStaleError(group);
         }
         if (status.recoveryRequired || (status.revisionStale && rebuildingRevision !== group.projectionRevision)) {
           runContext.throwIfLeaseLost?.();
-          await resetProjectionGroup(group, runContext);
+          revisionSyncToken = await resetProjectionGroup(group, runContext);
           rebuildingRevision = group.projectionRevision;
           if (options.onCheckpointsReset) {
             try {
@@ -1371,8 +1375,9 @@ export function createProjectionGroupWorkerRunner(
 
         if (processed === 0 && blockedStreams === 0) {
           runContext.throwIfLeaseLost?.();
-          await group.markRevisionSynced();
+          await group.markRevisionSynced(revisionSyncToken ?? null);
           rebuildingRevision = null;
+          revisionSyncToken = undefined;
         }
 
         if (processed > 0 && options.onCheckpointsAdvanced) {
@@ -1392,6 +1397,7 @@ export function createProjectionGroupWorkerRunner(
         };
       } catch (error) {
         rebuildingRevision = null;
+        revisionSyncToken = undefined;
         throw error;
       }
     },
