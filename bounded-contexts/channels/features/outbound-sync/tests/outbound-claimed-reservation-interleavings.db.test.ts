@@ -259,7 +259,6 @@ describeDb(
             result: {
               kind: "succeeded",
               externalListingId: "claimed-tie-listing",
-              externalOfferId: null,
               providerRevision: "claimed-tie-r1",
             },
           }),
@@ -302,7 +301,7 @@ describeDb(
         { db: pools.channels, clock: fixedClock, recordOutcome: async () => "applied" },
         { assertDelistDirective: () => undefined },
       );
-      const inlineDesired = desiredState("listing-tie-inline", 1, 7, "event-tie-1", "connection-inline");
+      const inlineDesired = desiredState("listing-tie-inline", 1, 7, "event-tie-inline-1", "connection-inline");
       const inlineDesiredOperation = await inlineRuntime.enqueueDesiredState(inlineDesired);
       const inlineRepair = await inlineRuntime.enqueueReconciliationRepair({
         ...inlineDesired,
@@ -322,7 +321,6 @@ describeDb(
           return {
             kind: "succeeded",
             externalListingId: "inline-tie-listing",
-            externalOfferId: null,
             providerRevision: `inline-tie-r${inlineCalls.length}`,
           };
         }),
@@ -376,9 +374,22 @@ describeDb(
           [terminalDesired!.operationId, "2026-09-12T12:30:00.000Z"],
         );
         const repush = await runtime.enqueueRepush({ ...desiredOne, repushOperationId: "repush-1" });
+        const repairInput = { ...desiredOne, reconciliationRepairId: "supersession-repair-1" };
+        const repair = await runtime.enqueueReconciliationRepair(repairInput);
+        await expect(runtime.enqueueReconciliationRepair(repairInput)).resolves.toMatchObject({
+          operationId: repair!.operationId,
+        });
+        await expect(
+          runtime.enqueueReconciliationRepair({ ...repairInput, desiredStateHash: "f".repeat(64) }),
+        ).rejects.toMatchObject({ code: "stale-fence" });
         const desiredTwo = desiredState("listing-repush-supersession", 2, 8, "event-desired-2");
         const latestDesired = await runtime.enqueueDesiredState(desiredTwo);
         await expect(runtime.enqueueDesiredState(desiredTwo)).resolves.toBeNull();
+        await expect(runtime.enqueueDesiredState(desiredOne)).resolves.toBeNull();
+        await expect(runtime.enqueueReconciliationRepair(repairInput)).resolves.toBeNull();
+        await expect(
+          runtime.enqueueReconciliationRepair({ ...repairInput, reconciliationRepairId: "stale-new-repair" }),
+        ).rejects.toMatchObject({ code: "stale-fence" });
         await expect(runtime.enqueueRepush({ ...desiredOne, repushOperationId: "repush-1" })).resolves.toMatchObject({
           operationId: repush!.operationId,
           status: "failed",
@@ -409,6 +420,10 @@ describeDb(
           status: "failed",
           terminal_reason: "superseded-by-newer-desired-state",
         });
+        expect(operationRows.rows.find((row) => row.operation_id === repair!.operationId)).toMatchObject({
+          status: "failed",
+          terminal_reason: "superseded-by-newer-desired-state",
+        });
 
         if (execution === "claimed") {
           const reservation = await runtime.reserveClaimedOutboundOperations({
@@ -428,7 +443,6 @@ describeDb(
               return {
                 kind: "succeeded",
                 externalListingId: "inline-repush-supersession",
-                externalOfferId: null,
                 providerRevision: "inline-repush-supersession-r1",
               };
             }),
@@ -440,6 +454,89 @@ describeDb(
         }
       },
     );
+
+    it("reads only the exact connection-owned operation IDs in one closed bounded batch", async () => {
+      const runtime = createOutboundSyncRuntime({ db: pools.channels }, { assertDelistDirective: () => undefined });
+      const first = await runtime.enqueueReconciliationRepair({
+        ...desiredState("listing-batch-a", 1, 7, "event-batch-a"),
+        reconciliationRepairId: "repair-batch-a",
+      });
+      const second = await runtime.enqueueReconciliationRepair({
+        ...desiredState("listing-batch-b", 1, 7, "event-batch-b"),
+        reconciliationRepairId: "repair-batch-b",
+      });
+      const query = vi.spyOn(pools.channels, "query");
+      try {
+        const result = await runtime.readOutboundOperationsByIds({
+          connectionId: "connection-a",
+          operationIds: [second!.operationId, first!.operationId],
+        });
+        expect(result.map((row) => row.operationId)).toEqual([first!.operationId, second!.operationId].sort());
+        expect(query).toHaveBeenCalledTimes(1);
+        await expect(
+          runtime.readOutboundOperationsByIds({ connectionId: "synthetic-other", operationIds: [first!.operationId] }),
+        ).resolves.toEqual([]);
+        query.mockClear();
+        for (const input of [
+          { connectionId: "connection-a", operationIds: [first!.operationId], extra: true },
+          { connectionId: "connection-a", operationIds: [first!.operationId, first!.operationId] },
+          { connectionId: "connection-a", operationIds: ["invalid-operation-id"] },
+          { connectionId: "connection-a", operationIds: Array<string>(100_001).fill(first!.operationId) },
+          { connectionId: "", operationIds: [first!.operationId] },
+        ]) {
+          await expect(runtime.readOutboundOperationsByIds(input)).rejects.toMatchObject({ code: "invalid-input" });
+        }
+        await expect(
+          runtime.readOutboundOperationsByIds({ connectionId: "connection-a", operationIds: [] }),
+        ).resolves.toEqual([]);
+        expect(query).not.toHaveBeenCalled();
+      } finally {
+        query.mockRestore();
+      }
+    });
+
+    it("rolls back obsolete-operation supersession when a candidate revision changes before write-back", async () => {
+      const runtime = createOutboundSyncRuntime({ db: pools.channels }, { assertDelistDirective: () => undefined });
+      const basis = desiredState("listing-supersession-fence", 1, 7, "event-fence-1");
+      const repush = await runtime.enqueueRepush({ ...basis, repushOperationId: "fenced-repush" });
+      let injected = false;
+      const interleavingPool: PgTransactionalPool = {
+        query: pools.channels.query.bind(pools.channels),
+        connect: async () => {
+          const client = await pools.channels.connect();
+          return {
+            release: client.release.bind(client),
+            query: async <Row>(sql: string, values?: readonly unknown[]) => {
+              if (sql.includes("terminal_reason='superseded-by-newer-desired-state'")) {
+                const newer = await client.query(
+                  `UPDATE channel_outbound_operations SET revision=revision+1
+                   WHERE operation_id=$1 AND revision=1 AND status='pending'`,
+                  [repush!.operationId],
+                );
+                expect(newer.rowCount).toBe(1);
+                injected = true;
+              }
+              return client.query<Row>(sql, values);
+            },
+          };
+        },
+      };
+      const racingRuntime = createOutboundSyncRuntime(
+        { db: interleavingPool },
+        { assertDelistDirective: () => undefined },
+      );
+      await expect(
+        racingRuntime.enqueueDesiredState(desiredState("listing-supersession-fence", 2, 8, "event-fence-2")),
+      ).rejects.toMatchObject({ code: "stale-fence" });
+      expect(injected).toBe(true);
+      await expect(
+        pools.channels.query(
+          `SELECT operation_id,status,revision::text,terminal_reason FROM channel_outbound_operations`,
+        ),
+      ).resolves.toMatchObject({
+        rows: [{ operation_id: repush!.operationId, status: "pending", revision: "1", terminal_reason: null }],
+      });
+    });
 
     it("outbound-stale-success-sequence-adoption", async () => {
       expect(

@@ -767,7 +767,19 @@ describeDb("Channel Reconciliation guarded production path", () => {
         );
       }
 
+      const differentRepair = await outbound.enqueueReconciliationRepair({
+        ...repairable.desired,
+        reconciliationRepairId: "synthetic-different-succeeded-correction",
+      });
+      expect(differentRepair!.operationId).not.toBe(repair.rows[0]!.operation_id);
+      await pools.channels.query(
+        `UPDATE channel_outbound_operations SET status='succeeded',terminal_at=$2
+         WHERE operation_id=$1 AND status='pending'`,
+        [differentRepair!.operationId, "2026-09-12T05:50:00.000Z"],
+      );
+
       observed = matchingItems();
+      readOutboundOperationsByIds.mockClear();
       const matchingInput = {
         connectionId: "connection-1",
         registry: inlineRegistry(() => observed),
@@ -782,11 +794,65 @@ describeDb("Channel Reconciliation guarded production path", () => {
         connectionId: "connection-1",
         operationIds: [repair.rows[0]!.operation_id],
       });
+      expect(readOutboundOperationsByIds).toHaveBeenCalledTimes(1);
+      await expect(
+        pools.channels.query(
+          `SELECT repair_succeeded_generation FROM channel_reconciliation_items
+           WHERE connection_id='connection-1' AND channel_listing_id='channel-repairable'`,
+        ),
+      ).resolves.toMatchObject({ rows: [{ repair_succeeded_generation: null }] });
       await expect(runtime.reconcileConnection(matchingInput, context)).resolves.toMatchObject({
         counts: { repairsSucceeded: 0 },
       });
     },
   );
+
+  it.each([
+    ["connection_id", "synthetic-other-connection"],
+    ["channel_listing_id", "synthetic-other-link"],
+    ["listing_id", "synthetic-other-listing"],
+    ["operation_kind", "publish"],
+    ["listing_revision", 8],
+    ["source_desired_state_sequence", 2],
+    ["source_desired_state_hash", "f".repeat(64)],
+  ] as const)("does not count an exact succeeded correction with a mismatched %s", async (column, value) => {
+    await seedConnectionAndListings(pools.channels);
+    const outbound = realOutboundRuntime();
+    let observed = matchingItems({ repairableRevision: "6" });
+    const runtime = reconciliationWithOutbound(outbound, () => observed);
+    const input = () => ({
+      connectionId: "connection-1",
+      registry: inlineRegistry(() => observed),
+      sourceAttempt: 1,
+      healthAuthority: null,
+    });
+    await expect(runtime.reconcileConnection(input(), context)).resolves.toMatchObject({
+      counts: { repairsEnqueued: 1, repairsSucceeded: 0 },
+    });
+    const repair = await pools.channels.query<{ operation_id: string }>(
+      `SELECT repair_operation_id AS operation_id FROM channel_reconciliation_items
+       WHERE connection_id='connection-1' AND channel_listing_id='channel-repairable'`,
+    );
+    // Desired sequence and stream version are one schema-constrained basis.
+    const streamVersion = column === "source_desired_state_sequence" ? ",source_stream_version=$2" : "";
+    const changed = await pools.channels.query(
+      `UPDATE channel_outbound_operations SET ${column}=$2${streamVersion},status='succeeded',terminal_at=$3
+       WHERE operation_id=$1 AND status='pending'`,
+      [repair.rows[0]!.operation_id, value, "2026-09-12T05:50:00.000Z"],
+    );
+    expect(changed.rowCount).toBe(1);
+    observed = matchingItems();
+    await expect(runtime.reconcileConnection(input(), context)).resolves.toMatchObject({
+      clean: true,
+      counts: { repairsSucceeded: 0 },
+    });
+    await expect(
+      pools.channels.query(
+        `SELECT repair_succeeded_generation FROM channel_reconciliation_items
+         WHERE connection_id='connection-1' AND channel_listing_id='channel-repairable'`,
+      ),
+    ).resolves.toMatchObject({ rows: [{ repair_succeeded_generation: null }] });
+  });
 
   it("queues one distinct reconciliation repair behind a terminal desired operation and records one exact later success", async () => {
     await seedConnectionAndListings(pools.channels);
@@ -881,6 +947,19 @@ describeDb("Channel Reconciliation guarded production path", () => {
        WHERE operation_id=$1 AND status='pending'`,
       [repair.operation_id, "2026-09-12T05:45:00.000Z"],
     );
+    await expect(
+      runtime.reconcileConnection(
+        {
+          connectionId: "connection-1",
+          registry: inlineRegistry(async () => {
+            throw new Error("synthetic incomplete provider observation");
+          }),
+          sourceAttempt: 1,
+          healthAuthority: null,
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ state: "bounded-unknown", clean: false, counts: { repairsSucceeded: 0 } });
     observed = matchingItems();
     await expect(
       runtime.reconcileConnection(

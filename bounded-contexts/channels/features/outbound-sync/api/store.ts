@@ -308,7 +308,12 @@ export function createOutboundOperationStore(
       input: Readonly<{ connectionId: string; operationIds: readonly string[] }>,
     ): Promise<readonly OutboundOperationStatusRecord[]> => {
       if (
-        !input.connectionId ||
+        typeof input !== "object" ||
+        input === null ||
+        Array.isArray(input) ||
+        Object.keys(input).some((key) => key !== "connectionId" && key !== "operationIds") ||
+        typeof input.connectionId !== "string" ||
+        input.connectionId.length === 0 ||
         input.connectionId.length > 512 ||
         !Array.isArray(input.operationIds) ||
         input.operationIds.length > 100_000 ||
