@@ -577,7 +577,7 @@ describe("channels-foundation-surface-fence", () => {
       ),
     ).toEqual(["runtime-support-files"]);
     expect(
-      collectChannelsSurfaceViolations({ ...manifest, allowedSupportDirectories: ["request-support", "runtime-support"] }, files),
+      collectChannelsSurfaceViolations({ ...manifest, allowedSupportDirectories: ["request-support"] }, files),
     ).toEqual(["allowedSupportDirectories"]);
 
     const landingMutant = { ...manifest, apiRuntimeProfiles: ["proof", "public", "landing"] };
