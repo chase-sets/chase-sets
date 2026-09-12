@@ -204,6 +204,20 @@ const capabilityTimings = [];
 const censusTimings = [];
 const censusRows = [];
 const discoveredImporters = new Set();
+const compilerWork = {
+  preprocessorCalls: 0,
+  astParses: 0,
+  visitedNodes: 0,
+  ancestorAllocations: 0,
+  resolverProcesses: 0,
+  resolverCandidates: 0,
+  resolverSpecifiers: 0,
+  specifiers: 0,
+};
+
+function workDelta(before) {
+  return Object.fromEntries(Object.entries(compilerWork).map(([key, value]) => [key, value - before[key]]));
+}
 
 function recognizedErrorCode(result) {
   const text = `${result.stderr ?? ""}\n${result.stdout ?? ""}`;
@@ -276,25 +290,39 @@ function scriptKindFor(path) {
   }
 }
 
-function literalIndex(sourceFile) {
-  const byText = new Map();
-  const visit = (node, ancestors = []) => {
+function joinCompilerSpans(sourceFile, spans) {
+  const indexed = new Map();
+  spans.forEach((span, index) => {
+    const positions = indexed.get(span.fileName) ?? new Map();
+    positions.set(span.pos, { index, span });
+    indexed.set(span.fileName, positions);
+  });
+  const matches = new Array(spans.length);
+  const ancestors = [];
+  const visit = (node) => {
+    compilerWork.visitedNodes += 1;
     if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      const values = byText.get(node.text) ?? [];
-      values.push({ node, ancestors });
-      byText.set(node.text, values);
+      const positions = indexed.get(node.text);
+      if (positions) {
+        const current = positions.get(node.getStart(sourceFile));
+        if (current && current.span.end <= node.end) {
+          positions.delete(current.span.pos);
+          if (positions.size === 0) indexed.delete(node.text);
+          matches[current.index] = { node, ancestors: [...ancestors].reverse() };
+          compilerWork.ancestorAllocations += 1;
+        }
+      }
     }
-    ts.forEachChild(node, (child) => visit(child, [node, ...ancestors]));
+    ancestors.push(node);
+    ts.forEachChild(node, visit);
+    ancestors.pop();
   };
   visit(sourceFile);
-  return byText;
+  return matches;
 }
 
-function classifyCompilerSpan(sourceFile, span, options = {}) {
+function classifyCompilerSpan(sourceFile, span, match, options = {}) {
   if (options.forceIndeterminate) return { verdict: "INDETERMINATE", owner: "InjectedUnknownRuntimePosition" };
-  const match = (options.literals?.get(span.fileName) ?? [])
-    .filter(({ node }) => node.getStart(sourceFile) <= span.pos && node.end >= span.end)
-    .sort(({ node: left }, { node: right }) => left.end - left.pos - (right.end - right.pos))[0];
   if (!match) importerRefuse("IMPORTER_SCAN_FAILURE", `${sourceFile.fileName}:${span.pos}:${span.fileName}`);
   const { ancestors } = match;
   const importDeclaration = ancestors.find(ts.isImportDeclaration);
@@ -339,14 +367,17 @@ function compilerRows(path, source, options = {}) {
   let sourceFile;
   try {
     if (options.forceScanFailure) throw new Error("injected scan failure");
+    compilerWork.preprocessorCalls += 1;
     preprocessed = ts.preProcessFile(source, true, true);
+    compilerWork.astParses += 1;
     sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, false, scriptKindFor(path));
   } catch (error) {
     importerRefuse("IMPORTER_SCAN_FAILURE", `${path}: ${error.message}`);
   }
-  const literals = literalIndex(sourceFile);
-  return preprocessed.importedFiles.map((span) => {
-    const classification = classifyCompilerSpan(sourceFile, span, { ...options, literals });
+  compilerWork.specifiers += preprocessed.importedFiles.length;
+  const matches = joinCompilerSpans(sourceFile, preprocessed.importedFiles);
+  return preprocessed.importedFiles.map((span, index) => {
+    const classification = classifyCompilerSpan(sourceFile, span, matches[index], options);
     if (classification.verdict === "INDETERMINATE") {
       importerRefuse("IMPORTER_SYNTAX_INDETERMINATE", `${path}:${span.pos}:${classification.owner}`);
     }
@@ -406,6 +437,8 @@ function resolveEsmBatch(requests, options = {}) {
   if (options.forceIndeterminate) {
     return requests.map(() => ({ status: "INDETERMINATE", detail: "injected resolver failure" }));
   }
+  compilerWork.resolverProcesses += 1;
+  compilerWork.resolverCandidates += requests.length;
   const result = spawnSync(
     process.execPath,
     ["--experimental-import-meta-resolve", "--input-type=module", "--eval", esmResolverProgram],
@@ -464,6 +497,7 @@ function classifyResolution(result, row) {
 }
 
 function resolveRuntimeRows(rows, options = {}) {
+  compilerWork.resolverSpecifiers += rows.length;
   const resolved = [];
   const esmPending = [];
   for (const row of rows) {
@@ -1040,6 +1074,7 @@ describe.sequential("canonical importer authority", () => {
   for (let shard = 0; shard < CENSUS_SHARDS; shard += 1) {
     it(`corpus census and memoized resolution stay inside the unchanged timeout [shard ${shard + 1}/${CENSUS_SHARDS}]`, () => {
       const started = performance.now();
+      const workBefore = { ...compilerWork };
       const entries = censusShardEntries[shard];
       const runtimeRows = [];
       for (const entry of entries) {
@@ -1058,7 +1093,9 @@ describe.sequential("canonical importer authority", () => {
         elapsedMs,
         candidates: entries.length,
         runtimeSpecifiers: runtimeRows.length,
+        work: workDelta(workBefore),
       });
+      console.info(JSON.stringify({ censusShard: censusTimings.at(-1) }));
       expect(elapsedMs).toBeLessThan(SHARD_BUDGET_MS);
     });
   }
@@ -1216,6 +1253,11 @@ describe.sequential("canonical importer authority", () => {
     expect(Math.max(...censusTimings.map(({ elapsedMs }) => elapsedMs))).toBeLessThan(SHARD_BUDGET_MS);
     const aggregateBudget = (CAPABILITY_SHARDS + CENSUS_SHARDS) * SHARD_BUDGET_MS;
     const total = [...capabilityTimings, ...censusTimings].reduce((sum, { elapsedMs }) => sum + elapsedMs, 0);
+    const work = censusTimings.reduce(
+      (total, timing) =>
+        Object.fromEntries(Object.keys(timing.work).map((key) => [key, (total[key] ?? 0) + timing.work[key]])),
+      {},
+    );
     expect(total).toBeLessThan(aggregateBudget);
     console.info(
       JSON.stringify({
@@ -1225,6 +1267,10 @@ describe.sequential("canonical importer authority", () => {
         groups: capabilityGroups.length,
         candidates: candidateEntries().length,
         specifiers: censusRows.length,
+        workComparison: {
+          before: { ...work, ancestorAllocations: work.visitedNodes },
+          after: work,
+        },
         capabilityTimings,
         censusTimings,
       }),
