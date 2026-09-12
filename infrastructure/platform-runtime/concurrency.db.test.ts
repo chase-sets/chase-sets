@@ -1355,6 +1355,8 @@ describe("projection-group-recovery-marker Postgres", () => {
     await expect(read()).resolves.toEqual({ activeGeneration: "1", rebuildingGeneration: "2", state: "rebuilding" });
     await append("marker.second");
     failProjection = true;
+    await expect(worker.runOnce()).resolves.toMatchObject({ processed: 1, blockedStreams: 1 });
+    await expect(read()).resolves.toMatchObject({ rebuildingGeneration: "2", state: "rebuilding" });
     await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 1 });
     await expect(read()).resolves.toMatchObject({ rebuildingGeneration: "2", state: "rebuilding" });
     failProjection = false;
