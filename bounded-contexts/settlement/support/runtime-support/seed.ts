@@ -33,6 +33,7 @@ import {
 } from "../../features/wallets/domain/clearance-policy";
 import {
   payoutAmountPolicy,
+  quotePayoutFee,
   settlementPayoutBoundsPolicy,
   settlementPayoutFeePolicy,
   SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE,
@@ -84,6 +85,12 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool, _service
   // left to author from the wallet and payout streams themselves.
   const wallet = await loadSeedWalletLedger(services.db, sellerAccountId);
   const payoutReconcilers = buildSeedPayoutReconcilers(services, context, sellerAccountId);
+  const syntheticCompletedPayoutQuote = quotePayoutFee("10.00", SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE, {
+    isFirstPayoutOfMonth: false,
+  });
+  const syntheticFailedPayoutQuote = quotePayoutFee("5.00", SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE, {
+    isFirstPayoutOfMonth: false,
+  });
   const capturedPayment = await services.db.query<SeedPaymentSourceRow>(
     `SELECT amount::text AS amount,
             currency_code,
@@ -209,6 +216,113 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool, _service
       context,
     );
   }
+
+  if (!wallet.hasEntry(settlementReservedSeedIds.ledgerEntries.payoutDebitSyntheticFeeCompleted)) {
+    await services.wallets.postEntry(
+      {
+        accountId: sellerAccountId,
+        ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutDebitSyntheticFeeCompleted,
+        kind: "payout",
+        direction: "debit",
+        amount: syntheticCompletedPayoutQuote.netAmount,
+        currencyCode: "usd",
+        fundsStatus: "available",
+        payoutId: settlementReservedSeedIds.payouts.syntheticFeeCompleted,
+        description: "Synthetic fee-bearing completed payout debit",
+        postedAt: "2026-03-24T12:00:00.000Z",
+      },
+      context,
+    );
+  }
+  if (!wallet.hasEntry(settlementReservedSeedIds.ledgerEntries.payoutFeeDebitSyntheticFeeCompleted)) {
+    await services.wallets.postEntry(
+      {
+        accountId: sellerAccountId,
+        ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutFeeDebitSyntheticFeeCompleted,
+        kind: "fee",
+        direction: "debit",
+        amount: syntheticCompletedPayoutQuote.feeAmount,
+        currencyCode: "usd",
+        fundsStatus: "available",
+        payoutId: settlementReservedSeedIds.payouts.syntheticFeeCompleted,
+        description: "Synthetic fee-bearing completed payout fee debit",
+        postedAt: "2026-03-24T12:00:00.000Z",
+      },
+      context,
+    );
+  }
+  await payoutReconcilers[2]?.reconcile(true);
+
+  if (!wallet.hasEntry(settlementReservedSeedIds.ledgerEntries.payoutDebitSyntheticFeeFailed)) {
+    await services.wallets.postEntry(
+      {
+        accountId: sellerAccountId,
+        ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutDebitSyntheticFeeFailed,
+        kind: "payout",
+        direction: "debit",
+        amount: syntheticFailedPayoutQuote.netAmount,
+        currencyCode: "usd",
+        fundsStatus: "available",
+        payoutId: settlementReservedSeedIds.payouts.syntheticFeeFailed,
+        description: "Synthetic fee-bearing failed payout debit",
+        postedAt: "2026-03-24T13:00:00.000Z",
+      },
+      context,
+    );
+  }
+  if (!wallet.hasEntry(settlementReservedSeedIds.ledgerEntries.payoutFeeDebitSyntheticFeeFailed)) {
+    await services.wallets.postEntry(
+      {
+        accountId: sellerAccountId,
+        ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutFeeDebitSyntheticFeeFailed,
+        kind: "fee",
+        direction: "debit",
+        amount: syntheticFailedPayoutQuote.feeAmount,
+        currencyCode: "usd",
+        fundsStatus: "available",
+        payoutId: settlementReservedSeedIds.payouts.syntheticFeeFailed,
+        description: "Synthetic fee-bearing failed payout fee debit",
+        postedAt: "2026-03-24T13:00:00.000Z",
+      },
+      context,
+    );
+  }
+  await payoutReconcilers[3]?.reconcile(true);
+
+  if (!wallet.hasEntry(settlementReservedSeedIds.ledgerEntries.payoutReversalSyntheticFeeFailed)) {
+    await services.wallets.postEntry(
+      {
+        accountId: sellerAccountId,
+        ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutReversalSyntheticFeeFailed,
+        kind: "payout-reversal",
+        direction: "credit",
+        amount: syntheticFailedPayoutQuote.netAmount,
+        currencyCode: "usd",
+        fundsStatus: "available",
+        payoutId: settlementReservedSeedIds.payouts.syntheticFeeFailed,
+        description: "Synthetic fee-bearing failed payout reversal",
+        postedAt: "2026-03-24T13:10:00.000Z",
+      },
+      context,
+    );
+  }
+  if (!wallet.hasEntry(settlementReservedSeedIds.ledgerEntries.payoutFeeReversalSyntheticFeeFailed)) {
+    await services.wallets.postEntry(
+      {
+        accountId: sellerAccountId,
+        ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutFeeReversalSyntheticFeeFailed,
+        kind: "fee",
+        direction: "credit",
+        amount: syntheticFailedPayoutQuote.feeAmount,
+        currencyCode: "usd",
+        fundsStatus: "available",
+        payoutId: settlementReservedSeedIds.payouts.syntheticFeeFailed,
+        description: "Synthetic fee-bearing failed payout fee reversal",
+        postedAt: "2026-03-24T13:10:00.000Z",
+      },
+      context,
+    );
+  }
 }
 
 const SETTLEMENT_BOOTSTRAP_LABEL = "Settlement seed bootstrap";
@@ -237,6 +351,36 @@ const seededWalletLedgerEntries = [
   {
     ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutReversalFailed,
     key: "payout-reversal-failed",
+    expectsAvailable: false,
+  },
+  {
+    ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutDebitSyntheticFeeCompleted,
+    key: "synthetic-fee-payout-debit-completed",
+    expectsAvailable: false,
+  },
+  {
+    ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutFeeDebitSyntheticFeeCompleted,
+    key: "synthetic-fee-payout-fee-debit-completed",
+    expectsAvailable: false,
+  },
+  {
+    ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutDebitSyntheticFeeFailed,
+    key: "synthetic-fee-payout-debit-failed",
+    expectsAvailable: false,
+  },
+  {
+    ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutFeeDebitSyntheticFeeFailed,
+    key: "synthetic-fee-payout-fee-debit-failed",
+    expectsAvailable: false,
+  },
+  {
+    ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutReversalSyntheticFeeFailed,
+    key: "synthetic-fee-payout-reversal-failed",
+    expectsAvailable: false,
+  },
+  {
+    ledgerEntryId: settlementReservedSeedIds.ledgerEntries.payoutFeeReversalSyntheticFeeFailed,
+    key: "synthetic-fee-payout-fee-reversal-failed",
     expectsAvailable: false,
   },
 ] as const;
@@ -279,6 +423,12 @@ function buildSeedPayoutReconcilers(
   context: EventStoreContext,
   sellerAccountId: AccountId,
 ): readonly SeedAggregateReconciler[] {
+  const syntheticCompletedQuote = quotePayoutFee("10.00", SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE, {
+    isFirstPayoutOfMonth: false,
+  });
+  const syntheticFailedQuote = quotePayoutFee("5.00", SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE, {
+    isFirstPayoutOfMonth: false,
+  });
   const payoutReconciler = (id: string, key: string, steps: readonly PayoutCommand[]) =>
     createSeedAggregateReconciler<PayoutState, PayoutCommand, PayoutEvent>({
       db: services.db,
@@ -301,7 +451,9 @@ function buildSeedPayoutReconcilers(
         type: "RequestPayout",
         payoutId: settlementReservedSeedIds.payouts.completed,
         accountId: sellerAccountId,
-        amount: "50.00",
+        requestedAmount: "50.00",
+        feeAmount: "0.00",
+        netAmount: "50.00",
         currencyCode: "usd",
         destinationReference: "bank_seed_completed",
         note: "Completed payout seed",
@@ -316,7 +468,9 @@ function buildSeedPayoutReconcilers(
         type: "RequestPayout",
         payoutId: settlementReservedSeedIds.payouts.failed,
         accountId: sellerAccountId,
-        amount: "20.00",
+        requestedAmount: "20.00",
+        feeAmount: "0.00",
+        netAmount: "20.00",
         currencyCode: "usd",
         destinationReference: "bank_seed_failed",
         note: "Failed payout seed",
@@ -326,6 +480,42 @@ function buildSeedPayoutReconcilers(
         type: "FailPayout",
         failureReason: "Bank account temporarily unavailable",
         failedAt: "2026-03-24T11:10:00.000Z",
+      },
+    ]),
+    payoutReconciler(settlementReservedSeedIds.payouts.syntheticFeeCompleted, "bank_seed_synthetic_fee_completed", [
+      {
+        type: "RequestPayout",
+        payoutId: settlementReservedSeedIds.payouts.syntheticFeeCompleted,
+        accountId: sellerAccountId,
+        requestedAmount: "10.00",
+        feeAmount: syntheticCompletedQuote.feeAmount,
+        netAmount: syntheticCompletedQuote.netAmount,
+        currencyCode: "usd",
+        destinationReference: "bank_seed_synthetic_fee_completed",
+        note: "Synthetic fee-bearing completed payout seed",
+        notificationEmail: "demo@chasesets.test",
+        requestedAt: "2026-03-24T12:00:00.000Z",
+      },
+      { type: "MarkPayoutInTransit", sentAt: "2026-03-24T12:05:00.000Z" },
+      { type: "CompletePayout", completedAt: "2026-03-24T12:15:00.000Z" },
+    ]),
+    payoutReconciler(settlementReservedSeedIds.payouts.syntheticFeeFailed, "bank_seed_synthetic_fee_failed", [
+      {
+        type: "RequestPayout",
+        payoutId: settlementReservedSeedIds.payouts.syntheticFeeFailed,
+        accountId: sellerAccountId,
+        requestedAmount: "5.00",
+        feeAmount: syntheticFailedQuote.feeAmount,
+        netAmount: syntheticFailedQuote.netAmount,
+        currencyCode: "usd",
+        destinationReference: "bank_seed_synthetic_fee_failed",
+        note: "Synthetic fee-bearing failed payout seed",
+        requestedAt: "2026-03-24T13:00:00.000Z",
+      },
+      {
+        type: "FailPayout",
+        failureReason: "Synthetic bank account temporarily unavailable",
+        failedAt: "2026-03-24T13:10:00.000Z",
       },
     ]),
   ];

@@ -6,7 +6,9 @@ export type PayoutCompletedEmailIntentInput = Readonly<{
   sellerEmail: string;
   recipientAccountId?: AccountId | null;
   payoutId: string;
-  amount: string;
+  requestedAmount: string;
+  feeAmount: string;
+  netAmount: string;
   correlationId: string;
 }>;
 
@@ -22,7 +24,13 @@ export function mapPayoutCompletedToTransactionalEmail(input: PayoutCompletedEma
     templateId: "payout_completed",
     templateVersion: 1,
     locale: "en",
-    templateData: { payoutReference, amount: input.amount },
+    templateData: {
+      payoutReference,
+      amount: input.netAmount,
+      requestedAmount: input.requestedAmount,
+      feeAmount: input.feeAmount,
+      netAmount: input.netAmount,
+    },
     idempotencyKey: `settlement:payout_completed:${input.payoutId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },

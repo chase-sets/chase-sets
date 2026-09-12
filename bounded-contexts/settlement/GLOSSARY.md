@@ -74,7 +74,7 @@ Notes:
 
 ## Payout
 
-A **Payout** is the transfer of eligible marketplace funds to an account.
+A **Payout** is a request to transfer eligible marketplace funds to an account. Its requested amount is split into the Payout Fee and the net amount delivered to the connected payout account.
 
 ## Connected Payout Account
 
@@ -186,3 +186,7 @@ Notes:
 - The policy is published from `settlement.payout-fee`; numeric values are resolved from the current policy document rather than repeated in prose.
 - Settlement owns the policy and quote. Applying it to a Payout, posting its Ledger Entry, and reversing it on failure are separate payout-lifecycle behavior.
 - This term is distinct from the Marketplace Sales Fee that Settlement's payment-source projection audits when crediting sale proceeds.
+
+## Payout Fee Ledger Entry
+
+A **Payout Fee Ledger Entry** is the deterministic `fee` debit that records a non-zero Payout Fee separately from the net `payout` debit. If payout execution fails, Settlement reverses each debit independently and exactly once using its own deterministic reversal identity. A zero Payout Fee creates no fee debit or fee reversal.

@@ -57,6 +57,16 @@ export type SettlementAccountStatus = Readonly<{
 export type SettlementPayoutPreview = Readonly<{
   account_id: string;
   requested_amount: string;
+  fee_amount: string;
+  net_amount: string;
+  monthly_active_fee_amount: string;
+  is_first_payout_of_month: boolean;
+  fee_policy_version: string;
+  fee_lines: readonly Readonly<{
+    code: "payout-fee" | "monthly-active-fee";
+    label: string;
+    amount: string;
+  }>[];
   currency_code: string;
   available_balance_amount: string;
   platform_available_amount: string;

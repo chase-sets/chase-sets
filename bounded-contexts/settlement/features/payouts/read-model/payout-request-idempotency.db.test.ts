@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { PgPoolClient, PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  type PgPoolClient,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -8,7 +13,11 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as settlementModule } from "../../../index";
-import { findPayoutRequestIdempotency, reservePayoutRequestIdempotency } from "./queries";
+import {
+  findPayoutRequestIdempotency,
+  releaseUncommittedPayoutRequestIdempotency,
+  reservePayoutRequestIdempotency,
+} from "./queries";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.
@@ -158,6 +167,60 @@ describeDb("settlement payout-request idempotency reservation (single-winner cla
     const otherKey = await reserve("pyo_c", "different-key");
     expect(otherKey.reserved).toBe(true);
     expect(otherKey.payout_id).toBe("pyo_c");
+  });
+
+  it("releases only the exact owner while an absent stream is proven", async () => {
+    await reserve("pyo_owner", "cleanup-key");
+
+    await expect(
+      releaseUncommittedPayoutRequestIdempotency(pool, {
+        accountId,
+        idempotencyKey: "cleanup-key",
+        payoutId: "pyo_competing_owner",
+      }),
+    ).resolves.toBe(false);
+    await expect(findPayoutRequestIdempotency(pool, accountId, "cleanup-key")).resolves.toMatchObject({
+      payout_id: "pyo_owner",
+    });
+
+    await expect(
+      releaseUncommittedPayoutRequestIdempotency(pool, {
+        accountId,
+        idempotencyKey: "cleanup-key",
+        payoutId: "pyo_owner",
+      }),
+    ).resolves.toBe(true);
+    await expect(findPayoutRequestIdempotency(pool, accountId, "cleanup-key")).resolves.toBeNull();
+  });
+
+  it("retains the reservation when the payout stream exists after an ambiguous append outcome", async () => {
+    await reserve("pyo_appended", "appended-key");
+    const eventStore = createPostgresEventStore({ pool });
+    await eventStore.appendToStream({
+      streamId: "settlement.payout-pyo_appended",
+      expectedVersion: "no_stream",
+      context: {
+        tenantId: "tnt_payout_request_idempotency" as never,
+        audit: { performedByUserId: "usr_payout_request_idempotency" as never, forAccountId: accountId as never },
+      },
+      events: [
+        {
+          eventType: "settlement.payout.requested",
+          payload: { payoutId: "pyo_appended", accountId, requestedAt: createdAt },
+        },
+      ],
+    });
+
+    await expect(
+      releaseUncommittedPayoutRequestIdempotency(pool, {
+        accountId,
+        idempotencyKey: "appended-key",
+        payoutId: "pyo_appended",
+      }),
+    ).resolves.toBe(false);
+    await expect(findPayoutRequestIdempotency(pool, accountId, "appended-key")).resolves.toMatchObject({
+      payout_id: "pyo_appended",
+    });
   });
 });
 

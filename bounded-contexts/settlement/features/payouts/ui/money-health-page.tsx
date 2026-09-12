@@ -192,9 +192,19 @@ export function SettlementMoneyHealthPage({
               ),
             },
             {
-              key: "amount",
-              header: t("settlement.features.payouts.ui.moneyHealthPage.amount"),
-              cell: (row) => formatMoney(row.amount, row.currency_code),
+              key: "requested_amount",
+              header: t("settlement.features.payouts.ui.requestedAmount"),
+              cell: (row) => formatMoney(row.requested_amount, row.currency_code),
+            },
+            {
+              key: "fee_amount",
+              header: t("settlement.features.payouts.ui.payoutFee"),
+              cell: (row) => formatMoney(row.fee_amount, row.currency_code),
+            },
+            {
+              key: "net_amount",
+              header: t("settlement.features.payouts.ui.netPayout"),
+              cell: (row) => formatMoney(row.net_amount, row.currency_code),
             },
             {
               key: "updated",

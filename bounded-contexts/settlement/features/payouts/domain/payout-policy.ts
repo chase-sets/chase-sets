@@ -161,11 +161,7 @@ export function quotePayoutFee(
   options: Readonly<{ isFirstPayoutOfMonth: boolean }> = { isFirstPayoutOfMonth: false },
 ): PayoutFeeQuote {
   const normalizedRequestedAmount = normalizeMoneyAmount(requestedAmount, { fieldName: "Payout requested amount" });
-  const percentageAmount = applyBasisPointsToMoneyAmount(normalizedRequestedAmount, policy.percentageBps, "ceil");
-  const recurringAmount = addMoneyAmounts(percentageAmount, policy.fixedAmount);
-  const feeAmount = options.isFirstPayoutOfMonth
-    ? addMoneyAmounts(recurringAmount, policy.firstPayoutOfMonthFixedAmount)
-    : recurringAmount;
+  const feeAmount = payoutFeeAmount(normalizedRequestedAmount, policy, options);
 
   assert(
     moneyToCents(normalizedRequestedAmount) > moneyToCents(feeAmount),
@@ -175,6 +171,22 @@ export function quotePayoutFee(
     feeAmount,
     netAmount: subtractNonNegativeMoneyAmounts(normalizedRequestedAmount, feeAmount),
   };
+}
+
+export function payoutFeeAmount(
+  requestedAmount: string,
+  policy: Pick<
+    SettlementPayoutFeePolicyValue,
+    "percentageBps" | "fixedAmount" | "firstPayoutOfMonthFixedAmount"
+  > = SETTLEMENT_PAYOUT_FEE_LAUNCH_POLICY_VALUE,
+  options: Readonly<{ isFirstPayoutOfMonth: boolean }> = { isFirstPayoutOfMonth: false },
+) {
+  const normalizedRequestedAmount = normalizeMoneyAmount(requestedAmount, { fieldName: "Payout requested amount" });
+  const percentageAmount = applyBasisPointsToMoneyAmount(normalizedRequestedAmount, policy.percentageBps, "ceil");
+  const recurringAmount = addMoneyAmounts(percentageAmount, policy.fixedAmount);
+  return options.isFirstPayoutOfMonth
+    ? addMoneyAmounts(recurringAmount, policy.firstPayoutOfMonthFixedAmount)
+    : recurringAmount;
 }
 
 export function capPayoutAmountToPolicy(

@@ -567,11 +567,19 @@ export const frozenSeedIdentityCorpus: readonly string[] = [
   "platform-operations|Support Request|sup_seed_self_service_product_damaged|self-service-product-damaged",
   "settlement|Payout|pyo_seed_completed|bank_seed_completed",
   "settlement|Payout|pyo_seed_failed|bank_seed_failed",
+  "settlement|Payout|pyo_seed_synthetic_fee_completed|bank_seed_synthetic_fee_completed",
+  "settlement|Payout|pyo_seed_synthetic_fee_failed|bank_seed_synthetic_fee_failed",
   "settlement|Wallet Ledger Entry|led_seed_available_adjustment_credit|available-adjustment-credit",
   "settlement|Wallet Ledger Entry|led_seed_payout_debit_completed|payout-debit-completed",
   "settlement|Wallet Ledger Entry|led_seed_payout_debit_failed|payout-debit-failed",
   "settlement|Wallet Ledger Entry|led_seed_payout_reversal_failed|payout-reversal-failed",
   "settlement|Wallet Ledger Entry|led_seed_pending_sale_credit|pending-sale-credit",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_debit_completed|synthetic-fee-payout-debit-completed",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_debit_failed|synthetic-fee-payout-debit-failed",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_fee_debit_completed|synthetic-fee-payout-fee-debit-completed",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_fee_debit_failed|synthetic-fee-payout-fee-debit-failed",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_fee_reversal_failed|synthetic-fee-payout-fee-reversal-failed",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_reversal_failed|synthetic-fee-payout-reversal-failed",
 ];
 
 export type CollectedSeedReport = Readonly<{
@@ -1236,8 +1244,15 @@ export const settlementPayoutCheckpointKey = createCheckpointKey({
  */
 export const settlementSeedCompletedPayoutId = "pyo_seed_completed";
 export const settlementSeedFailedPayoutId = "pyo_seed_failed";
+export const settlementSeedSyntheticFeeCompletedPayoutId = "pyo_seed_synthetic_fee_completed";
+export const settlementSeedSyntheticFeeFailedPayoutId = "pyo_seed_synthetic_fee_failed";
 export const settlementSeedPendingSaleCreditId = "led_seed_pending_sale_credit";
-export const seededPayoutIds = [settlementSeedCompletedPayoutId, settlementSeedFailedPayoutId] as const;
+export const seededPayoutIds = [
+  settlementSeedCompletedPayoutId,
+  settlementSeedFailedPayoutId,
+  settlementSeedSyntheticFeeCompletedPayoutId,
+  settlementSeedSyntheticFeeFailedPayoutId,
+] as const;
 export const settlementSeedPrerequisitePaymentId = "pay_seed_offer_captured";
 export const settlementSeedSellerAccountId = identitySeedIds.demo.accountId;
 

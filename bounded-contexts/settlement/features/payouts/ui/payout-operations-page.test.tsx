@@ -3,6 +3,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
+import type { SettlementPayoutRow } from "../read-model/queries";
 import { SettlementPayoutOperationsPage } from "./payout-operations-page";
 
 function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): SettlementPayoutReadinessRow {
@@ -27,6 +28,38 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
     requirements_collector: "application",
     updated_at: "2026-06-01T15:00:00.000Z",
     ...overrides,
+  };
+}
+
+function payout(): SettlementPayoutRow {
+  return {
+    payout_id: "pyo_fee_reader",
+    account_id: "acc_test",
+    amount: "12.50",
+    requested_amount: "12.50",
+    fee_amount: "0.29",
+    net_amount: "12.21",
+    currency_code: "usd",
+    destination_reference: null,
+    note: null,
+    display_reference: "PYO-FEEREADR",
+    status: "in-transit",
+    provider_transfer_reference: "tr_synthetic_fee_reader",
+    provider_payout_reference: "po_synthetic_fee_reader",
+    provider_status: "pending",
+    provider_failure_code: null,
+    provider_failure_message: null,
+    requested_at: "2026-09-11T12:00:00.000Z",
+    updated_at: "2026-09-11T12:01:00.000Z",
+    sent_at: "2026-09-11T12:01:00.000Z",
+    completed_at: null,
+    failed_at: null,
+    failure_reason: null,
+    last_provider_event_at: null,
+    last_reconciled_at: null,
+    retry_count: 0,
+    next_retry_at: null,
+    retry_reason: null,
   };
 }
 
@@ -85,5 +118,16 @@ describe("payout operations page setup signals", () => {
     expect(html).not.toContain("individual.verification.document");
 
     vi.useRealTimers();
+  });
+
+  it("payout-fee-reader-inventory shows requested, fee, and net amounts to payout operators", () => {
+    const html = renderToStaticMarkup(<SettlementPayoutOperationsPage payouts={[payout()]} />);
+
+    expect(html).toContain("Requested amount");
+    expect(html).toContain("Payout fee");
+    expect(html).toContain("Net payout");
+    expect(html).toContain("$12.50");
+    expect(html).toContain("$0.29");
+    expect(html).toContain("$12.21");
   });
 });

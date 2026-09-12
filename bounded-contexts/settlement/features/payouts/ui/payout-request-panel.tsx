@@ -4,6 +4,7 @@ import {
   CurrencyInput,
   Form,
   HiddenInput,
+  PriceBreakdown,
   ProgressiveDisclosure,
   Stack,
   Text,
@@ -56,8 +57,21 @@ export function SettlementPayoutRequestPanel({
     return (
       <Stack gap={3}>
         <Text weight="semibold">{t("settlement.features.moneyDashboard.ui.confirmPayout")}</Text>
+        <PriceBreakdown
+          lines={[
+            {
+              label: t("settlement.features.payouts.ui.requestedAmount"),
+              value: formatMoney(confirmation.preview.requested_amount, wallet.currency_code),
+            },
+            ...confirmation.preview.fee_lines.map((line) => ({
+              label: line.label,
+              value: formatMoney(line.amount, wallet.currency_code),
+            })),
+          ]}
+          total={formatMoney(confirmation.preview.net_amount, wallet.currency_code)}
+          totalLabel={t("settlement.features.payouts.ui.netPayout")}
+        />
         <Text>
-          {formatMoney(confirmation.amount, wallet.currency_code)} ·{" "}
           {t("settlement.features.moneyDashboard.ui.availableAfter", {
             amount: formatMoney(confirmation.preview.estimated_wallet_balance_after, wallet.currency_code),
           })}

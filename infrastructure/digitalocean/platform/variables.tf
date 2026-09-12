@@ -100,6 +100,28 @@ variable "production_marketplace_checkout_fee_reference" {
   }
 }
 
+variable "production_payout_fee_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit Settlement launch attestation that the payout fee implementation and disclosures are approved before production marketplace promotion."
+
+  validation {
+    condition     = var.environment == "production" || var.production_payout_fee_approved == false
+    error_message = "production_payout_fee_approved may only be true for production."
+  }
+}
+
+variable "production_payout_fee_reference" {
+  type        = string
+  default     = ""
+  description = "Settlement-owned evidence reference for the approved payout fee implementation and published disclosure."
+
+  validation {
+    condition     = !var.production_payout_fee_approved || trimspace(var.production_payout_fee_reference) != ""
+    error_message = "production_payout_fee_reference is required when production_payout_fee_approved is true."
+  }
+}
+
 variable "production_checkout_launch_evidence_approved" {
   type        = bool
   default     = false

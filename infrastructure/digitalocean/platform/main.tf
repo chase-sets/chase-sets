@@ -109,6 +109,7 @@ check "production_marketplace_evidence_reference_quality" {
       for reference in [
         var.production_marketplace_promotion_reference,
         var.production_marketplace_checkout_fee_reference,
+        var.production_payout_fee_reference,
         var.production_checkout_launch_evidence_reference,
         var.production_stripe_money_operations_reference,
         var.production_support_operations_reference,
@@ -130,6 +131,17 @@ check "production_marketplace_checkout_fee_approval" {
       trimspace(var.production_marketplace_checkout_fee_reference) != ""
     )
     error_message = "Production marketplace promotion requires approved Marketplace Checkout Fee evidence before live checkout."
+  }
+}
+
+check "production_payout_fee_approval" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || (
+      var.environment == "production" &&
+      var.production_payout_fee_approved &&
+      trimspace(var.production_payout_fee_reference) != ""
+    )
+    error_message = "Production marketplace promotion requires approved Payout Fee evidence before live seller payouts."
   }
 }
 

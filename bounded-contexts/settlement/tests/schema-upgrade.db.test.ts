@@ -9,6 +9,9 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as settlementModule } from "../index";
+import { queryLiabilitySnapshot } from "../features/liability-reconciliation/read-model/liability-reconciliation";
+import { getPayout, listPayouts } from "../features/payouts/read-model/queries";
+import { lookupPayoutBySupportId, lookupPayoutBySupportReference } from "../features/payouts/read-model/support-lookup";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -62,5 +65,143 @@ describeDb("settlement schema upgrades", () => {
       WHERE schemaname = current_schema()
         AND tablename = 'settlement_support_holds'`);
     expect(indexes.rows.map((row) => row.indexname)).toContain("settlement_support_holds_hold_id_idx");
+  });
+
+  it("backfills historical payout requested, fee, and net amounts", async () => {
+    const pool = pools.settlement;
+    await bootstrapContextDatabase(settlementModule, pool);
+    await pool.query("DROP TRIGGER settlement_payout_pages_normalize_legacy_amounts ON settlement_payout_pages");
+    await pool.query(
+      `INSERT INTO settlement_payout_pages (
+         payout_id, account_id, amount, currency_code, display_reference, status, requested_at, updated_at
+       ) VALUES ('pyo_legacy_fee_backfill', 'acc_legacy_fee_backfill', 42.00, 'usd', 'PYO-LEGACY', 'completed', now(), now())`,
+    );
+    await pool.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260911_settlement_payout_fee_amounts'",
+    );
+
+    await bootstrapContextDatabase(settlementModule, pool);
+
+    const result = await pool.query<{
+      requested_amount: string;
+      fee_amount: string;
+      net_amount: string;
+    }>(
+      `SELECT requested_amount::text, fee_amount::text, net_amount::text
+       FROM settlement_payout_pages
+       WHERE payout_id = 'pyo_legacy_fee_backfill'`,
+    );
+    expect(result.rows).toEqual([{ requested_amount: "42.00", fee_amount: "0.00", net_amount: "42.00" }]);
+  });
+
+  it("normalizes an exact rolling old-projector insert after migration for every direct payout reader", async () => {
+    const pool = pools.settlement;
+    await bootstrapContextDatabase(settlementModule, pool);
+    await pool.query(
+      `INSERT INTO settlement_payout_pages (
+         payout_id,
+         account_id,
+         amount,
+         currency_code,
+         destination_reference,
+         note,
+         display_reference,
+         status,
+         provider_transfer_reference,
+         provider_payout_reference,
+         provider_status,
+         provider_failure_code,
+         provider_failure_message,
+         requested_at,
+         updated_at,
+         sent_at,
+         completed_at,
+         failed_at,
+         failure_reason,
+         last_provider_event_at,
+         last_reconciled_at,
+         retry_count,
+         next_retry_at,
+         retry_reason,
+         last_stream_version
+       ) VALUES (
+         'pyo_synthetic_old_projector',
+         'acc_synthetic_old_projector',
+         42.00,
+         'usd',
+         NULL,
+         NULL,
+         'PYO-SYNTHOLD',
+         'requested',
+         NULL,
+         NULL,
+         NULL,
+         NULL,
+         NULL,
+         '2026-09-11T00:00:00.000Z',
+         '2026-09-11T00:00:00.000Z',
+         NULL,
+         NULL,
+         NULL,
+         NULL,
+         NULL,
+         NULL,
+         0,
+         NULL,
+         NULL,
+         1
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO settlement_payout_pages (
+         payout_id, account_id, amount, requested_amount, fee_amount, net_amount,
+         currency_code, display_reference, status, requested_at, updated_at, last_stream_version
+       ) VALUES (
+         'pyo_synthetic_current_fee', 'acc_synthetic_current_fee', 50.00, 50.00, 1.00, 49.00,
+         'usd', 'PYO-SYNTHCURRENT', 'in-transit', now(), now(), 1
+       )`,
+    );
+
+    const expectedLegacyAmounts = {
+      amount: "42.00",
+      requested_amount: "42.00",
+      fee_amount: "0.00",
+      net_amount: "42.00",
+    };
+    const rawLegacy = await pool.query<{
+      amount: string;
+      requested_amount: string;
+      fee_amount: string;
+      net_amount: string;
+    }>(
+      `SELECT amount::text, requested_amount::text, fee_amount::text, net_amount::text
+       FROM settlement_payout_pages
+       WHERE payout_id = 'pyo_synthetic_old_projector'`,
+    );
+    expect(rawLegacy.rows).toEqual([expectedLegacyAmounts]);
+    await expect(listPayouts(pool, { accountId: "acc_synthetic_old_projector" })).resolves.toMatchObject({
+      items: [expectedLegacyAmounts],
+    });
+    await expect(getPayout(pool, "pyo_synthetic_old_projector", "acc_synthetic_old_projector")).resolves.toMatchObject(
+      expectedLegacyAmounts,
+    );
+    await expect(lookupPayoutBySupportId(pool, "pyo_synthetic_old_projector")).resolves.toMatchObject(
+      expectedLegacyAmounts,
+    );
+    await expect(lookupPayoutBySupportReference(pool, "PYO-SYNTHOLD")).resolves.toMatchObject(expectedLegacyAmounts);
+    await expect(queryLiabilitySnapshot(pool, "usd")).resolves.toMatchObject({
+      inFlightPayoutDemandAmount: "91.00",
+    });
+
+    const current = await pool.query<{
+      requested_amount: string;
+      fee_amount: string;
+      net_amount: string;
+    }>(
+      `SELECT requested_amount::text, fee_amount::text, net_amount::text
+       FROM settlement_payout_pages
+       WHERE payout_id = 'pyo_synthetic_current_fee'`,
+    );
+    expect(current.rows).toEqual([{ requested_amount: "50.00", fee_amount: "1.00", net_amount: "49.00" }]);
   });
 });

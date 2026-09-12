@@ -17,6 +17,7 @@ import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement/test-support";
 import { SettlementDomainError } from "../../../support/runtime-support/common";
+import type { SettlementPayoutFeePolicyValue } from "../domain/payout-policy";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -115,11 +116,50 @@ function createPayoutArithmeticRuntime(
     spendHoldAmount?: string;
     platformAvailableAmount?: string;
     inTransitAmounts?: readonly string[];
+    feePolicy?: SettlementPayoutFeePolicyValue;
+    moneyMovementGateway?: MoneyMovementGateway;
   }> = {},
 ) {
   const { eventStore, readAllEvents } = createInMemoryEventStore();
+  const payoutRequestIdempotency = new Map<
+    string,
+    { payout_id: string; requested_amount: string; currency_code: string }
+  >();
+  let afterIdempotencyReservation: (() => Promise<void>) | null = null;
   const db = {
-    query: vi.fn(async (sql: string) => {
+    query: vi.fn(async (sql: string, values?: readonly unknown[]) => {
+      if (sql.includes("settlement_payout_request_idempotency")) {
+        const key = `${String(values?.[0])}:${String(values?.[1])}`;
+        const existing = payoutRequestIdempotency.get(key);
+        if (sql.includes("DELETE FROM settlement_payout_request_idempotency")) {
+          const payoutId = String(values?.[2]);
+          const streamId = String(values?.[3]);
+          const streamExists = readAllEvents().some((event) => event.streamId === streamId);
+          if (existing?.payout_id === payoutId && !streamExists) {
+            payoutRequestIdempotency.delete(key);
+            return { rows: [{ payout_id: payoutId }], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.includes("INSERT INTO settlement_payout_request_idempotency")) {
+          if (existing) {
+            return { rows: [{ ...existing, reserved: false }], rowCount: 1 };
+          }
+          const inserted = {
+            payout_id: String(values?.[2]),
+            requested_amount: String(values?.[3]),
+            currency_code: String(values?.[4]),
+          };
+          payoutRequestIdempotency.set(key, inserted);
+          if (afterIdempotencyReservation) {
+            const hook = afterIdempotencyReservation;
+            afterIdempotencyReservation = null;
+            await hook();
+          }
+          return { rows: [{ ...inserted, reserved: true }], rowCount: 1 };
+        }
+        return { rows: existing ? [existing] : [], rowCount: existing ? 1 : 0 };
+      }
       if (sql.includes("COUNT(*) FILTER")) {
         return {
           rows: [
@@ -175,10 +215,37 @@ function createPayoutArithmeticRuntime(
     db: db as never,
     wallets: wallets as unknown as WalletServices,
     payoutReadiness: createPayoutReadiness("ready"),
-    moneyMovementGateway: createSyntheticPlatformBalanceGateway(options.platformAvailableAmount ?? "999999.00"),
+    moneyMovementGateway:
+      options.moneyMovementGateway ??
+      createSyntheticPlatformBalanceGateway(options.platformAvailableAmount ?? "999999.00"),
+    ...(options.feePolicy
+      ? {
+          policies: {
+            resolvePolicy: async (definition: { policyKey: string }, input?: { at?: string }) => ({
+              policyKey: definition.policyKey,
+              value:
+                definition.policyKey === "settlement.payout-fee"
+                  ? options.feePolicy
+                  : { currencyCode: "usd", minimumAmount: "5.00", maximumAmount: "10000.00" },
+              source: "policy",
+              documentId: "pol_synthetic_payout_fee",
+              resolvedAt: input?.at ?? new Date().toISOString(),
+            }),
+          } as never,
+        }
+      : {}),
   });
 
-  return { payouts, readAllEvents, wallets, db };
+  return {
+    payouts,
+    readAllEvents,
+    wallets,
+    db,
+    payoutRequestIdempotency,
+    setAfterIdempotencyReservation(hook: () => Promise<void>) {
+      afterIdempotencyReservation = hook;
+    },
+  };
 }
 
 async function expectNamedSettlementRejection(promise: Promise<unknown>, message: string) {
@@ -360,6 +427,336 @@ describe("settlement payout runtime", () => {
       expect(preview.available_balance_amount, JSON.stringify(schedule)).toBe(schedule.available);
       expect(preview.estimated_wallet_balance_after, JSON.stringify(schedule)).toBe(schedule.estimated);
     }
+  });
+
+  it("payout-fee-preview quotes first UTC-month payout, subsequent payout, failed-first retry, and month rollover", async () => {
+    vi.useFakeTimers();
+    const feePolicy = {
+      label: "Synthetic payout fee",
+      percentageBps: 0,
+      fixedAmount: "1.00",
+      firstPayoutOfMonthFixedAmount: "2.00",
+    } as const;
+    try {
+      vi.setSystemTime(new Date("2026-08-31T23:59:59.000Z"));
+      const activeRuntime = createPayoutArithmeticRuntime({ feePolicy });
+      const firstPreview = await activeRuntime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "10.00" },
+        context,
+      );
+      expect(firstPreview).toMatchObject({
+        requested_amount: "10.00",
+        fee_amount: "3.00",
+        net_amount: "7.00",
+        monthly_active_fee_amount: "2.00",
+        is_first_payout_of_month: true,
+        fee_policy_version: "pol_synthetic_payout_fee",
+      });
+      expect(firstPreview.fee_lines).toEqual([
+        { code: "payout-fee", label: "Synthetic payout fee", amount: "1.00" },
+        { code: "monthly-active-fee", label: "First payout of the month", amount: "2.00" },
+      ]);
+
+      await activeRuntime.payouts.requestPayout({ accountId: "acc_seller" as never, amount: "10.00" }, context);
+      const secondPreview = await activeRuntime.payouts.previewPayoutRequest(
+        { accountId: "acc_seller" as never, amount: "10.00" },
+        context,
+      );
+      expect(secondPreview).toMatchObject({
+        fee_amount: "1.00",
+        net_amount: "9.00",
+        monthly_active_fee_amount: "0.00",
+        is_first_payout_of_month: false,
+      });
+
+      vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
+      await expect(
+        activeRuntime.payouts.previewPayoutRequest({ accountId: "acc_seller" as never, amount: "10.00" }, context),
+      ).resolves.toMatchObject({ fee_amount: "3.00", net_amount: "7.00", is_first_payout_of_month: true });
+
+      const fakeGateway = createFakeMoneyMovementGateway();
+      const failedRuntime = createPayoutArithmeticRuntime({
+        feePolicy,
+        moneyMovementGateway: {
+          ...fakeGateway,
+          async transferPlatformBalanceToConnectedAccount() {
+            throw Object.assign(new Error("Synthetic terminal decline."), {
+              statusCode: 400,
+              code: "invalid_transfer",
+            });
+          },
+        },
+      });
+      const failed = await failedRuntime.payouts.requestPayout(
+        { accountId: "acc_seller" as never, amount: "10.00" },
+        context,
+      );
+      expect(failed.payout.status).toBe("failed");
+      await expect(
+        failedRuntime.payouts.previewPayoutRequest({ accountId: "acc_seller" as never, amount: "10.00" }, context),
+      ).resolves.toMatchObject({ fee_amount: "3.00", net_amount: "7.00", is_first_payout_of_month: true });
+
+      const belowFeeRuntime = createPayoutArithmeticRuntime({
+        feePolicy: { ...feePolicy, fixedAmount: "5.00", firstPayoutOfMonthFixedAmount: "0.00" },
+      });
+      await expect(
+        belowFeeRuntime.payouts.previewPayoutRequest({ accountId: "acc_seller" as never, amount: "5.00" }, context),
+      ).resolves.toMatchObject({
+        fee_amount: "5.00",
+        net_amount: "0.00",
+        can_request: false,
+        unavailable_reasons: ["payout-amount-below-fee"],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("payout-fee-concurrency serializes two first-of-month requests through one month stream", async () => {
+    const runtime = createPayoutArithmeticRuntime({
+      feePolicy: {
+        label: "Synthetic payout fee",
+        percentageBps: 0,
+        fixedAmount: "1.00",
+        firstPayoutOfMonthFixedAmount: "2.00",
+      },
+    });
+
+    const results = await Promise.all([
+      runtime.payouts.requestPayout({ accountId: "acc_seller" as never, amount: "10.00" }, context),
+      runtime.payouts.requestPayout({ accountId: "acc_seller" as never, amount: "10.00" }, context),
+    ]);
+
+    expect(results.map((result) => result.payout.fee_amount).sort()).toEqual(["1.00", "3.00"]);
+    expect(
+      runtime.readAllEvents().filter((event) => event.eventType === "settlement.payout.monthly-baseline-recorded"),
+    ).toHaveLength(1);
+  });
+
+  it("payout-fee-request-once replays an idempotent request without a second net or fee debit", async () => {
+    const runtime = createPayoutArithmeticRuntime();
+    const first = await runtime.payouts.requestPayout(
+      { accountId: "acc_seller" as never, amount: "12.50", idempotencyKey: "payout-fee-once" },
+      context,
+    );
+    const replay = await runtime.payouts.requestPayout(
+      { accountId: "acc_seller" as never, amount: "12.50", idempotencyKey: "payout-fee-once" },
+      context,
+    );
+
+    expect(replay).toEqual(first);
+    expect(runtime.wallets.postEntry).toHaveBeenCalledTimes(2);
+    expect(runtime.wallets.postEntry.mock.calls.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        ledgerEntryId: `led_payout_${first.payoutId}`,
+        kind: "payout",
+        direction: "debit",
+        amount: "12.21",
+      }),
+      expect.objectContaining({
+        ledgerEntryId: `led_payout_fee_${first.payoutId}`,
+        kind: "fee",
+        direction: "debit",
+        amount: "0.29",
+      }),
+    ]);
+  });
+
+  it("releases only its own absent reservation after a monthly fee increase rejects before append", async () => {
+    const runtime = createPayoutArithmeticRuntime({
+      feePolicy: {
+        label: "Synthetic monthly-race payout fee",
+        percentageBps: 0,
+        fixedAmount: "1.00",
+        firstPayoutOfMonthFixedAmount: "6.00",
+      },
+    });
+    const first = await runtime.payouts.requestPayout({ accountId: "acc_seller" as never, amount: "10.00" }, context);
+    runtime.setAfterIdempotencyReservation(async () => {
+      await runtime.payouts.failPayout(
+        {
+          payoutId: first.payoutId,
+          accountId: "acc_seller",
+          netAmount: first.payout.net_amount,
+          feeAmount: first.payout.fee_amount,
+          currencyCode: "usd",
+        },
+        context,
+      );
+    });
+
+    await expect(
+      runtime.payouts.requestPayout(
+        { accountId: "acc_seller" as never, amount: "5.50", idempotencyKey: "synthetic-month-race" },
+        context,
+      ),
+    ).rejects.toThrow("Payout requested amount must exceed the payout fee.");
+    expect(runtime.payoutRequestIdempotency.size).toBe(0);
+    await expect(
+      runtime.payouts.requestPayout(
+        { accountId: "acc_seller" as never, amount: "5.50", idempotencyKey: "synthetic-month-race" },
+        context,
+      ),
+    ).rejects.toThrow("Requested payout amount must exceed the payout fee.");
+    expect(runtime.payoutRequestIdempotency.size).toBe(0);
+  });
+
+  it("does not remove a competing owner while cleaning up a rejected pre-append reservation", async () => {
+    const runtime = createPayoutArithmeticRuntime({
+      feePolicy: {
+        label: "Synthetic competing-owner payout fee",
+        percentageBps: 0,
+        fixedAmount: "1.00",
+        firstPayoutOfMonthFixedAmount: "6.00",
+      },
+    });
+    const first = await runtime.payouts.requestPayout({ accountId: "acc_seller" as never, amount: "10.00" }, context);
+    runtime.setAfterIdempotencyReservation(async () => {
+      runtime.payoutRequestIdempotency.set("acc_seller:synthetic-competing-owner", {
+        payout_id: "pyo_synthetic_competing_owner",
+        requested_amount: "5.50",
+        currency_code: "usd",
+      });
+      await runtime.payouts.failPayout(
+        {
+          payoutId: first.payoutId,
+          accountId: "acc_seller",
+          netAmount: first.payout.net_amount,
+          feeAmount: first.payout.fee_amount,
+          currencyCode: "usd",
+        },
+        context,
+      );
+    });
+
+    await expect(
+      runtime.payouts.requestPayout(
+        { accountId: "acc_seller" as never, amount: "5.50", idempotencyKey: "synthetic-competing-owner" },
+        context,
+      ),
+    ).rejects.toThrow("Payout requested amount must exceed the payout fee.");
+    expect(runtime.payoutRequestIdempotency.get("acc_seller:synthetic-competing-owner")?.payout_id).toBe(
+      "pyo_synthetic_competing_owner",
+    );
+  });
+
+  it("omits zero fee postings and reverses only the existing net debit", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const reservations = new Map<string, { payout_id: string; requested_amount: string; currency_code: string }>();
+    const db = {
+      query: vi.fn(async (sql: string, values?: readonly unknown[]) => {
+        if (sql.includes("settlement_payout_request_idempotency")) {
+          const key = `${String(values?.[0])}:${String(values?.[1])}`;
+          const existing = reservations.get(key);
+          if (sql.includes("INSERT INTO settlement_payout_request_idempotency")) {
+            if (existing) return { rows: [{ ...existing, reserved: false }], rowCount: 1 };
+            const inserted = {
+              payout_id: String(values?.[2]),
+              requested_amount: String(values?.[3]),
+              currency_code: String(values?.[4]),
+            };
+            reservations.set(key, inserted);
+            return { rows: [{ ...inserted, reserved: true }], rowCount: 1 };
+          }
+          return { rows: existing ? [existing] : [], rowCount: existing ? 1 : 0 };
+        }
+        if (sql.includes("COUNT(*) FILTER")) {
+          return {
+            rows: [{ failed_payout_count: "0", stale_requested_payout_count: "0", in_transit_payout_count: "0" }],
+            rowCount: 1,
+          };
+        }
+        if (sql.includes("COALESCE(SUM")) return { rows: [{ amount: "0.00" }], rowCount: 1 };
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const realWallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    await seedAvailableWallet(realWallets, "100.00");
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets: {
+        ...realWallets,
+        getWallet: async () => ({
+          account_id: "acc_seller",
+          currency_code: "usd",
+          pending_balance_amount: "0.00",
+          available_balance_amount: "100.00",
+          total_credited_amount: "100.00",
+          total_debited_amount: "0.00",
+          negative_balance_status: "in-good-standing" as const,
+          negative_balance_started_at: null,
+          collections_escalated_at: null,
+          opened_at: "2026-09-11T00:00:00.000Z",
+          updated_at: "2026-09-11T00:00:00.000Z",
+        }),
+      },
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+      policies: {
+        resolvePolicy: async (definition: { policyKey: string }, input?: { at?: string }) => ({
+          policyKey: definition.policyKey,
+          value:
+            definition.policyKey === "settlement.payout-fee"
+              ? {
+                  label: "Synthetic zero payout fee",
+                  percentageBps: 0,
+                  fixedAmount: "0.00",
+                  firstPayoutOfMonthFixedAmount: "0.00",
+                }
+              : { currencyCode: "usd", minimumAmount: "5.00", maximumAmount: "10000.00" },
+          source: "policy" as const,
+          documentId: "pol_synthetic_zero_payout_fee",
+          resolvedAt: input?.at ?? new Date().toISOString(),
+        }),
+      } as never,
+    });
+
+    const first = await payouts.requestPayout(
+      { accountId: "acc_seller" as never, amount: "10.00", idempotencyKey: "synthetic-zero-fee" },
+      context,
+    );
+    expect(first.payout).toMatchObject({
+      status: "in-transit",
+      requested_amount: "10.00",
+      fee_amount: "0.00",
+      net_amount: "10.00",
+      provider_payout_reference: expect.any(String),
+    });
+    await expect(
+      payouts.requestPayout(
+        { accountId: "acc_seller" as never, amount: "10.00", idempotencyKey: "synthetic-zero-fee" },
+        context,
+      ),
+    ).resolves.toEqual(first);
+
+    await payouts.failPayout(
+      {
+        payoutId: first.payoutId,
+        accountId: "acc_seller",
+        netAmount: "10.00",
+        feeAmount: "0.00",
+        currencyCode: "usd",
+        failureReason: "Synthetic zero-fee failure",
+      },
+      context,
+    );
+    const payoutEntries = readAllEvents()
+      .filter(
+        (event) =>
+          event.eventType === "settlement.wallet.ledger-entry-posted" &&
+          (event.payload as { payoutId?: string }).payoutId === first.payoutId,
+      )
+      .map((event) => event.payload);
+    expect(payoutEntries).toEqual([
+      expect.objectContaining({ kind: "payout", direction: "debit", amount: "10.00" }),
+      expect.objectContaining({ kind: "payout-reversal", direction: "credit", amount: "10.00" }),
+    ]);
   });
 
   it("settlement payout nested subtraction fails closed on signed range overflow", async () => {
@@ -616,7 +1013,9 @@ describe("settlement payout runtime", () => {
     expect(requested.payout).toMatchObject({
       payout_id: requested.payoutId,
       account_id: "acc_seller",
-      amount: "12.50",
+      requested_amount: "12.50",
+      fee_amount: "0.29",
+      net_amount: "12.21",
       status: "in-transit",
       provider_transfer_reference: expect.any(String),
       provider_payout_reference: expect.any(String),
@@ -653,17 +1052,20 @@ describe("settlement payout runtime", () => {
     const walletEntryEvents = readAllEvents().filter(
       (event) =>
         event.eventType === "settlement.wallet.ledger-entry-posted" &&
-        ["payout", "payout-reversal"].includes((event.payload as { kind?: string }).kind ?? ""),
+        (event.payload as { payoutId?: string }).payoutId === requested.payoutId,
     );
 
     expect(payoutEvents.map((event) => event.eventType)).toEqual([
+      "settlement.payout.monthly-baseline-recorded",
+      "settlement.payout.monthly-request-counted",
       "settlement.payout.requested",
       "settlement.payout.provider-references-recorded",
       "settlement.payout.provider-references-recorded",
       "settlement.payout.in-transit-recorded",
+      "settlement.payout.monthly-request-released",
       "settlement.payout.failed",
     ]);
-    expect(walletEntryEvents).toHaveLength(2);
+    expect(walletEntryEvents).toHaveLength(4);
     expect(
       readAllEvents().find(
         (event) =>
@@ -674,12 +1076,22 @@ describe("settlement payout runtime", () => {
     expect(walletEntryEvents[0]?.payload).toMatchObject({
       kind: "payout",
       direction: "debit",
-      amount: "12.50",
+      amount: "12.21",
     });
     expect(walletEntryEvents[1]?.payload).toMatchObject({
+      kind: "fee",
+      direction: "debit",
+      amount: "0.29",
+    });
+    expect(walletEntryEvents[2]?.payload).toMatchObject({
       kind: "payout-reversal",
       direction: "credit",
-      amount: "12.50",
+      amount: "12.21",
+    });
+    expect(walletEntryEvents[3]?.payload).toMatchObject({
+      kind: "fee",
+      direction: "credit",
+      amount: "0.29",
     });
   });
 
@@ -1529,16 +1941,24 @@ describe("settlement payout runtime", () => {
       readAllEvents()
         .filter((event) => event.eventType.startsWith("settlement.payout."))
         .map((event) => event.eventType),
-    ).toEqual(["settlement.payout.requested", "settlement.payout.provider-references-recorded"]);
+    ).toEqual([
+      "settlement.payout.monthly-baseline-recorded",
+      "settlement.payout.monthly-request-counted",
+      "settlement.payout.requested",
+      "settlement.payout.provider-references-recorded",
+    ]);
     expect(
       readAllEvents()
         .filter(
           (event) =>
             event.eventType === "settlement.wallet.ledger-entry-posted" &&
-            ["payout", "payout-reversal"].includes((event.payload as { kind?: string }).kind ?? ""),
+            (event.payload as { payoutId?: string }).payoutId === requested.payoutId,
         )
         .map((event) => event.payload),
-    ).toEqual([expect.objectContaining({ kind: "payout", direction: "debit" })]);
+    ).toEqual([
+      expect.objectContaining({ kind: "payout", direction: "debit", amount: "12.21" }),
+      expect.objectContaining({ kind: "fee", direction: "debit", amount: "0.29" }),
+    ]);
   });
 
   it("reverses the wallet when a terminal provider transfer decline fails payout submission", async () => {
@@ -1611,19 +2031,112 @@ describe("settlement payout runtime", () => {
       readAllEvents()
         .filter((event) => event.eventType.startsWith("settlement.payout."))
         .map((event) => event.eventType),
-    ).toEqual(["settlement.payout.requested", "settlement.payout.failed"]);
+    ).toEqual([
+      "settlement.payout.monthly-baseline-recorded",
+      "settlement.payout.monthly-request-counted",
+      "settlement.payout.requested",
+      "settlement.payout.monthly-request-released",
+      "settlement.payout.failed",
+    ]);
     expect(
       readAllEvents()
         .filter(
           (event) =>
             event.eventType === "settlement.wallet.ledger-entry-posted" &&
-            ["payout", "payout-reversal"].includes((event.payload as { kind?: string }).kind ?? ""),
+            (event.payload as { payoutId?: string }).payoutId === requested.payoutId,
         )
         .map((event) => event.payload),
     ).toEqual([
       expect.objectContaining({ kind: "payout", direction: "debit" }),
+      expect.objectContaining({ kind: "fee", direction: "debit" }),
       expect.objectContaining({ kind: "payout-reversal", direction: "credit" }),
+      expect.objectContaining({ kind: "fee", direction: "credit" }),
     ]);
+  });
+
+  it("payout-fee-failure-reversal restores the wallet after a synthetic post-net interruption and retries exactly once", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    await seedAvailableWallet(wallets);
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+      payoutPostingFault: () => {
+        throw new Error("synthetic-post-net-interruption");
+      },
+    });
+
+    const requested = await payouts.requestPayout({ accountId: "acc_seller" as never, amount: "12.50" }, context);
+    expect(requested.payout).toMatchObject({
+      status: "failed",
+      requested_amount: "12.50",
+      fee_amount: "0.29",
+      net_amount: "12.21",
+    });
+
+    const payoutWalletEntries = () =>
+      readAllEvents().filter(
+        (event) =>
+          event.eventType === "settlement.wallet.ledger-entry-posted" &&
+          (event.payload as { payoutId?: string }).payoutId === requested.payoutId,
+      );
+    expect(payoutWalletEntries().map((event) => event.payload)).toEqual([
+      expect.objectContaining({
+        ledgerEntryId: `led_payout_${requested.payoutId}`,
+        kind: "payout",
+        direction: "debit",
+        amount: "12.21",
+      }),
+      expect.objectContaining({
+        ledgerEntryId: `led_payout_reversal_${requested.payoutId}`,
+        kind: "payout-reversal",
+        direction: "credit",
+        amount: "12.21",
+      }),
+    ]);
+
+    await payouts.failPayout(
+      {
+        payoutId: requested.payoutId,
+        accountId: "acc_seller",
+        failureReason: "synthetic retry",
+        netAmount: "12.21",
+        feeAmount: "0.29",
+        currencyCode: "usd",
+      },
+      context,
+    );
+    expect(payoutWalletEntries()).toHaveLength(2);
   });
 
   it("converges a stale requested provider-paid payout through recorded provider operations", async () => {
@@ -2091,6 +2604,14 @@ describe("settlement payout runtime", () => {
           (event.payload as { kind?: string }).kind === "payout-reversal",
       ),
     ).toHaveLength(1);
+    expect(
+      readAllEvents().filter(
+        (event) =>
+          event.eventType === "settlement.wallet.ledger-entry-posted" &&
+          (event.payload as { ledgerEntryId?: string }).ledgerEntryId ===
+            `led_payout_fee_reversal_${requested.payoutId}`,
+      ),
+    ).toHaveLength(1);
   });
 
   it("processes duplicate payout failure webhooks without duplicate reversals", async () => {
@@ -2197,6 +2718,14 @@ describe("settlement payout runtime", () => {
         (event) =>
           event.eventType === "settlement.wallet.ledger-entry-posted" &&
           (event.payload as { kind?: string }).kind === "payout-reversal",
+      ),
+    ).toHaveLength(1);
+    expect(
+      readAllEvents().filter(
+        (event) =>
+          event.eventType === "settlement.wallet.ledger-entry-posted" &&
+          (event.payload as { ledgerEntryId?: string }).ledgerEntryId ===
+            `led_payout_fee_reversal_${requested.payoutId}`,
       ),
     ).toHaveLength(1);
   });

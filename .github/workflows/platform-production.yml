@@ -2753,6 +2753,8 @@ jobs:
       TF_VAR_production_marketplace_promotion_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}
       TF_VAR_production_marketplace_checkout_fee_approved: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_marketplace_checkout_fee_reference: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}
+      TF_VAR_production_payout_fee_approved: ${{ vars.PRODUCTION_PAYOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}
+      TF_VAR_production_payout_fee_reference: ${{ vars.PRODUCTION_PAYOUT_FEE_REFERENCE || '' }}
       TF_VAR_production_checkout_launch_evidence_approved: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_checkout_launch_evidence_reference: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}
       TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
