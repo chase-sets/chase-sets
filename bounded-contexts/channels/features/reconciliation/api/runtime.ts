@@ -43,7 +43,7 @@ import type {
   ChannelStateFetchResult,
   ChannelStateLineV1,
 } from "../../publication-port/domain/contracts";
-import type { OutboundOperationRecord } from "../../outbound-sync/domain/contracts";
+import type { OutboundOperationRecord, OutboundOperationStatusRecord } from "../../outbound-sync/domain/contracts";
 
 const zeroCounts = (): MutableCounts => ({
   listingsReconciled: 0,
@@ -145,6 +145,20 @@ export function createChannelReconciliationRuntime(
         connection.connectionId,
         expected.items.map((listing) => listing.channelListingId),
       );
+      const priorRepairOperations = new Map(
+        (
+          await dependencies.outboundSync.readOutboundOperationsByIds({
+            connectionId: connection.connectionId,
+            operationIds: [
+              ...new Set(
+                [...priorRepairs.values()].flatMap((repair) =>
+                  repair.repairOperationId === null ? [] : [repair.repairOperationId],
+                ),
+              ),
+            ],
+          })
+        ).map((operation) => [operation.operationId, operation]),
+      );
       for (const listing of expected.items) {
         const decision = await readChannelDriftDecision(dependencies.db, listing);
         const observed = resolveObserved(listing, observedByIdentity);
@@ -167,6 +181,9 @@ export function createChannelReconciliationRuntime(
         counts.listingsReconciled += 1;
         incrementClassification(counts, classification);
         const priorRepair = priorRepairs.get(listing.channelListingId) ?? null;
+        const priorRepairOperation = priorRepair?.repairOperationId
+          ? (priorRepairOperations.get(priorRepair.repairOperationId) ?? null)
+          : null;
         let repairOperationId: string | null = null;
         let repairSucceededGeneration: number | null = null;
 
@@ -198,7 +215,9 @@ export function createChannelReconciliationRuntime(
           sourceAuthority.kind === "complete" &&
           priorRepair?.classification === "repairable" &&
           priorRepair.repairOperationId !== null &&
-          priorRepair.repairSucceededGeneration === null
+          priorRepair.repairSucceededGeneration === null &&
+          priorRepairOperation?.status === "succeeded" &&
+          queuedOperationMatchesDesired(priorRepairOperation, listing)
         ) {
           repairOperationId = priorRepair.repairOperationId;
           repairSucceededGeneration = claim.generation;
@@ -968,13 +987,14 @@ function sameRepairableBasis(
 }
 
 function queuedOperationMatchesDesired(
-  operation: OutboundOperationRecord,
+  operation: OutboundOperationStatusRecord,
   listing: ReconciliationExpectedListing,
 ): boolean {
   return (
     operation.connectionId === listing.connectionId &&
     operation.channelListingId === listing.channelListingId &&
     operation.listingId === listing.listingId &&
+    operation.operationKind === listing.desired.operationKind &&
     operation.listingRevision === listing.desired.listingRevision &&
     operation.sourceDesiredStateSequence === listing.desired.desiredStateSequence &&
     operation.sourceDesiredStateHash === listing.desired.desiredStateHash &&
