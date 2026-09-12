@@ -8,6 +8,7 @@ import { inventoryItemRoutes } from "./features/inventory-items/api/route";
 import { inventoryRestockDecisionRoutes } from "./features/restock-decisions/api/route";
 import { inventoryStorageLocationRoutes } from "./features/storage-locations/api/route";
 import { inventoryRecoveredItemRoutes } from "./features/recovered-items/api/route";
+import { inventoryChannelStockAllocationRoutes } from "./features/channel-allocations/api/route";
 
 export type InventoryActor = Readonly<{
   accountId: string;
@@ -81,6 +82,7 @@ export function buildInventoryApi(services: InventoryServices) {
   app.route("/storage-locations", inventoryStorageLocationRoutes(services.storageLocations));
   app.route("/import-batches", inventoryImportBatchRoutes(services.importBatches));
   app.route("/items", inventoryItemRoutes(services.items, services.holds, services.holdCollisions));
+  app.route("/items", inventoryChannelStockAllocationRoutes(services.channelStockAllocations));
   app.route("/restock-decisions", inventoryRestockDecisionRoutes(services.restockDecisions));
   app.route("/recovered-items", inventoryRecoveredItemRoutes(services.recoveredItems));
   app.route("/holds", inventoryHoldRoutes(services.holds));

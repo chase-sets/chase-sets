@@ -18,6 +18,12 @@ import type {
   ChannelReferenceRead,
   ChannelReferenceResolution,
 } from "../domain/contracts";
+import {
+  CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK,
+  deriveChannelPublishQuantity,
+  type ChannelStockAllocationBufferPolicyValue,
+  type ChannelStockAllocationFacts,
+} from "../domain/allocation";
 
 export async function listChannelPublicationConnections(
   db: PgQueryable,
@@ -97,7 +103,11 @@ type ListingFactRow = Readonly<{
 
 export async function resolveChannelPublishableQuantity(
   db: PgQueryable,
-  input: Readonly<{ listingId: string }>,
+  input: Readonly<{
+    connectionId?: string;
+    listingId: string;
+    buffer?: ChannelStockAllocationBufferPolicyValue;
+  }>,
 ): Promise<
   | Readonly<{ kind: "resolved"; publishableQuantity: number }>
   | Readonly<{ kind: "listing-facts-unavailable" }>
@@ -107,27 +117,46 @@ export async function resolveChannelPublishableQuantity(
     quantity_cap: number;
     total_quantity: number | null;
     held_quantity: string | number;
+    allocation_mode: "shared-pool" | "partitioned" | null;
+    allocation_partitions: unknown;
   }>(
     `SELECT listing.quantity_cap, item.total_quantity,
+            allocation.mode AS allocation_mode, allocation.partitions AS allocation_partitions,
             COALESCE(SUM(hold.quantity) FILTER (WHERE hold.status='active'),0) AS held_quantity
      FROM channels_listing_publication_facts AS listing
      LEFT JOIN channels_inventory_item_facts AS item ON item.item_id=listing.inventory_item_id
      LEFT JOIN channels_inventory_hold_facts AS hold ON hold.item_id=item.item_id
+     LEFT JOIN channels_inventory_allocation_facts AS allocation
+       ON allocation.item_id=listing.inventory_item_id AND allocation.account_id=listing.account_id
      WHERE listing.listing_id=$1
-     GROUP BY listing.quantity_cap,item.total_quantity`,
+     GROUP BY listing.quantity_cap,item.total_quantity,allocation.mode,allocation.partitions`,
     [input.listingId],
   );
   const row = result.rows[0];
   if (!row) return { kind: "listing-facts-unavailable" };
   if (row.total_quantity === null) return { kind: "inventory-facts-unavailable" };
   const available = row.total_quantity - Number(row.held_quantity);
-  return { kind: "resolved", publishableQuantity: Math.max(0, Math.min(row.quantity_cap, available)) };
+  const allocation: ChannelStockAllocationFacts = {
+    mode: row.allocation_mode ?? "shared-pool",
+    partitions: allocationPartitions(row.allocation_partitions),
+  };
+  return {
+    kind: "resolved",
+    publishableQuantity: deriveChannelPublishQuantity({
+      available,
+      listingQuantityCap: row.quantity_cap,
+      channelConnectionId: input.connectionId ?? "",
+      allocation,
+      buffer: input.buffer ?? CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK,
+    }),
+  };
 }
 
 export async function readChannelListingCompositionFacts(
   db: PgQueryable,
   input: Readonly<{ connectionId: string; listingId: string }>,
   profiles?: ChannelCompositionProfileRegistry,
+  buffer?: ChannelStockAllocationBufferPolicyValue,
 ): Promise<ChannelListingCompositionInput | null> {
   const connectionResult = await db.query<{
     connection_id: string;
@@ -153,7 +182,11 @@ export async function readChannelListingCompositionFacts(
     [input.listingId, connection.account_id],
   );
   const listing = listingResult.rows[0];
-  const quantity = await resolveChannelPublishableQuantity(db, { listingId: input.listingId });
+  const quantity = await resolveChannelPublishableQuantity(db, {
+    connectionId: input.connectionId,
+    listingId: input.listingId,
+    buffer: buffer ?? { bufferThresholdUnits: 0, bufferHoldbackUnits: 0 },
+  });
   const categoryIds = listing ? await readCategoryIds(db, listing.catalog_item_id) : [];
   const references = listing
     ? await readReferencesForIdentity(db, connection.provider_key, listing.catalog_item_id, listing.selected_option_key)
@@ -531,6 +564,16 @@ function parseSelections(value: unknown): readonly { dimensionId: string; option
 }
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+function allocationPartitions(value: unknown): ChannelStockAllocationFacts["partitions"] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return [];
+    const record = candidate as Record<string, unknown>;
+    return typeof record.channelConnectionId === "string" && Number.isSafeInteger(record.units)
+      ? [{ channelConnectionId: record.channelConnectionId, units: Number(record.units) }]
+      : [];
+  });
 }
 function nullable(value: unknown): string | null {
   return typeof value === "string" ? value : null;

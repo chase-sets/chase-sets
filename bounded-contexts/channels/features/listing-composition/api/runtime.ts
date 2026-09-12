@@ -66,6 +66,10 @@ import {
 } from "../read-model/queries";
 import { buildChannelListingStateProjectionHandlers } from "../read-model/state-projection";
 import { createChannelListingPublicationApplication } from "./listing-publication-application";
+import {
+  CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK,
+  type ChannelStockAllocationBufferPolicyValue,
+} from "../domain/allocation";
 
 export type ChannelListingCompositionRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -73,6 +77,7 @@ export type ChannelListingCompositionRuntimeDeps = Readonly<{
   db: PgQueryable;
   profiles: ChannelCompositionProfileRegistry;
   listingIdDigest?: ChannelListingIdDigest;
+  resolveChannelStockAllocationBufferPolicy?: () => Promise<ChannelStockAllocationBufferPolicyValue>;
 }>;
 
 export interface ChannelListingCompositionServices {
@@ -149,7 +154,7 @@ export interface ChannelListingCompositionServices {
     context: EventStoreContext,
   ): Promise<ChannelCommandResult>;
   resolveChannelPublishableQuantity(
-    input: Readonly<{ listingId: string }>,
+    input: Readonly<{ connectionId: string; listingId: string }>,
   ): ReturnType<typeof resolveChannelPublishableQuantity>;
   readChannelListingProviderProductReferences(
     input: Readonly<{ connectionId: string; channelListingIds: readonly string[] }>,
@@ -210,6 +215,8 @@ export function createChannelListingCompositionRuntime(
     profiles: deps.profiles,
     listingIdDigest: deps.listingIdDigest,
     linkRepository,
+    resolveChannelStockAllocationBufferPolicy:
+      deps.resolveChannelStockAllocationBufferPolicy ?? (async () => CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK),
   });
 
   async function enqueue(
@@ -537,7 +544,14 @@ export function createChannelListingCompositionRuntime(
       });
       return { kind: "applied", value: undefined, streamVersion: stored[0]!.streamVersion };
     },
-    resolveChannelPublishableQuantity: (input) => resolveChannelPublishableQuantity(deps.db, input),
+    resolveChannelPublishableQuantity: async (input) =>
+      resolveChannelPublishableQuantity(deps.db, {
+        ...input,
+        buffer: await (
+          deps.resolveChannelStockAllocationBufferPolicy ??
+          (async () => CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK)
+        )(),
+      }),
     readChannelListingProviderProductReferences: (input) => readChannelListingProviderProductReferences(deps.db, input),
     readChannelMappingReviewQueue: (input) => readChannelMappingReviewQueue(deps.db, input),
     listChannelPublicationConnections: (input) => listChannelPublicationConnections(deps.db, input),

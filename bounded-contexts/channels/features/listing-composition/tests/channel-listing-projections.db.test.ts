@@ -247,7 +247,7 @@ describeDb("channel-projection-concurrent-write", () => {
     ]);
   });
 
-  it("keeps boot SQL and migration ownership aligned for the twelve projections and operation fence", async () => {
+  it("keeps boot SQL and migration ownership aligned for every registered projection and operation fence", async () => {
     const result = await pools.channels.query<{ tablename: string }>(
       `SELECT tablename FROM pg_tables WHERE schemaname=current_schema() AND tablename=ANY($1::text[]) ORDER BY tablename`,
       [channelListingCompositionTableNames],
@@ -258,7 +258,7 @@ describeDb("channel-projection-concurrent-write", () => {
       `SELECT COUNT(*)::text AS count FROM pg_tables WHERE schemaname=current_schema() AND tablename=ANY($1::text[])`,
       [channelListingCompositionTableNames],
     );
-    expect(second.rows[0]?.count).toBe("13");
+    expect(second.rows[0]?.count).toBe(String(channelListingCompositionTableNames.length));
   });
 });
 

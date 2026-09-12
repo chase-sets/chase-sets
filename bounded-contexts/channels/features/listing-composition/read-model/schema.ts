@@ -7,6 +7,13 @@ const publicationOperationTable = `CREATE TABLE IF NOT EXISTS channels_channel_p
   bound_at timestamptz NOT NULL
 )`;
 
+const inventoryAllocationFactTable = `CREATE TABLE IF NOT EXISTS channels_inventory_allocation_facts (
+  item_id text PRIMARY KEY, account_id text NOT NULL,
+  mode text NOT NULL CHECK (mode IN ('shared-pool','partitioned')),
+  partitions jsonb NOT NULL, updated_at timestamptz NOT NULL,
+  allocation_stream_version bigint NOT NULL CHECK (allocation_stream_version >= 1)
+)`;
+
 const tables = [
   `CREATE TABLE IF NOT EXISTS channels_listing_publication_facts (
     listing_id text PRIMARY KEY, account_id text NOT NULL, inventory_item_id text NOT NULL, catalog_item_id text NOT NULL,
@@ -117,7 +124,7 @@ const migrationIndexes = [
   "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS channels_live_reconciliation_scope_idx ON channels_listing_reconciliation_runs (connection_id, scope, scope_key) WHERE state IN ('pending','draining')",
 ] as const;
 
-export const channelListingCompositionSchemaSql = `${tables.join(";\n")};\n${indexes.join(";\n")};`;
+export const channelListingCompositionSchemaSql = `${tables.join(";\n")};\n${inventoryAllocationFactTable};\n${indexes.join(";\n")};`;
 
 export const channelListingCompositionSchemaMigrations: readonly BcSchemaMigration[] = [
   {
@@ -130,6 +137,11 @@ export const channelListingCompositionSchemaMigrations: readonly BcSchemaMigrati
     description: "Fence each publication operation ID to one Channel Listing desired-state tuple.",
     statements: [publicationOperationTable],
   },
+  {
+    migrationId: "20260911_channels_inventory_allocation_facts",
+    description: "Project Inventory Channel Stock Allocation facts for connection-aware desired state.",
+    statements: [inventoryAllocationFactTable],
+  },
 ];
 
 export const channelListingCompositionTableNames = [
@@ -137,6 +149,7 @@ export const channelListingCompositionTableNames = [
   "channels_seller_availability_facts",
   "channels_inventory_item_facts",
   "channels_inventory_hold_facts",
+  "channels_inventory_allocation_facts",
   "channels_catalog_item_category_facts",
   "channels_external_product_reference_facts",
   "channels_external_catalog_item_reference_facts",

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import contextManifest from "../../../context.json" with { type: "json" };
+import { CHANNEL_STOCK_ALLOCATION_SUBSCRIPTION_VERSION } from "../integrations/reactions";
 
 const contextRoot = path.resolve(import.meta.dirname, "../../..");
 
@@ -33,15 +34,27 @@ describe("channel-subscription-order-fence", () => {
     const reactions = contextManifest.eventReactions;
     expect(
       subscriptions.map((entry) => ("eventTypes" in entry && entry.eventTypes ? entry.eventTypes.length : 0)),
-    ).toEqual([9, 6, 8, 14, 0]);
-    expect(reactions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 8, 11, 1]);
-    expect(
-      subscriptions
-        .slice(0, 4)
-        .every((entry) => entry.subscriptionVersion === 1 && "filterToEventTypes" in entry && entry.filterToEventTypes),
-    ).toBe(true);
+    ).toEqual([9, 6, 9, 14, 0]);
+    expect(reactions.map((entry) => entry.eventTypes.length)).toEqual([9, 6, 9, 11, 1]);
+    expect(subscriptions.map((entry) => entry.subscriptionVersion)).toEqual([
+      1,
+      1,
+      CHANNEL_STOCK_ALLOCATION_SUBSCRIPTION_VERSION,
+      1,
+      1,
+    ]);
+    expect(reactions.map((entry) => entry.subscriptionVersion)).toEqual([
+      1,
+      1,
+      CHANNEL_STOCK_ALLOCATION_SUBSCRIPTION_VERSION,
+      1,
+      1,
+    ]);
+    expect(subscriptions.slice(0, 4).every((entry) => "filterToEventTypes" in entry && entry.filterToEventTypes)).toBe(
+      true,
+    );
     expect(subscriptions[4]).not.toHaveProperty("filterToEventTypes");
-    expect(reactions.every((entry) => entry.subscriptionVersion === 1 && entry.filterToEventTypes)).toBe(true);
+    expect(reactions.every((entry) => entry.filterToEventTypes)).toBe(true);
     for (let index = 0; index < 3; index += 1) {
       expect(reactions[index]!.eventTypes).toEqual(subscriptions[index]!.eventTypes);
     }
@@ -59,7 +72,7 @@ describe("channel-subscription-order-fence", () => {
     expect(
       new Set(subscriptions.flatMap((entry) => ("eventTypes" in entry && entry.eventTypes ? entry.eventTypes : [])))
         .size,
-    ).toBe(37);
+    ).toBe(38);
   });
 });
 

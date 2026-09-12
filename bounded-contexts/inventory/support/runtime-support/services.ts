@@ -6,6 +6,10 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import type { BcCreateServicesOptions } from "@chase-sets/bounded-context-module";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createInventoryCatalogItemRuntime } from "../../features/inventory-items/integrations/catalog/runtime";
+import {
+  createInventoryChannelStockAllocationRuntime,
+  type InventoryChannelStockAllocationServices,
+} from "../../features/channel-allocations/api/runtime";
 import { createInventoryHoldRuntime } from "../../features/holds/api/runtime";
 import {
   createInventoryHoldCleanupAuthority,
@@ -40,6 +44,7 @@ export type InventoryServices = Readonly<{
   holdCleanupAuthority: InventoryHoldCleanupAuthorityServices;
   holdCollisions: ReturnType<typeof createInventoryHoldCollisionRuntime>;
   channelSales: InventoryExternalChannelSaleServices;
+  channelStockAllocations: InventoryChannelStockAllocationServices;
   reservations: ReturnType<typeof createInventoryReservationRuntime>;
   restockDecisions: ReturnType<typeof createRestockDecisionRuntime>;
   recoveredItems: ReturnType<typeof createRecoveredItemRuntime>;
@@ -98,6 +103,7 @@ export function createInventoryServices(
   const reservations = createInventoryReservationRuntime(deps);
   const holdCollisions = createInventoryHoldCollisionRuntime(deps);
   const channelSales = createInventoryExternalChannelSaleRuntime(deps, holdCollisions);
+  const channelStockAllocations = createInventoryChannelStockAllocationRuntime(deps);
   const restockDecisions = createRestockDecisionRuntime(deps, items, reservations);
   const recoveredItems = createRecoveredItemRuntime(deps);
 
@@ -110,6 +116,7 @@ export function createInventoryServices(
     holdCleanupAuthority,
     holdCollisions,
     channelSales,
+    channelStockAllocations,
     reservations,
     restockDecisions,
     recoveredItems,
@@ -120,6 +127,7 @@ export function createInventoryServices(
       ...items.projectors,
       ...holds.projectors,
       ...holdCollisions.projectors,
+      ...channelStockAllocations.projectors,
       ...reservations.projectors,
       ...restockDecisions.projectors,
       ...recoveredItems.projectors,

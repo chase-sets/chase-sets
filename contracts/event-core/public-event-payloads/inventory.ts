@@ -258,6 +258,24 @@ export type InventoryExternalChannelSaleRecordedPayload = Readonly<{
   result: CommittedExternalChannelSalePayload;
 }>;
 
+export const inventoryChannelAllocationModes = ["shared-pool", "partitioned"] as const;
+
+export type InventoryChannelAllocationMode = (typeof inventoryChannelAllocationModes)[number];
+
+export type InventoryChannelStockAllocationPartitionPayload = Readonly<{
+  channelConnectionId: string;
+  units: number;
+}>;
+
+export type InventoryChannelStockAllocationSetPayload = Readonly<{
+  eventVersion: 1;
+  accountId: string;
+  inventoryItemId: string;
+  mode: InventoryChannelAllocationMode;
+  partitions: readonly InventoryChannelStockAllocationPartitionPayload[];
+  setAt: string;
+}>;
+
 export type InventoryRestockDecisionPendingPayload = Readonly<{
   decisionId: string;
   accountId: AccountId;
@@ -339,6 +357,7 @@ export type InventoryEventPayloads = Readonly<{
   "inventory.item.adjusted": InventoryItemAdjustedPayload;
   "inventory.item.offline-sale-recorded": InventoryItemOfflineSaleRecordedPayload;
   "inventory.external-channel-sale.recorded": InventoryExternalChannelSaleRecordedPayload;
+  "inventory.channel-stock-allocation.set": InventoryChannelStockAllocationSetPayload;
   "inventory.hold.placed": InventoryHoldPlacedPayload;
   "inventory.hold.released": InventoryHoldReleasedPayload;
   "inventory.hold.converted": InventoryHoldConvertedPayload;

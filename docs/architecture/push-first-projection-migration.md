@@ -1,6 +1,6 @@
 # Push-First Projection Migration Inventory
 
-Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-09-10.
+Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-09-11.
 
 This is the migration report that classifies every projection group and every read-after-write route inventory entry into an explicit push-first disposition. The machine-readable source of truth is `@chase-sets/platform-runtime/projection-push-migration`, which derives every row below from the [source-context wake registry](./source-context-wake-registry.md) (#1245); registry tests pin that registry to `bounded-contexts/*/context.json`, and `projection-push-migration.test.ts` pins this document to the same inventory, so a new projection group or route entry fails CI until both are classified here.
 
@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (157)
+## Projection Groups (159)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -58,6 +58,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `channels:channel-marketplace-publication-facts` | Channels | **marketplace** | push-enabled | 1/1 |
 | `channels:channel-outbound-operation-enqueue` | Channels | channels | push-eligible | 0/1 |
 | `channels:channel-owned-publication-state` | Channels | channels | push-eligible | 0/1 |
+| `channels:platform-policy-document-projection` | Channels | channels | push-eligible | 0/1 |
 | `channels:tcgplayer-csv-projection` | Channels | channels | push-eligible | 0/1 |
 | `checkout:checkout-catalog-item-projection` | Checkout | **catalog** | push-enabled | 1/1 |
 | `checkout:checkout-marketplace-listing-options-projection` | Checkout | **catalog**, **marketplace**, **ordering** | push-enabled | 3/3 |
@@ -110,6 +111,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `identity:identity-user-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `identity:platform-policy-document-projection` | Identity | **identity** | push-enabled | 1/1 |
 | `inventory:inventory-catalog-item-projection` | Inventory | **catalog** | push-enabled | 1/1 |
+| `inventory:inventory-channel-stock-allocation-projection` | Inventory | **inventory** | push-enabled | 1/1 |
 | `inventory:inventory-fulfillment-recovered-item-workflow` | Inventory | fulfillment | push-eligible | 0/1 |
 | `inventory:inventory-fulfillment-restock-workflow` | Inventory | fulfillment | push-eligible | 0/1 |
 | `inventory:inventory-hold-collision-projection` | Inventory | **inventory** | push-enabled | 1/1 |
@@ -198,7 +200,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-support-hold-lifecycle-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
 
-Totals: 121 `push-enabled`, 36 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 122 `push-enabled`, 37 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (80)
 

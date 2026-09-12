@@ -9,7 +9,8 @@
     "import-batch",
     "recovered-item",
     "storage-location",
-    "external-channel-sale"
+    "external-channel-sale",
+    "channel-stock-allocation"
   ],
   "streamPrefix": "inventory.",
   "accountCapabilities": [
@@ -23,6 +24,7 @@
   "apiBasePath": "/api/inventory",
   "slices": [
     "inventory-items",
+    "channel-allocations",
     "channel-sales",
     "hold-collisions",
     "import-batches",
@@ -95,6 +97,13 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "inventory-channel-stock-allocation-projection",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["inventory_channel_stock_allocations"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
     {
       "projectionName": "inventory-catalog-item-projection",
       "sourceContextNames": ["catalog"],
@@ -417,6 +426,7 @@
         "api-route:bounded-contexts/inventory/features/holds/api/route.ts:POST /:id/extend",
         "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /",
         "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/commit",
+        "api-route:bounded-contexts/inventory/features/channel-allocations/api/route.ts:PUT /:itemId/channel-stock-allocation",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/adjustments",
         "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/offline-sales",
@@ -426,12 +436,13 @@
         "api-route:bounded-contexts/inventory/features/storage-locations/api/route.ts:POST /"
       ],
       "visibleDestination": {
-        "description": "Inventory API commands return command-owned ids, versions, durable job statuses, or listing-stock snapshots that callers can render or carry into a fresh-read route without trusting a stale projection response."
+        "description": "Inventory API commands return command-owned ids, versions, durable job statuses, allocation state, or listing-stock snapshots that callers can render or carry into a fresh-read route without trusting a stale projection response."
       },
       "proof": {
-        "authoritativeResponse": "Item, hold, checkout-reservation, and storage-location commands return the committed aggregate id/version or reservation snapshot; import-batch commands return durable job public snapshots; listing-stock ensure returns the command-owned inventory stock snapshot.",
+        "authoritativeResponse": "Item, hold, checkout-reservation, storage-location, and Channel Stock Allocation commands return the committed aggregate id/version, allocation state, or reservation snapshot; import-batch commands return durable job public snapshots; listing-stock ensure returns the command-owned inventory stock snapshot.",
         "tests": [
           "bounded-contexts/inventory/tests/acceptance/inventory-api.test.ts",
+          "bounded-contexts/inventory/features/channel-allocations/api/route.test.ts",
           "bounded-contexts/inventory/features/holds/api/route.test.ts",
           "bounded-contexts/inventory/features/inventory-items/api/route.test.ts",
           "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts"
@@ -903,6 +914,11 @@
     }
   ],
   "directoryIntent": {
+    "channel-allocations": {
+      "classification": "slice",
+      "purpose": "Own the channel-allocations slice's per-item Channel Stock Allocation commands, event history, read model, and HTTP contract.",
+      "expectedConsumers": ["Internal Inventory module composition and Channels fact subscribers"]
+    },
     "channel-sales": {
       "classification": "slice",
       "purpose": "Own the channel-sales slice's provider-neutral command, permanent sale-line authority, replay, and conflict behavior.",
@@ -964,6 +980,7 @@
       "purpose": "Provide reusable runtime-support assets shared by inventory-owned features and composition seams.",
       "expectedConsumers": [
         "hold-collisions",
+        "channel-allocations",
         "channel-sales",
         "holds",
         "import-batches",

@@ -238,6 +238,14 @@ Notes:
 - A storage location may be as broad as a room or as granular as a bin, shelf, or aisle.
 - Each storage location maps to exactly one ship-from location.
 
+## Channel Stock Allocation
+
+A **Channel Stock Allocation** is Inventory's absolute per-item declaration of how much stock each Channel Connection may publish. In `shared-pool` mode every connected listing sees the same Available Quantity after the Inventory safety buffer; in `partitioned` mode a connection is capped by its declared units and an undeclared connection receives zero.
+
+## Channel Allocation Mode
+
+A **Channel Allocation Mode** is the closed `shared-pool | partitioned` rule on a Channel Stock Allocation. `shared-pool` preserves today's common-pool behavior, while `partitioned` applies connection-specific publish caps without consuming or reserving stock.
+
 ## Import
 
 An **Import** is a bulk inventory upload that creates or updates inventory items.
@@ -293,7 +301,7 @@ A **Recovered Item Disposition** is Inventory's append-only decision to return a
 
 These planned terms pre-register upcoming store, multi-location, and channel inventory language. They are not shipped behavior until Inventory adds the corresponding aggregates, events, imports, exports, and read models.
 
-Channels owns Channel Listing Link, Channel Sync, Channel Sync Run, Channel Sync Error, and Channel Inventory Snapshot; see the [Channels glossary](../channels/GLOSSARY.md). Inventory retains stock truth and the allocation, reservation, and fulfillment-rule terms below.
+Channels owns Channel Listing Link, Channel Sync, Channel Sync Run, Channel Sync Error, and Channel Inventory Snapshot; see the [Channels glossary](../channels/GLOSSARY.md). Inventory retains stock truth and the shipped Channel Stock Allocation above; the reservation and fulfillment-rule terms below remain planned.
 
 ### Store
 
@@ -363,17 +371,9 @@ A **Count Variance** is the planned difference between recorded quantity and cou
 
 A **Stock Ledger** is the planned account-facing history of quantity-affecting Inventory facts.
 
-### Channel Stock Allocation
-
-A **Channel Stock Allocation** is the planned quantity reserved for a specific external or native sales channel.
-
-### Channel Allocation Mode
-
-A **Channel Allocation Mode** is the planned rule for how inventory quantity is shared, capped, or reserved across channels.
-
 ### Channel Allocation
 
-A **Channel Allocation** is the planned Inventory quantity assignment for a native or external sales channel.
+See **Channel Stock Allocation** above; this retained pointer keeps the earlier Inventory term reachable without defining a second concept.
 
 ### Channel Reservation
 

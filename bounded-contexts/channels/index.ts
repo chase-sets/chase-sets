@@ -176,6 +176,11 @@ import { tcgplayerCompositionProfiles } from "./features/tcgplayer-csv/domain/pr
 import { createTcgplayerClaimedReservationRunSettlementPort } from "./features/tcgplayer-csv/integrations/outbound-sync-settlement";
 import { tcgplayerCsvSchemaMigrations, tcgplayerCsvSchemaSql } from "./features/tcgplayer-csv/read-model/schema";
 import {
+  channelStockAllocationBufferPolicy,
+  resolveChannelStockAllocationBufferPolicy,
+} from "./features/listing-composition/domain/allocation";
+import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
+import {
   channelConnectionSchemaMigrations,
   channelConnectionSchemaSql,
 } from "./features/connections/read-model/schema";
@@ -195,7 +200,7 @@ export const module = defineBoundedContextModule<
   ChannelConnectionHostPorts
 >({
   manifest: channelsContextManifest,
-  schemaSql: `${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
@@ -218,13 +223,17 @@ export const module = defineBoundedContextModule<
       },
     );
     const compositionProfiles = createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles);
+    const policies = createPolicyRuntime({ eventStore, db: pool });
     const listingComposition = createChannelListingCompositionRuntime({
       eventStore,
       transactionalEventStore: eventStore,
       db: pool,
       profiles: compositionProfiles,
+      resolveChannelStockAllocationBufferPolicy: () =>
+        resolveChannelStockAllocationBufferPolicy(
+          async () => (await policies.resolvePolicy(channelStockAllocationBufferPolicy)).value,
+        ),
     });
-    const policies = createPolicyRuntime({ eventStore, db: pool });
     const outboundSync = createOutboundSyncRuntime(
       {
         db: pool,
@@ -251,7 +260,12 @@ export const module = defineBoundedContextModule<
       outboundSync,
       tcgplayerCsv,
       db: pool,
-      projectors: [...connections.projectors, ...listingComposition.projectors, ...tcgplayerCsv.projectors],
+      projectors: [
+        ...connections.projectors,
+        ...listingComposition.projectors,
+        ...policies.projectors,
+        ...tcgplayerCsv.projectors,
+      ],
     };
   },
   buildApis: (services) => [{ mountPath: "/api/channels", contextMountOrdinal: 1, router: buildChannelsApi(services) }],

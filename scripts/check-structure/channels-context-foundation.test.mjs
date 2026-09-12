@@ -643,6 +643,7 @@ describe("channels-wake-registry-derivation", () => {
         "channels:channel-listing-desired-state-reaction",
         "channels:channel-outbound-operation-enqueue",
         "channels:channel-owned-publication-state",
+        "channels:platform-policy-document-projection",
         "channels:tcgplayer-csv-projection",
       ],
       routeDependencyIds: [],
@@ -665,6 +666,7 @@ describe("channels-wake-registry-derivation", () => {
       "channels:channel-listing-desired-state-reaction",
       "channels:channel-outbound-operation-enqueue",
       "channels:channel-owned-publication-state",
+      "channels:platform-policy-document-projection",
       "channels:tcgplayer-csv-projection",
       "neutral-consumer:connection-view",
     ]);

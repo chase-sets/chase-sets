@@ -14,6 +14,7 @@ export const channelsWakeRegistryEntry = registryEntry({
     "channels:channel-listing-desired-state-reaction",
     "channels:channel-outbound-operation-enqueue",
     "channels:channel-owned-publication-state",
+    "channels:platform-policy-document-projection",
     "channels:tcgplayer-csv-projection",
   ],
   routeDependencyIds: [],
