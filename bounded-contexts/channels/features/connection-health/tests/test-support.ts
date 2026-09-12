@@ -12,7 +12,6 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { buildPolicyDocumentProjectionHandlers } from "@chase-sets/platform-policy/projection";
 import { module as channelsModule } from "../../../index";
-import type { ChannelsServices } from "../../../server";
 import type { ChannelConnectionStatus } from "../../connections/domain/contracts";
 import { deriveChannelHealthSourceWorkId, healthDigest } from "../domain/identity";
 import { channelHealthPolicy } from "../domain/policy";
@@ -33,7 +32,7 @@ export const describeDb = baseUrl ? describe : describe.skip;
 
 export function healthDatabase(name: string) {
   let pools: Readonly<Record<"channels", PgTransactionalPool>>;
-  let services: ChannelsServices;
+  let services: ReturnType<typeof channelsModule.createServices>;
   let sequence = 0;
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(baseUrl!, ["channels"], name);
