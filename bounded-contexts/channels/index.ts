@@ -129,20 +129,16 @@ import {
 } from "./features/connections/read-model/schema";
 import type { ChannelsServices } from "./support/runtime-support/services";
 import type { MarketplaceChannelInboundClampCapability } from "./support/request-support/marketplace-channel-inbound-clamp";
-import { createManualSyncRuntime, type ManualSyncServices } from "./features/manual-sync/api/runtime";
+import { createManualSyncRuntime } from "./features/manual-sync/api/runtime";
 import { inspectManualSyncSeedState, seedManualSyncScenario } from "./features/manual-sync/api/seed";
 import { manualSyncSchemaMigrations, manualSyncSchemaSql } from "./features/manual-sync/read-model/schema";
 import { manualSyncRetentionExemptions } from "./features/manual-sync/read-model/retention-policy";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
-type ChannelsRuntimeServices = ChannelsServices &
-  Readonly<{
-    manualSync: ManualSyncServices;
-  }>;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
   Readonly<{ marketplaceChannelInboundClamp?: MarketplaceChannelInboundClampCapability }>;
 
-export const module = defineBoundedContextModule<ChannelsRuntimeServices, PgTransactionalPool, ChannelsHostPorts>({
+export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
   schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${manualSyncSchemaSql}`,
   schemaMigrations: [

@@ -135,6 +135,7 @@ function validChannelsCandidate(
     listingComposition: {},
     outboundSync,
     tcgplayerCsv: {},
+    manualSync: {},
     projectors: [],
     db: {},
   };
