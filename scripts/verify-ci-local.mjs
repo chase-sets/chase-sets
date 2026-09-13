@@ -221,6 +221,41 @@ export function validateLocalCommandCoverage(matrix, identity) {
   return matrix;
 }
 
+// Preserve the executor's thrown error contract without adding capture to receipts
+// or retaining diagnostics across commands. The catching caller consumes this once.
+const spawnFailureCaptures = new WeakMap();
+
+function printCommandDiagnostics(spec, entry, ordinal, result, error = null) {
+  const capture = error ? spawnFailureCaptures.get(error) : null;
+  if (error) spawnFailureCaptures.delete(error);
+  const source = capture ?? result;
+  const incomplete = Boolean(error || result?.outcome === "interrupted");
+  const stream = (value) => {
+    if (value === null || value === undefined) return { retainedBytes: 0, text: null };
+    const text = String(value);
+    return { retainedBytes: Buffer.byteLength(text, "utf8"), text };
+  };
+  const code = error?.code;
+  console.error(
+    `CI-local command diagnostics: ${JSON.stringify({
+      gateId: entry.id,
+      gateName: entry.name,
+      command: spec.command,
+      args: spec.args,
+      ordinal,
+      outcome: error ? "interrupted" : (result?.outcome ?? null),
+      exitCode: capture ? capture.status : (result?.exitCode ?? null),
+      signal: source?.signal ?? null,
+      spawnErrorCode: typeof code === "string" && /^[A-Z][A-Z0-9_]+$/.test(code) ? code : null,
+      capture: incomplete ? "incomplete" : "complete",
+      // Retained lengths describe UTF-8 diagnostic text, never an inferred total
+      // produced length. Null text distinguishes unavailable from an empty stream.
+      stdout: stream(source?.stdout),
+      stderr: stream(source?.stderr),
+    })}`,
+  );
+}
+
 export function defaultCommandExecutor(spec) {
   const env = { ...process.env, ...spec.env };
   for (const name of spec.clearEnv) delete env[name];
@@ -232,7 +267,10 @@ export function defaultCommandExecutor(spec) {
     maxBuffer: 64 * 1024 * 1024,
     windowsHide: true,
   });
-  if (result.error) throw result.error;
+  if (result.error) {
+    spawnFailureCaptures.set(result.error, result);
+    throw result.error;
+  }
   if (result.signal || result.status === null) {
     return {
       outcome: "interrupted",
@@ -335,11 +373,13 @@ export function executeGateEntries({
       continue;
     }
     let evidence = "PASSED";
-    for (const spec of commands) {
+    for (const [index, spec] of commands.entries()) {
       try {
         const result = executor(spec, entry);
         evidence = resultEvidence(result);
+        if (evidence !== "PASSED") printCommandDiagnostics(spec, entry, index + 1, result);
       } catch (error) {
+        printCommandDiagnostics(spec, entry, index + 1, null, error);
         errors.push(receiptError("EXECUTOR_FAILURE", String(error?.message ?? error), entry.id));
         evidence = "INTERRUPTED";
       }
@@ -537,21 +577,28 @@ export function runCiLocalVerification(
       ["./scripts/change-scope.mjs", "json", `--base=${identity.baseSha}`, `--head=${identity.headSha}`],
       { clearEnv: ["CHANGED_FILES_JSON", "GITHUB_OUTPUT"] },
     );
+    const scopeEntry = { id: "change-scope", name: "Change Scope" };
     let scopeResult;
     try {
-      scopeResult = executor(scopeCommand, { id: "change-scope", name: "Change Scope" });
+      scopeResult = executor(scopeCommand, scopeEntry);
     } catch (error) {
+      printCommandDiagnostics(scopeCommand, scopeEntry, 1, null, error);
       throw new Error(`CLASSIFIER_EXECUTOR_FAILURE: ${String(error?.message ?? error)}`);
     }
-    if (scopeResult?.outcome === "interrupted") throw new Error("CLASSIFIER_INTERRUPTED");
-    if (scopeResult?.outcome !== "passed") throw new Error("CLASSIFIER_FAILED");
     let scope;
     try {
-      scope = JSON.parse(scopeResult.stdout);
-    } catch {
-      throw new Error("CLASSIFIER_OUTPUT_MALFORMED");
+      if (scopeResult?.outcome === "interrupted") throw new Error("CLASSIFIER_INTERRUPTED");
+      if (scopeResult?.outcome !== "passed") throw new Error("CLASSIFIER_FAILED");
+      try {
+        scope = JSON.parse(scopeResult.stdout);
+      } catch {
+        throw new Error("CLASSIFIER_OUTPUT_MALFORMED");
+      }
+      validateCiGateScope(scope);
+    } catch (error) {
+      printCommandDiagnostics(scopeCommand, scopeEntry, 1, scopeResult);
+      throw error;
     }
-    validateCiGateScope(scope);
     plan = createCiGatePlan({ mode, labels: normalizedLabels, provenance: normalizedProvenance, scope });
     const commandPlan = createLocalCommandPlan({ plan, ...identity, scope });
     const missingProvenance = mode === "pull-request" && normalizedProvenance === null;
