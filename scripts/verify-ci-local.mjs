@@ -221,13 +221,13 @@ export function validateLocalCommandCoverage(matrix, identity) {
   return matrix;
 }
 
-// Preserve the executor's thrown error contract without adding capture to receipts
-// or retaining diagnostics across commands. The catching caller consumes this once.
-const spawnFailureCaptures = new WeakMap();
+// Preserve the executor's return/throw contracts while retaining native nullable
+// capture metadata. The reporting caller consumes only the current command.
+const commandCaptures = new WeakMap();
 
 function printCommandDiagnostics(spec, entry, ordinal, result, error = null) {
-  const capture = error ? spawnFailureCaptures.get(error) : null;
-  if (error) spawnFailureCaptures.delete(error);
+  const capture = commandCaptures.get(error ?? result);
+  commandCaptures.delete(error ?? result);
   const source = capture ?? result;
   const incomplete = Boolean(error || result?.outcome === "interrupted");
   const stream = (value) => {
@@ -268,25 +268,29 @@ export function defaultCommandExecutor(spec) {
     windowsHide: true,
   });
   if (result.error) {
-    spawnFailureCaptures.set(result.error, result);
+    commandCaptures.set(result.error, result);
     throw result.error;
   }
   if (result.signal || result.status === null) {
-    return {
+    const interrupted = {
       outcome: "interrupted",
       exitCode: null,
       signal: result.signal ?? null,
       stdout: result.stdout ?? "",
       stderr: result.stderr ?? "",
     };
+    commandCaptures.set(interrupted, result);
+    return interrupted;
   }
-  return {
+  const completed = {
     outcome: result.status === 0 ? "passed" : "failed",
     exitCode: result.status,
     signal: null,
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
   };
+  if (completed.outcome === "failed") commandCaptures.set(completed, result);
+  return completed;
 }
 
 function staticEvidence(entry, dryRun) {

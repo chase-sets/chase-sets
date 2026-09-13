@@ -336,9 +336,9 @@ describe("verify-ci-local", () => {
       stdout: { retainedBytes: Buffer.byteLength(blocks[0].stdout.text), text: blocks[0].stdout.text },
       stderr: { retainedBytes: Buffer.byteLength(failedStderr), text: failedStderr },
     });
-    // Pnpm may prepend its own lifecycle banner to the failed child's stdout.
-    // The independently declared payload must be the exact suffix, once only.
-    expect(blocks[0].stdout.text.endsWith(failedStdout)).toBe(true);
+    // Pnpm surrounds the child payload with its own lifecycle/failure banners.
+    // The independently declared payload must survive contiguously, once only.
+    expect(blocks[0].stdout.text).toContain(failedStdout);
     expect(blocks[0].stdout.text.split(failedStdout)).toHaveLength(2);
     expect(result.stderr).not.toContain("QUIET_SUCCESS");
     expect(result.ledger[2]).toMatchObject({ identity: "static", nativeExit: blocks[0].exitCode });
@@ -487,6 +487,65 @@ describe("verify-ci-local", () => {
       capture: "incomplete",
       stdout: { retainedBytes: 0, text: null },
       stderr: { retainedBytes: 0, text: null },
+    });
+  });
+
+  it("interrupted-spawn-and-classifier-diagnostics: native signal capture preserves nullable metadata", () => {
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: null,
+      signal: "SIGTERM",
+      stdout: "signal partial",
+      stderr: null,
+    });
+    const plan = createCiGatePlan({ mode: "pull-request", provenance: "same-repository", scope: inertScope });
+    const commandPlan = createLocalCommandPlan({ plan, baseSha, headSha, scope: inertScope });
+    let returned;
+    const captured = captureDiagnostics(() =>
+      executeGateEntries({
+        entries: plan.gates,
+        commandPlan,
+        executor: (spec) => {
+          returned = defaultCommandExecutor(spec);
+          return returned;
+        },
+      }),
+    );
+    expect(returned).toEqual({
+      outcome: "interrupted",
+      exitCode: null,
+      signal: "SIGTERM",
+      stdout: "signal partial",
+      stderr: "",
+    });
+    expect(captured.diagnostics[0]).toMatchObject({
+      capture: "incomplete",
+      exitCode: null,
+      signal: "SIGTERM",
+      stdout: { text: "signal partial", retainedBytes: 14 },
+      stderr: { text: null, retainedBytes: 0 },
+    });
+    expect(captured.result.gates.slice(1, 4).map(({ evidence }) => evidence)).toEqual([
+      "INTERRUPTED",
+      "NOT_RUN_ABORTED",
+      "NOT_RUN_ABORTED",
+    ]);
+  });
+
+  it("failed-output-bounds-and-text-fidelity: real empty failing streams", () => {
+    const plan = createCiGatePlan({ mode: "merge-group", scope: inertScope });
+    const spec = { command: process.execPath, args: ["-e", "process.exitCode = 7"], env: {}, clearEnv: [] };
+    const captured = captureDiagnostics(() =>
+      executeGateEntries({
+        entries: plan.gates.filter(({ id }) => id === "typecheck"),
+        commandPlan: new Map([["typecheck", [spec]]]),
+      }),
+    );
+    expect(captured.result.disposition).toBe("FAIL");
+    expect(captured.diagnostics[0]).toMatchObject({
+      capture: "complete",
+      exitCode: 7,
+      stdout: { text: "", retainedBytes: 0 },
+      stderr: { text: "", retainedBytes: 0 },
     });
   });
 
