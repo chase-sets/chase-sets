@@ -334,12 +334,16 @@ describe("verify-ci-local", () => {
       spawnErrorCode: null,
       capture: "complete",
       stdout: { retainedBytes: Buffer.byteLength(blocks[0].stdout.text), text: blocks[0].stdout.text },
-      stderr: { retainedBytes: Buffer.byteLength(failedStderr), text: failedStderr },
+      stderr: { retainedBytes: Buffer.byteLength(blocks[0].stderr.text), text: blocks[0].stderr.text },
     });
     // Pnpm surrounds the child payload with its own lifecycle/failure banners.
     // The independently declared payload must survive contiguously, once only.
-    expect(blocks[0].stdout.text).toContain(failedStdout);
-    expect(blocks[0].stdout.text.split(failedStdout)).toHaveLength(2);
+    expect.soft(blocks[0].stdout.text).toContain(failedStdout);
+    expect.soft(blocks[0].stdout.text.split(failedStdout)).toHaveLength(2);
+    // The hosted lifecycle shell announces its command on stderr. Accept only
+    // that exact known prefix; the independently specified child bytes stay exact.
+    expect.soft([failedStderr, `$ node ./scripts/inert.mjs static\n${failedStderr}`]).toContain(blocks[0].stderr.text);
+    expect.soft(blocks[0].stderr.text.split(failedStderr)).toHaveLength(2);
     expect(result.stderr).not.toContain("QUIET_SUCCESS");
     expect(result.ledger[2]).toMatchObject({ identity: "static", nativeExit: blocks[0].exitCode });
     expect(blocks[0].args[1]).toBe(`verify:${result.ledger[2].identity}`);
