@@ -158,7 +158,7 @@ async function fetchWithRetry(label, input, init, isSuccess, describeRejection) 
       }
     }
     const detail = lastResponse
-      ? describeRejection?.(lastResponse) ?? `${lastResponse.status} ${lastResponse.statusText}`
+      ? (describeRejection?.(lastResponse) ?? `${lastResponse.status} ${lastResponse.statusText}`)
       : describeFetchError(lastError);
     if (attempt < fetchAttempts) {
       console.warn(
