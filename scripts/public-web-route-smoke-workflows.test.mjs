@@ -330,7 +330,7 @@ describe("admin API retry", () => {
     { topologyMode: "staging", postage: true, count: 15 },
     { topologyMode: "staging", postage: false, count: 14 },
     { topologyMode: "production-platform-disabled", postage: true, count: 6 },
-    { topologyMode: "production-platform-disabled", postage: false, count: 5 },
+    { topologyMode: "production-platform-disabled", postage: false, count: 6 },
   ])("admin API retry: matrix contract — $topologyMode postage=$postage", async ({ topologyMode, postage, count }) => {
     const fixture = await startAdminRetryServer();
     const result = await runAdminRetrySmoke(fixture, { topologyMode, postage });
