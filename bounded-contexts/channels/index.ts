@@ -1,4 +1,5 @@
 export { default as contextManifest } from "./context.json" with { type: "json" };
+export { type ChannelEnvironment } from "./features/connections/domain/contracts";
 export { channelProviderRegistry, createChannelProviderRegistry } from "./features/publication-port/api/registry";
 export { createChannelListingCompositionRuntime } from "./features/listing-composition/api/runtime";
 export { type ChannelListingCompositionServices } from "./features/listing-composition/api/runtime";
@@ -53,7 +54,6 @@ export {
   type ParseChannelListingCompositionInputResult,
 } from "./features/listing-composition/domain/contracts";
 export { type ChannelListingReconciliationScope } from "./features/listing-composition/domain/reconciliation";
-export { type ChannelEnvironment } from "./features/connections/domain/contracts";
 export {
   channelExecutionModes,
   channelPublicationRejectionCodes,
@@ -75,56 +75,6 @@ export {
   type ResolvedChannelPublication,
   type UpdatePriceQuantityInput,
 } from "./features/publication-port/domain/contracts";
-export {
-  createTcgplayerCsvRuntime,
-  type ComposeTcgplayerSyncRunInput,
-  type IngestTcgplayerExportSnapshotInput,
-  type RunFenceInput,
-  type TcgplayerCsvRuntimeDependencies,
-  type TcgplayerCsvServices,
-} from "./features/tcgplayer-csv/api/runtime";
-export {
-  composeTcgplayerReservation,
-  planStagedImportBatches,
-  type ComposedTcgplayerReservation,
-  type ComposeTcgplayerReservationInput,
-} from "./features/tcgplayer-csv/domain/composition";
-export { parseTcgplayerFullExport } from "./features/tcgplayer-csv/domain/csv";
-export {
-  channelExportCompletenessStates,
-  channelExportSurfaces,
-  channelSyncRunMemberKinds,
-  channelSyncRunStates,
-  channelSyncRunTriggers,
-  tcgplayerLocalRefusalReasons,
-  tcgplayerRowRefusalReasons,
-  type ChannelExportCompleteness,
-  type ChannelExportSchemaDescriptor,
-  type ChannelExportSchemaPin,
-  type ChannelExportSurface,
-  type ChannelInventorySnapshot,
-  type ChannelInventorySnapshotRow,
-  type ChannelSyncRun,
-  type ChannelSyncRunComposedEvent,
-  type ChannelSyncRunEvent,
-  type ChannelSyncRunMember,
-  type ChannelSyncRunMemberKind,
-  type ChannelSyncRunState,
-  type ChannelSyncRunTransitionedEvent,
-  type ChannelSyncRunTrigger,
-  type ManualClaimLeasePolicySnapshot,
-  type StagedImportBatch,
-  type TcgplayerExportIngestLimits,
-  type TcgplayerExportParseResult,
-  type TcgplayerImportSummary,
-  type TcgplayerLocalRefusalReason,
-  type TcgplayerRowRefusalReason,
-} from "./features/tcgplayer-csv/domain/contracts";
-export { channelSyncRunTransitions, decideChannelSyncRunTransition } from "./features/tcgplayer-csv/domain/lifecycle";
-export { tcgplayerStagedImportPolicy } from "./features/tcgplayer-csv/domain/policy";
-export { tcgplayerExportSchemaDescriptors } from "./features/tcgplayer-csv/domain/profile";
-export { readLatestSnapshotRows, readRun } from "./features/tcgplayer-csv/read-model/queries";
-
 import {
   buildEventReactionsFromManifest,
   buildEventSubscriptionsFromManifest,
@@ -162,10 +112,7 @@ import { channelProviderRegistry } from "./features/publication-port/api/registr
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createOutboundSyncRuntime } from "./features/outbound-sync/api/runtime";
 import { outboundOperationBudgetPolicy } from "./features/outbound-sync/domain/policy";
-import {
-  buildChannelOutboundOperationReactionHandlers,
-  createChannelListingPublicationOutcomeRecorder,
-} from "./features/outbound-sync/integrations/listing-composition";
+import { createChannelListingPublicationOutcomeRecorder } from "./features/outbound-sync/integrations/listing-composition";
 import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "./features/outbound-sync/read-model/schema";
 import { createTcgplayerCsvRuntime } from "./features/tcgplayer-csv/api/runtime";
 import { tcgplayerCompositionProfiles } from "./features/tcgplayer-csv/domain/profile";
@@ -184,19 +131,31 @@ import type { ChannelsServices } from "./support/runtime-support/services";
 import { createConnectionHealthRuntime } from "./features/connection-health/api/runtime";
 import { resolveChannelHealthPolicy } from "./features/connection-health/api/policy";
 import { channelHealthSchemaMigrations, channelHealthSchemaSql } from "./features/connection-health/read-model/schema";
+import type { MarketplaceChannelInboundClampCapability } from "./support/request-support/marketplace-channel-inbound-clamp";
+import { createManualSyncRuntime } from "./features/manual-sync/api/runtime";
+import { inspectManualSyncSeedState, seedManualSyncScenario } from "./features/manual-sync/api/seed";
+import { manualSyncSchemaMigrations, manualSyncSchemaSql } from "./features/manual-sync/read-model/schema";
+import { manualSyncRetentionExemptions } from "./features/manual-sync/read-model/retention-policy";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
+type ChannelsHostPorts = ChannelConnectionHostPorts &
+  Readonly<{ marketplaceChannelInboundClamp?: MarketplaceChannelInboundClampCapability }>;
 
-export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelConnectionHostPorts>({
+export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
     ...outboundSyncSchemaMigrations,
     ...tcgplayerCsvSchemaMigrations,
     ...channelHealthSchemaMigrations,
+    ...manualSyncSchemaMigrations,
   ],
+  retentionExemptions: manualSyncRetentionExemptions,
+  seedProfiles: ["scenario-seed"],
+  seed: (pool, services) => seedManualSyncScenario(pool, services),
+  inspectSeedState: inspectManualSyncSeedState,
   createServices: (pool, ports) => {
     const eventStore = createPostgresEventStore({
       pool,
@@ -249,12 +208,20 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       providerRegistry: channelProviderRegistry,
       compositionProfiles,
     });
+    const manualSync = createManualSyncRuntime({
+      db: pool,
+      connections,
+      tcgplayerCsv,
+      policies,
+      marketplaceClamp: ports?.marketplaceChannelInboundClamp ?? { kind: "not-mounted" },
+    });
     return {
       connections,
       connectionHealth,
       listingComposition,
       outboundSync,
       tcgplayerCsv,
+      manualSync,
       db: pool,
       projectors: [
         ...connections.projectors,
@@ -294,9 +261,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
         "inventory.channel-listing-desired-state-reaction": () =>
           buildChannelInventoryDesiredStateReactionHandlers(services.db, services.listingComposition),
         "channels.channel-listing-desired-state-reaction": () =>
-          buildChannelOwnedDesiredStateReactionHandlers(services.listingComposition),
-        "channels.channel-outbound-operation-enqueue": () =>
-          buildChannelOutboundOperationReactionHandlers(services.outboundSync),
+          buildChannelOwnedDesiredStateReactionHandlers(services.listingComposition, services.outboundSync),
       },
     }),
   ],

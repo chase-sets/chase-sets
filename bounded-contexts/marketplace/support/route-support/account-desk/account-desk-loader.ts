@@ -2,10 +2,11 @@ import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { aggregateSellerAttentionQueue, type SellerAttentionQueue } from "@chase-sets/seller-attention-queue";
+import { createForwardedAuthHeaders, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+import { SELLER_ATTENTION_SOURCES, type SellerAttentionSourceId } from "@chase-sets/seller-desk";
+import type { SellerAttentionQueue } from "@chase-sets/seller-attention-queue";
 import { createMarketplaceRequestApiClient } from "../../request-support/api-client";
 import { createOrderingOpenOrdersRequestApiClient } from "../../request-support/ordering-open-orders-api-client";
-import { createMarketplaceSellerAttentionSources } from "../../../features/seller-desk/read-model/seller-desk-attention";
 import type { SellerDeskKpis } from "../../../features/seller-desk/ui/contracts";
 
 const DEFAULT_QUERY = "limit=100&offset=0";
@@ -42,26 +43,15 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<SellerDes
   const openOrderCount = await loadBestEffort(() =>
     createOrderingOpenOrdersRequestApiClient(request).getSellerOpenOrderCount(),
   );
-
-  const sources = createMarketplaceSellerAttentionSources({
-    loadOfferMatches: async () => {
-      if (!offers.ok) {
-        throw new Error(t("marketplace.features.sellerDesk.degraded.offerReadFailed"));
-      }
-      return offers.value.items;
-    },
-    loadSellerListings: async () => {
-      if (!listings.ok) {
-        throw new Error(t("marketplace.features.sellerDesk.degraded.listingReadFailed"));
-      }
-      return listings.value.items;
-    },
+  const queueResult = await loadBestEffort(async () => {
+    const apiBase = resolveRequestApiBaseUrl(request, "/api/marketplace", { requireInternalApiOrigin: true });
+    const response = await fetch(`${apiBase}/account/seller-attention-queue`, {
+      headers: createForwardedAuthHeaders(request, undefined, { readTargetContextName: "marketplace" }),
+    });
+    if (!response.ok) throw new Error(`seller attention queue ${response.status}`);
+    return (await response.json()) as SellerAttentionQueue;
   });
-
-  const queue = await aggregateSellerAttentionQueue(sources, {
-    accountId: actor.accountId,
-    now: new Date().toISOString(),
-  });
+  const queue = queueResult.ok ? queueResult.value : unavailableQueue();
 
   const kpis: SellerDeskKpis = {
     activeListings: listings.ok ? listings.value.statusCounts.active : null,
@@ -73,6 +63,24 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<SellerDes
   };
 
   return { queue, kpis };
+}
+
+function unavailableQueue(): SellerAttentionQueue {
+  const bySource = Object.fromEntries(SELLER_ATTENTION_SOURCES.map((source) => [source.id, 0])) as Record<
+    SellerAttentionSourceId,
+    number
+  >;
+  return {
+    items: [],
+    rollup: { total: 0, bySeverity: { critical: 0, warning: 0, info: 0 }, bySource },
+    sources: SELLER_ATTENTION_SOURCES.map((source) => ({
+      id: source.id,
+      status: "unavailable" as const,
+      itemCount: 0,
+      reason: "seller attention queue unavailable",
+    })),
+    degraded: true,
+  };
 }
 
 export const meta: MetaFunction = () =>

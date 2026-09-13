@@ -240,9 +240,18 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
+      '@chase-sets/identity-seed':
+        specifier: workspace:*
+        version: link:../../contracts/identity-seed
+      '@chase-sets/inventory':
+        specifier: workspace:*
+        version: link:../inventory
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/marketplace':
+        specifier: workspace:*
+        version: link:../marketplace
       '@chase-sets/platform-policy':
         specifier: workspace:*
         version: link:../../infrastructure/platform-policy
@@ -252,6 +261,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/seller-attention-queue':
+        specifier: workspace:*
+        version: link:../../contracts/seller-attention-queue
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -799,6 +811,9 @@ importers:
       '@chase-sets/seller-attention-queue':
         specifier: workspace:*
         version: link:../../contracts/seller-attention-queue
+      '@chase-sets/seller-desk':
+        specifier: workspace:*
+        version: link:../../contracts/seller-desk
       hono:
         specifier: ^4.12.12
         version: 4.12.18

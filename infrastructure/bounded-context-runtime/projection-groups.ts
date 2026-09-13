@@ -573,10 +573,9 @@ function createDefaultProjectionGroupReset(
     return async (context, options) => {
       context?.throwIfLeaseLost?.();
       const truncateOwnedTables = async (db: PgQueryable) => {
-        for (const tableName of ownedTables) {
-          context?.throwIfLeaseLost?.();
-          await db.query(`TRUNCATE TABLE ${assertSqlIdentifier(tableName)}`);
-        }
+        if (ownedTables.length === 0) return;
+        context?.throwIfLeaseLost?.();
+        await db.query(`TRUNCATE TABLE ${ownedTables.map(assertSqlIdentifier).join(", ")}`);
       };
       if (options?.db) {
         await truncateOwnedTables(options.db);

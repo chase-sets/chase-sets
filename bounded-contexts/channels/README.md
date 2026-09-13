@@ -168,4 +168,5 @@ Attention #7930 and liveness #7933 own their downstream behavior.
 Run `pnpm --filter @chase-sets/channels run test:watch` for the watch-mode inner
 loop. Use `test:unit` for the finite non-database partition and `test:db` for the
 explicitly enrolled disposable-Postgres suites, including health replay, policy
-revision, generation interleavings and the complete day-after state matrix.
+revision, generation interleavings, the complete day-after state matrix, and
+manual-sync projection rebuild and seed scenarios.

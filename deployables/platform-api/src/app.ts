@@ -187,11 +187,25 @@ import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { apiContextRegistry } from "./generated/api-context-registry";
+import { createChannelActionAttentionSourceFromReadModel } from "@chase-sets/channels/server";
+import {
+  createMarketplaceChannelInboundClampCapability,
+  type MarketplaceChannelInboundClampCapability,
+  type MarketplaceChannelInboundClampPort,
+  type MarketplaceServices,
+} from "@chase-sets/marketplace/server";
 
 export type PlatformIdentityServices = Readonly<{
   auth: ReturnType<typeof authModule.createServices>;
   identity: ReturnType<typeof identityModule.createServices>;
 }>;
+
+export function createPlatformApiMarketplaceChannelInboundClampBinding(
+  mounted: boolean,
+  getServices: () => Readonly<{ channelInboundClamp: MarketplaceChannelInboundClampPort }> | undefined,
+): MarketplaceChannelInboundClampCapability {
+  return createMarketplaceChannelInboundClampCapability(mounted, getServices);
+}
 
 export type BuildPlatformApiOptions = Readonly<{
   runtimeProfile?: PlatformApiRuntimeProfile;
@@ -248,11 +262,17 @@ export function createPlatformApiHost(
   const fulfillmentPool = getPlatformApiPool(options.pools.fulfillment);
   const pricingPool = getPlatformApiPool(options.pools.pricing);
   const publicPresencePool = getPlatformApiPool(options.pools["public-presence"]);
+  const channelsPool = getPlatformApiPool(options.pools.channels);
   const sellerAttentionSources = [
     ...(fulfillmentPool ? [createShipByAttentionSourceFromReadModel(fulfillmentPool)] : []),
     ...(inventoryPool ? [createImportResolutionAttentionSourceFromReadModel(inventoryPool)] : []),
     ...(settlementPool ? [createBlockedPayoutAttentionSourceFromReadModel(settlementPool)] : []),
+    ...(channelsPool ? [createChannelActionAttentionSourceFromReadModel(channelsPool)] : []),
   ];
+  const marketplaceChannelInboundClamp = createPlatformApiMarketplaceChannelInboundClampBinding(
+    Boolean(marketplacePool),
+    () => runtime?.services.marketplace as MarketplaceServices | undefined,
+  );
   const opsMarketAnalyticsCrossContext: OpsMarketAnalyticsCrossContextPort | undefined = pricingPool
     ? {
         getPlatformGmvSeries: (params) => getPlatformGmvSeries(pricingPool, params),
@@ -565,6 +585,7 @@ export function createPlatformApiHost(
       draftListingCreator,
       inventoryCleanupAuthority,
       inventorySavedListImportBatchCreator,
+      marketplaceChannelInboundClamp,
       ...(pricingHostPorts ?? {}),
     },
   });

@@ -55,6 +55,12 @@ export function resolveAttentionSummary(item: SellerAttentionItem): string {
       return t("marketplace.features.sellerDesk.summary.offerAwaitingResponse", params);
     case "listing-needs-action":
       return t("marketplace.features.sellerDesk.summary.listingNeedsAction", params);
+    case "channel-ready":
+      return t("channels.manualSync.attention.ready", params);
+    case "channel-unknown":
+      return t("channels.manualSync.attention.unknown", params);
+    case "channel-recovery":
+      return t("channels.manualSync.attention.recovery", params);
     default:
       return t("marketplace.features.sellerDesk.summary.fallback");
   }
@@ -70,6 +76,8 @@ export function attentionActionLabel(source: SellerAttentionSourceId): string {
       return t("marketplace.features.sellerDesk.action.payoutLink");
     case "inventory-resolution":
       return t("marketplace.features.sellerDesk.action.resolutionLink");
+    case "channel-action":
+      return t("channels.manualSync.attention.action");
     case "offer-response":
       return t("marketplace.features.sellerDesk.action.offerLink");
     case "listing-action":
@@ -89,6 +97,8 @@ export function attentionSourceLabel(source: SellerAttentionSourceId): string {
       return t("marketplace.features.sellerDesk.source.settlementBlockedPayout");
     case "inventory-resolution":
       return t("marketplace.features.sellerDesk.source.inventoryResolution");
+    case "channel-action":
+      return t("channels.manualSync.attention.source");
     case "offer-response":
       return t("marketplace.features.sellerDesk.source.offerResponse");
     case "listing-action":
