@@ -423,11 +423,31 @@ describe("admin API retry", () => {
     expect(fixture.sockets.size).toBe(0);
   });
 
-  it("admin API retry: body disposal — absent body is safe", async () => {
-    const fixture = await startAdminRetryServer({ [authProbePath]: () => ({ status: 503, contentType: "text/html" }) });
+  it.each([true, false])("admin API retry: body disposal — absent body accepted=%s", async (accepted) => {
+    const fixture = await startAdminRetryServer({
+      [authProbePath]: () => ({ status: 503, contentType: accepted ? "application/json" : "text/html" }),
+    });
     const result = await runAdminRetrySmoke(fixture, { absentBody: true });
-    expectRetryCount(result, fixture, authProbePath, 3, false);
-    expect(result.events.filter((event) => event.kind === "absent-body")).toHaveLength(3);
+    expectRetryCount(result, fixture, authProbePath, accepted ? 1 : 3, accepted);
+    expect(result.events.filter((event) => event.kind === "absent-body")).toHaveLength(accepted ? 1 : 3);
+  });
+
+  it.each([
+    { name: "wrong page type", contentType: "application/json", body: "{}", reason: "instead of HTML" },
+    {
+      name: "missing page text",
+      contentType: "text/html",
+      body: "<html></html>",
+      reason: "did not include expected text",
+    },
+  ])("admin API retry: matrix contract — preserves $name failure", async ({ contentType, body, reason }) => {
+    const pagePath = "/commerce/terms/schedules";
+    const fixture = await startAdminRetryServer({ [pagePath]: () => ({ contentType, body }) });
+    const result = await runAdminRetrySmoke(fixture);
+    expectRetryCount(result, fixture, pagePath, 1, false);
+    expect(result.stderr).toContain(reason);
+    expect(fixture.requests.some((request) => request.path === authProbePath)).toBe(false);
+    expect(result.events.some((event) => event.kind === "cancel-start" && event.path === pagePath)).toBe(false);
   });
 
   it("admin API retry: body disposal — cancellation rejection cannot yield success", async () => {

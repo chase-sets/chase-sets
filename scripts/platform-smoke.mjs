@@ -166,7 +166,7 @@ async function fetchWithRetry(label, input, init, isSuccess, describeRejection) 
       );
       await delay(fetchRetryDelayMs);
     } else {
-      throw new Error(`${label} failed for ${input}: ${detail}.`);
+      throw new Error(`${label} failed for ${input}${lastResponse ? ` with ${detail}.` : `: ${detail}`}`);
     }
   }
 }
