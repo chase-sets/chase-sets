@@ -236,7 +236,7 @@ function printCommandDiagnostics(spec, entry, ordinal, result, error = null) {
     return { retainedBytes: Buffer.byteLength(text, "utf8"), text };
   };
   const code = error?.code;
-  console.log(
+  console.error(
     `CI-local command diagnostics: ${JSON.stringify({
       gateId: entry.id,
       gateName: entry.name,
