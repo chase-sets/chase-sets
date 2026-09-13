@@ -288,18 +288,9 @@ async function staleObservation(
   if (previous && previous.fingerprint !== observation.fingerprint && observation.outcome === "success") return true;
   const result = await db.query(
     `SELECT 1 FROM channel_health_observations
-    WHERE (source_kind = $1 AND source_work_id = $2 AND source_attempt > $3)
-       OR (connection_id = $4 AND reason_code = $5 AND fingerprint = $6 AND reason_generation < $7)
+    WHERE source_kind = $1 AND source_work_id = $2 AND source_attempt > $3
     LIMIT 1`,
-    [
-      observation.sourceKind,
-      observation.sourceWorkId,
-      observation.sourceAttempt,
-      observation.connectionId,
-      observation.reasonCode,
-      observation.fingerprint,
-      previous?.generation ?? 1,
-    ],
+    [observation.sourceKind, observation.sourceWorkId, observation.sourceAttempt],
   );
   return result.rows.length > 0;
 }

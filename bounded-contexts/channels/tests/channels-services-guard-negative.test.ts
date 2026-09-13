@@ -1,7 +1,15 @@
-import { describe, expect, it } from "vitest";
-import { channelsServicesMembers, isChannelsServices } from "../support/runtime-support/services";
+import { describe, expect, it, vi } from "vitest";
+import {
+  channelsServicesMembers,
+  isChannelsServices,
+  type ChannelsServices,
+} from "../support/runtime-support/services";
 
 describe("channels-services-guard-negative", () => {
+  it("accepts the complete aggregate candidate", () => {
+    expect(isChannelsServices(validCandidate())).toBe(true);
+  });
+
   it.each([null, undefined, false, 0, "channels", []])("rejects non-aggregate input %s", (candidate) => {
     expect(isChannelsServices(candidate)).toBe(false);
   });
@@ -47,6 +55,7 @@ describe("channels-services-guard-negative", () => {
 function validCandidate() {
   return {
     connections: { getConnection: async () => null },
+    connectionHealth: { submitObservation: vi.fn(), readConnectionHealth: vi.fn(), listOpenReasonGenerations: vi.fn() },
     listingComposition: {},
     outboundSync: {
       recoverExpiredClaimedOperations: async () => 0,
@@ -55,5 +64,5 @@ function validCandidate() {
     tcgplayerCsv: {},
     projectors: [],
     db: {},
-  };
+  } satisfies Record<keyof ChannelsServices, unknown>;
 }

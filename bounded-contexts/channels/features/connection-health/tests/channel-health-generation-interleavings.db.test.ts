@@ -1,12 +1,70 @@
 import { expect, it } from "vitest";
 import { channelConnectionStatuses } from "../../connections/domain/contracts";
 import { healthDigest } from "../domain/identity";
+import { decodeChannelHealthChanged } from "../domain/codecs";
 import { channelHealthStates } from "../domain/contracts";
 import { writeHealthSnapshot } from "../read-model/store";
 import { context, describeDb, healthDatabase } from "./test-support";
 
 describeDb("channel-health-generation-interleavings", () => {
   const h = healthDatabase("health_generations");
+  it.each([
+    { fingerprint: "A", generation: 3, failures: 1, facts: 3 },
+    { fingerprint: "C", generation: 3, failures: 1, facts: 3 },
+    { fingerprint: "B", generation: 2, failures: 2, facts: 2 },
+  ])("accepts A -> B -> $fingerprint with durable generation $generation", async (expected) => {
+    const id = await h.connection();
+    const first = await h.observation(id, "polling", { fingerprint: healthDigest("synthetic-A") });
+    const second = { ...first, sourceAttempt: 2, fingerprint: healthDigest("synthetic-B") };
+    const third = {
+      ...first,
+      sourceAttempt: 3,
+      fingerprint: healthDigest(`synthetic-${expected.fingerprint}`),
+    };
+    expect((await h.services.connectionHealth.submitObservation(first, context)).outcome).toBe("accepted");
+    expect((await h.services.connectionHealth.submitObservation(second, context)).outcome).toBe("accepted");
+    const result = await h.services.connectionHealth.submitObservation(third, context);
+    expect(result.outcome).toBe("accepted");
+    const reason = {
+      reasonCode: "polling",
+      fingerprint: third.fingerprint,
+      generation: expected.generation,
+      state: "degraded",
+      consecutiveFailures: expected.failures,
+      trailingFailures: expected.failures,
+      opening: {
+        sourceWorkId: first.sourceWorkId,
+        sourceAttempt: expected.generation === 3 ? 3 : 2,
+        occurredAt: first.occurredAt,
+      },
+    };
+    expect(result.health.health.reasons).toEqual([expect.objectContaining(reason)]);
+    expect((await h.services.connectionHealth.readConnectionHealth(h.query(id))).health.reasons).toEqual([
+      expect.objectContaining(reason),
+    ]);
+    const ledger = await h.db.query<{ reason_generation: string; observation: unknown }>(
+      `SELECT reason_generation, observation FROM channel_health_observations
+      WHERE connection_id = $1 ORDER BY source_attempt`,
+      [id],
+    );
+    expect(ledger.rows).toEqual([
+      { reason_generation: "1", observation: first },
+      { reason_generation: "2", observation: second },
+      { reason_generation: String(expected.generation), observation: third },
+    ]);
+    const facts = await h.db.query<{ payload: unknown }>(
+      "SELECT payload FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version",
+      [`channels.connection-health-${id}`],
+    );
+    expect(facts.rows).toHaveLength(expected.facts);
+    expect(decodeChannelHealthChanged(facts.rows.at(-1)!.payload)).toMatchObject({
+      connection: h.query(id),
+      reasonCode: "polling",
+      generation: expected.generation,
+      diagnosticCode: "reason-opened",
+    });
+  });
+
   it("retains opening lineage and rejects stale success, old fingerprints and old attempts", async () => {
     const id = await h.connection();
     const first = await h.observation(id);
