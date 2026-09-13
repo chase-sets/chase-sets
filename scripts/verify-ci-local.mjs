@@ -250,8 +250,8 @@ function printCommandDiagnostics(spec, entry, ordinal, result, error = null) {
       capture: incomplete ? "incomplete" : "complete",
       // Retained lengths describe UTF-8 diagnostic text, never an inferred total
       // produced length. Null text distinguishes unavailable from an empty stream.
-      stdout: stream(source?.stdout),
-      stderr: stream(source?.stderr),
+      stdout: stream(""),
+      stderr: stream(""),
     })}`,
   );
 }
