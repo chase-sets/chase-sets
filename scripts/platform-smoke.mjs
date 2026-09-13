@@ -133,7 +133,7 @@ function createSmokePagePath() {
   return `/?${params.toString()}`;
 }
 
-async function fetchWithRetry(label, input, init, isSuccess) {
+async function fetchWithRetry(label, input, init, isSuccess, describeRejection) {
   let lastError;
   let lastResponse;
 
@@ -145,26 +145,30 @@ async function fetchWithRetry(label, input, init, isSuccess) {
       }
 
       lastResponse = response;
-      lastError = new Error(`${response.status} ${response.statusText}`);
     } catch (error) {
       lastError = error;
       lastResponse = undefined;
     }
 
+    if (lastResponse) {
+      try {
+        await lastResponse.body?.cancel();
+      } catch {
+        throw new Error(`${label} failed for ${input} with ${lastResponse.status}: response body cancellation failed.`);
+      }
+    }
+    const detail = lastResponse
+      ? (describeRejection?.(lastResponse) ?? `${lastResponse.status} ${lastResponse.statusText}`)
+      : describeFetchError(lastError);
     if (attempt < fetchAttempts) {
-      const detail = lastResponse ? `${lastResponse.status} ${lastResponse.statusText}` : describeFetchError(lastError);
       console.warn(
         `${label} attempt ${attempt}/${fetchAttempts} failed for ${input}: ${detail}; retrying in ${fetchRetryDelayMs}ms.`,
       );
       await delay(fetchRetryDelayMs);
+    } else {
+      throw new Error(`${label} failed for ${input}${lastResponse ? ` with ${detail}.` : `: ${detail}`}`);
     }
   }
-
-  if (lastResponse) {
-    throw new Error(`${label} failed for ${input} with ${lastResponse.status} ${lastResponse.statusText}.`);
-  }
-
-  throw new Error(`${label} failed for ${input}: ${describeFetchError(lastError)}`);
 }
 
 async function expectOk(label, input, init) {
@@ -243,12 +247,12 @@ async function expectAdminApiProbe({ adminOrigin, sessionToken, probe }) {
         Authorization: `Bearer ${sessionToken}`,
       },
     },
-    (candidate) => probe.expectedStatuses.includes(candidate.status),
+    (candidate) =>
+      probe.expectedStatuses.includes(candidate.status) &&
+      probe.expectedContentTypes.some((expected) => (candidate.headers.get("content-type") ?? "").includes(expected)),
+    (candidate) =>
+      `${candidate.status} ${probe.expectedStatuses.includes(candidate.status) ? "content-type mismatch" : "unexpected status"}`,
   );
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!probe.expectedContentTypes.some((expected) => contentType.includes(expected))) {
-    throw new Error(`${probe.id} ${probe.path} returned '${contentType}' instead of controlled API/stream content.`);
-  }
 
   await response.body?.cancel();
 }
@@ -698,5 +702,5 @@ async function main() {
 
 void main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+  process.exitCode = 1;
 });
