@@ -4,6 +4,7 @@ import {
   CurrencyInput,
   Form,
   HiddenInput,
+  LinkButton,
   PriceBreakdown,
   ProgressiveDisclosure,
   Stack,
@@ -31,6 +32,19 @@ function unavailableReasons(wallet: SettlementWalletRow, readiness: SettlementPa
     reasons.push(payoutUnavailableReasonLabel("no-available-wallet-balance"));
   }
   return reasons;
+}
+
+function PayoutFeeDisclosureLinks() {
+  return (
+    <Stack gap={2}>
+      <LinkButton href="/payments-terms#payout-fee" tone="secondary" size="sm">
+        {t("settlement.features.payouts.ui.payoutFeeTerms")}
+      </LinkButton>
+      <LinkButton href="/seller-agreement#fees-and-deductions" tone="secondary" size="sm">
+        {t("settlement.features.payouts.ui.sellerFeesAndDeductions")}
+      </LinkButton>
+    </Stack>
+  );
 }
 
 export function SettlementPayoutRequestPanel({
@@ -92,6 +106,7 @@ export function SettlementPayoutRequestPanel({
             </Stack>
           </ProgressiveDisclosure>
         ) : null}
+        <PayoutFeeDisclosureLinks />
         <Form spacing="none" method="post">
           <HiddenInput type="hidden" name="intent" value="confirm-payout" />
           <HiddenInput type="hidden" name="amount" value={confirmation.amount} />
@@ -177,6 +192,7 @@ export function SettlementPayoutRequestPanel({
             disabled={!canRequest}
           />
         </ProgressiveDisclosure>
+        <PayoutFeeDisclosureLinks />
         <Button type="submit" disabled={!canRequest}>
           {t("settlement.features.moneyDashboard.ui.previewPayout")}
         </Button>
