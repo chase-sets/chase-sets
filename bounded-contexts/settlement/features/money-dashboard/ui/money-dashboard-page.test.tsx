@@ -110,6 +110,8 @@ describe("SettlementMoneyDashboardPage", () => {
     expect(html).toContain("1 payout needs attention");
     expect(html).toContain("Review the recent payout failure before requesting more funds.");
     expect(html).toContain("Retry payout");
+    expect(html).toContain('href="/payments-terms#payout-fee"');
+    expect(html).toContain('href="/seller-agreement#fees-and-deductions"');
     expect(html).toContain("Contact support");
     expect(html).toContain(
       'data-testid="payout-request-entity" class="ds-glass rounded-tokenLg border border-muted shadow-tokenSm overflow-hidden p-4"',
@@ -176,6 +178,8 @@ describe("SettlementMoneyDashboardPage", () => {
     expect(html).toContain("Requested amount");
     expect(html).toContain("Payout fee");
     expect(html).toContain("Net payout");
+    expect(html).toContain('href="/payments-terms#payout-fee"');
+    expect(html).toContain('href="/seller-agreement#fees-and-deductions"');
     expect(html).toContain("$12.50");
     expect(html).toContain("$0.29");
     expect(html).toContain("$12.21");
