@@ -236,7 +236,7 @@ function printCommandDiagnostics(spec, entry, ordinal, result, error = null) {
     return { retainedBytes: Buffer.byteLength(text, "utf8"), text };
   };
   const code = error?.code;
-  console.error(
+  console.log(
     `CI-local command diagnostics: ${JSON.stringify({
       gateId: entry.id,
       gateName: entry.name,
@@ -381,7 +381,7 @@ export function executeGateEntries({
       try {
         const result = executor(spec, entry);
         evidence = resultEvidence(result);
-        if (evidence !== "PASSED") printCommandDiagnostics(commands[0], entry, 1, result);
+        if (evidence !== "PASSED") printCommandDiagnostics(spec, entry, index + 1, result);
       } catch (error) {
         printCommandDiagnostics(spec, entry, index + 1, null, error);
         errors.push(receiptError("EXECUTOR_FAILURE", String(error?.message ?? error), entry.id));
