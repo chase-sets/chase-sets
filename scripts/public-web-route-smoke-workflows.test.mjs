@@ -159,10 +159,8 @@ function runPlatformSmoke(baseUrl, { env = {}, observer = "" } = {}) {
       SMOKE_WRITE_WAITLIST: "false",
       ...env,
     },
-    stdio: ["ignore", "pipe", "pipe", "ipc"],
+    stdio: ["ignore", "pipe", "pipe"],
   });
-  const events = [];
-  child.on("message", (event) => events.push(event));
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8");
@@ -184,6 +182,10 @@ function runPlatformSmoke(baseUrl, { env = {}, observer = "" } = {}) {
     });
     child.once("close", (code, signal) => {
       clearTimeout(timer);
+      const events = stdout
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("[admin-retry-observer]"))
+        .map((line) => JSON.parse(line.slice("[admin-retry-observer]".length)));
       resolve({ code, signal, stdout, stderr, events });
     });
   });
@@ -240,8 +242,8 @@ async function startAdminRetryServer(overrides = {}) {
 // Observe the real CLI's native fetch/cancel/timer boundaries without replacing its contract.
 function adminRetryObserver({ absentBody = false, cancellationFailure = false } = {}) {
   return `
-    const send = (event) => process.send(event);
-    process.channel.unref();
+    import { writeSync } from "node:fs";
+    const send = (event) => writeSync(1, "[admin-retry-observer]" + JSON.stringify(event) + "\\n");
     const nativeTimer = globalThis.setTimeout;
     globalThis.setTimeout = (callback, milliseconds, ...args) => {
       if (milliseconds === 7) send({ kind: "retry-delay" });
