@@ -1,12 +1,14 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ChannelConnectionServices } from "../../features/connections/domain/contracts";
+import type { ConnectionHealthServices } from "../../features/connection-health/domain/contracts";
 import type { ChannelListingCompositionServices } from "../../features/listing-composition/api/runtime";
 import type { OutboundSyncServices } from "../../features/outbound-sync/domain/contracts";
 import type { TcgplayerCsvServices } from "../../features/tcgplayer-csv/api/runtime";
 
 export type ChannelsServices = Readonly<{
   connections: ChannelConnectionServices;
+  connectionHealth: ConnectionHealthServices;
   listingComposition: ChannelListingCompositionServices;
   outboundSync: OutboundSyncServices;
   tcgplayerCsv: TcgplayerCsvServices;
@@ -16,6 +18,7 @@ export type ChannelsServices = Readonly<{
 
 export const channelsServicesMembers = defineChannelsServicesMembers([
   "connections",
+  "connectionHealth",
   "listingComposition",
   "outboundSync",
   "tcgplayerCsv",
@@ -27,6 +30,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   if (!isObject(value) || !channelsServicesMembers.every((member) => Object.hasOwn(value, member))) return false;
 
   const connections = Reflect.get(value, "connections");
+  const connectionHealth = Reflect.get(value, "connectionHealth");
   const listingComposition = Reflect.get(value, "listingComposition");
   const outboundSync = Reflect.get(value, "outboundSync");
   const tcgplayerCsv = Reflect.get(value, "tcgplayerCsv");
@@ -36,6 +40,10 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   return (
     isObject(connections) &&
     typeof Reflect.get(connections, "getConnection") === "function" &&
+    isObject(connectionHealth) &&
+    typeof Reflect.get(connectionHealth, "submitObservation") === "function" &&
+    typeof Reflect.get(connectionHealth, "readConnectionHealth") === "function" &&
+    typeof Reflect.get(connectionHealth, "listOpenReasonGenerations") === "function" &&
     isObject(listingComposition) &&
     isObject(outboundSync) &&
     typeof Reflect.get(outboundSync, "recoverExpiredClaimedOperations") === "function" &&

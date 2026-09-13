@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { ChannelsServices } from "@chase-sets/channels/server";
 import { describe, expect, it, vi } from "vitest";
 import { createChannelsOutboundRunners } from "../src/channels-outbound-runners";
 
@@ -80,10 +81,15 @@ function validChannelsCandidate(
 ) {
   return {
     connections: { getConnection: async () => null },
+    connectionHealth: {
+      submitObservation: vi.fn(),
+      readConnectionHealth: vi.fn(),
+      listOpenReasonGenerations: vi.fn(),
+    },
     listingComposition: {},
     outboundSync,
     tcgplayerCsv: {},
     projectors: [],
     db: {},
-  };
+  } satisfies Record<keyof ChannelsServices, unknown>;
 }

@@ -16,6 +16,7 @@ describe("channel-publication-port-scope-fence", () => {
       "listing-composition",
       "tcgplayer-csv",
       "outbound-sync",
+      "connection-health",
     ]);
     expect(manifest.hostPorts).toEqual([]);
     expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support"]);
