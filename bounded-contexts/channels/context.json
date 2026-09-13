@@ -3,6 +3,7 @@
   "packageName": "@chase-sets/channels",
   "ownedNouns": [
     "channel-connection",
+    "channel-health",
     "channel-publication-facts",
     "channel-composition-profile",
     "channel-publication-settings",
@@ -14,7 +15,14 @@
   ],
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
-  "slices": ["connections", "publication-port", "listing-composition", "tcgplayer-csv", "outbound-sync"],
+  "slices": [
+    "connections",
+    "publication-port",
+    "listing-composition",
+    "tcgplayer-csv",
+    "outbound-sync",
+    "connection-health"
+  ],
   "allowedSupportDirectories": ["request-support", "runtime-support"],
   "publicExports": [".", "./context", "./server", "./routes/*"],
   "allowedContextDependencies": [],
@@ -453,6 +461,11 @@
     }
   ],
   "directoryIntent": {
+    "connection-health": {
+      "classification": "slice",
+      "purpose": "Own connection-health observations, policy, reason generations, facts, and system pause reads.",
+      "expectedConsumers": ["Channels health producers and outbound hold readers"]
+    },
     "connections": {
       "classification": "slice",
       "purpose": "Own the connections slice lifecycle, setup authority, HTTP contract, and projection.",

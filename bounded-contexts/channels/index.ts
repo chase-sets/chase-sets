@@ -181,17 +181,21 @@ import {
   channelConnectionSchemaSql,
 } from "./features/connections/read-model/schema";
 import type { ChannelsServices } from "./support/runtime-support/services";
+import { createConnectionHealthRuntime } from "./features/connection-health/api/runtime";
+import { resolveChannelHealthPolicy } from "./features/connection-health/api/policy";
+import { channelHealthSchemaMigrations, channelHealthSchemaSql } from "./features/connection-health/read-model/schema";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
 
 export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelConnectionHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
     ...outboundSyncSchemaMigrations,
     ...tcgplayerCsvSchemaMigrations,
+    ...channelHealthSchemaMigrations,
   ],
   createServices: (pool, ports) => {
     const eventStore = createPostgresEventStore({
@@ -210,6 +214,11 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     );
     const compositionProfiles = createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles);
     const policies = createPolicyRuntime({ eventStore, db: pool });
+    const connectionHealth = createConnectionHealthRuntime({
+      db: pool,
+      eventStore,
+      resolvePolicy: (db, at) => resolveChannelHealthPolicy(eventStore, db, at),
+    });
     const listingComposition = createChannelListingCompositionRuntime({
       eventStore,
       transactionalEventStore: eventStore,
@@ -242,6 +251,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     });
     return {
       connections,
+      connectionHealth,
       listingComposition,
       outboundSync,
       tcgplayerCsv,
