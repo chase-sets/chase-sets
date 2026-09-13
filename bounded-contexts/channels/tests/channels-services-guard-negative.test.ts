@@ -16,6 +16,7 @@ describe("channels-services-guard-negative", () => {
 
   it.each(channelsServicesMembers)("rejects missing or invalid %s", (member) => {
     const candidate = validCandidate();
+    expect(isChannelsServices(candidate)).toBe(true);
     const missing = Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== member));
     expect(isChannelsServices(missing)).toBe(false);
     expect(isChannelsServices({ ...candidate, [member]: null })).toBe(false);
@@ -36,6 +37,7 @@ describe("channels-services-guard-negative", () => {
 
   it("rejects every omitted consumer method", () => {
     const candidate = validCandidate();
+    expect(isChannelsServices(candidate)).toBe(true);
     expect(isChannelsServices({ ...candidate, connections: {} })).toBe(false);
     expect(
       isChannelsServices({
@@ -50,6 +52,19 @@ describe("channels-services-guard-negative", () => {
       }),
     ).toBe(false);
   });
+
+  it.each(["submitObservation", "readConnectionHealth", "listOpenReasonGenerations"] as const)(
+    "rejects an omitted or invalid health %s without losing manual sync",
+    (member) => {
+      const candidate = validCandidate();
+      expect(isChannelsServices(candidate)).toBe(true);
+      const missing = Object.fromEntries(Object.entries(candidate.connectionHealth).filter(([key]) => key !== member));
+      expect(isChannelsServices({ ...candidate, connectionHealth: missing })).toBe(false);
+      expect(
+        isChannelsServices({ ...candidate, connectionHealth: { ...candidate.connectionHealth, [member]: null } }),
+      ).toBe(false);
+    },
+  );
 });
 
 function validCandidate() {

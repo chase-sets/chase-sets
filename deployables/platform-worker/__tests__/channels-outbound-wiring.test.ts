@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { ChannelsServices } from "@chase-sets/channels/server";
+import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   createChannelsOutboundRunners,
@@ -25,6 +25,8 @@ describe("Channels outbound worker wiring", () => {
 
   it("registers nothing when Channels service validation fails", () => {
     const config = { workerId: "worker-1", channelsOutboundOperationLaneCount: 2 };
+    const candidate = validChannelsCandidate();
+    expect(isChannelsServices(candidate)).toBe(true);
     const outboundOnly = {
       channels: {
         outboundSync: {
@@ -36,7 +38,7 @@ describe("Channels outbound worker wiring", () => {
     const connectionsOnly = { channels: { connections: { getConnection: async () => null } } };
     const missingUsedMethod = {
       channels: {
-        ...validChannelsCandidate(),
+        ...candidate,
         outboundSync: { recoverExpiredClaimedOperations: async () => 0 },
       },
     };
@@ -45,6 +47,17 @@ describe("Channels outbound worker wiring", () => {
     expect(createChannelsOutboundRunners(connectionsOnly, config)).toEqual([]);
     expect(createChannelsOutboundRunners(missingUsedMethod, config)).toEqual([]);
   });
+
+  it.each(["connectionHealth", "manualSync"] as const)(
+    "requires the integrated %s service before running",
+    (member) => {
+      const candidate = validChannelsCandidate();
+      const config = { workerId: "worker-1", channelsOutboundOperationLaneCount: 2 };
+      expect(createChannelsOutboundRunners({ channels: candidate }, config)).toHaveLength(2);
+      const missing = Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== member));
+      expect(createChannelsOutboundRunners({ channels: missing }, config)).toEqual([]);
+    },
+  );
 
   it("retains the exact configured runner set for a valid aggregate", async () => {
     const recoverExpiredClaimedOperations = vi.fn(async () => 2);
