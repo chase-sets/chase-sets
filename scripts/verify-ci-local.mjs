@@ -250,8 +250,8 @@ function printCommandDiagnostics(spec, entry, ordinal, result, error = null) {
       capture: incomplete ? "incomplete" : "complete",
       // Retained lengths describe UTF-8 diagnostic text, never an inferred total
       // produced length. Null text distinguishes unavailable from an empty stream.
-      stdout: stream(""),
-      stderr: stream(""),
+      stdout: stream(source?.stdout),
+      stderr: stream(source?.stderr),
     })}`,
   );
 }
@@ -381,7 +381,7 @@ export function executeGateEntries({
       try {
         const result = executor(spec, entry);
         evidence = resultEvidence(result);
-        if (evidence !== "PASSED") printCommandDiagnostics(spec, entry, index + 1, result);
+        if (evidence !== "PASSED") printCommandDiagnostics(commands[0], entry, 1, result);
       } catch (error) {
         printCommandDiagnostics(spec, entry, index + 1, null, error);
         errors.push(receiptError("EXECUTOR_FAILURE", String(error?.message ?? error), entry.id));
