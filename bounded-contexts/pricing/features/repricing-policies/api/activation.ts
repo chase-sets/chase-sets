@@ -1,6 +1,11 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { withPgTransaction, type PgTransactionalPool, type PostgresEventStore } from "@chase-sets/event-core-postgres";
+import {
+  withPgTransaction,
+  type PgPoolClient,
+  type PgTransactionalPool,
+  type PostgresEventStore,
+} from "@chase-sets/event-core-postgres";
 import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
 import {
   hashRepricingDryRunBody,
@@ -33,7 +38,7 @@ export function createRepricingPolicyActivationServices(
       input: Readonly<{ accountId: string; dryRunId: string; name: string }>,
       context: EventStoreContext,
     ) =>
-      withPgTransaction(deps.pool, async (client) => {
+      withPgTransaction(deps.pool, async (client: PgPoolClient) => {
         const run = (
           await client.query<{
             body: RepricingDryRunBody;
