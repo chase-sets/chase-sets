@@ -7,7 +7,7 @@ The default inner loop is watch mode: iterate with `pnpm --filter @chase-sets/<w
 - Never dump the full environment (e.g. `Get-ChildItem Env:`, `env`) to output.
 - Never dump a whole directory tree; list a specific path or use a filtered glob.
 - Read files in ranges (`Get-Content -TotalCount`/`-Skip`, `sed -n`); never read a file `-Raw` above about 200 lines.
-- Search with `rg -n --max-count` or `rg -l` first, then open only the specific ranges found.
+- Find files first with `rg -l`, then search only those named files or a narrow subtree. Line-count limits alone do not bound line length: cap width with `rg --max-columns`/`--max-columns-preview`, or extract narrow structured fields (e.g. `jq`) instead of printing a raw long line.
 - Pipe long command output through `Select-Object -First`/`tail` rather than printing it whole.
 - When a command's output would exceed one screen, redirect it to a file under the worktree's ignored scratch path and read only the relevant slice.
 - Prefer `git diff --stat` before running a full `git diff`.
