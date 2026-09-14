@@ -525,6 +525,220 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     },
   );
 
+  it.each(["cancelled", "lease-lost", "claim-expired"] as const)(
+    "rejects %s work after product admission before inputs, Marketplace, state or facts",
+    async (failure) => {
+      const pool = pools.pricing;
+      const syntheticProduct = { catalogItemId: "cat_synthetic_claim_fence", productId: "prd_synthetic_claim_fence" };
+      const { listingIds } = await seedRound(pool, {
+        product: syntheticProduct,
+        listingPrefix: "lst_synthetic_claim_fence",
+        listingPrices: ["16.00"],
+        rule: {
+          ...defaultRule,
+          directive: { ...defaultRule.directive, anchorChain: [{ source: "market-estimate" }] },
+        },
+      });
+      await pool.query("UPDATE pricing_market_price_estimates SET fresh_until = $1", [
+        new Date(Date.now() + 86_400_000).toISOString(),
+      ]);
+      const store = createPostgresEventStore({ pool });
+      const append = vi.fn(store.appendToStream);
+      const afterAdmissionQueries: string[] = [];
+      let admitted = false;
+      let waiterPid: number | undefined;
+      const runtime = createRepricingEngineRuntime({
+        eventStore: { ...store, appendToStream: append },
+        db: {
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
+            if (admitted && !sql.includes("pricing_repricing_evaluation_jobs")) afterAdmissionQueries.push(sql);
+            return pool.query<Row>(sql, values);
+          },
+          connect: async () => {
+            const client = await pool.connect();
+            return {
+              release: client.release.bind(client),
+              query: async <Row>(sql: string, values?: readonly unknown[]) => {
+                if (sql.includes("pg_advisory_lock(")) {
+                  waiterPid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+                  const result = await client.query<Row>(sql, values);
+                  admitted = true;
+                  return result;
+                }
+                return client.query<Row>(sql, values);
+              },
+            };
+          },
+        },
+      });
+      await runtime.enqueueMarketPriceSignal({
+        ...signal(`evt_synthetic_claim_fence_${failure}`),
+        ...syntheticProduct,
+      });
+      const lockKey = JSON.stringify([
+        "pricing:product-round",
+        syntheticProduct.catalogItemId,
+        syntheticProduct.productId,
+      ]);
+      const lockClient = await pool.connect();
+      await lockClient.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
+      const controller = new AbortController();
+      const leaseError = new Error("Synthetic platform runner lease lost.");
+      let leaseLost = false;
+      const staleGateway = gateway(() => "applied");
+      const recoveryGateway = gateway(() => "applied");
+      const work = runtime.processNextEvaluationJob({
+        claimOwnerId: "worker:synthetic-stale-owner",
+        claimTtlMs: failure === "claim-expired" ? 100 : 30_000,
+        signal: controller.signal,
+        throwIfLeaseLost: () => {
+          if (leaseLost) throw leaseError;
+        },
+        marketplaceGatewayForAccount: () => staleGateway,
+      });
+      const outcome = work.then(
+        (value) => ({ value, error: undefined }),
+        (error: unknown) => ({ value: undefined, error }),
+      );
+      let recoveryWork: Promise<number> | undefined;
+      try {
+        await vi.waitFor(async () => {
+          expect(waiterPid).toBeDefined();
+          expect(
+            (
+              await pool.query("SELECT 1 FROM pg_locks WHERE pid = $1 AND locktype = 'advisory' AND NOT granted", [
+                waiterPid,
+              ])
+            ).rows,
+          ).toHaveLength(1);
+        });
+        if (failure === "cancelled") controller.abort();
+        if (failure === "lease-lost") leaseLost = true;
+        if (failure === "claim-expired") {
+          await new Promise((resolve) => setTimeout(resolve, 1_500));
+          expect(
+            (
+              await pool.query(`SELECT claim_owner_id, claimed_until <= clock_timestamp() AS claim_expired,
+                next_eligible_at <= clock_timestamp() AS retry_ready FROM pricing_repricing_evaluation_jobs`)
+            ).rows,
+          ).toEqual([{ claim_owner_id: "worker:synthetic-stale-owner", claim_expired: true, retry_ready: true }]);
+          const recovery = createRepricingEngineRuntime({ db: pool, eventStore: store });
+          recoveryWork = recovery.processNextEvaluationJob({
+            claimOwnerId: "worker:synthetic-recovery-owner",
+            claimTtlMs: 30_000,
+            marketplaceGatewayForAccount: () => recoveryGateway,
+          });
+          await vi.waitFor(async () => {
+            expect(
+              (await pool.query("SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted")).rows,
+            ).toHaveLength(2);
+          });
+        }
+        expect(admitted).toBe(false);
+        await lockClient.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
+        const result = await outcome;
+        expect(result.value).toBeUndefined();
+        if (failure === "lease-lost") expect(result.error).toBe(leaseError);
+        else
+          expect(result.error).toMatchObject(
+            failure === "cancelled"
+              ? { message: "Repricing evaluation job was cancelled." }
+              : { name: "RepricingEvaluationClaimLostError" },
+          );
+        expect(admitted).toBe(true);
+        expect(afterAdmissionQueries).toEqual([]);
+        expect(staleGateway.calls).toEqual([]);
+        expect(staleGateway.pauseCalls).toEqual([]);
+        expect(staleGateway.publishCalls).toEqual([]);
+        expect(append).not.toHaveBeenCalled();
+        if (recoveryWork) {
+          expect(await recoveryWork).toBe(1);
+          expect(recoveryGateway.calls).toHaveLength(1);
+          expect(recoveryGateway.calls[0]!.map(({ listingId }) => listingId)).toEqual(listingIds);
+          expect(
+            (
+              await pool.query(
+                "SELECT status, claim_owner_id, attempt_count, result FROM pricing_repricing_evaluation_jobs",
+              )
+            ).rows,
+          ).toEqual([
+            expect.objectContaining({
+              status: "completed",
+              claim_owner_id: "worker:synthetic-recovery-owner",
+              attempt_count: 2,
+              result: expect.objectContaining({ listingsChanged: 1 }),
+            }),
+          ]);
+        } else {
+          expect(await evaluationFacts(pool)).toEqual([]);
+          expect(await readProductRoundState(pool, syntheticProduct)).toBeNull();
+        }
+      } finally {
+        await lockClient.query("SELECT pg_advisory_unlock_all()");
+        lockClient.release();
+        await Promise.allSettled([outcome, ...(recoveryWork ? [recoveryWork] : [])]);
+      }
+    },
+  );
+
+  it.each(["complete", "fail-claim-lost", "fail-write-error"] as const)(
+    "does not report stale terminal success or replace the operation error after %s",
+    async (failure) => {
+      const pool = pools.pricing;
+      const originalError = new Error("Synthetic round input failure.");
+      const cleanupError = new Error("Synthetic terminal persistence failure.");
+      let terminalAttempted = false;
+      const runtime = createRepricingEngineRuntime({
+        eventStore: createPostgresEventStore({ pool }),
+        db: {
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
+            if (failure !== "complete" && sql.includes("FROM pricing_repricing_policy_assignments AS assignment")) {
+              throw originalError;
+            }
+            return pool.query<Row>(sql, values);
+          },
+          connect: async () => {
+            const client = await pool.connect();
+            return {
+              release: client.release.bind(client),
+              query: async <Row>(sql: string, values?: readonly unknown[]) => {
+                if (
+                  sql.includes("WHERE job_id = $1") &&
+                  (sql.includes("SET status = 'completed'") || sql.includes("SET status = 'failed'"))
+                ) {
+                  terminalAttempted = true;
+                  if (failure === "fail-write-error") throw cleanupError;
+                  await pool.query(
+                    `UPDATE pricing_repricing_evaluation_jobs SET claim_owner_id = $1
+                    WHERE job_id = $2 AND claim_owner_id = $3`,
+                    ["worker:synthetic-terminal-recovery", values![0], "worker:synthetic-terminal-stale"],
+                  );
+                }
+                return client.query<Row>(sql, values);
+              },
+            };
+          },
+        },
+      });
+      await runtime.enqueueMarketPriceSignal(signal(`evt_synthetic_terminal_${failure}`));
+      const trip = vi.fn();
+      const work = runtime.processNextEvaluationJob({
+        claimOwnerId: "worker:synthetic-terminal-stale",
+        claimTtlMs: 30_000,
+        marketplaceGatewayForAccount: () => gateway(() => "applied"),
+        onSpiralBreakerTrip: trip,
+      });
+      if (failure === "complete")
+        await expect(work).rejects.toMatchObject({ name: "RepricingEvaluationClaimLostError" });
+      else await expect(work).rejects.toBe(originalError);
+      expect(terminalAttempted).toBe(true);
+      expect(trip).not.toHaveBeenCalled();
+      expect((await pool.query("SELECT status, result FROM pricing_repricing_evaluation_jobs")).rows).toEqual([
+        { status: "running", result: null },
+      ]);
+    },
+  );
+
   it.each(["down", "up"] as const)(
     "trips across sellers on three net %s rounds and retains routine state",
     async (direction) => {

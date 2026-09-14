@@ -322,33 +322,69 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
       listingsEvaluated: 0,
       listingsChanged: 0,
     };
+    const requireClaim = (owned: boolean) => {
+      if (!owned) {
+        const error = new Error(`Repricing evaluation job claim lost: ${claimed.jobId}`);
+        error.name = "RepricingEvaluationClaimLostError";
+        throw error;
+      }
+    };
     try {
       input.throwIfLeaseLost?.();
       if (input.signal?.aborted) {
         throw new Error("Repricing evaluation job was cancelled.");
       }
-      await jobStore.updateProgress({
-        jobId: claimed.jobId,
-        claimOwnerId: input.claimOwnerId,
-        claimTtlMs: input.claimTtlMs,
-        progress,
-      });
-      const result = await executeProductRound(deps, factCodec, claimed, input, await resolvePolicy());
-      await jobStore.complete({
-        jobId: claimed.jobId,
-        claimOwnerId: input.claimOwnerId,
-        progress: { phase: "completed", ...result },
-        result,
-      });
+      requireClaim(
+        await jobStore.updateProgress({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          progress,
+        }),
+      );
+      const result = await executeProductRound(
+        async () => {
+          if (input.signal?.aborted) {
+            throw new Error("Repricing evaluation job was cancelled.");
+          }
+          input.throwIfLeaseLost?.();
+          requireClaim(
+            await jobStore.renewClaim({
+              jobId: claimed.jobId,
+              claimOwnerId: input.claimOwnerId,
+              claimTtlMs: input.claimTtlMs,
+            }),
+          );
+        },
+        deps,
+        factCodec,
+        claimed,
+        input,
+        await resolvePolicy(),
+      );
+      requireClaim(
+        await jobStore.complete({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress: { phase: "completed", ...result },
+          result,
+        }),
+      );
       result.spiralBreakerTrips.forEach((trip) => input.onSpiralBreakerTrip?.(trip));
       return 1;
     } catch (error) {
-      await jobStore.fail({
-        jobId: claimed.jobId,
-        claimOwnerId: input.claimOwnerId,
-        progress: { ...progress, phase: "failed" },
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
+      try {
+        requireClaim(
+          await jobStore.fail({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: { ...progress, phase: "failed" },
+            errorMessage: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      } catch {
+        // Claim loss or failure persistence must not replace the operation error.
+      }
       throw error;
     }
   };
@@ -369,9 +405,10 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
 }
 
 async function executeProductRound(
+  afterAdmission: () => Promise<void>,
   ...args: Parameters<typeof executeAdmittedProductRound>
 ): Promise<RepricingEvaluationJobResult> {
-  const [deps, , job, input] = args;
+  const [deps, , job] = args;
   const lockKey = JSON.stringify(["pricing:product-round", job.payload.catalogItemId, job.payload.productId]);
   const lockClient = await deps.db.connect();
   let lockHeld = false;
@@ -380,7 +417,7 @@ async function executeProductRound(
   try {
     await lockClient.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
     lockHeld = true;
-    input.throwIfLeaseLost?.();
+    await afterAdmission();
     // Admission precedes input/freeze reads and lasts through commands, state and facts.
     return await executeAdmittedProductRound(...args);
   } catch (error) {
