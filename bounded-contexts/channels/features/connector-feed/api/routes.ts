@@ -7,7 +7,12 @@ import {
 } from "../../../support/request-support/connector-oauth";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ChannelsApiEnv } from "../../../api";
-import { ConnectorPairingError, type ConnectorAuditRoute, type ConnectorIdentity } from "../domain/contracts";
+import {
+  ConnectorPairingError,
+  connectorOAuthRoutes,
+  type ConnectorAuditRoute,
+  type ConnectorIdentity,
+} from "../domain/contracts";
 import type { ConnectorFeedServices } from "./runtime";
 import { recordConnectorAudit } from "../read-model/audit";
 
@@ -17,7 +22,7 @@ export function connectorAuditMiddleware(db: PgQueryable, credentialMount = fals
     const action = path.split("/").at(-1);
     let route: ConnectorAuditRoute | null = null;
     if (credentialMount) {
-      if (action === "register" || action === "authorize" || action === "token" || action === "revoke") route = action;
+      route = connectorOAuthRoutes.find((candidate) => candidate === action) ?? null;
     } else if (/\/connections\/[^/]+\/connector-pairing(?:\/code|\/unpair)?$/.test(path)) {
       route = action === "code" ? "pairing-create" : action === "unpair" ? "unpair" : "pairing-read";
     }
@@ -88,7 +93,7 @@ async function seller(services: ConnectorFeedServices, request: Request) {
 export function createConnectorCredentialRoutes(services: ConnectorFeedServices, db: PgQueryable) {
   const app = new Hono<ChannelsApiEnv>();
   installConnectorAudit(app, db, true);
-  for (const route of ["register", "authorize", "token", "revoke"] as const) {
+  for (const route of connectorOAuthRoutes) {
     app.post(`/${route}`, async (c) => {
       try {
         const identify = (identity: ConnectorIdentity) => c.set("connectorIdentity", identity);

@@ -664,7 +664,7 @@
     },
     "connector-feed": {
       "classification": "slice",
-      "purpose": "Own one-use connector pairing, current operation authority, and safe request audit.",
+      "purpose": "Own Channel Connection pairing, current operation authority, and safe request audit.",
       "expectedConsumers": ["Channels connection detail, connector OAuth, and future claim/report/ingest transport"]
     },
     "connection-health": {

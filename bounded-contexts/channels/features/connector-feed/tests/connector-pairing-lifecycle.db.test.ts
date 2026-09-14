@@ -12,6 +12,7 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import { module as authModule } from "@chase-sets/auth";
 import { createConnectorOAuthService, type ConnectorOAuthService } from "@chase-sets/auth/server";
 import { CHANNEL_CONNECTOR_SCOPE_FAMILY } from "@chase-sets/auth-context";
+import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/inventory/server";
 import { module as channelsModule } from "../../../index";
 import { createConnectorFeedRuntime } from "../api/runtime";
 import { testContext } from "../../connections/tests/test-support";
@@ -31,7 +32,7 @@ function signal() {
   });
   return { promise, resolve };
 }
-let pools: Readonly<Record<"auth" | "channels", PgTransactionalPool>>;
+let pools: Readonly<Record<"auth" | "channels" | "inventory", PgTransactionalPool>>;
 let auth: ReturnType<typeof authModule.createServices>;
 let channels: ReturnType<typeof channelsModule.createServices>;
 let oauth: ConnectorOAuthService;
@@ -100,7 +101,11 @@ async function pair() {
 
 describeDb("connector-pairing-lifecycle", () => {
   beforeAll(async () => {
-    const urls = createMultiContextTestDatabaseUrls(databaseUrl(), ["auth", "channels"], "connector_authority_7993");
+    const urls = createMultiContextTestDatabaseUrls(
+      databaseUrl(),
+      ["auth", "channels", "inventory"],
+      "connector_authority_7993",
+    );
     await ensureMultiContextTestDatabases(databaseUrl(), urls);
     pools = createMultiContextTestPools(urls);
   });
@@ -114,7 +119,11 @@ describeDb("connector-pairing-lifecycle", () => {
       () => auth,
       () => clock,
     );
-    channels = channelsModule.createServices(pools.channels, { ...ports, connectorOAuth: oauth });
+    channels = channelsModule.createServices(pools.channels, {
+      ...ports,
+      connectorOAuth: oauth,
+      channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, testContext),
+    });
     await pools.auth.query(
       `INSERT INTO auth_identity_user_memberships (membership_id, user_id, account_id, role_key, role_permissions, status)
       VALUES ('membership_connector', $1, $2, 'seller', '["channels.manage","channels.view"]', 'active')`,
