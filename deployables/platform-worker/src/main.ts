@@ -138,6 +138,7 @@ import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 import { createRegisteredScheduledRunners } from "./scheduled-runners";
 import { runStartupRetry } from "./startup-retry";
+import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -1749,27 +1750,31 @@ function createPricingJobRunners(
           workflowName: "pricing.repricing-evaluation-jobs",
           laneCount: input.pricingRepricingEvaluationJobLaneCount,
           runLane: async (lane) => ({
-            processed: await processNextEvaluationJob({
-              claimOwnerId: `${input.workerId}:${lane.laneName}`,
-              claimTtlMs: input.leaseTtlMs * 4,
-              marketplaceGatewayForAccount: (accountId) => ({
-                applyBulkListingPriceUpdates: async (body) => ({
-                  items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-                    { accountId, updates: body.updates },
-                    SYSTEM_CONTEXT,
-                  ),
+            processed: await processRepricingEvaluationJob(
+              processNextEvaluationJob,
+              {
+                claimOwnerId: `${input.workerId}:${lane.laneName}`,
+                claimTtlMs: input.leaseTtlMs * 4,
+                marketplaceGatewayForAccount: (accountId) => ({
+                  applyBulkListingPriceUpdates: async (body) => ({
+                    items: await marketplace.listings!.applyBulkListingPriceUpdates!(
+                      { accountId, updates: body.updates },
+                      SYSTEM_CONTEXT,
+                    ),
+                  }),
+                  pauseListing: (listingId, body) =>
+                    marketplace.listings!.pauseListing!({ accountId, listingId, reason: body.reason }, SYSTEM_CONTEXT),
+                  publishListing: (listingId, body) =>
+                    marketplace.listings!.publishListing!(
+                      { accountId, listingId, idempotencyKey: body.idempotencyKey },
+                      SYSTEM_CONTEXT,
+                    ),
                 }),
-                pauseListing: (listingId, body) =>
-                  marketplace.listings!.pauseListing!({ accountId, listingId, reason: body.reason }, SYSTEM_CONTEXT),
-                publishListing: (listingId, body) =>
-                  marketplace.listings!.publishListing!(
-                    { accountId, listingId, idempotencyKey: body.idempotencyKey },
-                    SYSTEM_CONTEXT,
-                  ),
-              }),
-              signal: lane.runnerContext?.signal,
-              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-            }),
+                signal: lane.runnerContext?.signal,
+                throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+              },
+              logger,
+            ),
             lastGlobalPosition: "0" as never,
           }),
         })

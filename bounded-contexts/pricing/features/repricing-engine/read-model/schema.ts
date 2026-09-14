@@ -1,4 +1,5 @@
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
 /**
  * Durable signal work, seller-visible evaluation facts, and the two small
@@ -47,6 +48,10 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_product_round_cooldowns (
   product_id text NOT NULL,
   next_eligible_at timestamptz NOT NULL,
   last_trigger_event_id text NOT NULL,
+  same_direction_rounds integer NOT NULL DEFAULT 0,
+  last_direction text NULL CHECK (last_direction IN ('up', 'down')),
+  frozen_until timestamptz NULL,
+  tripped_at timestamptz NULL,
   updated_at timestamptz NOT NULL,
   PRIMARY KEY (catalog_catalog_item_id, product_id)
 );
@@ -60,6 +65,12 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_policy_listing_pauses (
   updated_at timestamptz NOT NULL
 );
 
+ALTER TABLE pricing_repricing_product_round_cooldowns
+  ADD COLUMN IF NOT EXISTS same_direction_rounds integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS last_direction text NULL CHECK (last_direction IN ('up', 'down')),
+  ADD COLUMN IF NOT EXISTS frozen_until timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS tripped_at timestamptz NULL;
+
 CREATE TABLE IF NOT EXISTS pricing_repricing_daily_sweep_cursor (
   sweep_name text PRIMARY KEY,
   sweep_day date NOT NULL,
@@ -69,3 +80,17 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_daily_sweep_cursor (
   updated_at timestamptz NOT NULL
 );
 `;
+
+export const pricingRepricingEngineSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260914_pricing_repricing_spiral_breaker",
+    description: "Retain product-scoped repricing direction and automatic freeze expiry in the cooldown ledger.",
+    statements: [
+      `ALTER TABLE pricing_repricing_product_round_cooldowns
+       ADD COLUMN IF NOT EXISTS same_direction_rounds integer NOT NULL DEFAULT 0,
+       ADD COLUMN IF NOT EXISTS last_direction text NULL CHECK (last_direction IN ('up', 'down')),
+       ADD COLUMN IF NOT EXISTS frozen_until timestamptz NULL,
+       ADD COLUMN IF NOT EXISTS tripped_at timestamptz NULL`,
+    ],
+  },
+];

@@ -3,6 +3,8 @@ import type { RepricingAnchorTrace, RepricingClampTrace } from "./evaluate";
 
 export const repricingPolicyEvaluatedEventType = "pricing.repricing-policy.evaluated" as const;
 
+export type RepricingRoundDirection = "up" | "down";
+
 export type RepricingEvaluationSkipReason =
   | "within-tolerance"
   | "anchor-chain-exhausted"
@@ -14,6 +16,7 @@ export type RepricingEvaluationSkipReason =
   | "manual-edit-conflict"
   | "domain-no-op"
   | "policy-precondition-failed"
+  | "spiral-breaker-frozen"
   | "resume-hysteresis"
   | "repause-cooldown"
   | "command-error";
@@ -30,6 +33,7 @@ export type RepricingPolicyListingTrace = Readonly<{
   }>[];
   clamps: RepricingClampTrace;
   flags: readonly string[];
+  frozenUntil?: string;
   outcome: "changed" | "skipped" | "pause-requested" | "notify-only";
   skipReason: RepricingEvaluationSkipReason | null;
 }>;
@@ -54,6 +58,7 @@ export type RepricingPolicyEvaluatedEvent = DomainEvent<
     listingsChanged: number;
     listingsSkipped: number;
     listings: readonly RepricingPolicyListingTrace[];
+    spiralBreaker?: Readonly<{ tripped: boolean; frozenUntil: string }>;
     signalToEvaluationLatencyMs: number;
     evaluatedAt: string;
   }>
