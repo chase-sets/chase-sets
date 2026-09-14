@@ -24,7 +24,14 @@ import {
   type RepricingPolicyAssignmentRow,
   type RepricingPolicyRecord,
 } from "../read-model/queries";
-import { decideRepricingHalt, evolveRepricingHalt, initialRepricingHaltState, repricingHaltStreamId, type RepricingHaltState, type RepricingHaltEvent } from "../domain/halt";
+import {
+  decideRepricingHalt,
+  evolveRepricingHalt,
+  initialRepricingHaltState,
+  repricingHaltStreamId,
+  type RepricingHaltState,
+  type RepricingHaltEvent,
+} from "../domain/halt";
 import { buildRepricingHaltProjectionHandlers } from "../read-model/halt-projection";
 import { getRepricingBudget, listRepricingCategories, previewRepricingScope } from "../read-model/controls";
 
@@ -37,13 +44,21 @@ export class PolicyControlValidationError extends Error {}
 
 export type RepricingPolicyServices = Readonly<{
   commandHandler: CommandHandler<RepricingPolicyCommand, RepricingPolicyState, RepricingPolicyEvent>;
-  getAccountRepricingPolicy: (params: Readonly<{ accountId: string; policyId: string }>) => Promise<RepricingPolicyRecord | null>;
-  loadOwnedRepricingPolicy: (policyId: string, accountId: string) => Promise<LoadedAggregate<RepricingPolicyState, RepricingPolicyEvent> | null>;
-  executeOwnedRepricingPolicy: (input: Readonly<{
-    policyId: string; accountId: string;
-    command: Exclude<RepricingPolicyCommand, { type: "CreateRepricingPolicy" }>;
-    context: EventStoreContext;
-  }>) => Promise<RepricingPolicyState | null>;
+  getAccountRepricingPolicy: (
+    params: Readonly<{ accountId: string; policyId: string }>,
+  ) => Promise<RepricingPolicyRecord | null>;
+  loadOwnedRepricingPolicy: (
+    policyId: string,
+    accountId: string,
+  ) => Promise<LoadedAggregate<RepricingPolicyState, RepricingPolicyEvent> | null>;
+  executeOwnedRepricingPolicy: (
+    input: Readonly<{
+      policyId: string;
+      accountId: string;
+      command: Exclude<RepricingPolicyCommand, { type: "CreateRepricingPolicy" }>;
+      context: EventStoreContext;
+    }>,
+  ) => Promise<RepricingPolicyState | null>;
   getHalt: (accountId: string) => Promise<RepricingHaltState>;
   setHalt: (accountId: string, engaged: boolean, context: EventStoreContext) => Promise<RepricingHaltState>;
   getBudget: (accountId: string, day: string) => ReturnType<typeof getRepricingBudget>;
@@ -90,14 +105,29 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
     executeOwnedRepricingPolicy: async ({ policyId, accountId, command, context }) => {
       const loaded = await loadOwnedRepricingPolicy(policyId, accountId);
       if (!loaded) return null;
-      try { decideRepricingPolicy(loaded.state, command); }
-      catch (error) { throw new PolicyControlValidationError(error instanceof Error ? error.message : "Invalid policy command."); }
-      return (await commandHandler({ streamId: repricingPolicyStreamId(policyId), command, context, expectedVersion: loaded.version })).state;
+      try {
+        decideRepricingPolicy(loaded.state, command);
+      } catch (error) {
+        throw new PolicyControlValidationError(error instanceof Error ? error.message : "Invalid policy command.");
+      }
+      return (
+        await commandHandler({
+          streamId: repricingPolicyStreamId(policyId),
+          command,
+          context,
+          expectedVersion: loaded.version,
+        })
+      ).state;
     },
     getHalt: async (accountId) => (await halt.repository.load(repricingHaltStreamId(accountId))).state,
-    setHalt: async (accountId, engaged, context) => (await halt.commandHandler({
-      streamId: repricingHaltStreamId(accountId), command: { engaged, changedAt: new Date().toISOString() }, context,
-    })).state,
+    setHalt: async (accountId, engaged, context) =>
+      (
+        await halt.commandHandler({
+          streamId: repricingHaltStreamId(accountId),
+          command: { engaged, changedAt: new Date().toISOString() },
+          context,
+        })
+      ).state,
     getBudget: (accountId, day) => getRepricingBudget(deps.db, accountId, day),
     listCategories: (accountId) => listRepricingCategories(deps.db, accountId),
     previewScope: (input) => previewRepricingScope(deps.db, input),

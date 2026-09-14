@@ -95,7 +95,8 @@ describeDb("Pricing Catalog v5-to-v6 historical bootstrap", () => {
     await expect(selectMarketCaptureSignalWork(pools.pricing, "tcgplayer", 1)).resolves.toEqual([]);
 
     const v6 = createSubscriptionRunner("pricing", pools.pricing, pools.catalog, {
-      ...declared, subscriptionVersion: 6,
+      ...declared,
+      subscriptionVersion: 6,
       eventTypes: declared.eventTypes?.filter((eventType) => !eventType.startsWith("catalog.category.")),
     });
     expect(v6.subscriptionVersion).toBe(6);
@@ -122,29 +123,67 @@ describeDb("Pricing Catalog v5-to-v6 historical bootstrap", () => {
     const pricing = pricingModule.createServices(pools.pricing, syntheticPricingHostPorts);
     const categoryId = "ctg_synthetic_7911";
     const streamId = `catalog.category-${categoryId}`;
-    await catalog.categories.commandHandler({ streamId, context, command: { type: "CreateCategory", categoryId, key: "synthetic-7911", name: localized("Before") } });
+    await catalog.categories.commandHandler({
+      streamId,
+      context,
+      command: { type: "CreateCategory", categoryId, key: "synthetic-7911", name: localized("Before") },
+    });
     await catalog.categories.commandHandler({ streamId, context, command: { type: "PublishCategory" } });
-    const declared = pricingModule.buildSubscriptions?.(pricing).find((entry) => entry.projectionName === "pricing-catalog-input-projection");
+    const declared = pricingModule
+      .buildSubscriptions?.(pricing)
+      .find((entry) => entry.projectionName === "pricing-catalog-input-projection");
     if (!declared) throw new Error("Pricing catalog subscription missing.");
-    const v6 = createSubscriptionRunner("pricing", pools.pricing, pools.catalog, { ...declared, subscriptionVersion: 6, eventTypes: declared.eventTypes?.filter((type) => !type.startsWith("catalog.category.")) });
+    const v6 = createSubscriptionRunner("pricing", pools.pricing, pools.catalog, {
+      ...declared,
+      subscriptionVersion: 6,
+      eventTypes: declared.eventTypes?.filter((type) => !type.startsWith("catalog.category.")),
+    });
     while ((await v6.runOnce()).processed > 0) {}
-    await pools.pricing.query("INSERT INTO pricing_catalog_category_inputs (category_id, name, status, updated_at, last_stream_version) VALUES ($1, 'Before', 'active', now(), 2)", [categoryId]);
-    await pools.pricing.query("INSERT INTO pricing_catalog_item_inputs (catalog_item_id, title, status, category_ids, updated_at) VALUES ('cat_synthetic_7911', 'Synthetic', 'active', ARRAY[$1::text], now())", [categoryId]);
-    await pools.pricing.query("INSERT INTO pricing_market_listing_inputs (listing_id, seller_account_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at) VALUES ('lst_synthetic_7911', 'acc_synthetic', 'cat_synthetic_7911', 'prod_synthetic', 10, 1, 'active', now())");
-    await catalog.categories.commandHandler({ streamId, context, command: { type: "ReviseCategory", key: "synthetic-7911", name: localized("Renamed") } });
+    await pools.pricing.query(
+      "INSERT INTO pricing_catalog_category_inputs (category_id, name, status, updated_at, last_stream_version) VALUES ($1, 'Before', 'active', now(), 2)",
+      [categoryId],
+    );
+    await pools.pricing.query(
+      "INSERT INTO pricing_catalog_item_inputs (catalog_item_id, title, status, category_ids, updated_at) VALUES ('cat_synthetic_7911', 'Synthetic', 'active', ARRAY[$1::text], now())",
+      [categoryId],
+    );
+    await pools.pricing.query(
+      "INSERT INTO pricing_market_listing_inputs (listing_id, seller_account_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at) VALUES ('lst_synthetic_7911', 'acc_synthetic', 'cat_synthetic_7911', 'prod_synthetic', 10, 1, 'active', now())",
+    );
+    await catalog.categories.commandHandler({
+      streamId,
+      context,
+      command: { type: "ReviseCategory", key: "synthetic-7911", name: localized("Renamed") },
+    });
     const v7 = createSubscriptionRunner("pricing", pools.pricing, pools.catalog, declared);
     expect(v7.subscriptionVersion).toBe(7);
     const app = new Hono<PricingApiEnv>();
     app.use("*", async (c, next) => {
-      c.set("actor", { sessionId: "ses_synthetic", tenantId: context.tenantId, userId: context.audit.performedByUserId, accountId: c.req.header("x-synthetic-account") ?? "acc_synthetic", membershipId: "mbr_synthetic", roleKey: "owner", permissions: ["pricing.view"] });
+      c.set("actor", {
+        sessionId: "ses_synthetic",
+        tenantId: context.tenantId,
+        userId: context.audit.performedByUserId,
+        accountId: c.req.header("x-synthetic-account") ?? "acc_synthetic",
+        membershipId: "mbr_synthetic",
+        roleKey: "owner",
+        permissions: ["pricing.view"],
+      });
       return next();
     });
     app.route("/", buildPricingApi(pricing));
     for (let boot = 0; boot < 2; boot++) {
       await bootstrapContextDatabase(pricingModule, pools.pricing);
       while ((await v7.runOnce()).processed > 0) {}
-      expect(await (await app.request("/account/repricing-policies/categories")).json()).toEqual([{ id: categoryId, name: "Renamed", status: "active", listingCount: 1 }]);
-      expect(await (await app.request("/account/repricing-policies/categories", { headers: { "x-synthetic-account": "acc_foreign" } })).json()).toEqual([{ id: categoryId, name: "Renamed", status: "active", listingCount: 0 }]);
+      expect(await (await app.request("/account/repricing-policies/categories")).json()).toEqual([
+        { id: categoryId, name: "Renamed", status: "active", listingCount: 1 },
+      ]);
+      expect(
+        await (
+          await app.request("/account/repricing-policies/categories", {
+            headers: { "x-synthetic-account": "acc_foreign" },
+          })
+        ).json(),
+      ).toEqual([{ id: categoryId, name: "Renamed", status: "active", listingCount: 0 }]);
       const old = (await createPostgresEventStore({ pool: pools.catalog }).readStream({ streamId }))[0]!;
       await buildPricingCatalogInputProjectionHandlers(pools.pricing)[old.eventType]!(toTransportEvent(old));
       await v7.reset();

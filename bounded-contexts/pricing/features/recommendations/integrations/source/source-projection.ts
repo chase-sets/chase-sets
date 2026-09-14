@@ -13,20 +13,32 @@ type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
 }>;
 
 export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
-  const categoryStatus = (status: string): ProjectorHandlerMap[string] => async (event) => {
-    await db.query(
-      `UPDATE pricing_catalog_category_inputs SET status = $2, updated_at = $3, last_stream_version = $4
+  const categoryStatus =
+    (status: string): ProjectorHandlerMap[string] =>
+    async (event) => {
+      await db.query(
+        `UPDATE pricing_catalog_category_inputs SET status = $2, updated_at = $3, last_stream_version = $4
        WHERE category_id = $1 AND last_stream_version < $4`,
-      [extractIdFromStreamId(event.streamId, "catalog.category-"), status, event.timing.recordedAt, event.streamVersion],
-    );
-  };
+        [
+          extractIdFromStreamId(event.streamId, "catalog.category-"),
+          status,
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
+      );
+    };
   return {
     "catalog.category.created": async (event) => {
       const data = event.data as { categoryId: string; name: string | LocalizedTextMap };
       await db.query(
         `INSERT INTO pricing_catalog_category_inputs (category_id, name, status, updated_at, last_stream_version)
          VALUES ($1, $2, 'draft', $3, $4) ON CONFLICT (category_id) DO NOTHING`,
-        [data.categoryId, resolveLocalizedTextMap(coerceLocalizedTextMap(data.name)), event.timing.recordedAt, event.streamVersion],
+        [
+          data.categoryId,
+          resolveLocalizedTextMap(coerceLocalizedTextMap(data.name)),
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
       );
     },
     "catalog.category.revised": async (event) => {
@@ -34,7 +46,12 @@ export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): Pro
       await db.query(
         `UPDATE pricing_catalog_category_inputs SET name = $2, updated_at = $3, last_stream_version = $4
          WHERE category_id = $1 AND last_stream_version < $4`,
-        [extractIdFromStreamId(event.streamId, "catalog.category-"), resolveLocalizedTextMap(coerceLocalizedTextMap(data.name)), event.timing.recordedAt, event.streamVersion],
+        [
+          extractIdFromStreamId(event.streamId, "catalog.category-"),
+          resolveLocalizedTextMap(coerceLocalizedTextMap(data.name)),
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
       );
     },
     "catalog.category.published": categoryStatus("active"),

@@ -27,7 +27,9 @@ function dbReturning(rows: readonly Record<string, unknown>[]) {
 
 describe("getAccountRepricingPolicy", () => {
   it("returns null when no row matches", async () => {
-    expect(await getAccountRepricingPolicy(dbReturning([]), { accountId: "acc_1", policyId: "rpp_missing" })).toBeNull();
+    expect(
+      await getAccountRepricingPolicy(dbReturning([]), { accountId: "acc_1", policyId: "rpp_missing" }),
+    ).toBeNull();
   });
 
   it("maps a catalog-filter scope row, parsing rules stored as a JSON string", async () => {

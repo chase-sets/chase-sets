@@ -73,30 +73,59 @@ describeDb("pricing repricing-policy assignment resolution (#4330)", () => {
     { kind: "all-listings" },
     { kind: "catalog-filter", categoryIds: ["catx"] },
     { kind: "listing-set", listingIds: ["lst_1", "lst_2"] },
-  ] satisfies RepricingPolicyScope[])("scope preview counts reconcile overlapping assignment-view differences: $kind", async (scope) => {
-    const db = pools.pricing;
-    await seedListingsAndCatalog(db);
-    await seedPolicy(db, { policyId: "rpp_all", scope: { kind: "all-listings" }, updatedAt: "2026-01-01T00:00:00Z" });
-    await seedPolicy(db, { policyId: "rpp_catalog", scope: { kind: "catalog-filter", categoryIds: ["catx"] }, updatedAt: "2026-01-02T00:00:00Z" });
-    await seedPolicy(db, { policyId: "rpp_listing", scope: { kind: "listing-set", listingIds: ["lst_1"] }, updatedAt: "2026-01-03T00:00:00Z" });
-    for (const replacingPolicyId of [undefined, "rpp_listing"]) {
-      const before = await listRepricingPolicyAssignments(db, { accountId: "acc_seller" });
-      const preview = await previewRepricingScope(db, { accountId: "acc_seller", scope, excludedListingIds: ["lst_3"], replacingPolicyId });
-      const policyId = replacingPolicyId ?? "rpp_new";
-      const updatedAt = (await db.query<{ now: string }>("SELECT clock_timestamp()::text AS now")).rows[0]!.now;
-      if (replacingPolicyId) await revisePolicy(db, { policyId, scope, excludedListingIds: ["lst_3"], revisedAt: updatedAt });
-      else await seedPolicy(db, { policyId, scope, excludedListingIds: ["lst_3"], updatedAt });
-      const after = await listRepricingPolicyAssignments(db, { accountId: "acc_seller" });
-      const matchingIds = scope.kind === "catalog-filter" ? ["lst_1"] : ["lst_1", "lst_2"];
-      const governedIds = after.filter((row) => row.policyId === policyId).map((row) => row.listingId);
-      expect(preview.matching).toBe(matchingIds.length);
-      expect(preview.governed).toBe(governedIds.length);
-      const grouped = (rows: typeof before) => [...new Set(rows.map((row) => row.policyId))].sort().map((id) => ({ policyId: id, name: id, count: rows.filter((row) => row.policyId === id).length }));
-      expect(preview.takenFrom).toEqual(grouped(before.filter((row) => governedIds.includes(row.listingId) && row.policyId !== replacingPolicyId)));
-      expect(preview.shadowedBy).toEqual(grouped(after.filter((row) => matchingIds.includes(row.listingId) && row.policyId !== policyId)));
-      expect(await previewRepricingScope(db, { accountId: "acc_foreign", scope, excludedListingIds: [] })).toEqual({ matching: 0, governed: 0, shadowedBy: [], takenFrom: [] });
-    }
-  });
+  ] satisfies RepricingPolicyScope[])(
+    "scope preview counts reconcile overlapping assignment-view differences: $kind",
+    async (scope) => {
+      const db = pools.pricing;
+      await seedListingsAndCatalog(db);
+      await seedPolicy(db, { policyId: "rpp_all", scope: { kind: "all-listings" }, updatedAt: "2026-01-01T00:00:00Z" });
+      await seedPolicy(db, {
+        policyId: "rpp_catalog",
+        scope: { kind: "catalog-filter", categoryIds: ["catx"] },
+        updatedAt: "2026-01-02T00:00:00Z",
+      });
+      await seedPolicy(db, {
+        policyId: "rpp_listing",
+        scope: { kind: "listing-set", listingIds: ["lst_1"] },
+        updatedAt: "2026-01-03T00:00:00Z",
+      });
+      for (const replacingPolicyId of [undefined, "rpp_listing"]) {
+        const before = await listRepricingPolicyAssignments(db, { accountId: "acc_seller" });
+        const preview = await previewRepricingScope(db, {
+          accountId: "acc_seller",
+          scope,
+          excludedListingIds: ["lst_3"],
+          replacingPolicyId,
+        });
+        const policyId = replacingPolicyId ?? "rpp_new";
+        const updatedAt = (await db.query<{ now: string }>("SELECT clock_timestamp()::text AS now")).rows[0]!.now;
+        if (replacingPolicyId)
+          await revisePolicy(db, { policyId, scope, excludedListingIds: ["lst_3"], revisedAt: updatedAt });
+        else await seedPolicy(db, { policyId, scope, excludedListingIds: ["lst_3"], updatedAt });
+        const after = await listRepricingPolicyAssignments(db, { accountId: "acc_seller" });
+        const matchingIds = scope.kind === "catalog-filter" ? ["lst_1"] : ["lst_1", "lst_2"];
+        const governedIds = after.filter((row) => row.policyId === policyId).map((row) => row.listingId);
+        expect(preview.matching).toBe(matchingIds.length);
+        expect(preview.governed).toBe(governedIds.length);
+        const grouped = (rows: typeof before) =>
+          [...new Set(rows.map((row) => row.policyId))]
+            .sort()
+            .map((id) => ({ policyId: id, name: id, count: rows.filter((row) => row.policyId === id).length }));
+        expect(preview.takenFrom).toEqual(
+          grouped(before.filter((row) => governedIds.includes(row.listingId) && row.policyId !== replacingPolicyId)),
+        );
+        expect(preview.shadowedBy).toEqual(
+          grouped(after.filter((row) => matchingIds.includes(row.listingId) && row.policyId !== policyId)),
+        );
+        expect(await previewRepricingScope(db, { accountId: "acc_foreign", scope, excludedListingIds: [] })).toEqual({
+          matching: 0,
+          governed: 0,
+          shadowedBy: [],
+          takenFrom: [],
+        });
+      }
+    },
+  );
 
   it.each([
     { kind: "all-listings" },

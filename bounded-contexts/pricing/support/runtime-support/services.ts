@@ -34,7 +34,8 @@ export type PricingServices = Readonly<{
   recommendations: ReturnType<typeof createPricingRecommendationRuntime>;
   marketRollups: ReturnType<typeof createMarketRollupsRuntime>;
   marketEstimates: ReturnType<typeof createMarketEstimatesRuntime>;
-  repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime> & ReturnType<typeof createRepricingPolicyActivationServices>;
+  repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime> &
+    ReturnType<typeof createRepricingPolicyActivationServices>;
   repricingEngine: ReturnType<typeof createRepricingEngineRuntime>;
   publicMarketPages: ReturnType<typeof createPublicMarketPagesRuntime>;
   /**

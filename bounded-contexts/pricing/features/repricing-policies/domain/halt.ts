@@ -16,11 +16,17 @@ export const initialRepricingHaltState: RepricingHaltState = {
   releasedAt: null,
 };
 export const decideRepricingHalt: AggregateDecider<RepricingHaltState, RepricingHaltCommand, RepricingHaltEvent> = (
-  state, command,
-) => state.engaged === command.engaged ? [] : [{
-  type: command.engaged ? "pricing.repricing-halt.engaged" : "pricing.repricing-halt.released",
-  data: { changedAt: command.changedAt },
-}];
+  state,
+  command,
+) =>
+  state.engaged === command.engaged
+    ? []
+    : [
+        {
+          type: command.engaged ? "pricing.repricing-halt.engaged" : "pricing.repricing-halt.released",
+          data: { changedAt: command.changedAt },
+        },
+      ];
 export const evolveRepricingHalt: AggregateEvolver<RepricingHaltState, RepricingHaltEvent> = (state, event) =>
   event.type === "pricing.repricing-halt.engaged"
     ? { ...state, engaged: true, engagedAt: event.data.changedAt }
