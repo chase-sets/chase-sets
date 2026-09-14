@@ -6,6 +6,18 @@ import {
 } from "../support/runtime-support/services";
 
 describe("channels-services-guard-negative", () => {
+  it.each([
+    "readChannelDriftDetail",
+    "readChannelDriftDecision",
+    "acceptChannelDrift",
+    "repushChannelListing",
+  ] as const)("rejects missing detail consumer method %s", (method) => {
+    const candidate = validCandidate();
+    const reconciliation = Object.fromEntries(
+      Object.entries(candidate.reconciliation).filter(([key]) => key !== method),
+    );
+    expect(isChannelsServices({ ...candidate, reconciliation })).toBe(false);
+  });
   it("accepts the complete aggregate candidate", () => {
     expect(isChannelsServices(validCandidate())).toBe(true);
   });
@@ -79,7 +91,14 @@ function validCandidate() {
       recoverExpiredClaimedOperations: async () => 0,
       processNextInlineOperation: async () => 0,
     },
-    reconciliation: { reconcileDueConnections: async () => [], deliverHealthObservations: vi.fn() },
+    reconciliation: {
+      reconcileDueConnections: async () => [],
+      deliverHealthObservations: vi.fn(),
+      readChannelDriftDetail: vi.fn(),
+      readChannelDriftDecision: vi.fn(),
+      acceptChannelDrift: vi.fn(),
+      repushChannelListing: vi.fn(),
+    },
     tcgplayerCsv: {},
     manualSync: {},
     projectors: [],

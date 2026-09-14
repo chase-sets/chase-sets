@@ -34,6 +34,9 @@ import { channelReconciliationSchemaSql, retainedDriftGenerationExpansion } from
 import { channelReconciliationSchemaSql as predecessorSchemaSql } from "./fixtures/pre-generation-schema.test-data";
 import { readChannelDriftAttentionContribution } from "../read-model/queries";
 import { createChannelActionAttentionSourceFromReadModel } from "../../connection-attention/read-model/attention-source";
+import { Hono } from "hono";
+import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
+import type { ChannelDriftDetail, ChannelReconciliationServices } from "../domain/contracts";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
@@ -561,6 +564,210 @@ describeDb("Channel Reconciliation guarded production path", () => {
     expect((await pools.channels.query("SELECT operation_id FROM channel_outbound_operations")).rows).toHaveLength(1);
   });
 
+  it("drift-detail bounds owned snapshot rows, decision inputs, cursors and retained states without settlement inference", async () => {
+    await seedConnectionAndListings(pools.channels);
+    const runtime = reconciliationAt(new Date("2026-09-12T06:00:00.000Z"));
+    const app = detailApi(runtime);
+    const get = (suffix = "") => app.request(`/connections/connection-1/drift${suffix}`);
+    expect(await (await get()).json()).toEqual({ kind: "not-yet-observed" });
+    await runtime.reconcileConnection(
+      { connectionId: "connection-1", registry: inlineRegistry(driftItems), sourceAttempt: 1, healthAuthority: null },
+      context,
+    );
+    await pools.channels.query(`INSERT INTO channel_reconciliation_items
+      (connection_id,channel_listing_id,listing_id,run_generation,classification,observed_fingerprint,expected_material_fingerprint,settled,updated_at,revision)
+      SELECT 'connection-1','detail-'||n,'synthetic-'||n,1,'foreign-edit',repeat('b',64),repeat('2',64),false,now(),1 FROM generate_series(1,52) n`);
+    await pools.channels.query(`INSERT INTO channel_reconciliation_findings
+      (connection_id,finding_id,run_generation,kind,fingerprint,open,safe_reason,updated_at,revision)
+      VALUES ('connection-1','adversarial-secret-sale-key',1,'unmapped-channel-state',repeat('c',64),true,'adversarial-secret-provider-text',now(),1)`);
+    const first = (await (await get()).json()) as Extract<ChannelDriftDetail, { kind: "loaded" }>;
+    expect(first.kind).toBe("loaded");
+    expect(first.rows).toHaveLength(50);
+    expect(first.hasMore).toBe(1);
+    expect(first.cursor!.length).toBeLessThanOrEqual(512);
+    expect(first.rows.find((row) => row.rowKind === "finding")).toEqual({
+      rowKind: "finding",
+      rowIdentity: expect.stringMatching(/^[a-f0-9]{64}$/),
+      flag: "unmapped",
+      runGeneration: 1,
+    });
+    expect(JSON.stringify(first)).not.toMatch(/adversarial-secret|safe_reason|sale_key|quantity|price|accountId/);
+    const second = (await (await get(`?cursor=${first.cursor}`)).json()) as typeof first;
+    expect(second.rows.length).toBeGreaterThan(0);
+    expect(second.hasMore).toBe(0);
+    expect(second.cursor).toBeNull();
+    expect(new Set([...first.rows, ...second.rows].map((row) => `${row.rowKind}:${row.rowIdentity}`)).size).toBe(
+      first.rows.length + second.rows.length,
+    );
+    const listing = [...first.rows, ...second.rows].find(
+      (row) => row.rowKind === "listing" && row.channelListingId === "channel-foreign",
+    );
+    expect(listing).toMatchObject({
+      observedFingerprint: fingerprint("b"),
+      expectedMaterialFingerprint: fingerprint("2"),
+      decision: { revision: 0, accepted: null, repushRequested: false, operationId: null },
+    });
+    expect(await (await get("?cursor=" + "x".repeat(513))).json()).toEqual({ kind: "stale-page" });
+    expect(await (await get("?cursor=e30")).json()).toEqual({ kind: "stale-page" });
+    expect(
+      await (
+        await detailApi(runtime, "foreign").request(`/connections/connection-1/drift?cursor=${first.cursor}`)
+      ).json(),
+    ).toEqual({ kind: "not-found" });
+    await seedBareConnection(pools.channels, "connection-2");
+    expect(await (await app.request(`/connections/connection-2/drift?cursor=${first.cursor}`)).json()).toEqual({
+      kind: "stale-page",
+    });
+    for (const state of ["running", "bounded-unknown", "held"] as const) {
+      await pools.channels.query(
+        `UPDATE channel_reconciliation_state SET state=$1,revision=revision+1,lease_expires_at=CASE WHEN $1='running' THEN now()+interval '1 minute' ELSE NULL END WHERE connection_id='connection-1'`,
+        [state],
+      );
+      expect(await (await get(`?cursor=${first.cursor}`)).json()).toEqual({ kind: "stale-page" });
+      expect(await (await get()).json()).toMatchObject({ kind: "loaded", runState: state, hasMore: 1 });
+    }
+    await pools.channels.query("DELETE FROM channel_reconciliation_items WHERE connection_id='connection-1'");
+    await pools.channels.query("DELETE FROM channel_reconciliation_findings WHERE connection_id='connection-1'");
+    expect(await (await get()).json()).toMatchObject({ kind: "loaded", runState: "held", rows: [], hasMore: 0 });
+  });
+
+  it("drift-detail real POST commits exact decisions, fences public reads and replay, rejects closed-schema and stale writes with zero external effects", async () => {
+    await seedConnectionAndListings(pools.channels);
+    const runtime = reconciliationAt(new Date("2026-09-12T06:00:00.000Z"));
+    await runtime.reconcileConnection(
+      { connectionId: "connection-1", registry: inlineRegistry(driftItems), sourceAttempt: 1, healthAuthority: null },
+      context,
+    );
+    const app = detailApi(runtime);
+    const command = {
+      observedFingerprint: fingerprint("b"),
+      expectedMaterialFingerprint: fingerprint("2"),
+      expectedDecisionRevision: 0,
+      operationId: "detail-accept-1",
+    };
+    const post = (body: unknown, api = app, kind = "accept", listing = "channel-foreign") =>
+      api.request(`/connections/connection-1/drift/${listing}/${kind}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const counts = async () =>
+      (
+        await pools.channels.query(`SELECT
+      (SELECT count(*) FROM channel_drift_decision_operations)::integer AS decisions,
+      (SELECT count(*) FROM event_store_events WHERE stream_id LIKE 'channels.channel-drift-%')::integer AS events,
+      (SELECT count(*) FROM channel_outbound_operations)::integer AS outbound,
+      (SELECT count(*) FROM channel_recorded_sale_receipts)::integer AS sales`)
+      ).rows[0];
+    const before = await counts();
+    for (const body of [
+      { ...command, accountId: "adversarial-secret" },
+      { ...command, extra: { secret: "adversarial-secret" } },
+      { ...command, expectedDecisionRevision: -1 },
+      { ...command, observedFingerprint: { secret: "adversarial-secret" } },
+    ]) {
+      const response = await post(body);
+      expect(response.status).toBe(400);
+      expect(await response.text()).not.toContain("adversarial-secret");
+    }
+    expect((await post(command, detailApi(runtime, "account-1", ["channels.view"]))).status).toBe(403);
+    expect((await post(command, detailApi(runtime, "account-1", undefined, "foreign"))).status).toBe(403);
+    expect(await counts()).toEqual(before);
+    const accepted = await post(command);
+    expect(accepted.status).toBe(200);
+    const decision = await accepted.json();
+    expect(decision).toMatchObject({
+      revision: 1,
+      operationId: command.operationId,
+      repushRequested: false,
+      accepted: {
+        observedFingerprint: command.observedFingerprint,
+        expectedMaterialFingerprint: command.expectedMaterialFingerprint,
+      },
+    });
+    expect(await (await post(command)).json()).toEqual(decision);
+    const committed = await counts();
+    expect(committed).toEqual({
+      ...before,
+      decisions: Number(before.decisions) + 1,
+      events: Number(before.events) + 1,
+    });
+    for (const body of [
+      { ...command, operationId: "new-stale-operation" },
+      { ...command, expectedDecisionRevision: 1 },
+      {
+        ...command,
+        operationId: "swap-fingerprints",
+        expectedDecisionRevision: 1,
+        observedFingerprint: command.expectedMaterialFingerprint,
+        expectedMaterialFingerprint: command.observedFingerprint,
+      },
+    ])
+      expect((await post(body)).status).toBe(409);
+    const foreign = await post(command, detailApi(runtime, "foreign"));
+    const missing = await post(command, app, "accept", "missing");
+    expect(foreign.status).toBe(404);
+    expect(missing.status).toBe(404);
+    expect(await foreign.json()).toEqual(await missing.json());
+    await expect(
+      runtime.readChannelDriftDecision({
+        accountId: "foreign",
+        connectionId: "connection-1",
+        channelListingId: "channel-foreign",
+      }),
+    ).rejects.toMatchObject({ code: "not-found" });
+    await expect(
+      runtime.readChannelDriftDecision({
+        accountId: "account-1",
+        connectionId: "connection-1",
+        channelListingId: "missing",
+      }),
+    ).rejects.toMatchObject({ code: "not-found" });
+    await expect(
+      runtime.acceptChannelDrift(
+        { ...command, connectionId: "connection-1", channelListingId: "channel-foreign" },
+        { ...context, audit: { ...context.audit, forAccountId: "foreign" as never } },
+      ),
+    ).rejects.toMatchObject({ code: "not-found" });
+    expect(await counts()).toEqual(committed);
+    const repush = await post({ expectedDecisionRevision: 1, operationId: "detail-repush-1" }, app, "repush");
+    expect(repush.status).toBe(200);
+    expect(await repush.json()).toMatchObject({
+      revision: 2,
+      operationId: "detail-repush-1",
+      accepted: null,
+      repushRequested: true,
+    });
+    expect(
+      await runtime.readChannelDriftDecision({
+        accountId: "account-1",
+        connectionId: "connection-1",
+        channelListingId: "channel-foreign",
+      }),
+    ).toMatchObject({ revision: 2, operationId: "detail-repush-1" });
+    expect(await counts()).toEqual({
+      ...before,
+      decisions: Number(before.decisions) + 2,
+      events: Number(before.events) + 2,
+    });
+    expect((await post(command)).status).toBe(409);
+    const duplicates = await Promise.all([
+      post({ expectedDecisionRevision: 1, operationId: "detail-repush-1" }, app, "repush"),
+      post({ expectedDecisionRevision: 1, operationId: "detail-repush-1" }, app, "repush"),
+    ]);
+    expect(duplicates.map((response) => response.status)).toEqual([200, 200]);
+    const competitors = await Promise.all([
+      post({ ...command, expectedDecisionRevision: 2, operationId: "detail-competitor-a" }),
+      post({ ...command, expectedDecisionRevision: 2, operationId: "detail-competitor-b" }),
+    ]);
+    expect(competitors.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(await counts()).toEqual({
+      ...before,
+      decisions: Number(before.decisions) + 3,
+      events: Number(before.events) + 3,
+    });
+  });
+
   it("S6 retained old schema requires the owning migration and survives repeated real boot", async () => {
     await resetMultiContextTestSchemas({ channels: pools.channels });
     const predecessor = {
@@ -866,6 +1073,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
     ).rejects.toThrow("unexpected event type");
     await expect(
       runtime.readChannelDriftDecision({
+        accountId: "account-1",
         connectionId: "connection-1",
         channelListingId: "channel-foreign",
       }),
@@ -1284,7 +1492,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
       ),
     ).resolves.toMatchObject({ state: "held" });
     await expect(
-      runtime.readChannelDriftDecision({ connectionId: "connection-1", channelListingId: "channel-foreign" }),
+      runtime.readChannelDriftDecision({
+        accountId: "account-1",
+        connectionId: "connection-1",
+        channelListingId: "channel-foreign",
+      }),
     ).resolves.toMatchObject({ repushRequested: true });
     expect(enqueueRepush).toHaveBeenCalledTimes(1);
 
@@ -1302,7 +1514,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
       expect.objectContaining({ query: expect.any(Function) }),
     );
     await expect(
-      runtime.readChannelDriftDecision({ connectionId: "connection-1", channelListingId: "channel-foreign" }),
+      runtime.readChannelDriftDecision({
+        accountId: "account-1",
+        connectionId: "connection-1",
+        channelListingId: "channel-foreign",
+      }),
     ).resolves.toMatchObject({ repushRequested: true });
     expect(await repushFacts()).toEqual(retained);
     await expect(runtime.repushChannelListing(command, context)).rejects.toThrow(
@@ -1625,7 +1841,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
     expect(await repushFacts()).toEqual(retained);
     await runtime.reconcileConnection(input, context);
     await expect(
-      runtime.readChannelDriftDecision({ connectionId: "connection-1", channelListingId: "channel-foreign" }),
+      runtime.readChannelDriftDecision({
+        accountId: "account-1",
+        connectionId: "connection-1",
+        channelListingId: "channel-foreign",
+      }),
     ).resolves.toMatchObject({ repushRequested: true, revision: 1 });
     expect(await repushFacts()).toEqual(retained);
 
@@ -1636,7 +1856,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
     );
     await runtime.reconcileConnection(input, context);
     await expect(
-      runtime.readChannelDriftDecision({ connectionId: "connection-1", channelListingId: "channel-foreign" }),
+      runtime.readChannelDriftDecision({
+        accountId: "account-1",
+        connectionId: "connection-1",
+        channelListingId: "channel-foreign",
+      }),
     ).resolves.toMatchObject({ repushRequested: false, revision: 2 });
     const repushes = await pools.channels.query<{ operation_origin: string; status: string }>(
       `SELECT operation_origin,status FROM channel_outbound_operations
@@ -2497,6 +2721,25 @@ async function decisionEvents() {
     streamId: "channels.channel-drift-decision-connection-1-channel-foreign",
     fromVersion: 1,
   });
+}
+
+function detailApi(
+  reconciliation: ChannelReconciliationServices,
+  accountId = "account-1",
+  permissions = ["channels.view", "channels.manage"],
+  contextAccount = accountId,
+) {
+  const services = channelsModule.createServices(pools.channels, {
+    channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory),
+  });
+  const app = new Hono<ChannelsApiEnv>();
+  app.use("*", async (c, next) => {
+    c.set("actor", { accountId, permissions });
+    c.set("context", { ...context, audit: { ...context.audit, forAccountId: contextAccount as never } });
+    await next();
+  });
+  app.route("/", buildChannelsApi({ ...services, reconciliation }));
+  return app;
 }
 
 function realOutboundRuntime() {

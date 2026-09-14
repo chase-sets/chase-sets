@@ -72,6 +72,47 @@ export type ChannelDriftDecision = Readonly<{
   operationId: string | null;
 }>;
 
+export class ChannelDriftError extends Error {
+  constructor(
+    readonly code:
+      | "not-found"
+      | "invalid-command"
+      | "stale-decision"
+      | "stale-fingerprints"
+      | "operation-reused"
+      | "ineligible"
+      | "unavailable",
+  ) {
+    super(code);
+    this.name = "ChannelDriftError";
+  }
+}
+
+export type ChannelDriftDetailRow =
+  | Readonly<{
+      rowKind: "listing";
+      rowIdentity: string;
+      channelListingId: string;
+      classification: ChannelDriftClassification;
+      runGeneration: number;
+      observedFingerprint: string | null;
+      expectedMaterialFingerprint: string | null;
+      decision: ChannelDriftDecision;
+    }>
+  | Readonly<{ rowKind: "finding"; rowIdentity: string; flag: "unmapped"; runGeneration: number }>;
+
+export type ChannelDriftDetail =
+  | Readonly<{ kind: "not-found" | "not-yet-observed" | "unavailable" | "stale-page" }>
+  | Readonly<{
+      kind: "loaded";
+      basis: string;
+      runState: "idle" | "due" | "running" | "completed" | "bounded-unknown" | "held";
+      observedAt: string;
+      rows: readonly ChannelDriftDetailRow[];
+      hasMore: 0 | 1;
+      cursor: string | null;
+    }>;
+
 export type AcceptChannelDrift = Readonly<{
   connectionId: string;
   channelListingId: string;
@@ -155,8 +196,11 @@ export interface ChannelReconciliationServices {
   acceptChannelDrift(input: AcceptChannelDrift, context: EventStoreContext): Promise<ChannelDriftDecision>;
   repushChannelListing(input: RepushChannelListing, context: EventStoreContext): Promise<ChannelDriftDecision>;
   readChannelDriftDecision(
-    input: Readonly<{ connectionId: string; channelListingId: string }>,
+    input: Readonly<{ accountId: string; connectionId: string; channelListingId: string }>,
   ): Promise<ChannelDriftDecision>;
+  readChannelDriftDetail(
+    input: Readonly<{ accountId: string; connectionId: string; cursor?: string }>,
+  ): Promise<ChannelDriftDetail>;
   readChannelDriftAttentionContribution(
     input: Readonly<{ connectionId: string; limit?: number }>,
   ): Promise<ChannelDriftAttentionContribution | null>;

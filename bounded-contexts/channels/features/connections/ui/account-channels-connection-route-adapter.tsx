@@ -26,11 +26,16 @@ import {
 import { OutboundOperationLogPanel } from "../../outbound-sync/ui/operation-log-panel";
 import { ChannelConnectionHealthPanel } from "../../connection-attention/ui/health-panel";
 import type { ChannelConnectionAttention } from "../../connection-attention/domain/contracts";
+import type { ChannelDriftDecision, ChannelDriftDetail } from "../../reconciliation/domain/contracts";
+import { ChannelDriftPanel, type DriftActionResult, type DriftSubmission } from "../../reconciliation/ui/drift-panel";
 
 type AuxiliaryRead<T> = Readonly<{ kind: "loaded"; data: T }> | Readonly<{ kind: "read-error" }>;
 type LoadedData = Readonly<{
   kind: "ready";
   connection: PublicChannelConnection;
+  drift: ChannelDriftDetail;
+  canManageDrift: boolean;
+  loadIdentity: string;
   manualSync: AuxiliaryRead<ManualSyncPanel>;
   attention: AuxiliaryRead<ChannelConnectionAttention>;
   operationLog:
@@ -55,7 +60,7 @@ function required(value: string | undefined): string {
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs): Promise<RouteData> {
-  await requireActorFromAuthApi({ request, permission: "channels.view" });
+  const actor = await requireActorFromAuthApi({ request, permission: "channels.view" });
   const connectionId = required(params.connectionId);
   const connectionApi = createChannelsConnectionsRequestApiClient(request);
   let connection: Awaited<ReturnType<typeof connectionApi.getConnection>>;
@@ -70,7 +75,8 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
   const query = new URLSearchParams({ limit: "50" });
   if (position.cursor !== null) query.set("cursor", position.cursor);
   const headers = createForwardedAuthHeaders(request, undefined, { readTargetContextName: "channels" });
-  const [operationResult, manualSync, attention] = await Promise.all([
+  const driftCursor = new URL(request.url).searchParams.get("driftCursor");
+  const [operationResult, manualSync, attention, drift] = await Promise.all([
     readAuxiliary<Readonly<{ log: OutboundOperationLogPage; summary: OutboundOperationSummary }>>(
       fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/outbound-operations?${query}`, {
         credentials: "include",
@@ -89,6 +95,12 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
         headers,
       }),
     ),
+    readAuxiliary<ChannelDriftDetail>(
+      fetch(
+        `${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/drift${driftCursor ? `?${new URLSearchParams({ cursor: driftCursor })}` : ""}`,
+        { credentials: "include", headers },
+      ),
+    ),
   ]);
   let operationLog: LoadedData["operationLog"] = { kind: "read-error" };
   if (operationResult.kind === "loaded")
@@ -98,7 +110,16 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
       summary: operationResult.data.summary,
       navigation: resolveOutboundOperationLogNavigation(position, operationResult.data.log.nextCursor ?? null),
     };
-  return { kind: "ready", connection, manualSync, attention, operationLog };
+  return {
+    kind: "ready",
+    connection,
+    manualSync,
+    attention,
+    operationLog,
+    drift: drift.kind === "loaded" ? drift.data : { kind: "unavailable" },
+    canManageDrift: actor.permissions.includes("channels.manage"),
+    loadIdentity: crypto.randomUUID(),
+  };
 }
 
 async function readAuxiliary<T>(response: Promise<Response>): Promise<AuxiliaryRead<T>> {
@@ -141,7 +162,7 @@ const connectionAction = defineFormAction({
 
 export async function action(
   args: ActionFunctionArgs,
-): Promise<ConnectionActionData | ManualSyncActionError | AttentionActionError | Response> {
+): Promise<ConnectionActionData | ManualSyncActionError | AttentionActionError | DriftActionResult | Response> {
   const form = await args.request.clone().formData();
   const intent = String(form.get("intent") ?? "");
   if (["pause", "resume", "disconnect"].includes(intent)) return connectionAction(args);
@@ -152,6 +173,50 @@ export async function action(
   const runId = encodeURIComponent(String(form.get("runId") ?? ""));
   const revision = encodeURIComponent(String(form.get("expectedRevision") ?? ""));
   const jsonHeaders = createForwardedAuthHeaders(args.request, { "content-type": "application/json" });
+  if (intent === "accept-drift" || intent === "repush-drift") {
+    const input = {
+      connectionId,
+      channelListingId: String(form.get("channelListingId") ?? ""),
+      operationId: String(form.get("operationId") ?? ""),
+      expectedDecisionRevision: Number(form.get("expectedDecisionRevision")),
+    };
+    const submission: DriftSubmission =
+      intent === "accept-drift"
+        ? {
+            intent,
+            input: {
+              ...input,
+              observedFingerprint: String(form.get("observedFingerprint") ?? ""),
+              expectedMaterialFingerprint: String(form.get("expectedMaterialFingerprint") ?? ""),
+            },
+          }
+        : { intent, input };
+    const { connectionId: _connectionId, channelListingId: _channelListingId, ...body } = submission.input;
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/drift/${encodeURIComponent(input.channelListingId)}/${intent === "accept-drift" ? "accept" : "repush"}`,
+        {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify(body),
+        },
+      );
+      return {
+        kind: "drift-result",
+        submission,
+        outcome: response.ok
+          ? "committed"
+          : response.status === 409
+            ? "conflict"
+            : response.status >= 500
+              ? "uncertain"
+              : "refused",
+        ...(response.ok ? { decision: (await response.json()) as ChannelDriftDecision } : {}),
+      };
+    } catch {
+      return { kind: "drift-result", submission, outcome: "uncertain" };
+    }
+  }
   if (intent === "resolve-attention") {
     const resolved = await fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/attention/resolve`, {
       method: "POST",
@@ -258,6 +323,12 @@ export default function AccountChannelsConnectionRoute() {
   return (
     <ChannelConnectionDetailPage state={{ kind: "ready", connection }} pendingIntent={pendingIntent}>
       <Stack gap={4}>
+        <ChannelDriftPanel
+          detail={data.drift}
+          canManage={data.canManageDrift}
+          loadIdentity={data.loadIdentity}
+          loading={navigation.state !== "idle"}
+        />
         <ChannelConnectionHealthPanel
           state={navigation.state === "loading" ? { kind: "loading" } : data.attention}
           pending={navigation.state === "submitting"}

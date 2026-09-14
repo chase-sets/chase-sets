@@ -65,6 +65,10 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     typeof Reflect.get(outboundSync, "processNextInlineOperation") === "function" &&
     isObject(reconciliation) &&
     typeof Reflect.get(reconciliation, "reconcileDueConnections") === "function" &&
+    typeof Reflect.get(reconciliation, "readChannelDriftDetail") === "function" &&
+    typeof Reflect.get(reconciliation, "readChannelDriftDecision") === "function" &&
+    typeof Reflect.get(reconciliation, "acceptChannelDrift") === "function" &&
+    typeof Reflect.get(reconciliation, "repushChannelListing") === "function" &&
     typeof Reflect.get(reconciliation, "deliverHealthObservations") === "function" &&
     isObject(tcgplayerCsv) &&
     isObject(manualSync) &&
