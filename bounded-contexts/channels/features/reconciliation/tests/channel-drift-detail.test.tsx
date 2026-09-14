@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import AccountChannelsConnectionRoute, {
   loader,
   action,
+  clientAction,
 } from "../../../routes/marketplace/account-channels-connection";
 import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
 import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";

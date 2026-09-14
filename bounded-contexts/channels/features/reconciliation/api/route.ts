@@ -43,9 +43,12 @@ export function createChannelDriftRoutes(services: ChannelReconciliationServices
           record.expectedDecisionRevision < 0
         )
           throw new ChannelDriftError("invalid-command");
+        const connectionId = c.req.param("connectionId");
+        const channelListingId = c.req.param("channelListingId");
+        if (!connectionId || !channelListingId) throw new ChannelDriftError("invalid-command");
         const input = {
-          connectionId: c.req.param("connectionId"),
-          channelListingId: c.req.param("channelListingId"),
+          connectionId,
+          channelListingId,
           operationId: record.operationId,
           expectedDecisionRevision: record.expectedDecisionRevision,
         };

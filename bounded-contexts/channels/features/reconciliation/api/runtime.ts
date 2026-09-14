@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import {
   createPostgresAggregateSnapshotStore,
+  createPostgresEventStore,
   withPgTransaction,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
@@ -830,7 +831,16 @@ async function decideDrift(
       [input.connectionId, input.channelListingId],
     );
     if (!item.rows[0]) throw new ChannelDriftError("not-found");
-    const history = await loadDecisionHistory(dependencies, input.connectionId, input.channelListingId);
+    const history = await loadDecisionHistory(
+      {
+        ...dependencies,
+        eventStore: createPostgresEventStore({
+          pool: { query: db.query.bind(db), connect: dependencies.db.connect.bind(dependencies.db) },
+        }),
+      },
+      input.connectionId,
+      input.channelListingId,
+    );
     const replay = await db.query<{ command_fingerprint: string; resulting_revision: string | number }>(
       `SELECT command_fingerprint,resulting_revision FROM channel_drift_decision_operations WHERE operation_id=$1`,
       [input.operationId],

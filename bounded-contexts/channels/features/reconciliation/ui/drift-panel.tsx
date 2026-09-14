@@ -20,7 +20,6 @@ export type DriftActionResult = Readonly<{
   submission: DriftSubmission;
   decision?: ChannelDriftDecision;
 }>;
-const fetcherKey = "channel-drift-decision";
 const classifications = {
   "in-sync": "channels.drift.in-sync",
   repairable: "channels.drift.repairable",
@@ -30,16 +29,19 @@ const classifications = {
 } as const;
 
 export function ChannelDriftPanel({
+  connectionId,
   detail,
   canManage,
   loadIdentity,
   loading,
 }: Readonly<{
+  connectionId: string;
   detail: ChannelDriftDetail;
   canManage: boolean;
   loadIdentity: string;
   loading: boolean;
 }>) {
+  const fetcherKey = `channel-drift-decision:${connectionId}`;
   const fetcher = useFetcher<DriftActionResult>({ key: fetcherKey });
   const revalidator = useRevalidator();
   const navigate = useNavigate();
@@ -78,7 +80,12 @@ export function ChannelDriftPanel({
           />
         ) : null}
         {result?.outcome === "uncertain" && canManage ? (
-          <DecisionForm submission={result.submission} disabled={pending} label={t("channels.drift.retry")} />
+          <DecisionForm
+            fetcherKey={fetcherKey}
+            submission={result.submission}
+            disabled={pending}
+            label={t("channels.drift.retry")}
+          />
         ) : null}
         {detail.kind !== "loaded" ? (
           <MarketplaceNotice
@@ -114,6 +121,7 @@ export function ChannelDriftPanel({
                     /^[a-f0-9]{64}$/.test(row.observedFingerprint ?? "") &&
                     /^[a-f0-9]{64}$/.test(row.expectedMaterialFingerprint ?? "") ? (
                       <RowDecisions
+                        fetcherKey={fetcherKey}
                         key={`${row.decision.revision}:${row.observedFingerprint}:${row.expectedMaterialFingerprint}`}
                         row={row}
                         disabled={blocked}
@@ -146,9 +154,10 @@ export function ChannelDriftPanel({
 }
 
 function RowDecisions({
+  fetcherKey,
   row,
   disabled,
-}: Readonly<{ row: Extract<ChannelDriftDetailRow, { rowKind: "listing" }>; disabled: boolean }>) {
+}: Readonly<{ fetcherKey: string; row: Extract<ChannelDriftDetailRow, { rowKind: "listing" }>; disabled: boolean }>) {
   const [ids] = useState(() => ({ accept: crypto.randomUUID(), repush: crypto.randomUUID() }));
   const base = {
     connectionId: row.decision.connectionId,
@@ -158,6 +167,7 @@ function RowDecisions({
   return (
     <Stack gap={2}>
       <DecisionForm
+        fetcherKey={fetcherKey}
         disabled={disabled}
         label={t("channels.drift.accept")}
         submission={{
@@ -171,6 +181,7 @@ function RowDecisions({
         }}
       />
       <DecisionForm
+        fetcherKey={fetcherKey}
         disabled={disabled}
         label={t("channels.drift.repush")}
         submission={{ intent: "repush-drift", input: { ...base, operationId: ids.repush } }}
@@ -180,10 +191,11 @@ function RowDecisions({
 }
 
 function DecisionForm({
+  fetcherKey,
   submission,
   disabled,
   label,
-}: Readonly<{ submission: DriftSubmission; disabled: boolean; label: string }>) {
+}: Readonly<{ fetcherKey: string; submission: DriftSubmission; disabled: boolean; label: string }>) {
   return (
     <RouterForm method="post" navigate={false} fetcherKey={fetcherKey} disabled={disabled}>
       <HiddenInput name="intent" value={submission.intent} />

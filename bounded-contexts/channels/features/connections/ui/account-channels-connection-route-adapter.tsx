@@ -7,7 +7,7 @@ import {
   resolveRequestApiBaseUrl,
 } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { ActionFunctionArgs, ClientActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import { ChannelConnectionDetailPage, type ChannelConnectionAllowedAction } from "./connection-pages";
 import {
@@ -205,27 +205,11 @@ export async function action(
   const revision = encodeURIComponent(String(form.get("expectedRevision") ?? ""));
   const jsonHeaders = createForwardedAuthHeaders(args.request, { "content-type": "application/json" });
   if (intent === "accept-drift" || intent === "repush-drift") {
-    const input = {
-      connectionId,
-      channelListingId: String(form.get("channelListingId") ?? ""),
-      operationId: String(form.get("operationId") ?? ""),
-      expectedDecisionRevision: Number(form.get("expectedDecisionRevision")),
-    };
-    const submission: DriftSubmission =
-      intent === "accept-drift"
-        ? {
-            intent,
-            input: {
-              ...input,
-              observedFingerprint: String(form.get("observedFingerprint") ?? ""),
-              expectedMaterialFingerprint: String(form.get("expectedMaterialFingerprint") ?? ""),
-            },
-          }
-        : { intent, input };
+    const submission = driftSubmission(form, connectionId)!;
     const { connectionId: _connectionId, channelListingId: _channelListingId, ...body } = submission.input;
     try {
       const response = await fetch(
-        `${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/drift/${encodeURIComponent(input.channelListingId)}/${intent === "accept-drift" ? "accept" : "repush"}`,
+        `${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/drift/${encodeURIComponent(submission.input.channelListingId)}/${intent === "accept-drift" ? "accept" : "repush"}`,
         {
           method: "POST",
           headers: jsonHeaders,
@@ -355,6 +339,8 @@ export default function AccountChannelsConnectionRoute() {
     <ChannelConnectionDetailPage state={{ kind: "ready", connection }} pendingIntent={pendingIntent}>
       <Stack gap={4}>
         <ChannelDriftPanel
+          key={connection.connectionId}
+          connectionId={connection.connectionId}
           detail={data.drift}
           canManage={data.canManageDrift}
           loadIdentity={data.loadIdentity}
