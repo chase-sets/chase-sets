@@ -107,7 +107,7 @@ export function createRepricingPolicyRoutes(services: RepricingPolicyServices & 
     return state ? c.json(state) : c.json({ error: { code: "not_found" } }, 404);
   });
   const lifecycle =
-    (action: "pause" | "resume" | "delete"): Handler<PricingApiEnv> =>
+    (action: "pause" | "resume" | "delete"): Handler<PricingApiEnv, `/:policyId/${"pause" | "resume" | "delete"}`> =>
     async (c) => {
       const context = c.get("context");
       if (!context) return c.json({ error: { code: "authentication_required" } }, 401);

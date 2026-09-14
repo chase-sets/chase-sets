@@ -186,6 +186,9 @@ describeDb("Pricing Catalog v5-to-v6 historical bootstrap", () => {
       ).toEqual([{ id: categoryId, name: "Renamed", status: "active", listingCount: 0 }]);
       const old = (await createPostgresEventStore({ pool: pools.catalog }).readStream({ streamId }))[0]!;
       await buildPricingCatalogInputProjectionHandlers(pools.pricing)[old.eventType]!(toTransportEvent(old));
+      expect(await (await app.request("/account/repricing-policies/categories")).json()).toEqual([
+        { id: categoryId, name: "Renamed", status: "active", listingCount: 1 },
+      ]);
       await v7.reset();
     }
   });

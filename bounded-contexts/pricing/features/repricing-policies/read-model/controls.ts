@@ -1,7 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { repricingCandidateCte } from "../../repricing-engine/read-model/queries";
 import type { RepricingPolicyScope } from "../domain/domain";
-import { candidateAssignmentSql, scopeMatchSql } from "./schema";
+import { candidateAssignmentSql, repricingPolicyAssignmentsSql, scopeMatchSql } from "./schema";
 
 export async function getRepricingBudget(db: PgQueryable, accountId: string, day: string) {
   const row = (
@@ -49,8 +49,9 @@ export async function previewRepricingScope(
   input: RepricingScopePreviewInput,
 ): Promise<RepricingScopePreview> {
   const result = await db.query<RepricingScopePreview>(
-    `WITH ${repricingCandidateCte}, matches AS (
+    `WITH ${repricingCandidateCte}, remaining_assignments AS (${repricingPolicyAssignmentsSql("$2::text")}), matches AS (
        SELECT listing.listing_id, assignment.policy_id, policy.name,
+         remaining.policy_id AS remaining_policy_id, remaining_policy.name AS remaining_policy_name,
          (${candidateAssignmentSql}) AND NOT EXISTS (
            SELECT 1 FROM pricing_repricing_halts AS halt
            WHERE halt.seller_account_id = candidate.seller_account_id AND halt.engaged
@@ -59,10 +60,15 @@ export async function previewRepricingScope(
        LEFT JOIN pricing_catalog_item_inputs AS catalog_item ON catalog_item.catalog_item_id = listing.catalog_catalog_item_id
        LEFT JOIN pricing_repricing_policy_assignments AS assignment ON assignment.listing_id = listing.listing_id
        LEFT JOIN pricing_repricing_policies AS policy ON policy.policy_id = assignment.policy_id
+       LEFT JOIN remaining_assignments AS remaining ON remaining.listing_id = listing.listing_id
+       LEFT JOIN pricing_repricing_policies AS remaining_policy ON remaining_policy.policy_id = remaining.policy_id
        WHERE listing.seller_account_id = $1 AND candidate.replacing_policy_id IS NOT DISTINCT FROM $2::text
          AND listing.status <> 'withdrawn' AND ${scopeMatchSql("candidate")}
+     ), affected AS (
+       SELECT CASE WHEN governed THEN policy_id ELSE remaining_policy_id END AS policy_id,
+         CASE WHEN governed THEN name ELSE remaining_policy_name END AS name, governed FROM matches
      ), counts AS (
-       SELECT policy_id, name, governed, count(*)::integer AS count FROM matches
+       SELECT policy_id, name, governed, count(*)::integer AS count FROM affected
        WHERE policy_id IS NOT NULL AND policy_id IS DISTINCT FROM $2::text
        GROUP BY policy_id, name, governed
      ) SELECT (SELECT count(*)::integer FROM matches) AS matching,

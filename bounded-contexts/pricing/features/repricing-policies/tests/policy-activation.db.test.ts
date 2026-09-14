@@ -16,6 +16,7 @@ import { module as pricingModule } from "../../../index";
 import { createRepricingPolicyActivationServices, DryRunRequiredError } from "../api/activation";
 import { createRepricingPolicyRuntime } from "../api/runtime";
 import { createRepricingEngineRuntime } from "../../repricing-engine/api/runtime";
+import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
 import { buildRepricingPolicyProjectionHandlers } from "../read-model/projection";
 
@@ -103,11 +104,17 @@ describeDb("policy first activation", () => {
     );
   });
 
-  it.each(["queued", "failed", "consumed", "mismatched"])(
+  it.each(["queued", "failed", "consumed", "mismatched", "invalid-body"])(
     "rejects %s runs without an event or consumption",
     async (invalid) => {
       const dryRunId = await completedRun();
-      if (invalid === "mismatched")
+      if (invalid === "invalid-body") {
+        const invalidBody = { ...dryRunBody, maxChangesPerDay: 0 };
+        await pools.pricing.query(
+          "UPDATE pricing_repricing_dry_runs SET body = $2::jsonb, body_hash = $3 WHERE dry_run_id = $1 AND consumed_at IS NULL",
+          [dryRunId, JSON.stringify(invalidBody), hashRepricingDryRunBody(invalidBody)],
+        );
+      } else if (invalid === "mismatched")
         await pools.pricing.query(
           "UPDATE pricing_repricing_dry_runs SET body_hash = 'synthetic_wrong_hash' WHERE dry_run_id = $1 AND consumed_at IS NULL",
           [dryRunId],

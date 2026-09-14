@@ -10,7 +10,7 @@ import { DryRunRequiredError } from "./activation";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
 
 async function fixture() {
-  const eventStore = createInMemoryEventStore();
+  const { eventStore } = createInMemoryEventStore();
   const db: PgQueryable = { query: async () => ({ rows: [] }) };
   const runtime = createRepricingPolicyRuntime({ eventStore, db });
   const created = await runtime.commandHandler({
@@ -124,7 +124,7 @@ describe("account policy controls", () => {
   );
   it("owns commands from the aggregate before projection catchup and leaves revise/resume ungated", async () => {
     const { app, services } = await fixture();
-    services.getAccountRepricingPolicy = vi.fn(async () => null);
+    vi.mocked(services.getAccountRepricingPolicy).mockResolvedValue(null);
     for (const [action, body] of [
       ["pause", {}],
       ["resume", {}],
