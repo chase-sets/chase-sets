@@ -9,6 +9,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import {
+  createPgPool,
   createPostgresAggregateSnapshotStore,
   createPostgresEventStore,
   withPgTransaction,
@@ -326,7 +327,10 @@ describeDb("Channel Reconciliation guarded production path", () => {
     expect(results.some((result) => result.status === "fulfilled")).toBe(true);
     for (const result of results) {
       if (result.status === "fulfilled") expect(result.value).toMatchObject({ revision: 2, repushRequested: false });
-      else expect(result.reason).toMatchObject({ message: "Channel Drift Decision is already being updated." });
+      else
+        expect(result.reason).toMatchObject({
+          message: expect.stringMatching(/(projection|receipt) does not match its event history/),
+        });
       await expect(s5Runtime({ outboundSync: outbound }).repushChannelListing(command, context)).resolves.toMatchObject(
         { revision: 2, repushRequested: false },
       );
@@ -343,7 +347,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
     );
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toMatchObject([
-      { reason: { message: expect.stringMatching(/revision is stale|already being updated/) } },
+      { reason: { message: expect.stringMatching(/revision is stale|projection does not match its event history/) } },
     ]);
     const retained = (await pools.channels.query("SELECT * FROM channel_outbound_operations")).rows;
     await expect(
@@ -384,6 +388,38 @@ describeDb("Channel Reconciliation guarded production path", () => {
     );
     expect(await decisionEvents()).toHaveLength(2);
     expect((await pools.channels.query("SELECT * FROM channel_outbound_operations")).rows).toEqual(retained);
+  });
+
+  it("S5 command and replay use one pool connection without nested borrowing", async () => {
+    const { command } = await s5Setup();
+    const database = (await pools.channels.query<{ name: string }>("SELECT current_database() AS name")).rows[0]!.name;
+    const url = new URL(databaseBaseUrl!);
+    url.pathname = `/${database}`;
+    const single = createPgPool(url.toString(), { max: 1, connectionTimeoutMillis: 1_000 });
+    try {
+      const outbound = createOutboundSyncRuntime(
+        { db: single, readAdditionalOutboundHold: async () => ({ held: true, sources: ["health"] }) },
+        { assertDelistDirective: () => undefined },
+      );
+      const runtime = s5Runtime({
+        db: single,
+        eventStore: createPostgresEventStore({ pool: single }),
+        outboundSync: outbound,
+      });
+      await expect(runtime.repushChannelListing(command, context)).resolves.toMatchObject({
+        revision: 2,
+        repushRequested: false,
+      });
+      await expect(runtime.repushChannelListing(command, context)).resolves.toMatchObject({
+        revision: 2,
+        repushRequested: false,
+      });
+      expect((await single.query("SELECT status,attempt_count FROM channel_outbound_operations")).rows).toEqual([
+        { status: "pending", attempt_count: 0 },
+      ]);
+    } finally {
+      await closeMultiContextTestPools({ channels: single });
+    }
   });
 
   it.each([
