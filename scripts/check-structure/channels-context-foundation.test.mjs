@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { listContextManifests, repoRoot } from "../lib/repo.mjs";
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { syncWorkspaceMetadata } from "../sync-workspace-metadata.mjs";
+import { findSchemaMigrationDdlSafetyViolationsInSource } from "./boot-schema-ddl-discipline.mjs";
 import {
   requireSourceContextWakeRegistryEntry,
   sourceContextWakeRegistry,
@@ -233,6 +234,13 @@ afterEach(() => {
 });
 
 describe("channels-context-foundation", () => {
+  it("proves actual attention migration indexes are concurrent and rejects their omission", () => {
+    const source = readFileSync(path.join(channelsRoot, "features/connection-attention/read-model/schema.ts"), "utf8");
+    expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([]);
+    expect(
+      findSchemaMigrationDdlSafetyViolationsInSource(source.replaceAll("INDEX CONCURRENTLY IF", "INDEX IF")),
+    ).toHaveLength(2);
+  });
   it("enrols every attention DB proof and refuses a missing production slice", () => {
     const scripts = readJson(packagePath).scripts;
     for (const name of [

@@ -23,8 +23,8 @@ export const channelAttentionSchemaMigrations: readonly BcSchemaMigration[] = [
     description: "Retain generation-scoped channel attention and independent resolution.",
     statements: [
       table,
-      index.replace("INDEX IF", "INDEX CONCURRENTLY IF"),
-      healthAccountIndex.replace("INDEX IF", "INDEX CONCURRENTLY IF"),
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_connection_attention_account_idx ON channel_connection_attention (account_id, opened_at, connection_id) WHERE resolved_at IS NULL",
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_connection_health_account_attention_idx ON channel_connection_health (account_id, connection_id)",
     ],
   },
 ];
