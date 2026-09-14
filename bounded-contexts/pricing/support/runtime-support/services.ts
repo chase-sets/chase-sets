@@ -12,6 +12,7 @@ import { createPricingRecommendationRuntime } from "../../features/recommendatio
 import { createMarketRollupsRuntime } from "../../features/market-rollups/api/runtime";
 import { createMarketEstimatesRuntime } from "../../features/market-estimates/api/runtime";
 import { createRepricingPolicyRuntime } from "../../features/repricing-policies/api/runtime";
+import { createRepricingPolicyActivationServices } from "../../features/repricing-policies/api/activation";
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
 import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
@@ -33,7 +34,7 @@ export type PricingServices = Readonly<{
   recommendations: ReturnType<typeof createPricingRecommendationRuntime>;
   marketRollups: ReturnType<typeof createMarketRollupsRuntime>;
   marketEstimates: ReturnType<typeof createMarketEstimatesRuntime>;
-  repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime>;
+  repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime> & ReturnType<typeof createRepricingPolicyActivationServices>;
   repricingEngine: ReturnType<typeof createRepricingEngineRuntime>;
   publicMarketPages: ReturnType<typeof createPublicMarketPagesRuntime>;
   /**
@@ -107,7 +108,10 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
       return result;
     },
   };
-  const repricingPolicies = createRepricingPolicyRuntime({ eventStore, db });
+  const repricingPolicies = {
+    ...createRepricingPolicyRuntime({ eventStore, db }),
+    ...createRepricingPolicyActivationServices({ eventStore, pool }),
+  };
   const publicMarketPages = createPublicMarketPagesRuntime({ db, policies });
   const bulkRepriceIngestion = createBulkRepriceIngestionRuntime({ db });
 

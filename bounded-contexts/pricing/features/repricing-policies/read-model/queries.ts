@@ -72,10 +72,12 @@ const repricingPolicySelectColumns = `
   updated_at
 `;
 
-export async function getRepricingPolicy(db: PgQueryable, policyId: string): Promise<RepricingPolicyRecord | null> {
+export async function getAccountRepricingPolicy(
+  db: PgQueryable, params: Readonly<{ accountId: string; policyId: string }>,
+): Promise<RepricingPolicyRecord | null> {
   const result = await db.query<RepricingPolicyRow>(
-    `SELECT ${repricingPolicySelectColumns} FROM pricing_repricing_policies WHERE policy_id = $1`,
-    [policyId],
+    `SELECT ${repricingPolicySelectColumns} FROM pricing_repricing_policies WHERE policy_id = $1 AND seller_account_id = $2`,
+    [params.policyId, params.accountId],
   );
   const row = result.rows[0];
   return row ? toRepricingPolicyRecord(row) : null;

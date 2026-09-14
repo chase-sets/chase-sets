@@ -17,7 +17,7 @@
  * make -- this view remains a correct, always-fresh reference implementation
  * either way.
  */
-function scopeMatchSql(policy: string): string {
+export function scopeMatchSql(policy: string): string {
   return `NOT (listing.listing_id = ANY (${policy}.excluded_listing_ids))
     AND (${policy}.scope_kind = 'all-listings'
       OR (${policy}.scope_kind = 'catalog-filter' AND catalog_item.category_ids && ${policy}.scope_category_ids)
@@ -43,7 +43,19 @@ export const candidateAssignmentSql = `
           AND competing_policy.updated_at >= statement_timestamp()))
   )`;
 
+export const pricingRepricingHaltSchemaSql = `
+CREATE TABLE IF NOT EXISTS pricing_repricing_halts (
+  seller_account_id text PRIMARY KEY,
+  engaged boolean NOT NULL,
+  engaged_at timestamptz NULL,
+  released_at timestamptz NULL,
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL
+);
+`;
+
 export const pricingRepricingPolicySchemaSql = `
+${pricingRepricingHaltSchemaSql}
 CREATE TABLE IF NOT EXISTS pricing_repricing_policies (
   policy_id text PRIMARY KEY,
   seller_account_id text NOT NULL,
@@ -74,6 +86,10 @@ WITH candidate_matches AS (
   JOIN pricing_repricing_policies AS policy
     ON policy.seller_account_id = listing.seller_account_id
    AND policy.status = 'active'
+   AND NOT EXISTS (
+     SELECT 1 FROM pricing_repricing_halts AS halt
+     WHERE halt.seller_account_id = policy.seller_account_id AND halt.engaged
+   )
   LEFT JOIN pricing_catalog_item_inputs AS catalog_item
     ON catalog_item.catalog_item_id = listing.catalog_catalog_item_id
   WHERE listing.status <> 'withdrawn'

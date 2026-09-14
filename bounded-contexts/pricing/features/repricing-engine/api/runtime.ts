@@ -147,6 +147,7 @@ export type RepricingEngineServices = ReturnType<typeof createRepricingDryRunSer
         marketplaceGatewayForAccount: (accountId: string) => RepricingMarketplaceGateway;
         signal?: AbortSignal;
         throwIfLeaseLost?: () => void;
+        afterRoundPlanned?: () => Promise<void>;
         onSpiralBreakerTrip?: (trip: RepricingSpiralBreakerTrip) => void;
       }>,
     ) => Promise<number>;
@@ -448,12 +449,14 @@ async function executeAdmittedProductRound(
   input: Readonly<{
     marketplaceGatewayForAccount: (accountId: string) => RepricingMarketplaceGateway;
     throwIfLeaseLost?: () => void;
+    afterRoundPlanned?: () => Promise<void>;
   }>,
   policy: RepricingEnginePolicyValue,
 ): Promise<RepricingEvaluationJobResult> {
   const nowIso = new Date().toISOString();
   const round = await loadRepricingRoundInputs(deps.db, job.payload);
   const evaluations = planRepricingRound(round, nowIso, policy);
+  await input.afterRoundPlanned?.();
   const byPolicy = new Map<string, Array<{ listing: RepricingRoundListing; evaluation: RepricingListingEvaluation }>>();
   round.listings.forEach((listing, index) => {
     const entries = byPolicy.get(listing.policyId) ?? [];

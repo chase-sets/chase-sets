@@ -26,6 +26,8 @@ import {
 import { pricingRepricingEngineSchemaMigrations } from "../read-model/schema";
 import { createRepricingEngineRuntime, type RepricingMarketplaceGateway } from "../api/runtime";
 import { buildRepricingEvaluationProjectionHandlers } from "../read-model/projection";
+import { listAssignedRepricingProducts, loadRepricingRoundInputs } from "../read-model/queries";
+import { buildRepricingHaltProjectionHandlers } from "../../repricing-policies/read-model/halt-projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -235,6 +237,59 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       },
     };
   }
+
+  async function stopPolicy(mode: "pause" | "halt") {
+    const pool = pools.pricing;
+    const eventStore = createPostgresEventStore({ pool });
+    const controls = createRepricingPolicyRuntime({ eventStore, db: pool });
+    if (mode === "pause") await controls.executeOwnedRepricingPolicy({
+      policyId: "rpp_1", accountId: "acc_seller", context,
+      command: { type: "PauseRepricingPolicy", pausedAt: new Date().toISOString() },
+    });
+    else await controls.setHalt("acc_seller", true, context);
+    const handlers = { ...buildRepricingPolicyProjectionHandlers(pool), ...buildRepricingHaltProjectionHandlers(pool) };
+    for (const stored of await eventStore.readAll()) await handlers[stored.eventType]?.(toTransportEvent(stored));
+  }
+
+  it.each(["pause", "halt"] as const)("BEFORE selection %s omits assignments and inputs with no command or fact", async (mode) => {
+    const pool = pools.pricing;
+    await seedRound(pool, { listingPrices: ["8.00", "9.00"] });
+    expect((await loadRepricingRoundInputs(pool, product)).listings).toHaveLength(2);
+    expect(await listAssignedRepricingProducts(pool, { after: null, limit: 10 })).toEqual([product]);
+    const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    await runtime.enqueueMarketPriceSignal(signal(`evt_synthetic_before_${mode}`));
+    await stopPolicy(mode);
+    expect((await loadRepricingRoundInputs(pool, product)).listings).toEqual([]);
+    expect(await listAssignedRepricingProducts(pool, { after: null, limit: 10 })).toEqual([]);
+    const marketplace = gateway(() => "applied");
+    expect(await runtime.processNextEvaluationJob({ claimOwnerId: "synthetic_7911", claimTtlMs: 30_000, marketplaceGatewayForAccount: () => marketplace })).toBe(1);
+    expect(marketplace.calls).toEqual([]);
+    expect(marketplace.pauseCalls).toEqual([]);
+    expect(marketplace.publishCalls).toEqual([]);
+    expect(await evaluationFacts(pool)).toEqual([]);
+  });
+
+  it.each(["pause", "halt"] as const)("AFTER captured load %s records policy-precondition-failed for every listing without a command", async (mode) => {
+    const pool = pools.pricing;
+    const { listingIds } = await seedRound(pool, { listingPrices: ["8.00", "9.00"] });
+    const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    await runtime.enqueueMarketPriceSignal(signal(`evt_synthetic_after_${mode}`));
+    const marketplace = gateway(() => "applied");
+    const afterRoundPlanned = vi.fn(async () => {
+      expect((await loadRepricingRoundInputs(pool, product)).listings).toHaveLength(2);
+      await stopPolicy(mode);
+    });
+    expect(await runtime.processNextEvaluationJob({ claimOwnerId: "synthetic_7911", claimTtlMs: 30_000, marketplaceGatewayForAccount: () => marketplace, afterRoundPlanned })).toBe(1);
+    expect(afterRoundPlanned).toHaveBeenCalledOnce();
+    expect(marketplace.calls).toEqual([]);
+    expect(marketplace.pauseCalls).toEqual([]);
+    expect(marketplace.publishCalls).toEqual([]);
+    const facts = await evaluationFacts(pool);
+    expect(facts).toHaveLength(1);
+    const data = facts[0]!.payload as RepricingPolicyEvaluatedEvent["data"];
+    expect(data.listings).toHaveLength(listingIds.length);
+    for (const listingId of listingIds) expect(data.listings).toContainEqual(expect.objectContaining({ listingId, outcome: "skipped", skipReason: "policy-precondition-failed" }));
+  });
 
   function holdQuery(pool: PgTransactionalPool, matches: (sql: string) => boolean) {
     let resolveReached!: () => void;
@@ -1206,7 +1261,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     const { policyId } = await seedRound(pool, { listingPrices: ["12.00"], rule });
     const eventStore = createPostgresEventStore({ pool });
     const policies = createRepricingPolicyRuntime({ eventStore, db: pool });
-    expect((await policies.getRepricingPolicy(policyId))?.rules).toEqual([rule]);
+    expect((await policies.getAccountRepricingPolicy({ accountId: "acc_seller", policyId }))?.rules).toEqual([rule]);
     const competitor = await policies.commandHandler({
       streamId: policies.streamIdForPolicy("rpp_competitor"),
       context,

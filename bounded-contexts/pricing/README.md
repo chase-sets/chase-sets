@@ -30,6 +30,7 @@ The Pricing-owned TCGplayer ingestion boundary is documented in [TCGplayer Price
 - Price Signal Set
 - Market Price Snapshot
 - Repricing Policy
+- Repricing Halt
 - Repricing evaluation engine
 - Price Recommendation
 
@@ -72,8 +73,22 @@ Missing and foreign IDs both return `404 not_found`; SSE connections share the a
 The worker's `PRICING_REPRICING_DRY_RUN_JOB_LANE_COUNT` defaults to 1. Requests and traces are
 durable across worker lease expiry; a replacement claim resumes the persisted cursor. Hashing uses
 recursively sorted object keys, preserves array order, and includes only scope, exclusions, rules and
-maxChangesPerDay. Completion and consumption timestamps are stored; validity and consumption enforcement,
-policy controls, UI, projections and digest remain separate slices.
+maxChangesPerDay. First activation consumes one completed exact-body-hash run atomically with policy
+creation from its stored body. Validity is indefinite; revise, resume, pause and delete are ungated.
+UI, outcome projections and digest remain separate slices.
+
+`/account/repricing-policies` exposes account-scoped policy controls, scope preview, daily budget use,
+category names and a Repricing Halt (`pricing.view` reads, `pricing.manage` writes). ID-addressed foreign
+and missing objects return the same 404; self-scoped reads isolate account data without foreign IDs.
+Commands check ownership on the folded aggregate, not its lagging projection, and return folded state.
+Creation accepts `{ dryRunId, name }`; invalid, failed, cancelled, consumed or hash-mismatched runs
+return `409 dry_run_required`, while foreign or absent runs return 404.
+
+| Policy control | System behavior |
+| --- | --- |
+| Repricing Halt | One audited account aggregate, released (steady) to engaged and back. Repeats emit nothing. Engaged excludes assignments before selection and fails the post-plan policy precondition. Release re-includes the account on the next signal or daily drift sweep without resuming individually paused policies. |
+| Scope Preview | Uses the dry-run candidate assignment SQL to report matching and governed listings, plus counts shadowed by existing policies and taken from them. |
+| Categories | Catalog category events maintain names, status and account-scoped listing counts; subscription version 7 replays historical names and revisions. |
 
 The dry-run migration creates new, empty tables, so their initial indexes are built with those tables.
 The listing-inputs index also has a concurrent ledgered migration for an already-populated source table.

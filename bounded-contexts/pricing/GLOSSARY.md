@@ -125,6 +125,19 @@ with a directive (Repricing Anchor Chain, offset, Floor Price, Ceiling Price, Re
 rounding, per-rule max move, and terminal behavior). Rules are evaluated first-match-wins; the pipeline's
 last rule is always the unconditional default.
 
+## Repricing Halt
+
+A **Repricing Halt** is the seller's audited account-wide stop for policy repricing. It starts released,
+can be engaged or released, and repeats emit no event. Engaging removes assignments before selection
+and fails the precondition for already planned rounds. Release restores eligibility on the next signal
+or daily drift sweep; it never resumes a policy the seller individually paused.
+
+## Scope Preview
+
+A **Scope Preview** counts the seller's listings matching a candidate Repricing Scope before precedence,
+the listings it would govern, and the existing policies that shadow it (`shadowedBy`) or lose assignments
+to it (`takenFrom`). It shares the candidate assignment predicate with Repricing Dry Runs.
+
 ## Repricing Anchor Chain
 
 A **Repricing Anchor Chain** is the ordered list of Repricing Anchors a Repricing Rule's directive tries in

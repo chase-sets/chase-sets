@@ -3,7 +3,18 @@ import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 const repricingProductListingIndexSql = `CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_product_status_idx
   ON pricing_market_listing_inputs (catalog_catalog_item_id, product_id, status)`;
 
+const pricingCatalogCategorySchemaSql = `
+CREATE TABLE IF NOT EXISTS pricing_catalog_category_inputs (
+  category_id text PRIMARY KEY,
+  name text NOT NULL,
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL
+);
+`;
+
 export const pricingRecommendationSourceSchemaSql = `
+${pricingCatalogCategorySchemaSql}
 CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
   catalog_item_id text PRIMARY KEY,
   language_code text NOT NULL DEFAULT 'en',
@@ -174,6 +185,11 @@ CREATE INDEX IF NOT EXISTS pricing_fulfillment_signal_lines_lookup_idx
 `;
 
 export const pricingRecommendationSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260914_pricing_catalog_category_inputs",
+    description: "Replay Catalog category names and lifecycle for account policy controls.",
+    statements: [pricingCatalogCategorySchemaSql],
+  },
   {
     migrationId: "20260914_pricing_repricing_product_listing_index",
     description: "Support set-based repricing asks by product and listing status.",

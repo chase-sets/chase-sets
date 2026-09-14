@@ -312,6 +312,10 @@ export async function isRepricingPolicyRevisionActive(
        WHERE policy_id = $1
          AND status = 'active'
          AND updated_at::text = $2
+         AND NOT EXISTS (
+           SELECT 1 FROM pricing_repricing_halts AS halt
+           WHERE halt.seller_account_id = pricing_repricing_policies.seller_account_id AND halt.engaged
+         )
      ) AS active`,
     [input.policyId, input.policyRevision],
   );
