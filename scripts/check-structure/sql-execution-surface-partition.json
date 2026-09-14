@@ -353,6 +353,7 @@
     "bounded-contexts/pricing/features/recommendations/integrations/source/source-projection.ts",
     "bounded-contexts/pricing/features/recommendations/read-model/projection.ts",
     "bounded-contexts/pricing/features/recommendations/read-model/queries.ts",
+    "bounded-contexts/pricing/features/repricing-engine/api/dry-run.ts",
     "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts",
     "bounded-contexts/pricing/features/repricing-engine/read-model/product-round-state.ts",
     "bounded-contexts/pricing/features/repricing-engine/read-model/projection.ts",
@@ -1844,10 +1845,13 @@
     "bounded-contexts/pricing/features/recommendations/domain/domain.ts",
     "bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts",
     "bounded-contexts/pricing/features/recommendations/read-model/schema.ts",
+    "bounded-contexts/pricing/features/repricing-engine/api/dry-run-route.ts",
     "bounded-contexts/pricing/features/repricing-engine/domain/evaluate.ts",
     "bounded-contexts/pricing/features/repricing-engine/domain/fact.ts",
     "bounded-contexts/pricing/features/repricing-engine/domain/policy.ts",
+    "bounded-contexts/pricing/features/repricing-engine/domain/round.ts",
     "bounded-contexts/pricing/features/repricing-engine/integrations/signal-reactions.ts",
+    "bounded-contexts/pricing/features/repricing-engine/read-model/migrations.ts",
     "bounded-contexts/pricing/features/repricing-engine/read-model/schema.ts",
     "bounded-contexts/pricing/features/repricing-policies/api/runtime.ts",
     "bounded-contexts/pricing/features/repricing-policies/domain/domain.ts",
@@ -2463,7 +2467,7 @@
     "tailwind.config.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 270,
+    "count": 274,
     "fileList": [
       "bounded-contexts/auth/features/sessions/api/route.ts",
       "bounded-contexts/auth/support/ucp-support/oauth.ts",
@@ -2533,6 +2537,7 @@
       "bounded-contexts/pricing/features/market-rollups/api/route.ts",
       "bounded-contexts/pricing/features/public-market-pages/api/route.ts",
       "bounded-contexts/pricing/features/recommendations/api/route.ts",
+      "bounded-contexts/pricing/features/repricing-engine/api/dry-run-route.ts",
       "bounded-contexts/public-presence/api.ts",
       "bounded-contexts/settlement/features/payouts/api/route.ts",
       "bounded-contexts/settlement/features/wallets/api/route.ts",

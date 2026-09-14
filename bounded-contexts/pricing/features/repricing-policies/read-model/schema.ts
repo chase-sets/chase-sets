@@ -17,6 +17,32 @@
  * make -- this view remains a correct, always-fresh reference implementation
  * either way.
  */
+function scopeMatchSql(policy: string): string {
+  return `NOT (listing.listing_id = ANY (${policy}.excluded_listing_ids))
+    AND (${policy}.scope_kind = 'all-listings'
+      OR (${policy}.scope_kind = 'catalog-filter' AND catalog_item.category_ids && ${policy}.scope_category_ids)
+      OR (${policy}.scope_kind = 'listing-set' AND listing.listing_id = ANY (${policy}.scope_listing_ids)))`;
+}
+
+function specificitySql(policy: string): string {
+  return `CASE ${policy}.scope_kind WHEN 'listing-set' THEN 2 WHEN 'catalog-filter' THEN 1 ELSE 0 END`;
+}
+
+export const candidateAssignmentSql = `
+  listing.seller_account_id = candidate.seller_account_id
+  AND listing.status <> 'withdrawn'
+  AND ${scopeMatchSql("candidate")}
+  AND NOT EXISTS (
+    SELECT 1 FROM pricing_repricing_policies AS competing_policy
+    WHERE competing_policy.seller_account_id = candidate.seller_account_id
+      AND competing_policy.status = 'active'
+      AND competing_policy.policy_id IS DISTINCT FROM candidate.replacing_policy_id
+      AND ${scopeMatchSql("competing_policy")}
+      AND (${specificitySql("competing_policy")} > ${specificitySql("candidate")}
+        OR (${specificitySql("competing_policy")} = ${specificitySql("candidate")}
+          AND competing_policy.updated_at >= statement_timestamp()))
+  )`;
+
 export const pricingRepricingPolicySchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_repricing_policies (
   policy_id text PRIMARY KEY,
@@ -42,11 +68,7 @@ WITH candidate_matches AS (
     listing.seller_account_id,
     listing.listing_id,
     policy.policy_id,
-    CASE policy.scope_kind
-      WHEN 'listing-set' THEN 2
-      WHEN 'catalog-filter' THEN 1
-      ELSE 0
-    END AS scope_specificity,
+    ${specificitySql("policy")} AS scope_specificity,
     policy.updated_at AS policy_updated_at
   FROM pricing_market_listing_inputs AS listing
   JOIN pricing_repricing_policies AS policy
@@ -55,19 +77,7 @@ WITH candidate_matches AS (
   LEFT JOIN pricing_catalog_item_inputs AS catalog_item
     ON catalog_item.catalog_item_id = listing.catalog_catalog_item_id
   WHERE listing.status <> 'withdrawn'
-    AND NOT (listing.listing_id = ANY (policy.excluded_listing_ids))
-    AND (
-      policy.scope_kind = 'all-listings'
-      OR (
-        policy.scope_kind = 'catalog-filter'
-        AND catalog_item.category_ids IS NOT NULL
-        AND catalog_item.category_ids && policy.scope_category_ids
-      )
-      OR (
-        policy.scope_kind = 'listing-set'
-        AND listing.listing_id = ANY (policy.scope_listing_ids)
-      )
-    )
+    AND ${scopeMatchSql("policy")}
 ),
 ranked_matches AS (
   SELECT

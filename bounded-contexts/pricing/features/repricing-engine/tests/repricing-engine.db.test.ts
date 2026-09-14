@@ -327,7 +327,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         eventStore: store,
         db: {
           query: async <Row>(sql: string, values?: readonly unknown[]) => {
-            if (sql.includes("FROM pricing_repricing_policy_assignments AS assignment")) loserInputReads += 1;
+            if (sql.includes("AS policy_revision")) loserInputReads += 1;
             return pool.query<Row>(sql, values);
           },
           connect: async () => {
@@ -462,10 +462,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         },
         db: {
           query: async <Row>(sql: string, values?: readonly unknown[]) => {
-            if (
-              (failure === "input" || failure === "input-and-unlock") &&
-              sql.includes("FROM pricing_repricing_policy_assignments AS assignment")
-            )
+            if ((failure === "input" || failure === "input-and-unlock") && sql.includes("AS policy_revision"))
               throw originalError;
             return pool.query<Row>(sql, values);
           },
@@ -692,7 +689,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         eventStore: createPostgresEventStore({ pool }),
         db: {
           query: async <Row>(sql: string, values?: readonly unknown[]) => {
-            if (failure !== "complete" && sql.includes("FROM pricing_repricing_policy_assignments AS assignment")) {
+            if (failure !== "complete" && sql.includes("AS policy_revision")) {
               throw originalError;
             }
             return pool.query<Row>(sql, values);
@@ -959,7 +956,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
             }
           : {}),
       });
-      const barrier = holdQuery(pool, (sql) => sql.includes("FROM pricing_repricing_policy_assignments AS assignment"));
+      const barrier = holdQuery(pool, (sql) => sql.includes("AS policy_revision"));
       const runtime = createRepricingEngineRuntime({ db: barrier.db, eventStore: createPostgresEventStore({ pool }) });
       await runtime.enqueueMarketPriceSignal(signal("evt_claimed"));
       const marketplace = gateway(() => "applied");

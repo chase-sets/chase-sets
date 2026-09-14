@@ -49,6 +49,10 @@ export const retentionCoverageExemptions = new Map([
     "Provider listing snapshots are permanent typed market evidence whose immutable capture provenance must remain available to Demand Curve replay; never age-swept (#7704).",
   ],
   [
+    "pricing_repricing_dry_runs",
+    "Completed dry runs remain valid indefinitely by exact body hash with no clock or expiry; run records and durable consumed_at evidence must survive for once-only consumption (#7904, comment 5646248607). Never age-swept.",
+  ],
+  [
     "platform_operations_gmv_reconciliation_runs",
     "Tape-vs-ledger reconciliation results are a permanent ops audit trail over forever-retained source data; never age-swept.",
   ],
