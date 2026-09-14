@@ -24,9 +24,19 @@ describe("channel-reconciliation-health-outcome-table", () => {
     decisionRevision: 0,
     recoveryRequested: false,
   };
-  it("retains missing and dirty members, and does not forget repush provenance when subsequently accepted", () => {
+  it("recovers missing members only with clean authority and preserves the closed generation on replay", () => {
     const opening = retainDriftGeneration(null, [foreign], false)!;
-    expect(retainDriftGeneration(opening, [], true)).toEqual(opening);
+    expect(retainDriftGeneration(opening, [], false)).toEqual(opening);
+    const recovered = retainDriftGeneration(opening, [], true);
+    expect(recovered).toEqual({
+      ...opening,
+      members: [{ ...foreign, settlement: "recovered" }],
+      resolution: "recovered-automatically",
+    });
+    expect(retainDriftGeneration(recovered, [], true)).toEqual(recovered);
+  });
+  it("retains dirty members and does not forget repush provenance when subsequently accepted", () => {
+    const opening = retainDriftGeneration(null, [foreign], false)!;
     const accepted = { ...foreign, settlement: "accepted" as const };
     expect(retainDriftGeneration(opening, [accepted], false)?.resolution).toBeNull();
     const repush = retainDriftGeneration(opening, [{ ...foreign, recoveryRequested: true }], false)!;

@@ -125,8 +125,7 @@ export function retainDriftGeneration(
   if (!previous || previous.resolution !== null) return previous;
   const members = previous.members.map((member) => {
     const current = currentMembers.get(member.identity);
-    // Missing input is not evidence that a retained member was repaired.
-    if (!current) return member;
+    if (!current) return clean === true ? { ...member, settlement: "recovered" as const } : member;
     const accepted =
       member.kind === "foreign-edit" &&
       current.settlement === "accepted" &&
