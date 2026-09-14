@@ -27,10 +27,7 @@ export {
 } from "./features/outbound-sync/domain/contracts";
 export { createChannelReconciliationRuntime, readChannelOutboundHold } from "./features/reconciliation/api/runtime";
 export { classifyChannelDrift } from "./features/reconciliation/domain/classification";
-export {
-  mapChannelDriftToHealthObservation,
-  mapPersistentGapToHealthObservation,
-} from "./features/reconciliation/domain/health";
+export { mapChannelDriftToHealthObservation } from "./features/reconciliation/domain/health";
 export {
   channelDriftClassifications,
   type AcceptChannelDrift,

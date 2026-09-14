@@ -77,6 +77,19 @@ describeDb("channels-services-composition", () => {
     },
   );
 
+  it("rejects real composition when retained health delivery is omitted", () => {
+    const services = createServices();
+    expect(isChannelsServices(services)).toBe(true);
+    expect(
+      isChannelsServices({
+        ...services,
+        reconciliation: Object.fromEntries(
+          Object.entries(services.reconciliation).filter(([key]) => key !== "deliverHealthObservations"),
+        ),
+      }),
+    ).toBe(false);
+  });
+
   it.each(channelsServicesMembers)("rejects real composition with %s omitted", (member) => {
     const services = createServices();
     const missingMember = Object.fromEntries(Object.entries(services).filter(([key]) => key !== member));

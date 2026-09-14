@@ -11,6 +11,11 @@ import { ChannelAttentionError, type ChannelConnectionAttention } from "../domai
 const openHealthSql = `SELECT health.connection_id, reason, (reason->'opening'->>'occurredAt')::timestamptz AS opened_at
   FROM channel_connection_health AS health CROSS JOIN LATERAL jsonb_array_elements(health.reasons) AS reason
   WHERE health.account_id=$1 AND reason->>'state' <> 'closed'
+    AND NOT (reason->>'reasonCode'='drift' AND EXISTS (
+      SELECT 1 FROM channel_reconciliation_state AS run WHERE run.connection_id=health.connection_id
+        AND run.account_id=health.account_id AND run.drift_generation->>'fingerprint'=reason->>'fingerprint'
+        AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(run.drift_generation->'members') AS member
+          WHERE member->>'kind' IN ('foreign-edit','structural'))))
     AND NOT EXISTS (SELECT 1 FROM channel_connection_attention AS attention
       WHERE attention.account_id=$1 AND attention.connection_id=health.connection_id
         AND attention.reason_code=reason->>'reasonCode'
@@ -49,22 +54,44 @@ export async function readConnectionAttention(
   const [manual, health, resolutions] = await Promise.all([
     readManualAttentionContributions(db, accountId, ids),
     readAccountHealthSnapshots(db, accountId, ids),
-    db.query<{ connection_id: string; reason_code: string; reason_generation: string; fingerprint: string }>(
+    db.query<{
+      connection_id: string;
+      reason_code: string | null;
+      reason_generation: string | null;
+      fingerprint: string | null;
+      affected_count: number | null;
+      drift_visible: boolean | null;
+    }>(
       `
-      SELECT attention.connection_id,reason_code,reason_generation::text,fingerprint FROM channel_connection_attention AS attention
-      JOIN channel_connection_health AS health ON health.connection_id=attention.connection_id AND health.account_id=attention.account_id
-      WHERE attention.account_id=$1 AND attention.connection_id=ANY($2::text[]) AND resolved_at IS NOT NULL
-        AND health.reasons @> jsonb_build_array(jsonb_build_object('reasonCode',reason_code,'generation',reason_generation,'fingerprint',fingerprint))`,
+      SELECT connection.connection_id,attention.reason_code,attention.reason_generation::text,attention.fingerprint,
+        CASE WHEN run.drift_generation IS NULL THEN NULL ELSE (
+          SELECT count(*)::int FROM jsonb_array_elements(run.drift_generation->'members') AS member
+          WHERE member->>'settlement'='open' AND member->>'kind' IN ('foreign-edit','structural')
+        ) END AS affected_count,
+        CASE WHEN run.drift_generation IS NULL THEN NULL ELSE EXISTS (
+          SELECT 1 FROM jsonb_array_elements(run.drift_generation->'members') AS member
+          WHERE member->>'kind' IN ('foreign-edit','structural')) END AS drift_visible
+      FROM channel_connections AS connection
+      LEFT JOIN channel_connection_health AS health ON health.connection_id=connection.connection_id AND health.account_id=connection.account_id
+      LEFT JOIN channel_reconciliation_state AS run ON run.connection_id=connection.connection_id AND run.account_id=connection.account_id
+        AND health.reasons @> jsonb_build_array(jsonb_build_object('reasonCode','drift','fingerprint',run.drift_generation->>'fingerprint'))
+      LEFT JOIN channel_connection_attention AS attention ON attention.connection_id=connection.connection_id
+        AND attention.account_id=connection.account_id AND attention.resolved_at IS NOT NULL
+        AND health.reasons @> jsonb_build_array(jsonb_build_object('reasonCode',attention.reason_code,'generation',attention.reason_generation,'fingerprint',attention.fingerprint))
+      WHERE connection.account_id=$1 AND connection.connection_id=ANY($2::text[])`,
       [accountId, ids],
     ),
   ]);
   return ids.map((id) => {
     const snapshot = health.get(id);
+    const affected = resolutions.rows.find((row) => row.connection_id === id)?.affected_count;
     return {
       connectionId: id,
       healthState: snapshot?.state ?? "unknown",
       health: (snapshot ? openHealthReasonGenerations(snapshot) : []).filter(
         (reason) =>
+          (reason.reasonCode !== "drift" ||
+            resolutions.rows.find((row) => row.connection_id === id)?.drift_visible !== false) &&
           !resolutions.rows.some(
             (row) =>
               row.connection_id === id &&
@@ -74,6 +101,14 @@ export async function readConnectionAttention(
           ),
       ),
       manual: manual.find((row) => row.connectionId === id) ?? null,
+      ...(affected === null || affected === undefined
+        ? {}
+        : {
+            drift: {
+              affectedListingCount: Math.min(affected, 100),
+              hasMore: affected > 100 ? (1 as const) : (0 as const),
+            },
+          }),
     };
   });
 }

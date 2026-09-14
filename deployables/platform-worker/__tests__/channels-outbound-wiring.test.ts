@@ -154,7 +154,7 @@ function validChannelsCandidate(
     connectionAttention: { listOpenAttention: vi.fn(), resolveAttention: vi.fn() },
     listingComposition: {},
     outboundSync,
-    reconciliation: { reconcileDueConnections: async () => [] },
+    reconciliation: { reconcileDueConnections: async () => [], deliverHealthObservations: vi.fn() },
     tcgplayerCsv: {},
     manualSync: {},
     projectors: [],

@@ -35,6 +35,7 @@ export type ChannelConnectionAttention = Readonly<{
   healthState: ChannelHealthState;
   health: readonly ChannelHealthReasonGeneration[];
   manual: ManualAttentionContribution | null;
+  drift?: Readonly<{ affectedListingCount: number; hasMore: 0 | 1 }>;
 }>;
 export type ConnectionAttentionServices = Readonly<{
   listOpenAttention: (
