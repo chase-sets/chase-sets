@@ -512,6 +512,29 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     },
   );
 
+  it("clears retained direction when a claimed product has no remaining assignments", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now);
+    const pool = pools.pricing;
+    await recordProductRoundDirection(pool, product, "down", launch, now);
+    await recordProductRoundDirection(pool, product, "down", launch, now);
+    const runtime = createRepricingEngineRuntime({ db: pool, eventStore: createPostgresEventStore({ pool }) });
+    const marketplace = gateway(() => "applied");
+    await runtime.enqueueMarketPriceSignal(signal("evt_unassigned"));
+    await runtime.processNextEvaluationJob({
+      claimOwnerId: "worker:unassigned",
+      claimTtlMs: 30_000,
+      marketplaceGatewayForAccount: () => marketplace,
+    });
+    expect(await readProductRoundState(pool, product)).toMatchObject({
+      same_direction_rounds: 0,
+      last_direction: null,
+      frozen_until: null,
+    });
+    expect(marketplace.calls).toEqual([]);
+    expect(await evaluationFacts(pool)).toEqual([]);
+  });
+
   it.each(["same", "opposite", "undirected", "reservation", "freeze"] as const)(
     "fences a stale round against a newer %s ledger write",
     async (newer) => {

@@ -453,7 +453,8 @@ async function executeProductRound(
   const resumeEligibleListingIds = new Set<string>();
   const resumeWaitingListingIds = new Set<string>();
   const repauseCooldownListingIds = new Set<string>();
-  const frozenUntil = activeProductFreeze(await readProductRoundState(deps.db, job.payload), new Date().toISOString());
+  const productState = await readProductRoundState(deps.db, job.payload);
+  const frozenUntil = activeProductFreeze(productState, new Date().toISOString());
   for (const plan of plans) {
     if (frozenUntil) {
       continue;
@@ -660,7 +661,7 @@ async function executeProductRound(
     );
   const direction = netChange > 0n ? "up" : netChange < 0n ? "down" : null;
   const trip =
-    !frozenUntil && facts.length > 0
+    !frozenUntil && (facts.length > 0 || (round.listings.length === 0 && productState !== null))
       ? await recordProductRoundDirection(deps.db, job.payload, direction, policy, new Date().toISOString())
       : null;
   for (const { streamId, fact } of facts) {
