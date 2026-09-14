@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -58,7 +59,7 @@ async function alphaSource(width = 1200, height = 800) {
 }
 
 async function fixture(resolveRateLimitRule?: RateLimitRuleResolver, source?: Buffer, noStorage = false) {
-  const artifactRoot = join(process.cwd(), "artifacts");
+  const artifactRoot = fileURLToPath(new URL("../../../../../artifacts/", import.meta.url));
   await mkdir(artifactRoot, { recursive: true });
   const root = await mkdtemp(join(artifactRoot, "jpeg-test-"));
   roots.push(root);

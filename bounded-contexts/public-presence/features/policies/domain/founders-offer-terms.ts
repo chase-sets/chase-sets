@@ -27,8 +27,8 @@ const listingRuntime = "bounded-contexts/marketplace/features/listings/api/runti
 const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime.test.ts";
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
-const currentQuoteEvidence = `${listingRuntime}:966-986; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
-const creationEvidence = `${listingDomain}:390-415; ${listingDomain}:513-545; ${listingDomain}:938-967; ${listingRuntime}:1422-1467; ${currentQuoteEvidence}`;
+const currentQuoteEvidence = `${listingRuntime}:985-1005; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
+const creationEvidence = `${listingDomain}:390-415; ${listingDomain}:513-545; ${listingDomain}:938-967; ${listingRuntime}:1441-1486; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
   "founders-offer-terms",
@@ -92,7 +92,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
           "bounded-contexts/identity/api.ts:815-827",
-          `${listingRuntime}:1764-1904`,
+          `${listingRuntime}:1803-1943`,
           `${feeLock}:105-179`,
         ],
         openQuestions: [
@@ -113,7 +113,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:1764-1780; ${listingRuntime}:1781-1889; ${feeQuotes}:154-176; ${listingDomain}:720-728; ${feeLock}:105-134`,
+            evidenceRef: `${listingRuntime}:1803-1819; ${listingRuntime}:1820-1928; ${feeQuotes}:154-176; ${listingDomain}:720-728; ${feeLock}:105-134`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
@@ -127,7 +127,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Added units use a fresh current quote; reductions retire newest units and re-added units need current terms.",
-            evidenceRef: `${listingDomain}:752-771; ${feeLock}:142-179; ${listingRuntime}:1892-1904; ${currentQuoteEvidence}`,
+            evidenceRef: `${listingDomain}:752-771; ${feeLock}:142-179; ${listingRuntime}:1931-1943; ${currentQuoteEvidence}`,
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",
