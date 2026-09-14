@@ -37,6 +37,7 @@ function buildApp(
 
 function createServices(): MarketplaceListingServices {
   return {
+    getListingPhotoJpeg: vi.fn(async () => null),
     createListing: vi.fn(async () => ({
       listingId: "lst_checkout_fallback" as never,
       version: 1,

@@ -27,7 +27,7 @@ export function buildMarketplaceApi(services: MarketplaceServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
   app.route("/account", createAccountSubmittedOfferRoutes(services.offers));
-  app.route("/account", createAccountListingRoutes(services.listings));
+  app.route("/account", createAccountListingRoutes(services.listings, services.rateLimitPolicyResolver));
   app.route("/account", createAccountOfferMatchRoutes(services.offers));
   app.route("/account/seller-attention-queue", createSellerAttentionQueueRoutes(services.sellerAttentionQueue));
   app.route("/", createPublicListingRoutes(services.listings, services.rateLimitPolicyResolver));

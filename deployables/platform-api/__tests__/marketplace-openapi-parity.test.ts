@@ -161,6 +161,34 @@ function readMarketplaceWebApiMounts(): readonly string[] {
 }
 
 describe("marketplace OpenAPI parity", () => {
+  it("mounts the account Listing Evidence JPEG GET and documents its binary envelope and errors", () => {
+    const path = "/api/marketplace/account/listings/{id}/photos/{photoId}/jpeg";
+    const openApi = readJson<OpenApiDocument>(openApiPath);
+    expect(readMountedPlatformApiEndpointKeys()).toContain(normalizeEndpointKey(`get ${path}`));
+    expect(openApi.paths[path].get).toMatchObject({
+      responses: {
+        "200": {
+          content: { "image/jpeg": { schema: { type: "string", format: "binary" } } },
+          headers: {
+            "Content-Length": { schema: { type: "integer", maximum: 15_000_000 } },
+            ETag: { schema: { type: "string" } },
+            "Cache-Control": { schema: { const: "private, max-age=0, must-revalidate" } },
+          },
+        },
+        "429": { headers: { "Retry-After": { schema: { type: "integer", minimum: 1 } } } },
+      },
+    });
+    expect(Object.keys((openApi.paths[path].get as OpenApiOperation).responses!)).toEqual([
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "429",
+      "500",
+    ]);
+  });
+
   it("keeps endpoint coverage in the machine-readable OpenAPI contract", () => {
     const content = readFileSync(apiDocPath, "utf8");
 

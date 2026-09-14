@@ -35,6 +35,34 @@
     { "name": "Channels" }
   ],
   "paths": {
+    "/api/marketplace/account/listings/{id}/photos/{photoId}/jpeg": {
+      "get": {
+        "tags": ["Listings and Offers"],
+        "summary": "Download an owned active Listing Evidence photo as source-width JPEG.",
+        "description": "Requires listings.view. Account identity comes from the authenticated actor. Retained source alpha is flattened white at fixed JPEG quality 90 without resizing. Every request is authorized; conditional 304 responses are not supported. The account limiter defaults to 30 requests per 600,000 ms and accepts shared policy overrides or disable. Decode is limited to 24,000,000 pixels; success is at most 15,000,000 bytes (the captured JPG / 15 MB limit). JPEGs are computed on demand and never stored.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^lst_[0-7][0-9A-HJKMNP-TV-Z]{25}$" } },
+          { "name": "photoId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^lpho_[0-7][0-9A-HJKMNP-TV-Z]{25}$" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Buffered JPEG at retained-source width. Identical source bytes, white background and quality yield identical bytes in the deployed encoder.",
+            "content": { "image/jpeg": { "schema": { "type": "string", "format": "binary" } } },
+            "headers": {
+              "Content-Length": { "description": "Exact response byte count.", "schema": { "type": "integer", "maximum": 15000000 } },
+              "ETag": { "description": "Quoted SHA-256 hex digest of the response body.", "schema": { "type": "string" } },
+              "Cache-Control": { "schema": { "type": "string", "const": "private, max-age=0, must-revalidate" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ValidationFailed" },
+          "401": { "$ref": "#/components/responses/AuthenticationRequired" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "description": "The same not_found listing response for a foreign account, missing listing/photo/source, replaced photo, or removed photo.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Shared rate_limited response, before listing or object I/O.", "headers": { "Retry-After": { "description": "Seconds until retry.", "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Storage unavailable, decode failure, pixel limit exceeded, or encoded JPEG exceeds the byte budget; never a JPEG success." }
+        }
+      }
+    },
     "/api/channels/connections/{connectionId}/outbound-operations": {
       "get": {
         "tags": ["Channels"],
