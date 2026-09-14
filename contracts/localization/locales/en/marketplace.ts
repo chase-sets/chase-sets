@@ -909,6 +909,9 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.sellerDesk.eyebrow": "Seller Desk",
   "marketplace.features.sellerDesk.summary.channelActionOpen":
     "Health reasons needing attention: {reasonCount}. First: {topReason}.",
+  "marketplace.features.sellerDesk.summary.channelDriftCount": "Affected listings: {affectedListingCount}.",
+  "marketplace.features.sellerDesk.summary.channelDriftOverflow":
+    "Affected listings: more than {affectedListingCount}.",
   "marketplace.features.sellerDesk.action.channelAttention": "Review channel attention",
   "marketplace.features.sellerDesk.source.channelAction": "Channel action",
   "marketplace.features.sellerDesk.title": "Seller Desk",

@@ -86,10 +86,7 @@ const indexes = [
 
 const migrationIndexes = indexes.map((statement) => statement.replace("CREATE INDEX ", "CREATE INDEX CONCURRENTLY "));
 
-export const retainedDriftGenerationExpansion =
-  "ALTER TABLE channel_reconciliation_state ADD COLUMN IF NOT EXISTS drift_generation jsonb NULL";
-
-export const channelReconciliationSchemaSql = `${tables.join(";\n")};\n${retainedDriftGenerationExpansion};\n${indexes.join(";\n")};`;
+export const channelReconciliationSchemaSql = `${tables.join(";\n")};\n${indexes.join(";\n")};`;
 
 export const channelReconciliationSchemaMigrations: readonly BcSchemaMigration[] = [
   {
@@ -112,11 +109,6 @@ export const channelReconciliationSchemaMigrations: readonly BcSchemaMigration[]
       `ALTER TABLE channel_reconciliation_items ADD CONSTRAINT channel_reconciliation_items_repair_success_ck
        CHECK (repair_succeeded_generation IS NULL OR repair_operation_id IS NOT NULL)`,
     ],
-  },
-  {
-    migrationId: "20260914_channels_reconciliation_drift_generation",
-    description: "Retain complete drift generation membership with the owning reconciliation run.",
-    statements: ["SET LOCAL lock_timeout = '5s'", retainedDriftGenerationExpansion],
   },
 ];
 

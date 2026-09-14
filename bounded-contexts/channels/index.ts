@@ -134,6 +134,7 @@ import {
 } from "./features/connections/read-model/schema";
 import type { RecordExternalChannelSale } from "@chase-sets/inventory/server";
 import { createChannelReconciliationRuntime } from "./features/reconciliation/api/runtime";
+import { readReconciliationConnection } from "./features/reconciliation/read-model/source";
 import type { ChannelsServices } from "./support/runtime-support/services";
 import { createConnectionHealthRuntime } from "./features/connection-health/api/runtime";
 import { resolveChannelHealthPolicy } from "./features/connection-health/api/policy";
@@ -204,6 +205,14 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       eventStore,
       resolvePolicy: (db, at) => resolveChannelHealthPolicy(eventStore, db, at),
     });
+    const readChannelHealthHold =
+      ports.readChannelHealthHold ??
+      (async (connectionId: string) => {
+        const connection = await readReconciliationConnection(pool, connectionId);
+        if (!connection) return true;
+        return (await connectionHealth.readConnectionHealth({ connectionId, accountId: connection.accountId }))
+          .systemPaused;
+      });
     const listingComposition = createChannelListingCompositionRuntime({
       eventStore,
       transactionalEventStore: eventStore,
@@ -228,7 +237,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
             // An unreadable policy fails closed as an operator hold.
           }
           const sources: ("health" | "operator-kill")[] = [];
-          if ((await ports.readChannelHealthHold?.(connectionId)) ?? false) sources.push("health");
+          if (await readChannelHealthHold(connectionId)) sources.push("health");
           if (
             killSwitch === null ||
             killSwitch.heldConnectionIds.includes(connectionId) ||
@@ -254,7 +263,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
         return { value: resolved.value, revision: document?.history?.length ?? 0 };
       },
       resolveKillSwitch: async () => (await policies.resolvePolicy(channelOutboundKillSwitchPolicy)).value,
-      ...(ports.readChannelHealthHold ? { readHealthHold: ports.readChannelHealthHold } : {}),
+      readHealthHold: readChannelHealthHold,
     });
     const tcgplayerCsv = createTcgplayerCsvRuntime({
       db: pool,

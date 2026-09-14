@@ -24,6 +24,7 @@ export function createChannelActionAttentionSource(
               params: {
                 reasonCount: reasons.length,
                 topReason: top.reasonCode,
+                ...(reasons.some((reason) => reason.reasonCode === "drift") && row.drift ? row.drift : {}),
                 ...(row.manual ? { manualReason: row.manual.reason, connectionId: row.connectionId } : {}),
               },
             }

@@ -40,6 +40,7 @@ describe("channels-services-guard-negative", () => {
     expect(isChannelsServices(candidate)).toBe(true);
     expect(isChannelsServices({ ...candidate, connections: {} })).toBe(false);
     expect(isChannelsServices({ ...candidate, reconciliation: {} })).toBe(false);
+    expect(isChannelsServices({ ...candidate, reconciliation: { reconcileDueConnections: vi.fn() } })).toBe(false);
     expect(
       isChannelsServices({
         ...candidate,
@@ -78,7 +79,7 @@ function validCandidate() {
       recoverExpiredClaimedOperations: async () => 0,
       processNextInlineOperation: async () => 0,
     },
-    reconciliation: { reconcileDueConnections: async () => [] },
+    reconciliation: { reconcileDueConnections: async () => [], deliverHealthObservations: vi.fn() },
     tcgplayerCsv: {},
     manualSync: {},
     projectors: [],

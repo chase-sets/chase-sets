@@ -20,7 +20,13 @@ import type {
   ChannelReconciliationServices,
   RepushChannelListing,
 } from "../domain/contracts";
-import { mapChannelDriftToHealthObservation, mapPersistentGapToHealthObservation } from "../domain/health";
+import { mapChannelDriftToHealthObservation } from "../domain/health";
+import {
+  decodeRetainedDriftGeneration,
+  retainDriftGeneration,
+  type DriftGenerationMember,
+  type RetainedDriftGeneration,
+} from "../domain/generation";
 import type { ChannelOutboundKillSwitchPolicyValue } from "../domain/policy";
 import {
   readChannelDriftAttentionContribution,
@@ -74,7 +80,8 @@ export function createChannelReconciliationRuntime(
   ): Promise<ChannelReconciliationRunResult> {
     assertPositive(input.sourceAttempt, "sourceAttempt");
     if (input.healthAuthority) {
-      assertPositive(input.healthAuthority.policyRevision, "healthAuthority.policyRevision");
+      if (!/^[a-f0-9]{64}$/.test(input.healthAuthority.policyRevision))
+        throw new Error("Invalid current health policy revision.");
       assertPositive(input.healthAuthority.evaluationGeneration, "healthAuthority.evaluationGeneration");
     }
     const connection = await readReconciliationConnection(dependencies.db, input.connectionId);
@@ -129,8 +136,8 @@ export function createChannelReconciliationRuntime(
           : { kind: "declared-incomplete", reason: stateResult.reason };
       const observedByIdentity =
         stateResult.kind === "complete" ? indexObservedState(stateResult.items) : new Map<string, ChannelStateLineV1>();
-      let resultOrdinal = 0;
-      const priorAttention = await readPriorAttentionState(dependencies.db, connection.connectionId);
+      const members: DriftGenerationMember[] = [];
+      const priorMembers = new Map(claim.driftGeneration?.members.map((member) => [member.identity, member]));
 
       await closeTransientFindings(
         dependencies.db,
@@ -160,7 +167,21 @@ export function createChannelReconciliationRuntime(
         ).map((operation) => [operation.operationId, operation]),
       );
       for (const listing of expected.items) {
-        const decision = await readChannelDriftDecision(dependencies.db, listing);
+        const decisionHistory = await loadDecisionHistory(dependencies, listing.connectionId, listing.channelListingId);
+        await assertDecisionProjection(
+          dependencies.db,
+          listing.connectionId,
+          listing.channelListingId,
+          decisionHistory,
+        );
+        const decision = {
+          accepted: decisionHistory.accepted,
+          repushRequested: decisionHistory.repushRequested,
+          operationId: decisionHistory.lastOperationId,
+          connectionId: listing.connectionId,
+          channelListingId: listing.channelListingId,
+          revision: decisionHistory.version,
+        };
         const observed = resolveObserved(listing, observedByIdentity);
         if (listing.externalListingId) {
           observedByIdentity.delete(externalIdentity(listing.externalListingId, listing.externalOfferId));
@@ -178,6 +199,27 @@ export function createChannelReconciliationRuntime(
           sourceAuthority,
         };
         const classification = classifyChannelDrift(observation);
+        if (classification !== "source-unavailable")
+          members.push({
+            identity: `listing:${listing.channelListingId}`,
+            kind: classification === "in-sync" ? "foreign-edit" : classification,
+            expectedFingerprint: listing.expectedMaterialFingerprint,
+            observedFingerprint: observed.present ? observed.fingerprint : null,
+            decisionRevision: decisionHistory.version,
+            recoveryRequested:
+              decisionHistory.repushRequested ||
+              decisionHistory.lastRepushRevision >
+                (priorMembers.get(`listing:${listing.channelListingId}`)?.decisionRevision ?? decisionHistory.version),
+            settlement:
+              classification !== "in-sync"
+                ? "open"
+                : decision.accepted &&
+                    observed.present &&
+                    decision.accepted.observedFingerprint === observed.fingerprint &&
+                    decision.accepted.expectedMaterialFingerprint === listing.expectedMaterialFingerprint
+                  ? "accepted"
+                  : "recovered",
+          });
         counts.listingsReconciled += 1;
         incrementClassification(counts, classification);
         const priorRepair = priorRepairs.get(listing.channelListingId) ?? null;
@@ -238,23 +280,6 @@ export function createChannelReconciliationRuntime(
             },
           );
         }
-
-        resultOrdinal += 1;
-        const health = input.healthAuthority
-          ? mapChannelDriftToHealthObservation({
-              connectionId: connection.connectionId,
-              runGeneration: claim.generation,
-              sourceAttempt: input.sourceAttempt,
-              resultOrdinal,
-              policyRevision: input.healthAuthority.policyRevision,
-              evaluationGeneration: input.healthAuthority.evaluationGeneration,
-              classification,
-              sourceAuthority,
-              materialFingerprint: observed.present ? observed.fingerprint : listing.expectedMaterialFingerprint,
-              occurredAt: startedAt,
-            })
-          : null;
-        if (health) await writeHealthObservation(dependencies.db, health);
       }
 
       if (stateResult.kind === "complete") {
@@ -272,24 +297,6 @@ export function createChannelReconciliationRuntime(
             "channel-state-link-not-found",
             startedAt,
           );
-          if (input.healthAuthority) {
-            resultOrdinal += 1;
-            await writeHealthObservation(
-              dependencies.db,
-              mapChannelDriftToHealthObservation({
-                connectionId: connection.connectionId,
-                runGeneration: claim.generation,
-                sourceAttempt: input.sourceAttempt,
-                resultOrdinal,
-                policyRevision: input.healthAuthority.policyRevision,
-                evaluationGeneration: input.healthAuthority.evaluationGeneration,
-                classification: "structural",
-                sourceAuthority,
-                materialFingerprint: item.fingerprint,
-                occurredAt: startedAt,
-              })!,
-            );
-          }
         }
       }
 
@@ -319,28 +326,6 @@ export function createChannelReconciliationRuntime(
             );
             if (result.gap) counts.missedSaleGaps += 1;
             if (result.structural) counts.structural += 1;
-            if (result.structural && input.healthAuthority) {
-              resultOrdinal += 1;
-              await writeHealthObservation(
-                dependencies.db,
-                mapChannelDriftToHealthObservation({
-                  connectionId: connection.connectionId,
-                  runGeneration: claim.generation,
-                  sourceAttempt: input.sourceAttempt,
-                  resultOrdinal,
-                  policyRevision: input.healthAuthority.policyRevision,
-                  evaluationGeneration: input.healthAuthority.evaluationGeneration,
-                  classification: "structural",
-                  sourceAuthority: {
-                    kind: "complete",
-                    collectedCount: saleResult.collectedCount,
-                    authorityTotal: saleResult.authorityTotal,
-                  },
-                  materialFingerprint: digest(JSON.stringify(line.saleKey)),
-                  occurredAt: startedAt,
-                })!,
-              );
-            }
           }
           await closeTransientFindings(
             dependencies.db,
@@ -352,23 +337,6 @@ export function createChannelReconciliationRuntime(
           );
         } else {
           counts.sourceUnavailable += 1;
-          resultOrdinal += 1;
-          if (input.healthAuthority)
-            await writeHealthObservation(
-              dependencies.db,
-              mapChannelDriftToHealthObservation({
-                connectionId: connection.connectionId,
-                runGeneration: claim.generation,
-                sourceAttempt: input.sourceAttempt,
-                resultOrdinal,
-                policyRevision: input.healthAuthority.policyRevision,
-                evaluationGeneration: input.healthAuthority.evaluationGeneration,
-                classification: "source-unavailable",
-                sourceAuthority: { kind: "declared-incomplete", reason: safeSaleReason(saleResult) },
-                materialFingerprint: "sale-source",
-                occurredAt: startedAt,
-              })!,
-            );
         }
       }
 
@@ -388,25 +356,10 @@ export function createChannelReconciliationRuntime(
           claim.generation,
           startedAt,
         );
-        if (!input.healthAuthority) continue;
-        resultOrdinal += 1;
-        await writeHealthObservation(
-          dependencies.db,
-          mapPersistentGapToHealthObservation({
-            connectionId: connection.connectionId,
-            runGeneration: claim.generation,
-            sourceAttempt: input.sourceAttempt,
-            resultOrdinal,
-            policyRevision: input.healthAuthority.policyRevision,
-            evaluationGeneration: input.healthAuthority.evaluationGeneration,
-            gapFingerprint,
-            occurredAt: startedAt,
-          }),
-        );
       }
 
       const openFindingCount = await countOpenFindings(dependencies.db, connection.connectionId);
-      const clean =
+      let clean =
         stateResult.kind === "complete" &&
         saleComplete &&
         counts.repairable === 0 &&
@@ -414,21 +367,76 @@ export function createChannelReconciliationRuntime(
         counts.structural === 0 &&
         counts.sourceUnavailable === 0 &&
         openFindingCount === 0;
-      if (clean && priorAttention.count > 0) {
-        await writeAttentionResolution(
-          dependencies.db,
-          connection.connectionId,
-          priorAttention.generation,
-          priorAttention.fingerprint,
-          priorAttention.allForeign &&
-            (await allPriorForeignEditsAccepted(dependencies.db, priorAttention.channelListingIds))
-            ? "handled-on-channel"
-            : "recovered-automatically",
-          startedAt,
-        );
+      const findings = await dependencies.db.query<{ finding_id: string; fingerprint: string; open: boolean }>(
+        "SELECT finding_id,fingerprint,open FROM channel_reconciliation_findings WHERE connection_id=$1",
+        [connection.connectionId],
+      );
+      members.push(
+        ...findings.rows.map(
+          (finding): DriftGenerationMember => ({
+            identity: `finding:${finding.finding_id}`,
+            kind: "structural",
+            expectedFingerprint: null,
+            observedFingerprint: finding.fingerprint,
+            settlement: finding.open ? "open" : "recovered",
+            decisionRevision: 0,
+            recoveryRequested: false,
+          }),
+        ),
+      );
+      for (const [identity, complete] of [
+        ["source:state", stateResult.kind === "complete"],
+        ["source:sales", saleAuthorityComplete],
+      ] as const) {
+        if (complete || !claim.driftGeneration || claim.driftGeneration.resolution !== null)
+          members.push({
+            identity,
+            kind: "source-unavailable",
+            expectedFingerprint: null,
+            observedFingerprint: null,
+            settlement: complete ? "recovered" : "open",
+            decisionRevision: 0,
+            recoveryRequested: false,
+          });
       }
+      const driftGeneration = absentByDesign
+        ? claim.driftGeneration
+        : retainDriftGeneration(claim.driftGeneration, members, clean);
+      clean = clean && (!driftGeneration || driftGeneration.resolution !== null);
+      const health =
+        input.healthAuthority &&
+        !absentByDesign &&
+        (clean ||
+          counts.repairable + counts.foreignEdit + counts.structural + counts.sourceUnavailable > 0 ||
+          stateResult.kind !== "complete" ||
+          persistentGaps.length > 0 ||
+          driftGeneration?.resolution === null)
+          ? mapChannelDriftToHealthObservation({
+              connectionId: connection.connectionId,
+              runGeneration: claim.generation,
+              sourceAttempt: input.sourceAttempt,
+              resultOrdinal: 1,
+              ...input.healthAuthority,
+              classification: clean ? "in-sync" : "source-unavailable",
+              sourceAuthority,
+              materialFingerprint: driftGeneration?.fingerprint ?? digest(`connection:${connection.connectionId}`),
+              occurredAt: startedAt,
+            })
+          : null;
       const state = stateResult.kind === "complete" && saleComplete ? "completed" : "bounded-unknown";
-      return finishRun(dependencies, connection, claim, state, counts, clean, policy.cadenceMs, startedAt, context);
+      return finishRun(
+        dependencies,
+        connection,
+        claim,
+        state,
+        counts,
+        clean,
+        policy.cadenceMs,
+        startedAt,
+        context,
+        driftGeneration,
+        health,
+      );
     } catch {
       return finishRun(
         dependencies,
@@ -463,7 +471,9 @@ export function createChannelReconciliationRuntime(
                 connectionId,
                 registry: input.registry,
                 sourceAttempt: input.sourceAttempt,
-                healthAuthority: input.healthAuthority,
+                healthAuthority: input.readConnectionHealth
+                  ? (await input.readConnectionHealth({ connectionId, accountId: connection.accountId })).health
+                  : (input.healthAuthority ?? null),
               },
               contextForAccount(connection.accountId),
             ),
@@ -480,6 +490,24 @@ export function createChannelReconciliationRuntime(
     readChannelDriftAttentionContribution: (input) => readChannelDriftAttentionContribution(dependencies.db, input),
     readChannelReconciliationMetrics: (input) => readChannelReconciliationMetrics(dependencies.db, input),
     readPendingHealthObservations: (input) => readPendingHealthObservations(dependencies.db, input),
+    deliverHealthObservations: async (health, contextForAccount) => {
+      let consumed = 0;
+      for (const observation of await readPendingHealthObservations(dependencies.db, { limit: 100 })) {
+        const connection = await readReconciliationConnection(dependencies.db, observation.connectionId);
+        if (!connection) continue;
+        const result = await health.submitObservation(observation, contextForAccount(connection.accountId));
+        if (result.outcome === "policy-unavailable") continue;
+        if (result.outcome === "conflicting-terminal") throw new Error("Conflicting reconciliation health delivery.");
+        const { sourceWorkId, sourceAttempt, resultOrdinal } = observation;
+        consumed += (
+          await acknowledgeHealthObservations(dependencies.db, {
+            observations: [{ sourceWorkId, sourceAttempt, resultOrdinal }],
+            consumedAt: now(),
+          })
+        ).consumed;
+      }
+      return { consumed };
+    },
     acknowledgeHealthObservations: (input) =>
       acknowledgeHealthObservations(dependencies.db, { ...input, consumedAt: now() }),
   };
@@ -518,6 +546,7 @@ async function claimRun(
     runFingerprint: string;
     streamVersion: number;
     policyRevision: number;
+    driftGeneration: RetainedDriftGeneration | null;
   }>
 > {
   const history = await loadRunHistory(dependencies, connection.connectionId);
@@ -557,8 +586,9 @@ async function claimRun(
       run_fingerprint: string | null;
       lease_expires_at: Date | string | null;
       cadence_policy_revision: string | number;
+      drift_generation: unknown;
     }>(
-      `SELECT generation,revision,state,run_fingerprint,lease_expires_at,cadence_policy_revision
+      `SELECT generation,revision,state,run_fingerprint,lease_expires_at,cadence_policy_revision,drift_generation
        FROM channel_reconciliation_state WHERE connection_id=$1 FOR UPDATE`,
       [connection.connectionId],
     );
@@ -567,6 +597,7 @@ async function claimRun(
       Number(row.generation) !== history.generation ||
       row.state !== history.state ||
       row.run_fingerprint !== history.runFingerprint ||
+      JSON.stringify(decodeRetainedDriftGeneration(row.drift_generation)) !== JSON.stringify(history.driftGeneration) ||
       databaseInstant(row.lease_expires_at) !== history.leaseExpiresAt ||
       (history.generation > 0 && Number(row.cadence_policy_revision) !== history.policyRevision)
     ) {
@@ -653,6 +684,7 @@ async function claimRun(
       runFingerprint,
       streamVersion: history.version + (recovering ? 3 : 2),
       policyRevision,
+      driftGeneration: history.driftGeneration,
     };
   });
 }
@@ -666,6 +698,7 @@ async function finishRun(
     runFingerprint: string;
     streamVersion: number;
     policyRevision: number;
+    driftGeneration: RetainedDriftGeneration | null;
   }>,
   state: ChannelReconciliationRunResult["state"],
   counts: MutableCounts,
@@ -673,11 +706,14 @@ async function finishRun(
   cadenceMs: number,
   completedAt: string,
   context: EventStoreContext,
+  driftGeneration: RetainedDriftGeneration | null = claim.driftGeneration,
+  health: ChannelHealthObservationV1 | null = null,
 ): Promise<ChannelReconciliationRunResult> {
   await withPgTransaction(dependencies.db, async (db) => {
     const result = await db.query(
       `UPDATE channel_reconciliation_state SET state=$3,revision=revision+1,counts=$4::jsonb,lease_expires_at=NULL,
-         next_due_at=$5,last_clean_run_at=CASE WHEN $6 THEN $7 ELSE last_clean_run_at END,updated_at=$7
+         next_due_at=$5,last_clean_run_at=CASE WHEN $6 THEN $7 ELSE last_clean_run_at END,updated_at=$7,
+         drift_generation=$10::jsonb
        WHERE connection_id=$1 AND generation=$2 AND revision=$8 AND state='running' AND run_fingerprint=$9`,
       [
         connection.connectionId,
@@ -689,10 +725,21 @@ async function finishRun(
         completedAt,
         claim.revision,
         claim.runFingerprint,
+        JSON.stringify(driftGeneration),
       ],
     );
     if (Number(result.rowCount ?? 0) !== 1)
       throw new Error("Channel Reconciliation completion lost its generation fence.");
+    if (driftGeneration?.resolution)
+      await writeAttentionResolution(
+        db,
+        connection.connectionId,
+        driftGeneration.generation,
+        driftGeneration.fingerprint,
+        driftGeneration.resolution,
+        completedAt,
+      );
+    if (health) await writeHealthObservation(db, health);
     await db.query(
       `INSERT INTO channel_reconciliation_metrics
          (connection_id,account_id,run_generation,completed_at,run_state,clean,counts)
@@ -723,6 +770,7 @@ async function finishRun(
             counts: { ...counts },
             clean,
             completedAt,
+            driftGeneration,
           },
         },
       ],
@@ -735,6 +783,7 @@ async function finishRun(
     runFingerprint: claim.runFingerprint,
     leaseExpiresAt: null,
     policyRevision: claim.policyRevision,
+    driftGeneration,
   });
   return { connectionId: connection.connectionId, generation: claim.generation, state, counts, clean };
 }
@@ -1260,64 +1309,6 @@ async function countOpenFindings(db: PgQueryable, connectionId: string): Promise
   return Number(result.rows[0]?.count ?? 0);
 }
 
-async function readPriorAttentionState(
-  db: PgQueryable,
-  connectionId: string,
-): Promise<
-  Readonly<{
-    count: number;
-    allForeign: boolean;
-    channelListingIds: readonly string[];
-    fingerprint: string;
-    generation: number;
-  }>
-> {
-  const items = await db.query<{
-    channel_listing_id: string;
-    classification: string;
-    fingerprint: string;
-    run_generation: string | number;
-  }>(
-    `SELECT channel_listing_id,classification,run_generation,
-            COALESCE(observed_fingerprint,expected_material_fingerprint) AS fingerprint
-     FROM channel_reconciliation_items
-     WHERE connection_id=$1 AND classification IN ('foreign-edit','structural') AND settled=false
-     ORDER BY channel_listing_id LIMIT 1001`,
-    [connectionId],
-  );
-  const findings = await db.query<{ fingerprint: string; run_generation: string | number }>(
-    `SELECT fingerprint,run_generation FROM channel_reconciliation_findings WHERE connection_id=$1 AND open
-     ORDER BY finding_id LIMIT 1001`,
-    [connectionId],
-  );
-  const contribution = await readChannelDriftAttentionContribution(db, { connectionId, limit: 1_000 });
-  const fingerprints = [...items.rows.map((row) => row.fingerprint), ...findings.rows.map((row) => row.fingerprint)];
-  return {
-    count: fingerprints.length,
-    allForeign: findings.rows.length === 0 && items.rows.every((row) => row.classification === "foreign-edit"),
-    channelListingIds: items.rows.map((row) => row.channel_listing_id),
-    fingerprint: contribution?.resolution === null ? contribution.fingerprint : digest(fingerprints.join("\0")),
-    generation:
-      contribution?.resolution === null
-        ? contribution.generation
-        : Math.max(
-            0,
-            ...items.rows.map((row) => Number(row.run_generation)),
-            ...findings.rows.map((row) => Number(row.run_generation)),
-          ),
-  };
-}
-
-async function allPriorForeignEditsAccepted(db: PgQueryable, channelListingIds: readonly string[]): Promise<boolean> {
-  if (channelListingIds.length === 0) return false;
-  const result = await db.query<{ count: string | number }>(
-    `SELECT COUNT(*)::integer AS count FROM channel_drift_decisions
-     WHERE channel_listing_id=ANY($1::text[]) AND accepted_observed_fingerprint IS NOT NULL`,
-    [channelListingIds],
-  );
-  return Number(result.rows[0]?.count ?? 0) === channelListingIds.length;
-}
-
 async function writeAttentionResolution(
   db: PgQueryable,
   connectionId: string,
@@ -1397,6 +1388,7 @@ type RunHistory = Readonly<{
   runFingerprint: string | null;
   leaseExpiresAt: string | null;
   policyRevision: number;
+  driftGeneration: RetainedDriftGeneration | null;
 }>;
 
 type RunSnapshotState = Omit<RunHistory, "version">;
@@ -1417,6 +1409,7 @@ async function loadRunHistory(
   let runFingerprint: string | null = snapshot?.runFingerprint ?? null;
   let leaseExpiresAt: string | null = snapshot?.leaseExpiresAt ?? null;
   let policyRevision = snapshot?.policyRevision ?? 0;
+  let driftGeneration = snapshot?.driftGeneration ?? null;
   for (const event of events) {
     if (event.eventType === "channels.channel-reconciliation.due") {
       if (state === "running" || state === "due") invalidRunHistory("a run became due while another run was active");
@@ -1478,6 +1471,7 @@ async function loadRunHistory(
         "completedAt",
         "connectionId",
         "counts",
+        ...("driftGeneration" in event.payload ? ["driftGeneration"] : []),
         "generation",
         "runFingerprint",
         "state",
@@ -1494,6 +1488,41 @@ async function loadRunHistory(
       }
       if (typeof payload.clean !== "boolean") invalidRunHistory("a finish event has an invalid clean flag");
       validateEventCounts(payload.counts);
+      if ("driftGeneration" in payload) {
+        const next = decodeRetainedDriftGeneration(payload.driftGeneration);
+        if (
+          (driftGeneration && !next) ||
+          (next &&
+            (next.generation > generation ||
+              next.generation > (driftGeneration?.generation ?? 0) + 1 ||
+              next.generation < (driftGeneration?.generation ?? 0)))
+        )
+          invalidRunHistory("invalid retained drift generation transition");
+        if (next && driftGeneration?.generation === next.generation) {
+          if (driftGeneration.resolution !== null && JSON.stringify(next) !== JSON.stringify(driftGeneration))
+            invalidRunHistory("a resolved drift generation changed");
+          const previousMembers = new Map(driftGeneration.members.map((member) => [member.identity, member]));
+          if (
+            next.fingerprint !== driftGeneration.fingerprint ||
+            next.members.some((member) => {
+              const previous = previousMembers.get(member.identity);
+              return (
+                !previous ||
+                member.decisionRevision !== previous.decisionRevision ||
+                (previous.recoveryRequested && !member.recoveryRequested)
+              );
+            })
+          )
+            invalidRunHistory("retained drift member identity or provenance changed");
+        }
+        if (
+          next?.resolution &&
+          next.resolution !== driftGeneration?.resolution &&
+          (payload.clean !== true || payload.state !== "completed")
+        )
+          invalidRunHistory("drift resolved without complete clean authority");
+        driftGeneration = next;
+      }
       eventInstant(payload.completedAt, "completedAt");
       leaseExpiresAt = null;
       state = payload.state;
@@ -1502,7 +1531,7 @@ async function loadRunHistory(
     invalidRunHistory("an unexpected event type is present");
   }
   const version = events.length > 0 ? events[events.length - 1]!.streamVersion : (snapshot?.version ?? 0);
-  return { version, generation, state, runFingerprint, leaseExpiresAt, policyRevision };
+  return { version, generation, state, runFingerprint, leaseExpiresAt, policyRevision, driftGeneration };
 }
 
 async function loadRunSnapshot(
@@ -1515,7 +1544,14 @@ async function loadRunSnapshot(
     const state = snapshot.state;
     if (typeof state !== "object" || state === null || Array.isArray(state)) return null;
     const record = state as Record<string, unknown>;
-    const expectedKeys = ["generation", "leaseExpiresAt", "policyRevision", "runFingerprint", "state"];
+    const expectedKeys = [
+      ...("driftGeneration" in record ? ["driftGeneration"] : []),
+      "generation",
+      "leaseExpiresAt",
+      "policyRevision",
+      "runFingerprint",
+      "state",
+    ];
     const actualKeys = Object.keys(record).sort();
     if (actualKeys.length !== expectedKeys.length || actualKeys.some((key, index) => key !== expectedKeys[index])) {
       return null;
@@ -1560,6 +1596,7 @@ async function loadRunSnapshot(
       runFingerprint: runFingerprint as string | null,
       leaseExpiresAt: leaseExpiresAt as string | null,
       policyRevision,
+      driftGeneration: decodeRetainedDriftGeneration(record.driftGeneration ?? null),
     };
   } catch {
     return null;
@@ -1577,6 +1614,7 @@ async function saveRunSnapshot(
     runFingerprint: history.runFingerprint,
     leaseExpiresAt: history.leaseExpiresAt,
     policyRevision: history.policyRevision,
+    driftGeneration: history.driftGeneration,
   };
   try {
     await createPostgresAggregateSnapshotStore<RunSnapshotState>({ db: dependencies.db }).save({
@@ -1596,6 +1634,7 @@ type DecisionHistory = Readonly<{
   repushRequested: boolean;
   lastOperationId: string | null;
   operationIds: ReadonlySet<string>;
+  lastRepushRevision: number;
 }>;
 
 async function loadDecisionHistory(
@@ -1611,6 +1650,7 @@ async function loadDecisionHistory(
   let repushRequested = false;
   let lastOperationId: string | null = null;
   const operationIds = new Set<string>();
+  let lastRepushRevision = 0;
   for (const event of events) {
     if (event.eventType === "channels.channel-drift.accepted") {
       const payload = closedEventPayload(event, [
@@ -1636,6 +1676,7 @@ async function loadDecisionHistory(
       continue;
     }
     if (event.eventType === "channels.channel-drift.repush-requested") {
+      lastRepushRevision = event.streamVersion;
       const payload = closedEventPayload(event, [
         "channelListingId",
         "connectionId",
@@ -1668,7 +1709,7 @@ async function loadDecisionHistory(
     }
     invalidDecisionHistory("an unexpected event type is present");
   }
-  return { version: events.length, accepted, repushRequested, lastOperationId, operationIds };
+  return { version: events.length, accepted, repushRequested, lastOperationId, operationIds, lastRepushRevision };
 }
 
 async function assertDecisionProjection(
@@ -1691,6 +1732,7 @@ async function assertDecisionProjection(
     [connectionId, channelListingId],
   );
   const row = result.rows[0];
+  if (!row && history.version === 0) return;
   if (
     !row ||
     Number(row.revision) !== history.version ||
@@ -1908,10 +1950,6 @@ async function safeKillSwitch(
   } catch {
     return null;
   }
-}
-
-function safeSaleReason(result: ChannelSaleFetchResult): string {
-  return result.kind === "bounded-unknown" ? result.reason : "hard-cap";
 }
 
 function digest(value: string): string {
