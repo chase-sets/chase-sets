@@ -162,7 +162,9 @@ describeDb("channel-health-generation-interleavings", () => {
     const id = await h.connection();
     const observation = await h.observation(id);
     await h.services.connectionHealth.submitObservation(observation, context);
-    const other = (await import("../../../index")).module.createServices(h.db, {}).connectionHealth;
+    const other = (await import("../../../index")).module.createServices(h.db, {
+      channelSaleRecorder: h.channelSaleRecorder,
+    }).connectionHealth;
     const results = await Promise.all([
       h.services.connectionHealth.submitObservation(
         { ...observation, sourceAttempt: 2, fingerprint: healthDigest("second-generation") },

@@ -18,6 +18,7 @@ describe("channel-publication-port-scope-fence", () => {
       "outbound-sync",
       "connection-health",
       "manual-sync",
+      "reconciliation",
     ]);
     expect(manifest.hostPorts).toEqual([
       {
@@ -25,6 +26,12 @@ describe("channel-publication-port-scope-fence", () => {
         providedBy: "platform-api, platform-worker",
         purpose:
           "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark.",
+      },
+      {
+        portName: "channelSaleRecorder",
+        providedBy: "inventory",
+        purpose:
+          "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
       },
     ]);
     expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support"]);

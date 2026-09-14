@@ -157,7 +157,10 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   for (const field of absentManifestFields) {
     if (field in candidate) violations.push(field);
   }
-  if (JSON.stringify(candidate.allowedContextDependencies) !== JSON.stringify(["@chase-sets/marketplace"])) {
+  if (
+    JSON.stringify(candidate.allowedContextDependencies) !==
+    JSON.stringify(["@chase-sets/marketplace", "@chase-sets/inventory"])
+  ) {
     violations.push("allowedContextDependencies");
   }
   if (JSON.stringify(candidate.seedRequirements) !== JSON.stringify(["inventory"])) {
@@ -171,6 +174,12 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
         providedBy: "platform-api, platform-worker",
         purpose:
           "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark.",
+      },
+      {
+        portName: "channelSaleRecorder",
+        providedBy: "inventory",
+        purpose:
+          "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
       },
     ])
   ) {
@@ -193,22 +202,6 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support", "runtime-support"])) {
     violations.push("allowedSupportDirectories");
-  }
-  if (JSON.stringify(candidate.allowedContextDependencies) !== JSON.stringify(["@chase-sets/inventory"])) {
-    violations.push("allowedContextDependencies");
-  }
-  if (
-    JSON.stringify(candidate.hostPorts) !==
-    JSON.stringify([
-      {
-        portName: "channelSaleRecorder",
-        providedBy: "inventory",
-        purpose:
-          "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
-      },
-    ])
-  ) {
-    violations.push("hostPorts");
   }
   if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
   if (candidate.eventReactions?.length !== 4) violations.push("eventReactions");
@@ -282,10 +275,11 @@ describe("channels-context-foundation", () => {
         "outbound-sync",
         "connection-health",
         "manual-sync",
+        "reconciliation",
       ],
       allowedSupportDirectories: ["request-support", "runtime-support"],
       publicExports: [".", "./context", "./server", "./routes/*"],
-      allowedContextDependencies: ["@chase-sets/marketplace"],
+      allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory"],
       seedRequirements: ["inventory"],
       hostPorts: [
         {
@@ -293,6 +287,12 @@ describe("channels-context-foundation", () => {
           providedBy: "platform-api, platform-worker",
           purpose:
             "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark.",
+        },
+        {
+          portName: "channelSaleRecorder",
+          providedBy: "inventory",
+          purpose:
+            "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
         },
       ],
     });

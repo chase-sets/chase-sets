@@ -9,7 +9,9 @@ describeDb("channel-health-policy-revision", () => {
     const observation = await h.observation(id);
     await h.services.connectionHealth.submitObservation(observation, context);
     await h.policy({ windowSeconds: 900, consecutiveFailureThreshold: 1, failureBudgetCount: 5 });
-    const newRuntime = (await import("../../../index")).module.createServices(h.db, {}).connectionHealth;
+    const newRuntime = (await import("../../../index")).module.createServices(h.db, {
+      channelSaleRecorder: h.channelSaleRecorder,
+    }).connectionHealth;
     const active = await newRuntime.readConnectionHealth(h.query(id));
     expect(active.health).toMatchObject({ state: "failing", evaluationGeneration: 2 });
     expect(active.health.policyRevision).not.toBe(observation.policyRevision);

@@ -45,7 +45,7 @@ outbound-only health and operator holds.
 - Listings and offers (Marketplace)
 - Notification delivery channels or preferences (Notifications)
 - Provider transport, credential custody, OAuth, browser automation, provider-
-  specific paging, health scoring, attention policy, or seller UI
+  specific paging, attention policy, or seller UI
 
 ## Ubiquitous Language
 
@@ -113,6 +113,10 @@ Injected setup, credential, policy, and storage-location authority resolvers.
    through `connectionHealth.readConnectionHealth`; seller `paused` clears only
    through the seller command. Verified inbound sale availability is independent
    of both pauses. Unknown authority holds outbound publication and polling.
+10. Claimed reconciliation reads persisted snapshots through #7034; it never
+    invokes a claimed provider. An incomplete source never proves absence.
+11. Seller, health, and operator holds block outbound provider work only;
+    account-scoped Inventory sale recording remains admitted.
 
 ## Connection Health
 
@@ -171,10 +175,6 @@ window, with an index on connection and occurrence time; it has no count cap.
 Reconciliation #4382 remains responsible for connecting its landed drift
 producer and hold reader to this service and proving its AC5/AC6 integration.
 Attention #7930 and liveness #7933 own their downstream behavior.
-9. Claimed reconciliation reads persisted snapshots through #7034; it never
-   invokes a claimed provider. An incomplete source never proves absence.
-10. Seller, health, and operator holds block outbound provider work only;
-    account-scoped Inventory sale recording remains admitted.
 
 ## Tests
 

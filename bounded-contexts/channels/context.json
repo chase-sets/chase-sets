@@ -30,23 +30,10 @@
     "manual-sync",
     "reconciliation"
   ],
-  "allowedSupportDirectories": [
-    "request-support",
-    "runtime-support"
-  ],
-  "publicExports": [
-    ".",
-    "./context",
-    "./server",
-    "./routes/*"
-  ],
-  "allowedContextDependencies": [
-    "@chase-sets/marketplace",
-    "@chase-sets/inventory"
-  ],
-  "seedRequirements": [
-    "inventory"
-  ],
+  "allowedSupportDirectories": ["request-support", "runtime-support"],
+  "publicExports": [".", "./context", "./server", "./routes/*"],
+  "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory"],
+  "seedRequirements": ["inventory"],
   "hostPorts": [
     {
       "portName": "marketplaceChannelInboundClamp",
@@ -77,9 +64,7 @@
         "marketplace.seller-listing-availability.disabled"
       ],
       "order": 10,
-      "projectionHandlerSetNames": [
-        "channel-marketplace-publication-facts"
-      ]
+      "projectionHandlerSetNames": ["channel-marketplace-publication-facts"]
     },
     {
       "sourceContextName": "catalog",
@@ -95,9 +80,7 @@
         "catalog.catalog-item.external-catalog-item-reference-unlinked"
       ],
       "order": 20,
-      "projectionHandlerSetNames": [
-        "channel-catalog-publication-facts"
-      ]
+      "projectionHandlerSetNames": ["channel-catalog-publication-facts"]
     },
     {
       "sourceContextName": "inventory",
@@ -116,9 +99,7 @@
         "inventory.channel-stock-allocation.set"
       ],
       "order": 30,
-      "projectionHandlerSetNames": [
-        "channel-inventory-publication-facts"
-      ]
+      "projectionHandlerSetNames": ["channel-inventory-publication-facts"]
     },
     {
       "sourceContextName": "channels",
@@ -142,22 +123,15 @@
         "channels.channel-listing-reconciliation.run-settled"
       ],
       "order": 40,
-      "projectionHandlerSetNames": [
-        "channel-connection-publication-facts",
-        "channel-listing-state-projection"
-      ]
+      "projectionHandlerSetNames": ["channel-connection-publication-facts", "channel-listing-state-projection"]
     },
     {
       "sourceContextName": "channels",
       "projectionName": "tcgplayer-csv-projection",
       "subscriptionVersion": 1,
-      "streamPrefixes": [
-        "channels.tcgplayer-sync-run-"
-      ],
+      "streamPrefixes": ["channels.tcgplayer-sync-run-"],
       "order": 50,
-      "projectionHandlerSetNames": [
-        "tcgplayer-csv-projection"
-      ]
+      "projectionHandlerSetNames": ["tcgplayer-csv-projection"]
     }
   ],
   "eventReactions": [
@@ -178,9 +152,7 @@
         "marketplace.seller-listing-availability.disabled"
       ],
       "order": 60,
-      "reactionHandlerSetNames": [
-        "channel-listing-desired-state-reaction"
-      ],
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
@@ -199,9 +171,7 @@
         "catalog.catalog-item.external-catalog-item-reference-unlinked"
       ],
       "order": 61,
-      "reactionHandlerSetNames": [
-        "channel-listing-desired-state-reaction"
-      ],
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
@@ -223,9 +193,7 @@
         "inventory.channel-stock-allocation.set"
       ],
       "order": 62,
-      "reactionHandlerSetNames": [
-        "channel-listing-desired-state-reaction"
-      ],
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
@@ -250,9 +218,7 @@
         "channels.channel-listing-reconciliation.run-settled"
       ],
       "order": 63,
-      "reactionHandlerSetNames": [
-        "channel-listing-desired-state-reaction"
-      ],
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
       "idempotencyPolicy": "idempotent-command-dispatch",
       "retryPolicy": "retry-from-last-checkpoint",
       "failurePolicy": "surface-as-reaction-failure"
@@ -261,32 +227,21 @@
   "projectionGroups": [
     {
       "projectionName": "channel-connection-projection",
-      "sourceContextNames": [
-        "channels"
-      ],
-      "ownedTables": [
-        "channel_connections"
-      ],
+      "sourceContextNames": ["channels"],
+      "ownedTables": ["channel_connections"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "channel-marketplace-publication-facts",
-      "sourceContextNames": [
-        "marketplace"
-      ],
-      "ownedTables": [
-        "channels_listing_publication_facts",
-        "channels_seller_availability_facts"
-      ],
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["channels_listing_publication_facts", "channels_seller_availability_facts"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "channel-catalog-publication-facts",
-      "sourceContextNames": [
-        "catalog"
-      ],
+      "sourceContextNames": ["catalog"],
       "ownedTables": [
         "channels_catalog_item_category_facts",
         "channels_external_product_reference_facts",
@@ -297,9 +252,7 @@
     },
     {
       "projectionName": "channel-inventory-publication-facts",
-      "sourceContextNames": [
-        "inventory"
-      ],
+      "sourceContextNames": ["inventory"],
       "ownedTables": [
         "channels_inventory_item_facts",
         "channels_inventory_hold_facts",
@@ -310,9 +263,7 @@
     },
     {
       "projectionName": "channel-owned-publication-state",
-      "sourceContextNames": [
-        "channels"
-      ],
+      "sourceContextNames": ["channels"],
       "ownedTables": [
         "channels_connection_facts",
         "channels_connection_publication_settings",
@@ -326,25 +277,15 @@
     },
     {
       "projectionName": "platform-policy-document-projection",
-      "sourceContextNames": [
-        "channels"
-      ],
-      "ownedTables": [
-        "platform_policy_documents",
-        "platform_policy_document_history"
-      ],
+      "sourceContextNames": ["channels"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "channel-listing-desired-state-reaction",
       "handlerKind": "reaction",
-      "sourceContextNames": [
-        "marketplace",
-        "catalog",
-        "inventory",
-        "channels"
-      ],
+      "sourceContextNames": ["marketplace", "catalog", "inventory", "channels"],
       "ownedTables": [],
       "sideEffectOnly": true,
       "requiredDuringBootstrap": false,
@@ -352,9 +293,7 @@
     },
     {
       "projectionName": "tcgplayer-csv-projection",
-      "sourceContextNames": [
-        "channels"
-      ],
+      "sourceContextNames": ["channels"],
       "ownedTables": [
         "channel_export_schema_pins",
         "channel_inventory_snapshots",
@@ -366,13 +305,8 @@
       "resetStrategy": "truncate-owned-tables"
     }
   ],
-  "apiDeployables": [
-    "platform-api"
-  ],
-  "apiRuntimeProfiles": [
-    "proof",
-    "public"
-  ],
+  "apiDeployables": ["platform-api"],
+  "apiRuntimeProfiles": ["proof", "public"],
   "apiMounts": [
     {
       "mountPath": "/api/channels",
@@ -380,10 +314,7 @@
       "requiresAuth": true
     }
   ],
-  "workerRuntimeProfiles": [
-    "proof",
-    "public"
-  ],
+  "workerRuntimeProfiles": ["proof", "public"],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
@@ -395,20 +326,9 @@
           "routeType": "route",
           "sourceContext": "channels",
           "delivery": "server-only",
-          "authorization": {
-            "kind": "authenticated",
-            "requiredPermissions": [
-              "channels.view"
-            ]
-          },
-          "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Account connection status is private."
-          },
-          "availability": {
-            "web": true,
-            "mobile": false
-          },
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account connection status is private." },
+          "availability": { "web": true, "mobile": false },
           "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "channels",
@@ -423,20 +343,9 @@
           "routeType": "route",
           "sourceContext": "channels",
           "delivery": "server-only",
-          "authorization": {
-            "kind": "authenticated",
-            "requiredPermissions": [
-              "channels.view"
-            ]
-          },
-          "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Account connection status is private."
-          },
-          "availability": {
-            "web": true,
-            "mobile": false
-          },
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account connection status is private." },
+          "availability": { "web": true, "mobile": false },
           "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "channels",
@@ -451,20 +360,9 @@
           "routeType": "route",
           "sourceContext": "channels",
           "delivery": "server-only",
-          "authorization": {
-            "kind": "authenticated",
-            "requiredPermissions": [
-              "channels.view"
-            ]
-          },
-          "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Account publication settings are private."
-          },
-          "availability": {
-            "web": true,
-            "mobile": false
-          },
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account publication settings are private." },
+          "availability": { "web": true, "mobile": false },
           "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "channels",
@@ -482,18 +380,13 @@
           "delivery": "web-resource-only",
           "authorization": {
             "kind": "authenticated",
-            "requiredPermissions": [
-              "channels.manage"
-            ]
+            "requiredPermissions": ["channels.manage"]
           },
           "canonicalLink": {
             "kind": "not-applicable",
             "reason": "The attachment response is not a standalone canonical document."
           },
-          "availability": {
-            "web": true,
-            "mobile": false
-          },
+          "availability": { "web": true, "mobile": false },
           "unsupportedMobile": {
             "owner": "channels",
             "followUp": "#5238",
@@ -507,20 +400,9 @@
           "routeType": "route",
           "sourceContext": "channels",
           "delivery": "server-only",
-          "authorization": {
-            "kind": "authenticated",
-            "requiredPermissions": [
-              "channels.view"
-            ]
-          },
-          "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Account publication settings are private."
-          },
-          "availability": {
-            "web": true,
-            "mobile": false
-          },
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account publication settings are private." },
+          "availability": { "web": true, "mobile": false },
           "pageComponentExport": "default",
           "unsupportedMobile": {
             "owner": "channels",
@@ -535,19 +417,14 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": [
-        "top-nav",
-        "bottom-nav"
-      ],
+      "placements": ["top-nav", "bottom-nav"],
       "key": "channels-publication",
       "label": "Channels",
       "icon": "store",
       "href": "/account/channels",
       "order": 150,
       "visibility": "signed-in",
-      "requiredPermissions": [
-        "channels.view"
-      ]
+      "requiredPermissions": ["channels.view"]
     }
   ],
   "mutationConsistencyInventory": [
@@ -664,88 +541,60 @@
     "connection-health": {
       "classification": "slice",
       "purpose": "Own connection-health observations, policy, reason generations, facts, and system pause reads.",
-      "expectedConsumers": [
-        "Channels health producers and outbound hold readers"
-      ]
+      "expectedConsumers": ["Channels health producers and outbound hold readers"]
     },
     "connections": {
       "classification": "slice",
       "purpose": "Own the connections slice lifecycle, setup authority, HTTP contract, and projection.",
-      "expectedConsumers": [
-        "Internal Channels module composition"
-      ]
+      "expectedConsumers": ["Internal Channels module composition"]
     },
     "publication-port": {
       "classification": "slice",
       "purpose": "Own the publication-port provider-neutral Channel Publication contract and immutable provider registry.",
-      "expectedConsumers": [
-        "Internal Channels publication workflows and provider integrations"
-      ]
+      "expectedConsumers": ["Internal Channels publication workflows and provider integrations"]
     },
     "listing-composition": {
       "classification": "slice",
       "purpose": "Own the listing-composition Channel Publication Facts, configuration, eligibility, desired state, Links, and reconciliation runs.",
-      "expectedConsumers": [
-        "Channels account publication routes and registered channel publication consumers"
-      ]
+      "expectedConsumers": ["Channels account publication routes and registered channel publication consumers"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Compose authenticated Channels publication requests and adapt request-time Marketplace capabilities at the context boundary.",
-      "expectedConsumers": [
-        "connections",
-        "manual-sync"
-      ],
+      "expectedConsumers": ["connections", "manual-sync"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Own the context-level Channels runtime service composition contract.",
-      "expectedConsumers": [
-        "Root Channels module and API composition"
-      ]
+      "expectedConsumers": ["Root Channels module and API composition"]
     },
     "manual-sync": {
       "classification": "slice",
       "purpose": "Own the manual-sync Channel Sync Run panel, frozen manual lease policy resolution, bounded export ingress, Marketplace clamp coordination, and channel attention source.",
-      "expectedConsumers": [
-        "Channels account connection route, platform API, platform worker, and Seller Desk"
-      ]
+      "expectedConsumers": ["Channels account connection route, platform API, platform worker, and Seller Desk"]
     },
     "outbound-sync": {
       "classification": "slice",
       "purpose": "Own Channels outbound-sync operations, execution admission, leases, and connection-scoped activity.",
-      "expectedConsumers": [
-        "Internal Channels module composition",
-        "Channel connector and manual claim workflows"
-      ]
+      "expectedConsumers": ["Internal Channels module composition", "Channel connector and manual claim workflows"]
     },
     "tcgplayer-csv": {
       "classification": "slice",
       "purpose": "The tcgplayer-csv slice owns TCGplayer export snapshots, staged CSV composition, and replayable Channel Sync Runs.",
-      "expectedConsumers": [
-        "Channels manual and connector sync workflows"
-      ]
+      "expectedConsumers": ["Channels manual and connector sync workflows"]
     },
     "reconciliation": {
       "classification": "slice",
       "purpose": "Own Channel Drift classification, decisions, reconciliation runs, missed-sale gaps, outbound holds, and bounded metrics.",
-      "expectedConsumers": [
-        "Channels worker composition, connection detail, and downstream health and snapshot owners"
-      ]
+      "expectedConsumers": ["Channels worker composition, connection detail, and downstream health and snapshot owners"]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Expose Channels-owned account route modules consumed by generated deployable adapters.",
-      "expectedConsumers": [
-        "Generated deployable route adapters"
-      ]
+      "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": [
-    "platform-worker"
-  ],
-  "localeCatalogs": [
-    "contracts/localization/locales/en/channels.ts"
-  ]
+  "runtimeDeployables": ["platform-worker"],
+  "localeCatalogs": ["contracts/localization/locales/en/channels.ts"]
 }

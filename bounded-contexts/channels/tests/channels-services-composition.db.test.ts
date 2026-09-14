@@ -63,7 +63,7 @@ describeDb("channels-services-composition", () => {
   it.each(["submitObservation", "readConnectionHealth", "listOpenReasonGenerations"])(
     "rejects real composition when the health %s source is omitted",
     (member) => {
-      const services = channelsModule.createServices(pools.channels, {});
+      const services = createServices();
       expect(isChannelsServices(services)).toBe(true);
       expect(
         isChannelsServices({

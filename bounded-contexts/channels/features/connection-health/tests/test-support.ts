@@ -10,6 +10,7 @@ import {
 import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/inventory/server";
 import { buildPolicyDocumentProjectionHandlers } from "@chase-sets/platform-policy/projection";
 import { module as channelsModule } from "../../../index";
 import type { ChannelConnectionStatus } from "../../connections/domain/contracts";
@@ -31,15 +32,16 @@ if (!baseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required f
 export const describeDb = baseUrl ? describe : describe.skip;
 
 export function healthDatabase(name: string) {
-  let pools: Readonly<Record<"channels", PgTransactionalPool>>;
+  let pools: Readonly<Record<"channels" | "inventory", PgTransactionalPool>>;
   let services: ReturnType<typeof channelsModule.createServices>;
   let sequence = 0;
   beforeAll(async () => {
-    const urls = createMultiContextTestDatabaseUrls(baseUrl!, ["channels"], name);
+    const urls = createMultiContextTestDatabaseUrls(baseUrl!, ["channels", "inventory"], name);
     await ensureMultiContextTestDatabases(baseUrl!, urls);
     pools = createMultiContextTestPools(urls);
     await bootstrapContextDatabase(channelsModule, pools.channels);
     services = channelsModule.createServices(pools.channels, {
+      channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
       setupResolver: {
         resolve: async ({ providerKey, environment }) => ({
           providerKey,
@@ -62,6 +64,9 @@ export function healthDatabase(name: string) {
   });
   const query = (connectionId: string) => ({ connectionId, accountId: context.audit.forAccountId });
   return {
+    get channelSaleRecorder() {
+      return createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context);
+    },
     get db() {
       return pools.channels;
     },
