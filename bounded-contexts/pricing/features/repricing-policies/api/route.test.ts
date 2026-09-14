@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { PricingApiEnv } from "../../../api";
 import { createRepricingPolicyRoutes } from "./route";
-import { createRepricingPolicyRuntime } from "./runtime";
+import { createRepricingPolicyRuntime, type RepricingPolicyServices } from "./runtime";
 import { DryRunRequiredError } from "./activation";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
 
@@ -26,35 +27,37 @@ async function fixture() {
   });
   const services: Parameters<typeof createRepricingPolicyRoutes>[0] = {
     ...runtime,
-    getAccountRepricingPolicy: vi.fn(async ({ accountId, policyId }) =>
-      accountId === "acc_7910" && policyId === created.state.policyId
-        ? {
-            ...dryRunBody,
-            excludedListingIds: [],
-            policyId,
-            sellerAccountId: accountId,
-            name: "Synthetic",
-            status: "active",
-            createdAt: "2026-01-01",
-            updatedAt: "2026-01-01",
-          }
-        : null,
-    ),
-    listAccountRepricingPolicies: vi.fn(async ({ accountId }) =>
-      accountId === "acc_7910"
-        ? [
-            {
+    getAccountRepricingPolicy: vi.fn<RepricingPolicyServices["getAccountRepricingPolicy"]>(
+      async ({ accountId, policyId }) =>
+        accountId === "acc_7910" && policyId === created.state.policyId
+          ? {
               ...dryRunBody,
               excludedListingIds: [],
-              policyId: "rpp_synthetic_7911",
+              policyId,
               sellerAccountId: accountId,
               name: "Synthetic",
               status: "active",
               createdAt: "2026-01-01",
               updatedAt: "2026-01-01",
-            },
-          ]
-        : [],
+            }
+          : null,
+    ),
+    listAccountRepricingPolicies: vi.fn<RepricingPolicyServices["listAccountRepricingPolicies"]>(
+      async ({ accountId }) =>
+        accountId === "acc_7910"
+          ? [
+              {
+                ...dryRunBody,
+                excludedListingIds: [],
+                policyId: "rpp_synthetic_7911",
+                sellerAccountId: accountId,
+                name: "Synthetic",
+                status: "active",
+                createdAt: "2026-01-01",
+                updatedAt: "2026-01-01",
+              },
+            ]
+          : [],
     ),
     getBudget: vi.fn(async (accountId, day) => ({ day, changesUsed: accountId === "acc_7910" ? 4 : 0 })),
     listCategories: vi.fn(async (accountId) => [
@@ -85,7 +88,10 @@ async function fixture() {
           roleKey: "owner",
           permissions,
         });
-        c.set("context", { ...dryRunContext, audit: { ...dryRunContext.audit, forAccountId: accountId } });
+        c.set("context", {
+          ...dryRunContext,
+          audit: { ...dryRunContext.audit, forAccountId: parseTypedId(accountId, "acc") },
+        });
       }
       return next();
     });
