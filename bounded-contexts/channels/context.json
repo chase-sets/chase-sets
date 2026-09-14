@@ -21,6 +21,7 @@
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
   "slices": [
+    "connector-feed",
     "connections",
     "connector-client",
     "publication-port",
@@ -34,9 +35,14 @@
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support"],
   "publicExports": [".", "./client", "./context", "./server", "./routes/*"],
-  "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory"],
+  "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
   "seedRequirements": ["inventory"],
   "hostPorts": [
+    {
+      "portName": "connectorOAuth",
+      "providedBy": "platform-api",
+      "purpose": "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority."
+    },
     {
       "portName": "marketplaceChannelInboundClamp",
       "providedBy": "platform-api, platform-worker",
@@ -325,6 +331,11 @@
           ]
         }
       ]
+    },
+    {
+      "mountPath": "/channel-connector/oauth",
+      "kind": "additional",
+      "requiresAuth": false
     }
   ],
   "workerRuntimeProfiles": ["proof", "public"],
@@ -513,6 +524,30 @@
       }
     },
     {
+      "id": "channels.connector-pairing-command-snapshots",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/channels/features/connector-feed/ui/pairing-panel.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/channels/features/connector-feed/ui/pairing-panel.tsx:Hb08a81ecfd73#2",
+        "route-action:bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "description": "Pairing actions return the committed one-use code or redirect to a current authority read; no optimistic paired status or last-seen is invented."
+      },
+      "proof": {
+        "authoritativeResponse": "Code creation returns the committed pairing identity and expiry. Unpair compares identity/revision before cleanup and the loader revalidates from the locked connection and pairing state. Malformed pairing DTOs render unavailable.",
+        "tests": [
+          "bounded-contexts/channels/features/connector-feed/tests/connector-pairing-lifecycle.db.test.ts",
+          "bounded-contexts/channels/features/connector-feed/tests/connector-pairing-surface.test.tsx",
+          "bounded-contexts/channels/features/connector-feed/tests/connector-contracts.test.ts",
+          "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts"
+        ]
+      }
+    },
+    {
       "id": "channels.connection-command-snapshots",
       "owner": "channels",
       "risk": "important",
@@ -627,6 +662,11 @@
       "purpose": "Own the connection-attention generation lifecycle, resolution facts, and combined channel-action source and detail panel.",
       "expectedConsumers": ["Channels health producers, connection detail, and Seller Desk"]
     },
+    "connector-feed": {
+      "classification": "slice",
+      "purpose": "Own one-use connector pairing, current operation authority, and safe request audit.",
+      "expectedConsumers": ["Channels connection detail, connector OAuth, and future claim/report/ingest transport"]
+    },
     "connection-health": {
       "classification": "slice",
       "purpose": "Own connection-health observations, policy, reason generations, facts, and system pause reads.",
@@ -655,7 +695,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Compose authenticated Channels publication requests and adapt request-time Marketplace capabilities at the context boundary.",
-      "expectedConsumers": ["connections", "manual-sync"],
+      "expectedConsumers": ["connections", "manual-sync", "connector-feed"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {

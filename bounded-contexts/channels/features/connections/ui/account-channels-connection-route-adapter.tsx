@@ -28,6 +28,12 @@ import { ChannelConnectionHealthPanel } from "../../connection-attention/ui/heal
 import type { ChannelConnectionAttention } from "../../connection-attention/domain/contracts";
 import type { ChannelDriftDecision, ChannelDriftDetail } from "../../reconciliation/domain/contracts";
 import { ChannelDriftPanel, type DriftActionResult, type DriftSubmission } from "../../reconciliation/ui/drift-panel";
+import {
+  ConnectorPairingPanel,
+  type GeneratedPairingCode,
+  type PairingPanelState,
+} from "../../connector-feed/ui/pairing-panel";
+import { decodeConnectorPairingDetail, decodeGeneratedPairingCode } from "../../connector-feed/domain/codecs";
 
 type AuxiliaryRead<T> = Readonly<{ kind: "loaded"; data: T }> | Readonly<{ kind: "read-error" }>;
 type LoadedData = Readonly<{
@@ -38,6 +44,7 @@ type LoadedData = Readonly<{
   loadIdentity: string;
   manualSync: AuxiliaryRead<ManualSyncPanel>;
   attention: AuxiliaryRead<ChannelConnectionAttention>;
+  pairing: PairingPanelState;
   operationLog:
     | Readonly<{
         kind: "loaded";
@@ -76,7 +83,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
   if (position.cursor !== null) query.set("cursor", position.cursor);
   const headers = createForwardedAuthHeaders(request, undefined, { readTargetContextName: "channels" });
   const driftCursor = new URL(request.url).searchParams.get("driftCursor");
-  const [operationResult, manualSync, attention, drift] = await Promise.all([
+  const [operationResult, manualSync, attention, drift, pairing] = await Promise.all([
     readAuxiliary<Readonly<{ log: OutboundOperationLogPage; summary: OutboundOperationSummary }>>(
       fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/outbound-operations?${query}`, {
         credentials: "include",
@@ -101,6 +108,12 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
         { credentials: "include", headers },
       ),
     ),
+    readPairing(
+      fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/connector-pairing`, {
+        credentials: "include",
+        headers,
+      }),
+    ),
   ]);
   let operationLog: LoadedData["operationLog"] = { kind: "read-error" };
   if (operationResult.kind === "loaded")
@@ -115,6 +128,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
     connection,
     manualSync,
     attention,
+    pairing,
     operationLog,
     drift: drift.kind === "loaded" ? drift.data : { kind: "unavailable" },
     canManageDrift: actor.permissions.includes("channels.manage"),
@@ -126,6 +140,17 @@ async function readAuxiliary<T>(response: Promise<Response>): Promise<AuxiliaryR
   try {
     const resolved = await response;
     return resolved.ok ? { kind: "loaded", data: (await resolved.json()) as T } : { kind: "read-error" };
+  } catch {
+    return { kind: "read-error" };
+  }
+}
+
+async function readPairing(response: Promise<Response>): Promise<PairingPanelState> {
+  try {
+    const resolved = await response;
+    return resolved.ok
+      ? { kind: "loaded", data: decodeConnectorPairingDetail(await resolved.json()) }
+      : { kind: "read-error" };
   } catch {
     return { kind: "read-error" };
   }
@@ -193,7 +218,14 @@ export async function clientAction(args: ClientActionFunctionArgs) {
 
 export async function action(
   args: ActionFunctionArgs,
-): Promise<ConnectionActionData | ManualSyncActionError | AttentionActionError | DriftActionResult | Response> {
+): Promise<
+  | ConnectionActionData
+  | ManualSyncActionError
+  | AttentionActionError
+  | DriftActionResult
+  | Readonly<{ kind: "pairing-code"; generated: GeneratedPairingCode }>
+  | Response
+> {
   const form = await args.request.clone().formData();
   const intent = String(form.get("intent") ?? "");
   if (["pause", "resume", "disconnect"].includes(intent)) return connectionAction(args);
@@ -245,6 +277,29 @@ export async function action(
     return resolved.ok
       ? redirect(new URL(args.request.url).pathname)
       : { kind: "attention-error", error: t("channels.attention.failed") };
+  }
+  if (intent === "connector-code" || intent === "connector-unpair") {
+    try {
+      const endpoint = intent === "connector-code" ? "code" : "unpair";
+      const response = await fetch(
+        `${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/connector-pairing/${endpoint}`,
+        {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify(
+            endpoint === "code"
+              ? {}
+              : { pairingId: String(form.get("pairingId") ?? ""), revision: Number(form.get("revision")) },
+          ),
+        },
+      );
+      if (!response.ok) return { error: t("channels.connector.retry") };
+      if (endpoint === "unpair") return redirect(new URL(args.request.url).pathname);
+      const generated = decodeGeneratedPairingCode(await response.json());
+      return { kind: "pairing-code", generated };
+    } catch {
+      return { error: t("channels.connector.retry") };
+    }
   }
   const emptyHeaders = createForwardedAuthHeaders(args.request);
   let response: Response;
@@ -350,6 +405,14 @@ export default function AccountChannelsConnectionRoute() {
           state={navigation.state === "loading" ? { kind: "loading" } : data.attention}
           pending={navigation.state === "submitting"}
         />
+        <ConnectorPairingPanel
+          state={data.pairing}
+          generated={
+            actionData && "kind" in actionData && actionData.kind === "pairing-code" ? actionData.generated : undefined
+          }
+          pending={navigation.state !== "idle"}
+          available={connection.status === "active" || connection.status === "paused"}
+        />
         {actionError ? (
           <OperationalStatusBanner
             tone="danger"
@@ -385,6 +448,7 @@ export default function AccountChannelsConnectionRoute() {
     </ChannelConnectionDetailPage>
   );
 }
+
 function isConnectionActionError(value: unknown): value is Readonly<{ kind: "command-error"; message: string }> {
   return (
     typeof value === "object" &&

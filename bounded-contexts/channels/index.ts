@@ -159,6 +159,10 @@ import {
   channelAttentionSchemaSql,
   channelAttentionSchemaMigrations,
 } from "./features/connection-attention/read-model/schema";
+import type { ConnectorOAuthService } from "./support/request-support/connector-oauth";
+import { createConnectorFeedRuntime } from "./features/connector-feed/api/runtime";
+import { createConnectorCredentialRoutes } from "./features/connector-feed/api/routes";
+import { connectorFeedSchemaMigrations, connectorFeedSchemaSql } from "./features/connector-feed/read-model/schema";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
@@ -166,11 +170,12 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
     marketplaceChannelInboundClamp?: MarketplaceChannelInboundClampCapability;
     channelSaleRecorder: RecordExternalChannelSale;
     readChannelHealthHold?: (connectionId: string) => Promise<boolean>;
+    connectorOAuth?: ConnectorOAuthService;
   }>;
 
 export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
@@ -180,6 +185,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...manualSyncSchemaMigrations,
     ...channelReconciliationSchemaMigrations,
     ...channelAttentionSchemaMigrations,
+    ...connectorFeedSchemaMigrations,
   ],
   retentionExemptions: manualSyncRetentionExemptions,
   seedProfiles: ["scenario-seed"],
@@ -193,10 +199,12 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       pool,
       wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "channels" }),
     });
+    const connectorFeed = createConnectorFeedRuntime({ db: pool, eventStore, oauth: ports?.connectorOAuth });
     const connections = createChannelConnectionRuntime(
       {
         eventStore,
         db: pool,
+        disconnectChannelConnection: connectorFeed.disconnectChannelConnection,
       },
       {
         ...(ports ?? {}),
@@ -295,6 +303,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       reconciliation,
       tcgplayerCsv,
       manualSync,
+      connectorFeed,
       db: pool,
       projectors: [
         ...connections.projectors,
@@ -304,7 +313,14 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       ],
     };
   },
-  buildApis: (services) => [{ mountPath: "/api/channels", contextMountOrdinal: 1, router: buildChannelsApi(services) }],
+  buildApis: (services) => [
+    { mountPath: "/api/channels", contextMountOrdinal: 1, router: buildChannelsApi(services) },
+    {
+      mountPath: "/channel-connector/oauth",
+      contextMountOrdinal: 2,
+      router: createConnectorCredentialRoutes(services.connectorFeed, services.db),
+    },
+  ],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => [
     ...buildEventSubscriptionsFromManifest({
