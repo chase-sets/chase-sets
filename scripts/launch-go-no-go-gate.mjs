@@ -8,6 +8,14 @@ import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { isIsoTimestamp, validateEvidenceReference } from "./marketplace-evidence-references.mjs";
 import { MARKETPLACE_PRODUCTION_LAUNCH_READINESS_VERSION } from "./marketplace-production-launch-readiness.mjs";
 import { MARKETPLACE_PROMOTION_EVIDENCE_VERSION } from "./marketplace-promotion-evidence.mjs";
+import {
+  MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION,
+  REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS,
+  projectPublicPresenceCopyAuditPageEvidence,
+  resolveCanonicalPublicPresenceAuditAuthority,
+  validatePublicPresenceCopyAuditRecord,
+} from "./marketplace-public-presence-copy-audit.mjs";
+import { COUNSEL_REVIEW_PACKET_VERSION } from "./legal-review-corpus.mjs";
 import { GOOGLE_SHOPPING_LAUNCH_READINESS_EVIDENCE_VERSION } from "./google-shopping-launch-readiness-evidence.mjs";
 import { RELEASE_HEALTH_REPORT_VERSION } from "./release-health-report.mjs";
 import { evaluateRollbackReadiness } from "./rollback-readiness.mjs";
@@ -50,6 +58,7 @@ export const REQUIRED_PRODUCTION_APPROVAL_CATEGORIES = [
   "PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED",
   "PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED",
   "PRODUCTION_TAX_READINESS_APPROVED",
+  "PRODUCTION_TERMS_CONSENT_ACTIVE_APPROVED",
 ];
 
 export const PLATFORM_PRODUCTION_WORKFLOW_PATH = ".github/workflows/platform-production.yml";
@@ -81,6 +90,26 @@ export const SUPPORT_DISPUTE_SELF_SERVICE_SURFACE_FILES = [
 
 const INCIDENT_BACKLOG_MILESTONE_NUMBER = 100;
 const VALID_DECISIONS = ["go", "no-go", "hold"];
+const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/;
+
+export const MARKETPLACE_PROMOTION_EVIDENCE_COMMAND =
+  "pnpm run ops marketplace:promotion-evidence -- --review <review.json> --public-presence-copy-audit <audit-v3.json> --reference <reference>";
+
+/**
+ * The canonical legal-corpus membership, derived once from the registry and
+ * the source-owned compliance manifest. The promotion-evidence row revalidates
+ * the promotion record's derived projection against THIS rather than trusting
+ * `passesPromotionGate`, so a promotion record carrying a stale or shortened
+ * member list fails here even if its own producer said it passed.
+ *
+ * Resolution failure is a bounded row diagnostic, never an import crash: this
+ * terminal gate must still emit a record when the corpus cannot be read.
+ */
+export async function resolveCanonicalLegalCorpusMembership(dependencies = {}) {
+  return resolveCanonicalPublicPresenceAuditAuthority(dependencies);
+}
+
+const CANONICAL_LEGAL_CORPUS_MEMBERSHIP = await resolveCanonicalLegalCorpusMembership();
 
 export function parseLaunchGoNoGoGateArgs(argv, env = process.env) {
   return {
@@ -126,10 +155,11 @@ export function buildLaunchGoNoGoGate(input) {
     errors.push("Launch go/no-go gate checkedAt must be an ISO timestamp.");
   }
 
+  const legalCorpusMembership = input.legalCorpusMembership ?? CANONICAL_LEGAL_CORPUS_MEMBERSHIP;
   const rows = [
     buildMoneyOperationsApprovalMatrixRow(repoRootPath),
     buildMarketplaceProductionLaunchReadinessRow(operatorEvidence.marketplaceProductionLaunchReadiness),
-    buildMarketplacePromotionEvidenceRow(operatorEvidence.marketplacePromotionEvidence),
+    buildMarketplacePromotionEvidenceRow(operatorEvidence.marketplacePromotionEvidence, legalCorpusMembership),
     buildGoogleShoppingLaunchReadinessRow(operatorEvidence.googleShoppingLaunchReadiness),
     buildCampaignStartGateRow(repoRootPath, operatorEvidence.campaignStartGate),
     buildLagSloRegressionGateRow(operatorEvidence.lagSloRegressionGate),
@@ -246,15 +276,209 @@ function buildMarketplaceProductionLaunchReadinessRow(evidence) {
   });
 }
 
-function buildMarketplacePromotionEvidenceRow(evidence) {
+function buildMarketplacePromotionEvidenceRow(evidence, membership) {
   return buildImportedGateRow({
     key: "marketplace-promotion-evidence",
     label: "Marketplace public promotion / checkout launch evidence review green",
     expectedVersion: MARKETPLACE_PROMOTION_EVIDENCE_VERSION,
     passField: "passesPromotionGate",
     evidence,
-    command: "pnpm run ops marketplace:promotion-evidence -- --review <review.json> --reference <reference>",
+    extraCheck: (record, rowErrors) => validatePromotionLegalCorpusProjection(record, membership, rowErrors),
+    command: MARKETPLACE_PROMOTION_EVIDENCE_COMMAND,
   });
+}
+
+/**
+ * Revalidates the promotion record's derived legal-corpus projection directly
+ * — exact audit/packet schema versions, exact ordered membership and counts,
+ * exact digest agreement, and every audit-derived boolean true — rather than
+ * accepting one aggregate `passesPromotionGate` claim.
+ */
+export function validatePromotionLegalCorpusProjection(record, membership, rowErrors) {
+  const promotion = isRecord(record.marketplacePromotion) ? record.marketplacePromotion : null;
+  if (!promotion) {
+    rowErrors.push("marketplacePromotion must be an object carrying the derived legal-corpus projection.");
+    return;
+  }
+  if (!membership.ok) {
+    rowErrors.push(
+      `the canonical legal corpus membership could not be resolved, so the derived projection cannot be revalidated: ${membership.errors.join(" ")}`,
+    );
+    return;
+  }
+
+  if (promotion.publicPresenceCopyAuditVersion !== MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION) {
+    rowErrors.push(`publicPresenceCopyAuditVersion must be ${MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION}.`);
+  }
+  if (promotion.publicPresenceCopyAuditMode !== "launch") {
+    rowErrors.push("publicPresenceCopyAuditMode must be launch.");
+  }
+  if (promotion.publicPresenceCopyAuditRequiredPageCount !== REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS.length) {
+    rowErrors.push(`publicPresenceCopyAuditRequiredPageCount must be ${REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS.length}.`);
+  }
+  if (!isExactArray(promotion.publicPresenceCopyAuditRequiredPagePaths, REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS)) {
+    rowErrors.push("publicPresenceCopyAuditRequiredPagePaths must be the canonical required-page paths in order.");
+  }
+  if (!isExactArray(promotion.publicPresenceCopyAuditLaunchRequiredPolicyKeys, membership.launchRequiredPolicyKeys)) {
+    rowErrors.push(
+      "publicPresenceCopyAuditLaunchRequiredPolicyKeys must be the canonical launch-required policy keys in registry order.",
+    );
+  }
+  if (promotion.publicPresenceCopyAuditLaunchRequiredPolicyCount !== membership.launchRequiredPolicyKeys.length) {
+    rowErrors.push(
+      `publicPresenceCopyAuditLaunchRequiredPolicyCount must be ${membership.launchRequiredPolicyKeys.length}.`,
+    );
+  }
+  if (!isExactArray(promotion.publicPresenceCopyAuditComplianceArticleSlugs, membership.complianceArticleSlugs)) {
+    rowErrors.push(
+      "publicPresenceCopyAuditComplianceArticleSlugs must be the canonical compliance article slugs in manifest order.",
+    );
+  }
+  if (promotion.publicPresenceCopyAuditComplianceArticleCount !== membership.complianceArticleSlugs.length) {
+    rowErrors.push(
+      `publicPresenceCopyAuditComplianceArticleCount must be ${membership.complianceArticleSlugs.length}.`,
+    );
+  }
+  if (promotion.publicPresenceCopyAuditUniqueFetchedPathCount !== membership.uniqueFetchedPathCount) {
+    rowErrors.push(`publicPresenceCopyAuditUniqueFetchedPathCount must be ${membership.uniqueFetchedPathCount}.`);
+  }
+  if (promotion.counselPacketSchemaVersion !== COUNSEL_REVIEW_PACKET_VERSION) {
+    rowErrors.push(`counselPacketSchemaVersion must be ${COUNSEL_REVIEW_PACKET_VERSION}.`);
+  }
+  if (typeof promotion.counselPacketSha256 !== "string" || !SHA256_PATTERN.test(promotion.counselPacketSha256)) {
+    rowErrors.push("counselPacketSha256 must be a lowercase sha256 digest of the retained packet bytes.");
+  }
+  if (!Number.isInteger(promotion.counselPacketUtf8Bytes) || promotion.counselPacketUtf8Bytes <= 0) {
+    rowErrors.push("counselPacketUtf8Bytes must be a positive integer.");
+  }
+  if (
+    typeof promotion.publicPresenceCopyAuditLegalCorpusDigest !== "string" ||
+    !SHA256_PATTERN.test(promotion.publicPresenceCopyAuditLegalCorpusDigest) ||
+    promotion.counselPacketCorpusSha256 !== promotion.publicPresenceCopyAuditLegalCorpusDigest
+  ) {
+    rowErrors.push(
+      "counselPacketCorpusSha256 must equal the audited current publicPresenceCopyAuditLegalCorpusDigest.",
+    );
+  }
+  validateAuditPageEvidenceProjection(promotion, membership, rowErrors);
+  for (const field of [
+    "counselPacketVerified",
+    "publicPresenceCopyAuditPassed",
+    "publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved",
+    "publicPresenceCopyAuditPolicyPagesReviewed",
+    "publicPresenceCopyAuditComplianceArticlesReviewed",
+    "publicPresenceCopyAuditDmcaRegistrationMarkerAbsent",
+    "publicPresenceCopyAuditUncertifiedClaimsAbsent",
+    "publicPresenceLaunchCopyReviewed",
+    "futureOnlyLaunchCopyRemoved",
+    "policyPagesReviewed",
+  ]) {
+    if (promotion[field] !== true) {
+      rowErrors.push(`${field} must be true.`);
+    }
+  }
+}
+
+/**
+ * The audited rows behind the flattened projection. Counts and booleans alone
+ * are assertions any hand-written record can carry; this requires the promotion
+ * record to name the identities its audit actually fetched, and to have proved
+ * every one of them on the audited origin and its exact canonical route.
+ */
+function validateAuditPageEvidenceProjection(promotion, membership, rowErrors) {
+  const evidence = promotion.publicPresenceCopyAuditPageEvidence;
+  if (!isRecord(evidence)) {
+    rowErrors.push(
+      "publicPresenceCopyAuditPageEvidence must carry the audited page rows the promotion record derives from its copy-audit input.",
+    );
+    return;
+  }
+  const audit = {
+    schemaVersion: promotion.publicPresenceCopyAuditVersion,
+    baseUrl: promotion.publicPresenceCopyAuditBaseUrl,
+    mode: promotion.publicPresenceCopyAuditMode,
+    checkedAt: promotion.publicPresenceCopyAuditCompletedAt,
+    requiredPageCount: promotion.publicPresenceCopyAuditRequiredPageCount,
+    requiredPagePaths: promotion.publicPresenceCopyAuditRequiredPagePaths,
+    launchRequiredPolicyCount: promotion.publicPresenceCopyAuditLaunchRequiredPolicyCount,
+    launchRequiredPolicyKeys: promotion.publicPresenceCopyAuditLaunchRequiredPolicyKeys,
+    complianceArticleCount: promotion.publicPresenceCopyAuditComplianceArticleCount,
+    complianceArticleSlugs: promotion.publicPresenceCopyAuditComplianceArticleSlugs,
+    uniqueFetchedPathCount: promotion.publicPresenceCopyAuditUniqueFetchedPathCount,
+    legalCorpusDigest: promotion.publicPresenceCopyAuditLegalCorpusDigest,
+    counselPacket: {
+      schemaVersion: promotion.counselPacketSchemaVersion,
+      sha256: promotion.counselPacketSha256,
+      utf8Bytes: promotion.counselPacketUtf8Bytes,
+      corpusSha256: promotion.counselPacketCorpusSha256,
+      verified: promotion.counselPacketVerified,
+    },
+    pages: evidence.pages,
+    publicPresenceLaunchCopyReviewed: promotion.publicPresenceLaunchCopyReviewed,
+    futureOnlyLaunchCopyRemoved: promotion.publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved,
+    policyPagesReviewed: promotion.publicPresenceCopyAuditPolicyPagesReviewed,
+    complianceArticlesReviewed: promotion.publicPresenceCopyAuditComplianceArticlesReviewed,
+    dmcaRegistrationMarkerAbsent: promotion.publicPresenceCopyAuditDmcaRegistrationMarkerAbsent,
+    uncertifiedClaimsAbsent: promotion.publicPresenceCopyAuditUncertifiedClaimsAbsent,
+    passesPublicPresenceCopyAudit: promotion.publicPresenceCopyAuditPassed,
+  };
+  rowErrors.push(...validatePublicPresenceCopyAuditRecord(audit, membership).errors);
+  const derived = projectPublicPresenceCopyAuditPageEvidence(audit);
+  if (
+    !derived ||
+    Object.keys(evidence).length !== Object.keys(derived).length ||
+    Object.keys(evidence).some((key) => !Object.hasOwn(derived, key)) ||
+    Object.keys(derived).some(
+      (key) => key !== "pages" && JSON.stringify(evidence[key]) !== JSON.stringify(derived[key]),
+    )
+  ) {
+    rowErrors.push(
+      "publicPresenceCopyAuditPageEvidence must be closed and its summaries must derive from the retained rows.",
+    );
+  }
+  if (evidence.fetchedPathCount !== membership.uniqueFetchedPathCount) {
+    rowErrors.push(
+      `publicPresenceCopyAuditPageEvidence.fetchedPathCount must be ${membership.uniqueFetchedPathCount}.`,
+    );
+  }
+  if (evidence.verifiedOnAuditedOriginCount !== membership.uniqueFetchedPathCount) {
+    rowErrors.push(
+      `publicPresenceCopyAuditPageEvidence.verifiedOnAuditedOriginCount must be ${membership.uniqueFetchedPathCount}.`,
+    );
+  }
+  if (!isExactArray(evidence.requiredPagePaths, REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS)) {
+    rowErrors.push(
+      "publicPresenceCopyAuditPageEvidence.requiredPagePaths must be the canonical required-page paths in order.",
+    );
+  }
+  // Compared as an identity set: a policy route that shares a path with a
+  // required public page keeps that page's row position, so audited row order
+  // is not registry order. Registry order is enforced on the flattened
+  // membership array above.
+  if (!isSameIdentitySet(evidence.launchPolicyPolicyKeys, membership.launchRequiredPolicyKeys)) {
+    rowErrors.push(
+      "publicPresenceCopyAuditPageEvidence.launchPolicyPolicyKeys must be exactly the canonical launch-required policy keys.",
+    );
+  }
+  if (!isExactArray(evidence.complianceArticleSlugs, membership.complianceArticleSlugs)) {
+    rowErrors.push(
+      "publicPresenceCopyAuditPageEvidence.complianceArticleSlugs must be the canonical compliance article slugs in manifest order.",
+    );
+  }
+}
+
+function isExactArray(value, expected) {
+  return (
+    Array.isArray(value) && value.length === expected.length && value.every((entry, index) => entry === expected[index])
+  );
+}
+
+function isSameIdentitySet(value, expected) {
+  if (!Array.isArray(value) || value.length !== expected.length) {
+    return false;
+  }
+  const declared = new Set(value);
+  return declared.size === expected.length && expected.every((entry) => declared.has(entry));
 }
 
 function buildGoogleShoppingLaunchReadinessRow(evidence) {
