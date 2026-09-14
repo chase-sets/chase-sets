@@ -3,6 +3,10 @@ import { aggregateSellerAttentionQueue, buildSellerAttentionItem } from "@chase-
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createSellerDeskMcpHandlers } from "./mcp";
+import { Hono } from "hono";
+import type { MarketplaceApiEnv } from "../../../api";
+import { createSellerAttentionQueueRoutes } from "./route";
+import { createSellerAttentionQueueRuntime } from "../read-model/runtime";
 
 const actor = {
   sessionId: "sess_1",
@@ -22,6 +26,43 @@ const protocol = {
 } satisfies McpRequestProtocolContext;
 
 describe("Seller Desk MCP handlers", () => {
+  it("channel-action-shared-facades carries the identical mixed descriptor and single rollup over HTTP and MCP", async () => {
+    const item = buildSellerAttentionItem({
+      source: "channel-action",
+      entityId: "synthetic-connection",
+      severity: "critical",
+      summary: {
+        code: "channel-action-open",
+        params: {
+          reasonCount: 1,
+          topReason: "polling",
+          manualReason: "recovery",
+          connectionId: "synthetic-connection",
+        },
+      },
+      observedAt: "2026-09-13T00:00:00Z",
+    });
+    const queue = createSellerAttentionQueueRuntime([{ id: "channel-action", load: async () => [item] }]);
+    const app = new Hono<MarketplaceApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", actor);
+      await next();
+    });
+    app.route("/", createSellerAttentionQueueRoutes(queue));
+    const web = await (await app.request("http://local/")).json();
+    const handlers = createSellerDeskMcpHandlers(queue);
+    const mcp = await handlers.toolHandlers["marketplace.get-seller-attention-queue"]({
+      actor,
+      tool: null as never,
+      arguments: { accountId: actor.accountId },
+      request: new Request("http://local/mcp"),
+      protocol,
+    });
+    expect(web).toEqual(mcp);
+    expect(web.items).toEqual([item]);
+    expect(web.rollup.total).toBe(1);
+    expect(web.rollup.bySource["channel-action"]).toBe(1);
+  });
   it("returns the same aggregated queue object that the web Seller Desk consumes", async () => {
     const expected = await aggregateSellerAttentionQueue(
       [

@@ -24,12 +24,15 @@ import {
   type OutboundOperationLogNavigation,
 } from "../../outbound-sync/ui/operation-log-navigation";
 import { OutboundOperationLogPanel } from "../../outbound-sync/ui/operation-log-panel";
+import { ChannelConnectionHealthPanel } from "../../connection-attention/ui/health-panel";
+import type { ChannelConnectionAttention } from "../../connection-attention/domain/contracts";
 
 type AuxiliaryRead<T> = Readonly<{ kind: "loaded"; data: T }> | Readonly<{ kind: "read-error" }>;
 type LoadedData = Readonly<{
   kind: "ready";
   connection: PublicChannelConnection;
   manualSync: AuxiliaryRead<ManualSyncPanel>;
+  attention: AuxiliaryRead<ChannelConnectionAttention>;
   operationLog:
     | Readonly<{
         kind: "loaded";
@@ -44,6 +47,7 @@ type ConnectionActionData =
   | Readonly<{ kind: "applied"; connection: PublicChannelConnection }>
   | Readonly<{ kind: "command-error"; message: string }>;
 type ManualSyncActionError = Readonly<{ error: string }>;
+type AttentionActionError = Readonly<{ kind: "attention-error"; error: string }>;
 
 function required(value: string | undefined): string {
   if (!value) throw new Response("Not found", { status: 404 });
@@ -66,7 +70,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
   const query = new URLSearchParams({ limit: "50" });
   if (position.cursor !== null) query.set("cursor", position.cursor);
   const headers = createForwardedAuthHeaders(request, undefined, { readTargetContextName: "channels" });
-  const [operationResult, manualSync] = await Promise.all([
+  const [operationResult, manualSync, attention] = await Promise.all([
     readAuxiliary<Readonly<{ log: OutboundOperationLogPage; summary: OutboundOperationSummary }>>(
       fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/outbound-operations?${query}`, {
         credentials: "include",
@@ -75,6 +79,12 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
     ),
     readAuxiliary<ManualSyncPanel>(
       fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/manual-sync`, {
+        credentials: "include",
+        headers,
+      }),
+    ),
+    readAuxiliary<ChannelConnectionAttention>(
+      fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/attention`, {
         credentials: "include",
         headers,
       }),
@@ -88,7 +98,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
       summary: operationResult.data.summary,
       navigation: resolveOutboundOperationLogNavigation(position, operationResult.data.log.nextCursor ?? null),
     };
-  return { kind: "ready", connection, manualSync, operationLog };
+  return { kind: "ready", connection, manualSync, attention, operationLog };
 }
 
 async function readAuxiliary<T>(response: Promise<Response>): Promise<AuxiliaryRead<T>> {
@@ -131,7 +141,7 @@ const connectionAction = defineFormAction({
 
 export async function action(
   args: ActionFunctionArgs,
-): Promise<ConnectionActionData | ManualSyncActionError | Response> {
+): Promise<ConnectionActionData | ManualSyncActionError | AttentionActionError | Response> {
   const form = await args.request.clone().formData();
   const intent = String(form.get("intent") ?? "");
   if (["pause", "resume", "disconnect"].includes(intent)) return connectionAction(args);
@@ -142,6 +152,20 @@ export async function action(
   const runId = encodeURIComponent(String(form.get("runId") ?? ""));
   const revision = encodeURIComponent(String(form.get("expectedRevision") ?? ""));
   const jsonHeaders = createForwardedAuthHeaders(args.request, { "content-type": "application/json" });
+  if (intent === "resolve-attention") {
+    const resolved = await fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/attention/resolve`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        reasonCode: String(form.get("reasonCode") ?? ""),
+        generation: Number(form.get("generation")),
+        resolutionReason: String(form.get("resolutionReason") ?? ""),
+      }),
+    });
+    return resolved.ok
+      ? redirect(new URL(args.request.url).pathname)
+      : { kind: "attention-error", error: t("channels.attention.failed") };
+  }
   const emptyHeaders = createForwardedAuthHeaders(args.request);
   let response: Response;
   if (intent === "compose") response = await fetch(`${base}/compose`, { method: "POST", headers: emptyHeaders });
@@ -234,10 +258,18 @@ export default function AccountChannelsConnectionRoute() {
   return (
     <ChannelConnectionDetailPage state={{ kind: "ready", connection }} pendingIntent={pendingIntent}>
       <Stack gap={4}>
+        <ChannelConnectionHealthPanel
+          state={navigation.state === "loading" ? { kind: "loading" } : data.attention}
+          pending={navigation.state === "submitting"}
+        />
         {actionError ? (
           <OperationalStatusBanner
             tone="danger"
-            title={t("channels.manualSync.action.failed")}
+            title={
+              actionData && "kind" in actionData && actionData.kind === "attention-error"
+                ? t("channels.attention.action.failed")
+                : t("channels.manualSync.action.failed")
+            }
             description={actionError}
           />
         ) : null}

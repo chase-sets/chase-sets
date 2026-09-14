@@ -36,7 +36,13 @@ import {
   observeReason,
   rollupHealth,
 } from "../domain/reducer";
-import { readHealthSnapshot, readTrailingFailures, writeHealthSnapshot } from "../read-model/store";
+import {
+  openHealthReasonGenerations,
+  readHealthSnapshot,
+  readTrailingFailures,
+  writeHealthSnapshot,
+} from "../read-model/store";
+import { recordAttentionHealthTransition } from "../../connection-attention/api/lifecycle";
 
 export type ConnectionHealthDependencies = Readonly<{
   db: PgTransactionalPool;
@@ -145,6 +151,7 @@ export function createConnectionHealthRuntime(deps: ConnectionHealthDependencies
     observedAt: string,
     context: EventStoreContext,
   ) {
+    await recordAttentionHealthTransition(db, deps.eventStore, query, reason, context);
     const payload = decodeChannelHealthChanged({
       schemaVersion: "ChannelHealthChanged/v1",
       connection: query,
@@ -187,9 +194,7 @@ export function createConnectionHealthRuntime(deps: ConnectionHealthDependencies
     },
     async listOpenReasonGenerations(input) {
       const query = decodeChannelHealthQuery(input);
-      return transact(query, async (_db, _status, health) =>
-        health.reasons.filter((reason) => reason.state !== "closed"),
-      );
+      return transact(query, async (_db, _status, health) => openHealthReasonGenerations(health));
     },
     async submitObservation(input, context: EventStoreContext) {
       const observation = decodeChannelHealthObservation(input);

@@ -907,6 +907,10 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listingEvidencePolicy.ui.create.draft": "Create draft",
   "marketplace.features.listingEvidencePolicy.ui.intent.invalid": "Choose a supported policy action.",
   "marketplace.features.sellerDesk.eyebrow": "Seller Desk",
+  "marketplace.features.sellerDesk.summary.channelActionOpen":
+    "Health reasons needing attention: {reasonCount}. First: {topReason}.",
+  "marketplace.features.sellerDesk.action.channelAttention": "Review channel attention",
+  "marketplace.features.sellerDesk.source.channelAction": "Channel action",
   "marketplace.features.sellerDesk.title": "Seller Desk",
   "marketplace.features.sellerDesk.description":
     "Everything that needs you, most important first — alongside the numbers that describe your business.",

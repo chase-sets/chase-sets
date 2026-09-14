@@ -6,6 +6,7 @@ import { createOutboundOperationRoutes } from "./features/outbound-sync/api/rout
 import { channelListingCompositionRoutes } from "./features/listing-composition/api/route";
 import { createManualSyncRoutes } from "./features/manual-sync/api/route";
 import type { ManualSyncServices } from "./features/manual-sync/api/runtime";
+import { createConnectionAttentionRoutes } from "./features/connection-attention/api/route";
 
 export type ChannelsActor = Readonly<{
   accountId: string;
@@ -38,6 +39,7 @@ export function buildChannelsApi(
   });
 
   app.route("/connections", channelConnectionRoutes(services.connections));
+  app.route("/connections", createConnectionAttentionRoutes(services.connectionAttention));
   app.route("/connections", createOutboundOperationRoutes(services.connections, services.outboundSync));
   app.route("/publication", channelListingCompositionRoutes(services.listingComposition));
   if (services.manualSync) app.route("/connections", createManualSyncRoutes(services.manualSync));

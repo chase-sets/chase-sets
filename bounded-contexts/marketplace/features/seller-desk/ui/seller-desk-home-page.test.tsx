@@ -92,6 +92,30 @@ async function fullQueue(): Promise<SellerAttentionQueue> {
 afterEach(cleanup);
 
 describe("SellerDeskHomePage", () => {
+  it("shows one mixed channel-action row, both summaries, and the shared connection destination", async () => {
+    const item = buildSellerAttentionItem({
+      source: "channel-action",
+      entityId: "synthetic-connection",
+      severity: "critical",
+      summary: {
+        code: "channel-action-open",
+        params: {
+          reasonCount: 1,
+          topReason: "polling",
+          manualReason: "recovery",
+          connectionId: "synthetic-connection",
+        },
+      },
+      observedAt: "2026-09-13T00:00:00Z",
+    });
+    const queue = await aggregateSellerAttentionQueue([staticSource("channel-action", [item])], CONTEXT);
+    render(<SellerDeskHomePage queue={queue} kpis={KPIS} />);
+    expect(document.querySelectorAll('[data-seller-desk-item="channel-action:synthetic-connection"]')).toHaveLength(1);
+    expect(screen.getByText(/Health reasons needing attention: 1.*Inbound clamp recovery needs review/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open manual sync" }).getAttribute("href")).toBe(
+      "/account/channels/synthetic-connection",
+    );
+  });
   it("renders the three needs-you items a seller expects, critical first, each one click away", async () => {
     const queue = await fullQueue();
     render(<SellerDeskHomePage queue={queue} kpis={KPIS} />);

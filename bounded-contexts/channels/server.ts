@@ -25,7 +25,6 @@ export {
   type OutboundOperationSummary,
   type OutboundSyncServices,
 } from "./features/outbound-sync/domain/contracts";
-export { createChannelActionAttentionSourceFromReadModel } from "./features/manual-sync/read-model/attention-source";
 export { createChannelReconciliationRuntime, readChannelOutboundHold } from "./features/reconciliation/api/runtime";
 export { classifyChannelDrift } from "./features/reconciliation/domain/classification";
 export {
@@ -67,3 +66,14 @@ export {
   type ChannelExternalSaleTarget,
   type ChannelExternalSaleUnmappableReason,
 } from "./features/reconciliation/read-model/sale-target";
+export { createChannelActionAttentionSourceFromReadModel } from "./features/connection-attention/read-model/attention-source";
+export type {
+  ConnectionAttentionServices,
+  ChannelAttentionFact,
+  ChannelAttentionResolve,
+  ChannelConnectionAttention,
+} from "./features/connection-attention/domain/contracts";
+export {
+  decodeChannelAttentionFact,
+  decodeChannelAttentionResolve,
+} from "./features/connection-attention/domain/codecs";

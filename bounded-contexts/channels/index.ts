@@ -148,6 +148,11 @@ import {
   channelReconciliationSchemaMigrations,
   channelReconciliationSchemaSql,
 } from "./features/reconciliation/read-model/schema";
+import { createConnectionAttentionRuntime } from "./features/connection-attention/api/runtime";
+import {
+  channelAttentionSchemaSql,
+  channelAttentionSchemaMigrations,
+} from "./features/connection-attention/read-model/schema";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
@@ -159,7 +164,7 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
 
 export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
@@ -168,6 +173,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...channelHealthSchemaMigrations,
     ...manualSyncSchemaMigrations,
     ...channelReconciliationSchemaMigrations,
+    ...channelAttentionSchemaMigrations,
   ],
   retentionExemptions: manualSyncRetentionExemptions,
   seedProfiles: ["scenario-seed"],
@@ -269,6 +275,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     return {
       connections,
       connectionHealth,
+      connectionAttention: createConnectionAttentionRuntime({ db: pool, eventStore, connectionHealth }),
       listingComposition,
       outboundSync,
       reconciliation,
