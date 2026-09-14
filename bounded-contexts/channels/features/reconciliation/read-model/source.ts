@@ -59,7 +59,7 @@ export async function readReconciliationConnection(
 
 export async function readExpectedReconciliationListings(
   db: PgQueryable,
-  input: Readonly<{ connectionId: string; limit: number }>,
+  input: Readonly<{ connectionId: string; limit: number; channelListingId?: string }>,
 ): Promise<Readonly<{ items: readonly ReconciliationExpectedListing[]; bounded: boolean }>> {
   const result = await db.query<Record<string, unknown>>(
     `SELECT link.connection_id,listing.account_id,link.channel_listing_id,link.listing_id,
@@ -76,12 +76,13 @@ export async function readExpectedReconciliationListings(
       AND event.stream_version=link.last_desired_state_sequence
       AND event.event_type='channels.channel-listing.desired-state-changed'
      WHERE link.connection_id=$1 AND listing.account_id=connection.account_id
+       AND ($3::text IS NULL OR link.channel_listing_id=$3)
        AND link.last_desired_state_sequence IS NOT NULL
        AND link.last_desired_listing_revision IS NOT NULL AND link.last_desired_state_hash IS NOT NULL
        AND link.last_desired_payload IS NOT NULL
        AND NOT (link.last_desired_intent='delist' AND link.publish_state='delisted')
      ORDER BY link.channel_listing_id LIMIT $2`,
-    [input.connectionId, input.limit + 1],
+    [input.connectionId, input.limit + 1, input.channelListingId ?? null],
   );
   const bounded = result.rows.length > input.limit;
   return { items: result.rows.slice(0, input.limit).map(mapExpectedListing), bounded };

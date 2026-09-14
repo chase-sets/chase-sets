@@ -194,21 +194,16 @@ export function createOutboundOperationStore(
       });
     },
 
-    enqueueRepush: async (input: EnqueueOutboundRepush): Promise<OutboundOperationRecord | null> => {
+    enqueueRepush: async (
+      input: EnqueueOutboundRepush,
+      transaction?: PgQueryable,
+    ): Promise<OutboundOperationRecord | null> => {
       assertEnqueueOutboundOperation(input, options.assertDelistDirective, ["repushOperationId"]);
       if (!input.repushOperationId || input.repushOperationId.length > 512)
         throw new OutboundSyncError("invalid-input");
       const digest = payloadDigest(input.payload);
-      const operationId = `cop_${createHash("sha256")
-        .update(`repush\0${input.connectionId}\0${input.channelListingId}\0${input.repushOperationId}`, "utf8")
-        .digest("hex")
-        .slice(0, 40)}`;
-      return withPgTransaction(dependencies.db, async (db) => {
-        const replay = await db.query<OperationRow>(
-          `SELECT ${operationColumns} FROM channel_outbound_operations WHERE operation_id=$1`,
-          [operationId],
-        );
-        if (replay.rows[0]) return mapOperation(replay.rows[0]);
+      const operationId = deriveOutboundRepushOperationId(input);
+      const enqueue = async (db: PgQueryable) => {
         await db.query(
           `INSERT INTO channel_outbound_lanes (connection_id,channel_listing_id) VALUES ($1,$2)
            ON CONFLICT DO NOTHING`,
@@ -219,6 +214,32 @@ export function createOutboundOperationStore(
            WHERE connection_id=$1 AND channel_listing_id=$2 FOR UPDATE`,
           [input.connectionId, input.channelListingId],
         );
+        const replay = await db.query<OperationRow>(
+          `SELECT ${operationColumns} FROM channel_outbound_operations WHERE operation_id=$1 FOR UPDATE`,
+          [operationId],
+        );
+        if (replay.rows[0]) {
+          const row = replay.rows[0];
+          if (
+            row.operation_origin !== "repush" ||
+            row.connection_id !== input.connectionId ||
+            row.channel_listing_id !== input.channelListingId ||
+            row.listing_id !== input.listingId ||
+            row.operation_kind !== input.operationKind ||
+            Number(row.listing_revision) !== input.listingRevision ||
+            Number(row.source_desired_state_sequence) !== input.desiredStateSequence ||
+            row.source_desired_state_hash !== input.desiredStateHash ||
+            row.payload_digest !== digest ||
+            row.source_event_id !== input.envelope.sourceEventId ||
+            row.source_stream_id !== input.envelope.sourceStreamId ||
+            Number(row.source_stream_version) !== input.envelope.sourceStreamVersion ||
+            String(row.source_global_position) !== String(input.envelope.sourceGlobalPosition) ||
+            timestamp(row.source_occurred_at) !== input.envelope.sourceOccurredAt
+          ) {
+            throw new OutboundSyncError("stale-fence", "Repush identity was reused with different input.");
+          }
+          return mapOperation(row);
+        }
         const current = await db.query<Pick<OperationRow, "status" | "source_desired_state_sequence">>(
           `SELECT status,source_desired_state_sequence FROM channel_outbound_operations
            WHERE connection_id=$1 AND channel_listing_id=$2 ORDER BY source_desired_state_sequence DESC,revision DESC FOR UPDATE`,
@@ -243,7 +264,8 @@ export function createOutboundOperationStore(
           operationValues(operationId, input, digest, enqueuedAt),
         );
         return mapOperation(result.rows[0]!);
-      });
+      };
+      return transaction ? enqueue(transaction) : withPgTransaction(dependencies.db, enqueue);
     },
 
     enqueueReconciliationRepair: async (
@@ -574,6 +596,15 @@ function assertRepairReplay(
 function deriveOperationId(input: EnqueueOutboundOperation): string {
   return `cop_${createHash("sha256")
     .update(`${input.connectionId}\0${input.channelListingId}\0${input.envelope.sourceEventId}`, "utf8")
+    .digest("hex")
+    .slice(0, 40)}`;
+}
+
+export function deriveOutboundRepushOperationId(
+  input: Pick<EnqueueOutboundRepush, "connectionId" | "channelListingId" | "repushOperationId">,
+): string {
+  return `cop_${createHash("sha256")
+    .update(`repush\0${input.connectionId}\0${input.channelListingId}\0${input.repushOperationId}`, "utf8")
     .digest("hex")
     .slice(0, 40)}`;
 }
