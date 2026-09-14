@@ -50,6 +50,8 @@ import type {
   ChannelStateLineV1,
 } from "../../publication-port/domain/contracts";
 import type { OutboundOperationRecord, OutboundOperationStatusRecord } from "../../outbound-sync/domain/contracts";
+import { deriveOutboundRepushOperationId } from "../../outbound-sync/api/store";
+import { payloadDigest } from "../../outbound-sync/domain/validation";
 
 const zeroCounts = (): MutableCounts => ({
   listingsReconciled: 0,
@@ -244,13 +246,12 @@ export function createChannelReconciliationRuntime(
             counts.repairsEnqueued += 1;
           }
         } else if (classification === "foreign-edit" && decision.repushRequested && decision.operationId) {
-          const operation = await dependencies.outboundSync.enqueueRepush({
-            ...listing.desired,
-            repushOperationId: decision.operationId,
+          const consumed = await withPgTransaction(dependencies.db, async (db) => {
+            await assertDecisionProjection(db, decision.connectionId, decision.channelListingId, decisionHistory);
+            return enqueueDecisionRepush(dependencies, db, decision, context, startedAt);
           });
-          if (operation && queuedOperationMatchesDesired(operation, listing)) {
+          if (consumed) {
             counts.repairsEnqueued += 1;
-            await markRepushConsumed(dependencies, decision, context, startedAt);
           }
         } else if (
           classification === "in-sync" &&
@@ -797,8 +798,14 @@ async function decideDrift(
 ): Promise<ChannelDriftDecision> {
   assertDecisionInput(input, kind);
   const commandFingerprint = digest(JSON.stringify({ kind, ...input }));
+  const connection = await readReconciliationConnection(dependencies.db, input.connectionId);
+  if (!connection) throw new Error("Channel Drift Decision connection was not found.");
+  assertAccountContext(connection, context);
   const history = await loadDecisionHistory(dependencies, input.connectionId, input.channelListingId);
   return withPgTransaction(dependencies.db, async (db) => {
+    const connection = await readReconciliationConnection(db, input.connectionId);
+    if (!connection) throw new Error("Channel Drift Decision connection was not found.");
+    assertAccountContext(connection, context);
     const replay = await db.query<{ command_fingerprint: string }>(
       `SELECT command_fingerprint FROM channel_drift_decision_operations WHERE operation_id=$1`,
       [input.operationId],
@@ -807,18 +814,25 @@ async function decideDrift(
       if (replay.rows[0].command_fingerprint !== commandFingerprint) {
         throw new Error("Channel Drift Decision operation identity was reused with different input.");
       }
-      if (!history.operationIds.has(input.operationId)) {
+      if (history.operationFingerprints.get(input.operationId) !== decisionInputFingerprint(kind, input)) {
         throw new Error("Channel Drift Decision receipt does not match its event history.");
       }
       await assertDecisionProjection(db, input.connectionId, input.channelListingId, history);
+      if (kind === "repush" && history.repushRequested && history.lastOperationId === input.operationId) {
+        const enqueued = await enqueueDecisionRepush(
+          dependencies,
+          db,
+          await readChannelDriftDecision(db, input),
+          context,
+          occurredAt,
+        );
+        if (!enqueued) throw new Error("Channel Drift repush could not enqueue its matching operation.");
+      }
       return readChannelDriftDecision(db, input);
     }
     if (history.version !== input.expectedDecisionRevision) {
       throw new Error("Channel Drift Decision revision is stale.");
     }
-    const connection = await readReconciliationConnection(db, input.connectionId);
-    if (!connection) throw new Error("Channel Drift Decision connection was not found.");
-    assertAccountContext(connection, context);
     const item = await db.query<{
       classification: string;
       observed_fingerprint: string | null;
@@ -908,6 +922,16 @@ async function decideDrift(
         occurredAt,
       ],
     );
+    if (kind === "repush") {
+      const enqueued = await enqueueDecisionRepush(
+        dependencies,
+        db,
+        await readChannelDriftDecision(db, input),
+        context,
+        occurredAt,
+      );
+      if (!enqueued) throw new Error("Channel Drift repush could not enqueue its matching operation.");
+    }
     return readChannelDriftDecision(db, input);
   });
 }
@@ -1633,7 +1657,7 @@ type DecisionHistory = Readonly<{
   accepted: AcceptedChannelDrift | null;
   repushRequested: boolean;
   lastOperationId: string | null;
-  operationIds: ReadonlySet<string>;
+  operationFingerprints: ReadonlyMap<string, string>;
   lastRepushRevision: number;
 }>;
 
@@ -1649,7 +1673,7 @@ async function loadDecisionHistory(
   let accepted: AcceptedChannelDrift | null = null;
   let repushRequested = false;
   let lastOperationId: string | null = null;
-  const operationIds = new Set<string>();
+  const operationFingerprints = new Map<string, string>();
   let lastRepushRevision = 0;
   for (const event of events) {
     if (event.eventType === "channels.channel-drift.accepted") {
@@ -1664,8 +1688,8 @@ async function loadDecisionHistory(
       ]);
       validateDecisionEventBase(payload, event, connectionId, channelListingId);
       const operationId = eventText(payload.operationId, "operationId");
-      if (operationIds.has(operationId)) invalidDecisionHistory("a command operation is repeated");
-      operationIds.add(operationId);
+      if (operationFingerprints.has(operationId)) invalidDecisionHistory("a command operation is repeated");
+      operationFingerprints.set(operationId, decisionInputFingerprint("accept", payload));
       accepted = {
         observedFingerprint: eventDigest(payload.observedFingerprint, "observedFingerprint"),
         expectedMaterialFingerprint: eventDigest(payload.expectedMaterialFingerprint, "expectedMaterialFingerprint"),
@@ -1685,8 +1709,8 @@ async function loadDecisionHistory(
       ]);
       validateDecisionEventBase(payload, event, connectionId, channelListingId);
       const operationId = eventText(payload.operationId, "operationId");
-      if (operationIds.has(operationId)) invalidDecisionHistory("a command operation is repeated");
-      operationIds.add(operationId);
+      if (operationFingerprints.has(operationId)) invalidDecisionHistory("a command operation is repeated");
+      operationFingerprints.set(operationId, decisionInputFingerprint("repush", payload));
       accepted = null;
       repushRequested = true;
       lastOperationId = operationId;
@@ -1701,7 +1725,7 @@ async function loadDecisionHistory(
       ]);
       validateDecisionEventBase(payload, event, connectionId, channelListingId);
       const operationId = eventText(payload.operationId, "operationId");
-      if (!repushRequested || lastOperationId !== operationId || !operationIds.has(operationId)) {
+      if (!repushRequested || lastOperationId !== operationId || !operationFingerprints.has(operationId)) {
         invalidDecisionHistory("a repush completion does not match an active request");
       }
       repushRequested = false;
@@ -1709,7 +1733,28 @@ async function loadDecisionHistory(
     }
     invalidDecisionHistory("an unexpected event type is present");
   }
-  return { version: events.length, accepted, repushRequested, lastOperationId, operationIds, lastRepushRevision };
+  return {
+    version: events.length,
+    accepted,
+    repushRequested,
+    lastOperationId,
+    operationFingerprints,
+    lastRepushRevision,
+  };
+}
+
+function decisionInputFingerprint(kind: "accept" | "repush", input: Readonly<Record<string, unknown>>): string {
+  return digest(
+    JSON.stringify([
+      kind,
+      input.connectionId,
+      input.channelListingId,
+      input.expectedDecisionRevision,
+      input.operationId,
+      input.observedFingerprint ?? null,
+      input.expectedMaterialFingerprint ?? null,
+    ]),
+  );
 }
 
 async function assertDecisionProjection(
@@ -1843,42 +1888,59 @@ function invalidDecisionHistory(reason: string): never {
   throw new Error(`Invalid Channel Drift Decision event history: ${reason}.`);
 }
 
-async function markRepushConsumed(
+async function enqueueDecisionRepush(
   dependencies: ChannelReconciliationRuntimeDependencies,
+  db: PgQueryable,
   decision: ChannelDriftDecision,
   context: EventStoreContext,
   now: string,
-): Promise<void> {
+): Promise<boolean> {
   if (!decision.operationId) throw new Error("Channel Drift repush request has no operation identity.");
-  const history = await loadDecisionHistory(dependencies, decision.connectionId, decision.channelListingId);
-  if (!history.repushRequested || history.lastOperationId !== decision.operationId) {
-    throw new Error("Channel Drift repush request does not match its event history.");
-  }
-  await withPgTransaction(dependencies.db, async (db) => {
-    const result = await db.query(
-      `UPDATE channel_drift_decisions SET revision=revision+1,repush_requested=false,updated_at=$4
-       WHERE connection_id=$1 AND channel_listing_id=$2 AND revision=$3 AND repush_requested=true`,
-      [decision.connectionId, decision.channelListingId, history.version, now],
-    );
-    if (Number(result.rowCount ?? 0) !== 1) throw new Error("Channel Drift repush request lost its revision fence.");
-    await dependencies.eventStore.appendToStreamInTransaction(db, {
-      streamId: decisionStreamId(decision.connectionId, decision.channelListingId),
-      expectedVersion: history.version,
-      context,
-      wakeSourceContextName: "channels",
-      events: [
-        {
-          eventType: "channels.channel-drift.repush-enqueued",
-          payload: {
-            connectionId: decision.connectionId,
-            channelListingId: decision.channelListingId,
-            operationId: decision.operationId,
-            expectedDecisionRevision: history.version,
-          },
-        },
-      ],
-    });
+  const expected = await readExpectedReconciliationListings(db, {
+    connectionId: decision.connectionId,
+    channelListingId: decision.channelListingId,
+    limit: 1,
   });
+  const listing = expected.items[0];
+  if (!listing) throw new Error("Channel Drift repush has no current desired-state provenance.");
+  const input = { ...listing.desired, repushOperationId: decision.operationId };
+  const operation = await dependencies.outboundSync.enqueueRepush(input, db);
+  if (
+    !operation ||
+    operation.operationId !== deriveOutboundRepushOperationId(input) ||
+    !queuedOperationMatchesDesired(operation, listing) ||
+    operation.payloadDigest !== payloadDigest(input.payload) ||
+    operation.sourceEventId !== input.envelope.sourceEventId ||
+    operation.sourceStreamId !== input.envelope.sourceStreamId ||
+    operation.sourceStreamVersion !== input.envelope.sourceStreamVersion ||
+    operation.sourceGlobalPosition !== input.envelope.sourceGlobalPosition ||
+    operation.sourceOccurredAt !== input.envelope.sourceOccurredAt
+  )
+    return false;
+  const result = await db.query(
+    `UPDATE channel_drift_decisions SET revision=revision+1,repush_requested=false,updated_at=$4
+       WHERE connection_id=$1 AND channel_listing_id=$2 AND revision=$3 AND repush_requested=true AND last_operation_id=$5`,
+    [decision.connectionId, decision.channelListingId, decision.revision, now, decision.operationId],
+  );
+  if (Number(result.rowCount ?? 0) !== 1) throw new Error("Channel Drift repush request lost its revision fence.");
+  await dependencies.eventStore.appendToStreamInTransaction(db, {
+    streamId: decisionStreamId(decision.connectionId, decision.channelListingId),
+    expectedVersion: decision.revision,
+    context,
+    wakeSourceContextName: "channels",
+    events: [
+      {
+        eventType: "channels.channel-drift.repush-enqueued",
+        payload: {
+          connectionId: decision.connectionId,
+          channelListingId: decision.channelListingId,
+          operationId: decision.operationId,
+          expectedDecisionRevision: decision.revision,
+        },
+      },
+    ],
+  });
+  return true;
 }
 
 function incrementClassification(counts: MutableCounts, classification: ReturnType<typeof classifyChannelDrift>) {
