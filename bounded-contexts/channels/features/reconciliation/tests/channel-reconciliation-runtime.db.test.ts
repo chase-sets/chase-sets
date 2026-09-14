@@ -24,6 +24,7 @@ import { buildChannelListingStateProjectionHandlers } from "../../listing-compos
 import { createChannelProviderRegistry } from "../../publication-port/api/registry";
 import type { ChannelProviderDescriptor, ChannelStateLineV1 } from "../../publication-port/domain/contracts";
 import { createChannelReconciliationRuntime } from "../api/runtime";
+import type { ChannelReconciliationRuntimeDependencies } from "../domain/contracts";
 import { CHANNEL_RECONCILIATION_POLICY_FALLBACK } from "../domain/policy";
 import { resolveChannelExternalSaleTarget } from "../read-model/sale-target";
 import { readExpectedReconciliationListings } from "../read-model/source";
@@ -58,6 +59,422 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
   });
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it.each(
+    Array.from({ length: 12 }, (_, mask) => ({
+      seller: Boolean(mask & 1),
+      health: Boolean(mask & 2),
+      operator: mask >= 8 ? "unavailable" : mask & 4 ? "held" : "released",
+    })).flatMap((holds) => (["inline", "claimed"] as const).map((execution) => ({ ...holds, execution }))),
+  )("S5 command enqueues $execution under seller=$seller health=$health operator=$operator", async (holds) => {
+    await seedConnectionAndListings(pools.channels);
+    let released = false;
+    let observed = matchingItems({ foreignRevision: "foreign", foreignFingerprint: fingerprint("b") });
+    const registry = inlineRegistry(() => observed);
+    const setup = createRuntime(registry);
+    const run = { connectionId: "connection-1", registry, sourceAttempt: 1, healthAuthority: null } as const;
+    await setup.reconcileConnection(run, context);
+    const contribution = await setup.readChannelDriftAttentionContribution({ connectionId: "connection-1" });
+    if (holds.seller)
+      await pools.channels.query("UPDATE channel_connections SET status='paused' WHERE connection_id='connection-1'");
+    const additionalHold = async () => ({
+      held: !released && (holds.health || holds.operator !== "released"),
+      sources: released
+        ? []
+        : [
+            ...(holds.health ? ["health" as const] : []),
+            ...(holds.operator !== "released" ? ["operator-kill" as const] : []),
+          ],
+    });
+    const outbound = createOutboundSyncRuntime(
+      { db: pools.channels, readAdditionalOutboundHold: additionalHold, recordOutcome: async () => "applied" },
+      { assertDelistDirective: () => undefined },
+    );
+    const runtime = createChannelReconciliationRuntime({
+      db: pools.channels,
+      eventStore: createPostgresEventStore({ pool: pools.channels }),
+      outboundSync: outbound,
+      channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
+      resolvePolicy: async () => ({ value: CHANNEL_RECONCILIATION_POLICY_FALLBACK, revision: 0 }),
+      resolveKillSwitch: async () =>
+        !released && holds.operator === "unavailable"
+          ? null
+          : {
+              heldProviderKeys: !released && holds.operator === "held" ? ["inline-provider"] : [],
+              heldConnectionIds: [],
+            },
+      readHealthHold: async () => !released && holds.health,
+    });
+    const accepted = await runtime.acceptChannelDrift(
+      {
+        connectionId: "connection-1",
+        channelListingId: "channel-foreign",
+        expectedDecisionRevision: 0,
+        operationId: "s5-accept",
+        observedFingerprint: fingerprint("b"),
+        expectedMaterialFingerprint: fingerprint("2"),
+      },
+      context,
+    );
+    expect(accepted).toMatchObject({ revision: 1, accepted: { observedFingerprint: fingerprint("b") } });
+    const command = {
+      connectionId: "connection-1",
+      channelListingId: "channel-foreign",
+      expectedDecisionRevision: 1,
+      operationId: "s5-repush",
+    };
+    await runtime.repushChannelListing(command, context);
+    const queued = await pools.channels.query(
+      "SELECT operation_id,status,attempt_count FROM channel_outbound_operations WHERE operation_origin='repush'",
+    );
+    expect(queued.rows).toEqual([{ operation_id: expect.any(String), status: "pending", attempt_count: 0 }]);
+    await expect(runtime.repushChannelListing(command, context)).resolves.toMatchObject({
+      revision: 3,
+      accepted: null,
+      repushRequested: false,
+    });
+    expect(await runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" })).toEqual(contribution);
+    const held = holds.seller || holds.health || holds.operator !== "released";
+    if (held) expect(await runtime.reconcileConnection(run, context)).toMatchObject({ state: "held" });
+    const providerCall = vi.fn(async () => ({ kind: "succeeded" as const, externalListingId: "external-foreign" }));
+    const executionRegistry = createChannelProviderRegistry([
+      descriptor("inline-provider", {
+        execution: "inline",
+        publishListing: providerCall,
+        updatePriceQuantity: providerCall,
+        delistListing: providerCall,
+        fetchChannelState: async () => ({ kind: "bounded-unknown", reason: "source-error" }),
+        fetchSales: async () => ({ kind: "bounded-unknown", reason: "source-error" }),
+      }),
+    ]);
+    if (holds.execution === "claimed") {
+      const reserve = () =>
+        outbound.reserveClaimedOutboundOperations({
+          registry: createChannelProviderRegistry([descriptor("inline-provider", { execution: "claimed" })]),
+          connectionId: "connection-1",
+          claimant: { claimantKind: "manual", claimantId: "synthetic-s5-claimed" },
+          maxOperations: 1,
+          leaseMs: 60_000,
+        });
+      if (holds.seller) await expect(reserve()).rejects.toMatchObject({ code: "connection-not-active" });
+      else expect((await reserve()) === null).toBe(held);
+      if (held)
+        expect(
+          (
+            await pools.channels.query(
+              "SELECT operation_id,status,attempt_count FROM channel_outbound_operations WHERE operation_origin='repush'",
+            )
+          ).rows,
+        ).toEqual(queued.rows);
+      released = true;
+      await pools.channels.query("UPDATE channel_connections SET status='active' WHERE connection_id='connection-1'");
+      if (held) expect(await reserve()).not.toBeNull();
+      expect(await reserve()).toBeNull();
+      expect(
+        (
+          await pools.channels.query(
+            "SELECT operation_id,status,attempt_count FROM channel_outbound_operations WHERE operation_origin='repush'",
+          )
+        ).rows,
+      ).toEqual([{ operation_id: queued.rows[0]!.operation_id, status: "in-flight", attempt_count: 1 }]);
+      expect(providerCall).not.toHaveBeenCalled();
+      return;
+    }
+    expect(await outbound.processNextInlineOperation({ registry: executionRegistry, claimOwnerId: "s5-inline" })).toBe(
+      held ? 0 : 1,
+    );
+    expect(providerCall).toHaveBeenCalledTimes(held ? 0 : 1);
+    if (held)
+      expect(
+        (
+          await pools.channels.query(
+            "SELECT operation_id,status,attempt_count FROM channel_outbound_operations WHERE operation_origin='repush'",
+          )
+        ).rows,
+      ).toEqual(queued.rows);
+    released = true;
+    await pools.channels.query("UPDATE channel_connections SET status='active' WHERE connection_id='connection-1'");
+    expect(await outbound.processNextInlineOperation({ registry: executionRegistry, claimOwnerId: "s5-inline" })).toBe(
+      held ? 1 : 0,
+    );
+    expect(providerCall).toHaveBeenCalledTimes(1);
+    expect(await outbound.processNextInlineOperation({ registry: executionRegistry, claimOwnerId: "s5-inline" })).toBe(
+      0,
+    );
+    observed = matchingItems();
+    expect(await runtime.reconcileConnection(run, context)).toMatchObject({ clean: true });
+    expect(await runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" })).toMatchObject({
+      generation: contribution!.generation,
+      fingerprint: contribution!.fingerprint,
+      resolution: "recovered-automatically",
+    });
+  });
+
+  it("S5 production composition commits the queue and durable decision before acknowledgement", async () => {
+    const { command } = await s5Setup();
+    const services = channelsModule.createServices(pools.channels, {
+      channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
+    });
+    expect(await services.reconciliation.repushChannelListing(command, context)).toMatchObject({
+      revision: 2,
+      repushRequested: false,
+    });
+    expect((await pools.channels.query("SELECT status,attempt_count FROM channel_outbound_operations")).rows).toEqual([
+      { status: "pending", attempt_count: 0 },
+    ]);
+    await expect(services.reconciliation.repushChannelListing(command, context)).resolves.toMatchObject({
+      revision: 2,
+    });
+    expect((await decisionEvents()).map((event) => event.eventType)).toEqual([
+      "channels.channel-drift.repush-requested",
+      "channels.channel-drift.repush-enqueued",
+    ]);
+  });
+
+  it.each(["before-enqueue", "after-enqueue", "after-consumption"] as const)(
+    "S5 retained interruption %s rolls back atomically then retries once",
+    async (stage) => {
+      const { command, outbound } = await s5Setup();
+      const eventStore = createPostgresEventStore({ pool: pools.channels });
+      const interrupted = new Error("synthetic interruption");
+      const runtime = s5Runtime({
+        outboundSync: {
+          ...outbound,
+          enqueueRepush: async (input, db) => {
+            if (stage === "before-enqueue") throw interrupted;
+            const result = await outbound.enqueueRepush(input, db);
+            if (stage === "after-enqueue") throw interrupted;
+            return result;
+          },
+        },
+        eventStore: {
+          readStream: eventStore.readStream.bind(eventStore),
+          appendToStreamInTransaction: async (db, input) => {
+            const result = await eventStore.appendToStreamInTransaction(db, input);
+            if (
+              stage === "after-consumption" &&
+              input.events.some((event) => event.eventType === "channels.channel-drift.repush-enqueued")
+            )
+              throw interrupted;
+            return result;
+          },
+        },
+      });
+      await expect(runtime.repushChannelListing(command, context)).rejects.toThrow(interrupted);
+      expect(await decisionEvents()).toEqual([]);
+      expect((await pools.channels.query("SELECT operation_id FROM channel_outbound_operations")).rows).toEqual([]);
+      expect((await pools.channels.query("SELECT operation_id FROM channel_drift_decision_operations")).rows).toEqual(
+        [],
+      );
+      const restarted = s5Runtime({ outboundSync: outbound });
+      await expect(restarted.repushChannelListing(command, context)).resolves.toMatchObject({
+        revision: 2,
+        repushRequested: false,
+      });
+      await expect(s5Runtime({ outboundSync: outbound }).repushChannelListing(command, context)).resolves.toMatchObject(
+        { revision: 2 },
+      );
+      expect(await decisionEvents()).toHaveLength(2);
+      expect((await pools.channels.query("SELECT status,attempt_count FROM channel_outbound_operations")).rows).toEqual(
+        [{ status: "pending", attempt_count: 0 }],
+      );
+    },
+  );
+
+  it.each(["null", "identity", "basis", "failed"] as const)(
+    "S5 retained %s enqueue preserves the matching request and same-operation retry consumes once",
+    async (mode) => {
+      const { command, outbound } = await s5Setup();
+      const mismatched = s5Runtime({
+        outboundSync: {
+          ...outbound,
+          enqueueRepush: async (input, db) => {
+            if (mode === "null") return null;
+            const operation = (await outbound.enqueueRepush(input, db))!;
+            return mode === "identity"
+              ? { ...operation, operationId: "cop_" + "0".repeat(40) }
+              : mode === "basis"
+                ? { ...operation, sourceDesiredStateHash: fingerprint("f") }
+                : { ...operation, status: "failed" };
+          },
+        },
+      });
+      await expect(mismatched.repushChannelListing(command, context)).resolves.toMatchObject({
+        revision: 1,
+        repushRequested: true,
+      });
+      expect(await decisionEvents()).toHaveLength(1);
+      const runtime = s5Runtime({ outboundSync: outbound });
+      await expect(runtime.repushChannelListing(command, context)).resolves.toMatchObject({
+        revision: 2,
+        repushRequested: false,
+      });
+      await expect(runtime.repushChannelListing(command, context)).resolves.toMatchObject({ revision: 2 });
+      expect(await decisionEvents()).toHaveLength(2);
+      expect((await pools.channels.query("SELECT status,attempt_count FROM channel_outbound_operations")).rows).toEqual(
+        [{ status: "pending", attempt_count: 0 }],
+      );
+    },
+  );
+
+  it("S5 same-operation concurrency and response loss replay one durable queue operation", async () => {
+    const { command, outbound } = await s5Setup();
+    const runtime = s5Runtime({ outboundSync: outbound });
+    const results = await Promise.allSettled(
+      Array.from({ length: 4 }, () => runtime.repushChannelListing(command, context)),
+    );
+    expect(results.some((result) => result.status === "fulfilled")).toBe(true);
+    for (const result of results) {
+      if (result.status === "fulfilled") expect(result.value).toMatchObject({ revision: 2, repushRequested: false });
+      else expect(result.reason).toMatchObject({ message: "Channel Drift Decision is already being updated." });
+      await expect(s5Runtime({ outboundSync: outbound }).repushChannelListing(command, context)).resolves.toMatchObject(
+        { revision: 2, repushRequested: false },
+      );
+    }
+    expect(await decisionEvents()).toHaveLength(2);
+    expect((await pools.channels.query("SELECT operation_id FROM channel_outbound_operations")).rows).toHaveLength(1);
+  });
+
+  it("S5 competing identities reject stale decisions without replacing held work", async () => {
+    const { command, outbound } = await s5Setup();
+    const runtime = s5Runtime({ outboundSync: outbound });
+    const results = await Promise.allSettled(
+      [command, { ...command, operationId: "s5-other" }].map((input) => runtime.repushChannelListing(input, context)),
+    );
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toMatchObject([
+      { reason: { message: expect.stringMatching(/revision is stale|already being updated/) } },
+    ]);
+    const retained = (await pools.channels.query("SELECT * FROM channel_outbound_operations")).rows;
+    await expect(
+      runtime.repushChannelListing({ ...command, operationId: "s5-next", expectedDecisionRevision: 2 }, context),
+    ).resolves.toMatchObject({ revision: 3, repushRequested: true });
+    expect((await pools.channels.query("SELECT * FROM channel_outbound_operations")).rows).toEqual(retained);
+    await expect(
+      runtime.repushChannelListing({ ...command, operationId: "s5-next", expectedDecisionRevision: 2 }, context),
+    ).resolves.toMatchObject({ revision: 3, repushRequested: true });
+    expect(await decisionEvents()).toHaveLength(3);
+  });
+
+  it("S5 account fences precede fresh and replay history disclosure or enqueue", async () => {
+    const { command, outbound } = await s5Setup();
+    const enqueue = vi.spyOn(outbound, "enqueueRepush");
+    const runtime = s5Runtime({ outboundSync: outbound });
+    const foreignContext = { ...context, audit: { ...context.audit, forAccountId: "foreign-account" as never } };
+    await expect(runtime.repushChannelListing(command, foreignContext)).rejects.toThrow("account");
+    expect(enqueue).not.toHaveBeenCalled();
+    await runtime.repushChannelListing(command, context);
+    enqueue.mockClear();
+    await expect(runtime.repushChannelListing(command, foreignContext)).rejects.toThrow("account");
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(await decisionEvents()).toHaveLength(2);
+  });
+
+  it("S5 lagging projection cannot reauthor a committed decision", async () => {
+    const { command, outbound } = await s5Setup();
+    const runtime = s5Runtime({ outboundSync: outbound });
+    await runtime.repushChannelListing(command, context);
+    const retained = (await pools.channels.query("SELECT * FROM channel_outbound_operations")).rows;
+    await pools.channels.query(
+      "UPDATE channel_drift_decisions SET revision=0,repush_requested=false,last_operation_id=NULL",
+    );
+    await expect(runtime.repushChannelListing(command, context)).rejects.toThrow("projection does not match");
+    await expect(runtime.repushChannelListing({ ...command, operationId: "s5-stale" }, context)).rejects.toThrow(
+      "revision is stale",
+    );
+    expect(await decisionEvents()).toHaveLength(2);
+    expect((await pools.channels.query("SELECT * FROM channel_outbound_operations")).rows).toEqual(retained);
+  });
+
+  it.each([
+    "completion-only",
+    "wrong-request",
+    "repeated-request",
+    "repeated-completion",
+    "wrong-target",
+    "wrong-revision",
+    "unexpected",
+  ] as const)("S5 poison %s is rejected from authoritative history", async (mode) => {
+    const { command, outbound } = await s5Setup();
+    const requested = { eventType: "channels.channel-drift.repush-requested", payload: { ...command } };
+    const completed = {
+      eventType: "channels.channel-drift.repush-enqueued",
+      payload: { ...command, expectedDecisionRevision: 1 },
+    };
+    const events =
+      mode === "completion-only"
+        ? [{ ...completed, payload: { ...command } }]
+        : mode === "wrong-request"
+          ? [requested, { ...completed, payload: { ...completed.payload, operationId: "wrong-operation" } }]
+          : mode === "repeated-request"
+            ? [requested, { ...requested, payload: { ...command, expectedDecisionRevision: 1 } }]
+            : mode === "repeated-completion"
+              ? [requested, completed, { ...completed, payload: { ...completed.payload, expectedDecisionRevision: 2 } }]
+              : mode === "wrong-target"
+                ? [{ ...requested, payload: { ...command, channelListingId: "wrong-listing" } }]
+                : mode === "wrong-revision"
+                  ? [{ ...requested, payload: { ...command, expectedDecisionRevision: 5 } }]
+                  : [{ eventType: "channels.channel-drift.poisoned", payload: { ...command } }];
+    await createPostgresEventStore({ pool: pools.channels }).appendToStream({
+      streamId: "channels.channel-drift-decision-connection-1-channel-foreign",
+      expectedVersion: "no_stream",
+      context,
+      events,
+    });
+    const before = await decisionEvents();
+    await expect(s5Runtime({ outboundSync: outbound }).repushChannelListing(command, context)).rejects.toThrow(
+      "event history",
+    );
+    expect(await decisionEvents()).toEqual(before);
+    expect((await pools.channels.query("SELECT operation_id FROM channel_outbound_operations")).rows).toEqual([]);
+  });
+
+  it("S5 replay does not consume a newer request or accept a forged command receipt", async () => {
+    const { command, outbound } = await s5Setup();
+    const runtime = s5Runtime({ outboundSync: outbound });
+    await runtime.repushChannelListing(command, context);
+    const later = { ...command, operationId: "synthetic-s5-later", expectedDecisionRevision: 2 };
+    await runtime.repushChannelListing(later, context);
+    await expect(runtime.repushChannelListing(command, context)).resolves.toMatchObject({
+      revision: 3,
+      operationId: later.operationId,
+      repushRequested: true,
+    });
+    expect(await decisionEvents()).toHaveLength(3);
+    const forged = { ...command, expectedDecisionRevision: 99 };
+    await pools.channels.query(
+      "UPDATE channel_drift_decision_operations SET command_fingerprint=$2 WHERE operation_id=$1",
+      [
+        command.operationId,
+        createHash("sha256")
+          .update(JSON.stringify({ kind: "repush", ...forged }))
+          .digest("hex"),
+      ],
+    );
+    await expect(runtime.repushChannelListing(forged, context)).rejects.toThrow(
+      "receipt does not match its event history",
+    );
+    expect(await decisionEvents()).toHaveLength(3);
+  });
+
+  it("S5 outbound replay serializes same identities and rejects conflicting desired provenance", async () => {
+    const { outbound } = await s5Setup();
+    const expected = await readExpectedReconciliationListings(pools.channels, {
+      connectionId: "connection-1",
+      channelListingId: "channel-foreign",
+      limit: 1,
+    });
+    const input = { ...expected.items[0]!.desired, repushOperationId: "synthetic-s5-outbound-race" };
+    const operations = await Promise.all([outbound.enqueueRepush(input), outbound.enqueueRepush(input)]);
+    expect(operations[0]).toEqual(operations[1]);
+    await expect(outbound.enqueueRepush({ ...input, desiredStateHash: fingerprint("f") })).rejects.toMatchObject({
+      code: "stale-fence",
+    });
+    await expect(
+      outbound.enqueueRepush({ ...input, envelope: { ...input.envelope, sourceEventId: "synthetic-wrong-event" } }),
+    ).rejects.toMatchObject({ code: "stale-fence" });
+    expect((await pools.channels.query("SELECT operation_id FROM channel_outbound_operations")).rows).toHaveLength(1);
+  });
 
   it("S6 retained old schema requires the owning migration and survives repeated real boot", async () => {
     await resetMultiContextTestSchemas({ channels: pools.channels });
@@ -782,18 +1199,20 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await expect(
       runtime.readChannelDriftDecision({ connectionId: "connection-1", channelListingId: "channel-foreign" }),
     ).resolves.toMatchObject({ repushRequested: true });
-    expect(enqueueRepush).not.toHaveBeenCalled();
+    expect(enqueueRepush).toHaveBeenCalledTimes(1);
 
     operatorHeld = false;
     await runtime.reconcileConnection(
       { connectionId: "connection-1", registry, sourceAttempt: 1, healthAuthority: null },
       context,
     );
-    expect(enqueueRepush).toHaveBeenCalledExactlyOnceWith(
+    expect(enqueueRepush).toHaveBeenCalledTimes(2);
+    expect(enqueueRepush).toHaveBeenLastCalledWith(
       expect.objectContaining({
         channelListingId: "channel-foreign",
         repushOperationId: "repush-foreign-1",
       }),
+      expect.objectContaining({ query: expect.any(Function) }),
     );
     await expect(
       runtime.readChannelDriftDecision({ connectionId: "connection-1", channelListingId: "channel-foreign" }),
@@ -1867,6 +2286,45 @@ function pendingOperation(
     firstClaimedAt: null,
     terminalAt: null,
   };
+}
+
+async function s5Setup() {
+  await seedConnectionAndListings(pools.channels);
+  const registry = inlineRegistry(() =>
+    matchingItems({ foreignRevision: "foreign", foreignFingerprint: fingerprint("b") }),
+  );
+  await createRuntime(registry).reconcileConnection(
+    { connectionId: "connection-1", registry, sourceAttempt: 1, healthAuthority: null },
+    context,
+  );
+  return {
+    outbound: realOutboundRuntime(),
+    command: {
+      connectionId: "connection-1",
+      channelListingId: "channel-foreign",
+      expectedDecisionRevision: 0,
+      operationId: "synthetic-s5-repush",
+    },
+  };
+}
+
+function s5Runtime(overrides: Partial<ChannelReconciliationRuntimeDependencies>) {
+  return createChannelReconciliationRuntime({
+    db: pools.channels,
+    eventStore: createPostgresEventStore({ pool: pools.channels }),
+    outboundSync: realOutboundRuntime(),
+    channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
+    resolvePolicy: async () => ({ value: CHANNEL_RECONCILIATION_POLICY_FALLBACK, revision: 0 }),
+    resolveKillSwitch: async () => null,
+    ...overrides,
+  });
+}
+
+async function decisionEvents() {
+  return createPostgresEventStore({ pool: pools.channels }).readStream({
+    streamId: "channels.channel-drift-decision-connection-1-channel-foreign",
+    fromVersion: 1,
+  });
 }
 
 function realOutboundRuntime() {

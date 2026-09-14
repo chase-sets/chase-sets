@@ -267,7 +267,7 @@ export type OutboundOperationSummary = Readonly<{
 
 export interface OutboundSyncServices {
   enqueueDesiredState(input: EnqueueOutboundOperation): Promise<OutboundOperationRecord | null>;
-  enqueueRepush(input: EnqueueOutboundRepush): Promise<OutboundOperationRecord | null>;
+  enqueueRepush(input: EnqueueOutboundRepush, transaction?: PgQueryable): Promise<OutboundOperationRecord | null>;
   enqueueReconciliationRepair(input: EnqueueOutboundReconciliationRepair): Promise<OutboundOperationRecord | null>;
   readOutboundOperationsByIds(
     input: Readonly<{ connectionId: string; operationIds: readonly string[] }>,
