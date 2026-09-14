@@ -1,4 +1,4 @@
-import { centsToMoneyAmount, moneyToCents, roundRational, signedMoneyToCents } from "@chase-sets/primitives/money";
+import { centsToMoneyAmount, moneyToCents, roundRational, signedMoneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type {
   RepricingRule,
   RepricingRuleCondition,
@@ -48,7 +48,7 @@ export type RepricingClampTrace = Readonly<{
 export type RepricingAnchorTrace = Readonly<{
   source: "market-estimate" | "lowest-competing-ask" | "comp-percentile" | "last-sold";
   amount: string;
-  stratum: "market-estimate" | "hard-ask" | "last-sold";
+  stratum: "market-estimate" | "hard-ask" | "any-ask" | "last-sold";
   contributingListingCount: number;
 }>;
 
@@ -61,7 +61,7 @@ export type RepricingListingEvaluation = Readonly<{
   exhaustedAnchors: readonly Readonly<{ source: string; state: RepricingInputState }>[];
   clamps: RepricingClampTrace;
   tolerance: RepricingRuleDirective["tolerance"];
-  flags: readonly ("floor-binding" | "ceiling-binding" | "max-move-binding")[];
+  flags: readonly ("floor-binding" | "ceiling-binding" | "max-move-binding" | "band-binding")[];
   action: "update-price" | "hold" | "pause" | "notify-only" | "no-reprice";
   skipReason:
     | "within-tolerance"
@@ -101,7 +101,7 @@ export function evaluateRepricingListing(
     currentPriceCurrencyCode: listingCurrencyCode,
     costBasisCurrencyCode,
   };
-  const competingHardAsks = filterCompetingHardAskOutliers(
+  const competingHardAsks = filterCompetingAskOutliers(
     snapshot.competingAsks.filter(
       (ask) =>
         ask.pricingMode === "hard" &&
@@ -146,6 +146,7 @@ export function evaluateRepricingListing(
     resolved.anchor.amount,
     resolved.anchor,
     resolved.exhaustedAnchors,
+    resolved.bandBinding,
   );
 }
 
@@ -216,6 +217,7 @@ function resolveAnchor(
 ): Readonly<{
   anchor: RepricingAnchorTrace | null;
   exhaustedAnchors: readonly Readonly<{ source: string; state: RepricingInputState }>[];
+  bandBinding?: boolean;
 }> {
   const exhaustedAnchors: Array<{ source: string; state: RepricingInputState }> = [];
 
@@ -248,6 +250,46 @@ function resolveAnchor(
         break;
       }
       case "lowest-competing-ask": {
+        if (candidate.strata === "any") {
+          const ground = snapshot.marketEstimate;
+          const groundCents = ground && typeof ground.amount === "string" ? tryMoneyToCents(ground.amount) : null;
+          if (
+            groundCents === null ||
+            ground?.currencyCode !== targetCurrencyCode ||
+            !(Date.parse(ground.freshUntil) >= Date.parse(snapshot.capturedAt))
+          ) {
+            exhaustedAnchors.push({ source: candidate.source, state: "absent" });
+            break;
+          }
+          const anyAsks = filterCompetingAskOutliers(
+            snapshot.competingAsks.filter(
+              (ask) => ask.sellerAccountId !== sellerAccountId && ask.currencyCode === targetCurrencyCode,
+            ),
+            snapshot,
+          );
+          if (anyAsks.length === 0) {
+            exhaustedAnchors.push({
+              source: candidate.source,
+              state: incompatibleAskState(snapshot.competingAsks, targetCurrencyCode, sellerAccountId, "any"),
+            });
+            break;
+          }
+          const lowest = anyAsks.reduce(
+            (amount, ask) => min(amount, moneyToCents(ask.amount)),
+            moneyToCents(anyAsks[0]!.amount),
+          );
+          const bandFloor = anchorBandFloor(groundCents, candidate.band.minPercentOfGround);
+          return {
+            anchor: {
+              source: candidate.source,
+              amount: centsToMoneyAmount(max(lowest, bandFloor)),
+              stratum: "any-ask",
+              contributingListingCount: anyAsks.length,
+            },
+            exhaustedAnchors,
+            bandBinding: bandFloor > lowest,
+          };
+        }
         if (hardAsks.length > 0) {
           return {
             anchor: {
@@ -329,8 +371,11 @@ function incompatibleAskState(
   asks: RepricingMarketInputSnapshot["competingAsks"],
   targetCurrencyCode: string,
   sellerAccountId: string,
+  strata: "hard" | "any" = "hard",
 ): RepricingInputState {
-  const candidates = asks.filter((ask) => ask.pricingMode === "hard" && ask.sellerAccountId !== sellerAccountId);
+  const candidates = asks.filter(
+    (ask) => (strata === "any" || ask.pricingMode === "hard") && ask.sellerAccountId !== sellerAccountId,
+  );
   if (candidates.length === 0) return "absent";
   if (candidates.some((ask) => !ask.currencyCode)) return "currency-incomplete";
   return candidates.some((ask) => ask.currencyCode !== targetCurrencyCode) ? "currency-mismatch" : "absent";
@@ -384,6 +429,7 @@ function evaluateTarget(
   baseAmount: string,
   anchor: RepricingAnchorTrace | null,
   exhaustedAnchors: readonly Readonly<{ source: string; state: RepricingInputState }>[],
+  bandBinding = false,
 ): RepricingListingEvaluation {
   const current = moneyToCents(listing.currentPriceAmount);
   const anchorCents = moneyToCents(baseAmount);
@@ -426,6 +472,7 @@ function evaluateTarget(
       : roundRational(current * BigInt(Math.round(directive.tolerance.percent * 100)), 10_000n, "nearest");
   const delta = target >= current ? target - current : current - target;
   const flags = [
+    ...(bandBinding ? (["band-binding"] as const) : []),
     ...(clamps.floor ? (["floor-binding"] as const) : []),
     ...(clamps.ceiling ? (["ceiling-binding"] as const) : []),
     ...(clamps.maxMove ? (["max-move-binding"] as const) : []),
@@ -446,7 +493,14 @@ function evaluateTarget(
   };
 }
 
-function filterCompetingHardAskOutliers(
+function anchorBandFloor(groundCents: bigint, percent: number): bigint {
+  // Validated 50-100 percentages have no exponent notation. Preserve all authored
+  // decimal places and round upward so the anchor never crosses below the band.
+  const [whole, fraction = ""] = percent.toString().split(".");
+  return roundRational(groundCents * BigInt(whole! + fraction), 100n * 10n ** BigInt(fraction.length), "ceil");
+}
+
+function filterCompetingAskOutliers(
   asks: readonly RepricingMarketInputSnapshot["competingAsks"][number][],
   snapshot: RepricingMarketInputSnapshot,
 ): readonly RepricingMarketInputSnapshot["competingAsks"][number][] {
@@ -459,7 +513,7 @@ function filterCompetingHardAskOutliers(
     ordered.length % 2 === 1
       ? ordered[Math.floor(midpoint)]!
       : roundRational(ordered[midpoint - 1]! + ordered[midpoint]!, 2n, "nearest");
-  const core = snapshot.marketEstimate ? moneyToCents(snapshot.marketEstimate.amount) : median;
+  const core = snapshot.marketEstimate ? (tryMoneyToCents(snapshot.marketEstimate.amount) ?? median) : median;
   const ratioHundredths = BigInt(Math.round(snapshot.hardAskOutlierPriceRatio * 100));
   const lower = roundRational(core * 100n, ratioHundredths, "nearest");
   const upper = roundRational(core * ratioHundredths, 100n, "nearest");
