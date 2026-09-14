@@ -38,7 +38,7 @@ describeDb("channel-attention boot and ledgered migration", () => {
     expect(
       (await pools.channels.query("SELECT to_regclass('channel_connection_attention')::text AS name")).rows,
     ).toEqual([{ name: null }]);
-    const services = channelsModule.createServices(pools.channels);
+    const services = channelsModule.createServices(pools.channels, {});
     const connection = { connectionId: "synthetic-predecessor-open", accountId: context.audit.forAccountId };
     await services.connections.connectChannel(
       { ...connection, providerKey: "tcgplayer" },
