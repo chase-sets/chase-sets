@@ -12,7 +12,10 @@ describe("channel-attention-real-composition-contract", () => {
     const unavailable = async (): Promise<never> => {
       throw new Error("unexpected-db-call");
     };
-    const services = channelsModule.createServices({ query: unavailable, connect: unavailable }, {});
+    const services = channelsModule.createServices(
+      { query: unavailable, connect: unavailable },
+      { channelSaleRecorder: unavailable },
+    );
     expectTypeOf(services).toEqualTypeOf<ChannelsServices>();
     expectTypeOf(services.connectionAttention).toEqualTypeOf<ConnectionAttentionServices>();
     expectTypeOf<

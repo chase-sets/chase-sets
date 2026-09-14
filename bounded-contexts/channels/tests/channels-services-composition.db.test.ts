@@ -87,7 +87,7 @@ describeDb("channels-services-composition", () => {
   it.each(["listOpenAttention", "resolveAttention"])(
     "channel-attention-real-composition-contract rejects an omitted %s",
     (member) => {
-      const services: ChannelsServices = channelsModule.createServices(pools.channels, {});
+      const services: ChannelsServices = createServices();
       expect(isChannelsServices(services)).toBe(true);
       expect(
         isChannelsServices({

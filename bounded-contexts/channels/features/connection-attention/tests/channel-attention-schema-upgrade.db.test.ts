@@ -7,6 +7,7 @@ import {
   ensureMultiContextTestDatabases,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/inventory/server";
 import { module as channelsModule } from "../../../index";
 import { context, describeDb } from "../../connection-health/tests/test-support";
 import { healthDigest } from "../../connection-health/domain/identity";
@@ -15,10 +16,10 @@ import { decodeChannelAttentionFact } from "../domain/codecs";
 import { channelAttentionSchemaSql, channelAttentionSchemaMigrations } from "../read-model/schema";
 
 describeDb("channel-attention boot and ledgered migration", () => {
-  let pools: Readonly<Record<"channels", PgTransactionalPool>>;
+  let pools: Readonly<Record<"channels" | "inventory", PgTransactionalPool>>;
   beforeAll(async () => {
     const base = process.env.TEST_DATABASE_URL!;
-    const urls = createMultiContextTestDatabaseUrls(base, ["channels"], "attention_upgrade");
+    const urls = createMultiContextTestDatabaseUrls(base, ["channels", "inventory"], "attention_upgrade");
     await ensureMultiContextTestDatabases(base, urls);
     pools = createMultiContextTestPools(urls);
   });
@@ -38,7 +39,9 @@ describeDb("channel-attention boot and ledgered migration", () => {
     expect(
       (await pools.channels.query("SELECT to_regclass('channel_connection_attention')::text AS name")).rows,
     ).toEqual([{ name: null }]);
-    const services = channelsModule.createServices(pools.channels, {});
+    const services = channelsModule.createServices(pools.channels, {
+      channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
+    });
     const connection = { connectionId: "synthetic-predecessor-open", accountId: context.audit.forAccountId };
     await services.connections.connectChannel(
       { ...connection, providerKey: "tcgplayer" },
