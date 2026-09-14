@@ -24,7 +24,10 @@ import {
 } from "../../features/market-rollups/read-model/schema";
 import { pricingMarketEstimatesSchemaSql } from "../../features/market-estimates/read-model/schema";
 import { pricingRepricingPolicySchemaSql } from "../../features/repricing-policies/read-model/schema";
-import { pricingRepricingEngineSchemaSql } from "../../features/repricing-engine/read-model/schema";
+import {
+  pricingRepricingEngineSchemaSql,
+  pricingRepricingEngineSchemaMigrations,
+} from "../../features/repricing-engine/read-model/schema";
 import {
   pricingBulkRepriceIngestionSchemaMigrations,
   pricingBulkRepriceIngestionSchemaSql,
@@ -36,6 +39,7 @@ import {
 } from "../../features/economics/read-model/schema";
 
 export const pricingFeatureSchemaMigrations = [
+  ...pricingRepricingEngineSchemaMigrations,
   ...pricingProviderObservationsSchemaMigrations,
   ...pricingMarketTradesSchemaMigrations,
   ...pricingRecommendationSourceSchemaMigrations,

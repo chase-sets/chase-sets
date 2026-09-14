@@ -1,4 +1,6 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -14,7 +16,14 @@ import { buildPricingMarketplaceInputProjectionHandlers } from "../../recommenda
 import { buildRepricingPolicyProjectionHandlers } from "../../repricing-policies/read-model/projection";
 import type { RepricingRule } from "../../repricing-policies/domain/domain";
 import { createRepricingPolicyRuntime } from "../../repricing-policies/api/runtime";
-import type { RepricingPolicyListingTrace } from "../domain/fact";
+import type { RepricingPolicyEvaluatedEvent, RepricingPolicyListingTrace } from "../domain/fact";
+import { REPRICING_ENGINE_LAUNCH_POLICY_VALUE, repricingEnginePolicy } from "../domain/policy";
+import {
+  readProductRoundState,
+  recordProductRoundDirection,
+  reserveProductRoundCooldown,
+} from "../read-model/product-round-state";
+import { pricingRepricingEngineSchemaMigrations } from "../read-model/schema";
 import { createRepricingEngineRuntime, type RepricingMarketplaceGateway } from "../api/runtime";
 import { buildRepricingEvaluationProjectionHandlers } from "../read-model/projection";
 
@@ -72,6 +81,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
   });
+  afterEach(() => vi.useRealTimers());
 
   async function seedRound(
     pool: PgTransactionalPool,
@@ -203,6 +213,480 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     const events = await eventStore.readAll();
     return events.filter((stored) => stored.eventType === "pricing.repricing-policy.evaluated");
   }
+
+  const product = { catalogItemId: "cat_1", productId: "cat_1::" };
+  const launch = REPRICING_ENGINE_LAUNCH_POLICY_VALUE;
+  const now = "2026-07-17T12:00:00.000Z";
+
+  function signal(eventId: string) {
+    return {
+      ...product,
+      amount: "11.00",
+      previousAmount: "10.00",
+      context,
+      trigger: {
+        kind: "market-price-estimated" as const,
+        eventId,
+        signalVersion: eventId,
+        occurredAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  function holdQuery(pool: PgTransactionalPool, matches: (sql: string) => boolean) {
+    let resolveReached!: () => void;
+    let release!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      resolveReached = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    const updates: Array<number | null | undefined> = [];
+    const db: PgTransactionalPool = {
+      connect: pool.connect.bind(pool),
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        const result = await pool.query<Row>(sql, values);
+        if (sql.includes("UPDATE pricing_repricing_product_round_cooldowns")) updates.push(result.rowCount);
+        if (!held && matches(sql)) {
+          held = true;
+          resolveReached();
+          await released;
+        }
+        return result;
+      },
+    };
+    return { db, reached, release, updates };
+  }
+
+  it.each(["down", "up"] as const)(
+    "trips across sellers on three net %s rounds and retains routine state",
+    async (direction) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(now);
+      const pool = pools.pricing;
+      await seedRound(pool, {
+        listingPrices: direction === "down" ? ["16.00", "10.00", "12.00"] : ["8.00", "13.00", "12.00"],
+      });
+      await pool.query(
+        "UPDATE pricing_market_listing_inputs SET seller_account_id = 'acc_other' WHERE listing_id = 'lst_policy_2'",
+      );
+      const policies = createRepricingPolicyRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+      const created = await policies.commandHandler({
+        streamId: policies.streamIdForPolicy("rpp_other"),
+        context,
+        command: {
+          type: "CreateRepricingPolicy",
+          policyId: "rpp_other",
+          accountId: "acc_other",
+          name: "Other seller",
+          scope: { kind: "listing-set", listingIds: ["lst_policy_2"] },
+          rules: [
+            { ...defaultRule, directive: { ...defaultRule.directive, anchorChain: [{ source: "market-estimate" }] } },
+          ],
+          maxChangesPerDay: 100,
+          createdAt: now,
+        },
+      });
+      const handlers = buildRepricingPolicyProjectionHandlers(pool);
+      for (const stored of created.storedEvents) await handlers[stored.eventType]!(toTransportEvent(stored));
+      const runtime = createRepricingEngineRuntime({ db: pool, eventStore: createPostgresEventStore({ pool }) });
+      const marketplace = gateway((id) => (id === "lst_policy_3" ? "no_op" : "applied"));
+      const onSpiralBreakerTrip = vi.fn();
+      expect(await readProductRoundState(pool, product)).toBeNull();
+      for (let index = 1; index <= 3; index += 1) {
+        expect(await runtime.enqueueMarketPriceSignal(signal(`evt_trip_${index}`))).toBe(true);
+        expect(
+          await runtime.processNextEvaluationJob({
+            claimOwnerId: "worker:trip",
+            claimTtlMs: 30_000,
+            marketplaceGatewayForAccount: () => marketplace,
+            onSpiralBreakerTrip,
+          }),
+        ).toBe(1);
+        expect(await readProductRoundState(pool, product)).toMatchObject({
+          same_direction_rounds: index === 3 ? 0 : index,
+          last_direction: index === 3 ? null : direction,
+        });
+      }
+      const frozenUntil = "2026-07-17T14:00:00.000Z";
+      expect(onSpiralBreakerTrip).toHaveBeenCalledExactlyOnceWith({
+        ...product,
+        direction,
+        roundCount: 3,
+        affectedSellerCount: 2,
+        frozenUntil,
+      });
+      const state = (await readProductRoundState(pool, product))!;
+      expect(state.frozen_until).toBe(state.next_eligible_at);
+      expect(new Date(state.frozen_until!).toISOString()).toBe(frozenUntil);
+      const facts = await evaluationFacts(pool);
+      const tripFacts = facts.filter(
+        (stored) => (stored.payload as RepricingPolicyEvaluatedEvent["data"]).trigger.eventId === "evt_trip_3",
+      );
+      expect(tripFacts).toHaveLength(2);
+      const projection = buildRepricingEvaluationProjectionHandlers(pool);
+      for (const stored of tripFacts) {
+        const data = stored.payload as RepricingPolicyEvaluatedEvent["data"];
+        expect(data.spiralBreaker).toEqual({ tripped: true, frozenUntil });
+        expect(data.listings.length).toBeGreaterThan(0);
+        for (const trace of data.listings)
+          expect(trace).toMatchObject({ flags: expect.arrayContaining(["spiral-breaker"]), frozenUntil });
+        await projection[stored.eventType]!(toTransportEvent(stored));
+      }
+      const projected = await pool.query<{ listing_traces: RepricingPolicyListingTrace[] }>(
+        "SELECT listing_traces FROM pricing_repricing_policy_evaluations",
+      );
+      expect(projected.rows.flatMap((row) => row.listing_traces)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ listingId: "lst_policy_3", outcome: "skipped", frozenUntil }),
+        ]),
+      );
+      const jobs = await pool.query<{ result: { spiralBreakerTrips: unknown[] } }>(
+        "SELECT result FROM pricing_repricing_evaluation_jobs WHERE job_id = 'repricing-evaluation:evt_trip_3'",
+      );
+      expect(jobs.rows[0]?.result.spiralBreakerTrips).toEqual([onSpiralBreakerTrip.mock.calls[0]![0]]);
+    },
+  );
+
+  it.each(["opposite", "unchanged", "net-zero"] as const)(
+    "resets the retained direction on an %s round",
+    async (reset) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(now);
+      const pool = pools.pricing;
+      await seedRound(pool, { listingPrices: ["16.00", "16.00"] });
+      await pool.query("UPDATE pricing_repricing_policies SET rules = $1", [
+        JSON.stringify([
+          {
+            ...defaultRule,
+            directive: {
+              ...defaultRule.directive,
+              anchorChain: [{ source: "market-estimate" }],
+              offset: { mode: "absolute", amount: "0.00" },
+            },
+          },
+        ]),
+      ]);
+      const runtime = createRepricingEngineRuntime({ db: pool, eventStore: createPostgresEventStore({ pool }) });
+      const onSpiralBreakerTrip = vi.fn();
+      for (let round = 0; round < 4; round += 1) {
+        const prices =
+          round === 1
+            ? reset === "opposite"
+              ? ["8.00", "8.00"]
+              : reset === "net-zero"
+                ? ["10.00", "12.00"]
+                : ["11.00", "11.00"]
+            : ["16.00", "16.00"];
+        await pool.query(
+          "UPDATE pricing_market_listing_inputs SET price_amount = CASE listing_id WHEN 'lst_policy_1' THEN $1::numeric ELSE $2::numeric END WHERE listing_id LIKE 'lst_policy_%'",
+          prices,
+        );
+        await runtime.enqueueMarketPriceSignal(signal(`evt_reset_${round}`));
+        await runtime.processNextEvaluationJob({
+          claimOwnerId: "worker:reset",
+          claimTtlMs: 30_000,
+          marketplaceGatewayForAccount: () => gateway(() => "applied"),
+          onSpiralBreakerTrip,
+        });
+        if (round === 1)
+          expect(await readProductRoundState(pool, product)).toMatchObject({
+            same_direction_rounds: reset === "opposite" ? 1 : 0,
+            last_direction: reset === "opposite" ? "up" : null,
+          });
+      }
+      expect(onSpiralBreakerTrip).not.toHaveBeenCalled();
+      expect(await readProductRoundState(pool, product)).toMatchObject({
+        same_direction_rounds: 2,
+        last_direction: "down",
+        frozen_until: null,
+      });
+    },
+  );
+
+  it.each(["2026-07-17T14:00:00.000Z", "2026-07-18T14:00:00.000Z"])(
+    "blocks every signal and cooling sweeps, then re-enters at %s from zero",
+    async (releasedAt) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(now);
+      const pool = pools.pricing;
+      await seedRound(pool, { listingPrices: ["16.00"] });
+      const runtime = createRepricingEngineRuntime({ db: pool, eventStore: createPostgresEventStore({ pool }) });
+      const ask = (id: string) => ({
+        listingId: "lst_policy_1",
+        trigger: { ...signal(id).trigger, kind: "competing-ask-changed" as const },
+        context,
+      });
+      expect(await runtime.enqueueCompetingAskSignal(ask("evt_cooling"))).toBe(true);
+      expect(await runtime.enqueueDailyDriftSweep({ now })).toBe(0);
+      await pool.query("DELETE FROM pricing_repricing_evaluation_jobs");
+      for (let index = 0; index < 3; index += 1) await recordProductRoundDirection(pool, product, "down", launch, now);
+      const frozenState = await readProductRoundState(pool, product);
+      expect(await runtime.enqueueMarketPriceSignal(signal("evt_frozen_market"))).toBe(false);
+      expect(await runtime.enqueueCompetingAskSignal(ask("evt_frozen_ask"))).toBe(false);
+      await pool.query("DELETE FROM pricing_repricing_daily_sweep_cursor");
+      await pool.query("DELETE FROM pricing_repricing_evaluation_jobs");
+      expect(await runtime.enqueueDailyDriftSweep({ now })).toBe(0);
+      expect(await readProductRoundState(pool, product)).toEqual(frozenState);
+      expect((await pool.query("SELECT job_id FROM pricing_repricing_evaluation_jobs")).rows).toEqual([]);
+      vi.setSystemTime(releasedAt);
+      expect(await readProductRoundState(pool, product)).toMatchObject({ same_direction_rounds: 0 });
+      expect(await runtime.enqueueCompetingAskSignal(ask("evt_expiry_ask"))).toBe(true);
+      await runtime.processNextEvaluationJob({
+        claimOwnerId: "worker:expiry",
+        claimTtlMs: 30_000,
+        marketplaceGatewayForAccount: () => gateway(() => "applied"),
+      });
+      expect(await readProductRoundState(pool, product)).toMatchObject({
+        same_direction_rounds: 1,
+        last_direction: "down",
+        frozen_until: null,
+      });
+      vi.setSystemTime(new Date(Date.parse(releasedAt) + 60_000));
+      expect(await runtime.enqueueMarketPriceSignal(signal("evt_day_after"))).toBe(true);
+      await runtime.processNextEvaluationJob({
+        claimOwnerId: "worker:day-after",
+        claimTtlMs: 30_000,
+        marketplaceGatewayForAccount: () => gateway(() => "applied"),
+      });
+      expect(await readProductRoundState(pool, product)).toMatchObject({
+        same_direction_rounds: 2,
+        last_direction: "down",
+        frozen_until: null,
+      });
+    },
+  );
+
+  it.each(["price", "pause"] as const)(
+    "rejects previously claimed %s work after a post-load freeze with zero Marketplace commands",
+    async (action) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(now);
+      const pool = pools.pricing;
+      await seedRound(pool, {
+        listingPrices: ["16.00", "16.00"],
+        ...(action === "pause"
+          ? {
+              rule: {
+                ...defaultRule,
+                directive: {
+                  ...defaultRule.directive,
+                  anchorChain: [{ source: "last-sold" }],
+                  terminal: { kind: "pause", reason: "Required input unavailable." },
+                },
+              },
+            }
+          : {}),
+      });
+      const barrier = holdQuery(pool, (sql) => sql.includes("FROM pricing_repricing_policy_assignments AS assignment"));
+      const runtime = createRepricingEngineRuntime({ db: barrier.db, eventStore: createPostgresEventStore({ pool }) });
+      await runtime.enqueueMarketPriceSignal(signal("evt_claimed"));
+      const marketplace = gateway(() => "applied");
+      const work = runtime.processNextEvaluationJob({
+        claimOwnerId: "worker:claimed",
+        claimTtlMs: 30_000,
+        marketplaceGatewayForAccount: () => marketplace,
+      });
+      await barrier.reached;
+      try {
+        expect((await pool.query("SELECT status FROM pricing_repricing_evaluation_jobs")).rows).toEqual([
+          { status: "running" },
+        ]);
+        for (let index = 0; index < 3; index += 1)
+          await recordProductRoundDirection(pool, product, "down", launch, now);
+      } finally {
+        barrier.release();
+      }
+      await work;
+      expect(marketplace.calls).toEqual([]);
+      expect(marketplace.pauseCalls).toEqual([]);
+      expect(marketplace.publishCalls).toEqual([]);
+      const facts = await evaluationFacts(pool);
+      expect(facts).toHaveLength(1);
+      expect((facts[0]!.payload as RepricingPolicyEvaluatedEvent["data"]).listings).toEqual([
+        expect.objectContaining({ skipReason: "spiral-breaker-frozen", outcome: "skipped" }),
+        expect.objectContaining({ skipReason: "spiral-breaker-frozen", outcome: "skipped" }),
+      ]);
+    },
+  );
+
+  it.each(["same", "opposite", "undirected", "reservation", "freeze"] as const)(
+    "fences a stale round against a newer %s ledger write",
+    async (newer) => {
+      const pool = pools.pricing;
+      await recordProductRoundDirection(pool, product, "down", launch, now);
+      const barrier = holdQuery(pool, (sql) => sql.startsWith("SELECT next_eligible_at::text"));
+      const stale = recordProductRoundDirection(barrier.db, product, "down", launch, now);
+      await barrier.reached;
+      try {
+        if (newer === "reservation")
+          await reserveProductRoundCooldown(
+            pool,
+            { ...product, triggerEventId: "evt_newer", cooldownMinutes: 30 },
+            now,
+          );
+        else {
+          await recordProductRoundDirection(
+            pool,
+            product,
+            newer === "opposite" ? "up" : newer === "undirected" ? null : "down",
+            launch,
+            now,
+          );
+          if (newer === "freeze") await recordProductRoundDirection(pool, product, "down", launch, now);
+        }
+      } finally {
+        barrier.release();
+      }
+      const trip = await stale;
+      expect(barrier.updates[0]).toBe(0);
+      const state = (await readProductRoundState(pool, product))!;
+      if (newer === "same" || newer === "freeze") {
+        expect(state.same_direction_rounds).toBe(0);
+        expect(new Date(state.frozen_until!).toISOString()).toBe("2026-07-17T14:00:00.000Z");
+        expect(Boolean(trip)).toBe(newer === "same");
+      } else {
+        expect(state).toMatchObject({
+          same_direction_rounds: newer === "reservation" ? 2 : 1,
+          last_direction: "down",
+          frozen_until: null,
+        });
+        if (newer === "reservation")
+          expect(new Date(state.next_eligible_at).toISOString()).toBe("2026-07-17T12:30:00.000Z");
+      }
+    },
+  );
+
+  it("admits only one simultaneous first reservation and counts simultaneous first rounds without lost updates", async () => {
+    const pool = pools.pricing;
+    const admissions = await Promise.all(
+      ["evt_first_a", "evt_first_b"].map((triggerEventId) =>
+        reserveProductRoundCooldown(pool, { ...product, triggerEventId, cooldownMinutes: 30 }, now),
+      ),
+    );
+    expect(admissions.sort()).toEqual([false, true]);
+    const otherProduct = { ...product, productId: "cat_1::other" };
+    const rounds = await Promise.all(
+      [1, 2, 3].map(() => recordProductRoundDirection(pool, otherProduct, "up", launch, now)),
+    );
+    expect(rounds.filter(Boolean)).toEqual([
+      { direction: "up", roundCount: 3, frozenUntil: "2026-07-17T14:00:00.000Z" },
+    ]);
+    expect(await readProductRoundState(pool, product)).toMatchObject({ same_direction_rounds: 0, frozen_until: null });
+    expect(await readProductRoundState(pool, otherProduct)).toMatchObject({
+      same_direction_rounds: 0,
+      last_direction: null,
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now);
+    const runtime = createRepricingEngineRuntime({ db: pool, eventStore: createPostgresEventStore({ pool }) });
+    expect(await runtime.enqueueMarketPriceSignal({ ...signal("evt_other_frozen"), ...otherProduct })).toBe(false);
+    expect(await runtime.enqueueMarketPriceSignal(signal("evt_not_frozen"))).toBe(true);
+  });
+
+  it.each(["reservation", "freeze"] as const)(
+    "fences a stale cooldown reservation against a newer %s",
+    async (newer) => {
+      const pool = pools.pricing;
+      await recordProductRoundDirection(pool, product, "down", launch, now);
+      const barrier = holdQuery(pool, (sql) => sql.startsWith("SELECT next_eligible_at::text"));
+      const stale = reserveProductRoundCooldown(
+        barrier.db,
+        { ...product, triggerEventId: "evt_stale", cooldownMinutes: 30 },
+        now,
+      );
+      await barrier.reached;
+      try {
+        if (newer === "reservation")
+          await reserveProductRoundCooldown(
+            pool,
+            { ...product, triggerEventId: "evt_newer", cooldownMinutes: 30 },
+            now,
+          );
+        else
+          for (let index = 0; index < 2; index += 1)
+            await recordProductRoundDirection(pool, product, "down", launch, now);
+      } finally {
+        barrier.release();
+      }
+      expect(await stale).toBe(false);
+      expect(barrier.updates).toEqual([0]);
+      const row = (
+        await pool.query<{ last_trigger_event_id: string; same_direction_rounds: number }>(
+          "SELECT last_trigger_event_id, same_direction_rounds FROM pricing_repricing_product_round_cooldowns",
+        )
+      ).rows[0]!;
+      expect(row).toEqual({
+        last_trigger_event_id: newer === "reservation" ? "evt_newer" : "",
+        same_direction_rounds: newer === "reservation" ? 1 : 0,
+      });
+    },
+  );
+
+  it.each(["boot-first", "ledger-first"])(
+    "upgrades a retained ledger %s, twice, without losing the cooldown",
+    async (order) => {
+      const pool = pools.pricing;
+      await pool.query(
+        "ALTER TABLE pricing_repricing_product_round_cooldowns DROP COLUMN same_direction_rounds, DROP COLUMN last_direction, DROP COLUMN frozen_until, DROP COLUMN tripped_at",
+      );
+      await pool.query(
+        "INSERT INTO pricing_repricing_product_round_cooldowns VALUES ('cat_1', 'cat_1::', $1, 'evt_retained', $1)",
+        [now],
+      );
+      if (order === "ledger-first") {
+        for (const statement of pricingRepricingEngineSchemaMigrations[0]!.statements) await pool.query(statement);
+      } else await pool.query(pricingModule.schemaSql);
+      expect(await readProductRoundState(pool, product)).toMatchObject({
+        same_direction_rounds: 0,
+        last_direction: null,
+        frozen_until: null,
+      });
+      const shape = await pool.query(`SELECT column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns WHERE table_name = 'pricing_repricing_product_round_cooldowns'
+      AND column_name IN ('same_direction_rounds', 'last_direction', 'frozen_until', 'tripped_at') ORDER BY column_name`);
+      expect(shape.rows).toEqual([
+        {
+          column_name: "frozen_until",
+          data_type: "timestamp with time zone",
+          is_nullable: "YES",
+          column_default: null,
+        },
+        { column_name: "last_direction", data_type: "text", is_nullable: "YES", column_default: null },
+        { column_name: "same_direction_rounds", data_type: "integer", is_nullable: "NO", column_default: "0" },
+        { column_name: "tripped_at", data_type: "timestamp with time zone", is_nullable: "YES", column_default: null },
+      ]);
+      await bootstrapContextDatabase(pricingModule, pool);
+      await bootstrapContextDatabase(pricingModule, pool);
+      expect(
+        (
+          await pool.query(
+            "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = '20260914_pricing_repricing_spiral_breaker'",
+          )
+        ).rows,
+      ).toHaveLength(1);
+      expect(
+        (await pool.query("SELECT last_trigger_event_id FROM pricing_repricing_product_round_cooldowns")).rows,
+      ).toEqual([{ last_trigger_event_id: "evt_retained" }]);
+      await expect(
+        pool.query("UPDATE pricing_repricing_product_round_cooldowns SET last_direction = 'sideways'"),
+      ).rejects.toMatchObject({ code: "23514" });
+    },
+  );
+
+  it("resolves a real stored policy revision without the two new keys", async () => {
+    const pool = pools.pricing;
+    const { spiralBreakerRounds: _rounds, spiralBreakerFreezeMinutes: _minutes, ...stored } = launch;
+    await pool.query(
+      `INSERT INTO platform_policy_documents (document_id, policy_key, context_name, schema_summary, status, value, effective_from, created_at, updated_at)
+      VALUES ('synthetic-old-repricing-revision', 'pricing.repricing-engine', 'pricing', 'old revision', 'active', $1, '2026-01-01', '2026-01-01', '2026-01-01')`,
+      [JSON.stringify(stored)],
+    );
+    const resolved = await createPolicyResolver({ db: pool }).resolvePolicy(repricingEnginePolicy);
+    expect(resolved).toMatchObject({ source: "policy", documentId: "synthetic-old-repricing-revision", value: launch });
+  });
 
   it("records an any-mode round through the persisted policy, product worker, fact, and evaluation projection", async () => {
     const pool = pools.pricing;

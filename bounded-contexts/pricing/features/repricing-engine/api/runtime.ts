@@ -5,6 +5,13 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresDurableJobStore, type DurableJobRecord } from "@chase-sets/platform-runtime/durable-job-store";
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
+import { moneyToCents } from "@chase-sets/primitives/money";
+import {
+  activeProductFreeze,
+  readProductRoundState,
+  recordProductRoundDirection,
+  reserveProductRoundCooldown,
+} from "../read-model/product-round-state";
 import {
   evaluateRepricingListing,
   type RepricingListingEvaluation,
@@ -15,6 +22,7 @@ import {
   type RepricingEvaluationSkipReason,
   type RepricingPolicyEvaluatedEvent,
   type RepricingPolicyListingTrace,
+  type RepricingRoundDirection,
 } from "../domain/fact";
 import { buildRepricingEvaluationProjectionHandlers } from "../read-model/projection";
 import { repricingEnginePolicy, type RepricingEnginePolicyValue } from "../domain/policy";
@@ -64,6 +72,16 @@ type RepricingEvaluationJobResult = Readonly<{
   policiesEvaluated: number;
   listingsEvaluated: number;
   listingsChanged: number;
+  spiralBreakerTrips: readonly RepricingSpiralBreakerTrip[];
+}>;
+
+export type RepricingSpiralBreakerTrip = Readonly<{
+  catalogItemId: string;
+  productId: string;
+  direction: RepricingRoundDirection;
+  roundCount: number;
+  affectedSellerCount: number;
+  frozenUntil: string;
 }>;
 
 export type RepricingMarketplaceGateway = Readonly<{
@@ -128,6 +146,7 @@ export type RepricingEngineServices = Readonly<{
       marketplaceGatewayForAccount: (accountId: string) => RepricingMarketplaceGateway;
       signal?: AbortSignal;
       throwIfLeaseLost?: () => void;
+      onSpiralBreakerTrip?: (trip: RepricingSpiralBreakerTrip) => void;
     }>,
   ) => Promise<number>;
   projectors: readonly ProjectionHandlerSet[];
@@ -172,6 +191,9 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
     if (input.previousAmount === input.amount) {
       return false;
     }
+    if (activeProductFreeze(await readProductRoundState(deps.db, input), new Date().toISOString())) {
+      return false;
+    }
     return enqueue(
       { catalogItemId: input.catalogItemId, productId: input.productId, trigger: input.trigger },
       input.context,
@@ -184,11 +206,15 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
       return false;
     }
     const policy = await resolvePolicy();
-    const reserved = await reserveProductRoundCooldown(deps.db, {
-      ...product,
-      triggerEventId: input.trigger.eventId,
-      cooldownMinutes: policy.productRoundCooldownMinutes,
-    });
+    const reserved = await reserveProductRoundCooldown(
+      deps.db,
+      {
+        ...product,
+        triggerEventId: input.trigger.eventId,
+        cooldownMinutes: policy.productRoundCooldownMinutes,
+      },
+      new Date().toISOString(),
+    );
     if (!reserved) {
       return false;
     }
@@ -225,6 +251,10 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
     while (true) {
       const products = await listAssignedRepricingProducts(deps.db, { after: pageAfter, limit });
       for (const product of products) {
+        const state = await readProductRoundState(deps.db, product);
+        if (activeProductFreeze(state, nowIso) || (state && Date.parse(state.next_eligible_at) > now.getTime())) {
+          continue;
+        }
         const eventId = `daily-drift-sweep:${day}:${product.catalogItemId}:${product.productId}`;
         if (
           await enqueue(
@@ -310,6 +340,7 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
         progress: { phase: "completed", ...result },
         result,
       });
+      result.spiralBreakerTrips.forEach((trip) => input.onSpiralBreakerTrip?.(trip));
       return 1;
     } catch (error) {
       await jobStore.fail({
@@ -422,7 +453,11 @@ async function executeProductRound(
   const resumeEligibleListingIds = new Set<string>();
   const resumeWaitingListingIds = new Set<string>();
   const repauseCooldownListingIds = new Set<string>();
+  const frozenUntil = activeProductFreeze(await readProductRoundState(deps.db, job.payload), new Date().toISOString());
   for (const plan of plans) {
+    if (frozenUntil) {
+      continue;
+    }
     if (
       !(await isRepricingPolicyRevisionActive(deps.db, {
         policyId: plan.policyId,
@@ -527,6 +562,7 @@ async function executeProductRound(
   let policiesEvaluated = 0;
   let listingsEvaluated = 0;
   let listingsChanged = 0;
+  const facts: Array<{ streamId: string; fact: RepricingPolicyEvaluatedEvent }> = [];
   for (const plan of plans) {
     input.throwIfLeaseLost?.();
     const changed = plan.commandEntries.filter(
@@ -542,6 +578,9 @@ async function executeProductRound(
     }
 
     const traces = plan.entries.map(({ listing, evaluation }): RepricingPolicyListingTrace => {
+      if (frozenUntil) {
+        return { ...traceFromEvaluation(evaluation, "skipped", "spiral-breaker-frozen"), frozenUntil };
+      }
       if (evaluation.action === "pause") {
         if (repauseCooldownListingIds.has(listing.listingId)) {
           return traceFromEvaluation(evaluation, "skipped", "repause-cooldown");
@@ -596,6 +635,7 @@ async function executeProductRound(
         listingsChanged: traces.filter((trace) => trace.outcome === "changed").length,
         listingsSkipped: traces.filter((trace) => trace.outcome !== "changed").length,
         listings: traces,
+        ...(frozenUntil ? { spiralBreaker: { tripped: false, frozenUntil } } : {}),
         signalToEvaluationLatencyMs: Math.min(
           MAX_POSTGRES_INTEGER,
           Math.max(0, Date.parse(evaluatedAt) - Date.parse(job.payload.trigger.occurredAt)),
@@ -603,11 +643,46 @@ async function executeProductRound(
         evaluatedAt,
       },
     };
+    facts.push({ streamId: plan.streamId, fact });
+    policiesEvaluated += 1;
+    listingsEvaluated += traces.length;
+    listingsChanged += changed;
+  }
+
+  const netChange = facts
+    .flatMap(({ fact }) => fact.data.listings)
+    .reduce(
+      (sum, trace) =>
+        trace.outcome === "changed"
+          ? sum + moneyToCents(trace.targetPriceAmount!) - moneyToCents(trace.currentPriceAmount)
+          : sum,
+      0n,
+    );
+  const direction = netChange > 0n ? "up" : netChange < 0n ? "down" : null;
+  const trip =
+    !frozenUntil && facts.length > 0
+      ? await recordProductRoundDirection(deps.db, job.payload, direction, policy, new Date().toISOString())
+      : null;
+  for (const { streamId, fact } of facts) {
+    const retainedFact: RepricingPolicyEvaluatedEvent = trip
+      ? {
+          ...fact,
+          data: {
+            ...fact.data,
+            spiralBreaker: { tripped: true, frozenUntil: trip.frozenUntil },
+            listings: fact.data.listings.map((trace) => ({
+              ...trace,
+              flags: [...trace.flags, "spiral-breaker"],
+              frozenUntil: trip.frozenUntil,
+            })),
+          },
+        }
+      : fact;
     try {
       await deps.eventStore.appendToStream({
-        streamId: plan.streamId,
+        streamId,
         expectedVersion: "no_stream",
-        events: [factCodec.encode(fact)],
+        events: [factCodec.encode(retainedFact)],
         context: REPRICING_SYSTEM_CONTEXT,
       });
     } catch (error) {
@@ -615,12 +690,23 @@ async function executeProductRound(
         throw error;
       }
     }
-    policiesEvaluated += 1;
-    listingsEvaluated += traces.length;
-    listingsChanged += changed;
   }
 
-  return { policiesEvaluated, listingsEvaluated, listingsChanged };
+  return {
+    policiesEvaluated,
+    listingsEvaluated,
+    listingsChanged,
+    spiralBreakerTrips: trip
+      ? [
+          {
+            ...trip,
+            catalogItemId: job.payload.catalogItemId,
+            productId: job.payload.productId,
+            affectedSellerCount: new Set(facts.map(({ fact }) => fact.data.sellerAccountId)).size,
+          },
+        ]
+      : [],
+  };
 }
 
 function evaluateRound(
@@ -760,32 +846,6 @@ function buildMarketplaceMutationIdempotencyKey(
   return `repricing:${encodeURIComponent(triggerEventId)}:${encodeURIComponent(productId)}:${encodeURIComponent(
     listingId,
   )}:${action}`;
-}
-
-async function reserveProductRoundCooldown(
-  db: PgTransactionalPool,
-  input: Readonly<{
-    catalogItemId: string;
-    productId: string;
-    triggerEventId: string;
-    cooldownMinutes: number;
-  }>,
-): Promise<boolean> {
-  return withPgTransaction(db, async (client) => {
-    const result = await client.query<{ reserved: boolean }>(
-      `INSERT INTO pricing_repricing_product_round_cooldowns (
-         catalog_catalog_item_id, product_id, next_eligible_at, last_trigger_event_id, updated_at
-       ) VALUES ($1, $2, now() + ($4 * interval '1 minute'), $3, now())
-       ON CONFLICT (catalog_catalog_item_id, product_id) DO UPDATE
-       SET next_eligible_at = EXCLUDED.next_eligible_at,
-           last_trigger_event_id = EXCLUDED.last_trigger_event_id,
-           updated_at = EXCLUDED.updated_at
-       WHERE pricing_repricing_product_round_cooldowns.next_eligible_at <= now()
-       RETURNING true AS reserved`,
-      [input.catalogItemId, input.productId, input.triggerEventId, input.cooldownMinutes],
-    );
-    return result.rows[0]?.reserved ?? false;
-  });
 }
 
 async function recordPolicyListingPaused(

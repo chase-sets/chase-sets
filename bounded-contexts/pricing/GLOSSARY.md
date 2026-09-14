@@ -140,6 +140,16 @@ An **Any-Mode Anchor** is a seller's opt-in `lowest-competing-ask` anchor with `
 
 An **Anchor Band** is the required seller-authored lower bound for an Any-Mode Anchor: `band: { ground: "market-estimate", minPercentOfGround }`, with a finite percentage from 50 through 100. The anchor is the greater of the lowest eligible ask and that percentage of the current, currency-compatible Market-Value Estimate, rounded upward to a cent. `band-binding` means this lower bound lifted the anchor, before the rule's offset and price clamps. Absent, stale, or currency-incompatible ground exhausts the anchor as `absent` and continues the chain. Bands are not allowed on hard or other anchors; there is no upper band or platform-policy dial.
 
+## Spiral Breaker
+
+A **Spiral Breaker** automatically freezes policy repricing for one Product across all sellers after consecutive
+rounds move in the same net direction. Direction is the sign of the sum of target minus current price over changed
+listing traces, not a vote by listing or seller. Opposite direction starts a new count at one; no net change clears
+the count. A trip clears the count and retains `spiralBreaker.frozenUntil` in each `RepricingPolicyEvaluated` fact,
+plus `spiral-breaker` and `frozenUntil` on every listing trace. Claimed work encountering a freeze records
+`spiral-breaker-frozen`. Expiry releases the Product automatically; no seller release or escalation is involved.
+Launch policy is three rounds and 120 minutes, bounded to 2-10 rounds and 60-1440 minutes.
+
 ## Repricing Scope
 
 A **Repricing Scope** is the set of listings a Repricing Policy governs: all of the seller's listings, a
