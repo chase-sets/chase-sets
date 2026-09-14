@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
+import { inspect } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { module as authModule } from "@chase-sets/auth";
 import { module as channelsModule } from "@chase-sets/channels";
 import { module as identityModule } from "@chase-sets/identity";
 import { createConnectorOAuthService, resolveActorFromRequest } from "@chase-sets/auth/server";
-import { isChannelsServices } from "@chase-sets/channels/server";
+import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import { AUTH_SESSION_COOKIE_NAME, CHANNEL_CONNECTOR_SCOPE_FAMILY } from "@chase-sets/auth-context";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
@@ -20,6 +21,7 @@ import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/i
 let pools: PlatformApiTestPools;
 let auth: ReturnType<typeof authModule.createServices>;
 let app: ReturnType<typeof buildPlatformApiApp>;
+let connectorFeed: ChannelsServices["connectorFeed"];
 let cookie: string;
 let accountId: ReturnType<typeof createId<"acc">>;
 let userId: ReturnType<typeof createId<"usr">>;
@@ -129,6 +131,7 @@ describe("connector-mount-gate-isolation", () => {
     );
     const services = runtime.services.channels;
     if (!isChannelsServices(services)) throw new Error("Channels real composition unavailable");
+    connectorFeed = services.connectorFeed;
     const connections = channelsModule.createServices(pools.channels, {
       connectorOAuth: oauth,
       channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
@@ -174,7 +177,10 @@ describe("connector-mount-gate-isolation", () => {
         rows: rows.rows,
         events: events.rows,
         authEvents: authEvents.rows,
-        logs: logs.flatMap((log) => log.mock.calls),
+        logs: inspect(
+          logs.flatMap((log) => log.mock.calls),
+          { depth: null },
+        ),
       });
       for (const secret of seenSecrets) expect(output).not.toContain(secret);
       expect(output).not.toContain(secretSentinel);
@@ -229,11 +235,67 @@ describe("connector-mount-gate-isolation", () => {
     const output = JSON.stringify({
       rows: rows.rows,
       events: events.rows,
-      logs: logs.flatMap((log) => log.mock.calls),
+      logs: inspect(
+        logs.flatMap((log) => log.mock.calls),
+        { depth: null },
+      ),
     });
     for (const secret of seenSecrets) expect(output).not.toContain(secret);
     expect(output).not.toContain(secretSentinel);
     expect(output).not.toContain("agent_grant_id");
+  });
+
+  it("classifies raw exceptions without leaking their sentinel into responses, audit, logs or events", async () => {
+    const failure = vi.spyOn(connectorFeed, "exchange").mockRejectedValue(new Error(secretSentinel + "raw-exception"));
+    try {
+      const response = await request("/channel-connector/oauth/token", { code: secretSentinel });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "unavailable" });
+      const rows = await pools.channels.query("SELECT * FROM channel_connector_audit");
+      expect(rows.rows).toHaveLength(1);
+      expect(rows.rows[0]).toMatchObject({
+        route: "token",
+        outcome: "refused",
+        reason: "unavailable",
+        connection_id: null,
+        pairing_id: null,
+      });
+    } finally {
+      failure.mockRestore();
+    }
+  });
+
+  it("audits every OAuth refusal and malformed transport once with unresolved identity", async () => {
+    for (const route of ["register", "authorize", "token", "revoke"]) {
+      const response = await request(
+        `/channel-connector/oauth/${route}`,
+        { unknown: { secret: secretSentinel } },
+        true,
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid-request" });
+    }
+    for (const payload of ["{", JSON.stringify({ code: secretSentinel + "x".repeat(8192) })]) {
+      const response = await app.request("http://localhost/channel-connector/oauth/token", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: payload,
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid-request" });
+    }
+    const rows = await pools.channels.query("SELECT * FROM channel_connector_audit");
+    expect(rows.rows).toHaveLength(6);
+    for (const row of rows.rows)
+      expect(row).toMatchObject({
+        outcome: "refused",
+        reason: "invalid-request",
+        connection_id: null,
+        pairing_id: null,
+      });
+    for (const route of ["register", "authorize", "revoke"])
+      expect(rows.rows.filter((row) => row.route === route)).toHaveLength(1);
+    expect(rows.rows.filter((row) => row.route === "token")).toHaveLength(3);
   });
 
   it("audits detail, unpair, repeat cleanup and refused authorize/revoke without trusting route identity", async () => {

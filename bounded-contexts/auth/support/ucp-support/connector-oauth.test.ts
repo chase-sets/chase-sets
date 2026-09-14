@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { timingSafeEqual } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
 import {
   AGENT_OAUTH_SCOPE_FAMILIES,
   AGENT_OAUTH_SUPPORTED_SCOPES,
@@ -14,6 +15,12 @@ import { UCP_OAUTH_SCOPE_FAMILIES, UCP_OAUTH_SUPPORTED_SCOPES, resolveUcpScopedP
 import { resolveAuthSecurityLifetimesMs } from "../../features/sessions/domain/auth-flow";
 import { MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED } from "@chase-sets/platform-runtime/mcp";
 import { flattenMcpTools, mcpServiceCatalog } from "@chase-sets/platform-runtime/mcp-contracts";
+import * as authServer from "@chase-sets/auth/server";
+
+vi.mock("node:crypto", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:crypto")>();
+  return { ...original, timingSafeEqual: vi.fn(original.timingSafeEqual) };
+});
 
 describe("connector-scope-family-isolation", () => {
   it.each(CHANNEL_CONNECTOR_SCOPE_FAMILY.scopes)(
@@ -24,6 +31,7 @@ describe("connector-scope-family-isolation", () => {
       expect(normalizeAgentOAuthScopes([scope])).toEqual([]);
       expect(AGENT_OAUTH_SUPPORTED_SCOPES).not.toContain(scope);
       expect(UCP_OAUTH_SUPPORTED_SCOPES).not.toContain(scope);
+      expect(authServer.UCP_OAUTH_SUPPORTED_SCOPES).not.toContain(scope);
       expect(MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED).not.toContain(scope);
       expect(JSON.stringify(flattenMcpTools(mcpServiceCatalog))).not.toContain(scope);
       const permissions = [
@@ -35,6 +43,7 @@ describe("connector-scope-family-isolation", () => {
       ];
       expect(resolveAgentOAuthScopedPermissions([scope], [...permissions, "channels.manage"])).toEqual([]);
       expect(resolveUcpScopedPermissions([scope], permissions)).toEqual([]);
+      expect(authServer.resolveUcpScopedPermissions([scope], permissions)).toEqual([]);
       expect(agentOAuthScopesForPermissions(permissions)).not.toContain(scope);
       expect(JSON.stringify(UCP_OAUTH_SCOPE_FAMILIES)).not.toContain(scope);
     },
@@ -48,6 +57,7 @@ describe("connector-scope-family-isolation", () => {
 });
 describe("connector-secret-comparison", () => {
   it("compares fixed-size digests and rejects changed, missing and malformed secrets", () => {
+    vi.mocked(timingSafeEqual).mockClear();
     const secret = "credential-sentinel-secret";
     const digest = connectorSecretDigest(secret);
     expect(compareConnectorSecret(secret, digest)).toBe(true);
@@ -55,6 +65,11 @@ describe("connector-secret-comparison", () => {
     expect(compareConnectorSecret("", digest)).toBe(false);
     expect(compareConnectorSecret(secret, "invalid")).toBe(false);
     expect(digest).not.toContain(secret);
+    expect(timingSafeEqual).toHaveBeenCalledTimes(4);
+    for (const [actual, expected] of vi.mocked(timingSafeEqual).mock.calls) {
+      expect(actual.byteLength).toBe(32);
+      expect(expected.byteLength).toBe(32);
+    }
   });
   it("refuses unknown object members and unbounded/wrong-type credential inputs", () => {
     for (const value of [null, [], "x", { code: "x", unknown: { secret: "sentinel" } }])
