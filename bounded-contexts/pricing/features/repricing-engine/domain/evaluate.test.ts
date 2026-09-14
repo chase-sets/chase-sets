@@ -86,24 +86,51 @@ describe("any-ask band", () => {
   };
   const ground = { amount: "9.00", currencyCode: "USD", freshUntil: "2026-07-18T00:00:00.000Z" };
   const asks: RepricingMarketInputSnapshot["competingAsks"] = [
-    { listingId: "lst_competing_hard", sellerAccountId: "acc_other", amount: "10.00", currencyCode: "USD", pricingMode: "hard" },
-    { listingId: "lst_competing_derived", sellerAccountId: "acc_other", amount: "6.00", currencyCode: "USD", pricingMode: "derived" },
+    {
+      listingId: "lst_competing_hard",
+      sellerAccountId: "acc_other",
+      amount: "10.00",
+      currencyCode: "USD",
+      pricingMode: "hard",
+    },
+    {
+      listingId: "lst_competing_derived",
+      sellerAccountId: "acc_other",
+      amount: "6.00",
+      currencyCode: "USD",
+      pricingMode: "derived",
+    },
   ];
   function input(overrides: Partial<RepricingRuleDirective> = {}): RepricingListingEvaluationInput {
-    return listing({ rules: [{ conditions: [], directive: {
-      ...directive,
-      anchorChain: [anyAnchor, { source: "last-sold" }],
-      offset: { mode: "absolute", amount: "0.00" },
-      ...overrides,
-    } }] });
+    return listing({
+      rules: [
+        {
+          conditions: [],
+          directive: {
+            ...directive,
+            anchorChain: [anyAnchor, { source: "last-sold" }],
+            offset: { mode: "absolute", amount: "0.00" },
+            ...overrides,
+          },
+        },
+      ],
+    });
   }
   function market(overrides: Partial<RepricingMarketInputSnapshot> = {}): RepricingMarketInputSnapshot {
     return snapshot({ marketEstimate: ground, competingAsks: asks, ...overrides });
   }
 
   it.each([undefined, "hard"] as const)("keeps %s strata hard-only in a mixed snapshot", (strata) => {
-    const result = evaluateRepricingListing(input({ anchorChain: [{ source: "lowest-competing-ask", ...(strata ? { strata } : {}) }] }), market());
-    expect(result.anchor).toEqual({ source: "lowest-competing-ask", amount: "10.00", stratum: "hard-ask", contributingListingCount: 1 });
+    const result = evaluateRepricingListing(
+      input({ anchorChain: [{ source: "lowest-competing-ask", ...(strata ? { strata } : {}) }] }),
+      market(),
+    );
+    expect(result.anchor).toEqual({
+      source: "lowest-competing-ask",
+      amount: "10.00",
+      stratum: "hard-ask",
+      contributingListingCount: 1,
+    });
     expect(result.flags).toEqual([]);
   });
 
@@ -113,7 +140,12 @@ describe("any-ask band", () => {
     ["8.10", "8.10", []],
   ])("anchors on any ask %s with exact band binding", (amount, expected, flags) => {
     const result = evaluateRepricingListing(input(), market({ competingAsks: [asks[0]!, { ...asks[1]!, amount }] }));
-    expect(result.anchor).toEqual({ source: "lowest-competing-ask", amount: expected, stratum: "any-ask", contributingListingCount: 2 });
+    expect(result.anchor).toEqual({
+      source: "lowest-competing-ask",
+      amount: expected,
+      stratum: "any-ask",
+      contributingListingCount: 2,
+    });
     expect(result.targetPriceAmount).toBe(expected);
     expect(result.flags).toEqual(flags);
     expect(result.exhaustedAnchors).toEqual([]);
@@ -133,44 +165,69 @@ describe("any-ask band", () => {
     { ...ground, amount: "invalid" },
     { ...ground, amount: "-9.00" },
   ])("exhausts unavailable or malformed ground %j as absent and continues", (marketEstimate) => {
-    const result = evaluateRepricingListing(input(), market({
-      marketEstimate,
-      competingAsks: [...asks, { ...asks[0]!, listingId: "lst_second_hard", amount: "12.00" }],
-    }));
+    const result = evaluateRepricingListing(
+      input(),
+      market({
+        marketEstimate,
+        competingAsks: [...asks, { ...asks[0]!, listingId: "lst_second_hard", amount: "12.00" }],
+      }),
+    );
     expect(result.exhaustedAnchors).toEqual([{ source: "lowest-competing-ask", state: "absent" }]);
-    expect(result.anchor).toEqual({ source: "last-sold", amount: "11.00", stratum: "last-sold", contributingListingCount: 0 });
+    expect(result.anchor).toEqual({
+      source: "last-sold",
+      amount: "11.00",
+      stratum: "last-sold",
+      contributingListingCount: 0,
+    });
     expect(result.action).toBe("update-price");
     expect(result.flags).toEqual([]);
   });
 
   it("treats ground exactly at its freshness boundary as present", () => {
-    expect(evaluateRepricingListing(input(), market({ marketEstimate: { ...ground, freshUntil: snapshot().capturedAt } })).flags).toEqual(["band-binding"]);
+    expect(
+      evaluateRepricingListing(input(), market({ marketEstimate: { ...ground, freshUntil: snapshot().capturedAt } }))
+        .flags,
+    ).toEqual(["band-binding"]);
   });
 
   it("exhausts missing ground into hard, or the terminal when the chain ends", () => {
-    const fallback = evaluateRepricingListing(input({ anchorChain: [anyAnchor, { source: "lowest-competing-ask" }] }), market({ marketEstimate: null }));
+    const fallback = evaluateRepricingListing(
+      input({ anchorChain: [anyAnchor, { source: "lowest-competing-ask" }] }),
+      market({ marketEstimate: null }),
+    );
     expect(fallback.anchor?.stratum).toBe("hard-ask");
     expect(fallback.flags).toEqual([]);
-    const terminal = evaluateRepricingListing(input({ anchorChain: [anyAnchor], terminal: { kind: "fallback-price", amount: "7.00" } }), market({ marketEstimate: null }));
+    const terminal = evaluateRepricingListing(
+      input({ anchorChain: [anyAnchor], terminal: { kind: "fallback-price", amount: "7.00" } }),
+      market({ marketEstimate: null }),
+    );
     expect(terminal.targetPriceAmount).toBe("7.00");
     expect(terminal.anchor).toBeNull();
     expect(terminal.flags).toEqual([]);
   });
 
   it("preserves seller exclusion, currency filtering, and estimate-core outliers for both ask modes", () => {
-    const result = evaluateRepricingListing(input(), market({
-      hardAskOutlierPriceRatio: 2,
-      competingAsks: [
-        ...asks,
-        { ...asks[1]!, listingId: "lst_own_derived", sellerAccountId: "acc_policy", amount: "8.20" },
-        { ...asks[0]!, listingId: "lst_own_hard", sellerAccountId: "acc_policy", amount: "8.30" },
-        { ...asks[1]!, listingId: "lst_eur", currencyCode: "EUR", amount: "8.40" },
-        { ...asks[1]!, listingId: "lst_currency_missing", currencyCode: null, amount: "8.40" },
-        { ...asks[0]!, listingId: "lst_low_outlier", amount: "0.01" },
-        { ...asks[1]!, listingId: "lst_high_outlier", amount: "1000.00" },
-      ],
-    }));
-    expect(result.anchor).toEqual({ source: "lowest-competing-ask", amount: "8.10", stratum: "any-ask", contributingListingCount: 2 });
+    const result = evaluateRepricingListing(
+      input(),
+      market({
+        hardAskOutlierPriceRatio: 2,
+        competingAsks: [
+          ...asks,
+          { ...asks[1]!, listingId: "lst_own_derived", sellerAccountId: "acc_policy", amount: "8.20" },
+          { ...asks[0]!, listingId: "lst_own_hard", sellerAccountId: "acc_policy", amount: "8.30" },
+          { ...asks[1]!, listingId: "lst_eur", currencyCode: "EUR", amount: "8.40" },
+          { ...asks[1]!, listingId: "lst_currency_missing", currencyCode: null, amount: "8.40" },
+          { ...asks[0]!, listingId: "lst_low_outlier", amount: "0.01" },
+          { ...asks[1]!, listingId: "lst_high_outlier", amount: "1000.00" },
+        ],
+      }),
+    );
+    expect(result.anchor).toEqual({
+      source: "lowest-competing-ask",
+      amount: "8.10",
+      stratum: "any-ask",
+      contributingListingCount: 2,
+    });
     expect(result.flags).toEqual(["band-binding"]);
   });
 
@@ -184,40 +241,70 @@ describe("any-ask band", () => {
   });
 
   it("does not turn a ground estimate into an ask when only the seller has listings", () => {
-    const result = evaluateRepricingListing(input(), market({ competingAsks: asks.map((ask) => ({ ...ask, sellerAccountId: "acc_policy" })) }));
+    const result = evaluateRepricingListing(
+      input(),
+      market({ competingAsks: asks.map((ask) => ({ ...ask, sellerAccountId: "acc_policy" })) }),
+    );
     expect(result.exhaustedAnchors).toEqual([{ source: "lowest-competing-ask", state: "absent" }]);
     expect(result.anchor?.source).toBe("last-sold");
   });
 
-  it.each([null, "EUR"])("retains no-reprice for incompatible competing asks (%s), not missing ground", (currencyCode) => {
-    const result = evaluateRepricingListing(input(), market({ competingAsks: [{ ...asks[1]!, currencyCode }] }));
-    expect(result.action).toBe("no-reprice");
-    expect(result.exhaustedAnchors).toEqual([{ source: "lowest-competing-ask", state: currencyCode ? "currency-mismatch" : "currency-incomplete" }]);
-  });
+  it.each([null, "EUR"])(
+    "retains no-reprice for incompatible competing asks (%s), not missing ground",
+    (currencyCode) => {
+      const result = evaluateRepricingListing(input(), market({ competingAsks: [{ ...asks[1]!, currencyCode }] }));
+      expect(result.action).toBe("no-reprice");
+      expect(result.exhaustedAnchors).toEqual([
+        { source: "lowest-competing-ask", state: currencyCode ? "currency-mismatch" : "currency-incomplete" },
+      ]);
+    },
+  );
 
   it("keeps comp-percentile and competing-count conditions hard-only alongside an any anchor", () => {
-    const percentile = evaluateRepricingListing(input({ anchorChain: [{ source: "comp-percentile", percentile: 50 }, anyAnchor] }), market());
-    expect(percentile.anchor).toEqual({ source: "comp-percentile", amount: "10.00", stratum: "hard-ask", contributingListingCount: 1 });
-    const result = evaluateRepricingListing(listing({ rules: [
-      { ...input().rules[0]!, conditions: [{ type: "competing-listing-count-at-least", count: 2 }] },
-      { conditions: [], directive: { ...directive, anchorChain: [{ source: "lowest-competing-ask" }] } },
-    ] }), market());
+    const percentile = evaluateRepricingListing(
+      input({ anchorChain: [{ source: "comp-percentile", percentile: 50 }, anyAnchor] }),
+      market(),
+    );
+    expect(percentile.anchor).toEqual({
+      source: "comp-percentile",
+      amount: "10.00",
+      stratum: "hard-ask",
+      contributingListingCount: 1,
+    });
+    const result = evaluateRepricingListing(
+      listing({
+        rules: [
+          { ...input().rules[0]!, conditions: [{ type: "competing-listing-count-at-least", count: 2 }] },
+          { conditions: [], directive: { ...directive, anchorChain: [{ source: "lowest-competing-ask" }] } },
+        ],
+      }),
+      market(),
+    );
     expect(result.ruleIndex).toBe(1);
     expect(result.anchor?.stratum).toBe("hard-ask");
   });
 
-  it.each([[50, "4.51"], [90, "8.11"], [90.001, "8.11"], [100, "9.01"]])(
-    "never rounds below a fractional-cent band at %s percent",
-    (minPercentOfGround, expected) => {
-      const result = evaluateRepricingListing(input({ anchorChain: [{ ...anyAnchor, band: { ground: "market-estimate", minPercentOfGround } }] }), market({
-        marketEstimate: { ...ground, amount: "9.01" }, competingAsks: [{ ...asks[1]!, amount: "1.00" }],
-      }));
-      expect(result.anchor?.amount).toBe(expected);
-    },
-  );
+  it.each([
+    [50, "4.51"],
+    [90, "8.11"],
+    [90.001, "8.11"],
+    [100, "9.01"],
+  ])("never rounds below a fractional-cent band at %s percent", (minPercentOfGround, expected) => {
+    const result = evaluateRepricingListing(
+      input({ anchorChain: [{ ...anyAnchor, band: { ground: "market-estimate", minPercentOfGround } }] }),
+      market({
+        marketEstimate: { ...ground, amount: "9.01" },
+        competingAsks: [{ ...asks[1]!, amount: "1.00" }],
+      }),
+    );
+    expect(result.anchor?.amount).toBe(expected);
+  });
 
   it("preserves decimal percentages finer than basis points", () => {
-    const result = evaluateRepricingListing(input({ anchorChain: [{ ...anyAnchor, band: { ground: "market-estimate", minPercentOfGround: 90.001 } }] }), market({ competingAsks: [{ ...asks[1]!, amount: "1.00" }] }));
+    const result = evaluateRepricingListing(
+      input({ anchorChain: [{ ...anyAnchor, band: { ground: "market-estimate", minPercentOfGround: 90.001 } }] }),
+      market({ competingAsks: [{ ...asks[1]!, amount: "1.00" }] }),
+    );
     expect(result.anchor?.amount).toBe("8.11");
   });
 
@@ -233,7 +320,8 @@ describe("any-ask band", () => {
 describe("repricing product-round evaluation", () => {
   it("preserves the unchanged-hard golden fixture byte for byte", () => {
     const input = snapshot({ competingAsks: snapshot().competingAsks.filter((ask) => ask.pricingMode === "hard") });
-    const golden = '{"listingId":"lst_policy","currentPriceAmount":"10.00","targetPriceAmount":"10.99","ruleIndex":0,"anchor":{"source":"lowest-competing-ask","amount":"11.00","stratum":"hard-ask","contributingListingCount":1},"exhaustedAnchors":[],"clamps":{"floor":false,"ceiling":false,"maxMove":false},"tolerance":{"mode":"absolute","amount":"0.25"},"flags":[],"action":"update-price","skipReason":null}';
+    const golden =
+      '{"listingId":"lst_policy","currentPriceAmount":"10.00","targetPriceAmount":"10.99","ruleIndex":0,"anchor":{"source":"lowest-competing-ask","amount":"11.00","stratum":"hard-ask","contributingListingCount":1},"exhaustedAnchors":[],"clamps":{"floor":false,"ceiling":false,"maxMove":false},"tolerance":{"mode":"absolute","amount":"0.25"},"flags":[],"action":"update-price","skipReason":null}';
     expect(JSON.stringify(evaluateRepricingListing(listing(), input))).toBe(golden);
   });
 

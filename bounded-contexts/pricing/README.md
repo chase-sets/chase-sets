@@ -52,6 +52,11 @@ snapshot, then send only beyond-tolerance targets through Marketplace's existing
 path. The same evaluator powers dry-run preview; live execution adds daily-budget admission and publishes
 `RepricingPolicyEvaluated` facts.
 
+| Repricing term | System behavior |
+| --- | --- |
+| Any-Mode Anchor | Seller opt-in `lowest-competing-ask` with `strata: "any"` considers both ask modes; absent strata and `comp-percentile` stay hard-only. Traces expose `any-ask` and counts, not competitor identities or modes. |
+| Anchor Band | Required market-estimate ground and seller-chosen `minPercentOfGround` from 50 through 100; clamps the anchor upward, marking `band-binding` when lifted. Unavailable, stale, or currency-mismatched ground exhausts the anchor and continues the chain. Offsets and existing price clamps apply afterward. |
+
 ## Incoming Dependencies
 
 - Catalog for canonical item identity, product resolution, and selected-option facts

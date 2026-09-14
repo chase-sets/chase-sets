@@ -1,4 +1,10 @@
-import { centsToMoneyAmount, moneyToCents, roundRational, signedMoneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
+import {
+  centsToMoneyAmount,
+  moneyToCents,
+  roundRational,
+  signedMoneyToCents,
+  tryMoneyToCents,
+} from "@chase-sets/primitives/money";
 import type {
   RepricingRule,
   RepricingRuleCondition,

@@ -229,10 +229,17 @@ describe("RepricingPolicy any-mode band", () => {
   }
 
   it.each([50, 90, 90.001, 100])("round-trips create and revise at %s percent", (minPercentOfGround) => {
-    const command = commandWith({ source: "lowest-competing-ask", strata: "any", band: { ...band, minPercentOfGround } });
+    const command = commandWith({
+      source: "lowest-competing-ask",
+      strata: "any",
+      band: { ...band, minPercentOfGround },
+    });
     const codec = createPassthroughDomainEventCodec<RepricingPolicyEvent>();
     const events = decideRepricingPolicy(initialRepricingPolicyState, command);
-    const created = fold(initialRepricingPolicyState, events.map((event) => codec.decode(codec.encode(event))));
+    const created = fold(
+      initialRepricingPolicyState,
+      events.map((event) => codec.decode(codec.encode(event))),
+    );
     expect(created.rules).toEqual(command.rules);
     const revised = decideRepricingPolicy(created, {
       ...command,
@@ -241,16 +248,34 @@ describe("RepricingPolicy any-mode band", () => {
       revisedAt: "2026-07-12T00:00:00.000Z",
     });
     expect(revised).toHaveLength(1);
-    expect(fold(created, revised.map((event) => codec.decode(codec.encode(event)))).rules).toEqual(command.rules);
+    expect(
+      fold(
+        created,
+        revised.map((event) => codec.decode(codec.encode(event))),
+      ).rules,
+    ).toEqual(command.rules);
   });
 
   it.each([49.99, 100.01, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
     "rejects out-of-bounds or non-finite percent %s in create and revise",
     (minPercentOfGround) => {
-      const command = commandWith({ source: "lowest-competing-ask", strata: "any", band: { ...band, minPercentOfGround } });
-      const created = fold(initialRepricingPolicyState, decideRepricingPolicy(initialRepricingPolicyState, createCommand));
+      const command = commandWith({
+        source: "lowest-competing-ask",
+        strata: "any",
+        band: { ...band, minPercentOfGround },
+      });
+      const created = fold(
+        initialRepricingPolicyState,
+        decideRepricingPolicy(initialRepricingPolicyState, createCommand),
+      );
       expect(() => decideRepricingPolicy(initialRepricingPolicyState, command)).toThrow(bandMessage);
-      expect(() => decideRepricingPolicy(created, { ...command, type: "ReviseRepricingPolicy", revisedAt: "2026-07-12T00:00:00.000Z" })).toThrow(bandMessage);
+      expect(() =>
+        decideRepricingPolicy(created, {
+          ...command,
+          type: "ReviseRepricingPolicy",
+          revisedAt: "2026-07-12T00:00:00.000Z",
+        }),
+      ).toThrow(bandMessage);
     },
   );
 
@@ -265,14 +290,29 @@ describe("RepricingPolicy any-mode band", () => {
     [{ source: "market-estimate", band }, misplacedMessage],
     [{ source: "comp-percentile", percentile: 50, band }, misplacedMessage],
     [{ source: "last-sold", band }, misplacedMessage],
-    [{ source: "comp-percentile", percentile: 50, strata: "any" }, "Only lowest-competing-ask anchors support strata hard or any."],
-    [{ source: "lowest-competing-ask", strata: "derived" }, "Only lowest-competing-ask anchors support strata hard or any."],
+    [
+      { source: "comp-percentile", percentile: 50, strata: "any" },
+      "Only lowest-competing-ask anchors support strata hard or any.",
+    ],
+    [
+      { source: "lowest-competing-ask", strata: "derived" },
+      "Only lowest-competing-ask anchors support strata hard or any.",
+    ],
   ])("rejects malformed authored anchor %j with a stable message", (input, message) => {
     const anchor: RepricingAnchor = JSON.parse(JSON.stringify(input));
     const command = commandWith(anchor);
-    const created = fold(initialRepricingPolicyState, decideRepricingPolicy(initialRepricingPolicyState, createCommand));
+    const created = fold(
+      initialRepricingPolicyState,
+      decideRepricingPolicy(initialRepricingPolicyState, createCommand),
+    );
     expect(() => decideRepricingPolicy(initialRepricingPolicyState, command)).toThrow(message);
-    expect(() => decideRepricingPolicy(created, { ...command, type: "ReviseRepricingPolicy", revisedAt: "2026-07-12T00:00:00.000Z" })).toThrow(message);
+    expect(() =>
+      decideRepricingPolicy(created, {
+        ...command,
+        type: "ReviseRepricingPolicy",
+        revisedAt: "2026-07-12T00:00:00.000Z",
+      }),
+    ).toThrow(message);
   });
 
   it("decodes old events without adding strata or a band and accepts explicit hard", () => {
@@ -282,7 +322,9 @@ describe("RepricingPolicy any-mode band", () => {
     expect(JSON.stringify(decoded)).toBe(JSON.stringify(oldEvents));
     expect(fold(initialRepricingPolicyState, decoded).rules).toEqual(createCommand.rules);
     const hard = commandWith({ source: "lowest-competing-ask", strata: "hard" });
-    expect(fold(initialRepricingPolicyState, decideRepricingPolicy(initialRepricingPolicyState, hard)).rules).toEqual(hard.rules);
+    expect(fold(initialRepricingPolicyState, decideRepricingPolicy(initialRepricingPolicyState, hard)).rules).toEqual(
+      hard.rules,
+    );
   });
 });
 

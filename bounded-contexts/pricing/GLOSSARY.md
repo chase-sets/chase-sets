@@ -132,6 +132,14 @@ sequence -- market-estimate, lowest-competing-ask, comp-percentile, or last-sold
 gracefully when its first-choice signal is unavailable, ending in a seller-chosen terminal behavior (hold,
 pause, fallback-price, price-at-floor, or notify-only) if every anchor in the chain is exhausted.
 
+## Any-Mode Anchor
+
+An **Any-Mode Anchor** is a seller's opt-in `lowest-competing-ask` anchor with `strata: "any"`. It considers both hard and policy-derived competing asks, excluding the seller's own listings, incompatible currencies, and outliers through the same ask filter. Absent `strata` remains hard-only; `comp-percentile` remains hard-only. Its trace reports `any-ask` and the contributing listing count, never competing listing identities or pricing modes.
+
+## Anchor Band
+
+An **Anchor Band** is the required seller-authored lower bound for an Any-Mode Anchor: `band: { ground: "market-estimate", minPercentOfGround }`, with a finite percentage from 50 through 100. The anchor is the greater of the lowest eligible ask and that percentage of the current, currency-compatible Market-Value Estimate, rounded upward to a cent. `band-binding` means this lower bound lifted the anchor, before the rule's offset and price clamps. Absent, stale, or currency-incompatible ground exhausts the anchor as `absent` and continues the chain. Bands are not allowed on hard or other anchors; there is no upper band or platform-policy dial.
+
 ## Repricing Scope
 
 A **Repricing Scope** is the set of listings a Repricing Policy governs: all of the seller's listings, a

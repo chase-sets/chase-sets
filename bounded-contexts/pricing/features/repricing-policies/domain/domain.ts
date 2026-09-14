@@ -207,10 +207,7 @@ function normalizeAnchorChain(anchorChain: readonly RepricingAnchor[]): readonly
         band: { ground: anchor.band.ground, minPercentOfGround: anchor.band.minPercentOfGround },
       };
     }
-    assert(
-      !("band" in anchor),
-      "Anchor bands are only allowed on lowest-competing-ask with strata any.",
-    );
+    assert(!("band" in anchor), "Anchor bands are only allowed on lowest-competing-ask with strata any.");
     if (anchor.source === "comp-percentile") {
       assert(
         Number.isFinite(anchor.percentile) &&
