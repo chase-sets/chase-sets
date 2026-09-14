@@ -1168,6 +1168,106 @@ describe("Stripe payment processor gateway", () => {
       }
     });
 
+    type RecordedRequest = Readonly<{
+      responseSequence: number;
+      kind: "read" | "cancel";
+      idempotencyKey: string | null;
+      httpStatus: number;
+    }>;
+
+    function classifyOverlappingCancellation(
+      calls: readonly Readonly<{ requests: readonly RecordedRequest[]; reconciliationReadCount: number }>[],
+    ) {
+      let rejected = false;
+      for (const call of calls) {
+        for (const request of call.requests) {
+          if (request.kind !== "cancel" || (request.httpStatus >= 200 && request.httpStatus < 300)) {
+            continue;
+          }
+          rejected = true;
+          const reconciliationReads = call.requests.filter(
+            (read) => read.kind === "read" && read.responseSequence > request.responseSequence,
+          );
+          if (
+            call.reconciliationReadCount !== 1 ||
+            reconciliationReads.length !== 1 ||
+            reconciliationReads[0]?.httpStatus !== 200
+          ) {
+            throw new Error(
+              "Rejected overlapping cancellation requires exactly one authoritative reconciliation read.",
+            );
+          }
+        }
+      }
+      return rejected ? "rejected-then-reconciled" : "replayed-canceled";
+    }
+
+    function syntheticOverlappingCancellationCalls(firstStatus: number, secondStatus: number) {
+      return [firstStatus, secondStatus].map((httpStatus, index) => ({
+        reconciliationReadCount: httpStatus < 200 || httpStatus >= 300 ? 1 : 0,
+        requests: [
+          { responseSequence: index + 1, kind: "read", idempotencyKey: null, httpStatus: 200 },
+          {
+            responseSequence: index + 3,
+            kind: "cancel",
+            idempotencyKey: syntheticSetupCancellationKeyA,
+            httpStatus,
+          },
+          ...(httpStatus < 200 || httpStatus >= 300
+            ? [{ responseSequence: 5, kind: "read", idempotencyKey: null, httpStatus: 200 } as const]
+            : []),
+        ] satisfies RecordedRequest[],
+      }));
+    }
+
+    it.each([
+      [200, 200, "replayed-canceled"],
+      [409, 200, "rejected-then-reconciled"],
+      [200, 409, "rejected-then-reconciled"],
+      [200, 299, "replayed-canceled"],
+      [199, 200, "rejected-then-reconciled"],
+      [200, 300, "rejected-then-reconciled"],
+    ] as const)("classifies overlapping cancel responses [%i,%i] as %s", (firstStatus, secondStatus, expected) => {
+      const calls = syntheticOverlappingCancellationCalls(firstStatus, secondStatus);
+      const rawCalls = structuredClone(calls);
+
+      expect(classifyOverlappingCancellation(calls)).toBe(expected);
+      expect(classifyOverlappingCancellation([...calls].reverse())).toBe(expected);
+      expect(calls).toStrictEqual(rawCalls);
+    });
+
+    it.each([
+      [409, 200],
+      [200, 409],
+    ])("requires the rejected call's authoritative reconciliation for [%i,%i]", (firstStatus, secondStatus) => {
+      for (const defect of ["missing", "duplicate", "other-call", "before-write", "failed", "count"] as const) {
+        const calls = syntheticOverlappingCancellationCalls(firstStatus, secondStatus);
+        const rejectedCall = calls.find((call) => call.reconciliationReadCount === 1)!;
+        const successfulCall = calls.find((call) => call.reconciliationReadCount === 0)!;
+        const reconciliation = rejectedCall.requests.pop()!;
+        if (defect === "other-call") {
+          successfulCall.requests.push(reconciliation);
+          successfulCall.reconciliationReadCount = 1;
+        } else if (defect !== "missing") {
+          rejectedCall.requests.push({
+            ...reconciliation,
+            responseSequence: defect === "before-write" ? 0 : 5,
+            httpStatus: defect === "failed" ? 503 : 200,
+          });
+          if (defect === "duplicate") {
+            rejectedCall.requests.push({ ...reconciliation, responseSequence: 6 });
+          }
+        }
+        if (defect === "count") {
+          rejectedCall.reconciliationReadCount = 2;
+        }
+
+        expect(() => classifyOverlappingCancellation(calls), defect).toThrow(
+          "Rejected overlapping cancellation requires exactly one authoritative reconciliation read.",
+        );
+      }
+    });
+
     it.skipIf(process.env["CHASE_SETS_6732_STRIPE_OPERATOR_WINDOW"] !== "confirmed-test-mode")(
       "accepts SetupIntent cancellation in bounded Stripe test mode",
       async () => {
@@ -1185,12 +1285,6 @@ describe("Stripe payment processor gateway", () => {
         }
 
         type TestModeSetupIntent = Readonly<{ id: string; status: string; livemode: false }>;
-        type RecordedRequest = Readonly<{
-          responseSequence: number;
-          kind: "read" | "cancel";
-          idempotencyKey: string | null;
-          httpStatus: number;
-        }>;
         type AcceptancePayload = Readonly<{
           schemaVersion: "setup-intent-cancel-acceptance/v1";
           apiVersion: string;
@@ -1437,11 +1531,7 @@ describe("Stripe payment processor gateway", () => {
           ) {
             throw new Error("Overlapping Stripe test-mode acceptance did not converge within the call budget.");
           }
-          const secondWrite = writes[1] ?? writes[0]!;
-          const secondWriteDisposition =
-            secondWrite.httpStatus >= 200 && secondWrite.httpStatus < 300
-              ? "replayed-canceled"
-              : "rejected-then-reconciled";
+          const secondWriteDisposition = classifyOverlappingCancellation(overlappingCalls);
 
           payload = {
             schemaVersion: "setup-intent-cancel-acceptance/v1",
