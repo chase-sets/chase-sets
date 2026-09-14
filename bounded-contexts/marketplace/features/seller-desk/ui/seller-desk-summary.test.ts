@@ -23,6 +23,37 @@ describe("severity mapping", () => {
 });
 
 describe("resolveAttentionSummary", () => {
+  it.each([0, 1])("renders bounded drift count and overflow %s without hiding health or manual work", (hasMore) => {
+    const item = buildSellerAttentionItem({
+      source: "channel-action",
+      entityId: "connection-1",
+      severity: "warning",
+      summary: {
+        code: "channel-action-open",
+        params: {
+          reasonCount: 1,
+          topReason: "drift",
+          affectedListingCount: 100,
+          hasMore,
+          manualReason: "ready",
+          connectionId: "connection-1",
+        },
+      },
+      observedAt: "2026-09-14T00:00:00.000Z",
+    });
+    const summary = resolveAttentionSummary(item);
+    expect(summary).toContain(hasMore ? "Affected listings: more than 100." : "Affected listings: 100.");
+    expect(summary).toContain("Health reasons needing attention: 1.");
+    expect(summary).toContain(
+      resolveAttentionSummary(
+        buildSellerAttentionItem({
+          ...item,
+          entityId: "connection-1",
+          summary: { code: "channel-ready", params: { connectionId: "connection-1" } },
+        }),
+      ),
+    );
+  });
   it("interpolates the ship-by summary from its code and params", () => {
     const item = buildSellerAttentionItem({
       source: "fulfillment-ship-by",

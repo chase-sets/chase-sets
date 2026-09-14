@@ -27,6 +27,10 @@ import { createChannelReconciliationRuntime } from "../api/runtime";
 import { CHANNEL_RECONCILIATION_POLICY_FALLBACK } from "../domain/policy";
 import { resolveChannelExternalSaleTarget } from "../read-model/sale-target";
 import { readExpectedReconciliationListings } from "../read-model/source";
+import { channelReconciliationSchemaSql, retainedDriftGenerationExpansion } from "../read-model/schema";
+import { channelReconciliationSchemaSql as predecessorSchemaSql } from "./fixtures/pre-generation-schema.test-data";
+import { readChannelDriftAttentionContribution } from "../read-model/queries";
+import { createChannelActionAttentionSourceFromReadModel } from "../../connection-attention/read-model/attention-source";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
@@ -54,6 +58,79 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
   });
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("S6 retained old schema requires the owning migration and survives repeated real boot", async () => {
+    await resetMultiContextTestSchemas({ channels: pools.channels });
+    const predecessor = {
+      ...channelsModule,
+      schemaSql: channelsModule.schemaSql.replace(channelReconciliationSchemaSql, () => predecessorSchemaSql),
+      schemaMigrations: channelsModule.schemaMigrations!.filter(
+        (migration) => migration.migrationId !== "20260914_channels_reconciliation_drift_generation",
+      ),
+    };
+    await bootstrapContextDatabase(predecessor, pools.channels);
+    await seedConnectionAndListings(pools.channels);
+    await pools.channels.query(`INSERT INTO channel_reconciliation_state
+      (connection_id,account_id,provider_key,environment,state,generation,revision,run_fingerprint,
+       cadence_policy_revision,next_due_at,last_clean_run_at,counts,updated_at)
+      VALUES ('connection-1','account-1','inline-provider','sandbox','idle',0,1,NULL,0,now(),NULL,
+        '{"listingsReconciled":0,"inSync":0,"repairable":0,"foreignEdit":0,"structural":0,"sourceUnavailable":0,"repairsEnqueued":0,"repairsSucceeded":0,"missedSaleGaps":0}',now())`);
+    const retainedRun = (
+      await pools.channels.query(
+        "SELECT to_jsonb(run)-'drift_generation' AS retained FROM channel_reconciliation_state AS run",
+      )
+    ).rows;
+    const retainedLinks = (
+      await pools.channels.query("SELECT * FROM channels_channel_listing_links ORDER BY channel_listing_id")
+    ).rows;
+    const omitted = {
+      ...channelsModule,
+      schemaSql: channelsModule.schemaSql.replace(`${retainedDriftGenerationExpansion};`, ""),
+      schemaMigrations: predecessor.schemaMigrations,
+    };
+    await bootstrapContextDatabase(omitted, pools.channels);
+    await expect(
+      readChannelDriftAttentionContribution(pools.channels, { connectionId: "connection-1" }),
+    ).rejects.toMatchObject({ code: "42703" });
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    const ledger = (await pools.channels.query("SELECT * FROM bounded_context_schema_migrations ORDER BY migration_id"))
+      .rows;
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    expect(await readChannelDriftAttentionContribution(pools.channels, { connectionId: "connection-1" })).toBeNull();
+    expect(
+      (await pools.channels.query("SELECT * FROM channels_channel_listing_links ORDER BY channel_listing_id")).rows,
+    ).toEqual(retainedLinks);
+    expect(
+      (
+        await pools.channels.query(
+          "SELECT to_jsonb(run)-'drift_generation' AS retained FROM channel_reconciliation_state AS run",
+        )
+      ).rows,
+    ).toEqual(retainedRun);
+    expect(
+      (await pools.channels.query("SELECT * FROM bounded_context_schema_migrations ORDER BY migration_id")).rows,
+    ).toEqual(ledger);
+    expect(
+      (
+        await pools.channels.query(
+          "SELECT count(*)::int AS count FROM bounded_context_schema_migrations WHERE migration_id='20260914_channels_reconciliation_drift_generation'",
+        )
+      ).rows,
+    ).toEqual([{ count: 1 }]);
+    const registry = inlineRegistry(driftItems);
+    const runtime = createRuntime(registry);
+    expect(
+      await runtime.reconcileConnection(
+        { connectionId: "connection-1", registry, sourceAttempt: 1, healthAuthority: null },
+        context,
+      ),
+    ).toMatchObject({ state: "completed" });
+    expect(await runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" })).toMatchObject({
+      affectedListingCount: 2,
+      resolution: null,
+    });
+  });
 
   it("channel-seeded-drift-drill classifies three classes, enqueues only repairable, and retains bounded attention", async () => {
     await seedConnectionAndListings(pools.channels);
@@ -86,7 +163,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
         connectionId: "connection-1",
         registry,
         sourceAttempt: 1,
-        healthAuthority: { policyRevision: 2, evaluationGeneration: 3 },
+        healthAuthority: { policyRevision: fingerprint("2"), evaluationGeneration: 3 },
       },
       context,
     );
@@ -105,7 +182,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
       affectedListingCount: 2,
       hasMore: 0,
     });
-    await expect(runtime.readPendingHealthObservations({ limit: 10 })).resolves.toHaveLength(3);
+    await expect(runtime.readPendingHealthObservations({ limit: 10 })).resolves.toHaveLength(1);
 
     const accepted = await runtime.acceptChannelDrift(
       {
@@ -143,7 +220,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
         connectionId: "connection-1",
         registry,
         sourceAttempt: 1,
-        healthAuthority: { policyRevision: 2, evaluationGeneration: 3 },
+        healthAuthority: { policyRevision: fingerprint("2"), evaluationGeneration: 3 },
       },
       context,
     );
@@ -621,7 +698,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
       connectionId: "connection-1",
       registry,
       sourceAttempt: 1,
-      healthAuthority: { policyRevision: 2, evaluationGeneration: 3 },
+      healthAuthority: { policyRevision: fingerprint("2"), evaluationGeneration: 3 },
     } as const;
     for (let run = 1; run <= 2; run += 1) {
       await expect(runtime.reconcileConnection(input, context)).resolves.toMatchObject({
@@ -1472,6 +1549,56 @@ describeDb("Channel Reconciliation guarded production path", () => {
 
   it("excludes only settled successful delists while retaining lingering provider state as structural", async () => {
     await seedConnectionAndListings(pools.channels);
+    await createPostgresEventStore({ pool: pools.channels }).appendToStream({
+      streamId: "channels.connection-connection-1",
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "channels.connection.connected",
+          payload: {
+            connectionId: "connection-1",
+            accountId: "account-1",
+            providerKey: "inline-provider",
+            environment: "sandbox",
+            createdAt: new Date().toISOString(),
+          },
+        },
+        {
+          eventType: "channels.connection.activated",
+          payload: {
+            connectionId: "connection-1",
+            credentialReference: null,
+            bindings: [{ storageLocationId: "location-1", revision: 1 }],
+          },
+        },
+      ],
+    });
+    const services = channelsModule.createServices(pools.channels, {
+      channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
+    });
+    const connection = { connectionId: "connection-1", accountId: "account-1" };
+    const runtime = reconciliationAt(new Date());
+    const input = {
+      connectionId: connection.connectionId,
+      registry: inlineRegistry(() => []),
+      sourceAttempt: 1,
+      healthAuthority: (await services.connectionHealth.readConnectionHealth(connection)).health,
+    };
+    await expect(runtime.reconcileConnection(input, context)).resolves.toMatchObject({
+      state: "completed",
+      clean: false,
+      counts: { structural: 3, sourceUnavailable: 0 },
+    });
+    const opening = await runtime.readChannelDriftAttentionContribution(connection);
+    expect(opening).toMatchObject({ generation: 1, affectedListingCount: 3, resolution: null });
+    await expect(runtime.deliverHealthObservations(services.connectionHealth, () => context)).resolves.toEqual({
+      consumed: 1,
+    });
+    const source = createChannelActionAttentionSourceFromReadModel(pools.channels);
+    expect(await source.load({ accountId: "account-1", now: new Date().toISOString() })).toHaveLength(1);
+    const openedHealth = (await services.connectionHealth.readConnectionHealth(connection)).health.reasons[0]!;
+    expect(openedHealth).toMatchObject({ reasonCode: "drift", state: "degraded", fingerprint: opening!.fingerprint });
     await authorAllDelists(pools.channels);
     await projectAllDelistsSucceeded(pools.channels);
     const settled = await pools.channels.query<{ publish_state: string }>(
@@ -1481,13 +1608,64 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await expect(
       readExpectedReconciliationListings(pools.channels, { connectionId: "connection-1", limit: 10 }),
     ).resolves.toMatchObject({ items: [] });
-    const runtime = reconciliationAt(new Date("2026-09-12T06:00:00.000Z"));
-    await expect(
-      runtime.reconcileConnection(
-        { connectionId: "connection-1", registry: inlineRegistry(() => []), sourceAttempt: 1, healthAuthority: null },
-        context,
-      ),
-    ).resolves.toMatchObject({ clean: true, counts: { structural: 0 } });
+    await expect(runtime.reconcileConnection(input, context)).resolves.toMatchObject({
+      state: "completed",
+      clean: true,
+      counts: { structural: 0, sourceUnavailable: 0 },
+    });
+    const recovered = await runtime.readChannelDriftAttentionContribution(connection);
+    expect(recovered).toMatchObject({
+      generation: opening!.generation,
+      fingerprint: opening!.fingerprint,
+      affectedListingCount: 0,
+      resolution: "recovered-automatically",
+    });
+    expect(recovered!.members).toEqual(opening!.members.map((member) => ({ ...member, settlement: "recovered" })));
+    await expect(runtime.deliverHealthObservations(services.connectionHealth, () => context)).resolves.toEqual({
+      consumed: 1,
+    });
+    await runtime.reconcileConnection(input, context);
+    await runtime.deliverHealthObservations(services.connectionHealth, () => context);
+    await expect(runtime.deliverHealthObservations(services.connectionHealth, () => context)).resolves.toEqual({
+      consumed: 0,
+    });
+    expect((await services.connectionHealth.readConnectionHealth(connection)).health.reasons[0]).toMatchObject({
+      reasonCode: "drift",
+      generation: openedHealth.generation,
+      fingerprint: opening!.fingerprint,
+      state: "closed",
+    });
+    expect(await source.load({ accountId: "account-1", now: new Date().toISOString() })).toEqual([]);
+    expect(
+      (
+        await pools.channels.query(
+          "SELECT fingerprint,reason_generation::int,resolution_reason FROM channel_connection_attention",
+        )
+      ).rows,
+    ).toEqual([
+      {
+        fingerprint: opening!.fingerprint,
+        reason_generation: openedHealth.generation,
+        resolution_reason: "recovered-automatically",
+      },
+    ]);
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT payload->>'resolutionReason' AS resolution FROM event_store_events
+           WHERE stream_id='channels.connection-attention-connection-1'
+             AND payload->>'schemaVersion'='ChannelAttentionResolved/v1'`,
+        )
+      ).rows,
+    ).toEqual([{ resolution: "recovered-automatically" }]);
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT resolution FROM channel_reconciliation_attention_resolutions
+           WHERE connection_id='connection-1' AND run_generation=1`,
+        )
+      ).rows,
+    ).toEqual([{ resolution: "recovered-automatically" }]);
 
     await expect(
       runtime.reconcileConnection(
@@ -1512,6 +1690,36 @@ describeDb("Channel Reconciliation guarded production path", () => {
     expect(failed.items.map((item) => item.channelListingId)).toEqual(["channel-foreign"]);
   });
 
+  it("retains original open delisted membership when the current sale source is unknown", async () => {
+    await seedConnectionAndListings(pools.channels);
+    const runtime = reconciliationAt(new Date());
+    const input = { connectionId: "connection-1", sourceAttempt: 1, healthAuthority: null } as const;
+    await runtime.reconcileConnection({ ...input, registry: inlineRegistry(() => []) }, context);
+    const opening = await runtime.readChannelDriftAttentionContribution(input);
+    expect(opening).toMatchObject({ generation: 1, affectedListingCount: 3, resolution: null });
+    expect(opening!.members.every((member) => member.settlement === "open")).toBe(true);
+    const membership = async () =>
+      (await pools.channels.query("SELECT drift_generation FROM channel_reconciliation_state")).rows;
+    const original = await membership();
+    await authorAllDelists(pools.channels);
+    await projectAllDelistsSucceeded(pools.channels);
+    await expect(
+      runtime.reconcileConnection(
+        {
+          ...input,
+          registry: inlineRegistryWithSaleResult(
+            () => [],
+            async () => ({ kind: "bounded-unknown", reason: "source-error" }),
+          ),
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ state: "bounded-unknown", clean: false });
+    expect(await membership()).toEqual(original);
+    await expect(runtime.readChannelDriftAttentionContribution(input)).resolves.toEqual(opening);
+    expect((await pools.channels.query("SELECT 1 FROM channel_reconciliation_attention_resolutions")).rows).toEqual([]);
+  });
+
   it("keeps the claimed arm memberless, bounded unknown, and free of provider and health work", async () => {
     await seedConnectionAndListings(pools.channels, "claimed-provider");
     const registry = createChannelProviderRegistry([descriptor("claimed-provider", { execution: "claimed" })]);
@@ -1522,7 +1730,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
           connectionId: "connection-1",
           registry,
           sourceAttempt: 1,
-          healthAuthority: { policyRevision: 1, evaluationGeneration: 1 },
+          healthAuthority: { policyRevision: fingerprint("1"), evaluationGeneration: 1 },
         },
         context,
       ),
@@ -1828,11 +2036,12 @@ async function seedInventoryItem(db: PgTransactionalPool, itemId: string) {
 
 function healthObservation(resultOrdinal: number) {
   return {
+    schemaVersion: "ChannelHealthObservation/v1" as const,
     sourceKind: "channel-reconciliation" as const,
     sourceWorkId: "synthetic-health-page",
     sourceAttempt: 1,
     resultOrdinal,
-    policyRevision: 1,
+    policyRevision: fingerprint("1"),
     evaluationGeneration: 1,
     connectionId: "connection-1",
     reasonCode: "drift" as const,

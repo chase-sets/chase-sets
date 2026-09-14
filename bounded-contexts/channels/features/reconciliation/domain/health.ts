@@ -7,7 +7,7 @@ export function mapChannelDriftToHealthObservation(
     runGeneration: number;
     sourceAttempt: number;
     resultOrdinal: number;
-    policyRevision: number;
+    policyRevision: string;
     evaluationGeneration: number;
     classification: ChannelDriftClassification;
     sourceAuthority: ChannelSourceAuthority;
@@ -18,6 +18,7 @@ export function mapChannelDriftToHealthObservation(
   if (input.sourceAuthority.kind === "absent-by-design") return null;
   const outcome = input.classification === "in-sync" ? "success" : "failure";
   return Object.freeze({
+    schemaVersion: "ChannelHealthObservation/v1",
     sourceKind: "channel-reconciliation",
     sourceWorkId: boundedDigest(
       `channel-reconciliation\0${input.connectionId}\0${input.runGeneration}\0${input.policyRevision}`,
@@ -28,37 +29,8 @@ export function mapChannelDriftToHealthObservation(
     evaluationGeneration: input.evaluationGeneration,
     connectionId: input.connectionId,
     reasonCode: "drift",
-    fingerprint: boundedDigest(`${input.classification}\0${input.sourceAuthority.kind}\0${input.materialFingerprint}`),
+    fingerprint: input.materialFingerprint,
     outcome,
-    occurredAt: input.occurredAt,
-  });
-}
-
-export function mapPersistentGapToHealthObservation(
-  input: Readonly<{
-    connectionId: string;
-    runGeneration: number;
-    sourceAttempt: number;
-    resultOrdinal: number;
-    policyRevision: number;
-    evaluationGeneration: number;
-    gapFingerprint: string;
-    occurredAt: string;
-  }>,
-): ChannelHealthObservationV1 {
-  return Object.freeze({
-    sourceKind: "channel-reconciliation",
-    sourceWorkId: boundedDigest(
-      `channel-missed-sale-gap\0${input.connectionId}\0${input.runGeneration}\0${input.policyRevision}`,
-    ),
-    sourceAttempt: input.sourceAttempt,
-    resultOrdinal: input.resultOrdinal,
-    policyRevision: input.policyRevision,
-    evaluationGeneration: input.evaluationGeneration,
-    connectionId: input.connectionId,
-    reasonCode: "drift",
-    fingerprint: boundedDigest(`persistent-gap\0${input.gapFingerprint}`),
-    outcome: "failure",
     occurredAt: input.occurredAt,
   });
 }

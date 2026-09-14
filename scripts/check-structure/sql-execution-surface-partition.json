@@ -949,6 +949,7 @@
     "bounded-contexts/channels/features/publication-port/domain/validation.ts",
     "bounded-contexts/channels/features/reconciliation/domain/classification.ts",
     "bounded-contexts/channels/features/reconciliation/domain/contracts.ts",
+    "bounded-contexts/channels/features/reconciliation/domain/generation.ts",
     "bounded-contexts/channels/features/reconciliation/domain/health.ts",
     "bounded-contexts/channels/features/reconciliation/domain/policy.ts",
     "bounded-contexts/channels/features/reconciliation/read-model/schema.ts",

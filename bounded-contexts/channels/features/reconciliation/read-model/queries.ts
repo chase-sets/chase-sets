@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { decodeRetainedDriftGeneration } from "../domain/generation";
 import type {
   ChannelDriftAttentionContribution,
   ChannelDriftDecision,
@@ -58,57 +59,24 @@ export async function readChannelDriftAttentionContribution(
   db: PgQueryable,
   input: Readonly<{ connectionId: string; limit?: number }>,
 ): Promise<ChannelDriftAttentionContribution | null> {
-  const limit = input.limit ?? 100;
-  const result = await db.query<{
-    run_generation: string | number;
-    total: string | number;
-    fingerprints: string[];
-  }>(
-    `SELECT MAX(run_generation) AS run_generation,COUNT(*)::integer AS total,
-            ARRAY_AGG(fingerprint ORDER BY identity) AS fingerprints
-     FROM (
-       SELECT run_generation,channel_listing_id AS identity,
-              COALESCE(observed_fingerprint,expected_material_fingerprint) AS fingerprint
-       FROM channel_reconciliation_items
-       WHERE connection_id=$1 AND classification IN ('foreign-edit','structural') AND settled=false
-       UNION ALL
-       SELECT run_generation,finding_id AS identity,fingerprint
-       FROM channel_reconciliation_findings WHERE connection_id=$1 AND open
-       ORDER BY identity LIMIT $2
-     ) AS bounded`,
-    [input.connectionId, limit + 1],
+  const limit = Math.max(1, Math.min(input.limit ?? 100, 1000));
+  const result = await db.query<{ drift_generation: unknown }>(
+    "SELECT drift_generation FROM channel_reconciliation_state WHERE connection_id=$1",
+    [input.connectionId],
   );
-  const row = result.rows[0];
-  const total = Number(row?.total ?? 0);
-  if (total === 0) {
-    const resolved = await db.query<{
-      run_generation: string | number;
-      fingerprint: string;
-      resolution: "handled-on-channel" | "recovered-automatically";
-    }>(
-      `SELECT run_generation,fingerprint,resolution FROM channel_reconciliation_attention_resolutions
-       WHERE connection_id=$1 ORDER BY run_generation DESC LIMIT 1`,
-      [input.connectionId],
-    );
-    return resolved.rows[0]
-      ? {
-          connectionId: input.connectionId,
-          generation: Number(resolved.rows[0].run_generation),
-          affectedListingCount: 0,
-          hasMore: 0,
-          fingerprint: resolved.rows[0].fingerprint,
-          resolution: resolved.rows[0].resolution,
-        }
-      : null;
-  }
-  const fingerprint = await sha256((row?.fingerprints ?? []).join("\0"));
+  const generation = decodeRetainedDriftGeneration(result.rows[0]?.drift_generation ?? null);
+  if (!generation) return null;
+  const total = generation.members.filter(
+    (member) => member.settlement === "open" && (member.kind === "foreign-edit" || member.kind === "structural"),
+  ).length;
   return {
     connectionId: input.connectionId,
-    generation: Number(row!.run_generation),
+    generation: generation.generation,
     affectedListingCount: Math.min(total, limit),
     hasMore: total > limit ? 1 : 0,
-    fingerprint,
-    resolution: null,
+    fingerprint: generation.fingerprint,
+    resolution: generation.resolution,
+    members: generation.members,
   };
 }
 
@@ -233,11 +201,6 @@ export async function acknowledgeHealthObservations(
     [JSON.stringify(identities), input.consumedAt],
   );
   return { consumed: Number(updated.rowCount ?? 0) };
-}
-
-async function sha256(value: string): Promise<string> {
-  const { createHash } = await import("node:crypto");
-  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function instant(value: Date | string | null): string | null {

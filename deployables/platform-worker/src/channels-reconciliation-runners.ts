@@ -23,13 +23,21 @@ export function createChannelsReconciliationRunners(
 ): readonly WorkerRunner[] {
   return [
     createScheduledJobRunner("channels-drift-reconciliation", 60_000, input.controlPlane, async () => {
+      await input.services.reconciliation.deliverHealthObservations(
+        input.services.connectionHealth,
+        accountScopedWorkerContext,
+      );
       const results = await input.services.reconciliation.reconcileDueConnections(
         {
           registry: input.registry ?? channelProviderRegistry,
           sourceAttempt: 1,
-          healthAuthority: null,
+          readConnectionHealth: input.services.connectionHealth.readConnectionHealth,
           limit: 100,
         },
+        accountScopedWorkerContext,
+      );
+      await input.services.reconciliation.deliverHealthObservations(
+        input.services.connectionHealth,
         accountScopedWorkerContext,
       );
       return results.length;

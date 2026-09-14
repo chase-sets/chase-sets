@@ -74,7 +74,16 @@ export function resolveAttentionSummary(item: SellerAttentionItem): string {
             : params.manualReason === "recovery"
               ? t("channels.manualSync.attention.recovery", params)
               : null;
-      return manual === null ? health : `${health} ${manual}`;
+      const drift =
+        typeof params.affectedListingCount === "number"
+          ? t(
+              params.hasMore === 1
+                ? "marketplace.features.sellerDesk.summary.channelDriftOverflow"
+                : "marketplace.features.sellerDesk.summary.channelDriftCount",
+              params,
+            )
+          : null;
+      return [health, drift, manual].filter((summary) => summary !== null).join(" ");
     }
     default:
       return t("marketplace.features.sellerDesk.summary.fallback");

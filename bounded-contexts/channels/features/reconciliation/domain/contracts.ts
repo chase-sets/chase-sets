@@ -3,6 +3,14 @@ import type { PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-
 import type { RecordExternalChannelSale } from "@chase-sets/inventory/server";
 import type { ChannelProviderRegistry } from "../../publication-port/domain/contracts";
 import type { OutboundSyncServices } from "../../outbound-sync/domain/contracts";
+import type {
+  ChannelHealthObservation,
+  ChannelHealthSnapshot,
+  ConnectionHealthServices,
+} from "../../connection-health/domain/contracts";
+import type { DriftGenerationMember } from "./generation";
+
+export type { ChannelHealthObservation as ChannelHealthObservationV1 } from "../../connection-health/domain/contracts";
 
 export const channelDriftClassifications = [
   "in-sync",
@@ -50,22 +58,8 @@ export type ChannelDriftObservationV1 = Readonly<{
   sourceAuthority: ChannelSourceAuthority;
 }>;
 
-export type ChannelHealthObservationV1 = Readonly<{
-  sourceKind: "channel-reconciliation";
-  sourceWorkId: string;
-  sourceAttempt: number;
-  resultOrdinal: number;
-  policyRevision: number;
-  evaluationGeneration: number;
-  connectionId: string;
-  reasonCode: "drift";
-  fingerprint: string;
-  outcome: "success" | "failure";
-  occurredAt: string;
-}>;
-
 export type ChannelHealthObservationIdentity = Pick<
-  ChannelHealthObservationV1,
+  ChannelHealthObservation,
   "sourceWorkId" | "sourceAttempt" | "resultOrdinal"
 >;
 
@@ -107,6 +101,7 @@ export type ChannelDriftAttentionContribution = Readonly<{
   hasMore: 0 | 1;
   fingerprint: string;
   resolution: "handled-on-channel" | "recovered-automatically" | null;
+  members: readonly DriftGenerationMember[];
 }>;
 
 export type ChannelReconciliationCounts = Readonly<{
@@ -143,7 +138,7 @@ export interface ChannelReconciliationServices {
       connectionId: string;
       registry: ChannelProviderRegistry;
       sourceAttempt: number;
-      healthAuthority: Readonly<{ policyRevision: number; evaluationGeneration: number }> | null;
+      healthAuthority: Pick<ChannelHealthSnapshot, "policyRevision" | "evaluationGeneration"> | null;
     }>,
     context: EventStoreContext,
   ): Promise<ChannelReconciliationRunResult>;
@@ -151,7 +146,8 @@ export interface ChannelReconciliationServices {
     input: Readonly<{
       registry: ChannelProviderRegistry;
       sourceAttempt: number;
-      healthAuthority: Readonly<{ policyRevision: number; evaluationGeneration: number }> | null;
+      healthAuthority?: Pick<ChannelHealthSnapshot, "policyRevision" | "evaluationGeneration"> | null;
+      readConnectionHealth?: ConnectionHealthServices["readConnectionHealth"];
       limit?: number;
     }>,
     contextForAccount: (accountId: string) => EventStoreContext,
@@ -162,12 +158,16 @@ export interface ChannelReconciliationServices {
     input: Readonly<{ connectionId: string; channelListingId: string }>,
   ): Promise<ChannelDriftDecision>;
   readChannelDriftAttentionContribution(
-    input: Readonly<{ connectionId: string }>,
+    input: Readonly<{ connectionId: string; limit?: number }>,
   ): Promise<ChannelDriftAttentionContribution | null>;
   readChannelReconciliationMetrics(
     input: Readonly<{ accountId: string; connectionId: string; window: Readonly<{ from: string; to: string }> }>,
   ): Promise<ChannelReconciliationMetrics>;
-  readPendingHealthObservations(input: Readonly<{ limit?: number }>): Promise<readonly ChannelHealthObservationV1[]>;
+  readPendingHealthObservations(input: Readonly<{ limit?: number }>): Promise<readonly ChannelHealthObservation[]>;
+  deliverHealthObservations(
+    health: ConnectionHealthServices,
+    contextForAccount: (accountId: string) => EventStoreContext,
+  ): Promise<Readonly<{ consumed: number }>>;
   /** Called by the owning health consumer only after its intake transaction commits. */
   acknowledgeHealthObservations(
     input: Readonly<{ observations: readonly ChannelHealthObservationIdentity[] }>,
