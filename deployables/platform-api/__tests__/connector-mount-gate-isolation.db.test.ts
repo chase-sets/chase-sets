@@ -15,6 +15,7 @@ import {
   type PlatformApiTestPools,
 } from "./bootstrap-db-test-support";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
+import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/inventory/server";
 
 let pools: PlatformApiTestPools;
 let auth: ReturnType<typeof authModule.createServices>;
@@ -130,6 +131,7 @@ describe("connector-mount-gate-isolation", () => {
     if (!isChannelsServices(services)) throw new Error("Channels real composition unavailable");
     const connections = channelsModule.createServices(pools.channels, {
       connectorOAuth: oauth,
+      channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
       setupResolver: {
         resolve: async ({ providerKey, environment }) => ({
           providerKey,

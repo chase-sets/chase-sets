@@ -1,12 +1,11 @@
 import type { ConnectorGrant } from "../../../support/request-support/connector-oauth";
+import { CHANNEL_CONNECTOR_OPERATIONS } from "@chase-sets/auth-context";
 
-export const connectorOperations = ["claim", "report", "ingest"] as const;
+export const connectorOperations = CHANNEL_CONNECTOR_OPERATIONS;
 export type ConnectorOperation = (typeof connectorOperations)[number];
+export const connectorOAuthRoutes = ["register", "authorize", "token", "revoke"] as const;
 export const connectorAuditRoutes = [
-  "register",
-  "authorize",
-  "token",
-  "revoke",
+  ...connectorOAuthRoutes,
   "pairing-read",
   "pairing-create",
   "unpair",

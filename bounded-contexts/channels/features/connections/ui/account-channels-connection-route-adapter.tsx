@@ -223,6 +223,7 @@ export async function action(
   | ManualSyncActionError
   | AttentionActionError
   | DriftActionResult
+  | Readonly<{ kind: "pairing-error"; error: string }>
   | Readonly<{ kind: "pairing-code"; generated: GeneratedPairingCode }>
   | Response
 > {
@@ -293,12 +294,12 @@ export async function action(
           ),
         },
       );
-      if (!response.ok) return { error: t("channels.connector.retry") };
+      if (!response.ok) return { kind: "pairing-error", error: t("channels.connector.retry") };
       if (endpoint === "unpair") return redirect(new URL(args.request.url).pathname);
       const generated = decodeGeneratedPairingCode(await response.json());
       return { kind: "pairing-code", generated };
     } catch {
-      return { error: t("channels.connector.retry") };
+      return { kind: "pairing-error", error: t("channels.connector.retry") };
     }
   }
   const emptyHeaders = createForwardedAuthHeaders(args.request);
@@ -419,7 +420,9 @@ export default function AccountChannelsConnectionRoute() {
             title={
               actionData && "kind" in actionData && actionData.kind === "attention-error"
                 ? t("channels.attention.action.failed")
-                : t("channels.manualSync.action.failed")
+                : actionData && "kind" in actionData && actionData.kind === "pairing-error"
+                  ? t("channels.connector.error")
+                  : t("channels.manualSync.action.failed")
             }
             description={actionError}
           />
