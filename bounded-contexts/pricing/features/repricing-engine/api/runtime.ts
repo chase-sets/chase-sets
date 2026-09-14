@@ -369,6 +369,40 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
 }
 
 async function executeProductRound(
+  ...args: Parameters<typeof executeAdmittedProductRound>
+): Promise<RepricingEvaluationJobResult> {
+  const [deps, , job, input] = args;
+  const lockKey = JSON.stringify(["pricing:product-round", job.payload.catalogItemId, job.payload.productId]);
+  const lockClient = await deps.db.connect();
+  let lockHeld = false;
+  let failed = false;
+  let releaseError: unknown;
+  try {
+    await lockClient.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
+    lockHeld = true;
+    input.throwIfLeaseLost?.();
+    // Admission precedes input/freeze reads and lasts through commands, state and facts.
+    return await executeAdmittedProductRound(...args);
+  } catch (error) {
+    failed = true;
+    releaseError = error;
+    throw error;
+  } finally {
+    try {
+      if (lockHeld) {
+        await lockClient.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
+      }
+    } catch (error) {
+      releaseError = error;
+      if (!failed) throw error;
+    } finally {
+      // An uncertain lock session must be discarded, never returned to the pool.
+      lockClient.release(releaseError);
+    }
+  }
+}
+
+async function executeAdmittedProductRound(
   deps: RepricingEngineRuntimeDeps,
   factCodec: ReturnType<typeof createPassthroughDomainEventCodec<RepricingPolicyEvaluatedEvent>>,
   job: DurableJobRecord<RepricingEvaluationJobPayload, RepricingEvaluationJobProgress, RepricingEvaluationJobResult>,

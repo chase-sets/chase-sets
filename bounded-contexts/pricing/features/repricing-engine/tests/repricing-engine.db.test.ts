@@ -90,11 +90,14 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       maxChangesPerDay?: number;
       policyId?: RepricingPolicyId;
       rule?: RepricingRule;
+      product?: Readonly<{ catalogItemId: string; productId: string }>;
+      listingPrefix?: string;
     }>,
   ) {
     const listingHandlers = buildPricingMarketplaceInputProjectionHandlers(pool);
     const policyId = input.policyId ?? "rpp_1";
-    const listingIds = input.listingPrices.map((_, index) => `lst_policy_${index + 1}`);
+    const seededProduct = input.product ?? { catalogItemId: "cat_1", productId: "cat_1::" };
+    const listingIds = input.listingPrices.map((_, index) => `${input.listingPrefix ?? "lst_policy"}_${index + 1}`);
     for (const [index, priceAmount] of input.listingPrices.entries()) {
       const listingId = listingIds[index]!;
       await listingHandlers["marketplace.listing.created"]!(
@@ -103,8 +106,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           {
             listingId,
             accountId: "acc_seller",
-            catalogItemId: "cat_1",
-            productId: "cat_1::",
+            ...seededProduct,
             priceAmount,
             priceCurrencyCode: "USD",
             quantityCap: 1,
@@ -165,12 +167,13 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
          platform_verified_trade_count, platform_trade_count, external_comp_count,
          previous_amount, estimated_at, fresh_until, disclosure, updated_at
        ) VALUES (
-         'cat_1', 'cat_1::', 2,
+         $1, $2, 2,
          '2026-07-01T00:00:00.000Z', '2026-07-17T12:00:00.000Z', '11.00', 'usd',
          '10.00', '12.00', 'medium', 3, 5, 0,
          '10.00', '2026-07-17T12:00:00.000Z', '2026-07-18T12:00:00.000Z', 'account',
          '2026-07-17T12:00:00.000Z'
        )`,
+      [seededProduct.catalogItemId, seededProduct.productId],
     );
     return { listingIds, policyId };
   }
@@ -259,6 +262,258 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     };
     return { db, reached, release, updates };
   }
+
+  it.each(["catalog", "product"] as const)(
+    "serializes claimed product rounds through fact append while a different %s runs",
+    async (differentKey) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(now);
+      const pool = pools.pricing;
+      const syntheticProduct = { catalogItemId: "cat_synthetic_f1", productId: "prd_synthetic_f1" };
+      const otherProduct = {
+        catalogItemId: differentKey === "catalog" ? "cat_synthetic_other" : syntheticProduct.catalogItemId,
+        productId: differentKey === "product" ? "prd_synthetic_other" : syntheticProduct.productId,
+      };
+      const rule = {
+        ...defaultRule,
+        directive: { ...defaultRule.directive, anchorChain: [{ source: "market-estimate" as const }] },
+      };
+      const { listingIds } = await seedRound(pool, {
+        product: syntheticProduct,
+        policyId: "rpp_synthetic_f1" as RepricingPolicyId,
+        listingPrefix: "lst_synthetic_f1",
+        listingPrices: ["16.00", "17.00"],
+        rule,
+      });
+      await seedRound(pool, {
+        product: otherProduct,
+        policyId: "rpp_synthetic_other" as RepricingPolicyId,
+        listingPrefix: "lst_synthetic_other",
+        listingPrices: ["16.00"],
+        rule,
+      });
+      await recordProductRoundDirection(pool, syntheticProduct, "down", launch, now);
+      await recordProductRoundDirection(pool, syntheticProduct, "down", launch, now);
+      const precondition = holdQuery(
+        pool,
+        (sql) => sql.includes("SELECT EXISTS (") && sql.includes("FROM pricing_repricing_policies"),
+      );
+      const store = createPostgresEventStore({ pool });
+      let appended!: () => void;
+      let releaseAppend!: () => void;
+      const factAppended = new Promise<void>((resolve) => {
+        appended = resolve;
+      });
+      const appendReleased = new Promise<void>((resolve) => {
+        releaseAppend = resolve;
+      });
+      const winner = createRepricingEngineRuntime({
+        db: precondition.db,
+        eventStore: {
+          ...store,
+          appendToStream: async (request) => {
+            const result = await store.appendToStream(request);
+            appended();
+            await appendReleased;
+            return result;
+          },
+        },
+      });
+      let waiterPid: number | undefined;
+      let loserInputReads = 0;
+      const loser = createRepricingEngineRuntime({
+        eventStore: store,
+        db: {
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
+            if (sql.includes("FROM pricing_repricing_policy_assignments AS assignment")) loserInputReads += 1;
+            return pool.query<Row>(sql, values);
+          },
+          connect: async () => {
+            const client = await pool.connect();
+            return {
+              release: client.release.bind(client),
+              query: async <Row>(sql: string, values?: readonly unknown[]) => {
+                if (sql.includes("pg_advisory_lock(")) {
+                  waiterPid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+                }
+                return client.query<Row>(sql, values);
+              },
+            };
+          },
+        },
+      });
+      const other = createRepricingEngineRuntime({ db: pool, eventStore: store });
+      const winnerGateway = gateway(() => "applied");
+      const loserGateway = gateway(() => "applied");
+      const otherGateway = gateway(() => "applied");
+      const run = (runtime: typeof winner, name: string, value: RepricingMarketplaceGateway) =>
+        runtime.processNextEvaluationJob({
+          claimOwnerId: `worker:synthetic-f1-${name}`,
+          claimTtlMs: 30_000,
+          marketplaceGatewayForAccount: () => value,
+        });
+      await winner.enqueueMarketPriceSignal({ ...signal("evt_synthetic_f1_winner"), ...syntheticProduct });
+      const winnerWork = run(winner, "winner", winnerGateway);
+      let loserWork: Promise<number> | undefined;
+      try {
+        await precondition.reached;
+        await loser.enqueueMarketPriceSignal({ ...signal("evt_synthetic_f1_loser"), ...syntheticProduct });
+        loserWork = run(loser, "loser", loserGateway);
+        await vi.waitFor(async () => {
+          expect(waiterPid).toBeDefined();
+          const waiting = await pool.query(
+            "SELECT 1 FROM pg_locks WHERE pid = $1 AND locktype = 'advisory' AND NOT granted",
+            [waiterPid],
+          );
+          expect(waiting.rows).toHaveLength(1);
+        });
+        const jobs = await pool.query(
+          "SELECT claim_owner_id FROM pricing_repricing_evaluation_jobs WHERE status = 'running'",
+        );
+        expect(jobs.rows).toHaveLength(2);
+        expect(loserInputReads).toBe(0);
+        await other.enqueueMarketPriceSignal({ ...signal("evt_synthetic_f1_other"), ...otherProduct });
+        expect(await run(other, "other", otherGateway)).toBe(1);
+        expect(otherGateway.calls).toHaveLength(1);
+        expect(winnerGateway.calls).toHaveLength(0);
+        precondition.release();
+        await factAppended;
+        const frozen = await readProductRoundState(pool, syntheticProduct);
+        expect(Date.parse(frozen!.frozen_until!)).toBeGreaterThan(Date.now());
+        expect(frozen!.same_direction_rounds).toBe(0);
+        expect(loserInputReads).toBe(0);
+        expect(loserGateway.calls).toHaveLength(0);
+        releaseAppend();
+        expect(await winnerWork).toBe(1);
+        expect(await loserWork).toBe(1);
+        expect(winnerGateway.calls).toHaveLength(1);
+        expect(loserGateway.calls).toHaveLength(0);
+        expect(loserGateway.pauseCalls).toHaveLength(0);
+        expect(loserGateway.publishCalls).toHaveLength(0);
+        const facts = (await evaluationFacts(pool)).map(
+          ({ payload }) => payload as RepricingPolicyEvaluatedEvent["data"],
+        );
+        const winningFact = facts.find((fact) => fact.trigger.eventId === "evt_synthetic_f1_winner")!;
+        const losingFact = facts.find((fact) => fact.trigger.eventId === "evt_synthetic_f1_loser")!;
+        expect(winningFact.spiralBreaker?.tripped).toBe(true);
+        expect(losingFact.listings).toHaveLength(listingIds.length);
+        for (const trace of losingFact.listings) {
+          expect(trace).toMatchObject({
+            outcome: "skipped",
+            skipReason: "spiral-breaker-frozen",
+            frozenUntil: winningFact.spiralBreaker!.frozenUntil,
+          });
+        }
+        expect(losingFact.spiralBreaker).toEqual({
+          tripped: false,
+          frozenUntil: winningFact.spiralBreaker!.frozenUntil,
+        });
+      } finally {
+        precondition.release();
+        releaseAppend();
+        await Promise.allSettled([winnerWork, ...(loserWork ? [loserWork] : [])]);
+      }
+    },
+  );
+
+  it.each(["acquire", "input", "pause", "fact", "unlock", "input-and-unlock"] as const)(
+    "releases the product lock and preserves the error after %s failure",
+    async (failure) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(now);
+      const pool = pools.pricing;
+      const syntheticProduct = { catalogItemId: "cat_synthetic_failure", productId: "prd_synthetic_failure" };
+      await seedRound(pool, {
+        product: syntheticProduct,
+        listingPrefix: "lst_synthetic_failure",
+        listingPrices: ["16.00"],
+        rule: {
+          ...defaultRule,
+          directive: {
+            ...defaultRule.directive,
+            anchorChain: [{ source: "market-estimate" }],
+            terminal: { kind: "pause", reason: "Synthetic unavailable input." },
+          },
+        },
+      });
+      if (failure === "pause") await pool.query("DELETE FROM pricing_market_price_estimates");
+      const originalError = new Error(`synthetic ${failure} failure`);
+      const cleanupError = new Error("synthetic unlock failure");
+      const store = createPostgresEventStore({ pool });
+      const released = vi.fn();
+      let lockPid: number | undefined;
+      const runtime = createRepricingEngineRuntime({
+        eventStore: {
+          ...store,
+          appendToStream: async (request) => {
+            if (failure === "fact") throw originalError;
+            return store.appendToStream(request);
+          },
+        },
+        db: {
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
+            if (
+              (failure === "input" || failure === "input-and-unlock") &&
+              sql.includes("FROM pricing_repricing_policy_assignments AS assignment")
+            )
+              throw originalError;
+            return pool.query<Row>(sql, values);
+          },
+          connect: async () => {
+            const client = await pool.connect();
+            let lockSession = false;
+            return {
+              query: async <Row>(sql: string, values?: readonly unknown[]) => {
+                if (sql.includes("pg_advisory_lock(")) {
+                  lockSession = true;
+                  lockPid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+                  if (failure === "acquire") throw originalError;
+                }
+                if (sql.includes("pg_advisory_unlock(")) {
+                  if (failure === "unlock") throw originalError;
+                  if (failure === "input-and-unlock") throw cleanupError;
+                }
+                return client.query<Row>(sql, values);
+              },
+              release: (error?: unknown) => {
+                if (lockSession) released(error);
+                client.release(error);
+              },
+            };
+          },
+        },
+      });
+      const failingGateway = {
+        ...gateway(() => "applied"),
+        pauseListing: async () => {
+          throw originalError;
+        },
+      };
+      await runtime.enqueueMarketPriceSignal({ ...signal(`evt_synthetic_failure_${failure}`), ...syntheticProduct });
+      await expect(
+        runtime.processNextEvaluationJob({
+          claimOwnerId: "worker:synthetic-failure",
+          claimTtlMs: 30_000,
+          marketplaceGatewayForAccount: () => failingGateway,
+        }),
+      ).rejects.toBe(originalError);
+      expect(released).toHaveBeenCalledExactlyOnceWith(failure === "input-and-unlock" ? cleanupError : originalError);
+      await vi.waitFor(async () => {
+        expect(
+          (await pool.query("SELECT 1 FROM pg_locks WHERE pid = $1 AND locktype = 'advisory'", [lockPid])).rows,
+        ).toHaveLength(0);
+      });
+      const next = createRepricingEngineRuntime({ db: pool, eventStore: store });
+      await next.enqueueMarketPriceSignal({ ...signal(`evt_synthetic_recovery_${failure}`), ...syntheticProduct });
+      expect(
+        await next.processNextEvaluationJob({
+          claimOwnerId: "worker:synthetic-recovery",
+          claimTtlMs: 30_000,
+          marketplaceGatewayForAccount: () => gateway(() => "applied"),
+        }),
+      ).toBe(1);
+    },
+  );
 
   it.each(["down", "up"] as const)(
     "trips across sellers on three net %s rounds and retains routine state",
