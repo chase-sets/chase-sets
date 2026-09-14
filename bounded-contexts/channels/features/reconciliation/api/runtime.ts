@@ -819,7 +819,14 @@ async function decideDrift(
       }
       await assertDecisionProjection(db, input.connectionId, input.channelListingId, history);
       if (kind === "repush" && history.repushRequested && history.lastOperationId === input.operationId) {
-        await enqueueDecisionRepush(dependencies, db, await readChannelDriftDecision(db, input), context, occurredAt);
+        const enqueued = await enqueueDecisionRepush(
+          dependencies,
+          db,
+          await readChannelDriftDecision(db, input),
+          context,
+          occurredAt,
+        );
+        if (!enqueued) throw new Error("Channel Drift repush could not enqueue its matching operation.");
       }
       return readChannelDriftDecision(db, input);
     }
@@ -916,7 +923,14 @@ async function decideDrift(
       ],
     );
     if (kind === "repush") {
-      await enqueueDecisionRepush(dependencies, db, await readChannelDriftDecision(db, input), context, occurredAt);
+      const enqueued = await enqueueDecisionRepush(
+        dependencies,
+        db,
+        await readChannelDriftDecision(db, input),
+        context,
+        occurredAt,
+      );
+      if (!enqueued) throw new Error("Channel Drift repush could not enqueue its matching operation.");
     }
     return readChannelDriftDecision(db, input);
   });

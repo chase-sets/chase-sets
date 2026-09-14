@@ -25,7 +25,8 @@ import { buildChannelListingStateProjectionHandlers } from "../../listing-compos
 import { createChannelProviderRegistry } from "../../publication-port/api/registry";
 import type { ChannelProviderDescriptor, ChannelStateLineV1 } from "../../publication-port/domain/contracts";
 import { createChannelReconciliationRuntime } from "../api/runtime";
-import type { ChannelReconciliationRuntimeDependencies } from "../domain/contracts";
+import type { ChannelReconciliationRuntimeDependencies, RepushChannelListing } from "../domain/contracts";
+import { deriveOutboundRepushOperationId } from "../../outbound-sync/api/store";
 import { CHANNEL_RECONCILIATION_POLICY_FALLBACK } from "../domain/policy";
 import { resolveChannelExternalSaleTarget } from "../read-model/sale-target";
 import { readExpectedReconciliationListings } from "../read-model/source";
@@ -282,10 +283,16 @@ describeDb("Channel Reconciliation guarded production path", () => {
     },
   );
 
-  it.each(["null", "identity", "basis", "failed"] as const)(
-    "S5 retained %s enqueue preserves the matching request and same-operation retry consumes once",
-    async (mode) => {
+  it.each(
+    (["null", "identity", "basis", "failed", "provenance", "payload"] as const).flatMap((mode) =>
+      [false, true].map((retained) => ({ mode, retained })),
+    ),
+  )(
+    "S5 unmatched $mode enqueue rejects atomically with retained=$retained and exact retry consumes once",
+    async ({ mode, retained }) => {
       const { command, outbound } = await s5Setup();
+      if (retained) await seedRetainedRepushRequest(command);
+      const before = await repushFacts();
       const mismatched = s5Runtime({
         outboundSync: {
           ...outbound,
@@ -296,22 +303,36 @@ describeDb("Channel Reconciliation guarded production path", () => {
               ? { ...operation, operationId: "cop_" + "0".repeat(40) }
               : mode === "basis"
                 ? { ...operation, sourceDesiredStateHash: fingerprint("f") }
-                : { ...operation, status: "failed" };
+                : mode === "provenance"
+                  ? { ...operation, sourceEventId: "synthetic-wrong-event" }
+                  : mode === "payload"
+                    ? { ...operation, payloadDigest: fingerprint("f") }
+                    : { ...operation, status: "failed" };
           },
         },
       });
-      await expect(mismatched.repushChannelListing(command, context)).resolves.toMatchObject({
-        revision: 1,
-        repushRequested: true,
-      });
-      expect(await decisionEvents()).toHaveLength(1);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await expect(mismatched.repushChannelListing(command, context)).rejects.toThrow(
+          "Channel Drift repush could not enqueue its matching operation.",
+        );
+        expect(await repushFacts()).toEqual(before);
+      }
       const runtime = s5Runtime({ outboundSync: outbound });
       await expect(runtime.repushChannelListing(command, context)).resolves.toMatchObject({
         revision: 2,
         repushRequested: false,
       });
       await expect(runtime.repushChannelListing(command, context)).resolves.toMatchObject({ revision: 2 });
-      expect(await decisionEvents()).toHaveLength(2);
+      expect((await decisionEvents()).map((event) => ({ eventType: event.eventType, payload: event.payload }))).toEqual([
+        { eventType: "channels.channel-drift.repush-requested", payload: command },
+        {
+          eventType: "channels.channel-drift.repush-enqueued",
+          payload: { ...command, expectedDecisionRevision: 1 },
+        },
+      ]);
+      expect((await pools.channels.query("SELECT operation_id FROM channel_drift_decision_operations")).rows).toEqual([
+        { operation_id: command.operationId },
+      ]);
       expect((await pools.channels.query("SELECT status,attempt_count FROM channel_outbound_operations")).rows).toEqual(
         [{ status: "pending", attempt_count: 0 }],
       );
@@ -349,15 +370,41 @@ describeDb("Channel Reconciliation guarded production path", () => {
     expect(results.filter((result) => result.status === "rejected")).toMatchObject([
       { reason: { message: expect.stringMatching(/revision is stale|projection does not match its event history/) } },
     ]);
-    const retained = (await pools.channels.query("SELECT * FROM channel_outbound_operations")).rows;
-    await expect(
-      runtime.repushChannelListing({ ...command, operationId: "s5-next", expectedDecisionRevision: 2 }, context),
-    ).resolves.toMatchObject({ revision: 3, repushRequested: true });
-    expect((await pools.channels.query("SELECT * FROM channel_outbound_operations")).rows).toEqual(retained);
-    await expect(
-      runtime.repushChannelListing({ ...command, operationId: "s5-next", expectedDecisionRevision: 2 }, context),
-    ).resolves.toMatchObject({ revision: 3, repushRequested: true });
-    expect(await decisionEvents()).toHaveLength(3);
+    const retained = await repushFacts();
+    const next = { ...command, operationId: "s5-next", expectedDecisionRevision: 2 };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(runtime.repushChannelListing(next, context)).rejects.toThrow(
+        "Channel Drift repush could not enqueue its matching operation.",
+      );
+      expect(await repushFacts()).toEqual(retained);
+    }
+    await pools.channels.query(
+      "UPDATE channel_outbound_operations SET status='succeeded',terminal_at=$2 WHERE operation_id=$1 AND status='pending'",
+      [retained.queue[0]!.operation_id, "2026-09-12T06:00:00.000Z"],
+    );
+    const settled = (await repushFacts()).queue;
+    await expect(runtime.repushChannelListing(next, context)).resolves.toMatchObject({
+      revision: 4,
+      repushRequested: false,
+      operationId: next.operationId,
+    });
+    const expected = await readExpectedReconciliationListings(pools.channels, { ...next, limit: 1 });
+    const operationId = deriveOutboundRepushOperationId({
+      ...expected.items[0]!.desired,
+      repushOperationId: next.operationId,
+    });
+    const after = await repushFacts();
+    expect(after.queue.filter((row) => row.operation_id !== operationId)).toEqual(settled);
+    expect(after.queue.filter((row) => row.operation_id === operationId)).toMatchObject([
+      { status: "pending", attempt_count: 0 },
+    ]);
+    expect(after.events.slice(0, 2)).toEqual(retained.events);
+    expect(after.events.slice(2).map((event) => ({ eventType: event.eventType, payload: event.payload }))).toEqual([
+      { eventType: "channels.channel-drift.repush-requested", payload: next },
+      { eventType: "channels.channel-drift.repush-enqueued", payload: { ...next, expectedDecisionRevision: 3 } },
+    ]);
+    await expect(runtime.repushChannelListing(next, context)).resolves.toMatchObject({ revision: 4 });
+    expect(await repushFacts()).toEqual(after);
   });
 
   it("S5 account fences precede fresh and replay history disclosure or enqueue", async () => {
@@ -470,7 +517,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
     const runtime = s5Runtime({ outboundSync: outbound });
     await runtime.repushChannelListing(command, context);
     const later = { ...command, operationId: "synthetic-s5-later", expectedDecisionRevision: 2 };
-    await runtime.repushChannelListing(later, context);
+    await seedRetainedRepushRequest(later);
     await expect(runtime.repushChannelListing(command, context)).resolves.toMatchObject({
       revision: 3,
       operationId: later.operationId,
@@ -1213,17 +1260,19 @@ describeDb("Channel Reconciliation guarded production path", () => {
       { connectionId: "connection-1", registry, sourceAttempt: 1, healthAuthority: null },
       context,
     );
-    await expect(
-      runtime.repushChannelListing(
-        {
-          connectionId: "connection-1",
-          channelListingId: "channel-foreign",
-          expectedDecisionRevision: 0,
-          operationId: "repush-foreign-1",
-        },
-        context,
-      ),
-    ).resolves.toMatchObject({ revision: 1, accepted: null, repushRequested: true });
+    const command = {
+      connectionId: "connection-1",
+      channelListingId: "channel-foreign",
+      expectedDecisionRevision: 0,
+      operationId: "repush-foreign-1",
+    };
+    const before = await repushFacts();
+    await expect(runtime.repushChannelListing(command, context)).rejects.toThrow(
+      "Channel Drift repush could not enqueue its matching operation.",
+    );
+    expect(await repushFacts()).toEqual(before);
+    await seedRetainedRepushRequest(command);
+    const retained = await repushFacts();
 
     operatorHeld = true;
     await expect(
@@ -1253,6 +1302,21 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await expect(
       runtime.readChannelDriftDecision({ connectionId: "connection-1", channelListingId: "channel-foreign" }),
     ).resolves.toMatchObject({ repushRequested: true });
+    expect(await repushFacts()).toEqual(retained);
+    await expect(runtime.repushChannelListing(command, context)).rejects.toThrow(
+      "Channel Drift repush could not enqueue its matching operation.",
+    );
+    expect(await repushFacts()).toEqual(retained);
+    const restarted = s5Runtime({ outboundSync: realOutboundRuntime() });
+    await expect(restarted.repushChannelListing(command, context)).resolves.toMatchObject({
+      revision: 2,
+      repushRequested: false,
+    });
+    const recovered = await repushFacts();
+    await restarted.repushChannelListing(command, context);
+    expect(await repushFacts()).toEqual(recovered);
+    expect(recovered.events).toHaveLength(2);
+    expect(recovered.queue).toMatchObject([{ status: "pending", attempt_count: 0 }]);
   });
 
   it.each(["pending", "failed"] as const)(
@@ -1540,19 +1604,28 @@ describeDb("Channel Reconciliation guarded production path", () => {
       healthAuthority: null,
     } as const;
     await runtime.reconcileConnection(input, context);
-    await runtime.repushChannelListing(
-      {
-        connectionId: "connection-1",
-        channelListingId: "channel-foreign",
-        expectedDecisionRevision: 0,
-        operationId: "repush-real-store-1",
-      },
-      context,
+    const command = {
+      connectionId: "connection-1",
+      channelListingId: "channel-foreign",
+      expectedDecisionRevision: 0,
+      operationId: "repush-real-store-1",
+    };
+    const before = await repushFacts();
+    await expect(runtime.repushChannelListing(command, context)).rejects.toThrow(
+      "Channel Drift repush could not enqueue its matching operation.",
     );
+    expect(await repushFacts()).toEqual(before);
+    await seedRetainedRepushRequest(command);
+    const retained = await repushFacts();
+    await expect(runtime.repushChannelListing(command, context)).rejects.toThrow(
+      "Channel Drift repush could not enqueue its matching operation.",
+    );
+    expect(await repushFacts()).toEqual(retained);
     await runtime.reconcileConnection(input, context);
     await expect(
       runtime.readChannelDriftDecision({ connectionId: "connection-1", channelListingId: "channel-foreign" }),
     ).resolves.toMatchObject({ repushRequested: true, revision: 1 });
+    expect(await repushFacts()).toEqual(retained);
 
     await pools.channels.query(
       `UPDATE channel_outbound_operations SET status='succeeded',terminal_at=$2
@@ -1568,6 +1641,9 @@ describeDb("Channel Reconciliation guarded production path", () => {
        WHERE channel_listing_id='channel-foreign' AND operation_origin='repush'`,
     );
     expect(repushes.rows).toEqual([{ operation_origin: "repush", status: "pending" }]);
+    const recovered = await repushFacts();
+    await expect(runtime.repushChannelListing(command, context)).resolves.toMatchObject({ revision: 2 });
+    expect(await repushFacts()).toEqual(recovered);
   });
 
   it("does not count null repairs or accepted foreign edits as successful corrections", async () => {
@@ -2322,6 +2398,63 @@ function pendingOperation(
     firstClaimedAt: null,
     terminalAt: null,
   };
+}
+
+async function repushFacts() {
+  return {
+    events: await decisionEvents(),
+    queue: (await pools.channels.query("SELECT * FROM channel_outbound_operations ORDER BY operation_id")).rows,
+    decisions: (await pools.channels.query("SELECT * FROM channel_drift_decisions ORDER BY channel_listing_id")).rows,
+    receipts: (await pools.channels.query("SELECT * FROM channel_drift_decision_operations ORDER BY operation_id")).rows,
+  };
+}
+
+async function seedRetainedRepushRequest(command: RepushChannelListing) {
+  const eventStore = createPostgresEventStore({ pool: pools.channels });
+  const revision = command.expectedDecisionRevision + 1;
+  const now = "2026-09-12T06:00:00.000Z";
+  await withPgTransaction(pools.channels, async (db) => {
+    await eventStore.appendToStreamInTransaction(db, {
+      streamId: `channels.channel-drift-decision-${command.connectionId}-${command.channelListingId}`,
+      expectedVersion: command.expectedDecisionRevision || "no_stream",
+      context,
+      events: [{ eventType: "channels.channel-drift.repush-requested", payload: { ...command } }],
+    });
+    const projected = await db.query(
+      `INSERT INTO channel_drift_decisions
+         (connection_id,channel_listing_id,revision,repush_requested,last_operation_id,updated_at)
+       VALUES ($1,$2,$3,true,$4,$5)
+       ON CONFLICT (connection_id,channel_listing_id) DO UPDATE
+         SET revision=$3,repush_requested=true,last_operation_id=$4,updated_at=$5,
+             accepted_observed_fingerprint=NULL,accepted_expected_material_fingerprint=NULL,
+             accepted_at_run_generation=NULL
+         WHERE channel_drift_decisions.revision=$6`,
+      [
+        command.connectionId,
+        command.channelListingId,
+        revision,
+        command.operationId,
+        now,
+        command.expectedDecisionRevision,
+      ],
+    );
+    expect(projected.rowCount).toBe(1);
+    await db.query(
+      `INSERT INTO channel_drift_decision_operations
+         (operation_id,connection_id,channel_listing_id,command_kind,command_fingerprint,resulting_revision,recorded_at)
+       VALUES ($1,$2,$3,'repush',$4,$5,$6)`,
+      [
+        command.operationId,
+        command.connectionId,
+        command.channelListingId,
+        createHash("sha256")
+          .update(JSON.stringify({ kind: "repush", ...command }))
+          .digest("hex"),
+        revision,
+        now,
+      ],
+    );
+  });
 }
 
 async function s5Setup() {
