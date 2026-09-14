@@ -16,6 +16,7 @@ import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/i
 import { module as channelsModule } from "../../../index";
 import { createConnectorFeedRuntime } from "../api/runtime";
 import { testContext } from "../../connections/tests/test-support";
+import { createChannelConnectionRuntime } from "../../connections/api/runtime";
 import type { ChannelConnectionHostPorts } from "../../connections/domain/contracts";
 import { connectorFeedSchemaMigrations, connectorFeedSchemaSql } from "../read-model/schema";
 
@@ -33,6 +34,18 @@ function signal() {
   return { promise, resolve };
 }
 let pools: Readonly<Record<"auth" | "channels" | "inventory", PgTransactionalPool>>;
+async function releaseAfterConnectionLockWaiter(release: () => void) {
+  try {
+    await vi.waitFor(async () => {
+      const waiting = await pools.channels.query(`SELECT pid FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'
+        AND query LIKE '%event_store_streams%' AND pid <> pg_backend_pid()`);
+      expect(waiting.rows.length).toBeGreaterThan(0);
+    });
+  } finally {
+    release();
+  }
+}
 let auth: ReturnType<typeof authModule.createServices>;
 let channels: ReturnType<typeof channelsModule.createServices>;
 let oauth: ConnectorOAuthService;
@@ -262,10 +275,24 @@ describeDb("connector-pairing-lifecycle", () => {
     const paired = await pair();
     const replacement = await code();
     expect(await oauth.resolveToken(paired.tokens.access_token)).toBeNull();
+    await feed().consumePairingCode(
+      {
+        pairing_code: replacement.code,
+        client_id: paired.registration.client_id,
+        redirect_uri: paired.registration.redirect_uri,
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+      },
+      seller,
+    );
     await expect(feed().unpair(target, paired.pairing.pairingId, 2, seller)).rejects.toMatchObject({
       code: "conflict",
     });
-    expect(await feed().detail(target)).toMatchObject({ pairingId: replacement.pairingId, state: "code" });
+    expect(await feed().detail(target)).toMatchObject({
+      pairingId: replacement.pairingId,
+      state: "paired",
+      revision: 2,
+    });
   });
 
   it("failed revocation cannot falsely close or publish a replacement, then recovery revokes before close", async () => {
@@ -285,7 +312,7 @@ describeDb("connector-pairing-lifecycle", () => {
     expect((await feed().readAuthority(target)).inbound).toBe("revoked");
   });
 
-  it("disconnect races consumption and never leaves live authority, including after boot twice", async () => {
+  it("disconnect races regeneration and never leaves live authority, including after boot twice", async () => {
     const paired = await pair();
     await Promise.allSettled([code(), channels.connections.disconnectChannelConnection(target, testContext)]);
     expect(await oauth.resolveToken(paired.tokens.access_token)).toBeNull();
@@ -295,6 +322,94 @@ describeDb("connector-pairing-lifecycle", () => {
     await channels.connections.disconnectChannelConnection(target, testContext);
     await expect(code()).rejects.toMatchObject({ code: "authorization-refused" });
     expect((await channels.connections.disconnectChannelConnection(target, testContext)).newEvents).toHaveLength(0);
+  });
+
+  it.each(["consume-first", "disconnect-first"])("consume and disconnect race: %s", async (order) => {
+    const registration = await client();
+    const pairing = await code();
+    const input = {
+      pairing_code: pairing.code,
+      client_id: registration.client_id,
+      redirect_uri: registration.redirect_uri,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    };
+    const entered = signal();
+    const release = signal();
+    const service: ConnectorOAuthService = {
+      ...oauth,
+      authorize: async (...args) => {
+        entered.resolve();
+        await release.promise;
+        return oauth.authorize(...args);
+      },
+      revokePairing: async (binding) => {
+        entered.resolve();
+        await release.promise;
+        await oauth.revokePairing(binding);
+      },
+    };
+    if (order === "consume-first") {
+      const consuming = feed(service).consumePairingCode(input, seller);
+      await entered.promise;
+      const disconnecting = channels.connections.disconnectChannelConnection(target, testContext);
+      await releaseAfterConnectionLockWaiter(release.resolve);
+      await Promise.all([consuming, disconnecting]);
+    } else {
+      const disconnecting = feed(service).disconnectChannelConnection(target, testContext);
+      await entered.promise;
+      const refusal = expect(feed().consumePairingCode(input, seller)).rejects.toMatchObject({
+        code: "invalid-credential",
+      });
+      await releaseAfterConnectionLockWaiter(release.resolve);
+      await Promise.all([disconnecting, refusal]);
+    }
+    expect((await pools.auth.query("SELECT * FROM auth_connector_grants WHERE revoked_at IS NULL")).rows).toHaveLength(
+      0,
+    );
+    expect((await feed().readAuthority(target)).inbound).toBe("revoked");
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    expect((await feed().readAuthority(target)).connectionState).toBe("disconnected");
+    await expect(code()).rejects.toMatchObject({ code: "authorization-refused" });
+  });
+
+  it.each(["cleanup-first", "re-pair-first"])("unpair cleanup and re-pair race: %s", async (order) => {
+    const paired = await pair();
+    const entered = signal();
+    const release = signal();
+    const service: ConnectorOAuthService = {
+      ...oauth,
+      revokePairing: async (binding) => {
+        entered.resolve();
+        await release.promise;
+        await oauth.revokePairing(binding);
+      },
+    };
+    if (order === "cleanup-first") {
+      const cleanup = feed(service).unpair(target, paired.pairing.pairingId, 2, seller);
+      await entered.promise;
+      const replacing = code();
+      await releaseAfterConnectionLockWaiter(release.resolve);
+      await Promise.all([cleanup, replacing]);
+    } else {
+      const replacing = feed(service).createPairingCode(target, seller);
+      await entered.promise;
+      const refusal = expect(feed().unpair(target, paired.pairing.pairingId, 2, seller)).rejects.toMatchObject({
+        code: "conflict",
+      });
+      await releaseAfterConnectionLockWaiter(release.resolve);
+      await Promise.all([replacing, refusal]);
+    }
+    expect(await oauth.resolveToken(paired.tokens.access_token)).toBeNull();
+    const replacement = await feed().detail(target);
+    expect(replacement).toMatchObject({ state: "code", revision: 1 });
+    expect(replacement.pairingId).not.toBe(paired.pairing.pairingId);
+    expect(
+      (await pools.channels.query("SELECT * FROM channel_connector_pairings WHERE state <> 'closed'")).rows,
+    ).toHaveLength(1);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    expect(await feed().detail(target)).toEqual(replacement);
   });
 
   it("connector-feed-scope-isolation: foreign and missing targets refuse equally and call no consumer", async () => {
@@ -524,6 +639,26 @@ describeDb("connector-pairing-lifecycle", () => {
       claimReportAllowed: false,
     });
     expect(work).not.toHaveBeenCalled();
+  });
+
+  it("rechecks connection authority even when credential cleanup has not run", async () => {
+    const paired = await pair();
+    const connection = createChannelConnectionRuntime(
+      { db: pools.channels, eventStore: createPostgresEventStore({ pool: pools.channels }) },
+      ports,
+    );
+    await connection.disconnectChannelConnection(target, testContext);
+    expect(await oauth.resolveToken(paired.tokens.access_token)).not.toBeNull();
+    const work = vi.fn();
+    await expect(
+      feed().withAuthority(
+        { token: paired.tokens.access_token, connectionId: target.connectionId, operation: "ingest" },
+        work,
+      ),
+    ).rejects.toMatchObject({ code: "invalid-credential" });
+    expect(work).not.toHaveBeenCalled();
+    expect((await feed().readAuthority(target)).inbound).toBe("revoked");
+    expect(await oauth.resolveToken(paired.tokens.access_token)).toBeNull();
   });
 
   it("actual Auth composition validates lifetime overrides before issuing rotating connector tokens", async () => {
