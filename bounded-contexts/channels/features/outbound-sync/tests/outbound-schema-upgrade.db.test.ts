@@ -16,7 +16,7 @@ import { outboundSyncSchemaMigrations } from "../read-model/schema";
 import {
   outboundSyncSchemaMigrations as predecessorMigrations,
   outboundSyncSchemaSql as predecessorSchemaSql,
-} from "./fixtures/pre-reconciliation-schema";
+} from "./fixtures/pre-reconciliation-schema.test-data";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
