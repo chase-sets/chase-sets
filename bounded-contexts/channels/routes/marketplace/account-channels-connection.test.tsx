@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { createMemoryRouter, RouterProvider } from "react-router";
@@ -336,7 +336,7 @@ describe("Channels account connection route contribution", () => {
         body: new URLSearchParams({ intent: "connector-code" }),
       });
       const result = await action(loaderArgs(request));
-      expect(result).toEqual({ error: "Reload this connection and try again." });
+      expect(result).toEqual({ kind: "pairing-error", error: "Reload this connection and try again." });
       expect(JSON.stringify(result)).not.toContain("sentinel");
     },
   );
@@ -353,6 +353,32 @@ describe("Channels account connection route contribution", () => {
     });
     expect(await action(loaderArgs(request))).toMatchObject({ status: 302 });
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ body: JSON.stringify({ pairingId: "pair_test", revision: 2 }) });
+  });
+
+  it("connector-pairing-surface: a refused form shows a connector error, not a manual-sync error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.endsWith("/connector-pairing/code")) return new Response(null, { status: 503 });
+        if (url.endsWith("/connector-pairing"))
+          return Response.json({
+            state: "unpaired",
+            pairingId: null,
+            revision: null,
+            codeExpiresAt: null,
+            lastSeenAt: null,
+          });
+        if (url.includes("/outbound-operations")) return Response.json(operationLogBody());
+        if (url.endsWith("/manual-sync")) return Response.json(manualSyncPanel());
+        if (url.endsWith("/connections/connection-a")) return Response.json(actorConnection());
+        return Response.json({ actor: { ...actor(), permissions: ["channels.view", "channels.manage"] } });
+      }),
+    );
+    renderRoute();
+    fireEvent.click(await screen.findByRole("button", { name: "Generate pairing code" }));
+    expect(await screen.findByText("Connector pairing unavailable")).toBeTruthy();
+    expect(screen.queryByText("Manual sync action failed")).toBeNull();
   });
 });
 
@@ -435,6 +461,7 @@ function renderRoute() {
       {
         path: "/account/channels/:connectionId",
         loader,
+        action,
         Component: AccountChannelsConnectionRoute,
       },
     ],
