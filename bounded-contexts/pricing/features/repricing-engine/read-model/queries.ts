@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { RepricingRule } from "../../repricing-policies/domain/domain";
+import type { CreateRepricingPolicyCommand, RepricingRule } from "../../repricing-policies/domain/domain";
+import { candidateAssignmentSql } from "../../repricing-policies/read-model/schema";
 
 export type RepricingRoundListing = Readonly<{
   listingId: string;
@@ -60,94 +61,142 @@ type ListingRow = Readonly<{
   max_changes_per_day: number;
 }>;
 
+export type RepricingProductKey = Readonly<{ catalogItemId: string; productId: string }>;
+export type RepricingCandidate = Readonly<{
+  sellerAccountId: string;
+  body: Pick<CreateRepricingPolicyCommand, "scope" | "excludedListingIds" | "rules" | "maxChangesPerDay">;
+  replacingPolicyId?: string;
+}>;
+
+export const repricingProductKey = (product: RepricingProductKey): string =>
+  JSON.stringify([product.catalogItemId, product.productId]);
+
+export const repricingCandidateCte = `candidate AS (
+  SELECT $3::jsonb->>'sellerAccountId' AS seller_account_id,
+    $3::jsonb->>'replacingPolicyId' AS replacing_policy_id,
+    $3::jsonb->'body'->'scope'->>'kind' AS scope_kind,
+    ARRAY(SELECT jsonb_array_elements_text($3::jsonb->'body'->'scope'->'categoryIds')) AS scope_category_ids,
+    ARRAY(SELECT jsonb_array_elements_text($3::jsonb->'body'->'scope'->'listingIds')) AS scope_listing_ids,
+    ARRAY(SELECT jsonb_array_elements_text($3::jsonb->'body'->'excludedListingIds')) AS excluded_listing_ids,
+    $3::jsonb->'body'->'rules' AS rules,
+    ($3::jsonb->'body'->>'maxChangesPerDay')::integer AS max_changes_per_day
+)`;
+
+const productKeysCte = `products AS (
+  SELECT * FROM unnest($1::text[], $2::text[]) AS keys(catalog_catalog_item_id, product_id)
+)`;
+const eligibleListingSql = `(listing.status = 'active'
+  OR (listing.status = 'paused' AND listing.pause_reason = 'policy-input-missing'))`;
+
+type ProductRow = { catalog_catalog_item_id: string; product_id: string };
+
 export async function loadRepricingRoundInputs(
   db: PgQueryable,
-  product: Readonly<{ catalogItemId: string; productId: string }>,
+  product: RepricingProductKey,
+  candidate?: RepricingCandidate,
 ): Promise<RepricingRoundInputs> {
-  const [listingResult, askResult, estimateResult, lastSoldResult] = await Promise.all([
+  return (await loadRepricingRoundInputsPage(db, { products: [product], candidate })).get(
+    repricingProductKey(product),
+  )!;
+}
+
+export async function loadRepricingRoundInputsPage(
+  db: PgQueryable,
+  input: Readonly<{ products: readonly RepricingProductKey[]; candidate?: RepricingCandidate }>,
+): Promise<Map<string, RepricingRoundInputs>> {
+  if (input.products.length > 500) throw new Error("Repricing pages cannot exceed 500 products.");
+  const products = [...new Map(input.products.map((product) => [repricingProductKey(product), product])).values()];
+  const rounds = new Map<
+    string,
+    {
+      listings: RepricingRoundListing[];
+      competingAsks: Array<RepricingRoundInputs["competingAsks"][number]>;
+      marketEstimate: RepricingRoundInputs["marketEstimate"];
+      lastSold: RepricingRoundInputs["lastSold"];
+    }
+  >();
+  for (const product of products) {
+    rounds.set(repricingProductKey(product), { listings: [], competingAsks: [], marketEstimate: null, lastSold: null });
+  }
+  if (!products.length) return rounds;
+  const keys = [products.map((key) => key.catalogItemId), products.map((key) => key.productId)];
+  const [listings, asks, estimates, sales] = await Promise.all([
     db.query<ListingRow>(
-      `SELECT
-         listing.listing_id,
-         listing.seller_account_id,
-         listing.inventory_item_id,
-         listing.catalog_catalog_item_id,
-         listing.product_id,
-         listing.price_amount::text,
-         listing.price_currency_code,
-         listing.quantity_cap,
-         listing.last_stream_version,
-         listing.status,
-         listing.pause_reason,
-         listing.grading,
-         listing.created_at::text,
-         catalog.category_ids,
-         inventory.acquisition_cost_amount::text,
+      `WITH ${productKeysCte}, ${repricingCandidateCte}
+       SELECT listing.listing_id, listing.seller_account_id, listing.inventory_item_id,
+         listing.catalog_catalog_item_id, listing.product_id, listing.price_amount::text,
+         listing.price_currency_code, listing.quantity_cap, listing.last_stream_version,
+         listing.status, listing.pause_reason, listing.grading, listing.created_at::text,
+         catalog_item.category_ids, inventory.acquisition_cost_amount::text,
          inventory.acquisition_cost_currency_code,
-         assignment.policy_id,
-         policy.updated_at::text AS policy_revision,
-         policy.rules,
-         policy.max_changes_per_day
-       FROM pricing_repricing_policy_assignments AS assignment
-       JOIN pricing_market_listing_inputs AS listing
-         ON listing.listing_id = assignment.listing_id
-       JOIN pricing_repricing_policies AS policy
-         ON policy.policy_id = assignment.policy_id
-       LEFT JOIN pricing_catalog_item_inputs AS catalog
-         ON catalog.catalog_item_id = listing.catalog_catalog_item_id
+         CASE WHEN candidate.seller_account_id IS NULL THEN assignment.policy_id
+           ELSE COALESCE(candidate.replacing_policy_id, 'repricing-candidate') END AS policy_id,
+         CASE WHEN candidate.seller_account_id IS NULL THEN policy.updated_at::text
+           ELSE statement_timestamp()::text END AS policy_revision,
+         COALESCE(candidate.rules, policy.rules) AS rules,
+         COALESCE(candidate.max_changes_per_day, policy.max_changes_per_day) AS max_changes_per_day
+       FROM products
+       JOIN pricing_market_listing_inputs AS listing USING (catalog_catalog_item_id, product_id)
+       CROSS JOIN candidate
+       LEFT JOIN pricing_catalog_item_inputs AS catalog_item
+         ON catalog_item.catalog_item_id = listing.catalog_catalog_item_id
        LEFT JOIN pricing_inventory_item_inputs AS inventory
-         ON inventory.item_id = listing.inventory_item_id
-        AND inventory.seller_account_id = listing.seller_account_id
-       WHERE listing.catalog_catalog_item_id = $1
-         AND listing.product_id = $2
-         AND (listing.status = 'active' OR (listing.status = 'paused' AND listing.pause_reason = 'policy-input-missing'))
-         AND policy.status = 'active'
-       ORDER BY assignment.policy_id, listing.listing_id`,
-      [product.catalogItemId, product.productId],
-    ),
-    db.query<{
-      listing_id: string;
-      seller_account_id: string;
-      amount: string;
-      price_currency_code: string | null;
-      pricing_mode: "hard" | "derived";
-    }>(
-      `SELECT
-         listing.listing_id,
-         listing.seller_account_id,
-         listing.price_amount::text AS amount,
-         listing.price_currency_code,
-         CASE WHEN assignment.listing_id IS NULL THEN 'hard' ELSE 'derived' END AS pricing_mode
-       FROM pricing_market_listing_inputs AS listing
+         ON inventory.item_id = listing.inventory_item_id AND inventory.seller_account_id = listing.seller_account_id
        LEFT JOIN pricing_repricing_policy_assignments AS assignment
-         ON assignment.listing_id = listing.listing_id
-       WHERE listing.catalog_catalog_item_id = $1
-         AND listing.product_id = $2
-         AND listing.status = 'active'
-       ORDER BY listing.listing_id`,
-      [product.catalogItemId, product.productId],
+         ON candidate.seller_account_id IS NULL AND assignment.listing_id = listing.listing_id
+       LEFT JOIN pricing_repricing_policies AS policy ON policy.policy_id = assignment.policy_id
+       WHERE ${eligibleListingSql}
+         AND ((candidate.seller_account_id IS NULL AND policy.status = 'active')
+           OR (${candidateAssignmentSql}))
+       ORDER BY policy_id, listing.listing_id`,
+      [...keys, input.candidate ? JSON.stringify(input.candidate) : null],
     ),
-    db.query<{ amount: string; currency_code: string; fresh_until: string }>(
-      `SELECT amount::text, UPPER(currency_code) AS currency_code, fresh_until::text
-       FROM pricing_market_price_estimates
-       WHERE catalog_catalog_item_id = $1
-         AND product_id = $2`,
-      [product.catalogItemId, product.productId],
+    db.query<
+      ProductRow & {
+        listing_id: string;
+        seller_account_id: string;
+        amount: string;
+        price_currency_code: string | null;
+        pricing_mode: "hard" | "derived";
+      }
+    >(
+      `WITH ${productKeysCte}
+       SELECT listing.catalog_catalog_item_id, listing.product_id, listing.listing_id,
+         listing.seller_account_id, listing.price_amount::text AS amount, listing.price_currency_code,
+         CASE WHEN assignment.listing_id IS NULL THEN 'hard' ELSE 'derived' END AS pricing_mode
+       FROM products
+       JOIN pricing_market_listing_inputs AS listing USING (catalog_catalog_item_id, product_id)
+       LEFT JOIN pricing_repricing_policy_assignments AS assignment ON assignment.listing_id = listing.listing_id
+       WHERE listing.status = 'active' ORDER BY listing.listing_id`,
+      keys,
     ),
-    db.query<{ unit_price_amount: string; currency_code: string | null; sold_at: string }>(
-      `SELECT unit_price_amount::text, NULL::text AS currency_code, sold_at::text
-       FROM pricing_market_trades
-       WHERE catalog_catalog_item_id = $1
-         AND product_id = $2
-         AND sold_at IS NOT NULL
-         AND excluded = false
-       ORDER BY sold_at DESC, order_id DESC, line_id DESC
-       LIMIT 1`,
-      [product.catalogItemId, product.productId],
+    db.query<ProductRow & { amount: string; currency_code: string; fresh_until: string }>(
+      `WITH ${productKeysCte}
+       SELECT estimate.catalog_catalog_item_id, estimate.product_id, estimate.amount::text,
+         UPPER(estimate.currency_code) AS currency_code, estimate.fresh_until::text
+       FROM products JOIN pricing_market_price_estimates AS estimate USING (catalog_catalog_item_id, product_id)`,
+      keys,
+    ),
+    db.query<ProductRow & { unit_price_amount: string; currency_code: string | null; sold_at: string }>(
+      `WITH ${productKeysCte}
+       SELECT DISTINCT ON (trade.catalog_catalog_item_id, trade.product_id)
+         trade.catalog_catalog_item_id, trade.product_id, trade.unit_price_amount::text,
+         NULL::text AS currency_code, trade.sold_at::text
+       FROM products JOIN pricing_market_trades AS trade USING (catalog_catalog_item_id, product_id)
+       WHERE trade.sold_at IS NOT NULL AND trade.excluded = false
+       ORDER BY trade.catalog_catalog_item_id, trade.product_id, trade.sold_at DESC, trade.order_id DESC, trade.line_id DESC`,
+      keys,
     ),
   ]);
-
-  return {
-    listings: listingResult.rows.map((row) => ({
+  const partition = (row: ProductRow) =>
+    rounds.get(
+      repricingProductKey({
+        catalogItemId: row.catalog_catalog_item_id,
+        productId: row.product_id,
+      }),
+    )!;
+  for (const row of listings.rows)
+    partition(row).listings.push({
       listingId: row.listing_id,
       sellerAccountId: row.seller_account_id,
       inventoryItemId: row.inventory_item_id,
@@ -166,31 +215,49 @@ export async function loadRepricingRoundInputs(
       costBasisCurrencyCode: row.acquisition_cost_currency_code,
       policyId: row.policy_id,
       policyRevision: row.policy_revision,
-      rules: typeof row.rules === "string" ? (JSON.parse(row.rules) as readonly RepricingRule[]) : row.rules,
+      rules: typeof row.rules === "string" ? JSON.parse(row.rules) : row.rules,
       maxChangesPerDay: row.max_changes_per_day,
-    })),
-    competingAsks: askResult.rows.map((row) => ({
+    });
+  for (const row of asks.rows)
+    partition(row).competingAsks.push({
       listingId: row.listing_id,
       sellerAccountId: row.seller_account_id,
       amount: row.amount,
       currencyCode: row.price_currency_code,
       pricingMode: row.pricing_mode,
-    })),
-    marketEstimate: estimateResult.rows[0]
-      ? {
-          amount: estimateResult.rows[0].amount,
-          currencyCode: estimateResult.rows[0].currency_code,
-          freshUntil: estimateResult.rows[0].fresh_until,
-        }
-      : null,
-    lastSold: lastSoldResult.rows[0]
-      ? {
-          amount: lastSoldResult.rows[0].unit_price_amount,
-          currencyCode: lastSoldResult.rows[0].currency_code,
-          soldAt: lastSoldResult.rows[0].sold_at,
-        }
-      : null,
-  };
+    });
+  for (const row of estimates.rows)
+    partition(row).marketEstimate = {
+      amount: row.amount,
+      currencyCode: row.currency_code,
+      freshUntil: row.fresh_until,
+    };
+  for (const row of sales.rows)
+    partition(row).lastSold = {
+      amount: row.unit_price_amount,
+      currencyCode: row.currency_code,
+      soldAt: row.sold_at,
+    };
+  return rounds;
+}
+
+export async function listCandidateRepricingProducts(
+  db: PgQueryable,
+  candidate: RepricingCandidate,
+  after: RepricingProductKey | null,
+): Promise<readonly RepricingProductKey[]> {
+  const result = await db.query<ProductRow>(
+    `WITH ${repricingCandidateCte}
+     SELECT DISTINCT listing.catalog_catalog_item_id, listing.product_id
+     FROM pricing_market_listing_inputs AS listing
+     CROSS JOIN candidate
+     LEFT JOIN pricing_catalog_item_inputs AS catalog_item ON catalog_item.catalog_item_id = listing.catalog_catalog_item_id
+     WHERE ${eligibleListingSql} AND (${candidateAssignmentSql})
+       AND ($1::text IS NULL OR (listing.catalog_catalog_item_id, listing.product_id) > ($1::text, $2::text))
+     ORDER BY listing.catalog_catalog_item_id, listing.product_id LIMIT 500`,
+    [after?.catalogItemId ?? null, after?.productId ?? null, JSON.stringify(candidate)],
+  );
+  return result.rows.map((row) => ({ catalogItemId: row.catalog_catalog_item_id, productId: row.product_id }));
 }
 
 export async function getRepricingProductForListing(

@@ -7,6 +7,7 @@ import {
 import { describeTcgplayerAutomationConfigForLogs } from "@chase-sets/platform-runtime/config-schema";
 
 const envNames = [
+  "PRICING_REPRICING_DRY_RUN_JOB_LANE_COUNT",
   "DATABASE_URL",
   "DEPLOYMENT_ENVIRONMENT",
   "PLATFORM_CONTROL_DATABASE_URL",
@@ -172,6 +173,12 @@ afterEach(() => {
 });
 
 describe("platform worker config", () => {
+  it("defaults the repricing dry-run lane to one and reads its configured count", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    expect(loadConfig().pricingRepricingDryRunJobLaneCount).toBe(1);
+    process.env.PRICING_REPRICING_DRY_RUN_JOB_LANE_COUNT = "3";
+    expect(loadConfig().pricingRepricingDryRunJobLaneCount).toBe(3);
+  });
   it("falls back to fake provider adapters outside production", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
 

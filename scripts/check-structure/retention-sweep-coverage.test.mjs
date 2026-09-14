@@ -57,6 +57,36 @@ describe("retention sweep coverage", () => {
   it("keeps every exemption justified", () => {
     expect([...retentionCoverageExemptions.values()].every((reason) => reason.trim().length >= 20)).toBe(true);
   });
+
+  it("accepts indefinitely valid pricing dry runs but still rejects an unknown terminal table", async () => {
+    const root = await fixture({
+      "bounded-contexts/pricing/schema.ts": `export const schema = \`CREATE TABLE IF NOT EXISTS pricing_repricing_dry_runs (
+        dry_run_id text PRIMARY KEY,
+        body_hash text NOT NULL,
+        status text NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+        completed_at timestamptz NULL,
+        consumed_at timestamptz NULL,
+        updated_at timestamptz NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS pricing_unregistered_dry_runs (
+        dry_run_id text PRIMARY KEY,
+        status text NOT NULL CHECK (status IN ('running', 'completed')),
+        completed_at timestamptz NULL
+      );\`;`,
+    });
+
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [
+        "bounded-contexts/pricing/schema.ts: retention candidate 'pricing_unregistered_dry_runs' has no shared retention-sweep registration or explicit exemption.",
+      ],
+    });
+    expect(retentionCoverageExemptions.get("pricing_repricing_dry_runs")).toContain(
+      "valid indefinitely by exact body hash with no clock or expiry",
+    );
+    expect(retentionCoverageExemptions.get("pricing_repricing_dry_runs")).toContain(
+      "durable consumed_at evidence must survive for once-only consumption",
+    );
+  });
 });
 
 async function fixture(entries) {

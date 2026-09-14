@@ -12,8 +12,15 @@ function engineMock() {
       enqueueDailyDriftSweep: vi.fn(),
       previewProductRound: vi.fn(),
       processNextEvaluationJob: vi.fn(),
+      enqueueDryRun: vi.fn(async () => null),
+      getDryRun: vi.fn(async () => null),
+      listDryRuns: vi.fn(async () => []),
+      listDryRunTraces: vi.fn(async () => []),
+      listDryRunEvents: vi.fn(async () => []),
+      waitForDryRunEvents: vi.fn(async () => undefined),
+      processNextDryRunJob: vi.fn(async () => 0),
       projectors: [],
-    } as unknown as RepricingEngineServices,
+    } satisfies RepricingEngineServices,
   };
 }
 

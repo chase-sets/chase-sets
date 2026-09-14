@@ -14,6 +14,7 @@
     "market-state-snapshot",
     "repricing-policy",
     "repricing-policy-assignment",
+    "repricing-dry-run",
     "bulk-reprice-job",
     "market-capture",
     "provider-sale-observation",
@@ -352,6 +353,23 @@
     ]
   },
   "mutationConsistencyInventory": [
+    {
+      "id": "pricing.repricing-dry-run-command-snapshot",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/pricing/features/repricing-engine/api/dry-run-route.ts:POST /"],
+      "visibleDestination": {
+        "description": "Dry-run creation returns the persisted account-owned snapshot and body hash."
+      },
+      "proof": {
+        "authoritativeResponse": "enqueueDryRun atomically persists the request and durable job and returns the inserted request snapshot.",
+        "tests": [
+          "bounded-contexts/pricing/features/repricing-engine/api/dry-run-route.test.ts",
+          "bounded-contexts/pricing/features/repricing-engine/tests/repricing-dry-run.db.test.ts"
+        ]
+      }
+    },
     {
       "id": "pricing.recommendation-publish-command-snapshot",
       "owner": "pricing",

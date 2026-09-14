@@ -25,6 +25,10 @@ import {
 import { pricingMarketEstimatesSchemaSql } from "../../features/market-estimates/read-model/schema";
 import { pricingRepricingPolicySchemaSql } from "../../features/repricing-policies/read-model/schema";
 import {
+  pricingRepricingDryRunSchemaSql,
+  pricingRepricingDryRunSchemaMigrations,
+} from "../../features/repricing-engine/read-model/migrations";
+import {
   pricingRepricingEngineSchemaSql,
   pricingRepricingEngineSchemaMigrations,
 } from "../../features/repricing-engine/read-model/schema";
@@ -39,6 +43,7 @@ import {
 } from "../../features/economics/read-model/schema";
 
 export const pricingFeatureSchemaMigrations = [
+  ...pricingRepricingDryRunSchemaMigrations,
   ...pricingRepricingEngineSchemaMigrations,
   ...pricingProviderObservationsSchemaMigrations,
   ...pricingMarketTradesSchemaMigrations,
@@ -69,6 +74,7 @@ export const pricingSchemaSql = [
   // pricing_market_listing_inputs and pricing_catalog_item_inputs.
   pricingRepricingPolicySchemaSql,
   pricingRepricingEngineSchemaSql,
+  pricingRepricingDryRunSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the market-stat-hygiene and market-analytics-display policies -- see
   // ../../features/market-trades/domain/stat-hygiene-policy and

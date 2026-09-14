@@ -263,6 +263,21 @@ A **Price Index** is the planned normalized trend line for a Market Segment.
 
 A **Price Benchmark** is the planned reference price used to compare listings, offers, or recommendations.
 
+### Repricing Dry Run
+
+A **Repricing Dry Run** durably evaluates a seller's candidate policy body through the same Product round
+planner as preview and live repricing, without Marketplace commands or domain events. It retains per-listing
+traces, an SQL-computed summary, completion time, and a SHA-256 hash of the canonical scope, exclusions,
+ordered rules, and daily change budget. Recording a run does not activate, consume, or enforce a policy.
+
+### Candidate Assignment
+
+A **Candidate Assignment** is the set of a seller's listings a proposed policy body would govern at the query
+instant. The assignment view's scope and exclusion predicate also owns candidate matching: more-specific
+active policies win, as do equally specific policies updated at or after that instant. A replacement removes
+the replaced policy from the competition. Candidate evaluation never reveals competing listing identities
+or pricing modes.
+
 ### Repricing Run
 
 A **Repricing Run** is one simultaneous, Product-scoped evaluation round triggered by a changed Market Price,

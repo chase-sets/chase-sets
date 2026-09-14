@@ -34,7 +34,7 @@ import { type MarketplaceListingServices, type MarketplaceServices } from "@chas
 import type {
   BulkRepriceIngestionServices,
   PricingRecommendationServices,
-  RepricingEngineServices,
+  PricingServices,
 } from "@chase-sets/pricing/server";
 import { createIdentityTermsAcceptanceResolver } from "@chase-sets/identity/server";
 import {
@@ -1672,7 +1672,10 @@ function createGoogleShoppingJobRunners(
 }
 
 function createPricingJobRunners(
-  services: Readonly<Record<string, unknown>>,
+  services: Readonly<{
+    pricing?: Partial<Pick<PricingServices, "recommendations" | "repricingEngine">>;
+    marketplace?: Partial<Pick<MarketplaceServices, "listings">>;
+  }>,
   input: Pick<
     ReturnType<typeof loadConfig>,
     | "workerId"
@@ -1681,31 +1684,36 @@ function createPricingJobRunners(
     | "pricingRecommendationJobWorkflowMaxActiveClaims"
     | "pricingRecommendationJobMaxActiveClaimsPerJob"
     | "pricingRepricingEvaluationJobLaneCount"
+    | "pricingRepricingDryRunJobLaneCount"
   >,
 ): readonly WorkerRunner[] {
-  const pricing = services.pricing as
-    | {
-        recommendations?: Pick<PricingRecommendationServices, "processNextRecommendationJob">;
-        repricingEngine?: Pick<RepricingEngineServices, "processNextEvaluationJob">;
-      }
-    | undefined;
-  const marketplace = services.marketplace as
-    | {
-        listings?: Pick<
-          MarketplaceListingServices,
-          "createListing" | "applyBulkListingPriceUpdates" | "pauseListing" | "publishListing"
-        >;
-      }
-    | undefined;
+  const pricing = services.pricing;
+  const marketplace = services.marketplace;
   const processNextRecommendationJob = pricing?.recommendations?.processNextRecommendationJob;
   const processNextEvaluationJob = pricing?.repricingEngine?.processNextEvaluationJob;
+  const processNextDryRunJob = pricing?.repricingEngine?.processNextDryRunJob;
 
-  if ((!processNextRecommendationJob && !processNextEvaluationJob) || !marketplace?.listings) {
+  if (!processNextRecommendationJob && !processNextEvaluationJob && !processNextDryRunJob) {
     return [];
   }
 
   return [
-    ...(processNextRecommendationJob
+    ...(processNextDryRunJob
+      ? createDurableJobLaneRunners({
+          workflowName: "pricing.repricing-dry-run-jobs",
+          laneCount: input.pricingRepricingDryRunJobLaneCount,
+          runLane: async (lane) => ({
+            processed: await processNextDryRunJob({
+              claimOwnerId: `${input.workerId}:${lane.laneName}`,
+              claimTtlMs: input.leaseTtlMs * 4,
+              signal: lane.runnerContext?.signal,
+              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+            }),
+            lastGlobalPosition: "0" as never,
+          }),
+        })
+      : []),
+    ...(processNextRecommendationJob && marketplace?.listings
       ? createDurableJobLaneRunners({
           workflowName: "pricing.recommendation-jobs",
           laneCount: input.pricingRecommendationJobLaneCount,
@@ -1745,7 +1753,7 @@ function createPricingJobRunners(
           }),
         })
       : []),
-    ...(processNextEvaluationJob
+    ...(processNextEvaluationJob && marketplace?.listings
       ? createDurableJobLaneRunners({
           workflowName: "pricing.repricing-evaluation-jobs",
           laneCount: input.pricingRepricingEvaluationJobLaneCount,
