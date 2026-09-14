@@ -59,7 +59,7 @@ describe("Channels account connection route contribution", () => {
       operationLog: { kind: "read-error" },
       drift: { kind: "not-yet-observed" },
     });
-    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(fetch).toHaveBeenCalledTimes(7);
   });
 
   it("renders the valid Manual Sync panel with the named operation-log error", async () => {
@@ -102,7 +102,7 @@ describe("Channels account connection route contribution", () => {
       operationLog: { kind: "loaded", log: { items: [] } },
       drift: { kind: "not-yet-observed" },
     });
-    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(fetch).toHaveBeenCalledTimes(7);
   });
 
   it("renders the named Manual Sync error with the valid operation log", async () => {
@@ -297,6 +297,62 @@ describe("Channels account connection route contribution", () => {
     expect(readActionError({ error: "synthetic failure" })).toBe("synthetic failure");
     expect(readActionError("TCGplayer Id,Add to Quantity,TCG Marketplace Price\n")).toBeNull();
     expect(readActionError(new Response("csv"))).toBeNull();
+  });
+
+  it("connector-pairing-surface: generates a validated code through the existing authenticated action", async () => {
+    const generated = { pairingId: "pair_test", revision: 1, code: "a".repeat(43), expiresAt: "2026-09-14T12:10:00Z" };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: { ...actor(), permissions: ["channels.manage"] } }))
+      .mockResolvedValueOnce(Response.json(generated));
+    vi.stubGlobal("fetch", fetch);
+    const request = new Request(routeRequest(), {
+      method: "POST",
+      body: new URLSearchParams({ intent: "connector-code" }),
+    });
+    expect(await action(loaderArgs(request))).toEqual({ kind: "pairing-code", generated });
+    expect(fetch.mock.calls[1]?.[0]).toBe(
+      "http://localhost/api/channels/connections/connection-a/connector-pairing/code",
+    );
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST", body: "{}" });
+  });
+
+  it.each(["transport", "refusal", "malformed"])(
+    "connector-pairing-surface: %s returns a safe retry, not generated success",
+    async (failure) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ actor: { ...actor(), permissions: ["channels.manage"] } }));
+      if (failure === "transport") fetch.mockRejectedValueOnce(new Error("connector-secret-sentinel-network"));
+      else
+        fetch.mockResolvedValueOnce(
+          failure === "refusal"
+            ? new Response("connector-secret-sentinel-refusal", { status: 503 })
+            : Response.json({ pairingId: "x", expiresAt: "2026-09-14", code: "sentinel", revision: 1 }),
+        );
+      vi.stubGlobal("fetch", fetch);
+      const request = new Request(routeRequest(), {
+        method: "POST",
+        body: new URLSearchParams({ intent: "connector-code" }),
+      });
+      const result = await action(loaderArgs(request));
+      expect(result).toEqual({ error: "Reload this connection and try again." });
+      expect(JSON.stringify(result)).not.toContain("sentinel");
+    },
+  );
+
+  it("connector-pairing-surface: unpairs the exact revision and redirects for a fresh detail read", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: { ...actor(), permissions: ["channels.manage"] } }))
+      .mockResolvedValueOnce(Response.json({ state: "unpaired" }));
+    vi.stubGlobal("fetch", fetch);
+    const request = new Request(routeRequest(), {
+      method: "POST",
+      body: new URLSearchParams({ intent: "connector-unpair", pairingId: "pair_test", revision: "2" }),
+    });
+    expect(await action(loaderArgs(request))).toMatchObject({ status: 302 });
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ body: JSON.stringify({ pairingId: "pair_test", revision: 2 }) });
   });
 });
 
