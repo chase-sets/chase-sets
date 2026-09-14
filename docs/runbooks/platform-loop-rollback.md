@@ -41,6 +41,7 @@ this milestone's timeline, or Todd says so.
 ## Resuming the platform later
 
 Do not reuse the stopped run name. Start a new run with the same
-`targetMilestone` from Windows with `scripts/executor/start-loop.ps1` in the
-platform checkout, after moving the executor to the intended `origin/main`
+`targetMilestone` from Windows with the platform checkout's
+scripts/executor/start-loop.ps1 (an orchestration-platform repo path, not a
+chase-sets one), after moving the executor to the intended `origin/main`
 commit while no M2 supervisor is running.
