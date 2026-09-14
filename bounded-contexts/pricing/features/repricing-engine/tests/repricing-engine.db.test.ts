@@ -7,10 +7,14 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
+import type { RepricingPolicyId } from "@chase-sets/primitives/typed-ids";
 import { module as pricingModule } from "../../../index";
 import { buildPricingMarketplaceInputProjectionHandlers } from "../../recommendations/integrations/source/source-projection";
 import { buildRepricingPolicyProjectionHandlers } from "../../repricing-policies/read-model/projection";
 import type { RepricingRule } from "../../repricing-policies/domain/domain";
+import { createRepricingPolicyRuntime } from "../../repricing-policies/api/runtime";
+import type { RepricingPolicyListingTrace } from "../domain/fact";
 import { createRepricingEngineRuntime, type RepricingMarketplaceGateway } from "../api/runtime";
 import { buildRepricingEvaluationProjectionHandlers } from "../read-model/projection";
 
@@ -74,7 +78,8 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     input: Readonly<{
       listingPrices: readonly string[];
       maxChangesPerDay?: number;
-      policyId?: string;
+      policyId?: RepricingPolicyId;
+      rule?: RepricingRule;
     }>,
   ) {
     const listingHandlers = buildPricingMarketplaceInputProjectionHandlers(pool);
@@ -123,23 +128,25 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     );
 
     const policyHandlers = buildRepricingPolicyProjectionHandlers(pool);
-    await policyHandlers["pricing.repricing-policy.created"]!(
-      event(
-        "pricing.repricing-policy.created",
-        {
-          policyId,
-          accountId: "acc_seller",
-          name: "Reactive",
-          scope: { kind: "listing-set", listingIds },
-          excludedListingIds: [],
-          rules: [defaultRule],
-          maxChangesPerDay: input.maxChangesPerDay ?? 100,
-          createdAt: "2026-07-17T11:00:00.000Z",
-        },
-        `pricing.repricing-policy-${policyId}`,
-        1,
-      ),
-    );
+    const policies = createRepricingPolicyRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    const created = await policies.commandHandler({
+      streamId: policies.streamIdForPolicy(policyId),
+      context,
+      command: {
+        type: "CreateRepricingPolicy",
+        policyId,
+        accountId: "acc_seller",
+        name: "Reactive",
+        scope: { kind: "listing-set", listingIds },
+        excludedListingIds: [],
+        rules: [input.rule ?? defaultRule],
+        maxChangesPerDay: input.maxChangesPerDay ?? 100,
+        createdAt: "2026-07-17T11:00:00.000Z",
+      },
+    });
+    for (const stored of created.storedEvents) {
+      await policyHandlers[stored.eventType]!(toTransportEvent(stored));
+    }
     await pool.query(
       `INSERT INTO pricing_market_price_estimates (
          catalog_catalog_item_id, product_id, estimate_version,
@@ -196,6 +203,109 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     const events = await eventStore.readAll();
     return events.filter((stored) => stored.eventType === "pricing.repricing-policy.evaluated");
   }
+
+  it("records an any-mode round through the persisted policy, product worker, fact, and evaluation projection", async () => {
+    const pool = pools.pricing;
+    const rule: RepricingRule = {
+      conditions: [],
+      directive: {
+        ...defaultRule.directive,
+        anchorChain: [
+          {
+            source: "lowest-competing-ask",
+            strata: "any",
+            band: { ground: "market-estimate", minPercentOfGround: 90 },
+          },
+        ],
+        offset: { mode: "absolute", amount: "0.00" },
+      },
+    };
+    const { policyId } = await seedRound(pool, { listingPrices: ["12.00"], rule });
+    const eventStore = createPostgresEventStore({ pool });
+    const policies = createRepricingPolicyRuntime({ eventStore, db: pool });
+    expect((await policies.getRepricingPolicy(policyId))?.rules).toEqual([rule]);
+    const competitor = await policies.commandHandler({
+      streamId: policies.streamIdForPolicy("rpp_competitor"),
+      context,
+      command: {
+        type: "CreateRepricingPolicy",
+        policyId: "rpp_competitor",
+        accountId: "acc_competitor",
+        name: "Synthetic competing policy",
+        scope: { kind: "listing-set", listingIds: ["lst_competitor"] },
+        rules: [defaultRule],
+        maxChangesPerDay: 100,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    for (const stored of competitor.storedEvents) {
+      await policies.projectors[0]!.handlers[stored.eventType]!(toTransportEvent(stored));
+    }
+    await pool.query(
+      "UPDATE pricing_market_listing_inputs SET price_amount = '6.00' WHERE listing_id = 'lst_competitor'",
+    );
+    const listingHandlers = buildPricingMarketplaceInputProjectionHandlers(pool);
+    await listingHandlers["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        {
+          listingId: "lst_hard_competitor",
+          accountId: "acc_hard_competitor",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          priceAmount: "10.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+        },
+        "marketplace.listing-lst_hard_competitor",
+        1,
+      ),
+    );
+    await listingHandlers["marketplace.listing.published"]!(
+      event("marketplace.listing.published", {}, "marketplace.listing-lst_hard_competitor", 2),
+    );
+    await pool.query(
+      "UPDATE pricing_market_price_estimates SET amount = '9.00', fresh_until = now() + interval '1 day'",
+    );
+
+    const runtime = createRepricingEngineRuntime({ eventStore, db: pool });
+    const marketplace = gateway(() => "applied");
+    expect(await runtime.enqueueDailyDriftSweep()).toBe(1);
+    expect(
+      await runtime.processNextEvaluationJob({
+        claimOwnerId: "worker:any-mode",
+        claimTtlMs: 30_000,
+        marketplaceGatewayForAccount: () => marketplace,
+      }),
+    ).toBe(1);
+    expect(marketplace.calls.flat()).toContainEqual(
+      expect.objectContaining({ listingId: "lst_policy_1", priceAmount: "8.10" }),
+    );
+    const facts = await evaluationFacts(pool);
+    const ownFact = facts.find((stored) => stored.payload.policyId === policyId)!;
+    expect(ownFact).toBeDefined();
+    const expectedTrace = expect.objectContaining({
+      listingId: "lst_policy_1",
+      targetPriceAmount: "8.10",
+      outcome: "changed",
+      anchor: { source: "lowest-competing-ask", amount: "8.10", stratum: "any-ask", contributingListingCount: 2 },
+      flags: ["band-binding"],
+    });
+    expect(ownFact.payload.listings).toEqual([expectedTrace]);
+    for (const stored of facts) {
+      await runtime.projectors[0]!.handlers[stored.eventType]!(toTransportEvent(stored));
+    }
+    const recorded = await pool.query<{ listing_traces: readonly RepricingPolicyListingTrace[] }>(
+      "SELECT listing_traces FROM pricing_repricing_policy_evaluations WHERE policy_id = $1",
+      [policyId],
+    );
+    expect(recorded.rows[0]?.listing_traces).toEqual([expectedTrace]);
+    for (const serialized of [JSON.stringify(ownFact.payload), JSON.stringify(recorded.rows)]) {
+      for (const forbidden of ["lst_competitor", "lst_hard_competitor", "pricingMode", "derived"]) {
+        expect(serialized).not.toContain(forbidden);
+      }
+    }
+  });
 
   it("deduplicates a moved estimate reaction, changes only beyond-tolerance listings, and publishes a complete fact", async () => {
     const pool = pools.pricing;
