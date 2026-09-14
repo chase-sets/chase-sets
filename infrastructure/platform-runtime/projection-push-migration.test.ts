@@ -95,6 +95,14 @@ describe("projection push migration inventory", () => {
       enabledSourceContextCount: 1,
       consumesDurableWakeIntents: true,
     });
+    expect(byKey.get("pricing:pricing-repricing-halt-projection")).toMatchObject({
+      status: "push-eligible",
+      owner: "Pricing",
+      enabledSourceContextCount: 0,
+      sourceContextCount: 1,
+      consumesDurableWakeIntents: false,
+      fallbackPolling: true,
+    });
 
     expect(summarizeProjectionPushMigration()).toMatchObject({
       projectionCount: inventory.projectionKeys.length,
