@@ -323,13 +323,15 @@ describeDb("Channel Reconciliation guarded production path", () => {
         repushRequested: false,
       });
       await expect(runtime.repushChannelListing(command, context)).resolves.toMatchObject({ revision: 2 });
-      expect((await decisionEvents()).map((event) => ({ eventType: event.eventType, payload: event.payload }))).toEqual([
-        { eventType: "channels.channel-drift.repush-requested", payload: command },
-        {
-          eventType: "channels.channel-drift.repush-enqueued",
-          payload: { ...command, expectedDecisionRevision: 1 },
-        },
-      ]);
+      expect((await decisionEvents()).map((event) => ({ eventType: event.eventType, payload: event.payload }))).toEqual(
+        [
+          { eventType: "channels.channel-drift.repush-requested", payload: command },
+          {
+            eventType: "channels.channel-drift.repush-enqueued",
+            payload: { ...command, expectedDecisionRevision: 1 },
+          },
+        ],
+      );
       expect((await pools.channels.query("SELECT operation_id FROM channel_drift_decision_operations")).rows).toEqual([
         { operation_id: command.operationId },
       ]);
@@ -2405,7 +2407,8 @@ async function repushFacts() {
     events: await decisionEvents(),
     queue: (await pools.channels.query("SELECT * FROM channel_outbound_operations ORDER BY operation_id")).rows,
     decisions: (await pools.channels.query("SELECT * FROM channel_drift_decisions ORDER BY channel_listing_id")).rows,
-    receipts: (await pools.channels.query("SELECT * FROM channel_drift_decision_operations ORDER BY operation_id")).rows,
+    receipts: (await pools.channels.query("SELECT * FROM channel_drift_decision_operations ORDER BY operation_id"))
+      .rows,
   };
 }
 
