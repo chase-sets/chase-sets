@@ -21,6 +21,10 @@ import {
 } from "../read-model/queries";
 import { resolveRepricingFloorAmount } from "../domain/floor-resolution";
 import type { RepricingFloor, RepricingPolicyScope, RepricingRule } from "../domain/domain";
+import {
+  listCandidateRepricingProducts,
+  loadRepricingRoundInputsPage,
+} from "../../repricing-engine/read-model/queries";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.
@@ -64,6 +68,58 @@ const defaultRule: RepricingRule = {
 describeDb("pricing repricing-policy assignment resolution (#4330)", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>>;
 
+  it.each([
+    { kind: "all-listings" },
+    { kind: "catalog-filter", categoryIds: ["catx"] },
+    { kind: "listing-set", listingIds: ["lst_1", "lst_2"] },
+  ] satisfies RepricingPolicyScope[])(
+    "candidate predicate equals post-create and replacement assignment view: $kind",
+    async (scope) => {
+      const db = pools.pricing;
+      await seedListingsAndCatalog(db);
+      await seedPolicy(db, { policyId: "rpp_all", scope: { kind: "all-listings" }, updatedAt: "2026-01-01T00:00:00Z" });
+      await seedPolicy(db, {
+        policyId: "rpp_catalog",
+        scope: { kind: "catalog-filter", categoryIds: ["catx"] },
+        updatedAt: "2026-01-02T00:00:00Z",
+      });
+      await seedPolicy(db, {
+        policyId: "rpp_listing",
+        scope: { kind: "listing-set", listingIds: ["lst_1"] },
+        updatedAt: "2026-01-03T00:00:00Z",
+      });
+      const body = { scope, excludedListingIds: ["lst_3"], rules: [defaultRule], maxChangesPerDay: 10 };
+      const candidateRows = async (replacingPolicyId?: string) => {
+        const candidate = { sellerAccountId: "acc_seller", body, replacingPolicyId };
+        const products = await listCandidateRepricingProducts(db, candidate, null);
+        const rounds = await loadRepricingRoundInputsPage(db, { products, candidate });
+        return [...rounds.values()].flatMap((round) => round.listings.map((listing) => listing.listingId)).sort();
+      };
+      const viewRows = async (policyId: string) =>
+        (
+          await db.query<{ listing_id: string }>(
+            `SELECT assignment.listing_id FROM pricing_repricing_policy_assignments AS assignment
+       WHERE assignment.seller_account_id = 'acc_seller' AND assignment.policy_id = $1 ORDER BY assignment.listing_id`,
+            [policyId],
+          )
+        ).rows.map((row) => row.listing_id);
+      const beforeCreate = await candidateRows();
+      const timestamp = async () =>
+        (await db.query<{ now: string }>("SELECT clock_timestamp()::text AS now")).rows[0]!.now;
+      await seedPolicy(db, { policyId: "rpp_new", scope, excludedListingIds: ["lst_3"], updatedAt: await timestamp() });
+      expect(await viewRows("rpp_new")).toEqual(beforeCreate);
+      const beforeReplacement = await candidateRows("rpp_listing");
+      await revisePolicy(db, {
+        policyId: "rpp_listing",
+        scope,
+        excludedListingIds: ["lst_3"],
+        revisedAt: await timestamp(),
+      });
+      expect(await viewRows("rpp_listing")).toEqual(beforeReplacement);
+      expect(beforeCreate).not.toContain("lst_3");
+    },
+  );
+
   beforeAll(async () => {
     const databaseUrls = createMultiContextTestDatabaseUrls(
       databaseBaseUrl!,
@@ -72,6 +128,25 @@ describeDb("pricing repricing-policy assignment resolution (#4330)", () => {
     );
     await ensureMultiContextTestDatabases(databaseBaseUrl!, databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
+  });
+
+  it("candidate predicate yields to an equally specific newer policy and removes replacement precedence", async () => {
+    const db = pools.pricing;
+    await seedListingsAndCatalog(db);
+    await seedPolicy(db, {
+      policyId: "rpp_future",
+      scope: { kind: "all-listings" },
+      updatedAt: "2100-01-01T00:00:00Z",
+    });
+    const candidate = {
+      sellerAccountId: "acc_seller",
+      body: { scope: { kind: "all-listings" as const }, rules: [defaultRule], maxChangesPerDay: 10 },
+    };
+    expect(await listCandidateRepricingProducts(db, candidate, null)).toEqual([]);
+    expect(
+      await listCandidateRepricingProducts(db, { ...candidate, replacingPolicyId: "rpp_future" }, null),
+    ).toHaveLength(2);
+    expect(await listCandidateRepricingProducts(db, { ...candidate, sellerAccountId: "acc_other" }, null)).toEqual([]);
   });
 
   beforeEach(async () => {

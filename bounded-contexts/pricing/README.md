@@ -52,6 +52,34 @@ snapshot, then send only beyond-tolerance targets through Marketplace's existing
 path. The same evaluator powers dry-run preview; live execution adds daily-budget admission and publishes
 `RepricingPolicyEvaluated` facts.
 
+Candidate Repricing Dry Runs use the same `planRepricingRound` as preview and live execution.
+The page loader captures listings, competing asks, estimates, and last sold in four set-based queries,
+then plans in memory. Each nonempty page has at most 500 Product keys and seven statements: keyset,
+four inputs, one idempotent trace insert, and a cursor/claim-generation-fenced advance. Live admission,
+including budget, revision checks, pause recovery, cooldown and Spiral Breaker, is unchanged.
+
+Dry runs never request a Marketplace gateway or append domain events. Their outcomes are `changed`,
+`pause-requested`, `notify-only`, and `skipped`; skip reasons come only from evaluation, not live
+admission (`budget-exhausted`, `manual-edit-conflict`, `domain-no-op`, `policy-precondition-failed`,
+`resume-hysteresis`, `repause-cooldown`, `command-error`, or `spiral-breaker-frozen`).
+Completion aggregates every retained trace in SQL, including outcomes, reasons, flags, within-tolerance
+count and percent-delta buckets. Bucket keys 0 through 8 use edges -20, -10, -5, -1, +1, +5, +10, +20;
+each lower edge is inclusive and each upper edge exclusive.
+
+`/account/repricing-policies/dry-runs` supports creation (`pricing.manage`) and account-scoped status,
+list, trace and SSE reads (`pricing.view`). Lists and keyset-paged traces are bounded to 100 rows.
+Missing and foreign IDs both return `404 not_found`; SSE connections share the actor's account limit.
+The worker's `PRICING_REPRICING_DRY_RUN_JOB_LANE_COUNT` defaults to 1. Requests and traces are
+durable across worker lease expiry; a replacement claim resumes the persisted cursor. Hashing uses
+recursively sorted object keys, preserves array order, and includes only scope, exclusions, rules and
+maxChangesPerDay. Completion and consumption timestamps are stored; validity and consumption enforcement,
+policy controls, UI, projections and digest remain separate slices.
+
+The dry-run migration creates new, empty tables, so their initial indexes are built with those tables.
+The listing-inputs index also has a concurrent ledgered migration for an already-populated source table.
+Retry-exhaustion status comes from the durable-job ledger in account reads; operation failures update the
+request only while its captured state and claim generation still match.
+
 | Repricing term | System behavior |
 | --- | --- |
 | Any-Mode Anchor | Seller opt-in `lowest-competing-ask` with `strata: "any"` considers both ask modes; absent strata and `comp-percentile` stay hard-only. Traces expose `any-ask` and counts, not competitor identities or modes. |

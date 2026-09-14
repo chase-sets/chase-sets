@@ -1,5 +1,8 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
+const repricingProductListingIndexSql = `CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_product_status_idx
+  ON pricing_market_listing_inputs (catalog_catalog_item_id, product_id, status)`;
+
 export const pricingRecommendationSourceSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
   catalog_item_id text PRIMARY KEY,
@@ -82,6 +85,8 @@ ALTER TABLE pricing_market_listing_inputs
 
 CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_lookup_idx
   ON pricing_market_listing_inputs (seller_account_id, catalog_catalog_item_id, product_id, status);
+
+${repricingProductListingIndexSql};
 
 ALTER TABLE pricing_market_listing_inputs
   ADD COLUMN IF NOT EXISTS inventory_item_id text NULL;
@@ -169,6 +174,14 @@ CREATE INDEX IF NOT EXISTS pricing_fulfillment_signal_lines_lookup_idx
 `;
 
 export const pricingRecommendationSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260914_pricing_repricing_product_listing_index",
+    description: "Support set-based repricing asks by product and listing status.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_market_listing_inputs_product_status_idx
+       ON pricing_market_listing_inputs (catalog_catalog_item_id, product_id, status)`,
+    ],
+  },
   {
     migrationId: "20260907_pricing_recommendation_source_money_currencies",
     description:
