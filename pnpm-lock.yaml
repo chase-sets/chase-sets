@@ -222,6 +222,12 @@ importers:
 
   bounded-contexts/channels:
     dependencies:
+      '@chase-sets/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@chase-sets/auth-context':
+        specifier: workspace:*
+        version: link:../../contracts/auth-context
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module

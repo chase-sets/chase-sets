@@ -2313,7 +2313,7 @@ describe("platform API payment provider mode observation", () => {
       .map((entry) => entry.file);
 
     // Re-derived at the dispatch base rather than carried forward.
-    expect(hostCallCount).toBe(23);
+    expect(hostCallCount).toBe(24);
     expect(productionHostFiles.sort()).toEqual([
       "deployables/platform-api/src/admin-qa-actor-fixtures.ts",
       "deployables/platform-api/src/bootstrap.ts",
@@ -2323,7 +2323,7 @@ describe("platform API payment provider mode observation", () => {
     ]);
     expect(
       hostCallSites.filter((entry) => entry.file.includes("/__tests__/")).reduce((total, e) => total + e.count, 0),
-    ).toBe(18);
+    ).toBe(19);
 
     // Only the serving composition root supplies the port, and the manifest declares it once.
     const mainSource = readFileSync(join(repositoryRoot, "deployables/platform-api/src/main.ts"), "utf8");

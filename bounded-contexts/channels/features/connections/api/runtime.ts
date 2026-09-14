@@ -36,6 +36,7 @@ import { getPublicChannelConnection, listPublicChannelConnections } from "../rea
 export type ChannelConnectionRuntimeDeps = Readonly<{
   eventStore: EventStore;
   db: PgQueryable;
+  disconnectChannelConnection?: ChannelConnectionServices["disconnectChannelConnection"];
 }>;
 
 const absentSetupResolver: ChannelConnectionSetupResolver = { resolve: async () => null };
@@ -222,6 +223,7 @@ export function createChannelConnectionRuntime(
     },
     disconnectChannelConnection: async (input, context) => {
       assertClosedRecord(input, ["accountId", "connectionId"], "disconnect input");
+      if (deps.disconnectChannelConnection) return deps.disconnectChannelConnection(input, context);
       const loaded = await loadOwned(input.accountId, input.connectionId);
       return commandHandler({
         streamId: streamId(input.connectionId),
