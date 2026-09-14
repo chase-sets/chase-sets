@@ -9,6 +9,69 @@ import { buildChannelConnectionProjectionHandlers } from "../../connections/read
 import { readManualAttentionContributions } from "../../manual-sync/read-model/attention-query";
 import { createChannelActionAttentionSourceFromReadModel } from "../read-model/attention-source";
 
+describeDb("channel-action canonical bounded page", () => {
+  const h = healthDatabase("attention_page");
+  async function seedManualPage(accountId: string, prefix: string, count: number) {
+    await h.db.query(
+      `INSERT INTO channel_connections
+      (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,projection_updated_at,last_stream_version)
+      SELECT $2 || lpad(n::text,3,'0'),$1,'tcgplayer','sandbox','active','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z',1
+      FROM generate_series(1,$3::int) n`,
+      [accountId, prefix, count],
+    );
+    await h.db.query(
+      `INSERT INTO channel_sync_runs
+      (run_id,revision,sequence,connection_id,provider_key,reservation_id,claimant_kind,claimant_id,lease_expires_at,
+       manual_claim_lease_policy_snapshot,state,basis_snapshot_id,basis_snapshot_generation,csv_header,member_count,member_digest,created_at,updated_at,last_stream_version)
+      SELECT $1 || n,1,1,$1 || lpad(n::text,3,'0'),'tcgplayer',$1 || n,'manual','synthetic-manual',
+        '2027-01-01T00:00:00Z','{}','composed','synthetic-basis',1,'[]',1,$2,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z',1
+      FROM generate_series(1,$3::int) n`,
+      [prefix, "a".repeat(64), count],
+    );
+  }
+  async function loadPage(accountId: string) {
+    let count = 0;
+    const items = await createChannelActionAttentionSourceFromReadModel({
+      query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+        count++;
+        return h.db.query<Row>(sql, params);
+      },
+    }).load({ accountId, now: "2026-09-13T01:00:00Z" });
+    expect(items).toHaveLength(100);
+    expect(new Set(items.map((item) => item.id)).size).toBe(100);
+    expect(count).toBe(4);
+    return items;
+  }
+  it("keeps a newer critical health item ahead of 100 older manual-ready info connections", async () => {
+    await seedManualPage(context.audit.forAccountId, "synthetic-critical-page-", 100);
+    const id = await h.connection();
+    const failure = await h.observation(id, "polling", { occurredAt: "2026-09-13T00:00:00Z" });
+    for (const sourceAttempt of [1, 2, 3])
+      await h.services.connectionHealth.submitObservation({ ...failure, sourceAttempt }, context);
+    const items = await loadPage(context.audit.forAccountId);
+    expect(items[0]).toMatchObject({ id: `channel-action:${id}`, severity: "critical", dueAt: null });
+    expect(items.filter((item) => item.severity === "info")).toHaveLength(99);
+    expect(items.some((item) => item.id === "channel-action:synthetic-critical-page-100")).toBe(false);
+  });
+  it("bounds equal severity by earliest observation then connection ID", async () => {
+    const accountId = "acc_synthetic_tie_page";
+    const prefix = "synthetic-tie-page-";
+    await seedManualPage(accountId, prefix, 101);
+    await h.db.query(
+      `UPDATE channel_sync_runs SET updated_at='2025-12-01T00:00:00Z',revision=revision+1
+      WHERE connection_id=$1 AND revision=1 AND state='composed'`,
+      [`${prefix}101`],
+    );
+    const items = await loadPage(accountId);
+    expect(items.every((item) => item.severity === "info" && item.dueAt === null)).toBe(true);
+    expect(items.map((item) => item.id)).toEqual([
+      `channel-action:${prefix}101`,
+      ...Array.from({ length: 99 }, (_, index) => `channel-action:${prefix}${String(index + 1).padStart(3, "0")}`),
+    ]);
+    expect(items[0].observedAt).toBe("2025-12-01T00:00:00.000Z");
+  });
+});
+
 describeDb("channel-action-source-contract", () => {
   const h = healthDatabase("attention_source");
   const queueContext = () => ({ accountId: context.audit.forAccountId, now: new Date().toISOString() });

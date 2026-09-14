@@ -44,26 +44,24 @@ export async function recordAttentionHealthTransition(
   reason: ChannelHealthReasonGeneration,
   context: EventStoreContext,
 ) {
-  if (reason.state !== "closed") {
-    const inserted = await db.query(
-      `INSERT INTO channel_connection_attention
+  const inserted = await db.query(
+    `INSERT INTO channel_connection_attention
       (connection_id,account_id,reason_code,reason_generation,fingerprint,opened_at)
       SELECT $1,$2,$3,$4,$5,$6 WHERE EXISTS (SELECT 1 FROM channel_connection_health AS health
         WHERE health.connection_id=$1 AND health.account_id=$2 AND health.reasons @> $7::jsonb)
       ON CONFLICT (connection_id,reason_code,reason_generation) DO NOTHING RETURNING connection_id`,
-      [
-        connection.connectionId,
-        connection.accountId,
-        reason.reasonCode,
-        reason.generation,
-        reason.fingerprint,
-        reason.opening.occurredAt,
-        JSON.stringify([reason]),
-      ],
-    );
-    if (inserted.rows.length) await publishAttentionFact(db, eventStore, connection, reason, context, null, null);
-    return;
-  }
+    [
+      connection.connectionId,
+      connection.accountId,
+      reason.reasonCode,
+      reason.generation,
+      reason.fingerprint,
+      reason.opening.occurredAt,
+      JSON.stringify([reason]),
+    ],
+  );
+  if (inserted.rows.length) await publishAttentionFact(db, eventStore, connection, reason, context, null, null);
+  if (reason.state !== "closed") return;
   const resolved = await db.query(
     `UPDATE channel_connection_attention SET resolved_at=$6,resolution_reason='recovered-automatically'
     WHERE connection_id=$1 AND account_id=$2 AND reason_code=$3 AND reason_generation=$4 AND fingerprint=$5
