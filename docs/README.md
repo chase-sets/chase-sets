@@ -125,6 +125,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Facility Return Intake](./runbooks/facility-return-intake.md) — custody, discrepancy, unidentified-package, outage, wrong-facility, and correction procedures.
 
 - [Beta Wave Exposure](./runbooks/beta-wave-exposure.md): policy-gated waitlist admission, proportional Argo exposure, monitoring, halt, and rollback procedure.
+- [Platform Loop Rollback](./runbooks/platform-loop-rollback.md): procedure for releasing a milestone from the orchestration-platform loop back to the host orchestrator, Todd-only authorization and ownership-change boundary, and exact run/supervisor identity binding.
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
 - [Stripe Connect Accounts v2 Migration](./runbooks/stripe-connect-accounts-v2-migration.md): Accounts v1 compatibility selector, v2 rollout, existing-account disposition, and cleanup handoff for #3203.
 - [Fraud Operations](./runbooks/fraud-operations.md): fraud-control operator policy, including negative-balance collections thresholds and recovery behavior.
