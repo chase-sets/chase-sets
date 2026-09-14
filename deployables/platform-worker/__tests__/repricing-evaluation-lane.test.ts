@@ -28,6 +28,6 @@ describe("repricing evaluation lane", () => {
     await expect(processRepricingEvaluationJob(async () => 0, input, logger)).resolves.toBe(0);
     expect(logger.info).toHaveBeenCalledTimes(1);
     const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-    expect(main).toContain("processRepricingEvaluationJob(processNextEvaluationJob,");
+    expect(/processed:\s*await processRepricingEvaluationJob\(\s*processNextEvaluationJob,/.test(main)).toBe(true);
   });
 });
