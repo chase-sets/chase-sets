@@ -236,9 +236,16 @@ export function planStatusUpdates(items) {
       input.state === "open" &&
       normalizedStateReason(item.issue) === "reopened" &&
       TERMINAL_STATUSES.includes(item.status);
-    // Active lane states have a different owner. A closed issue is terminal,
-    // while an explicitly reopened terminal item returns to derived ownership.
-    if (input.state === "open" && item.status && !DERIVED_STATUSES.includes(item.status) && !reopenedTerminal) {
+    // Only executable work can own a lane state. Open Epics and continuity
+    // records stay in their derived columns until closed, even after lane writes.
+    const nonExecutable = next === "Epic" || next === "Tracking";
+    if (
+      input.state === "open" &&
+      !nonExecutable &&
+      item.status &&
+      !DERIVED_STATUSES.includes(item.status) &&
+      !reopenedTerminal
+    ) {
       continue;
     }
     if (item.status === next) continue;

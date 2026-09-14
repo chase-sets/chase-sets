@@ -239,7 +239,8 @@ native **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only
 projects to `Tracking`.
 
 The derivation is total — every issue on the board resolves to exactly one
-status, so a newly filed Epic or continuity record can never sit unassigned.
+status. The hourly sync runs every day, including nights and weekends, and
+assigns newly added board items on its next successful run.
 Precedence, first match wins:
 
 | # | Fact | Status |
@@ -263,8 +264,9 @@ candidates, and a normal slice wrongly placed in either is corrected back to
 `Backlog`, `Refined`, or `Blocked`.
 
 `In lane`, `In review`, and `Landed` are **controller-owned** while present on
-an open issue: the sync preserves them rather than seizing an active lane. The
-one exception is an explicitly reopened terminal item, which returns to derived
+an open executable issue: the sync preserves them rather than seizing an active
+lane. Open Epics and tracking-only records always return to `Epic` and `Tracking`
+until closed. An explicitly reopened terminal item also returns to derived
 ownership. Preservation is not a claim that the lane state is still live —
 [#6560](https://github.com/chase-sets/chase-sets/issues/6560) owns proving and
 clearing stale lane ownership.
