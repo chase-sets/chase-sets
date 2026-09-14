@@ -37,6 +37,8 @@ outbound-only health and operator holds.
   pause reads through the context-level `connectionHealth` service
 - Channel Reconciliation Runs, Drift Classification and Decisions, Missed-Sale
   Gaps, outbound kill-switch policy, bounded health observations and metrics
+- Channel Action health-attention generations, independent resolution facts,
+  and one shared Seller Desk contribution combining health and manual work
 
 ## Does Not Own
 
@@ -45,7 +47,8 @@ outbound-only health and operator holds.
 - Listings and offers (Marketplace)
 - Notification delivery channels or preferences (Notifications)
 - Provider transport, credential custody, OAuth, browser automation, provider-
-  specific paging, attention policy, or seller UI
+  specific paging
+- Shared Seller Desk UI (Marketplace)
 
 ## Ubiquitous Language
 
@@ -83,6 +86,8 @@ Injected setup, credential, policy, and storage-location authority resolvers.
 - `channels.connection.resumed`
 - `channels.connection.disconnected`
 - `channels.connection.health-changed` (closed `ChannelHealthChanged/v1` payload)
+- `channels.connection.attention-opened` (closed `ChannelAttentionOpened/v1` payload)
+- `channels.connection.attention-resolved` (closed `ChannelAttentionResolved/v1` payload)
 - `channels.channel-publication-configuration.settings-replaced`
 - `channels.channel-publication-configuration.mapping-candidate-recorded`
 - `channels.channel-publication-configuration.mapping-review-decided`

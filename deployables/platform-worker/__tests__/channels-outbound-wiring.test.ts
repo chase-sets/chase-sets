@@ -151,6 +151,7 @@ function validChannelsCandidate(
       readConnectionHealth: vi.fn(),
       listOpenReasonGenerations: vi.fn(),
     },
+    connectionAttention: { listOpenAttention: vi.fn(), resolveAttention: vi.fn() },
     listingComposition: {},
     outboundSync,
     reconciliation: { reconcileDueConnections: async () => [] },

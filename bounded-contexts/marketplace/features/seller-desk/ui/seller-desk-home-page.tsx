@@ -166,7 +166,7 @@ function SellerDeskQueueRow({ item }: { item: SellerAttentionItem }) {
           <Text weight="semibold">{resolveAttentionSummary(item)}</Text>
         </Stack>
         <LinkButton href={item.deepLink.href} tone="primary">
-          {attentionActionLabel(item.source)}
+          {attentionActionLabel(item)}
         </LinkButton>
       </Cluster>
     </Card>

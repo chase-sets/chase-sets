@@ -27,6 +27,7 @@
     "tcgplayer-csv",
     "outbound-sync",
     "connection-health",
+    "connection-attention",
     "manual-sync",
     "reconciliation"
   ],
@@ -429,6 +430,27 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "channels.connection-attention-resolution",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "optimistic-with-correction",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/connection-attention/api/route.ts:POST /:connectionId/attention/resolve",
+        "post-form:bounded-contexts/channels/features/connection-attention/ui/health-panel.tsx:H1abed2c1c746#1"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "description": "Attention resolution redirects to the account-scoped combined query without changing manual or health producer state."
+      },
+      "proof": {
+        "correction": "The form retains its generation until the guarded write succeeds; stale writes return 409 and a visible error. Successful redirects revalidate the same query. No optimistic dismissal is made.",
+        "tests": [
+          "bounded-contexts/channels/features/connection-attention/tests/channel-attention-lifecycle.db.test.ts",
+          "bounded-contexts/channels/features/connection-attention/tests/channel-connection-health-panel-states.test.tsx"
+        ]
+      }
+    },
+    {
       "id": "channels.connection-command-snapshots",
       "owner": "channels",
       "risk": "important",
@@ -538,6 +560,11 @@
     }
   ],
   "directoryIntent": {
+    "connection-attention": {
+      "classification": "slice",
+      "purpose": "Own the connection-attention generation lifecycle, resolution facts, and combined channel-action source and detail panel.",
+      "expectedConsumers": ["Channels health producers, connection detail, and Seller Desk"]
+    },
     "connection-health": {
       "classification": "slice",
       "purpose": "Own connection-health observations, policy, reason generations, facts, and system pause reads.",
@@ -571,7 +598,7 @@
     },
     "manual-sync": {
       "classification": "slice",
-      "purpose": "Own the manual-sync Channel Sync Run panel, frozen manual lease policy resolution, bounded export ingress, Marketplace clamp coordination, and channel attention source.",
+      "purpose": "Own the manual-sync Channel Sync Run panel, frozen manual lease policy resolution, bounded export ingress, Marketplace clamp coordination, and manual attention query.",
       "expectedConsumers": ["Channels account connection route, platform API, platform worker, and Seller Desk"]
     },
     "outbound-sync": {

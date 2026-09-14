@@ -7,10 +7,12 @@ import type { OutboundSyncServices } from "../../features/outbound-sync/domain/c
 import type { ChannelReconciliationServices } from "../../features/reconciliation/domain/contracts";
 import type { TcgplayerCsvServices } from "../../features/tcgplayer-csv/api/runtime";
 import type { ManualSyncServices } from "../../features/manual-sync/api/runtime";
+import type { ConnectionAttentionServices } from "../../features/connection-attention/domain/contracts";
 
 export type ChannelsServices = Readonly<{
   connections: ChannelConnectionServices;
   connectionHealth: ConnectionHealthServices;
+  connectionAttention: ConnectionAttentionServices;
   listingComposition: ChannelListingCompositionServices;
   outboundSync: OutboundSyncServices;
   reconciliation: ChannelReconciliationServices;
@@ -23,6 +25,7 @@ export type ChannelsServices = Readonly<{
 export const channelsServicesMembers = defineChannelsServicesMembers([
   "connections",
   "connectionHealth",
+  "connectionAttention",
   "listingComposition",
   "outboundSync",
   "reconciliation",
@@ -37,6 +40,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
 
   const connections = Reflect.get(value, "connections");
   const connectionHealth = Reflect.get(value, "connectionHealth");
+  const connectionAttention = Reflect.get(value, "connectionAttention");
   const listingComposition = Reflect.get(value, "listingComposition");
   const outboundSync = Reflect.get(value, "outboundSync");
   const reconciliation = Reflect.get(value, "reconciliation");
@@ -52,6 +56,9 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     typeof Reflect.get(connectionHealth, "submitObservation") === "function" &&
     typeof Reflect.get(connectionHealth, "readConnectionHealth") === "function" &&
     typeof Reflect.get(connectionHealth, "listOpenReasonGenerations") === "function" &&
+    isObject(connectionAttention) &&
+    typeof Reflect.get(connectionAttention, "listOpenAttention") === "function" &&
+    typeof Reflect.get(connectionAttention, "resolveAttention") === "function" &&
     isObject(listingComposition) &&
     isObject(outboundSync) &&
     typeof Reflect.get(outboundSync, "recoverExpiredClaimedOperations") === "function" &&

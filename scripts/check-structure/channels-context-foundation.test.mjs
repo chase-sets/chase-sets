@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { listContextManifests, repoRoot } from "../lib/repo.mjs";
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { syncWorkspaceMetadata } from "../sync-workspace-metadata.mjs";
+import { findSchemaMigrationDdlSafetyViolationsInSource } from "./boot-schema-ddl-discipline.mjs";
 import {
   requireSourceContextWakeRegistryEntry,
   sourceContextWakeRegistry,
@@ -137,6 +138,8 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (!relativeFiles.some((file) => file.startsWith("features/connection-health/")))
     violations.push("connection-health-files");
+  if (!relativeFiles.some((file) => file.startsWith("features/connection-attention/")))
+    violations.push("connection-attention-files");
   if (
     relativeFiles.some(
       (file) =>
@@ -194,6 +197,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
       "tcgplayer-csv",
       "outbound-sync",
       "connection-health",
+      "connection-attention",
       "manual-sync",
       "reconciliation",
     ])
@@ -230,6 +234,31 @@ afterEach(() => {
 });
 
 describe("channels-context-foundation", () => {
+  it("proves actual attention migration indexes are concurrent and rejects their omission", () => {
+    const source = readFileSync(path.join(channelsRoot, "features/connection-attention/read-model/schema.ts"), "utf8");
+    expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([]);
+    expect(
+      findSchemaMigrationDdlSafetyViolationsInSource(source.replaceAll("INDEX CONCURRENTLY IF", "INDEX IF")),
+    ).toHaveLength(2);
+  });
+  it("enrols every attention DB proof and refuses a missing production slice", () => {
+    const scripts = readJson(packagePath).scripts;
+    for (const name of [
+      "channel-attention-lifecycle",
+      "channel-action-source-contract",
+      "channel-attention-schema-upgrade",
+    ]) {
+      const test = `features/connection-attention/tests/${name}.db.test.ts`;
+      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+      expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
+    }
+    expect(
+      collectChannelsSurfaceViolations(
+        readJson(manifestPath),
+        listFiles(channelsRoot).filter((file) => !file.startsWith("features/connection-attention/")),
+      ),
+    ).toEqual(["connection-attention-files"]);
+  });
   it("enrols all connection-health DB proofs and refuses a missing production slice", () => {
     const scripts = readJson(packagePath).scripts;
     for (const name of ["observation-idempotency", "policy-revision", "generation-interleavings"]) {
@@ -274,6 +303,7 @@ describe("channels-context-foundation", () => {
         "tcgplayer-csv",
         "outbound-sync",
         "connection-health",
+        "connection-attention",
         "manual-sync",
         "reconciliation",
       ],

@@ -57,6 +57,7 @@ describeDb("channels-services-composition", () => {
     expect(isChannelsServices(services)).toBe(true);
     expectTypeOf<(typeof channelsServicesMembers)[number]>().toEqualTypeOf<keyof ChannelsServices>();
     expect(channelsServicesMembers).toContain("connectionHealth");
+    expect(channelsServicesMembers).toContain("connectionAttention");
     expect(channelsServicesMembers).toContain("manualSync");
   });
 
@@ -82,6 +83,22 @@ describeDb("channels-services-composition", () => {
     expect(Object.keys(missingMember).sort()).not.toEqual([...channelsServicesMembers].sort());
     expect(isChannelsServices(missingMember)).toBe(false);
   });
+
+  it.each(["listOpenAttention", "resolveAttention"])(
+    "channel-attention-real-composition-contract rejects an omitted %s",
+    (member) => {
+      const services: ChannelsServices = createServices();
+      expect(isChannelsServices(services)).toBe(true);
+      expect(
+        isChannelsServices({
+          ...services,
+          connectionAttention: Object.fromEntries(
+            Object.entries(services.connectionAttention).filter(([key]) => key !== member),
+          ),
+        }),
+      ).toBe(false);
+    },
+  );
 
   it("serves the connection API through the validated real composition", async () => {
     const candidate: unknown = createServices();

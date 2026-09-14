@@ -17,6 +17,7 @@ describe("channel-publication-port-scope-fence", () => {
       "tcgplayer-csv",
       "outbound-sync",
       "connection-health",
+      "connection-attention",
       "manual-sync",
       "reconciliation",
     ]);

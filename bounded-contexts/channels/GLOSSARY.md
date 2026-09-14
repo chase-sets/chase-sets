@@ -42,6 +42,12 @@ Reason generations bind a fingerprint and retain their opening work lineage.
 System pause holds outbound publication and polling while independently verified
 inbound sale observations remain available; it never clears a seller pause.
 
+## Channel Action
+
+A **Channel Action** is the single shared Seller Desk item for a connection's
+unresolved health attention and independently owned manual sync work. Resolving
+a health generation neither closes its health reason nor ends manual work.
+
 ## Channel Mapping
 
 A **Channel Mapping** is the account-owned configuration that maps channel fields, SKUs, locations, or policies to Chase Sets terms.

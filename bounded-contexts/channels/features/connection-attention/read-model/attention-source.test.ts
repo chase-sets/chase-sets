@@ -4,11 +4,15 @@ import { createChannelActionAttentionSource } from "./attention-source";
 
 describe("channel-action-manual-sync-source-contract", () => {
   it("emits isolated ready, unknown, and recovery reasons with canonical deep links", async () => {
-    const source = createChannelActionAttentionSource(async (accountId) => [
-      { connectionId: `${accountId}-ready`, reason: "ready", observedAt: "2026-09-10T12:00:00Z" },
-      { connectionId: `${accountId}-unknown`, reason: "unknown", observedAt: "2026-09-10T12:01:00Z" },
-      { connectionId: `${accountId}-recovery`, reason: "recovery", observedAt: "2026-09-10T12:02:00Z" },
-    ]);
+    const source = createChannelActionAttentionSource(async (accountId) =>
+      (
+        [
+          { connectionId: `${accountId}-ready`, reason: "ready", observedAt: "2026-09-10T12:00:00Z" },
+          { connectionId: `${accountId}-unknown`, reason: "unknown", observedAt: "2026-09-10T12:01:00Z" },
+          { connectionId: `${accountId}-recovery`, reason: "recovery", observedAt: "2026-09-10T12:02:00Z" },
+        ] as const
+      ).map((manual) => ({ connectionId: manual.connectionId, healthState: "unknown", health: [], manual })),
+    );
     const items = await source.load({ accountId: "account-owner", now: "2026-09-10T13:00:00Z" });
     expect(items).toHaveLength(3);
     expect(items.every((item) => isSellerAttentionItem(item, "channel-action"))).toBe(true);

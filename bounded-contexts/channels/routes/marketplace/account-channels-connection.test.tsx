@@ -60,7 +60,7 @@ describe("Channels account connection route contribution", () => {
       manualSync: { kind: "loaded", data: manualSyncPanel() },
       operationLog: { kind: "read-error" },
     });
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(5);
   });
 
   it("renders the valid Manual Sync panel with the named operation-log error", async () => {
@@ -102,7 +102,7 @@ describe("Channels account connection route contribution", () => {
       manualSync: { kind: "read-error" },
       operationLog: { kind: "loaded", log: { items: [] } },
     });
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(5);
   });
 
   it("renders the named Manual Sync error with the valid operation log", async () => {
@@ -118,6 +118,21 @@ describe("Channels account connection route contribution", () => {
 
     expect(await screen.findByText("Manual TCGplayer sync is unavailable")).toBeTruthy();
     expect(await screen.findByText("No publication activity")).toBeTruthy();
+  });
+
+  it("preserves manual and operation-log children when attention alone fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      auxiliaryFetch({
+        operation: () => Response.json(operationLogBody()),
+        manualSync: () => Response.json(manualSyncPanel()),
+        attention: () => new Response(null, { status: 503 }),
+      }),
+    );
+    renderRoute();
+    expect(await screen.findByText("Channel health and attention is unavailable")).toBeTruthy();
+    expect(await screen.findByText("No publication activity")).toBeTruthy();
+    expect(await screen.findAllByRole("heading", { name: "Manual TCGplayer sync" })).toHaveLength(1);
   });
 
   it("contains auxiliary status and JSON decoding failures without losing the successful sibling", async () => {
@@ -190,6 +205,39 @@ describe("Channels account connection route contribution", () => {
     );
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
   });
+
+  it.each([200, 409])(
+    "posts the exact attention generation and contains status %s without a manual error",
+    async (status) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ actor: { ...actor(), permissions: ["channels.manage"] } }))
+        .mockResolvedValueOnce(Response.json({ outcome: status === 200 ? "resolved" : "stale" }, { status }));
+      vi.stubGlobal("fetch", fetch);
+      const request = new Request("http://localhost/account/channels/connection-a", {
+        method: "POST",
+        body: new URLSearchParams({
+          intent: "resolve-attention",
+          reasonCode: "polling",
+          generation: "7",
+          resolutionReason: "handled-on-channel",
+        }),
+      });
+      const result = await action(loaderArgs(request));
+      expect(fetch.mock.calls[1]?.[0]).toBe("http://localhost/api/channels/connections/connection-a/attention/resolve");
+      expect(JSON.parse(fetch.mock.calls[1]?.[1]?.body)).toEqual({
+        reasonCode: "polling",
+        generation: 7,
+        resolutionReason: "handled-on-channel",
+      });
+      if (status === 200) expect(result).toMatchObject({ status: 302 });
+      else
+        expect(result).toEqual({
+          kind: "attention-error",
+          error: "Attention was not resolved. Refresh and check the current generation.",
+        });
+    },
+  );
 
   it("downloads through the authenticated resource route without changing attachment status, bytes, or headers", async () => {
     const csv = "TCGplayer Id,Add to Quantity,TCG Marketplace Price\n123,1,2.34\n";
@@ -291,6 +339,7 @@ function auxiliaryFetch(
   responses: Readonly<{
     operation: () => Response | Promise<Response>;
     manualSync: () => Response | Promise<Response>;
+    attention?: () => Response | Promise<Response>;
   }>,
 ) {
   return vi
@@ -298,7 +347,11 @@ function auxiliaryFetch(
     .mockResolvedValueOnce(Response.json({ actor: actor() }))
     .mockResolvedValueOnce(Response.json(actorConnection()))
     .mockImplementationOnce(responses.operation)
-    .mockImplementationOnce(responses.manualSync);
+    .mockImplementationOnce(responses.manualSync)
+    .mockImplementationOnce(
+      responses.attention ??
+        (() => Response.json({ connectionId: "connection-a", healthState: "healthy", health: [], manual: null })),
+    );
 }
 
 function renderRoute() {

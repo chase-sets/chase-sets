@@ -72,6 +72,7 @@ function validCandidate() {
   return {
     connections: { getConnection: async () => null },
     connectionHealth: { submitObservation: vi.fn(), readConnectionHealth: vi.fn(), listOpenReasonGenerations: vi.fn() },
+    connectionAttention: { listOpenAttention: vi.fn(), resolveAttention: vi.fn() },
     listingComposition: {},
     outboundSync: {
       recoverExpiredClaimedOperations: async () => 0,

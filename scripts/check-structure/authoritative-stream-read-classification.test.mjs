@@ -28,18 +28,18 @@ const excludedStandaloneTestRoot = "bounded-contexts/inventory/features/inventor
 describe("authoritative-stream-read-classification-acceptance-control", () => {
   it("loads the exact tracked Program corpus and reports the anchor-tree classification", () => {
     expect(ts.version).toBe("6.0.3");
-    expect(production.roots).toHaveLength(3085);
+    expect(production.roots).toHaveLength(3_094);
     expect(production.roots).toContain("bounded-contexts/channels/support/runtime-support/services.ts");
     expect(production.roots.filter((root) => root.endsWith("/offline-sale-form.tsx"))).toEqual([
       approvedStandaloneRoot,
     ]);
     expect(production.roots).not.toContain(excludedStandaloneTestRoot);
     expect(production.totals).toMatchObject({
-      roots: 3085,
-      loadedRoots: 3085,
+      roots: 3_094,
+      loadedRoots: 3_094,
       extensionCounts: {
-        ".ts": 2437,
-        ".tsx": 627,
+        ".ts": 2_445,
+        ".tsx": 628,
         ".mts": 7,
         ".cts": 0,
         ".js": 0,

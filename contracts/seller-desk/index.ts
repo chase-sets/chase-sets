@@ -1104,7 +1104,7 @@ export const SELLER_ATTENTION_SOURCES: readonly SellerAttentionSource[] = [
     ownerContext: "channels",
     entity: "channel-connection",
     target: "channel-connection",
-    peakSeverity: "warning",
+    peakSeverity: "critical",
     availability: "live",
   },
   {

@@ -2,6 +2,22 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { decodeChannelHealthSnapshot } from "../domain/codecs";
 import type { ChannelHealthSnapshot } from "../domain/contracts";
 
+export function openHealthReasonGenerations(snapshot: ChannelHealthSnapshot) {
+  return snapshot.reasons.filter((reason) => reason.state !== "closed");
+}
+
+export async function readAccountHealthSnapshots(db: PgQueryable, accountId: string, connectionIds: readonly string[]) {
+  if (connectionIds.length > 100) throw new Error("invalid-health-page");
+  const result = await db.query<{ connection_id: string; snapshot: unknown }>(
+    `SELECT connection_id,
+    jsonb_build_object('policyRevision',policy_revision,'evaluationGeneration',evaluation_generation,
+      'state',state,'reasons',reasons,'observedAt',observed_at) AS snapshot
+    FROM channel_connection_health WHERE account_id=$1 AND connection_id=ANY($2::text[])`,
+    [accountId, connectionIds],
+  );
+  return new Map(result.rows.map((row) => [row.connection_id, decodeChannelHealthSnapshot(row.snapshot)]));
+}
+
 export async function readHealthSnapshot(db: PgQueryable, connectionId: string): Promise<ChannelHealthSnapshot | null> {
   const result = await db.query<{ snapshot: unknown }>(
     `SELECT jsonb_build_object('policyRevision', policy_revision, 'evaluationGeneration', evaluation_generation,
