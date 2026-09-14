@@ -266,8 +266,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
   it.each(["catalog", "product"] as const)(
     "serializes claimed product rounds through fact append while a different %s runs",
     async (differentKey) => {
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(now);
+      const now = new Date().toISOString();
       const pool = pools.pricing;
       const syntheticProduct = { catalogItemId: "cat_synthetic_f1", productId: "prd_synthetic_f1" };
       const otherProduct = {
@@ -292,6 +291,9 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         listingPrices: ["16.00"],
         rule,
       });
+      await pool.query("UPDATE pricing_market_price_estimates SET fresh_until = $1", [
+        new Date(Date.now() + 86_400_000).toISOString(),
+      ]);
       await recordProductRoundDirection(pool, syntheticProduct, "down", launch, now);
       await recordProductRoundDirection(pool, syntheticProduct, "down", launch, now);
       const precondition = holdQuery(
@@ -380,6 +382,14 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         await factAppended;
         const frozen = await readProductRoundState(pool, syntheticProduct);
         expect(Date.parse(frozen!.frozen_until!)).toBeGreaterThan(Date.now());
+        expect(
+          (
+            await pool.query(
+              "SELECT frozen_until > clock_timestamp() AS future FROM pricing_repricing_product_round_cooldowns WHERE catalog_catalog_item_id = $1 AND product_id = $2",
+              [syntheticProduct.catalogItemId, syntheticProduct.productId],
+            )
+          ).rows,
+        ).toEqual([{ future: true }]);
         expect(frozen!.same_direction_rounds).toBe(0);
         expect(loserInputReads).toBe(0);
         expect(loserGateway.calls).toHaveLength(0);
