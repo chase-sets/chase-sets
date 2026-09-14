@@ -631,6 +631,156 @@ describeDb("Channel Reconciliation guarded production path", () => {
     expect(await (await get()).json()).toMatchObject({ kind: "loaded", runState: "held", rows: [], hasMore: 0 });
   });
 
+  it.each(["running", "bounded-unknown", "held"] as const)(
+    "drift-detail retained open %s members remain actionable",
+    async (state) => {
+      await seedConnectionAndListings(pools.channels);
+      const runtime = detailRuntime();
+      await runtime.reconcileConnection(
+        { connectionId: "connection-1", registry: inlineRegistry(driftItems), sourceAttempt: 1, healthAuthority: null },
+        context,
+      );
+      await pools.channels.query(
+        `UPDATE channel_reconciliation_state SET state=$1,revision=revision+1,lease_expires_at=CASE WHEN $1='running' THEN now()+interval '1 minute' ELSE NULL END WHERE connection_id='connection-1'`,
+        [state],
+      );
+      const app = detailApi(runtime);
+      expect(await (await app.request("/connections/connection-1/drift")).json()).toMatchObject({
+        kind: "loaded",
+        runState: state,
+        rows: expect.arrayContaining([
+          expect.objectContaining({ channelListingId: "channel-foreign", actionable: true }),
+        ]),
+      });
+      const accepted = await runtime.acceptChannelDrift(detailAccept(), context);
+      expect(accepted.revision).toBe(1);
+      const response = await app.request("/connections/connection-1/drift/channel-foreign/repush", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expectedDecisionRevision: 1, operationId: `synthetic-retained-${state}` }),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ revision: 2, repushRequested: true });
+    },
+  );
+
+  it.each(["accept", "repush"] as const)(
+    "drift-detail recovered historical foreign edits reject new decisions but retain exact %s replay",
+    async (priorKind) => {
+      await seedConnectionAndListings(pools.channels);
+      const runtime = detailRuntime();
+      const input = {
+        connectionId: "connection-1",
+        registry: inlineRegistry(driftItems),
+        sourceAttempt: 1,
+        healthAuthority: null,
+      };
+      await runtime.reconcileConnection(input, context);
+      const opened = await runtime.readChannelDriftAttentionContribution(input);
+      expect(opened!.members).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ identity: "listing:channel-foreign", kind: "foreign-edit", settlement: "open" }),
+        ]),
+      );
+      const replayInput = {
+        connectionId: input.connectionId,
+        channelListingId: "channel-foreign",
+        expectedDecisionRevision: 0,
+        operationId: "synthetic-before-recovery",
+        observedFingerprint: fingerprint("b"),
+        expectedMaterialFingerprint: fingerprint("2"),
+      };
+      const replay = () =>
+        priorKind === "accept"
+          ? runtime.acceptChannelDrift(replayInput, context)
+          : runtime.repushChannelListing(
+              {
+                connectionId: input.connectionId,
+                channelListingId: replayInput.channelListingId,
+                expectedDecisionRevision: 0,
+                operationId: replayInput.operationId,
+              },
+              context,
+            );
+      const committed = await replay();
+      await authorAllDelists(pools.channels);
+      await projectAllDelistsSucceeded(pools.channels);
+      expect(
+        await readExpectedReconciliationListings(pools.channels, { connectionId: input.connectionId, limit: 10 }),
+      ).toMatchObject({ items: [] });
+      expect(
+        await runtime.reconcileConnection({ ...input, registry: inlineRegistry(() => []) }, context),
+      ).toMatchObject({ state: "completed", clean: true });
+      const recovered = await runtime.readChannelDriftAttentionContribution(input);
+      expect(recovered).toMatchObject({ affectedListingCount: 0, resolution: "recovered-automatically" });
+      expect(recovered!.members).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ identity: "listing:channel-foreign", settlement: "recovered" }),
+        ]),
+      );
+      const app = detailApi(runtime);
+      const detail = await (await app.request("/connections/connection-1/drift")).json();
+      expect
+        .soft(detail.rows)
+        .toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              channelListingId: "channel-foreign",
+              classification: "foreign-edit",
+              actionable: false,
+            }),
+          ]),
+        );
+      const before = await detailWriteCounts();
+      expect(await replay()).toEqual(committed);
+      for (const kind of ["accept", "repush"] as const) {
+        const decision = await runtime.readChannelDriftDecision({
+          accountId: "account-1",
+          connectionId: input.connectionId,
+          channelListingId: "channel-foreign",
+        });
+        const command = {
+          ...replayInput,
+          expectedDecisionRevision: decision.revision,
+          operationId: `synthetic-recovered-direct-${kind}`,
+        };
+        const result = await (
+          kind === "accept"
+            ? runtime.acceptChannelDrift(command, context)
+            : runtime.repushChannelListing(
+                {
+                  connectionId: command.connectionId,
+                  channelListingId: command.channelListingId,
+                  expectedDecisionRevision: command.expectedDecisionRevision,
+                  operationId: command.operationId,
+                },
+                context,
+              )
+        ).catch((error: unknown) => error);
+        expect.soft(result).toMatchObject({ code: "ineligible" });
+        const current = await runtime.readChannelDriftDecision({
+          accountId: "account-1",
+          connectionId: input.connectionId,
+          channelListingId: "channel-foreign",
+        });
+        const body = {
+          expectedDecisionRevision: current.revision,
+          operationId: `synthetic-recovered-api-${kind}`,
+          ...(kind === "accept"
+            ? { observedFingerprint: fingerprint("b"), expectedMaterialFingerprint: fingerprint("2") }
+            : {}),
+        };
+        const response = await app.request(`/connections/connection-1/drift/channel-foreign/${kind}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        expect.soft(response.status).toBe(409);
+      }
+      expect.soft(await detailWriteCounts()).toEqual(before);
+    },
+  );
+
   it("drift-detail real POST commits exact decisions, fences public reads and replay, rejects closed-schema and stale writes with zero external effects", async () => {
     await seedConnectionAndListings(pools.channels);
     const runtime = reconciliationAt(new Date("2026-09-12T06:00:00.000Z"));
@@ -766,6 +916,262 @@ describeDb("Channel Reconciliation guarded production path", () => {
       decisions: Number(before.decisions) + 3,
       events: Number(before.events) + 3,
     });
+  });
+
+  it("drift-detail keeps the run, rows and joined decisions in one snapshot across a committed newer write", async () => {
+    await seedConnectionAndListings(pools.channels);
+    const runtime = detailRuntime();
+    await runtime.reconcileConnection(
+      { connectionId: "connection-1", registry: inlineRegistry(driftItems), sourceAttempt: 1, healthAuthority: null },
+      context,
+    );
+    const input = { accountId: "account-1", connectionId: "connection-1" };
+    const before = await runtime.readChannelDriftDetail(input);
+    let interleaved = false;
+    const db = interceptTransactions(pools.channels, async (sql, phase) => {
+      if (phase !== "after" || !sql.includes("SELECT run.state") || interleaved) return;
+      interleaved = true;
+      await runtime.acceptChannelDrift({ ...detailAccept(), operationId: "snapshot-newer-decision" }, context);
+      await withPgTransaction(pools.channels, async (writer) => {
+        await writer.query(`UPDATE channel_reconciliation_state SET revision=revision+1,generation=generation+1
+          WHERE connection_id='connection-1' AND generation=1`);
+        await writer.query(`UPDATE channel_reconciliation_items SET revision=revision+1,run_generation=2,
+          observed_fingerprint=repeat('e',64) WHERE connection_id='connection-1' AND revision=1`);
+      });
+    });
+    expect(await readChannelDriftDetail(db, input)).toEqual(before);
+    expect(interleaved).toBe(true);
+    const after = await runtime.readChannelDriftDetail(input);
+    expect(after.kind).toBe("loaded");
+    if (after.kind !== "loaded" || before.kind !== "loaded") throw new Error("Expected real detail snapshots");
+    expect(after.basis).not.toBe(before.basis);
+    expect(
+      after.rows.find((row) => row.rowKind === "listing" && row.channelListingId === "channel-foreign"),
+    ).toMatchObject({ runGeneration: 2, observedFingerprint: fingerprint("e"), decision: { revision: 1 } });
+  });
+
+  it.each(["decision", "fingerprints", "generation", "owner"] as const)(
+    "drift-detail rejects a deterministic newer %s write after preflight without overwriting it",
+    async (change) => {
+      await seedConnectionAndListings(pools.channels);
+      const runtime = detailRuntime();
+      await runtime.reconcileConnection(
+        { connectionId: "connection-1", registry: inlineRegistry(driftItems), sourceAttempt: 1, healthAuthority: null },
+        context,
+      );
+      let interleaved = false;
+      const db = interceptTransactions(pools.channels, async (sql, phase) => {
+        if (phase !== "before" || sql !== "BEGIN" || interleaved) return;
+        interleaved = true;
+        if (change === "decision") {
+          await runtime.acceptChannelDrift({ ...detailAccept(), operationId: "newer-winner" }, context);
+        } else if (change === "fingerprints") {
+          await pools.channels.query(`UPDATE channel_reconciliation_items SET observed_fingerprint=repeat('e',64),
+            revision=revision+1 WHERE connection_id='connection-1' AND channel_listing_id='channel-foreign' AND revision=1`);
+        } else if (change === "generation") {
+          await pools.channels
+            .query(`UPDATE channel_reconciliation_state SET drift_generation=jsonb_set(drift_generation,'{members}',
+            (SELECT jsonb_agg(member || '{"settlement":"recovered"}'::jsonb) FROM jsonb_array_elements(drift_generation->'members') member)),revision=revision+1
+            WHERE connection_id='connection-1' AND account_id='account-1'`);
+        } else {
+          await pools.channels.query(`UPDATE channel_connections SET account_id='newer-owner'
+            WHERE connection_id='connection-1' AND account_id='account-1'`);
+        }
+      });
+      const before = await detailWriteCounts();
+      await expect(detailRuntime(db).acceptChannelDrift(detailAccept(), context)).rejects.toMatchObject({
+        code:
+          change === "decision"
+            ? "stale-decision"
+            : change === "fingerprints"
+              ? "stale-fingerprints"
+              : change === "generation"
+                ? "ineligible"
+                : "not-found",
+      });
+      expect(interleaved).toBe(true);
+      const after = await detailWriteCounts();
+      expect(after).toEqual({
+        ...before,
+        decisions: before.decisions + (change === "decision" ? 1 : 0),
+        events: before.events + (change === "decision" ? 1 : 0),
+      });
+      expect(
+        (
+          await pools.channels.query(`SELECT operation_id FROM channel_drift_decision_operations
+        WHERE operation_id='detail-interleaved-loser'`)
+        ).rows,
+      ).toEqual([]);
+      if (change === "fingerprints")
+        expect(
+          (
+            await pools.channels.query(`SELECT observed_fingerprint,revision
+        FROM channel_reconciliation_items WHERE connection_id='connection-1' AND channel_listing_id='channel-foreign'`)
+          ).rows,
+        ).toEqual([{ observed_fingerprint: fingerprint("e"), revision: "2" }]);
+    },
+  );
+
+  it("drift-detail preserves a newer projection between history read and its write fence and returns safe storage errors", async () => {
+    await seedConnectionAndListings(pools.channels);
+    const runtime = detailRuntime();
+    await runtime.reconcileConnection(
+      { connectionId: "connection-1", registry: inlineRegistry(driftItems), sourceAttempt: 1, healthAuthority: null },
+      context,
+    );
+    await runtime.acceptChannelDrift({ ...detailAccept(), operationId: "projection-original" }, context);
+    const before = await detailWriteCounts();
+    let interleaved = false;
+    const db = interceptTransactions(pools.channels, async (sql, phase) => {
+      if (
+        phase !== "before" ||
+        !sql.includes("FROM channel_drift_decisions") ||
+        !sql.includes("FOR UPDATE") ||
+        interleaved
+      )
+        return;
+      interleaved = true;
+      await pools.channels.query(`UPDATE channel_drift_decisions SET revision=99
+        WHERE connection_id='connection-1' AND channel_listing_id='channel-foreign' AND revision=1`);
+    });
+    const response = await detailApi(detailRuntime(db)).request(
+      "/connections/connection-1/drift/channel-foreign/repush",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expectedDecisionRevision: 1, operationId: "projection-stale-writer" }),
+      },
+    );
+    expect(interleaved).toBe(true);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: { code: "unavailable" } });
+    expect(await detailWriteCounts()).toEqual(before);
+    expect(
+      (
+        await pools.channels.query(`SELECT revision FROM channel_drift_decisions
+      WHERE connection_id='connection-1' AND channel_listing_id='channel-foreign'`)
+      ).rows,
+    ).toEqual([{ revision: "99" }]);
+    const unavailable = interceptTransactions(pools.channels, async () => {
+      throw new Error("adversarial-secret-storage-error");
+    });
+    const failedRead = await detailApi(detailRuntime(unavailable)).request("/connections/connection-1/drift");
+    expect(failedRead.status).toBe(503);
+    expect(await failedRead.json()).toEqual({ kind: "unavailable" });
+    const anonymous = new Hono<ChannelsApiEnv>();
+    anonymous.route(
+      "/",
+      buildChannelsApi(
+        channelsModule.createServices(pools.channels, {
+          channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
+        }),
+      ),
+    );
+    expect((await anonymous.request("/connections/connection-1/drift")).status).toBe(401);
+    expect((await detailApi(runtime, "account-1", []).request("/connections/connection-1/drift")).status).toBe(403);
+  });
+
+  it("drift-detail applies the owning index migration to retained rows and survives repeated boot", async () => {
+    await seedConnectionAndListings(pools.channels);
+    const runtime = detailRuntime();
+    await runtime.reconcileConnection(
+      { connectionId: "connection-1", registry: inlineRegistry(driftItems), sourceAttempt: 1, healthAuthority: null },
+      context,
+    );
+    await pools.channels.query("DROP INDEX channel_reconciliation_items_detail_idx");
+    await pools.channels.query("DROP INDEX channel_reconciliation_findings_detail_idx");
+    await pools.channels.query("DROP FUNCTION channel_drift_detail_identity(text)");
+    const input = { accountId: "account-1", connectionId: "connection-1" };
+    expect(await runtime.readChannelDriftDetail(input)).toEqual({ kind: "unavailable" });
+    const migration = channelReconciliationSchemaMigrations.find(
+      (entry) => entry.migrationId === "20260914_channels_reconciliation_detail_keyset",
+    );
+    expect(migration).toBeDefined();
+    for (const statement of migration!.statements) await pools.channels.query(statement);
+    const expected = await runtime.readChannelDriftDetail(input);
+    expect(expected.kind).toBe("loaded");
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    expect(await runtime.readChannelDriftDetail(input)).toEqual(expected);
+    expect(
+      (
+        await pools.channels.query(`SELECT indexrelid::regclass::text AS name,indisvalid
+      FROM pg_index WHERE indexrelid IN ('channel_reconciliation_items_detail_idx'::regclass,
+        'channel_reconciliation_findings_detail_idx'::regclass) ORDER BY name`)
+      ).rows,
+    ).toEqual([
+      { name: "channel_reconciliation_findings_detail_idx", indisvalid: true },
+      { name: "channel_reconciliation_items_detail_idx", indisvalid: true },
+    ]);
+  });
+
+  it("drift-detail uses bounded indexed keysets for both sources on first and late pages", async () => {
+    await seedConnectionAndListings(pools.channels);
+    const runtime = detailRuntime();
+    await runtime.reconcileConnection(
+      { connectionId: "connection-1", registry: inlineRegistry(driftItems), sourceAttempt: 1, healthAuthority: null },
+      context,
+    );
+    await pools.channels.query(`INSERT INTO channel_reconciliation_items
+      (connection_id,channel_listing_id,listing_id,run_generation,classification,observed_fingerprint,expected_material_fingerprint,settled,updated_at,revision)
+      SELECT 'connection-1','indexed-'||n,'synthetic-'||n,1,'foreign-edit',repeat('b',64),repeat('2',64),false,now(),1 FROM generate_series(1,5000) n`);
+    await pools.channels.query(`INSERT INTO channel_reconciliation_findings
+      (connection_id,finding_id,run_generation,kind,fingerprint,open,safe_reason,updated_at,revision)
+      SELECT 'connection-1','finding-'||n,1,'unmapped-channel-state',repeat('c',64),true,'unmapped',now(),1 FROM generate_series(1,5000) n`);
+    await pools.channels.query("ANALYZE channel_reconciliation_items");
+    await pools.channels.query("ANALYZE channel_reconciliation_findings");
+    await pools.channels.query(`INSERT INTO channel_drift_decisions
+      (connection_id,channel_listing_id,revision,updated_at)
+      SELECT 'connection-1','indexed-'||n,0,now() FROM generate_series(1,5000) n`);
+    await pools.channels.query("ANALYZE channel_drift_decisions");
+    type Plan = {
+      "Node Type": string;
+      "Relation Name"?: string;
+      "Index Name"?: string;
+      "Actual Rows": number;
+      Plans?: Plan[];
+    };
+    const plans: unknown[] = [];
+    const db = interceptTransactions(pools.channels, async (sql, phase, values) => {
+      if (phase !== "after" || !sql.startsWith("WITH source AS")) return;
+      const result = await pools.channels.query<{ "QUERY PLAN": Array<{ Plan: Plan }> }>(
+        `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`,
+        values,
+      );
+      const plan = result.rows[0]["QUERY PLAN"][0];
+      plans.push(plan);
+      const visit = (node: Plan): void => {
+        if (["channel_reconciliation_items", "channel_reconciliation_findings"].includes(node["Relation Name"] ?? "")) {
+          expect(node["Node Type"]).toBe("Index Scan");
+          expect(node["Index Name"]).toMatch(/_detail_idx$/);
+          expect(node["Actual Rows"]).toBeLessThanOrEqual(51);
+        }
+        if (node["Relation Name"] === "channel_drift_decisions") {
+          expect(node["Node Type"]).toBe("Index Scan");
+          expect(node["Index Name"]).toBe("channel_drift_decisions_pkey");
+          expect(node["Actual Rows"]).toBeLessThanOrEqual(1);
+        }
+        if (node["Node Type"] === "Sort") expect(node.Plans![0]["Actual Rows"]).toBeLessThanOrEqual(102);
+        node.Plans?.forEach(visit);
+      };
+      visit(plan.Plan);
+    });
+    const first = await readChannelDriftDetail(db, { accountId: "account-1", connectionId: "connection-1" });
+    if (first.kind !== "loaded" || !first.cursor) throw new Error("Expected indexed page");
+    const cursor = JSON.parse(Buffer.from(first.cursor, "base64url").toString("utf8"));
+    for (const kind of ["finding", "listing"]) {
+      const late = Buffer.from(JSON.stringify({ ...cursor, kind, identity: "e".repeat(64) })).toString("base64url");
+      const page = await readChannelDriftDetail(db, {
+        accountId: "account-1",
+        connectionId: "connection-1",
+        cursor: late,
+      });
+      expect(page).toMatchObject({ kind: "loaded", hasMore: 1 });
+    }
+    expect(plans).toHaveLength(3);
+    const artifact = resolve(process.cwd(), "../../artifacts/s6-detail/query-plans.json");
+    await mkdir(resolve(artifact, ".."), { recursive: true });
+    await writeFile(artifact, JSON.stringify(plans, null, 2));
   });
 
   it("S6 retained old schema requires the owning migration and survives repeated real boot", async () => {
@@ -2730,7 +3136,7 @@ function detailApi(
   contextAccount = accountId,
 ) {
   const services = channelsModule.createServices(pools.channels, {
-    channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory),
+    channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
   });
   const app = new Hono<ChannelsApiEnv>();
   app.use("*", async (c, next) => {

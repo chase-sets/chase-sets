@@ -25,6 +25,7 @@ const row: Extract<ChannelDriftDetailRow, { rowKind: "listing" }> = {
   rowIdentity: "a".repeat(64),
   channelListingId: "synthetic-listing",
   classification: "foreign-edit",
+  actionable: true,
   runGeneration: 7,
   observedFingerprint: "b".repeat(64),
   expectedMaterialFingerprint: "c".repeat(64),
@@ -167,6 +168,78 @@ function harness(
 }
 
 describe("channel-drift-detail production loader/action/router", () => {
+  it("retains historical foreign edits without exposing decision controls", async () => {
+    harness({ initial: { ...loaded(), rows: [{ ...row, actionable: false }] } });
+    expect(await screen.findByText(row.channelListingId)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Accept channel change" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Request repush" })).toBeNull();
+    expect(screen.getByTestId("channel-health-panel")).toBeTruthy();
+  });
+  it.each([302, 403])("rethrows the exact auth Response %s from the production client action", async (status) => {
+    const form = new FormData();
+    form.set("intent", "repush-drift");
+    form.set("channelListingId", row.channelListingId);
+    form.set("operationId", "synthetic-auth-response");
+    form.set("expectedDecisionRevision", "0");
+    const response = new Response(null, { status, headers: status === 302 ? { Location: "/sign-in" } : {} });
+    const url = new URL("http://localhost/account/channels/connection-1");
+    await expect(
+      clientAction({
+        request: new Request(url, { method: "POST", body: form }),
+        url,
+        pattern: "/account/channels/:connectionId",
+        params: { connectionId: "connection-1" },
+        context: {},
+        serverAction: async () => {
+          throw response;
+        },
+      }),
+    ).rejects.toBe(response);
+  });
+
+  it("retains the browser request identity when the server action response is lost", async () => {
+    const form = new FormData();
+    for (const [key, value] of Object.entries({
+      intent: "accept-drift",
+      channelListingId: row.channelListingId,
+      operationId: "synthetic-browser-lost-response",
+      expectedDecisionRevision: "0",
+      observedFingerprint: row.observedFingerprint!,
+      expectedMaterialFingerprint: row.expectedMaterialFingerprint!,
+    }))
+      form.set(key, value);
+    const serverAction = vi.fn(async () => {
+      throw new Error("synthetic browser response loss");
+    });
+    const args = {
+      request: new Request("http://localhost/account/channels/connection-1", { method: "POST", body: form }),
+      url: new URL("http://localhost/account/channels/connection-1"),
+      pattern: "/account/channels/:connectionId",
+      params: { connectionId: "connection-1" },
+      context: {},
+      serverAction,
+    };
+    expect(await clientAction(args)).toEqual({
+      kind: "drift-result",
+      outcome: "uncertain",
+      submission: {
+        intent: "accept-drift",
+        input: {
+          connectionId: "connection-1",
+          channelListingId: row.channelListingId,
+          operationId: "synthetic-browser-lost-response",
+          expectedDecisionRevision: 0,
+          observedFingerprint: row.observedFingerprint,
+          expectedMaterialFingerprint: row.expectedMaterialFingerprint,
+        },
+      },
+    });
+    expect(serverAction).toHaveBeenCalledTimes(1);
+    form.set("intent", "pause");
+    await expect(
+      clientAction({ ...args, request: new Request(args.request.url, { method: "POST", body: form }) }),
+    ).rejects.toThrow("synthetic browser response loss");
+  });
   it.each(["active", "paused", "pending-setup", "disconnected"] as const)(
     "retains eligible decisions and independent children for %s connections",
     async (status) => {

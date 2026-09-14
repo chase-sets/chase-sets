@@ -814,6 +814,11 @@ async function decideDrift(
     if (!connection || connection.accountId !== owner.accountId) throw new ChannelDriftError("not-found");
     assertAccountContext(connection, context);
     await readChannelDriftDecision(db, ownedInput);
+    const generation = await db.query<{ drift_generation: unknown }>(
+      `SELECT drift_generation FROM channel_reconciliation_state
+       WHERE connection_id=$1 AND account_id=$2 FOR SHARE`,
+      [input.connectionId, owner.accountId],
+    );
     const item = await db.query<{
       classification: string;
       observed_fingerprint: string | null;
@@ -877,6 +882,17 @@ async function decideDrift(
         throw new ChannelDriftError("stale-fingerprints");
       }
     }
+    if (
+      !decodeRetainedDriftGeneration(generation.rows[0]?.drift_generation ?? null)?.members.some(
+        (member) =>
+          member.identity === `listing:${input.channelListingId}` &&
+          member.kind === "foreign-edit" &&
+          member.settlement === "open" &&
+          member.observedFingerprint === item.rows[0]!.observed_fingerprint &&
+          member.expectedFingerprint === item.rows[0]!.expected_material_fingerprint,
+      )
+    )
+      throw new ChannelDriftError("ineligible");
     await db.query(
       `INSERT INTO channel_drift_decisions
          (connection_id,channel_listing_id,revision,accepted_observed_fingerprint,

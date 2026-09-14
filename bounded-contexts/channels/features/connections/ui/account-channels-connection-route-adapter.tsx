@@ -160,6 +160,37 @@ const connectionAction = defineFormAction({
   }),
 });
 
+function driftSubmission(form: FormData, connectionId: string): DriftSubmission | null {
+  const intent = String(form.get("intent") ?? "");
+  if (intent !== "accept-drift" && intent !== "repush-drift") return null;
+  const input = {
+    connectionId,
+    channelListingId: String(form.get("channelListingId") ?? ""),
+    operationId: String(form.get("operationId") ?? ""),
+    expectedDecisionRevision: Number(form.get("expectedDecisionRevision")),
+  };
+  return intent === "accept-drift"
+    ? {
+        intent,
+        input: {
+          ...input,
+          observedFingerprint: String(form.get("observedFingerprint") ?? ""),
+          expectedMaterialFingerprint: String(form.get("expectedMaterialFingerprint") ?? ""),
+        },
+      }
+    : { intent, input };
+}
+
+export async function clientAction(args: ClientActionFunctionArgs) {
+  const submission = driftSubmission(await args.request.clone().formData(), required(args.params.connectionId));
+  try {
+    return await args.serverAction<typeof action>();
+  } catch (error) {
+    if (error instanceof Response || !submission) throw error;
+    return { kind: "drift-result", submission, outcome: "uncertain" } satisfies DriftActionResult;
+  }
+}
+
 export async function action(
   args: ActionFunctionArgs,
 ): Promise<ConnectionActionData | ManualSyncActionError | AttentionActionError | DriftActionResult | Response> {

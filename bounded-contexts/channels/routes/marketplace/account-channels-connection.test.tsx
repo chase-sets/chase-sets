@@ -48,19 +48,18 @@ describe("Channels account connection route contribution", () => {
   });
 
   it("preserves a loaded Manual Sync panel when the operation-log transport fails", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json({ actor: actor() }))
-      .mockResolvedValueOnce(Response.json(actorConnection()))
-      .mockRejectedValueOnce(new Error("synthetic operation-log transport failure"))
-      .mockResolvedValueOnce(Response.json(manualSyncPanel()));
+    const fetch = auxiliaryFetch({
+      operation: () => Promise.reject(new Error("synthetic operation-log transport failure")),
+      manualSync: () => Response.json(manualSyncPanel()),
+    });
     vi.stubGlobal("fetch", fetch);
     await expect(loader(loaderArgs(routeRequest()))).resolves.toMatchObject({
       kind: "ready",
       manualSync: { kind: "loaded", data: manualSyncPanel() },
       operationLog: { kind: "read-error" },
+      drift: { kind: "not-yet-observed" },
     });
-    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(fetch).toHaveBeenCalledTimes(6);
   });
 
   it("renders the valid Manual Sync panel with the named operation-log error", async () => {
@@ -101,8 +100,9 @@ describe("Channels account connection route contribution", () => {
       kind: "ready",
       manualSync: { kind: "read-error" },
       operationLog: { kind: "loaded", log: { items: [] } },
+      drift: { kind: "not-yet-observed" },
     });
-    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(fetch).toHaveBeenCalledTimes(6);
   });
 
   it("renders the named Manual Sync error with the valid operation log", async () => {
@@ -118,6 +118,23 @@ describe("Channels account connection route contribution", () => {
 
     expect(await screen.findByText("Manual TCGplayer sync is unavailable")).toBeTruthy();
     expect(await screen.findByText("No publication activity")).toBeTruthy();
+  });
+
+  it("preserves manual, operation-log and attention children when drift alone fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      auxiliaryFetch({
+        operation: () => Response.json(operationLogBody()),
+        manualSync: () => Response.json(manualSyncPanel()),
+        drift: () => new Response(null, { status: 503 }),
+      }),
+    );
+    await expect(loader(loaderArgs(routeRequest()))).resolves.toMatchObject({
+      drift: { kind: "unavailable" },
+      manualSync: { kind: "loaded", data: manualSyncPanel() },
+      operationLog: { kind: "loaded", log: { items: [] } },
+      attention: { kind: "loaded" },
+    });
   });
 
   it("preserves manual and operation-log children when attention alone fails", async () => {
@@ -340,6 +357,7 @@ function auxiliaryFetch(
     operation: () => Response | Promise<Response>;
     manualSync: () => Response | Promise<Response>;
     attention?: () => Response | Promise<Response>;
+    drift?: () => Response | Promise<Response>;
   }>,
 ) {
   return vi
@@ -351,7 +369,8 @@ function auxiliaryFetch(
     .mockImplementationOnce(
       responses.attention ??
         (() => Response.json({ connectionId: "connection-a", healthState: "healthy", health: [], manual: null })),
-    );
+    )
+    .mockImplementationOnce(responses.drift ?? (() => Response.json({ kind: "not-yet-observed" })));
 }
 
 function renderRoute() {

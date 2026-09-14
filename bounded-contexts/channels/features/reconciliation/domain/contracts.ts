@@ -94,6 +94,7 @@ export type ChannelDriftDetailRow =
       rowIdentity: string;
       channelListingId: string;
       classification: ChannelDriftClassification;
+      actionable: boolean;
       runGeneration: number;
       observedFingerprint: string | null;
       expectedMaterialFingerprint: string | null;

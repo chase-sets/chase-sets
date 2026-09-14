@@ -28,18 +28,25 @@ const excludedStandaloneTestRoot = "bounded-contexts/inventory/features/inventor
 describe("authoritative-stream-read-classification-acceptance-control", () => {
   it("loads the exact tracked Program corpus and reports the anchor-tree classification", () => {
     expect(ts.version).toBe("6.0.3");
-    expect(production.roots).toHaveLength(3_102);
+    expect(production.roots).toHaveLength(3_105);
+    expect(production.roots).toEqual(
+      expect.arrayContaining([
+        "bounded-contexts/channels/features/reconciliation/api/route.ts",
+        "bounded-contexts/channels/features/reconciliation/read-model/detail.ts",
+        "bounded-contexts/channels/features/reconciliation/ui/drift-panel.tsx",
+      ]),
+    );
     expect(production.roots).toContain("bounded-contexts/channels/support/runtime-support/services.ts");
     expect(production.roots.filter((root) => root.endsWith("/offline-sale-form.tsx"))).toEqual([
       approvedStandaloneRoot,
     ]);
     expect(production.roots).not.toContain(excludedStandaloneTestRoot);
     expect(production.totals).toMatchObject({
-      roots: 3_102,
-      loadedRoots: 3_102,
+      roots: 3_105,
+      loadedRoots: 3_105,
       extensionCounts: {
-        ".ts": 2_453,
-        ".tsx": 628,
+        ".ts": 2_455,
+        ".tsx": 629,
         ".mts": 7,
         ".cts": 0,
         ".js": 0,

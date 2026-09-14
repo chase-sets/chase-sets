@@ -109,6 +109,7 @@ export function ChannelDriftPanel({
                     {row.decision.accepted ? <Text>{t("channels.drift.accepted")}</Text> : null}
                     {row.decision.repushRequested ? <Text>{t("channels.drift.requested")}</Text> : null}
                     {canManage &&
+                    row.actionable &&
                     row.classification === "foreign-edit" &&
                     /^[a-f0-9]{64}$/.test(row.observedFingerprint ?? "") &&
                     /^[a-f0-9]{64}$/.test(row.expectedMaterialFingerprint ?? "") ? (
