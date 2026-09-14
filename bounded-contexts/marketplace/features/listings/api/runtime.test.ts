@@ -2488,11 +2488,12 @@ describe("marketplace listing runtime", () => {
         ) as never,
         commercialTermsResolver: { resolveListingTerms: vi.fn() } as never,
         listingPhotoStorage: {
+          getObject: vi.fn(),
           putObject: vi.fn(),
           deleteObjects: vi.fn(async (keys: readonly string[]) => {
             deleted.push([...keys]);
           }),
-        } as never,
+        },
       });
 
       const report = await services.collectListingEvidenceGarbage({ now: "2026-07-13T00:00:00.000Z" });
@@ -2513,7 +2514,7 @@ describe("marketplace listing runtime", () => {
           "2026-01-01T00:00:00.000Z",
         ) as never,
         commercialTermsResolver: { resolveListingTerms: vi.fn() } as never,
-        listingPhotoStorage: { putObject: vi.fn(), deleteObjects: vi.fn() } as never,
+        listingPhotoStorage: { getObject: vi.fn(), putObject: vi.fn(), deleteObjects: vi.fn() },
       });
 
       const report = await services.collectListingEvidenceGarbage({ now: "2026-07-13T00:00:00.000Z" });
@@ -2528,7 +2529,7 @@ describe("marketplace listing runtime", () => {
         checkpointStore: createCheckpointStore(),
         db: gcDb([gcPhoto("lpho_removed", "removed", "hash_removed")], "2026-01-01T00:00:00.000Z") as never,
         commercialTermsResolver: { resolveListingTerms: vi.fn() } as never,
-        listingPhotoStorage: { putObject: vi.fn() } as never,
+        listingPhotoStorage: { getObject: vi.fn(), putObject: vi.fn() },
       });
 
       const report = await services.collectListingEvidenceGarbage({ now: "2026-07-13T00:00:00.000Z" });

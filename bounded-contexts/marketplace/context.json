@@ -499,12 +499,12 @@
     {
       "portName": "listingPhotoStorage",
       "providedBy": "platform-api",
-      "purpose": "Store normalized Marketplace Listing Photo WebP assets in the environment asset bucket without making Marketplace own object-storage infrastructure."
+      "purpose": "Store normalized Marketplace Listing Photo WebP assets and read retained sources for authenticated JPEG downloads without making Marketplace own object-storage infrastructure."
     },
     {
       "portName": "rateLimitPolicyResolver",
       "providedBy": "platform-operations",
-      "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous listing-draft capture and the public standard-terms preview without Marketplace querying Platform Operations storage."
+      "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous listing-draft capture, public standard-terms preview, and authenticated Listing Photo JPEG downloads without Marketplace querying Platform Operations storage."
     },
     {
       "portName": "notificationOutbox",

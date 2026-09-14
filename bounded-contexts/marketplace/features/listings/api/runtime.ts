@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import sharp from "sharp";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
@@ -51,7 +53,10 @@ import {
 } from "../domain/domain";
 import { evaluateListingEvidenceReadiness } from "../domain/listing-evidence-readiness";
 import { resolveListingEvidenceRequirements } from "./evidence-requirement-resolver";
-import { assertEvidenceCountAndBytesWithinBudget } from "../domain/evidence-governance";
+import {
+  assertEvidenceCountAndBytesWithinBudget,
+  DEFAULT_LISTING_EVIDENCE_MAX_SOURCE_PIXELS,
+} from "../domain/evidence-governance";
 import { buildMarketplaceListingEvidenceReadiness } from "./evidence-readiness";
 import { buildListingEvidenceSnapshot, type ListingEvidenceSnapshot } from "../domain/evidence-snapshot";
 import {
@@ -117,6 +122,11 @@ import {
 const MARKETPLACE_SYSTEM_TENANT_ID = "tnt_marketplace_system" as TenantId;
 const MARKETPLACE_SYSTEM_USER_ID = "usr_marketplace_system" as UserId;
 const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const LISTING_PHOTO_JPEG_BACKGROUND = { r: 255, g: 255, b: 255 };
+const LISTING_PHOTO_JPEG_QUALITY = 90;
+const LISTING_PHOTO_JPEG_MAX_BYTES = 15_000_000;
+
+class MarketplaceListingNotFoundError extends Error {}
 /**
  * Bump whenever `evolveMarketplaceListing`'s fold shape changes in a way
  * that would make an old snapshot's stored state incompatible. A stored
@@ -166,6 +176,13 @@ export class MarketplaceListingEvidenceIncompleteError extends Error {
 export type { MarketplaceBulkListingPriceUpdateInput, MarketplaceBulkListingPriceUpdateOutcome } from "../ui/contracts";
 
 export type MarketplaceListingServices = Readonly<{
+  getListingPhotoJpeg: (
+    params: Readonly<{
+      accountId: string;
+      listingId: string;
+      photoId: string;
+    }>,
+  ) => Promise<Readonly<{ body: Uint8Array; etag: string }> | null>;
   commandHandler: CommandHandler<MarketplaceListingCommand, MarketplaceListingState, MarketplaceListingEvent>;
   sellerAvailabilityCommandHandler: CommandHandler<
     SellerListingAvailabilityCommand,
@@ -908,7 +925,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     const aggregate = await repository.load(`marketplace.listing-${listingId}`);
     const listing = aggregate.state;
 
-    assert(listing.listingId !== null && listing.accountId === accountId, "Listing not found.");
+    if (listing.listingId === null || listing.accountId !== accountId) {
+      throw new MarketplaceListingNotFoundError("Listing not found.");
+    }
 
     return listing;
   }
@@ -1549,6 +1568,26 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       );
     },
     addListingPhotos,
+    getListingPhotoJpeg: async (params) => {
+      let listing: MarketplaceListingState;
+      try {
+        listing = await loadOwnedListingState(params.listingId, params.accountId);
+      } catch (error) {
+        if (error instanceof MarketplaceListingNotFoundError) return null;
+        throw error;
+      }
+      const photo = listing.evidence.find((entry) => entry.photoId === params.photoId && entry.status === "active");
+      if (!photo) return null;
+      assert(deps.listingPhotoStorage, "Listing photo storage is not configured.");
+      const source = await deps.listingPhotoStorage.getObject(photo.assetSet.source.storageKey);
+      if (!source) return null;
+      const body = await sharp(source.body, { limitInputPixels: DEFAULT_LISTING_EVIDENCE_MAX_SOURCE_PIXELS })
+        .flatten({ background: LISTING_PHOTO_JPEG_BACKGROUND })
+        .jpeg({ quality: LISTING_PHOTO_JPEG_QUALITY })
+        .toBuffer();
+      assert(body.byteLength <= LISTING_PHOTO_JPEG_MAX_BYTES, "Listing photo JPEG exceeds the byte budget.");
+      return { body, etag: `"${createHash("sha256").update(body).digest("hex")}"` };
+    },
     classifyListingPhoto: async (params, context) => {
       await loadOwnedListingState(params.listingId, params.accountId);
       const result = await commandHandler({

@@ -1,8 +1,12 @@
 import { t } from "@chase-sets/localization";
-import { createPolicyBackedRateLimiter, type RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
+import {
+  createPolicyBackedRateLimiter,
+  rateLimitExceededJsonResponse,
+  type RateLimitRuleResolver,
+} from "@chase-sets/http/rate-limit";
 import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import { Hono } from "hono";
-import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
+import { parseStrictTypedUlid, type AccountId, type ListingId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
   MarketplaceListingEvidenceIncompleteError,
@@ -19,6 +23,7 @@ const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_SURFACE = "marketplace.anonymous-listing
 const PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_MAX = 120;
 const PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_SURFACE = "marketplace.public-standard-terms-preview";
+const LISTING_PHOTO_JPEG_RATE_LIMIT_SURFACE = "marketplace.listing-photo.jpeg-download.account";
 
 function requireListingAccess(
   c: {
@@ -480,8 +485,46 @@ function orderedPhotoIds(value: unknown): string[] {
   return Array.isArray(value) ? value.map((entry) => String(entry).trim()).filter((entry) => entry.length > 0) : [];
 }
 
-export function createAccountListingRoutes(services: MarketplaceListingServices) {
+export function createAccountListingRoutes(
+  services: MarketplaceListingServices,
+  resolveRateLimitRule?: RateLimitRuleResolver,
+) {
   const app = new Hono<MarketplaceApiEnv>();
+  const jpegRateLimiter = createPolicyBackedRateLimiter(
+    LISTING_PHOTO_JPEG_RATE_LIMIT_SURFACE,
+    { max: 30, windowMs: 600_000 },
+    resolveRateLimitRule ?? (async (_surface, defaults) => defaults),
+  );
+
+  app.get("/listings/:id/photos/:photoId/jpeg", async (c) => {
+    const access = requireListingAccess(c, "listings.view");
+    if (access.response) return access.response;
+    let listingId: ListingId;
+    let photoId: string;
+    try {
+      listingId = parseStrictTypedUlid(c.req.param("id"), "lst");
+      photoId = parseStrictTypedUlid(c.req.param("photoId"), "lpho");
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+    const rateLimit = await jpegRateLimiter.check(access.actor.accountId);
+    if (rateLimit.limited) return rateLimitExceededJsonResponse(LISTING_PHOTO_JPEG_RATE_LIMIT_SURFACE, rateLimit);
+    const jpeg = await services.getListingPhotoJpeg({ accountId: access.actor.accountId, listingId, photoId });
+    if (!jpeg) {
+      return c.json(
+        { error: { code: "not_found", message: t("marketplace.features.listings.api.route.listing.not.found") } },
+        404,
+      );
+    }
+    return new Response(new Uint8Array(jpeg.body), {
+      headers: {
+        "Content-Type": "image/jpeg",
+        "Content-Length": String(jpeg.body.byteLength),
+        ETag: jpeg.etag,
+        "Cache-Control": "private, max-age=0, must-revalidate",
+      },
+    });
+  });
 
   app.get("/listings", async (c) => {
     const access = requireListingAccess(c, "listings.view");

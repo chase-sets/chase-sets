@@ -231,6 +231,9 @@ export function createMarketplaceSeedRuntime(
 
 function createMarketplaceSeedListingPhotoStorage(): ListingPhotoStorage {
   return {
+    async getObject() {
+      return null;
+    },
     async putObject(input) {
       return {
         key: input.key,
