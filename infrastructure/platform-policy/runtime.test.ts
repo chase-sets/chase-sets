@@ -13,6 +13,7 @@ import { createPolicyCache } from "./cache";
 import { gracePeriodPolicy } from "./examples/grace-period-policy";
 import { buildPolicyDocumentProjectionHandlers } from "./projection";
 import { createPolicyRuntime } from "./runtime";
+import { definePolicy } from "./define-policy";
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -21,6 +22,123 @@ const context = {
     forAccountId: "acc_admin" as never,
   },
 };
+
+const syntheticConsentPolicy = definePolicy({
+  policyKey: "synthetic.consent-version",
+  contextName: "synthetic",
+  schemaSummary: "{ version: string }",
+  defaultValue: { version: "v1" },
+  decodeValue(raw) {
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw) || typeof raw.version !== "string") {
+      throw new Error("Invalid synthetic version");
+    }
+    return { version: raw.version };
+  },
+});
+
+describe("guarded consent document activation", () => {
+  it("folds beyond one page without projection authority and guards an exact-repeat no-op", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const { db, queryLog } = createFakePolicyDb();
+    const runtime = createPolicyRuntime({ eventStore, db });
+    const { documentId } = await runtime.createPolicyDocument(
+      syntheticConsentPolicy,
+      {
+        value: { version: "v1" },
+        status: "active",
+        effectiveFrom: "2026-09-01T00:00:00.000Z",
+        effectiveUntil: null,
+        actorUserId: "synthetic-operator",
+      },
+      context,
+    );
+    const streamId = `platform-policy.document-${documentId}`;
+    await eventStore.appendToStream({
+      streamId,
+      expectedVersion: 1,
+      context,
+      events: Array.from({ length: 500 }, () => ({
+        eventType: "platform-policy.document.revised",
+        payload: {
+          documentId,
+          policyKey: syntheticConsentPolicy.policyKey,
+          value: { version: "v2" },
+          status: "active",
+          effectiveFrom: "2026-09-01T00:00:00.000Z",
+          effectiveUntil: null,
+          actorUserId: "synthetic-operator",
+        },
+      })),
+    });
+    const queryCount = queryLog.length;
+    const params = { version: "v2", documentId, actorUserId: "synthetic-operator" };
+    const first = await runtime.activateConsentPolicyVersion(syntheticConsentPolicy, params, context);
+    expect(first).toMatchObject({ activeVersion: "v2", authorityVersion: 2 });
+    expect(await runtime.activateConsentPolicyVersion(syntheticConsentPolicy, params, context)).toEqual(first);
+    expect(queryLog).toHaveLength(queryCount);
+    const guardedStore: EventStore = {
+      ...eventStore,
+      appendToStreams: async (inputs) => {
+        expect(inputs).toHaveLength(2);
+        expect(inputs[0]).toMatchObject({ streamId, expectedVersion: 501, events: [] });
+        expect(inputs[1]).toMatchObject({ expectedVersion: 2, events: [] });
+        await eventStore.appendToStream({
+          streamId,
+          expectedVersion: 501,
+          context,
+          events: [
+            {
+              eventType: "platform-policy.document.revised",
+              payload: {
+                documentId,
+                policyKey: syntheticConsentPolicy.policyKey,
+                value: { version: "v3" },
+                status: "active",
+                effectiveFrom: "2026-09-01T00:00:00.000Z",
+                effectiveUntil: null,
+                actorUserId: "synthetic-operator",
+              },
+            },
+          ],
+        });
+        return eventStore.appendToStreams!(inputs);
+      },
+    };
+    await expect(
+      createPolicyRuntime({ eventStore: guardedStore, db }).activateConsentPolicyVersion(
+        syntheticConsentPolicy,
+        params,
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect((await runtime.consentActivation.read(syntheticConsentPolicy.policyKey)).authorityVersion).toBe(2);
+  });
+
+  it("fails closed on an over-bound document before registration", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const { db } = createFakePolicyDb();
+    const runtime = createPolicyRuntime({ eventStore, db });
+    const streamId = "platform-policy.document-synthetic-long";
+    await eventStore.appendToStream({
+      streamId,
+      expectedVersion: "no_stream",
+      context,
+      events: Array.from({ length: 10_000 }, () => ({ eventType: "synthetic.unreadable", payload: {} })),
+    });
+    await expect(
+      runtime.activateConsentPolicyVersion(
+        syntheticConsentPolicy,
+        {
+          version: "v1",
+          documentId: "synthetic-long",
+          actorUserId: "synthetic-operator",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ name: "EventStreamTooLongError", maxEvents: 9_999 });
+    expect((await runtime.consentActivation.read(syntheticConsentPolicy.policyKey)).registered).toBe(false);
+  });
+});
 
 /**
  * A minimal in-memory stand-in for the platform_policy_documents /
