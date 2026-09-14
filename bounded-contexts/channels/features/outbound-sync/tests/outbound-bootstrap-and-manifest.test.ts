@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "../read-model/schema";
 
 describe("outbound-bootstrap-and-manifest", () => {
+  it("expands the retained origin column before boot indexes using the ledgered statement", () => {
+    const expansion = outboundSyncSchemaMigrations[2]!.statements[1]!;
+    expect(expansion).toContain("ADD COLUMN IF NOT EXISTS operation_origin text NOT NULL DEFAULT 'desired-state'");
+    const expansionPosition = outboundSyncSchemaSql.indexOf(`${expansion};`);
+    expect(expansionPosition).toBeGreaterThan(
+      outboundSyncSchemaSql.indexOf("CREATE TABLE IF NOT EXISTS channel_outbound_operations"),
+    );
+    expect(expansionPosition).toBeLessThan(outboundSyncSchemaSql.indexOf("CREATE UNIQUE INDEX"));
+    expect(outboundSyncSchemaSql.split(`${expansion};`)).toHaveLength(2);
+  });
+
   it("keeps all four tables and both lane uniqueness fences in boot and migration SQL", () => {
     const migrationSql = outboundSyncSchemaMigrations.flatMap((migration) => migration.statements).join("\n");
     for (const expected of [
