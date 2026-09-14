@@ -2,11 +2,14 @@ import { createHash } from "node:crypto";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import {
   createPostgresAggregateSnapshotStore,
+  createPostgresEventStore,
   withPgTransaction,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import { classifyChannelDrift } from "../domain/classification";
+import { ChannelDriftError } from "../domain/contracts";
+import { readChannelDriftDetail } from "../read-model/detail";
 import type {
   AcceptChannelDrift,
   AcceptedChannelDrift,
@@ -488,6 +491,7 @@ export function createChannelReconciliationRuntime(
     acceptChannelDrift: (input, context) => decideDrift(dependencies, "accept", input, context, now()),
     repushChannelListing: (input, context) => decideDrift(dependencies, "repush", input, context, now()),
     readChannelDriftDecision: (input) => readChannelDriftDecision(dependencies.db, input),
+    readChannelDriftDetail: (input) => readChannelDriftDetail(dependencies.db, input),
     readChannelDriftAttentionContribution: (input) => readChannelDriftAttentionContribution(dependencies.db, input),
     readChannelReconciliationMetrics: (input) => readChannelReconciliationMetrics(dependencies.db, input),
     readPendingHealthObservations: (input) => readPendingHealthObservations(dependencies.db, input),
@@ -797,42 +801,25 @@ async function decideDrift(
   occurredAt: string,
 ): Promise<ChannelDriftDecision> {
   assertDecisionInput(input, kind);
+  const owner = await readReconciliationConnection(dependencies.db, input.connectionId);
+  if (!owner || owner.accountId !== String(context.audit.forAccountId)) throw new ChannelDriftError("not-found");
+  const ownedInput = {
+    accountId: owner.accountId,
+    connectionId: input.connectionId,
+    channelListingId: input.channelListingId,
+  };
+  await readChannelDriftDecision(dependencies.db, ownedInput);
   const commandFingerprint = digest(JSON.stringify({ kind, ...input }));
-  const connection = await readReconciliationConnection(dependencies.db, input.connectionId);
-  if (!connection) throw new Error("Channel Drift Decision connection was not found.");
-  assertAccountContext(connection, context);
-  const history = await loadDecisionHistory(dependencies, input.connectionId, input.channelListingId);
   return withPgTransaction(dependencies.db, async (db) => {
     const connection = await readReconciliationConnection(db, input.connectionId);
-    if (!connection) throw new Error("Channel Drift Decision connection was not found.");
+    if (!connection || connection.accountId !== owner.accountId) throw new ChannelDriftError("not-found");
     assertAccountContext(connection, context);
-    const replay = await db.query<{ command_fingerprint: string }>(
-      `SELECT command_fingerprint FROM channel_drift_decision_operations WHERE operation_id=$1`,
-      [input.operationId],
+    await readChannelDriftDecision(db, ownedInput);
+    const generation = await db.query<{ drift_generation: unknown }>(
+      `SELECT drift_generation FROM channel_reconciliation_state
+       WHERE connection_id=$1 AND account_id=$2 FOR SHARE`,
+      [input.connectionId, owner.accountId],
     );
-    if (replay.rows[0]) {
-      if (replay.rows[0].command_fingerprint !== commandFingerprint) {
-        throw new Error("Channel Drift Decision operation identity was reused with different input.");
-      }
-      if (history.operationFingerprints.get(input.operationId) !== decisionInputFingerprint(kind, input)) {
-        throw new Error("Channel Drift Decision receipt does not match its event history.");
-      }
-      await assertDecisionProjection(db, input.connectionId, input.channelListingId, history);
-      if (kind === "repush" && history.repushRequested && history.lastOperationId === input.operationId) {
-        const enqueued = await enqueueDecisionRepush(
-          dependencies,
-          db,
-          await readChannelDriftDecision(db, input),
-          context,
-          occurredAt,
-        );
-        if (!enqueued) throw new Error("Channel Drift repush could not enqueue its matching operation.");
-      }
-      return readChannelDriftDecision(db, input);
-    }
-    if (history.version !== input.expectedDecisionRevision) {
-      throw new Error("Channel Drift Decision revision is stale.");
-    }
     const item = await db.query<{
       classification: string;
       observed_fingerprint: string | null;
@@ -843,8 +830,58 @@ async function decideDrift(
        FROM channel_reconciliation_items WHERE connection_id=$1 AND channel_listing_id=$2 FOR UPDATE`,
       [input.connectionId, input.channelListingId],
     );
-    if (!item.rows[0] || item.rows[0].classification !== "foreign-edit") {
-      throw new Error("Channel Drift Decision requires a current foreign edit.");
+    if (!item.rows[0]) throw new ChannelDriftError("not-found");
+    const history = await loadDecisionHistory(
+      {
+        ...dependencies,
+        eventStore: createPostgresEventStore({
+          pool: { query: db.query.bind(db), connect: dependencies.db.connect.bind(dependencies.db) },
+        }),
+      },
+      input.connectionId,
+      input.channelListingId,
+    );
+    const replay = await db.query<{ command_fingerprint: string; resulting_revision: string | number }>(
+      `SELECT command_fingerprint,resulting_revision FROM channel_drift_decision_operations WHERE operation_id=$1`,
+      [input.operationId],
+    );
+    if (replay.rows[0]) {
+      if (replay.rows[0].command_fingerprint !== commandFingerprint) {
+        throw new ChannelDriftError("operation-reused");
+      }
+      if (history.operationFingerprints.get(input.operationId) !== decisionInputFingerprint(kind, input)) {
+        throw new ChannelDriftError("unavailable");
+      }
+      const resultingRevision = Number(replay.rows[0].resulting_revision);
+      const enqueuedReplay =
+        kind === "repush" &&
+        history.lastOperationId === input.operationId &&
+        !history.repushRequested &&
+        history.lastRepushRevision === resultingRevision &&
+        history.version === resultingRevision + 1;
+      if (resultingRevision !== history.version && !enqueuedReplay) throw new ChannelDriftError("stale-decision");
+      await assertDecisionProjection(db, input.connectionId, input.channelListingId, history);
+      if (kind === "repush" && history.repushRequested && history.lastOperationId === input.operationId) {
+        const enqueued = await enqueueDecisionRepush(
+          dependencies,
+          db,
+          await readChannelDriftDecision(db, ownedInput),
+          context,
+          occurredAt,
+        );
+        if (!enqueued) throw new Error("Channel Drift repush could not enqueue its matching operation.");
+      }
+      return readChannelDriftDecision(db, ownedInput);
+    }
+    if (history.version !== input.expectedDecisionRevision) {
+      throw new ChannelDriftError("stale-decision");
+    }
+    if (
+      item.rows[0].classification !== "foreign-edit" ||
+      !/^[a-f0-9]{64}$/.test(item.rows[0].observed_fingerprint ?? "") ||
+      !/^[a-f0-9]{64}$/.test(item.rows[0].expected_material_fingerprint)
+    ) {
+      throw new ChannelDriftError("ineligible");
     }
     if (kind === "accept") {
       const accept = input as AcceptChannelDrift;
@@ -852,9 +889,20 @@ async function decideDrift(
         item.rows[0].observed_fingerprint !== accept.observedFingerprint ||
         item.rows[0].expected_material_fingerprint !== accept.expectedMaterialFingerprint
       ) {
-        throw new Error("Channel Drift Decision fingerprints are stale.");
+        throw new ChannelDriftError("stale-fingerprints");
       }
     }
+    if (
+      !decodeRetainedDriftGeneration(generation.rows[0]?.drift_generation ?? null)?.members.some(
+        (member) =>
+          member.identity === `listing:${input.channelListingId}` &&
+          member.kind === "foreign-edit" &&
+          member.settlement === "open" &&
+          member.observedFingerprint === item.rows[0]!.observed_fingerprint &&
+          member.expectedFingerprint === item.rows[0]!.expected_material_fingerprint,
+      )
+    )
+      throw new ChannelDriftError("ineligible");
     await db.query(
       `INSERT INTO channel_drift_decisions
          (connection_id,channel_listing_id,revision,accepted_observed_fingerprint,
@@ -907,7 +955,7 @@ async function decideDrift(
               occurredAt,
             ],
           );
-    if (Number(updated.rowCount ?? 0) !== 1) throw new Error("Channel Drift Decision revision is stale.");
+    if (Number(updated.rowCount ?? 0) !== 1) throw new ChannelDriftError("stale-decision");
     await db.query(
       `INSERT INTO channel_drift_decision_operations
          (operation_id,connection_id,channel_listing_id,command_kind,command_fingerprint,resulting_revision,recorded_at)
@@ -926,13 +974,22 @@ async function decideDrift(
       const enqueued = await enqueueDecisionRepush(
         dependencies,
         db,
-        await readChannelDriftDecision(db, input),
+        await readChannelDriftDecision(db, ownedInput),
         context,
         occurredAt,
       );
       if (!enqueued) throw new Error("Channel Drift repush could not enqueue its matching operation.");
     }
-    return readChannelDriftDecision(db, input);
+    return readChannelDriftDecision(db, ownedInput);
+  }).catch((error: unknown) => {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      Reflect.get(error, "code") === "23505" &&
+      Reflect.get(error, "constraint") === "channel_drift_decision_operations_pkey"
+    )
+      throw new ChannelDriftError("operation-reused");
+    throw error;
   });
 }
 
@@ -1977,15 +2034,15 @@ function assertDecisionInput(input: AcceptChannelDrift | RepushChannelListing, k
       : ["channelListingId", "connectionId", "expectedDecisionRevision", "operationId"];
   const actualKeys = Object.keys(input).sort();
   if (actualKeys.length !== expectedKeys.length || actualKeys.some((key, index) => key !== expectedKeys[index])) {
-    throw new Error("Channel Drift Decision command is not recursively closed.");
+    throw new ChannelDriftError("invalid-command");
   }
   for (const key of ["connectionId", "channelListingId", "operationId"] as const) {
     if (typeof input[key] !== "string" || input[key].length < 1 || [...input[key]].length > 512) {
-      throw new Error(`Channel Drift Decision ${key} is invalid.`);
+      throw new ChannelDriftError("invalid-command");
     }
   }
   if (!Number.isSafeInteger(input.expectedDecisionRevision) || input.expectedDecisionRevision < 0) {
-    throw new Error("Channel Drift Decision expected revision is invalid.");
+    throw new ChannelDriftError("invalid-command");
   }
   if (kind === "accept") {
     const accept = input as AcceptChannelDrift;
@@ -1993,7 +2050,7 @@ function assertDecisionInput(input: AcceptChannelDrift | RepushChannelListing, k
       !/^[a-f0-9]{64}$/.test(accept.observedFingerprint) ||
       !/^[a-f0-9]{64}$/.test(accept.expectedMaterialFingerprint)
     ) {
-      throw new Error("Channel Drift Decision fingerprints are invalid.");
+      throw new ChannelDriftError("invalid-command");
     }
   }
 }

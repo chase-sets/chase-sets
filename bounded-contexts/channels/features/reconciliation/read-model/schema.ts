@@ -76,6 +76,15 @@ const tables = [
   )`,
 ] as const;
 
+const detailIdentitySql = `CREATE OR REPLACE FUNCTION channel_drift_detail_identity(value text) RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SET search_path = pg_catalog
+  AS $$ SELECT encode(sha256(convert_to(value,'UTF8')),'hex') $$`;
+
+const detailIndexes = [
+  "CREATE INDEX IF NOT EXISTS channel_reconciliation_items_detail_idx ON channel_reconciliation_items (connection_id, channel_drift_detail_identity(channel_listing_id))",
+  "CREATE INDEX IF NOT EXISTS channel_reconciliation_findings_detail_idx ON channel_reconciliation_findings (connection_id, channel_drift_detail_identity(finding_id)) WHERE open",
+] as const;
+
 const indexes = [
   "CREATE INDEX IF NOT EXISTS channel_reconciliation_due_idx ON channel_reconciliation_state (next_due_at, connection_id) WHERE state IN ('idle','due','completed','bounded-unknown','held')",
   "CREATE INDEX IF NOT EXISTS channel_reconciliation_items_attention_idx ON channel_reconciliation_items (connection_id, run_generation, channel_listing_id) WHERE classification IN ('foreign-edit','structural') AND settled = false",
@@ -85,11 +94,14 @@ const indexes = [
 ] as const;
 
 const migrationIndexes = indexes.map((statement) => statement.replace("CREATE INDEX ", "CREATE INDEX CONCURRENTLY "));
+const detailMigrationIndexes = detailIndexes.map((statement) =>
+  statement.replace("CREATE INDEX ", "CREATE INDEX CONCURRENTLY "),
+);
 
 export const retainedDriftGenerationExpansion =
   "ALTER TABLE channel_reconciliation_state ADD COLUMN IF NOT EXISTS drift_generation jsonb NULL";
 
-export const channelReconciliationSchemaSql = `${tables.join(";\n")};\n${retainedDriftGenerationExpansion};\n${indexes.join(";\n")};`;
+export const channelReconciliationSchemaSql = `${tables.join(";\n")};\n${retainedDriftGenerationExpansion};\n${detailIdentitySql};\n${[...indexes, ...detailIndexes].join(";\n")};`;
 
 export const channelReconciliationSchemaMigrations: readonly BcSchemaMigration[] = [
   {
@@ -117,6 +129,11 @@ export const channelReconciliationSchemaMigrations: readonly BcSchemaMigration[]
     migrationId: "20260914_channels_reconciliation_drift_generation",
     description: "Retain complete drift generation membership with the owning reconciliation run.",
     statements: ["SET LOCAL lock_timeout = '5s'", retainedDriftGenerationExpansion],
+  },
+  {
+    migrationId: "20260914_channels_reconciliation_detail_keyset",
+    description: "Index bounded opaque detail keysets without retaining consumer membership.",
+    statements: [detailIdentitySql, ...detailMigrationIndexes],
   },
 ];
 

@@ -2,6 +2,7 @@ import { loader as connectionLoader } from "../../features/connections/ui/accoun
 
 export {
   action,
+  clientAction,
   default,
   downloadAction,
   meta,

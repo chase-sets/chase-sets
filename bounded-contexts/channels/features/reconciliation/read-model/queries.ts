@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { decodeRetainedDriftGeneration } from "../domain/generation";
+import { ChannelDriftError } from "../domain/contracts";
 import type {
   ChannelDriftAttentionContribution,
   ChannelDriftDecision,
@@ -23,7 +24,7 @@ const zeroCounts: ChannelReconciliationCounts = Object.freeze({
 
 export async function readChannelDriftDecision(
   db: PgQueryable,
-  input: Readonly<{ connectionId: string; channelListingId: string }>,
+  input: Readonly<{ accountId: string; connectionId: string; channelListingId: string }>,
 ): Promise<ChannelDriftDecision> {
   const result = await db.query<{
     revision: string | number;
@@ -33,14 +34,20 @@ export async function readChannelDriftDecision(
     repush_requested: boolean;
     last_operation_id: string | null;
   }>(
-    `SELECT revision,accepted_observed_fingerprint,accepted_expected_material_fingerprint,
+    `SELECT decision.revision,accepted_observed_fingerprint,accepted_expected_material_fingerprint,
             accepted_at_run_generation,repush_requested,last_operation_id
-     FROM channel_drift_decisions WHERE connection_id=$1 AND channel_listing_id=$2`,
-    [input.connectionId, input.channelListingId],
+     FROM channel_connections AS connection
+     JOIN channel_reconciliation_items AS item ON item.connection_id=connection.connection_id
+     LEFT JOIN channel_drift_decisions AS decision
+       ON decision.connection_id=item.connection_id AND decision.channel_listing_id=item.channel_listing_id
+     WHERE connection.connection_id=$1 AND item.channel_listing_id=$2 AND connection.account_id=$3`,
+    [input.connectionId, input.channelListingId, input.accountId],
   );
   const row = result.rows[0];
+  if (!row) throw new ChannelDriftError("not-found");
   return {
-    ...input,
+    connectionId: input.connectionId,
+    channelListingId: input.channelListingId,
     revision: Number(row?.revision ?? 0),
     accepted:
       row?.accepted_observed_fingerprint && row.accepted_expected_material_fingerprint

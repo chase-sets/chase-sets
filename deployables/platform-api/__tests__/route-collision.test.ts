@@ -44,7 +44,7 @@ describe("platform API route collision assembly", () => {
 
     const mounts = Reflect.apply(resolveApiHostMounts, undefined, [runtime]);
     const report = assertApiRouteTableHasNoCollisions(mounts);
-    expect(report).toEqual({ scanned: 31, total: 31, routeCount: 805, duplicateGroups: [] });
+    expect(report).toEqual({ scanned: 31, total: 31, routeCount: 808, duplicateGroups: [] });
     console.info(
       `route-collision-census candidate entryShape=keyed rows=${rawEntries.length}/31 scanned=${report.scanned}/${report.total} routes=${report.routeCount} groups=${report.duplicateGroups.length}`,
     );
@@ -54,6 +54,15 @@ describe("platform API route collision assembly", () => {
     expect(app.routes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ method: "GET", path: "/api/channels/connections/:connectionId/attention" }),
+        expect.objectContaining({ method: "GET", path: "/api/channels/connections/:connectionId/drift" }),
+        expect.objectContaining({
+          method: "POST",
+          path: "/api/channels/connections/:connectionId/drift/:channelListingId/accept",
+        }),
+        expect.objectContaining({
+          method: "POST",
+          path: "/api/channels/connections/:connectionId/drift/:channelListingId/repush",
+        }),
         expect.objectContaining({ method: "POST", path: "/api/channels/connections/:connectionId/attention/resolve" }),
       ]),
     );

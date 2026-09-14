@@ -430,6 +430,28 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "channels.drift-decision-snapshots",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/reconciliation/api/route.ts:POST /:connectionId/drift/:channelListingId/accept",
+        "api-route:bounded-contexts/channels/features/reconciliation/api/route.ts:POST /:connectionId/drift/:channelListingId/repush",
+        "post-form:bounded-contexts/channels/features/reconciliation/ui/drift-panel.tsx:Hb08a81ecfd73#1"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "description": "The existing detail child shows the committed decision snapshot and reloads account-qualified rows, attention and operation log."
+      },
+      "proof": {
+        "authoritativeResponse": "The real decision transaction returns its revision and operation identity. The form stays disabled during submission and revalidation; uncertainty retains the exact request, and conflicts require explicit refresh. Accepted/requested copy never asserts enqueue, application or health.",
+        "tests": [
+          "bounded-contexts/channels/features/reconciliation/tests/channel-reconciliation-runtime.db.test.ts",
+          "bounded-contexts/channels/features/reconciliation/tests/channel-drift-detail.test.tsx"
+        ]
+      }
+    },
+    {
       "id": "channels.connection-attention-resolution",
       "owner": "channels",
       "risk": "important",

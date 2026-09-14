@@ -6,6 +6,25 @@ const root = path.resolve(import.meta.dirname, "../../../../..");
 const source = (relativePath: string) => readFileSync(path.join(root, relativePath), "utf8");
 
 describe("channel-reconciliation-real-composition-contract", () => {
+  it("mounts the real drift routes and requires every detail service at composition", () => {
+    const api = source("bounded-contexts/channels/api.ts");
+    const runtime = source("bounded-contexts/channels/features/reconciliation/api/runtime.ts");
+    const guard = source("bounded-contexts/channels/support/runtime-support/services.ts");
+    const adapter = source(
+      "bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx",
+    );
+    expect(api).toContain('app.route("/connections", createChannelDriftRoutes(services.reconciliation))');
+    expect(runtime).toContain("readChannelDriftDetail(dependencies.db, input)");
+    for (const method of [
+      "readChannelDriftDetail",
+      "readChannelDriftDecision",
+      "acceptChannelDrift",
+      "repushChannelListing",
+    ])
+      expect(guard).toContain(`Reflect.get(reconciliation, "${method}")`);
+    expect(adapter).toContain("<ChannelDriftPanel");
+    expect(adapter).toContain("loadIdentity: crypto.randomUUID()");
+  });
   it("binds the imported Inventory recorder and real Channels service without a decoupled cast", () => {
     const contracts = source("bounded-contexts/channels/features/reconciliation/domain/contracts.ts");
     const inventory = source("bounded-contexts/inventory/support/runtime-support/services.ts");
