@@ -151,30 +151,27 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
       id: "fees-and-deductions",
       title: "Fees and deductions",
       draftText:
-        "Chase Sets charges a marketplace sales fee on each completed sale, computed from the rate, fixed amount, and per-item cap published in the current Marketplace Sales Fee Schedule policy document, and shown to you before you confirm a listing. Confirming a listing locks the fee terms then in effect for the units created at that moment, as described in Chase Sets' Marketplace sales and checkout fees help article; a later revision to the published schedule never changes units already locked, and Chase Sets re-audits the locked fee terms, including the per-item cap, before crediting your sale proceeds.\n\nEvery order also carries a seller-funded fulfillment allowance under the Marketplace Sales Fee Schedule. That allowance funds the order's Order Protection contribution first and your shipping cost second, and your payout detail itemizes both. Chase Sets does not charge you a separate listing fee, and buyer-side checkout processing fees, published in the same fee schedule and the Checkout Processing Fee policy document, are never deducted from your proceeds.\n\nRequesting a payout of your available balance carries the payout fee published in the current Payout Fee policy document, to be referenced alongside the other fee schedules in Chase Sets' Marketplace sales and checkout fees help article. The payout fee is deducted from the amount you request, and Chase Sets shows it to you before you confirm the payout request.\n\nChase Sets may offset or recoup amounts you owe it against your current or future Wallet balance under the Wallet Adjustment authority and Setoff subjects of the Terms of Service, which this Agreement incorporates for your selling account without restating them.",
+        "Chase Sets charges a marketplace sales fee on each completed sale, computed from the rate, fixed amount, and per-item cap published in the current Marketplace Sales Fee Schedule policy document, and shown to you before you confirm a listing. Confirming a listing locks the fee terms then in effect for the units created at that moment, as described in Chase Sets' Marketplace sales, payout, and checkout fees help article; a later revision to the published schedule never changes units already locked, and Chase Sets re-audits the locked fee terms, including the per-item cap, before crediting your sale proceeds.\n\nEvery order also carries a seller-funded fulfillment allowance under the Marketplace Sales Fee Schedule. That allowance funds the order's Order Protection contribution first and your shipping cost second, and your payout detail itemizes both. Chase Sets does not charge you a separate listing fee, and buyer-side checkout processing fees, published in the same fee schedule and the Checkout Processing Fee policy document, are never deducted from your proceeds.\n\nRequesting a payout of your available balance carries the payout fee published in the current Payout Fee policy document, described alongside the other fee schedules in Chase Sets' Marketplace sales, payout, and checkout fees help article. The payout fee is deducted from the amount you request, and Chase Sets shows it to you before you confirm the payout request.\n\nChase Sets may offset or recoup amounts you owe it against your current or future Wallet balance under the Wallet Adjustment authority and Setoff subjects of the Terms of Service, which this Agreement incorporates for your selling account without restating them.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "State the sales-fee, fee-lock, checkout-fee, and payout-fee mechanisms by reference to the ratified Commercial Terms fee-schedule policy documents (#4066), the ruled Payout Fee policy document (#7818, built by #7819), and the sales-fees help article, and cross-reference (without restating) the Terms of Service Wallet Adjustment/Setoff subjects for offset and recoupment.",
+          "State the sales-fee, fee-lock, checkout-fee, and payout-fee mechanisms by reference to the ratified Commercial Terms fee-schedule policy documents (#4066), the Settlement-owned Payout Fee policy document (#7818, built by #7819), and the sales-fees help article, and cross-reference (without restating) the Terms of Service Wallet Adjustment/Setoff subjects for offset and recoupment.",
         decisionRefs: [4066, 7818, 7819],
         productTruthRefs: [
           "bounded-contexts/commercial-terms/features/marketplace-sales-fee/domain/policy.ts (commercial-terms.marketplace-sales-fee-schedule)",
           "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts (commercial-terms.checkout-processing-fee)",
+          "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts (settlement.payout-fee; quotePayoutFee)",
+          "bounded-contexts/settlement/features/payouts/api/runtime.ts:2225-2260 (Settlement net payout and Payout Fee Ledger Entry posting)",
+          "bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx (fee preview before confirmation)",
           "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts:34-52,105-181 (fee-lock snapshot, tranche preservation, resize)",
           "bounded-contexts/public-presence/features/help/domain/articles/sales-fees.en.md",
           "bounded-contexts/settlement/GLOSSARY.md (Wallet Adjustment; Rebate; Chargeback Clawback)",
           "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts (adjustment-authority, setoff subjects — cross-referenced, not restated)",
         ],
         openQuestions: [
-          "Whether disclosing the payout fee by reference to the Payout Fee policy document, rather than by " +
-            "stating a rate in this Agreement, is sufficient disclosure is reserved for counsel.",
-          "The settlement.payout-fee policy document this subject names is ruled (#7818) but not yet " +
-            "implemented; #7819 builds its policy module and compiled value. This draft states the ruled shape " +
-            "(deducted from the requested payout amount) without asserting the document is already live or " +
-            "populated, or that a payout fee is charged in production today. The Marketplace sales and " +
-            "checkout fees help article's payout-fee section and its settlement.payout-fee citedPolicies " +
-            "entry are also built by #7819 and are absent at this head; the 'to be referenced alongside' " +
-            "phrasing above states that planned destination, not current article content.",
+          "Whether disclosing a payout fee that is deducted from the requested amount, by reference to the " +
+            "Payout Fee policy document rather than by stating a rate in this Agreement, is sufficient " +
+            "disclosure as drafted is reserved for counsel.",
         ],
         assumptions: [
           {

@@ -44,13 +44,19 @@ describe("platform API route collision assembly", () => {
 
     const mounts = Reflect.apply(resolveApiHostMounts, undefined, [runtime]);
     const report = assertApiRouteTableHasNoCollisions(mounts);
-    expect(report).toEqual({ scanned: 31, total: 31, routeCount: 786, duplicateGroups: [] });
+    expect(report).toEqual({ scanned: 31, total: 31, routeCount: 798, duplicateGroups: [] });
     console.info(
       `route-collision-census candidate entryShape=keyed rows=${rawEntries.length}/31 scanned=${report.scanned}/${report.total} routes=${report.routeCount} groups=${report.duplicateGroups.length}`,
     );
 
     const app = Reflect.apply(buildPlatformApiApp, undefined, [runtime]);
     expect(app.routes.length).toBeGreaterThan(report.routeCount);
+    expect(app.routes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ method: "GET", path: "/api/channels/connections/:connectionId/attention" }),
+        expect.objectContaining({ method: "POST", path: "/api/channels/connections/:connectionId/attention/resolve" }),
+      ]),
+    );
   });
 
   it("keeps observability and mount middleware ahead of the complete mounted-router tail", () => {

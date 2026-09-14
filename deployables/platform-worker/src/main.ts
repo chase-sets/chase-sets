@@ -30,7 +30,7 @@ import type {
   InventoryAccountSellerSkuItemResolution,
   InventoryDraftListingCreator,
 } from "@chase-sets/inventory/server";
-import type { MarketplaceListingServices } from "@chase-sets/marketplace/server";
+import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
 import type {
   BulkRepriceIngestionServices,
   PricingRecommendationServices,
@@ -126,6 +126,11 @@ import {
 } from "./config";
 import { createAgentWebhookDispatchRunners, createOrderingAgentWebhookOrderResolvers } from "./agent-webhook-runners";
 import { createChannelsOutboundRunners } from "./channels-outbound-runners";
+import { createPlatformWorkerMarketplaceChannelInboundClampBinding } from "./channels-outbound-runners";
+import {
+  createChannelsReconciliationRunners,
+  createPlatformChannelSaleRecorder,
+} from "./channels-reconciliation-runners";
 import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
@@ -133,6 +138,7 @@ import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 import { createRegisteredScheduledRunners } from "./scheduled-runners";
 import { runStartupRetry } from "./startup-retry";
+import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -228,6 +234,10 @@ const tcgplayerAutomationCatalogClient = tcgplayerAutomationHttpClients
   : undefined;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
+const marketplaceChannelInboundClamp = createPlatformWorkerMarketplaceChannelInboundClampBinding(
+  Boolean(pools.marketplace),
+  () => runtime?.services.marketplace as MarketplaceServices | undefined,
+);
 const commercialTermsResolver = pools["commercial-terms"]
   ? createCommercialTermsResolver({
       db: pools["commercial-terms"],
@@ -306,6 +316,8 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       // serves N8. The variant is stated explicitly rather than omitted, so an
       // unsupplied nonoptional port can never masquerade as "mounted".
       inventoryCleanupAuthority: { kind: "not-mounted" },
+      marketplaceChannelInboundClamp,
+      ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
       searchEmbeddingConfig: config.discoverySearchEmbeddings,
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
     },
@@ -462,6 +474,9 @@ const scheduledJobRunners = platformWorkerGroupsEnabled
           },
         }),
       }),
+      ...(isChannelsServices(runtime.services.channels)
+        ? createChannelsReconciliationRunners({ services: runtime.services.channels, controlPlane })
+        : []),
     ]
   : [];
 // Projection-group-level wake kill switch (WORKER_WAKE_DISABLED_PROJECTIONS):
@@ -1735,27 +1750,31 @@ function createPricingJobRunners(
           workflowName: "pricing.repricing-evaluation-jobs",
           laneCount: input.pricingRepricingEvaluationJobLaneCount,
           runLane: async (lane) => ({
-            processed: await processNextEvaluationJob({
-              claimOwnerId: `${input.workerId}:${lane.laneName}`,
-              claimTtlMs: input.leaseTtlMs * 4,
-              marketplaceGatewayForAccount: (accountId) => ({
-                applyBulkListingPriceUpdates: async (body) => ({
-                  items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-                    { accountId, updates: body.updates },
-                    SYSTEM_CONTEXT,
-                  ),
+            processed: await processRepricingEvaluationJob(
+              processNextEvaluationJob,
+              {
+                claimOwnerId: `${input.workerId}:${lane.laneName}`,
+                claimTtlMs: input.leaseTtlMs * 4,
+                marketplaceGatewayForAccount: (accountId) => ({
+                  applyBulkListingPriceUpdates: async (body) => ({
+                    items: await marketplace.listings!.applyBulkListingPriceUpdates!(
+                      { accountId, updates: body.updates },
+                      SYSTEM_CONTEXT,
+                    ),
+                  }),
+                  pauseListing: (listingId, body) =>
+                    marketplace.listings!.pauseListing!({ accountId, listingId, reason: body.reason }, SYSTEM_CONTEXT),
+                  publishListing: (listingId, body) =>
+                    marketplace.listings!.publishListing!(
+                      { accountId, listingId, idempotencyKey: body.idempotencyKey },
+                      SYSTEM_CONTEXT,
+                    ),
                 }),
-                pauseListing: (listingId, body) =>
-                  marketplace.listings!.pauseListing!({ accountId, listingId, reason: body.reason }, SYSTEM_CONTEXT),
-                publishListing: (listingId, body) =>
-                  marketplace.listings!.publishListing!(
-                    { accountId, listingId, idempotencyKey: body.idempotencyKey },
-                    SYSTEM_CONTEXT,
-                  ),
-              }),
-              signal: lane.runnerContext?.signal,
-              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-            }),
+                signal: lane.runnerContext?.signal,
+                throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+              },
+              logger,
+            ),
             lastGlobalPosition: "0" as never,
           }),
         })

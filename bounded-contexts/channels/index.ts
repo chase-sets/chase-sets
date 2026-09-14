@@ -1,4 +1,5 @@
 export { default as contextManifest } from "./context.json" with { type: "json" };
+export { type ChannelEnvironment } from "./features/connections/domain/contracts";
 export { channelProviderRegistry, createChannelProviderRegistry } from "./features/publication-port/api/registry";
 export { createChannelListingCompositionRuntime } from "./features/listing-composition/api/runtime";
 export { type ChannelListingCompositionServices } from "./features/listing-composition/api/runtime";
@@ -53,11 +54,11 @@ export {
   type ParseChannelListingCompositionInputResult,
 } from "./features/listing-composition/domain/contracts";
 export { type ChannelListingReconciliationScope } from "./features/listing-composition/domain/reconciliation";
-export { type ChannelEnvironment } from "./features/connections/domain/contracts";
 export {
   channelExecutionModes,
   channelPublicationRejectionCodes,
   type ChannelExecutionMode,
+  type ChannelFetchBoundedUnknownReason,
   type ChannelProviderDescriptor,
   type ChannelProviderIdentity,
   type ChannelProviderRegistry,
@@ -69,62 +70,16 @@ export {
   type ChannelPublicationRejectionCode,
   type ChannelPublicationResult,
   type ChannelPublicationSuccess,
+  type ChannelSaleFetchResult,
+  type ChannelSaleLineV1,
+  type ChannelStateFetchResult,
+  type ChannelStateLineV1,
   type DelistListingInput,
   type PublishListingInput,
   type ResolvedChannelProvider,
   type ResolvedChannelPublication,
   type UpdatePriceQuantityInput,
 } from "./features/publication-port/domain/contracts";
-export {
-  createTcgplayerCsvRuntime,
-  type ComposeTcgplayerSyncRunInput,
-  type IngestTcgplayerExportSnapshotInput,
-  type RunFenceInput,
-  type TcgplayerCsvRuntimeDependencies,
-  type TcgplayerCsvServices,
-} from "./features/tcgplayer-csv/api/runtime";
-export {
-  composeTcgplayerReservation,
-  planStagedImportBatches,
-  type ComposedTcgplayerReservation,
-  type ComposeTcgplayerReservationInput,
-} from "./features/tcgplayer-csv/domain/composition";
-export { parseTcgplayerFullExport } from "./features/tcgplayer-csv/domain/csv";
-export {
-  channelExportCompletenessStates,
-  channelExportSurfaces,
-  channelSyncRunMemberKinds,
-  channelSyncRunStates,
-  channelSyncRunTriggers,
-  tcgplayerLocalRefusalReasons,
-  tcgplayerRowRefusalReasons,
-  type ChannelExportCompleteness,
-  type ChannelExportSchemaDescriptor,
-  type ChannelExportSchemaPin,
-  type ChannelExportSurface,
-  type ChannelInventorySnapshot,
-  type ChannelInventorySnapshotRow,
-  type ChannelSyncRun,
-  type ChannelSyncRunComposedEvent,
-  type ChannelSyncRunEvent,
-  type ChannelSyncRunMember,
-  type ChannelSyncRunMemberKind,
-  type ChannelSyncRunState,
-  type ChannelSyncRunTransitionedEvent,
-  type ChannelSyncRunTrigger,
-  type ManualClaimLeasePolicySnapshot,
-  type StagedImportBatch,
-  type TcgplayerExportIngestLimits,
-  type TcgplayerExportParseResult,
-  type TcgplayerImportSummary,
-  type TcgplayerLocalRefusalReason,
-  type TcgplayerRowRefusalReason,
-} from "./features/tcgplayer-csv/domain/contracts";
-export { channelSyncRunTransitions, decideChannelSyncRunTransition } from "./features/tcgplayer-csv/domain/lifecycle";
-export { tcgplayerStagedImportPolicy } from "./features/tcgplayer-csv/domain/policy";
-export { tcgplayerExportSchemaDescriptors } from "./features/tcgplayer-csv/domain/profile";
-export { readLatestSnapshotRows, readRun } from "./features/tcgplayer-csv/read-model/queries";
-
 import {
   buildEventReactionsFromManifest,
   buildEventSubscriptionsFromManifest,
@@ -162,10 +117,7 @@ import { channelProviderRegistry } from "./features/publication-port/api/registr
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createOutboundSyncRuntime } from "./features/outbound-sync/api/runtime";
 import { outboundOperationBudgetPolicy } from "./features/outbound-sync/domain/policy";
-import {
-  buildChannelOutboundOperationReactionHandlers,
-  createChannelListingPublicationOutcomeRecorder,
-} from "./features/outbound-sync/integrations/listing-composition";
+import { createChannelListingPublicationOutcomeRecorder } from "./features/outbound-sync/integrations/listing-composition";
 import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "./features/outbound-sync/read-model/schema";
 import { createTcgplayerCsvRuntime } from "./features/tcgplayer-csv/api/runtime";
 import { tcgplayerCompositionProfiles } from "./features/tcgplayer-csv/domain/profile";
@@ -180,20 +132,58 @@ import {
   channelConnectionSchemaMigrations,
   channelConnectionSchemaSql,
 } from "./features/connections/read-model/schema";
+import type { RecordExternalChannelSale } from "@chase-sets/inventory/server";
+import { createChannelReconciliationRuntime } from "./features/reconciliation/api/runtime";
+import { readReconciliationConnection } from "./features/reconciliation/read-model/source";
 import type { ChannelsServices } from "./support/runtime-support/services";
+import { createConnectionHealthRuntime } from "./features/connection-health/api/runtime";
+import { resolveChannelHealthPolicy } from "./features/connection-health/api/policy";
+import { channelHealthSchemaMigrations, channelHealthSchemaSql } from "./features/connection-health/read-model/schema";
+import type { MarketplaceChannelInboundClampCapability } from "./support/request-support/marketplace-channel-inbound-clamp";
+import { createManualSyncRuntime } from "./features/manual-sync/api/runtime";
+import { inspectManualSyncSeedState, seedManualSyncScenario } from "./features/manual-sync/api/seed";
+import { manualSyncSchemaMigrations, manualSyncSchemaSql } from "./features/manual-sync/read-model/schema";
+import { manualSyncRetentionExemptions } from "./features/manual-sync/read-model/retention-policy";
+import { channelOutboundKillSwitchPolicy, channelReconciliationPolicy } from "./features/reconciliation/domain/policy";
+import {
+  channelReconciliationSchemaMigrations,
+  channelReconciliationSchemaSql,
+} from "./features/reconciliation/read-model/schema";
+import { createConnectionAttentionRuntime } from "./features/connection-attention/api/runtime";
+import {
+  channelAttentionSchemaSql,
+  channelAttentionSchemaMigrations,
+} from "./features/connection-attention/read-model/schema";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
+type ChannelsHostPorts = ChannelConnectionHostPorts &
+  Readonly<{
+    marketplaceChannelInboundClamp?: MarketplaceChannelInboundClampCapability;
+    channelSaleRecorder: RecordExternalChannelSale;
+    readChannelHealthHold?: (connectionId: string) => Promise<boolean>;
+  }>;
 
-export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelConnectionHostPorts>({
+export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
     ...outboundSyncSchemaMigrations,
     ...tcgplayerCsvSchemaMigrations,
+    ...channelHealthSchemaMigrations,
+    ...manualSyncSchemaMigrations,
+    ...channelReconciliationSchemaMigrations,
+    ...channelAttentionSchemaMigrations,
   ],
+  retentionExemptions: manualSyncRetentionExemptions,
+  seedProfiles: ["scenario-seed"],
+  seed: (pool, services) => seedManualSyncScenario(pool, services),
+  inspectSeedState: inspectManualSyncSeedState,
   createServices: (pool, ports) => {
+    if (!ports?.channelSaleRecorder) {
+      throw new Error("Channels reconciliation requires the typed Inventory channelSaleRecorder host port.");
+    }
     const eventStore = createPostgresEventStore({
       pool,
       wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "channels" }),
@@ -210,6 +200,19 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     );
     const compositionProfiles = createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles);
     const policies = createPolicyRuntime({ eventStore, db: pool });
+    const connectionHealth = createConnectionHealthRuntime({
+      db: pool,
+      eventStore,
+      resolvePolicy: (db, at) => resolveChannelHealthPolicy(eventStore, db, at),
+    });
+    const readChannelHealthHold =
+      ports.readChannelHealthHold ??
+      (async (connectionId: string) => {
+        const connection = await readReconciliationConnection(pool, connectionId);
+        if (!connection) return true;
+        return (await connectionHealth.readConnectionHealth({ connectionId, accountId: connection.accountId }))
+          .systemPaused;
+      });
     const listingComposition = createChannelListingCompositionRuntime({
       eventStore,
       transactionalEventStore: eventStore,
@@ -226,11 +229,42 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
         resolveBudgetPolicy: async () => (await policies.resolvePolicy(outboundOperationBudgetPolicy)).value,
         recordOutcome: createChannelListingPublicationOutcomeRecorder(listingComposition),
         claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(eventStore),
+        readAdditionalOutboundHold: async ({ connectionId, providerIdentity }) => {
+          let killSwitch = null;
+          try {
+            killSwitch = (await policies.resolvePolicy(channelOutboundKillSwitchPolicy)).value;
+          } catch {
+            // An unreadable policy fails closed as an operator hold.
+          }
+          const sources: ("health" | "operator-kill")[] = [];
+          if (await readChannelHealthHold(connectionId)) sources.push("health");
+          if (
+            killSwitch === null ||
+            killSwitch.heldConnectionIds.includes(connectionId) ||
+            killSwitch.heldProviderKeys.includes(providerIdentity.providerKey)
+          ) {
+            sources.push("operator-kill");
+          }
+          return { held: sources.length > 0, sources };
+        },
       },
       {
         assertDelistDirective: assertChannelListingDelistDirective,
       },
     );
+    const reconciliation = createChannelReconciliationRuntime({
+      db: pool,
+      eventStore,
+      outboundSync,
+      channelSaleRecorder: ports.channelSaleRecorder,
+      resolvePolicy: async () => {
+        const resolved = await policies.resolvePolicy(channelReconciliationPolicy);
+        const document = resolved.documentId === null ? null : await policies.getPolicyDocument(resolved.documentId);
+        return { value: resolved.value, revision: document?.history?.length ?? 0 };
+      },
+      resolveKillSwitch: async () => (await policies.resolvePolicy(channelOutboundKillSwitchPolicy)).value,
+      readHealthHold: readChannelHealthHold,
+    });
     const tcgplayerCsv = createTcgplayerCsvRuntime({
       db: pool,
       eventStore,
@@ -240,11 +274,22 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       providerRegistry: channelProviderRegistry,
       compositionProfiles,
     });
+    const manualSync = createManualSyncRuntime({
+      db: pool,
+      connections,
+      tcgplayerCsv,
+      policies,
+      marketplaceClamp: ports?.marketplaceChannelInboundClamp ?? { kind: "not-mounted" },
+    });
     return {
       connections,
+      connectionHealth,
+      connectionAttention: createConnectionAttentionRuntime({ db: pool, eventStore, connectionHealth }),
       listingComposition,
       outboundSync,
+      reconciliation,
       tcgplayerCsv,
+      manualSync,
       db: pool,
       projectors: [
         ...connections.projectors,
@@ -284,9 +329,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
         "inventory.channel-listing-desired-state-reaction": () =>
           buildChannelInventoryDesiredStateReactionHandlers(services.db, services.listingComposition),
         "channels.channel-listing-desired-state-reaction": () =>
-          buildChannelOwnedDesiredStateReactionHandlers(services.listingComposition),
-        "channels.channel-outbound-operation-enqueue": () =>
-          buildChannelOutboundOperationReactionHandlers(services.outboundSync),
+          buildChannelOwnedDesiredStateReactionHandlers(services.listingComposition, services.outboundSync),
       },
     }),
   ],

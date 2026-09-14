@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "../read-model/schema";
 
 describe("outbound-bootstrap-and-manifest", () => {
+  it("expands the retained origin column before boot indexes using the ledgered statement", () => {
+    const expansion = outboundSyncSchemaMigrations[2]!.statements[1]!;
+    expect(expansion).toContain("ADD COLUMN IF NOT EXISTS operation_origin text NOT NULL DEFAULT 'desired-state'");
+    const expansionPosition = outboundSyncSchemaSql.indexOf(`${expansion};`);
+    expect(expansionPosition).toBeGreaterThan(
+      outboundSyncSchemaSql.indexOf("CREATE TABLE IF NOT EXISTS channel_outbound_operations"),
+    );
+    expect(expansionPosition).toBeLessThan(outboundSyncSchemaSql.indexOf("CREATE UNIQUE INDEX"));
+    expect(outboundSyncSchemaSql.split(`${expansion};`)).toHaveLength(2);
+  });
+
   it("keeps all four tables and both lane uniqueness fences in boot and migration SQL", () => {
     const migrationSql = outboundSyncSchemaMigrations.flatMap((migration) => migration.statements).join("\n");
     for (const expected of [
@@ -13,9 +24,11 @@ describe("outbound-bootstrap-and-manifest", () => {
       "channel_outbound_operations_one_inflight_per_lane_uidx",
       "channel_outbound_operations_connection_claim_idx",
       "channel_outbound_operations_inline_expiry_idx",
+      "channel_outbound_operations_pending_lane_order_idx",
       "source_desired_state_sequence",
       "source_desired_state_hash",
       "payload_digest",
+      "operation_origin",
     ]) {
       expect(outboundSyncSchemaSql).toContain(expected);
       expect(migrationSql).toContain(expected);
@@ -23,6 +36,8 @@ describe("outbound-bootstrap-and-manifest", () => {
     expect(outboundSyncSchemaMigrations.map((migration) => migration.migrationId)).toEqual([
       "20260907_channels_outbound_sync",
       "20260910_channels_outbound_reservation_settlements",
+      "20260912_channels_reconciliation_repair_origin",
+      "20260912_channels_outbound_pending_lane_order",
     ]);
     expect(outboundSyncSchemaMigrations[0]?.statements.join("\n")).not.toContain(
       "channel_outbound_reservation_settlements",
@@ -30,5 +45,6 @@ describe("outbound-bootstrap-and-manifest", () => {
     expect(outboundSyncSchemaMigrations[1]?.statements.join("\n")).toContain(
       "channel_outbound_reservation_settlements",
     );
+    expect(outboundSyncSchemaMigrations[2]?.statements.join("\n")).toContain("operation_origin = 'desired-state'");
   });
 });

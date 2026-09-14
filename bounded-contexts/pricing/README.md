@@ -52,6 +52,27 @@ snapshot, then send only beyond-tolerance targets through Marketplace's existing
 path. The same evaluator powers dry-run preview; live execution adds daily-budget admission and publishes
 `RepricingPolicyEvaluated` facts.
 
+| Repricing term | System behavior |
+| --- | --- |
+| Any-Mode Anchor | Seller opt-in `lowest-competing-ask` with `strata: "any"` considers both ask modes; absent strata and `comp-percentile` stay hard-only. Traces expose `any-ask` and counts, not competitor identities or modes. |
+| Anchor Band | Required market-estimate ground and seller-chosen `minPercentOfGround` from 50 through 100; clamps the anchor upward, marking `band-binding` when lifted. Unavailable, stale, or currency-mismatched ground exhausts the anchor and continues the chain. Offsets and existing price clamps apply afterward. |
+| Spiral Breaker | Three consecutive same-direction product rounds freeze repricing across sellers for 120 minutes. Direction is the sign of the sum of applied target-minus-current changes; opposite direction starts at one, and an undirected round clears the count. The trip clears the count and retains the expiry in every policy fact and listing trace. |
+
+The platform `pricing.repricing-engine` policy bounds `spiralBreakerRounds` to integers 2-10 and
+`spiralBreakerFreezeMinutes` to 60-1440. Only these two keys default when absent from stored revisions.
+The existing product cooldown ledger owns both damping and the breaker, with generation-fenced writes.
+
+| Product state | Admission and next transition |
+| --- | --- |
+| Open | No row, or both horizons have passed. Normal rounds retain their direction/count; opposite and undirected rounds reset it. Competing-ask admission starts Cooling. |
+| Cooling | Future `next_eligible_at` suppresses competing-ask admission and the daily drift sweep; moved estimates can still run. Reaching the direction threshold enters Frozen. |
+| Frozen | Future `frozen_until` rejects every signal and sweep. Previously claimed work records `spiral-breaker-frozen` without Marketplace commands. |
+| Open after expiry | Release is automatic at `frozen_until`, with a zero counter. The next normal round starts counting anew; no seller release control or cleanup job is required. |
+
+The worker logs one structured `pricing.repricing-spiral-breaker.tripped` record per tripped product round,
+including direction, round count, and affected seller count. It does not page or implement seller attention;
+downstream activity reads retained facts and trace expiry, never a live ledger lookup.
+
 ## Incoming Dependencies
 
 - Catalog for canonical item identity, product resolution, and selected-option facts

@@ -13,6 +13,12 @@ export const marketplaceRetentionSweeps: readonly BcRetentionSweep[] = [
 
 export const marketplaceRetentionExemptions: readonly BcRetentionExemption[] = [
   {
+    tableName: "marketplace_channel_inbound_clamps",
+    owner: "marketplace",
+    reason:
+      "Clamp ownership and recovery rows are durable safety evidence; deleting them could reactivate an ambiguous Listing or lose the sole-owner proof required for recovery.",
+  },
+  {
     tableName: "marketplace_supply_holds",
     owner: "marketplace",
     reason: "Supply-hold rows are mutable Inventory projections and must accept later lifecycle events.",

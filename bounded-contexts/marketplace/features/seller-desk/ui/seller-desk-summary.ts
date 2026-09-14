@@ -55,6 +55,36 @@ export function resolveAttentionSummary(item: SellerAttentionItem): string {
       return t("marketplace.features.sellerDesk.summary.offerAwaitingResponse", params);
     case "listing-needs-action":
       return t("marketplace.features.sellerDesk.summary.listingNeedsAction", params);
+    case "channel-ready":
+      return t("channels.manualSync.attention.ready", params);
+    case "channel-unknown":
+      return t("channels.manualSync.attention.unknown", params);
+    case "channel-recovery":
+      return t("channels.manualSync.attention.recovery", params);
+    case "channel-action-open": {
+      const health = t("marketplace.features.sellerDesk.summary.channelActionOpen", {
+        ...params,
+        topReason: channelHealthReasonLabel(params.topReason),
+      });
+      const manual =
+        params.manualReason === "ready"
+          ? t("channels.manualSync.attention.ready", params)
+          : params.manualReason === "unknown"
+            ? t("channels.manualSync.attention.unknown", params)
+            : params.manualReason === "recovery"
+              ? t("channels.manualSync.attention.recovery", params)
+              : null;
+      const drift =
+        typeof params.affectedListingCount === "number"
+          ? t(
+              params.hasMore === 1
+                ? "marketplace.features.sellerDesk.summary.channelDriftOverflow"
+                : "marketplace.features.sellerDesk.summary.channelDriftCount",
+              params,
+            )
+          : null;
+      return [health, drift, manual].filter((summary) => summary !== null).join(" ");
+    }
     default:
       return t("marketplace.features.sellerDesk.summary.fallback");
   }
@@ -62,14 +92,18 @@ export function resolveAttentionSummary(item: SellerAttentionItem): string {
 
 // The deep-link call to action — a verb that reflects the fix the row leads to,
 // keyed by the owning source so opening the queue row reads as the seller job.
-export function attentionActionLabel(source: SellerAttentionSourceId): string {
-  switch (source) {
+export function attentionActionLabel(item: SellerAttentionItem): string {
+  switch (item.source) {
     case "fulfillment-ship-by":
       return t("marketplace.features.sellerDesk.action.shipByLink");
     case "settlement-blocked-payout":
       return t("marketplace.features.sellerDesk.action.payoutLink");
     case "inventory-resolution":
       return t("marketplace.features.sellerDesk.action.resolutionLink");
+    case "channel-action":
+      return item.summary.code !== "channel-action-open" || item.summary.params.manualReason !== undefined
+        ? t("channels.manualSync.attention.action")
+        : t("marketplace.features.sellerDesk.action.channelAttention");
     case "offer-response":
       return t("marketplace.features.sellerDesk.action.offerLink");
     case "listing-action":
@@ -89,11 +123,36 @@ export function attentionSourceLabel(source: SellerAttentionSourceId): string {
       return t("marketplace.features.sellerDesk.source.settlementBlockedPayout");
     case "inventory-resolution":
       return t("marketplace.features.sellerDesk.source.inventoryResolution");
+    case "channel-action":
+      return t("marketplace.features.sellerDesk.source.channelAction");
     case "offer-response":
       return t("marketplace.features.sellerDesk.source.offerResponse");
     case "listing-action":
       return t("marketplace.features.sellerDesk.source.listingAction");
     case "dispute-response":
       return t("marketplace.features.sellerDesk.source.disputeResponse");
+  }
+}
+
+function channelHealthReasonLabel(value: string | number | undefined): string {
+  switch (value) {
+    case "credential":
+      return t("channels.attention.reason.credential");
+    case "seller-setup":
+      return t("channels.attention.reason.seller-setup");
+    case "subscription":
+      return t("channels.attention.reason.subscription");
+    case "polling":
+      return t("channels.attention.reason.polling");
+    case "drift":
+      return t("channels.attention.reason.drift");
+    case "provider-rate":
+      return t("channels.attention.reason.provider-rate");
+    case "provider-availability":
+      return t("channels.attention.reason.provider-availability");
+    case "sale-follow-up":
+      return t("channels.attention.reason.sale-follow-up");
+    default:
+      return t("marketplace.features.sellerDesk.source.channelAction");
   }
 }

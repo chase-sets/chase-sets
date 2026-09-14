@@ -272,21 +272,30 @@ describe("payments terms artifact", () => {
     expect(payoutFee?.draftText).toMatch(/payout fee/i);
     expect(payoutFee?.draftText).toMatch(/payout fee policy document/i);
     expect(payoutFee?.draftText).toMatch(/deducted from the requested amount/i);
+    expect(payoutFee?.draftText).toMatch(/shows you the fee before you confirm a payout request/i);
+    expect(payoutFee?.draftText).toMatch(
+      /if the payout fee policy document also sets a separate monthly active-account amount/i,
+    );
+    expect(payoutFee?.draftText).toMatch(/applies only once/i);
     expect(payoutFee?.draftText).toMatch(/first payout .* calendar month/i);
+    expect(payoutFee?.draftText).toMatch(/does not apply again to a later payout in that same month/i);
     expect(payoutFee?.draftText).not.toMatch(/\d/);
 
-    // Cites the ruling decision and the implementation slice, not fabricated
-    // product-truth line numbers for a policy module that does not exist yet.
     expect(payoutFee?.reviewManifest.decisionRefs).toEqual(expect.arrayContaining([7818, 7819]));
-    expect(payoutFee?.reviewManifest.productTruthRefs).toEqual([]);
+    expect(payoutFee?.reviewManifest.productTruthRefs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts (settlement.payout-fee",
+        ),
+        expect.stringMatching(/^bounded-contexts\/settlement\/features\/payouts\/api\/runtime\.ts:.*posting/),
+        expect.stringContaining("bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx"),
+      ]),
+    );
     expect(
       payoutFee?.reviewManifest.openQuestions.some(
-        (question) => /disclos/i.test(question) && /sufficient/i.test(question),
+        (question) => /deducted from the requested amount/i.test(question) && /sufficient disclosure/i.test(question),
       ),
     ).toBe(true);
-    expect(payoutFee?.reviewManifest.openQuestions.some((question) => /not yet implemented/i.test(question))).toBe(
-      true,
-    );
     for (const assumption of payoutFee?.reviewManifest.assumptions ?? []) {
       expect(assumption.evidenceRef.length).toBeGreaterThan(0);
     }

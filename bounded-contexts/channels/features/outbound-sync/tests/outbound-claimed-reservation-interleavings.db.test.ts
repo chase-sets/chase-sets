@@ -25,12 +25,13 @@ import type {
   PublishListingInput,
   UpdatePriceQuantityInput,
 } from "../../publication-port/domain/contracts";
-import { createOutboundSyncRuntime } from "../api/runtime";
+import { createOutboundSyncRuntime as createOwnedOutboundSyncRuntime } from "../api/runtime";
 import { mapOutboundOperationRow, outboundOperationSqlColumns } from "../api/store";
 import type {
   BoundClaimedReservationRun,
   ClaimedOperationOutcome,
   ClaimedReservationRunSettlementPort,
+  OutboundSyncRuntimeDependencies,
 } from "../domain/contracts";
 import {
   buildChannelOutboundOperationReactionHandlers,
@@ -50,6 +51,22 @@ const productionCompositionContext: EventStoreContext = {
 };
 
 const claimedRegistry = createChannelProviderRegistry([descriptor("synthetic-claimed", "claimed")]);
+const readNoAdditionalOutboundHold: OutboundSyncRuntimeDependencies["readAdditionalOutboundHold"] = async () => ({
+  held: false,
+  sources: [],
+});
+const createOutboundSyncRuntime = (
+  dependencies: Omit<OutboundSyncRuntimeDependencies, "readAdditionalOutboundHold"> &
+    Partial<Pick<OutboundSyncRuntimeDependencies, "readAdditionalOutboundHold">>,
+  options: Parameters<typeof createOwnedOutboundSyncRuntime>[1],
+) =>
+  createOwnedOutboundSyncRuntime(
+    {
+      ...dependencies,
+      readAdditionalOutboundHold: dependencies.readAdditionalOutboundHold ?? readNoAdditionalOutboundHold,
+    },
+    options,
+  );
 
 describeDb(
   "outbound-transition-matrix / outbound-steady-state-and-restart / outbound-claimed-reservation-interleavings",
@@ -202,6 +219,324 @@ describeDb(
       ]);
     });
 
+    it("orders equal-time desired work before its deterministic repair on claimed and inline paths", async () => {
+      const fixedClock = { now: () => new Date("2026-09-12T12:00:00.000Z") };
+      const claimedRuntime = createOutboundSyncRuntime(
+        { db: pools.channels, clock: fixedClock, recordOutcome: async () => "applied" },
+        { assertDelistDirective: () => undefined },
+      );
+      const claimedDesired = desiredState("listing-tie-claimed", 1, 7, "event-tie-1");
+      const claimedDesiredOperation = await claimedRuntime.enqueueDesiredState(claimedDesired);
+      const claimedRepair = await claimedRuntime.enqueueReconciliationRepair({
+        ...claimedDesired,
+        reconciliationRepairId: "repair-tie-1",
+      });
+      expect(claimedDesiredOperation!.enqueuedAt).toBe(claimedRepair!.enqueuedAt);
+      expect(claimedDesiredOperation!.operationId > claimedRepair!.operationId).toBe(true);
+      await expect(
+        claimedRuntime.enqueueReconciliationRepair({
+          ...claimedDesired,
+          reconciliationRepairId: "repair-tie-1",
+        }),
+      ).resolves.toMatchObject({ operationId: claimedRepair!.operationId });
+
+      const firstClaimed = await claimedRuntime.reserveClaimedOutboundOperations({
+        registry: claimedRegistry,
+        connectionId: "connection-a",
+        claimant: { claimantKind: "connector", claimantId: "tie-claimed-1" },
+        maxOperations: 1,
+        leaseMs: 60_000,
+      });
+      expect(firstClaimed!.operations.map((operation) => operation.operationId)).toEqual([
+        claimedDesiredOperation!.operationId,
+      ]);
+      await claimedRuntime.reportClaimedOperationOutcomes({
+        reservationId: firstClaimed!.reservationId,
+        claimant: firstClaimed!.claimant,
+        outcomes: [
+          memberOutcome(firstClaimed!.operations[0]!, {
+            kind: "applied",
+            result: {
+              kind: "succeeded",
+              externalListingId: "claimed-tie-listing",
+              providerRevision: "claimed-tie-r1",
+            },
+          }),
+        ],
+      });
+      const secondClaimed = await claimedRuntime.reserveClaimedOutboundOperations({
+        registry: claimedRegistry,
+        connectionId: "connection-a",
+        claimant: { claimantKind: "connector", claimantId: "tie-claimed-2" },
+        maxOperations: 1,
+        leaseMs: 60_000,
+      });
+      expect(secondClaimed!.operations.map((operation) => operation.operationId)).toEqual([claimedRepair!.operationId]);
+
+      const repushBasis = desiredState("listing-tie-repush", 1, 7, "unused-repush-event");
+      const equalTimeRepush = await claimedRuntime.enqueueRepush({
+        ...repushBasis,
+        repushOperationId: "repush-tie-1",
+      });
+      const repushRepair = await claimedRuntime.enqueueReconciliationRepair({
+        ...repushBasis,
+        reconciliationRepairId: "repair-tie-2",
+      });
+      expect(equalTimeRepush!.enqueuedAt).toBe(repushRepair!.enqueuedAt);
+      expect(equalTimeRepush!.operationId > repushRepair!.operationId).toBe(true);
+      const claimedRepush = await claimedRuntime.reserveClaimedOutboundOperations({
+        registry: claimedRegistry,
+        connectionId: "connection-a",
+        claimant: { claimantKind: "connector", claimantId: "tie-repush-1" },
+        maxOperations: 1,
+        leaseMs: 60_000,
+      });
+      expect(claimedRepush!.operations.map((operation) => operation.operationId)).toEqual([
+        equalTimeRepush!.operationId,
+      ]);
+
+      await insertConnection(pools.channels, "connection-inline", "synthetic-inline");
+      const inlineCalls: string[] = [];
+      const inlineRuntime = createOutboundSyncRuntime(
+        { db: pools.channels, clock: fixedClock, recordOutcome: async () => "applied" },
+        { assertDelistDirective: () => undefined },
+      );
+      const inlineDesired = desiredState("listing-tie-inline", 1, 7, "event-tie-inline-1", "connection-inline");
+      const inlineDesiredOperation = await inlineRuntime.enqueueDesiredState(inlineDesired);
+      const inlineRepair = await inlineRuntime.enqueueReconciliationRepair({
+        ...inlineDesired,
+        reconciliationRepairId: "repair-tie-2",
+      });
+      expect(inlineDesiredOperation!.enqueuedAt).toBe(inlineRepair!.enqueuedAt);
+      expect(inlineDesiredOperation!.operationId > inlineRepair!.operationId).toBe(true);
+      await expect(
+        inlineRuntime.enqueueReconciliationRepair({
+          ...inlineDesired,
+          reconciliationRepairId: "repair-tie-2",
+        }),
+      ).resolves.toMatchObject({ operationId: inlineRepair!.operationId });
+      const registry = createChannelProviderRegistry([
+        recordingInlineDescriptor("synthetic-inline", async (operationId) => {
+          inlineCalls.push(operationId);
+          return {
+            kind: "succeeded",
+            externalListingId: "inline-tie-listing",
+            providerRevision: `inline-tie-r${inlineCalls.length}`,
+          };
+        }),
+      ]);
+      await expect(inlineRuntime.processNextInlineOperation({ registry, claimOwnerId: "tie-inline-1" })).resolves.toBe(
+        1,
+      );
+      await expect(inlineRuntime.processNextInlineOperation({ registry, claimOwnerId: "tie-inline-2" })).resolves.toBe(
+        1,
+      );
+      expect(inlineCalls).toEqual([inlineDesiredOperation!.operationId, inlineRepair!.operationId]);
+
+      const repairRows = await pools.channels.query<{ operation_id: string }>(
+        `SELECT operation_id
+         FROM channel_outbound_operations
+         WHERE operation_origin='reconciliation-repair' AND channel_listing_id=ANY($1::text[])
+         ORDER BY operation_id`,
+        [[claimedDesired.channelListingId, inlineDesired.channelListingId]],
+      );
+      expect(repairRows.rows.map((row) => row.operation_id)).toEqual(
+        [claimedRepair!.operationId, inlineRepair!.operationId].sort(),
+      );
+    });
+
+    it.each(["claimed", "inline"] as const)(
+      "supersedes an obsolete pending repush before the newer desired state reaches the %s claim path",
+      async (execution) => {
+        const providerKey = execution === "claimed" ? "synthetic-claimed" : "synthetic-inline";
+        if (execution === "inline") {
+          await pools.channels.query(
+            `UPDATE channel_connections SET provider_key=$2
+             WHERE connection_id=$1 AND provider_key='synthetic-claimed'`,
+            ["connection-a", providerKey],
+          );
+        }
+        const providerCalls: string[] = [];
+        const runtime = createOutboundSyncRuntime(
+          {
+            db: pools.channels,
+            clock: { now: () => new Date("2026-09-12T12:30:00.000Z") },
+            recordOutcome: async () => "applied",
+          },
+          { assertDelistDirective: () => undefined },
+        );
+        const desiredOne = desiredState("listing-repush-supersession", 1, 7, "event-desired-1");
+        const terminalDesired = await runtime.enqueueDesiredState(desiredOne);
+        await pools.channels.query(
+          `UPDATE channel_outbound_operations SET status='succeeded',terminal_at=$2
+           WHERE operation_id=$1 AND status='pending'`,
+          [terminalDesired!.operationId, "2026-09-12T12:30:00.000Z"],
+        );
+        const repush = await runtime.enqueueRepush({ ...desiredOne, repushOperationId: "repush-1" });
+        const repairInput = { ...desiredOne, reconciliationRepairId: "supersession-repair-1" };
+        const repair = await runtime.enqueueReconciliationRepair(repairInput);
+        await expect(runtime.enqueueReconciliationRepair(repairInput)).resolves.toMatchObject({
+          operationId: repair!.operationId,
+        });
+        await expect(
+          runtime.enqueueReconciliationRepair({ ...repairInput, desiredStateHash: "f".repeat(64) }),
+        ).rejects.toMatchObject({ code: "stale-fence" });
+        const desiredTwo = desiredState("listing-repush-supersession", 2, 8, "event-desired-2");
+        const latestDesired = await runtime.enqueueDesiredState(desiredTwo);
+        await expect(runtime.enqueueDesiredState(desiredTwo)).resolves.toBeNull();
+        await expect(runtime.enqueueDesiredState(desiredOne)).resolves.toBeNull();
+        await expect(runtime.enqueueReconciliationRepair(repairInput)).resolves.toBeNull();
+        await expect(
+          runtime.enqueueReconciliationRepair({ ...repairInput, reconciliationRepairId: "stale-new-repair" }),
+        ).rejects.toMatchObject({ code: "stale-fence" });
+        await expect(runtime.enqueueRepush({ ...desiredOne, repushOperationId: "repush-1" })).resolves.toMatchObject({
+          operationId: repush!.operationId,
+          status: "failed",
+          terminalReason: "superseded-by-newer-desired-state",
+        });
+
+        const operationRows = await pools.channels.query<{
+          operation_id: string;
+          operation_origin: string;
+          source_desired_state_sequence: string;
+          status: string;
+          terminal_reason: string | null;
+        }>(
+          `SELECT operation_id,operation_origin,source_desired_state_sequence::text,status,terminal_reason
+           FROM channel_outbound_operations
+           WHERE channel_listing_id=$1
+           ORDER BY source_desired_state_sequence,operation_origin`,
+          [desiredOne.channelListingId],
+        );
+        expect(operationRows.rows.filter((row) => row.status === "pending")).toEqual([
+          expect.objectContaining({
+            operation_id: latestDesired!.operationId,
+            operation_origin: "desired-state",
+            source_desired_state_sequence: "2",
+          }),
+        ]);
+        expect(operationRows.rows.find((row) => row.operation_id === repush!.operationId)).toMatchObject({
+          status: "failed",
+          terminal_reason: "superseded-by-newer-desired-state",
+        });
+        expect(operationRows.rows.find((row) => row.operation_id === repair!.operationId)).toMatchObject({
+          status: "failed",
+          terminal_reason: "superseded-by-newer-desired-state",
+        });
+
+        if (execution === "claimed") {
+          const reservation = await runtime.reserveClaimedOutboundOperations({
+            registry: claimedRegistry,
+            connectionId: "connection-a",
+            claimant: { claimantKind: "connector", claimantId: "repush-supersession" },
+            maxOperations: 10,
+            leaseMs: 60_000,
+          });
+          expect(reservation!.operations.map((operation) => operation.operationId)).toEqual([
+            latestDesired!.operationId,
+          ]);
+        } else {
+          const registry = createChannelProviderRegistry([
+            recordingInlineDescriptor(providerKey, async (operationId) => {
+              providerCalls.push(operationId);
+              return {
+                kind: "succeeded",
+                externalListingId: "inline-repush-supersession",
+                providerRevision: "inline-repush-supersession-r1",
+              };
+            }),
+          ]);
+          await expect(
+            runtime.processNextInlineOperation({ registry, claimOwnerId: "repush-supersession" }),
+          ).resolves.toBe(1);
+          expect(providerCalls).toEqual([latestDesired!.operationId]);
+        }
+      },
+    );
+
+    it("reads only the exact connection-owned operation IDs in one closed bounded batch", async () => {
+      const runtime = createOutboundSyncRuntime({ db: pools.channels }, { assertDelistDirective: () => undefined });
+      const first = await runtime.enqueueReconciliationRepair({
+        ...desiredState("listing-batch-a", 1, 7, "event-batch-a"),
+        reconciliationRepairId: "repair-batch-a",
+      });
+      const second = await runtime.enqueueReconciliationRepair({
+        ...desiredState("listing-batch-b", 1, 7, "event-batch-b"),
+        reconciliationRepairId: "repair-batch-b",
+      });
+      const query = vi.spyOn(pools.channels, "query");
+      try {
+        const result = await runtime.readOutboundOperationsByIds({
+          connectionId: "connection-a",
+          operationIds: [second!.operationId, first!.operationId],
+        });
+        expect(result.map((row) => row.operationId)).toEqual([first!.operationId, second!.operationId].sort());
+        expect(query).toHaveBeenCalledTimes(1);
+        await expect(
+          runtime.readOutboundOperationsByIds({ connectionId: "synthetic-other", operationIds: [first!.operationId] }),
+        ).resolves.toEqual([]);
+        query.mockClear();
+        for (const input of [
+          { connectionId: "connection-a", operationIds: [first!.operationId], extra: true },
+          { connectionId: "connection-a", operationIds: [first!.operationId, first!.operationId] },
+          { connectionId: "connection-a", operationIds: ["invalid-operation-id"] },
+          { connectionId: "connection-a", operationIds: Array<string>(100_001).fill(first!.operationId) },
+          { connectionId: "", operationIds: [first!.operationId] },
+        ]) {
+          await expect(runtime.readOutboundOperationsByIds(input)).rejects.toMatchObject({ code: "invalid-input" });
+        }
+        await expect(
+          runtime.readOutboundOperationsByIds({ connectionId: "connection-a", operationIds: [] }),
+        ).resolves.toEqual([]);
+        expect(query).not.toHaveBeenCalled();
+      } finally {
+        query.mockRestore();
+      }
+    });
+
+    it("rolls back obsolete-operation supersession when a candidate revision changes before write-back", async () => {
+      const runtime = createOutboundSyncRuntime({ db: pools.channels }, { assertDelistDirective: () => undefined });
+      const basis = desiredState("listing-supersession-fence", 1, 7, "event-fence-1");
+      const repush = await runtime.enqueueRepush({ ...basis, repushOperationId: "fenced-repush" });
+      let injected = false;
+      const interleavingPool: PgTransactionalPool = {
+        query: pools.channels.query.bind(pools.channels),
+        connect: async () => {
+          const client = await pools.channels.connect();
+          return {
+            release: client.release.bind(client),
+            query: async <Row>(sql: string, values?: readonly unknown[]) => {
+              if (sql.includes("terminal_reason='superseded-by-newer-desired-state'")) {
+                const newer = await client.query(
+                  `UPDATE channel_outbound_operations SET revision=revision+1
+                   WHERE operation_id=$1 AND revision=1 AND status='pending'`,
+                  [repush!.operationId],
+                );
+                expect(newer.rowCount).toBe(1);
+                injected = true;
+              }
+              return client.query<Row>(sql, values);
+            },
+          };
+        },
+      };
+      const racingRuntime = createOutboundSyncRuntime(
+        { db: interleavingPool },
+        { assertDelistDirective: () => undefined },
+      );
+      await expect(
+        racingRuntime.enqueueDesiredState(desiredState("listing-supersession-fence", 2, 8, "event-fence-2")),
+      ).rejects.toMatchObject({ code: "stale-fence" });
+      expect(injected).toBe(true);
+      await expect(
+        pools.channels.query(
+          `SELECT operation_id,status,revision::text,terminal_reason FROM channel_outbound_operations`,
+        ),
+      ).resolves.toMatchObject({
+        rows: [{ operation_id: repush!.operationId, status: "pending", revision: "1", terminal_reason: null }],
+      });
+    });
+
     it("outbound-stale-success-sequence-adoption", async () => {
       expect(
         await pools.channels.query(
@@ -270,6 +605,20 @@ describeDb(
                 providerRevision: "synthetic-provider-r3",
               };
             },
+            fetchChannelState: async () => ({
+              kind: "complete",
+              items: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
+            fetchSales: async () => ({
+              kind: "complete",
+              lines: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
           },
         },
       ]);
@@ -537,6 +886,20 @@ describeDb(
             delistListing: async () => {
               throw new Error("rollback control must not delist");
             },
+            fetchChannelState: async () => ({
+              kind: "complete",
+              items: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
+            fetchSales: async () => ({
+              kind: "complete",
+              lines: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
           },
         },
       ]);
@@ -900,7 +1263,26 @@ describeDb(
       const registry = createChannelProviderRegistry([
         {
           ...descriptorWithoutPublication("synthetic-inline"),
-          publication: { execution: "inline", publishListing, updatePriceQuantity, delistListing },
+          publication: {
+            execution: "inline",
+            publishListing,
+            updatePriceQuantity,
+            delistListing,
+            fetchChannelState: async () => ({
+              kind: "complete",
+              items: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
+            fetchSales: async () => ({
+              kind: "complete",
+              lines: [],
+              collectedCount: 0,
+              authorityTotal: 0,
+              pageCount: 1,
+            }),
+          },
         },
       ]);
       const runtime = createOutboundSyncRuntime(
@@ -1696,7 +2078,8 @@ async function seedProductionCompositionFacts(db: PgTransactionalPool): Promise<
       '20.00','USD',10,
       '[{"dimensionId":"condition","optionId":"near-mint"}]'::jsonb,'condition:near-mint','active',NULL,
       'Synthetic production composition card',NULL,'Synthetic production composition fixture',NULL,now(),7);
-    INSERT INTO channels_inventory_item_facts VALUES
+    INSERT INTO channels_inventory_item_facts
+      (item_id,account_id,catalog_item_id,total_quantity,updated_at,item_stream_version) VALUES
       ('item-production-composed','acc_owner','catalog-production-composed',3,now(),1);
     INSERT INTO channels_catalog_item_category_facts VALUES
       ('catalog-production-composed','cards',true,now(),1);
@@ -1752,6 +2135,37 @@ function inlineDescriptor(
       publishListing: (input) => execute(input.connectionId),
       updatePriceQuantity: (input) => execute(input.connectionId),
       delistListing: (input) => execute(input.connectionId),
+      fetchChannelState: async () => ({
+        kind: "complete",
+        items: [],
+        collectedCount: 0,
+        authorityTotal: 0,
+        pageCount: 1,
+      }),
+      fetchSales: async () => ({ kind: "complete", lines: [], collectedCount: 0, authorityTotal: 0, pageCount: 1 }),
+    },
+  };
+}
+
+function recordingInlineDescriptor(
+  providerKey: string,
+  execute: (operationId: string) => Promise<ChannelPublicationResult>,
+): ChannelProviderDescriptor {
+  return {
+    ...descriptorWithoutPublication(providerKey),
+    publication: {
+      execution: "inline",
+      publishListing: (input) => execute(input.operationId),
+      updatePriceQuantity: (input) => execute(input.operationId),
+      delistListing: (input) => execute(input.operationId),
+      fetchChannelState: async () => ({
+        kind: "complete",
+        items: [],
+        collectedCount: 0,
+        authorityTotal: 0,
+        pageCount: 1,
+      }),
+      fetchSales: async () => ({ kind: "complete", lines: [], collectedCount: 0, authorityTotal: 0, pageCount: 1 }),
     },
   };
 }

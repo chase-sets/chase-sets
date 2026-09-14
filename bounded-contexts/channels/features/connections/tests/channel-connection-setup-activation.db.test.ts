@@ -56,7 +56,12 @@ describeDb("channel-connection-setup-activation", () => {
       },
       clock: { now: () => "2026-09-05T12:34:56.789-05:00" },
     };
-    const services = channelsModule.createServices(pools.channels, ports).connections;
+    const services = channelsModule.createServices(pools.channels, {
+      ...ports,
+      channelSaleRecorder: async (): Promise<never> => {
+        throw new Error("not reached");
+      },
+    }).connections;
     const connected = await services.connectChannel(
       { connectionId: "connection_db_1", accountId: "acc_owner", providerKey: "fixture-provider" },
       { deploymentEnvironment: "test" },

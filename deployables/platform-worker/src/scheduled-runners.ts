@@ -958,7 +958,7 @@ function createDurableJobRetentionTask(
     return deleted;
   };
 }
-function createScheduledJobRunner(
+export function createScheduledJobRunner(
   name: string,
   intervalMs: number,
   controlPlane: PlatformControlPlane,

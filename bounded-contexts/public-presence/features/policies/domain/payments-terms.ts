@@ -194,18 +194,16 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "rate, a fixed amount, or any other numeral, and without asserting the Payout Fee policy document is " +
           "already populated with a live value or that a payout fee is charged in production today.",
         decisionRefs: [7818, 7819],
-        productTruthRefs: [],
+        productTruthRefs: [
+          "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts (settlement.payout-fee; quotePayoutFee)",
+          "bounded-contexts/settlement/features/payouts/api/runtime.ts:2225-2260 (Settlement net payout and Payout Fee Ledger Entry posting)",
+          "bounded-contexts/settlement/features/payouts/api/runtime.ts:854-906 (commitPayoutRequest monthly fee determination)",
+          "bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx (fee preview before confirmation)",
+        ],
         openQuestions: [
           "Whether disclosing a payout fee that is deducted from the requested amount, by reference to the " +
             "Payout Fee policy document rather than by stating a rate in this document, is sufficient disclosure " +
             "is reserved for counsel.",
-          "The settlement.payout-fee policy document this section names is ruled (#7818: percentage plus fixed " +
-            "per payout, deducted from the requested amount, pass-through of the payment processor's own " +
-            "per-payout pricing with no added premium, plus an optional monthly active-account amount charged " +
-            "only on an account's first payout of a calendar month) but not yet implemented; its policy module " +
-            "and compiled value are built by #7819, which this draft cites for the pending policy shape rather " +
-            "than asserting the document is already live or populated. This draft does not assert a payout fee " +
-            "is charged today.",
         ],
         assumptions: [
           {
@@ -220,10 +218,12 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           {
             assertion:
               "The monthly active-account amount's first-payout-of-the-calendar-month mechanic, including that a " +
-              "failed first payout does not count, is Todd's ruling addendum, not a live product behavior this " +
-              "draft observed in code; the policy document and its determination logic are built by #7819 and " +
-              "#7820, which this draft does not restate beyond the ruled shape.",
-            evidenceRef: "https://github.com/chase-sets/chase-sets/issues/7818#issuecomment-5623500011",
+              "failed first payout does not count, follows Todd's ruling addendum and Settlement's payout " +
+              "month determination. The calendar month is evaluated in UTC; this draft does not assert " +
+              "that the fee is charged in production today.",
+            evidenceRef:
+              "https://github.com/chase-sets/chase-sets/issues/7818#issuecomment-5623500011; " +
+              "bounded-contexts/settlement/features/payouts/api/runtime.test.ts (payout-fee-preview quotes first UTC-month payout, subsequent payout, failed-first retry, and month rollover)",
           },
         ],
       },

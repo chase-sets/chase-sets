@@ -1,0 +1,95 @@
+import type { PgQueryable, PostgresEventStore } from "@chase-sets/event-core-postgres";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { ChannelHealthQuery, ChannelHealthReasonGeneration } from "../../connection-health/domain/contracts";
+import { decodeChannelAttentionFact } from "../domain/codecs";
+import type { ChannelAttentionResolution } from "../domain/contracts";
+
+export async function publishAttentionFact(
+  db: PgQueryable,
+  eventStore: PostgresEventStore,
+  connection: ChannelHealthQuery,
+  reason: ChannelHealthReasonGeneration,
+  context: EventStoreContext,
+  resolutionReason: ChannelAttentionResolution | null,
+  resolvedAt: string | null,
+) {
+  const payload = decodeChannelAttentionFact({
+    schemaVersion: resolutionReason === null ? "ChannelAttentionOpened/v1" : "ChannelAttentionResolved/v1",
+    connection,
+    reasonCode: reason.reasonCode,
+    generation: reason.generation,
+    resolutionReason,
+    openedAt: reason.opening.occurredAt,
+    resolvedAt,
+  });
+  await eventStore.appendToStreamInTransaction(db, {
+    streamId: `channels.connection-attention-${connection.connectionId}`,
+    wakeSourceContextName: "channels",
+    expectedVersion: "any",
+    events: [
+      {
+        eventType:
+          resolutionReason === null ? "channels.connection.attention-opened" : "channels.connection.attention-resolved",
+        payload,
+      },
+    ],
+    context,
+  });
+}
+
+export async function recordAttentionHealthTransition(
+  db: PgQueryable,
+  eventStore: PostgresEventStore,
+  connection: ChannelHealthQuery,
+  reason: ChannelHealthReasonGeneration,
+  context: EventStoreContext,
+) {
+  const inserted = await db.query(
+    `INSERT INTO channel_connection_attention
+      (connection_id,account_id,reason_code,reason_generation,fingerprint,opened_at)
+      SELECT $1,$2,$3,$4,$5,$6 WHERE EXISTS (SELECT 1 FROM channel_connection_health AS health
+        WHERE health.connection_id=$1 AND health.account_id=$2 AND health.reasons @> $7::jsonb)
+      ON CONFLICT (connection_id,reason_code,reason_generation) DO NOTHING RETURNING connection_id`,
+    [
+      connection.connectionId,
+      connection.accountId,
+      reason.reasonCode,
+      reason.generation,
+      reason.fingerprint,
+      reason.opening.occurredAt,
+      JSON.stringify([reason]),
+    ],
+  );
+  if (inserted.rows.length) await publishAttentionFact(db, eventStore, connection, reason, context, null, null);
+  if (reason.state !== "closed") return;
+  const driftResolution =
+    reason.reasonCode === "drift"
+      ? await db.query<{ resolution: ChannelAttentionResolution }>(
+          `SELECT resolution FROM channel_reconciliation_attention_resolutions AS resolution
+     JOIN channel_reconciliation_state AS run ON run.connection_id=resolution.connection_id
+     WHERE run.account_id=$1 AND run.connection_id=$2 AND resolution.fingerprint=$3
+     ORDER BY resolution.run_generation DESC LIMIT 1`,
+          [connection.accountId, connection.connectionId, reason.fingerprint],
+        )
+      : null;
+  const resolutionReason = driftResolution?.rows[0]?.resolution ?? "recovered-automatically";
+  const resolved = await db.query(
+    `UPDATE channel_connection_attention SET resolved_at=$6,resolution_reason=$8
+    WHERE connection_id=$1 AND account_id=$2 AND reason_code=$3 AND reason_generation=$4 AND fingerprint=$5
+      AND resolved_at IS NULL AND resolution_reason IS NULL
+      AND EXISTS (SELECT 1 FROM channel_connection_health AS health WHERE health.connection_id=$1 AND health.account_id=$2
+        AND health.reasons @> $7::jsonb) RETURNING connection_id`,
+    [
+      connection.connectionId,
+      connection.accountId,
+      reason.reasonCode,
+      reason.generation,
+      reason.fingerprint,
+      reason.lastOccurredAt,
+      JSON.stringify([reason]),
+      resolutionReason,
+    ],
+  );
+  if (resolved.rows.length)
+    await publishAttentionFact(db, eventStore, connection, reason, context, resolutionReason, reason.lastOccurredAt);
+}

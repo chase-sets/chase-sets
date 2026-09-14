@@ -35,6 +35,18 @@ A **Channel Webhook** is the inbound event subscription configured for a Sales C
 ## Channel Health
 
 **Channel Health** is the account-visible operational state of a Sales Channel connection.
+It is separate from the seller-owned connection lifecycle: `unknown` has no
+complete healthy authority, `healthy` has every reason closed, `degraded` has an
+open reason below its failure thresholds, and `failing` is a system pause.
+Reason generations bind a fingerprint and retain their opening work lineage.
+System pause holds outbound publication and polling while independently verified
+inbound sale observations remain available; it never clears a seller pause.
+
+## Channel Action
+
+A **Channel Action** is the single shared Seller Desk item for a connection's
+unresolved health attention and independently owned manual sync work. Resolving
+a health generation neither closes its health reason nor ends manual work.
 
 ## Channel Mapping
 
@@ -127,3 +139,38 @@ A **Channel Export Surface** identifies whether a channel export reports Live tr
 ## Mapping Bootstrap Candidate
 
 A **Mapping Bootstrap Candidate** is a real category, condition, or attribute source-key discovery submitted for Channel Mapping review; a local sync refusal is not a candidate.
+
+## Manual Sync Panel
+
+The **Manual Sync Panel** is the authorized Channel Connection surface for composing, downloading, recording, and verifying one manual Staged Import Batch round trip.
+
+## Channel Inbound Coverage
+
+**Channel Inbound Coverage** states whether a Sales Channel currently supplies authoritative inbound sales visibility; missing or unknown authority is dark.
+
+## Channel Inbound Clamp
+
+A **Channel Inbound Clamp** is the Marketplace-owned, revision-fenced pause of every active account Listing represented by a genuine Channel Sync Run while Channel Inbound Coverage is dark.
+## Channel Drift
+
+**Channel Drift** is a divergence between a Channel Listing Link's expected material state and complete channel-reported state.
+
+## Channel Drift Decision
+
+A **Channel Drift Decision** is the durable account decision to accept a foreign Channel Drift fingerprint or request a repush of the expected state.
+
+## Drift Classification
+
+**Drift Classification** is the closed `in-sync`, `repairable`, `foreign-edit`, `structural`, or `source-unavailable` result of comparing expected and observed Channel Listing state.
+
+## Channel Reconciliation Run
+
+A **Channel Reconciliation Run** is the bounded, per-connection process that observes channel state, classifies Channel Drift, records missed external sales, and retains guarded counts.
+
+## Missed-Sale Gap
+
+A **Missed-Sale Gap** is a returned external sale line whose exact external Channel sale key has not yet been recorded by Inventory.
+
+## Channel Outbound Hold
+
+A **Channel Outbound Hold** is the outbound-only admission result composed from seller pause, Channel Health, and the operator kill switch; verified inbound sale recording remains admitted.

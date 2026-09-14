@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
+import { SettlementPayoutRequestPanel } from "../../../../settlement/features/payouts/ui/payout-request-panel";
 import { agentConnectorTermsPolicyArtifact } from "../domain/agent-connector-terms";
 import { authenticityServiceTermsPolicyArtifact } from "../domain/authenticity-service-terms";
 import { resolveUnresolvedPublicDisclosureText } from "../domain/canonical-claims";
@@ -26,6 +27,44 @@ import { TermsOfServiceRouteAdapter } from "./terms-of-service-route-adapter";
 
 const publishedEffectiveAt = "2026-09-01T00:00:00.000Z";
 const invalidEffectiveAts = ["not-a-date", "2026-09-01", "2026-09-01T00:00:00", "2026-02-31T00:00:00.000Z"] as const;
+
+const payoutPanelProps: Parameters<typeof SettlementPayoutRequestPanel>[0] = {
+  canRequestPayouts: true,
+  wallet: {
+    account_id: "synthetic-payout-disclosure-account",
+    currency_code: "usd",
+    available_balance_amount: "125.00",
+    pending_balance_amount: "0.00",
+    total_credited_amount: "125.00",
+    total_debited_amount: "0.00",
+    negative_balance_status: "in-good-standing",
+    negative_balance_started_at: null,
+    collections_escalated_at: null,
+    opened_at: "2026-09-01T00:00:00.000Z",
+    updated_at: "2026-09-01T00:00:00.000Z",
+  },
+  payoutReadiness: {
+    account_id: "synthetic-payout-disclosure-account",
+    status: "ready",
+    missing_requirements: [],
+    advisory_requirements: [],
+    disabled_reason: null,
+    requirements_deadline: null,
+    provider_reference: "synthetic-provider-account",
+    contact_email: null,
+    onboarding_status: "complete",
+    transfer_capability_status: "active",
+    payout_capability_status: "active",
+    payout_destination_status: "ready",
+    payout_destination_fingerprint: null,
+    payout_destination_changed_at: null,
+    payout_account_dashboard: "none",
+    losses_collector: "application",
+    fees_collector: "application",
+    requirements_collector: "application",
+    updated_at: "2026-09-01T00:00:00.000Z",
+  },
+};
 
 type PolicyArtifactPageProps = Parameters<typeof PolicyArtifactPage>[0];
 const pageCopyIsNotInjectable: "copy" extends keyof PolicyArtifactPageProps ? false : true = true;
@@ -137,6 +176,30 @@ describe("policy artifact page", () => {
       expect(page?.getAttribute("data-policy-effective-at")).toBe(publishedEffectiveAt);
     });
   }
+
+  it.each([
+    { label: "Payout fee terms", href: "/payments-terms#payout-fee", title: "Payout fee" },
+    {
+      label: "Seller fees and deductions",
+      href: "/seller-agreement#fees-and-deductions",
+      title: "Fees and deductions",
+    },
+  ])("follows the rendered payout panel link $href to its pending policy subject", ({ label, href, title }) => {
+    const panel = render(<SettlementPayoutRequestPanel {...payoutPanelProps} />);
+    const actualHref = screen.getByRole("link", { name: label }).getAttribute("href");
+    expect(actualHref).toBe(href);
+    const [path, id] = actualHref!.split("#");
+    const route = policyRouteAdapters.find((candidate) => candidate.path === path);
+    expect(route).toBeDefined();
+    panel.unmount();
+    const { container } = renderRouteAdapter(route!.render);
+    expect(screen.getByRole("heading", { level: 2, name: title }).id).toBe(id);
+    expect(container.querySelectorAll(`a[href="#${id}"]`)).toHaveLength(1);
+    expect(container.querySelector(`#${id}`)?.closest("section")?.textContent).toContain("Payout Fee policy document");
+    expect(
+      container.querySelector(`[data-policy-key="${path!.slice(1)}"]`)?.getAttribute("data-policy-publication-status"),
+    ).toBe("counsel-review-required");
+  });
 
   it("renders all six Founders subjects with one TOC anchor each and intentional pending indexability", () => {
     const { container } = renderRouteAdapter(() => <FoundersOfferTermsRouteAdapter />);

@@ -37,6 +37,16 @@ const boundedSites = [
     consumption: "presence",
   },
   {
+    id: "bounded-contexts/channels/features/manual-sync/api/seed.ts#readStream#1",
+    pointer: "bounded-contexts/channels/features/manual-sync/api/seed.db.test.ts",
+    consumption: "presence",
+  },
+  {
+    id: "bounded-contexts/channels/features/manual-sync/api/seed.ts#readStream#2",
+    pointer: "bounded-contexts/channels/features/manual-sync/api/seed.db.test.ts",
+    consumption: "presence",
+  },
+  {
     id: "bounded-contexts/discovery/support/request-support/csat-outcome-facts.ts#readStream#1",
     pointer: "bounded-contexts/discovery/support/request-support/csat-outcome-facts.test.ts",
     consumption: "first-event",
@@ -72,7 +82,7 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact eight-call production census and six pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact ten-call production census and eight pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
   });

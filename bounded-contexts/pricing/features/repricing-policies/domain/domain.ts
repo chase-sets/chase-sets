@@ -114,7 +114,12 @@ function normalizeScope(scope: RepricingPolicyScope): RepricingPolicyScope {
 
 export type RepricingAnchor =
   | Readonly<{ source: "market-estimate" }>
-  | Readonly<{ source: "lowest-competing-ask" }>
+  | Readonly<{ source: "lowest-competing-ask"; strata?: "hard"; band?: never }>
+  | Readonly<{
+      source: "lowest-competing-ask";
+      strata: "any";
+      band: Readonly<{ ground: "market-estimate"; minPercentOfGround: number }>;
+    }>
   | Readonly<{ source: "comp-percentile"; percentile: number }>
   | Readonly<{ source: "last-sold" }>;
 
@@ -182,6 +187,27 @@ function normalizeAnchorChain(anchorChain: readonly RepricingAnchor[]): readonly
     `A rule's anchor chain cannot exceed ${REPRICING_POLICY_ANCHOR_CHAIN_CAP} anchors.`,
   );
   return anchorChain.map((anchor) => {
+    assert(
+      !("strata" in anchor) ||
+        (anchor.source === "lowest-competing-ask" &&
+          (anchor.strata === undefined || anchor.strata === "hard" || anchor.strata === "any")),
+      "Only lowest-competing-ask anchors support strata hard or any.",
+    );
+    if (anchor.source === "lowest-competing-ask" && anchor.strata === "any") {
+      assert(
+        anchor.band?.ground === "market-estimate" &&
+          Number.isFinite(anchor.band.minPercentOfGround) &&
+          anchor.band.minPercentOfGround >= 50 &&
+          anchor.band.minPercentOfGround <= 100,
+        "Any-mode anchor requires a market-estimate band with minPercentOfGround between 50 and 100.",
+      );
+      return {
+        source: anchor.source,
+        strata: anchor.strata,
+        band: { ground: anchor.band.ground, minPercentOfGround: anchor.band.minPercentOfGround },
+      };
+    }
+    assert(!("band" in anchor), "Anchor bands are only allowed on lowest-competing-ask with strata any.");
     if (anchor.source === "comp-percentile") {
       assert(
         Number.isFinite(anchor.percentile) &&

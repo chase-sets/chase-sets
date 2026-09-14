@@ -192,24 +192,28 @@ describe("Seller Agreement policy artifact", () => {
     // Names the Payout Fee policy document and the sales-fees article by
     // reference, with no numeral anywhere in this subject's prose.
     expect(feesAndDeductions?.draftText).toMatch(/payout fee policy document/i);
+    expect(feesAndDeductions?.draftText).toMatch(/Marketplace sales, payout, and checkout fees help article/);
     expect(feesAndDeductions?.draftText).toMatch(/deducted from the amount you request/i);
+    expect(feesAndDeductions?.draftText).toMatch(/shows it to you before you confirm the payout request/i);
     expect(feesAndDeductions?.draftText).not.toMatch(/\d/);
+    expect(feesAndDeductions?.reviewStatus).toBe("counsel-required");
 
     expect(feesAndDeductions?.reviewManifest.decisionRefs).toEqual(expect.arrayContaining([7818, 7819]));
+    expect(feesAndDeductions?.reviewManifest.productTruthRefs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts (settlement.payout-fee",
+        ),
+        expect.stringMatching(/^bounded-contexts\/settlement\/features\/payouts\/api\/runtime\.ts:.*posting/),
+        expect.stringContaining("bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx"),
+      ]),
+    );
     expect(feesAndDeductions?.reviewManifest.productTruthRefs.some((ref) => ref.includes("sales-fees.en.md"))).toBe(
       true,
     );
     expect(
       feesAndDeductions?.reviewManifest.openQuestions.some(
-        (question) => /disclos/i.test(question) && /sufficient/i.test(question),
-      ),
-    ).toBe(true);
-    expect(
-      feesAndDeductions?.reviewManifest.openQuestions.some((question) => /not yet implemented/i.test(question)),
-    ).toBe(true);
-    expect(
-      feesAndDeductions?.reviewManifest.openQuestions.some(
-        (question) => /help article/i.test(question) && /not yet|absent|built by/i.test(question),
+        (question) => /deducted from the requested amount/i.test(question) && /sufficient disclosure/i.test(question),
       ),
     ).toBe(true);
   });

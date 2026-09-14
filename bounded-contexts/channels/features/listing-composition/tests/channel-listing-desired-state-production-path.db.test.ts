@@ -12,7 +12,7 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import { module as channelsModule } from "../../../index";
 import { createChannelListingCompositionRuntime } from "../api/runtime";
 import { createChannelCompositionProfileRegistry } from "../domain/canonical";
-import { buildChannelOutboundOperationReactionHandlers } from "../../outbound-sync/integrations/listing-composition";
+import { buildChannelOwnedDesiredStateReactionHandlers } from "../integrations/reactions";
 import { buildChannelConnectionProjectionHandlers } from "../../connections/read-model/projection";
 import {
   buildChannelCatalogFactsProjectionHandlers,
@@ -257,6 +257,9 @@ describeDb("channel-listing-desired-state-production-path", () => {
     const policyAuthority = createConnectionHarness().ports.policyAuthority;
     if (!policyAuthority) throw new Error("The canonical policy authority fixture is unavailable.");
     const rootServices = channelsModule.createServices(pools.channels, {
+      channelSaleRecorder: async (): Promise<never> => {
+        throw new Error("not reached");
+      },
       clock: { now: () => "2026-09-09T12:00:00.000Z" },
       policyAuthority,
       storageLocationAuthority: {
@@ -394,7 +397,10 @@ describeDb("channel-listing-desired-state-production-path", () => {
     ).resolves.toMatchObject({ kind: "applied", streamVersion: 1 });
     await projectLinkEvents(channels);
     const origin = await readDesiredStateOrigin("listing-boundary");
-    const outboundReaction = buildChannelOutboundOperationReactionHandlers(rootServices.outboundSync);
+    const outboundReaction = buildChannelOwnedDesiredStateReactionHandlers(
+      rootServices.listingComposition,
+      rootServices.outboundSync,
+    );
     await outboundReaction["channels.channel-listing.desired-state-changed"]!(transport(origin));
     expect(
       await pools.channels.query(
