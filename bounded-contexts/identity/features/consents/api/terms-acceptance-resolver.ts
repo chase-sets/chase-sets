@@ -35,7 +35,7 @@ export function createIdentityTermsAcceptanceResolver(pool: PgTransactionalPool)
   };
 
   return {
-    resolveTermsAcceptanceStatus: (subject: Readonly<{ accountId?: string | null; userId?: string | null }>) =>
+    resolveTermsAcceptanceStatus: (subject: Parameters<typeof resolveTermsAcceptanceStatus>[2]) =>
       resolveTermsAcceptanceStatus(pool, authority, subject),
   };
 }

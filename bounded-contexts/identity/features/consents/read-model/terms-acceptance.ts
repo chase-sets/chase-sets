@@ -1,10 +1,10 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ConsentActivationAuthorityReader } from "../domain/consent-bundle";
 import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../domain/terms-of-service";
-import { resolveConsentPolicyAcceptanceStatus, type ConsentPolicyAcceptanceStatus } from "./consent-bundle-acceptance";
+import * as acceptance from "./consent-bundle-acceptance";
 
 /** The host/Settlement-facing acceptance shape. Unchanged field set and names. */
-export type TermsAcceptanceStatus = ConsentPolicyAcceptanceStatus;
+export type TermsAcceptanceStatus = acceptance.ConsentPolicyAcceptanceStatus;
 
 export type { ConsentActivationAuthorityReader };
 
@@ -33,9 +33,9 @@ export async function resolveTermsAcceptanceStatus(
   db: PgQueryable,
   authority: ConsentActivationAuthorityReader,
   subject: Readonly<{ userId?: string | null; accountId?: string | null }>,
+  publication?: Parameters<typeof acceptance.resolveConsentPolicyAcceptanceStatusAgainstPublication>[2]["publication"],
 ): Promise<TermsAcceptanceStatus> {
-  return resolveConsentPolicyAcceptanceStatus(db, authority, {
-    policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
-    subject,
-  });
+  const params = { policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY, subject } as const;
+  if (publication === undefined) return acceptance.resolveConsentPolicyAcceptanceStatus(db, authority, params);
+  return acceptance.resolveConsentPolicyAcceptanceStatusAgainstPublication(db, authority, { ...params, publication });
 }

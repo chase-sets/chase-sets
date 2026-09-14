@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
@@ -142,11 +143,16 @@ describeDb("consent-activation-route: actual Identity mount and PostgreSQL", () 
       body: JSON.stringify(body),
     });
   const state = () => policies.consentActivation.read(identityTermsOfServicePolicy.policyKey);
-  const terms = () =>
-    resolveTermsAcceptanceStatus(pools.identity, policies.consentActivation, {
-      userId: operator.userId,
-      accountId: operator.accountId,
-    });
+  const terms = (record = publication) =>
+    resolveTermsAcceptanceStatus(
+      pools.identity,
+      policies.consentActivation,
+      {
+        userId: operator.userId,
+        accountId: operator.accountId,
+      },
+      record,
+    );
   async function refused(response: Response, code: string) {
     expect(response.status).toBeGreaterThanOrEqual(400);
     expect(await response.json()).toEqual({ error: { code } });
@@ -240,19 +246,12 @@ describeDb("consent-activation-route: actual Identity mount and PostgreSQL", () 
     expect((await post(app(), input(), "/api/public/identity/admin/consents/terms-of-service/activate")).status).toBe(
       404,
     );
-    const runbook = await readFile(
-      new URL("../../../../../docs/runbooks/legal-corpus-publication.md", import.meta.url),
-      "utf8",
-    );
+    const runbook = await readFile(resolve(process.cwd(), "../../docs/runbooks/legal-corpus-publication.md"), "utf8");
     expect(runbook).toContain(`${basePath}/activate`);
     expect(runbook).toContain(`${basePath}/deactivate`);
   });
   it("production default refuses pending publication; each publication gate is distinguishable", async () => {
     await refused(await post(app({ production: true })), "publication_not_activatable");
-    await refused(
-      await post(app({ publications: corpus({ ...publication, consentActivatable: false }) })),
-      "publication_not_activatable",
-    );
     await refused(await post(app(), { ...input(), version: "v1000" }), "publication_version_mismatch");
     await refused(
       await post(app(), { ...input(), contentFingerprint: `sha256:${"b".repeat(64)}` }),
@@ -263,6 +262,13 @@ describeDb("consent-activation-route: actual Identity mount and PostgreSQL", () 
         app({ publications: { ...corpus(), "terms-of-service": identityConsentPolicyPublications["privacy-policy"] } }),
       ),
       "publication_key_mismatch",
+    );
+    expect((await state()).registered).toBe(false);
+  });
+  it("gate-bypass control refuses an otherwise matching synthetic ineligible publication", async () => {
+    await refused(
+      await post(app({ publications: corpus({ ...publication, consentActivatable: false }) })),
+      "publication_not_activatable",
     );
     expect((await state()).registered).toBe(false);
   });
@@ -347,6 +353,44 @@ describeDb("consent-activation-route: actual Identity mount and PostgreSQL", () 
     expect(await response.json()).toEqual({ error: { code: "activation_concurrency_conflict" } });
     expect((await state()).activeVersion).toBe("v998");
   });
+  it("recovers from interrupted registration/activation without duplicate registration", async () => {
+    const interruptedStore: EventStore = {
+      ...eventStore,
+      appendToStreams: async () => {
+        throw new Error("Synthetic interruption before activation commit");
+      },
+    };
+    const runtime = createPolicyRuntime({ eventStore: interruptedStore, db: pools.identity, now: () => now });
+    await refused(await post(app({ runtime })), "activation_unavailable");
+    expect(await state()).toMatchObject({ registered: true, status: "never-activated", authorityVersion: 1 });
+    await refused(await post(app(), {}, `${basePath}/deactivate`), "invalid_transition");
+    expect((await terms()).requiredVersion).toBe("");
+    expect((await post()).status).toBe(200);
+    expect((await state()).authorityVersion).toBe(2);
+  });
+  it("replaces the active document at the same version instead of treating it as an exact repeat", async () => {
+    expect((await post()).status).toBe(200);
+    const replacement = await policies.createPolicyDocument(
+      identityTermsOfServicePolicy,
+      {
+        value: { version: publication.version },
+        status: "active",
+        effectiveFrom: now.toISOString(),
+        effectiveUntil: null,
+        actorUserId: operator.userId,
+      },
+      context,
+    );
+    expect((await post(app(), { ...input(), documentId: replacement.documentId })).status).toBe(200);
+    expect(await state()).toMatchObject({
+      activeVersion: publication.version,
+      activeDocumentId: replacement.documentId,
+      activationCount: 2,
+      authorityVersion: 3,
+    });
+    const events = await eventStore.readStream({ streamId: (await state()).streamId });
+    expect(events.at(-1)?.eventType).toBe("platform-policy.consent-activation-authority.replaced");
+  });
   it("document-guard mutant admits the race that the production guard rejects", async () => {
     const mutantStore: EventStore = {
       ...eventStore,
@@ -369,6 +413,10 @@ describeDb("consent-activation-route: actual Identity mount and PostgreSQL", () 
     const active = await state();
     expect(active).toMatchObject({ status: "active", activeVersion: "v999", authorityVersion: 2 });
     expect(await terms()).toMatchObject({ requiredVersion: "v999", accepted: false });
+    const mountedStatus = await app().request("/api/identity/consents/terms-of-service");
+    expect(await mountedStatus.json()).toMatchObject({ requiredVersion: "v999", accepted: false });
+    const productionStatus = await app({ production: true }).request("/api/identity/consents/terms-of-service");
+    expect(await productionStatus.json()).toMatchObject({ requiredVersion: "", accepted: false });
     expect((await post()).status).toBe(200);
     expect(await state()).toEqual(active);
     const next = { ...publication, version: "v1000" as const };
@@ -387,15 +435,15 @@ describeDb("consent-activation-route: actual Identity mount and PostgreSQL", () 
       VALUES ('user', $1, $1, $2, 'terms-of-service', 'synthetic-consent-8016', 'v1000', 'recorded', $3, NULL, 1, $3)`,
       [operator.userId, operator.accountId, now.toISOString()],
     );
-    expect((await terms()).accepted).toBe(true);
+    expect((await terms(next)).accepted).toBe(true);
     await revise("v1001");
     expect((await post(app({ production: true }), {}, `${basePath}/deactivate`)).status).toBe(200);
     expect(await state()).toMatchObject({ status: "inactive", authorityVersion: 4 });
-    expect(await terms()).toMatchObject({ requiredVersion: "", accepted: false });
+    expect(await terms(next)).toMatchObject({ requiredVersion: "", accepted: false });
     await refused(await post(app({ production: true }), {}, `${basePath}/deactivate`), "invalid_transition");
     await revise("v1000");
     expect((await post(app({ publications: corpus(next) }), { ...input(), version: "v1000" })).status).toBe(200);
     expect(await state()).toMatchObject({ status: "active", activeVersion: "v1000", authorityVersion: 5 });
-    expect((await terms()).accepted).toBe(true);
+    expect((await terms(next)).accepted).toBe(true);
   });
 });

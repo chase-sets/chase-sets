@@ -1886,6 +1886,7 @@ export function buildIdentityApi(
     "/consents/terms-of-service",
     termsOfServiceConsentRoutes({
       db: services.db,
+      publication: consentActivationOptions.publications?.["terms-of-service"],
       policies: services.policies,
       consents: services.consents,
     }),

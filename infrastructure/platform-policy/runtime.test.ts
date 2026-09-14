@@ -29,7 +29,13 @@ const syntheticConsentPolicy = definePolicy({
   schemaSummary: "{ version: string }",
   defaultValue: { version: "v1" },
   decodeValue(raw) {
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw) || typeof raw.version !== "string") {
+    if (
+      typeof raw !== "object" ||
+      raw === null ||
+      Array.isArray(raw) ||
+      !("version" in raw) ||
+      typeof raw.version !== "string"
+    ) {
       throw new Error("Invalid synthetic version");
     }
     return { version: raw.version };

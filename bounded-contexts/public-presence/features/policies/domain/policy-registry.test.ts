@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { publicPolicyHrefsByKey, publicPolicyKeys } from "@chase-sets/public-docs/policy-corpus";
 import {
   evaluatePublicPolicyPublicationReadiness,
@@ -122,7 +123,7 @@ describe("public policy registry", () => {
       rendered.map(async (module) => ({
         relativePath: module.relativePath,
         content: await readFile(
-          new URL(`../../../../../contracts/public-docs/generated/${module.relativePath}`, import.meta.url),
+          resolve(process.cwd(), "../../contracts/public-docs/generated", module.relativePath),
           "utf8",
         ),
       })),
