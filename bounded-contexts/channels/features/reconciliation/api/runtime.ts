@@ -247,15 +247,7 @@ export function createChannelReconciliationRuntime(
           }
         } else if (classification === "foreign-edit" && decision.repushRequested && decision.operationId) {
           const consumed = await withPgTransaction(dependencies.db, async (db) => {
-            await lockDecision(db, decision);
-            const current = await loadDecisionHistory(dependencies, decision.connectionId, decision.channelListingId);
-            if (
-              current.version !== decision.revision ||
-              !current.repushRequested ||
-              current.lastOperationId !== decision.operationId
-            )
-              return false;
-            await assertDecisionProjection(db, decision.connectionId, decision.channelListingId, current);
+            await assertDecisionProjection(db, decision.connectionId, decision.channelListingId, decisionHistory);
             return enqueueDecisionRepush(dependencies, db, decision, context, startedAt);
           });
           if (consumed) {
@@ -806,12 +798,14 @@ async function decideDrift(
 ): Promise<ChannelDriftDecision> {
   assertDecisionInput(input, kind);
   const commandFingerprint = digest(JSON.stringify({ kind, ...input }));
+  const connection = await readReconciliationConnection(dependencies.db, input.connectionId);
+  if (!connection) throw new Error("Channel Drift Decision connection was not found.");
+  assertAccountContext(connection, context);
+  const history = await loadDecisionHistory(dependencies, input.connectionId, input.channelListingId);
   return withPgTransaction(dependencies.db, async (db) => {
     const connection = await readReconciliationConnection(db, input.connectionId);
     if (!connection) throw new Error("Channel Drift Decision connection was not found.");
     assertAccountContext(connection, context);
-    await lockDecision(db, input);
-    const history = await loadDecisionHistory(dependencies, input.connectionId, input.channelListingId);
     const replay = await db.query<{ command_fingerprint: string }>(
       `SELECT command_fingerprint FROM channel_drift_decision_operations WHERE operation_id=$1`,
       [input.operationId],
@@ -926,14 +920,6 @@ async function decideDrift(
     }
     return readChannelDriftDecision(db, input);
   });
-}
-
-async function lockDecision(db: PgQueryable, input: Pick<ChannelDriftDecision, "connectionId" | "channelListingId">) {
-  const result = await db.query<{ acquired: boolean }>(
-    "SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) AS acquired",
-    [decisionStreamId(input.connectionId, input.channelListingId)],
-  );
-  if (!result.rows[0]?.acquired) throw new Error("Channel Drift Decision is already being updated.");
 }
 
 function resolveObserved(
