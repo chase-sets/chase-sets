@@ -68,12 +68,14 @@ describeDb("Channels reconciliation real scheduled runner", () => {
       registry: syntheticRegistry(),
     });
 
+    const windowFrom = new Date(Date.now() - 60_000).toISOString();
     await expect(runner!.runOnce()).resolves.toMatchObject({ processed: 1 });
+    const windowTo = new Date(Date.now() + 60_000).toISOString();
     await expect(
       services.reconciliation.readChannelReconciliationMetrics({
         accountId: "account-1",
         connectionId: "connection-1",
-        window: { from: "2026-09-11T00:00:00.000Z", to: "2026-09-13T00:00:00.000Z" },
+        window: { from: windowFrom, to: windowTo },
       }),
     ).resolves.toMatchObject({
       runsCompleted: 1,
