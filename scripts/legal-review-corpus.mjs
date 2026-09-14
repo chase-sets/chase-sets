@@ -333,6 +333,13 @@ function resolvePolicyMembership(authorities) {
     if (typeof metadata.launchRequired !== "boolean") {
       errors.push(`Public policy '${policyKey}' must declare a boolean launchRequired.`);
     }
+    if (
+      typeof metadata.version !== "string" ||
+      metadata.version.length > 4096 ||
+      !POLICY_VERSION_PATTERN.test(metadata.version)
+    ) {
+      errors.push(`Public policy '${policyKey}' must declare a bounded canonical version.`);
+    }
     keys.push(policyKey);
   }
 
@@ -357,6 +364,11 @@ function resolvePolicyMembership(authorities) {
     policyKeys: keys,
     launchRequiredPolicyKeys: launchRequired.map((entry) => entry.artifact.metadata.policyKey),
     launchRequiredPolicyPaths: launchRequired.map((entry) => entry.artifact.metadata.href),
+    launchPolicies: launchRequired.map(({ artifact: { metadata } }) => ({
+      policyKey: metadata.policyKey,
+      path: metadata.href,
+      version: metadata.version,
+    })),
     launchRequiredPolicyCount: launchRequired.length,
   };
 }
@@ -422,6 +434,7 @@ function resolveComplianceMembership(authorities) {
     errors: [],
     complianceArticleSlugs: [...manifest],
     complianceArticlePaths: paths,
+    complianceArticles: manifest.map((slug, index) => ({ slug, path: paths[index] })),
     complianceArticleCount: manifest.length,
   };
 }

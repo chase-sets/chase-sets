@@ -11,8 +11,11 @@ import { MARKETPLACE_PROMOTION_EVIDENCE_VERSION } from "./marketplace-promotion-
 import {
   MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION,
   REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS,
+  projectPublicPresenceCopyAuditPageEvidence,
+  resolveCanonicalPublicPresenceAuditAuthority,
+  validatePublicPresenceCopyAuditRecord,
 } from "./marketplace-public-presence-copy-audit.mjs";
-import { COUNSEL_REVIEW_PACKET_VERSION, loadLegalReviewMembership } from "./legal-review-corpus.mjs";
+import { COUNSEL_REVIEW_PACKET_VERSION } from "./legal-review-corpus.mjs";
 import { GOOGLE_SHOPPING_LAUNCH_READINESS_EVIDENCE_VERSION } from "./google-shopping-launch-readiness-evidence.mjs";
 import { RELEASE_HEALTH_REPORT_VERSION } from "./release-health-report.mjs";
 import { evaluateRollbackReadiness } from "./rollback-readiness.mjs";
@@ -55,6 +58,7 @@ export const REQUIRED_PRODUCTION_APPROVAL_CATEGORIES = [
   "PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED",
   "PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED",
   "PRODUCTION_TAX_READINESS_APPROVED",
+  "PRODUCTION_TERMS_CONSENT_ACTIVE_APPROVED",
 ];
 
 export const PLATFORM_PRODUCTION_WORKFLOW_PATH = ".github/workflows/platform-production.yml";
@@ -89,7 +93,7 @@ const VALID_DECISIONS = ["go", "no-go", "hold"];
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
 export const MARKETPLACE_PROMOTION_EVIDENCE_COMMAND =
-  "pnpm run ops marketplace:promotion-evidence -- --review <review.json> --public-presence-copy-audit <audit-v2.json> --reference <reference>";
+  "pnpm run ops marketplace:promotion-evidence -- --review <review.json> --public-presence-copy-audit <audit-v3.json> --reference <reference>";
 
 /**
  * The canonical legal-corpus membership, derived once from the registry and
@@ -101,32 +105,8 @@ export const MARKETPLACE_PROMOTION_EVIDENCE_COMMAND =
  * Resolution failure is a bounded row diagnostic, never an import crash: this
  * terminal gate must still emit a record when the corpus cannot be read.
  */
-export async function resolveCanonicalLegalCorpusMembership() {
-  try {
-    const membership = await loadLegalReviewMembership();
-    if (!membership.policy.ok || !membership.compliance.ok) {
-      return { ok: false, errors: [...membership.policy.errors, ...membership.compliance.errors] };
-    }
-    const uniquePaths = new Set([
-      ...REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS,
-      ...membership.policy.launchRequiredPolicyPaths,
-      ...membership.compliance.complianceArticlePaths,
-    ]);
-    return {
-      ok: true,
-      errors: [],
-      launchRequiredPolicyKeys: membership.policy.launchRequiredPolicyKeys,
-      complianceArticleSlugs: membership.compliance.complianceArticleSlugs,
-      uniqueFetchedPathCount: uniquePaths.size,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      errors: [
-        `canonical legal corpus membership could not be resolved (${error instanceof Error ? error.constructor.name : "UnknownError"}).`,
-      ],
-    };
-  }
+export async function resolveCanonicalLegalCorpusMembership(dependencies = {}) {
+  return resolveCanonicalPublicPresenceAuditAuthority(dependencies);
 }
 
 const CANONICAL_LEGAL_CORPUS_MEMBERSHIP = await resolveCanonicalLegalCorpusMembership();
@@ -380,7 +360,7 @@ export function validatePromotionLegalCorpusProjection(record, membership, rowEr
       "counselPacketCorpusSha256 must equal the audited current publicPresenceCopyAuditLegalCorpusDigest.",
     );
   }
-  validateAuditPageEvidenceProjection(promotion.publicPresenceCopyAuditPageEvidence, membership, rowErrors);
+  validateAuditPageEvidenceProjection(promotion, membership, rowErrors);
   for (const field of [
     "counselPacketVerified",
     "publicPresenceCopyAuditPassed",
@@ -405,12 +385,56 @@ export function validatePromotionLegalCorpusProjection(record, membership, rowEr
  * record to name the identities its audit actually fetched, and to have proved
  * every one of them on the audited origin and its exact canonical route.
  */
-function validateAuditPageEvidenceProjection(evidence, membership, rowErrors) {
+function validateAuditPageEvidenceProjection(promotion, membership, rowErrors) {
+  const evidence = promotion.publicPresenceCopyAuditPageEvidence;
   if (!isRecord(evidence)) {
     rowErrors.push(
       "publicPresenceCopyAuditPageEvidence must carry the audited page rows the promotion record derives from its copy-audit input.",
     );
     return;
+  }
+  const audit = {
+    schemaVersion: promotion.publicPresenceCopyAuditVersion,
+    baseUrl: promotion.publicPresenceCopyAuditBaseUrl,
+    mode: promotion.publicPresenceCopyAuditMode,
+    checkedAt: promotion.publicPresenceCopyAuditCompletedAt,
+    requiredPageCount: promotion.publicPresenceCopyAuditRequiredPageCount,
+    requiredPagePaths: promotion.publicPresenceCopyAuditRequiredPagePaths,
+    launchRequiredPolicyCount: promotion.publicPresenceCopyAuditLaunchRequiredPolicyCount,
+    launchRequiredPolicyKeys: promotion.publicPresenceCopyAuditLaunchRequiredPolicyKeys,
+    complianceArticleCount: promotion.publicPresenceCopyAuditComplianceArticleCount,
+    complianceArticleSlugs: promotion.publicPresenceCopyAuditComplianceArticleSlugs,
+    uniqueFetchedPathCount: promotion.publicPresenceCopyAuditUniqueFetchedPathCount,
+    legalCorpusDigest: promotion.publicPresenceCopyAuditLegalCorpusDigest,
+    counselPacket: {
+      schemaVersion: promotion.counselPacketSchemaVersion,
+      sha256: promotion.counselPacketSha256,
+      utf8Bytes: promotion.counselPacketUtf8Bytes,
+      corpusSha256: promotion.counselPacketCorpusSha256,
+      verified: promotion.counselPacketVerified,
+    },
+    pages: evidence.pages,
+    publicPresenceLaunchCopyReviewed: promotion.publicPresenceLaunchCopyReviewed,
+    futureOnlyLaunchCopyRemoved: promotion.publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved,
+    policyPagesReviewed: promotion.publicPresenceCopyAuditPolicyPagesReviewed,
+    complianceArticlesReviewed: promotion.publicPresenceCopyAuditComplianceArticlesReviewed,
+    dmcaRegistrationMarkerAbsent: promotion.publicPresenceCopyAuditDmcaRegistrationMarkerAbsent,
+    uncertifiedClaimsAbsent: promotion.publicPresenceCopyAuditUncertifiedClaimsAbsent,
+    passesPublicPresenceCopyAudit: promotion.publicPresenceCopyAuditPassed,
+  };
+  rowErrors.push(...validatePublicPresenceCopyAuditRecord(audit, membership).errors);
+  const derived = projectPublicPresenceCopyAuditPageEvidence(audit);
+  if (
+    !derived ||
+    Object.keys(evidence).length !== Object.keys(derived).length ||
+    Object.keys(evidence).some((key) => !Object.hasOwn(derived, key)) ||
+    Object.keys(derived).some(
+      (key) => key !== "pages" && JSON.stringify(evidence[key]) !== JSON.stringify(derived[key]),
+    )
+  ) {
+    rowErrors.push(
+      "publicPresenceCopyAuditPageEvidence must be closed and its summaries must derive from the retained rows.",
+    );
   }
   if (evidence.fetchedPathCount !== membership.uniqueFetchedPathCount) {
     rowErrors.push(

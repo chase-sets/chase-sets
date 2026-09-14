@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -18,7 +18,8 @@ import {
   main,
   parsePublicPresenceCopyAuditArgs,
   validatePublicPresenceCopyAuditOptions,
-  validatePublicPresenceCopyAuditRecord,
+  validatePublicPresenceCopyAuditRecord as validateRecord,
+  resolveCanonicalPublicPresenceAuditAuthority,
 } from "./marketplace-public-presence-copy-audit.mjs";
 
 // The launch fixtures below are an unmistakably synthetic counsel disposition:
@@ -42,6 +43,8 @@ let preCounselCorpus;
 let temporaryDirectory;
 let packetPath;
 let receiptPath;
+let auditAuthority;
+const validatePublicPresenceCopyAuditRecord = (record) => validateRecord(record, auditAuthority);
 
 beforeAll(async () => {
   baseAuthorities = await loadLegalReviewAuthorities();
@@ -65,6 +68,10 @@ beforeAll(async () => {
   };
   launchMembership = resolveLegalReviewMembership(launchAuthorities);
   launchCorpus = expectCorpus(launchAuthorities);
+  auditAuthority = await resolveCanonicalPublicPresenceAuditAuthority({
+    membership: launchMembership,
+    corpus: { ok: true, corpus: launchCorpus },
+  });
 
   temporaryDirectory = mkdtempSync(path.join(tmpdir(), "public-presence-copy-audit-"));
   packetPath = path.join(temporaryDirectory, "counsel-review-packet.md");
@@ -293,6 +300,7 @@ describe("marketplace public presence copy audit: launch mode", () => {
         publicationStatus: "published",
         effectiveAt: "2026-09-01T00:00:00.000Z",
       },
+      dmcaMarkerScan: null,
     });
     expect(audit.pages.find((row) => row.path === "/help/selling/sales-tax")).toEqual({
       name: "sales-tax",
@@ -304,6 +312,7 @@ describe("marketplace public presence copy audit: launch mode", () => {
       futureOnlyLaunchCopyMatches: [],
       uncertifiedAgentCommerceClaimMatches: [],
       policyPublicationMetadata: null,
+      dmcaMarkerScan: null,
     });
     // Authenticity Service Terms is packet-only and is never audited as a
     // launch-required route.
@@ -498,6 +507,7 @@ describe("marketplace public presence copy audit: launch mode", () => {
       futureOnlyLaunchCopyMatches: [],
       uncertifiedAgentCommerceClaimMatches: [],
       policyPublicationMetadata: null,
+      dmcaMarkerScan: null,
     });
     expect(audit.counselPacket.verified).toBe(true);
     expect(audit.futureOnlyLaunchCopyRemoved).toBe(false);
@@ -974,7 +984,7 @@ describe("marketplace public presence copy audit: CLI and record contract", () =
       passesPublicPresenceCopyAudit: true,
     });
     expect(v1Record.ok).toBe(false);
-    expect(v1Record.errors.join(" ")).toContain("schemaVersion must be marketplace-public-presence-copy-audit/v2");
+    expect(v1Record.errors.join(" ")).toContain("schemaVersion must be marketplace-public-presence-copy-audit/v3");
   });
 });
 
@@ -994,6 +1004,50 @@ describe("marketplace public presence copy audit: stored record relational autho
     expect(validation.ok, JSON.stringify(validation.errors)).toBe(false);
     return validation.errors.join(" ");
   }
+
+  it.each(["canonical-route", "exact-version", "retained-marker"])(
+    "the %s discriminator fails when only its named guard is deleted",
+    async (guard) => {
+      const mutant = structuredClone(valid);
+      const replacements = {
+        "canonical-route": ["  validateCanonicalAuditRows(errors, value, authority);", ""],
+        "exact-version": [
+          "metadata.version === canonical?.version",
+          'POLICY_VERSION_PATTERN.test(metadata.version ?? "")',
+        ],
+        "retained-marker": ["if (value.dmcaRegistrationMarkerAbsent !== expectedDmcaAbsent)", "if (false)"],
+      };
+      if (guard === "canonical-route") {
+        for (const row of mutant.pages.filter((page) => page.name === "sales-tax")) {
+          row.path = `/synthetic-substitution-${row.name}`;
+          row.url = new URL(row.path, mutant.baseUrl).href;
+        }
+      } else if (guard === "exact-version") {
+        mutant.pages.find((row) => row.policyPublicationMetadata).policyPublicationMetadata.version = "v999";
+      } else {
+        mutant.pages.find((row) => row.dmcaMarkerScan).dmcaMarkerScan.responseMarkerPresent = true;
+      }
+      expect(validatePublicPresenceCopyAuditRecord(mutant).ok).toBe(false);
+      const sourceUrl = new URL("./marketplace-public-presence-copy-audit.mjs", import.meta.url);
+      let source = readFileSync(sourceUrl, "utf8");
+      const [before, after] = replacements[guard];
+      expect(source.split(before)).toHaveLength(2);
+      source = source.replace(before, after);
+      for (const name of ["marketplace-evidence-references.mjs", "lib/cli-options.mjs", "legal-review-corpus.mjs"]) {
+        source = source.replace(`\"./${name}\"`, JSON.stringify(new URL(name, sourceUrl).href));
+      }
+      source = source.replace(
+        "if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1])",
+        "if (false)",
+      );
+      const bypass = await import(
+        /* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
+      );
+      const result = bypass.validatePublicPresenceCopyAuditRecord(mutant, auditAuthority);
+      expect(result.ok, JSON.stringify(result.errors)).toBe(true);
+      expect(bypass.validatePublicPresenceCopyAuditRecord(valid, auditAuthority).ok).toBe(true);
+    },
+  );
 
   it("rejects 17 coherent-looking rows that are not the fetch plan its own membership implies", () => {
     // Counts, membership pairs, digests, packet verification, and every

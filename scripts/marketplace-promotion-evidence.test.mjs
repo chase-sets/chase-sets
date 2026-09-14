@@ -15,13 +15,15 @@ import {
   REQUIRED_PUBLIC_PRESENCE_PAGES,
   REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS,
   auditPublicPresenceCopy,
+  validatePublicPresenceCopyAuditRecord,
+  projectPublicPresenceCopyAuditPageEvidence,
 } from "./marketplace-public-presence-copy-audit.mjs";
 import {
   MARKETPLACE_PROMOTION_EVIDENCE_VERSION,
   REQUIRED_MARKETPLACE_PROMOTION_PROOFS,
-  buildPromotionEvidence,
+  buildPromotionEvidence as buildEvidence,
   parsePromotionEvidenceArgs,
-  runPromotionEvidence,
+  runPromotionEvidence as runEvidence,
   validatePromotionEvidenceOptions,
 } from "./marketplace-promotion-evidence.mjs";
 import {
@@ -46,6 +48,12 @@ let successfulAudit;
 let successfulPrelaunchAudit;
 let canonicalMembership;
 let temporaryDirectory;
+let producerInput;
+let producerDependencies;
+let producerBodies;
+let producerAuthorities;
+const buildPromotionEvidence = (input) => buildEvidence(input, { auditAuthority: canonicalMembership });
+const runPromotionEvidence = (options) => runEvidence(options, { auditAuthority: canonicalMembership });
 
 beforeAll(async () => {
   const base = await loadLegalReviewAuthorities();
@@ -75,6 +83,7 @@ beforeAll(async () => {
     ),
   };
   const built = buildLegalReviewCorpus(authorities);
+  producerAuthorities = authorities;
   if (!built.ok) {
     throw new Error(`expected a valid corpus, got: ${built.errors.join(" | ")}`);
   }
@@ -102,26 +111,26 @@ beforeAll(async () => {
     bodies[article.href] = `<html><head><title>${article.slug}</title></head><body>${LAUNCH_BODY}</body></html>`;
   }
 
-  successfulAudit = await auditPublicPresenceCopy(
-    {
-      baseUrl: "https://chasesets.com",
-      mode: "launch",
-      checkedAt: AUDIT_CHECKED_AT,
-      counselPacketPath: packetPath,
-      counselPacketReceiptPath: receiptPath,
+  producerBodies = bodies;
+  producerInput = {
+    baseUrl: "https://chasesets.com",
+    mode: "launch",
+    checkedAt: AUDIT_CHECKED_AT,
+    counselPacketPath: packetPath,
+    counselPacketReceiptPath: receiptPath,
+  };
+  producerDependencies = {
+    fetch: async (url) => {
+      const requested = new URL(url).pathname;
+      const body = bodies[requested];
+      return body === undefined
+        ? { status: 404, url, text: async () => "" }
+        : { status: 200, url, text: async () => body };
     },
-    {
-      fetch: async (url) => {
-        const requested = new URL(url).pathname;
-        const body = bodies[requested];
-        return body === undefined
-          ? { status: 404, url, text: async () => "" }
-          : { status: 200, url, text: async () => body };
-      },
-      membership: resolveLegalReviewMembership(authorities),
-      corpus: built,
-    },
-  );
+    membership: resolveLegalReviewMembership(authorities),
+    corpus: built,
+  };
+  successfulAudit = await auditPublicPresenceCopy(producerInput, producerDependencies);
   if (!successfulAudit.passesPublicPresenceCopyAudit) {
     throw new Error(`expected a passing launch audit, got: ${(successfulAudit.errors ?? []).join(" | ")}`);
   }
@@ -145,7 +154,7 @@ beforeAll(async () => {
     throw new Error(`expected a passing prelaunch audit, got: ${(successfulPrelaunchAudit.errors ?? []).join(" | ")}`);
   }
 
-  canonicalMembership = await resolveCanonicalLegalCorpusMembership();
+  canonicalMembership = await resolveCanonicalLegalCorpusMembership(producerDependencies);
   if (!canonicalMembership.ok) {
     throw new Error(`expected canonical membership, got: ${canonicalMembership.errors.join(" | ")}`);
   }
@@ -169,9 +178,9 @@ function review(overrides = {}) {
     reviewReference: "LAUNCH-REVIEW-PROOF-2026-09-05",
     reviewCompletedAt: "2026-09-05T01:45:00.000Z",
     environment: "production",
-    releaseCommit: "f318fd3577b635959dabc23117f509ed45621268",
-    stagingWorkflowRunReference: "platform-deploy-staging-26688444710",
-    productionWorkflowRunReference: "platform-deploy-production-26688444710",
+    releaseCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    stagingWorkflowRunReference: "SYNTHETIC-STAGING-WORKFLOW-0001",
+    productionWorkflowRunReference: "SYNTHETIC-PRODUCTION-WORKFLOW-0001",
     checkoutLaunchEvidenceReference: "CHECKOUT-LAUNCH-2026-09-05",
     checkoutLaunchEvidenceCompletedAt: "2026-09-05T01:20:00.000Z",
     publicPresenceReviewReference: "PUBLIC-PRESENCE-2026-09-05",
@@ -216,6 +225,222 @@ function writeJson(name, value) {
   return filePath;
 }
 
+describe("G4 bounded three-consumer discriminators", () => {
+  function assertThreeConsumers(audit, accepted, authority = canonicalMembership) {
+    const validation = validatePublicPresenceCopyAuditRecord(audit, authority);
+    expect(validation.ok, JSON.stringify(validation.errors)).toBe(accepted);
+    const promotion = buildEvidence(input({ audit }), { auditAuthority: authority });
+    expect(promotion.passesPromotionGate, JSON.stringify(promotion.errors)).toBe(accepted);
+    // Do not feed the rejected producer's null projection to the terminal
+    // check: retain the successful envelope and independently replace rows.
+    const terminal = buildPromotionEvidence(input());
+    terminal.marketplacePromotion.publicPresenceCopyAuditPageEvidence =
+      projectPublicPresenceCopyAuditPageEvidence(audit);
+    const errors = [];
+    validatePromotionLegalCorpusProjection(terminal, authority, errors);
+    expect(errors.length === 0, JSON.stringify(errors)).toBe(accepted);
+  }
+
+  it("F1-canonical-route-version-three-consumers", () => {
+    assertThreeConsumers(successfulAudit, true);
+    for (const mutation of ["paths", "versions", "paths-and-versions"]) {
+      const mutant = structuredClone(successfulAudit);
+      for (const row of mutant.pages) {
+        if (mutation !== "versions" && !row.categories.includes("required-page")) {
+          row.path = `/synthetic-substitution-${row.name}`;
+          row.url = new URL(row.path, mutant.baseUrl).href;
+        }
+        if (mutation !== "paths" && row.policyPublicationMetadata) row.policyPublicationMetadata.version = "v999";
+      }
+      expect(mutant.pages).toHaveLength(17);
+      expect(mutant.launchRequiredPolicyKeys).toEqual(successfulAudit.launchRequiredPolicyKeys);
+      expect(mutant.complianceArticleSlugs).toEqual(successfulAudit.complianceArticleSlugs);
+      assertThreeConsumers(mutant, false);
+    }
+  });
+
+  it("F2-retained-marker-three-consumers", async () => {
+    const markerAudit = await auditPublicPresenceCopy(producerInput, {
+      ...producerDependencies,
+      fetch: async (url) => ({
+        status: 200,
+        url,
+        text: async () =>
+          producerBodies[new URL(url).pathname] +
+          (new URL(url).pathname === canonicalMembership.dmca.path ? canonicalMembership.dmca.marker : ""),
+      }),
+    });
+    expect(markerAudit.pages).toHaveLength(17);
+    expect(markerAudit.dmcaRegistrationMarkerAbsent).toBe(false);
+    const markerRow = markerAudit.pages.find((row) => row.path === canonicalMembership.dmca.path);
+    const cleanRow = successfulAudit.pages.find((row) => row.path === canonicalMembership.dmca.path);
+    expect(markerRow).toEqual({
+      ...cleanRow,
+      dmcaMarkerScan: { ...cleanRow.dmcaMarkerScan, responseMarkerPresent: true },
+    });
+    const laundered = { ...markerAudit, dmcaRegistrationMarkerAbsent: true, passesPublicPresenceCopyAudit: true };
+    delete laundered.errors;
+    assertThreeConsumers(laundered, false);
+    assertThreeConsumers(successfulAudit, true);
+  });
+
+  it("rejects each malformed retained scan, member binding and nested row independently", () => {
+    const mutations = [
+      (row) => {
+        delete row.dmcaMarkerScan;
+      },
+      (row) => {
+        row.dmcaMarkerScan.extra = true;
+      },
+      (row) => {
+        row.dmcaMarkerScan.schemaVersion = "dmca-marker-scan/v999";
+      },
+      (row) => {
+        row.dmcaMarkerScan.marker = "synthetic-other-marker";
+      },
+      (row) => {
+        row.dmcaMarkerScan.sourceMarkerPresent = true;
+      },
+      (row) => {
+        row.dmcaMarkerScan.sourceMarkerPresent = {};
+      },
+      (row) => {
+        row.dmcaMarkerScan.responseMarkerPresent = null;
+      },
+      (row) => {
+        row.dmcaMarkerScan.responseMarkerPresent = [];
+      },
+      (row) => {
+        row.status = 404;
+      },
+      (row) => {
+        row.status = 999;
+      },
+      (row) => {
+        row.name = "synthetic-other-member";
+      },
+      (row) => {
+        row.path = "/synthetic-other-dmca";
+        row.url = new URL(row.path, successfulAudit.baseUrl).href;
+      },
+      (row) => {
+        row.url = `https://synthetic.invalid${row.path}`;
+      },
+      (row) => {
+        row.title = "x".repeat(4097);
+      },
+    ];
+    for (const mutate of mutations) {
+      const audit = structuredClone(successfulAudit);
+      mutate(audit.pages.find((row) => row.path === canonicalMembership.dmca.path));
+      assertThreeConsumers(audit, false);
+    }
+    const misplaced = structuredClone(successfulAudit);
+    misplaced.pages[0].dmcaMarkerScan = structuredClone(
+      misplaced.pages.find((row) => row.dmcaMarkerScan).dmcaMarkerScan,
+    );
+    assertThreeConsumers(misplaced, false);
+    const nested = structuredClone(successfulAudit);
+    nested.pages.find((row) => row.policyPublicationMetadata).policyPublicationMetadata.extra = {};
+    assertThreeConsumers(nested, false);
+    const dateOnly = structuredClone(successfulAudit);
+    dateOnly.pages.find((row) => row.policyPublicationMetadata).policyPublicationMetadata.effectiveAt = "2026-09-01";
+    assertThreeConsumers(dateOnly, false);
+    assertThreeConsumers(successfulAudit, false, { ok: false, errors: ["SYNTHETIC unavailable source"] });
+    assertThreeConsumers(successfulAudit, false, {
+      ...canonicalMembership,
+      dmca: { ...canonicalMembership.dmca, sourceMarkerPresent: true },
+    });
+    assertThreeConsumers(successfulAudit, true);
+  });
+
+  it("retains a source-only marker from the exact current normalized corpus", async () => {
+    const source = {
+      ...producerAuthorities,
+      helpArticleSources: producerAuthorities.helpArticleSources.map((article) =>
+        article.fileName === "intellectual-property-and-dmca.en.md"
+          ? { ...article, source: `${article.source}\n${canonicalMembership.dmca.marker}\n` }
+          : article,
+      ),
+    };
+    const corpus = buildLegalReviewCorpus(source);
+    expect(corpus.ok, JSON.stringify(corpus.errors)).toBe(true);
+    const packet = Buffer.from(renderCounselReviewPacket(corpus.corpus));
+    const receipt = buildCounselReviewPacketReceipt(corpus.corpus, packet);
+    const dependencies = {
+      ...producerDependencies,
+      corpus,
+      readTextFile: async () => ({ ok: true, content: JSON.stringify(receipt) }),
+      readBinaryFile: async () => ({ ok: true, content: packet }),
+    };
+    const authority = await resolveCanonicalLegalCorpusMembership(dependencies);
+    const audit = await auditPublicPresenceCopy(producerInput, dependencies);
+    const row = audit.pages.find((page) => page.path === authority.dmca.path);
+    expect(audit.pages).toHaveLength(17);
+    expect(row.dmcaMarkerScan.sourceMarkerPresent).toBe(true);
+    expect(row.dmcaMarkerScan.responseMarkerPresent).toBe(false);
+    expect(audit.dmcaRegistrationMarkerAbsent).toBe(false);
+    expect(validatePublicPresenceCopyAuditRecord(audit, authority).ok).toBe(true);
+    const laundered = { ...audit, dmcaRegistrationMarkerAbsent: true, passesPublicPresenceCopyAudit: true };
+    delete laundered.errors;
+    expect(validatePublicPresenceCopyAuditRecord(laundered, authority).ok).toBe(false);
+    expect(buildEvidence(input({ audit: laundered }), { auditAuthority: authority }).passesPromotionGate).toBe(false);
+    const terminal = buildPromotionEvidence(input());
+    Object.assign(terminal.marketplacePromotion, {
+      publicPresenceCopyAuditLegalCorpusDigest: authority.legalCorpusDigest,
+      counselPacketCorpusSha256: authority.legalCorpusDigest,
+      counselPacketSha256: audit.counselPacket.sha256,
+      counselPacketUtf8Bytes: audit.counselPacket.utf8Bytes,
+      publicPresenceCopyAuditPageEvidence: projectPublicPresenceCopyAuditPageEvidence(laundered),
+    });
+    const errors = [];
+    validatePromotionLegalCorpusProjection(terminal, authority, errors);
+    expect(errors.join(" ")).toContain("exact DMCA source and retained response scan");
+  });
+
+  it("retains the source scan and all 17 rows on null, non-200 and off-origin DMCA responses", async () => {
+    for (const failure of ["fetch", "read", "non-200", "off-origin"]) {
+      const audit = await auditPublicPresenceCopy(producerInput, {
+        ...producerDependencies,
+        fetch: async (url) => {
+          if (new URL(url).pathname !== canonicalMembership.dmca.path) return producerDependencies.fetch(url);
+          if (failure === "fetch") throw new Error("SYNTHETIC-PRIVATE-TRANSPORT");
+          return {
+            status: failure === "non-200" ? 404 : 200,
+            url: failure === "off-origin" ? `https://synthetic.invalid${canonicalMembership.dmca.path}` : url,
+            text: async () => {
+              if (failure === "read") throw new Error("SYNTHETIC-PRIVATE-READ");
+              return canonicalMembership.dmca.marker;
+            },
+          };
+        },
+      });
+      expect(audit.pages).toHaveLength(17);
+      expect(audit.counselPacket.verified).toBe(true);
+      const row = audit.pages.find((page) => page.path === canonicalMembership.dmca.path);
+      expect(row.dmcaMarkerScan).toEqual({
+        schemaVersion: "dmca-marker-scan/v1",
+        marker: canonicalMembership.dmca.marker,
+        sourceMarkerPresent: false,
+        responseMarkerPresent: ["fetch", "read"].includes(failure) ? null : true,
+      });
+      expect(validatePublicPresenceCopyAuditRecord(audit, canonicalMembership).ok).toBe(true);
+      expect(JSON.stringify(audit)).not.toContain("SYNTHETIC-PRIVATE");
+      const laundered = {
+        ...audit,
+        publicPresenceLaunchCopyReviewed: true,
+        futureOnlyLaunchCopyRemoved: true,
+        complianceArticlesReviewed: true,
+        dmcaRegistrationMarkerAbsent: true,
+        uncertifiedClaimsAbsent: true,
+        passesPublicPresenceCopyAudit: true,
+      };
+      delete laundered.errors;
+      assertThreeConsumers(laundered, false);
+    }
+  });
+});
+
 describe("marketplace promotion evidence: authoritative launch consumption", () => {
   it("derives the complete legal-corpus projection from the audit record through the real file-reading CLI path", async () => {
     const evidence = await runPromotionEvidence({
@@ -237,9 +462,9 @@ describe("marketplace promotion evidence: authoritative launch consumption", () 
         reviewReference: "LAUNCH-REVIEW-PROOF-2026-09-05",
         reviewCompletedAt: "2026-09-05T01:45:00.000Z",
         environment: "production",
-        releaseCommit: "f318fd3577b635959dabc23117f509ed45621268",
-        stagingWorkflowRunReference: "platform-deploy-staging-26688444710",
-        productionWorkflowRunReference: "platform-deploy-production-26688444710",
+        releaseCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        stagingWorkflowRunReference: "SYNTHETIC-STAGING-WORKFLOW-0001",
+        productionWorkflowRunReference: "SYNTHETIC-PRODUCTION-WORKFLOW-0001",
         checkoutLaunchEvidenceReference: "CHECKOUT-LAUNCH-2026-09-05",
         publicPresenceReviewReference: "PUBLIC-PRESENCE-2026-09-05",
         publicPresenceCopyAuditReference: "PUBLIC-PRESENCE-COPY-AUDIT-2026-09-05",
@@ -283,6 +508,7 @@ describe("marketplace promotion evidence: authoritative launch consumption", () 
         publicPresenceCopyAuditDmcaRegistrationMarkerAbsent: true,
         publicPresenceCopyAuditUncertifiedClaimsAbsent: true,
         publicPresenceCopyAuditPageEvidence: {
+          schemaVersion: "public-presence-audit-page-evidence/v1",
           fetchedPathCount: 17,
           requiredPagePaths: [...REQUIRED_PUBLIC_PRESENCE_PAGE_PATHS],
           launchPolicyPolicyKeys: [
@@ -301,6 +527,7 @@ describe("marketplace promotion evidence: authoritative launch consumption", () 
             "tax-reporting-1099k",
           ],
           verifiedOnAuditedOriginCount: 17,
+          pages: successfulAudit.pages,
         },
         finalLaunchReviewApproved: true,
         checkoutLaunchEvidenceApproved: true,
@@ -423,7 +650,7 @@ describe("marketplace promotion evidence: caller-grafted authority is rejected",
     const evidence = buildPromotionEvidence(input({ review: v1Review }));
     expect(evidence.schemaVersion).toBe(MARKETPLACE_PROMOTION_EVIDENCE_VERSION);
     expect(evidence.passesPromotionGate).toBe(false);
-    expect(evidence.errors.join(" ")).toContain("marketplace-promotion-evidence/v2 derives every copy-audit");
+    expect(evidence.errors.join(" ")).toContain("marketplace-promotion-evidence/v3 derives every copy-audit");
   });
 });
 
@@ -465,8 +692,7 @@ describe("marketplace promotion evidence: audit input authority", () => {
   });
 
   it("refuses an unverified packet, a stale digest, a count-only membership, and reordered members", () => {
-    // The producer never reports a pass on an unverified packet, so the mutant
-    // is the exact record it would emit for that one failure.
+    // An unverified packet cannot retain fetched rows, even with pass=false.
     const unverified = buildPromotionEvidence(
       input({
         audit: {
@@ -479,7 +705,7 @@ describe("marketplace promotion evidence: audit input authority", () => {
     );
     expect(unverified.passesPromotionGate).toBe(false);
     expect(unverified.errors).toContain(
-      "Marketplace promotion requires a copy audit that verified the retained counsel review packet bytes.",
+      "Marketplace promotion copy audit input: Public Presence copy audit record fetched rows require the verified packet and current source corpus identity.",
     );
 
     const staleDigest = buildPromotionEvidence(
@@ -492,7 +718,7 @@ describe("marketplace promotion evidence: audit input authority", () => {
     );
     expect(staleDigest.passesPromotionGate).toBe(false);
     expect(staleDigest.errors).toContain(
-      "Marketplace promotion requires the retained counsel packet corpus digest to equal the audited current corpus digest.",
+      "Marketplace promotion copy audit input: Public Presence copy audit record fetched rows require the verified packet and current source corpus identity.",
     );
 
     const countOnly = buildPromotionEvidence(input({ audit: { ...successfulAudit, complianceArticleSlugs: null } }));

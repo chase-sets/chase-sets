@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Marketplace public promotion evidence.
 //
-// v2 makes authority transport explicit. v1 let the operator review record
+// v3 makes authority transport explicit. v1 let the operator review record
 // *assert* the Public Presence copy audit result as a handful of copied
 // booleans, so a green promotion record could exist without a green audit ever
-// having run. v2 requires the exact successful launch-mode
-// `marketplace-public-presence-copy-audit/v2` record as its own input and
+// having run. v3 requires the exact successful launch-mode
+// `marketplace-public-presence-copy-audit/v3` record as its own input and
 // DERIVES every legal-corpus and counsel-packet field from it. The review may
 // still carry `publicPresenceCopyAuditReference` as a human custody pointer,
 // but every `publicPresenceCopyAudit*` value, every `counselPacket*` value,
@@ -15,7 +15,7 @@
 //
 // Predecessor records stay parseable only as rejected historical authority. A
 // v1 review, a v1 copy audit, a failing audit, or a non-launch audit produces
-// exactly one closed v2 record with `passesPromotionGate: false` and bounded
+// exactly one closed v3 record with `passesPromotionGate: false` and bounded
 // diagnostics — never a crash, and never an upgrade.
 import { readFile } from "node:fs/promises";
 import process from "node:process";
@@ -35,7 +35,7 @@ import { COUNSEL_REVIEW_PACKET_VERSION } from "./legal-review-corpus.mjs";
 import { validateReleaseCommit } from "./marketplace-release-commit.mjs";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 
-export const MARKETPLACE_PROMOTION_EVIDENCE_VERSION = "marketplace-promotion-evidence/v2";
+export const MARKETPLACE_PROMOTION_EVIDENCE_VERSION = "marketplace-promotion-evidence/v3";
 const MAX_PROMOTION_REVIEW_AGE_DAYS = 30;
 
 /**
@@ -158,9 +158,9 @@ export async function readPublicPresenceCopyAuditRecord(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
 
-export function buildPromotionEvidence(input) {
+export function buildPromotionEvidence(input, dependencies = {}) {
   const { review, errors: reviewErrors } = normalizePromotionReview(input.review);
-  const auditValidation = validatePublicPresenceCopyAuditRecord(input.audit);
+  const auditValidation = validatePublicPresenceCopyAuditRecord(input.audit, dependencies.auditAuthority);
   const audit = auditValidation.ok ? auditValidation.record : null;
 
   const errors = [
@@ -210,10 +210,10 @@ function derive1(audit, derive) {
   return audit === null ? null : (derive(audit) ?? null);
 }
 
-export async function runPromotionEvidence(options) {
+export async function runPromotionEvidence(options, dependencies = {}) {
   const review = await readPromotionReview(options.reviewPath);
   const audit = await readPublicPresenceCopyAuditRecord(options.copyAuditPath);
-  return buildPromotionEvidence({ ...options, review, audit });
+  return buildPromotionEvidence({ ...options, review, audit }, dependencies);
 }
 
 async function main(argv, env = process.env) {
@@ -241,7 +241,7 @@ async function main(argv, env = process.env) {
  * retired `publicPresenceCopyAudit*` value, every `counselPacket*` value, and
  * the three legacy proof aliases a v1 review carried — is a rejection, and a
  * missing or wrongly typed value is a diagnostic rather than a throw, so a
- * predecessor record still parses as exactly one rejected v2 result.
+ * predecessor record still parses as exactly one rejected v3 result.
  */
 export function normalizePromotionReview(candidate) {
   const errors = [];
@@ -312,9 +312,9 @@ function validateRequiredInputs(input) {
 }
 
 /**
- * The audit record must be an exact, closed, successful, launch-mode v2 audit
+ * The audit record must be an exact, closed, successful, launch-mode v3 audit
  * with a verified counsel packet whose corpus digest equals the audit's own
- * current corpus digest. Adding v2-looking fields or booleans to a predecessor
+ * current corpus digest. Adding v3-looking fields or booleans to a predecessor
  * record cannot reach this bar, because the record shape itself is closed.
  */
 function validateAuditAuthority(audit) {

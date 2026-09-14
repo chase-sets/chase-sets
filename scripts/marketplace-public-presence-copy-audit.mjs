@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The deployed Public Presence copy audit.
 //
-// v2 replaces v1's Terms-only, hand-written launch set with the full legal
+// v3 replaces v1's Terms-only, hand-written launch set with the full legal
 // corpus and binds launch to the exact counsel-reviewed bytes. Three separate
 // jobs, deliberately not collapsed into one:
 //
@@ -35,6 +35,7 @@ import { isIsoTimestamp } from "./marketplace-evidence-references.mjs";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import {
   compareRetainedCorpusIdentity,
+  COUNSEL_REVIEW_PACKET_VERSION,
   evaluateLaunchPublicationReadiness,
   loadLegalReviewCorpus,
   loadLegalReviewMembership,
@@ -42,7 +43,7 @@ import {
   validateCounselReviewPacketReceipt,
 } from "./legal-review-corpus.mjs";
 
-export const MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION = "marketplace-public-presence-copy-audit/v2";
+export const MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION = "marketplace-public-presence-copy-audit/v3";
 
 export const REQUIRED_PUBLIC_PRESENCE_PAGES = [
   { name: "home", path: "/" },
@@ -95,6 +96,46 @@ const FUTURE_ONLY_LAUNCH_COPY = [
 
 const POLICY_VERSION_PATTERN = /^v[1-9][0-9]*$/;
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/;
+export const PUBLIC_PRESENCE_AUDIT_PAGE_EVIDENCE_VERSION = "public-presence-audit-page-evidence/v1";
+const DMCA_MARKER_SCAN_VERSION = "dmca-marker-scan/v1";
+
+export async function resolveCanonicalPublicPresenceAuditAuthority(dependencies = {}) {
+  try {
+    const membership = dependencies.membership ?? (await loadLegalReviewMembership());
+    const loaded = dependencies.corpus ?? (await loadLegalReviewCorpus());
+    if (!membership.policy.ok || !membership.compliance.ok || !loaded.ok) {
+      return { ok: false, errors: ["Current legal corpus authority did not validate."] };
+    }
+    const corpus = loaded.corpus;
+    const member = corpus.complianceArticles.find((article) => article.slug === corpus.dmcaComplianceArticleSlug);
+    const plan = buildFetchPlan("launch", membership);
+    if (!member || !corpus.dmcaUnverifiedRegistrationMarker || plan.errors.length > 0) {
+      return { ok: false, errors: ["Current legal corpus fetch plan or DMCA member did not validate."] };
+    }
+    return {
+      ok: true,
+      errors: [],
+      launchRequiredPolicyKeys: membership.policy.launchRequiredPolicyKeys,
+      complianceArticleSlugs: membership.compliance.complianceArticleSlugs,
+      launchPolicies: membership.policy.launchPolicies,
+      complianceArticles: membership.compliance.complianceArticles,
+      uniqueFetchedPathCount: plan.targets.length,
+      targets: plan.targets,
+      legalCorpusDigest: corpus.identity.sha256,
+      publicationReady: evaluateLaunchPublicationReadiness(corpus).length === 0,
+      dmca: {
+        slug: member.slug,
+        path: member.href,
+        marker: corpus.dmcaUnverifiedRegistrationMarker,
+        sourceMarkerPresent: member.markdown.includes(corpus.dmcaUnverifiedRegistrationMarker),
+      },
+    };
+  } catch {
+    return { ok: false, errors: ["Current legal corpus authority could not be resolved."] };
+  }
+}
+
+const CANONICAL_AUDIT_AUTHORITY = await resolveCanonicalPublicPresenceAuditAuthority();
 
 export function parsePublicPresenceCopyAuditArgs(argv, env = process.env) {
   return {
@@ -207,7 +248,7 @@ export async function auditPublicPresenceCopy(input, dependencies = {}) {
 
   const fetched = [];
   for (const target of plan.targets) {
-    fetched.push(await auditPage({ baseUrl: options.baseUrl, target, fetchImpl }));
+    fetched.push(await auditPage({ baseUrl: options.baseUrl, target, fetchImpl, corpus: verification?.corpus }));
   }
   const pages = fetched.map((entry) => entry.row);
 
@@ -506,12 +547,24 @@ function buildFetchPlan(mode, membership) {
   return { targets, errors };
 }
 
-async function auditPage({ baseUrl, target, fetchImpl }) {
+async function auditPage({ baseUrl, target, fetchImpl, corpus }) {
   // Defense in depth for programmatic callers: `main` already refuses an
   // unusable base URL at option validation, so a resolution failure here is a
   // caught row rather than an exception that escapes the audit boundary.
   const url = resolveTargetUrl(baseUrl, target.path);
   const isLaunchPolicyRow = target.categories.includes("launch-policy");
+  const dmcaMember = corpus?.complianceArticles.find(
+    (article) => article.slug === corpus.dmcaComplianceArticleSlug && target.complianceSlug === article.slug,
+  );
+  const markerScan = (html) =>
+    dmcaMember
+      ? {
+          schemaVersion: DMCA_MARKER_SCAN_VERSION,
+          marker: corpus.dmcaUnverifiedRegistrationMarker,
+          sourceMarkerPresent: dmcaMember.markdown.includes(corpus.dmcaUnverifiedRegistrationMarker),
+          responseMarkerPresent: html === null ? null : html.includes(corpus.dmcaUnverifiedRegistrationMarker),
+        }
+      : null;
   try {
     if (url === null) {
       throw new Error("The audited base URL could not resolve this target path.");
@@ -532,6 +585,7 @@ async function auditPage({ baseUrl, target, fetchImpl }) {
         futureOnlyLaunchCopyMatches: matchPatterns(text, FUTURE_ONLY_LAUNCH_COPY),
         uncertifiedAgentCommerceClaimMatches: matchPatterns(text, UNCERTIFIED_AGENT_COMMERCE_CLAIMS),
         policyPublicationMetadata: isLaunchPolicyRow ? readPolicyPublicationMetadata(html) : null,
+        dmcaMarkerScan: markerScan(html),
       },
     };
   } catch {
@@ -550,6 +604,7 @@ async function auditPage({ baseUrl, target, fetchImpl }) {
         futureOnlyLaunchCopyMatches: [],
         uncertifiedAgentCommerceClaimMatches: [],
         policyPublicationMetadata: null,
+        dmcaMarkerScan: markerScan(null),
       },
     };
   }
@@ -779,6 +834,7 @@ const AUDIT_PAGE_FIELDS = [
   "futureOnlyLaunchCopyMatches",
   "uncertifiedAgentCommerceClaimMatches",
   "policyPublicationMetadata",
+  "dmcaMarkerScan",
 ];
 const AUDIT_PAGE_METADATA_FIELDS = ["policyKey", "version", "publicationStatus", "effectiveAt"];
 
@@ -787,7 +843,7 @@ const AUDIT_PAGE_METADATA_FIELDS = ["policyKey", "version", "publicationStatus",
  * missing keys at every level fail, `termsPublicationReady` is retired and so
  * reads as an unknown key, and a half-null membership pair is rejected.
  */
-export function validatePublicPresenceCopyAuditRecord(value) {
+export function validatePublicPresenceCopyAuditRecord(value, authority = CANONICAL_AUDIT_AUTHORITY) {
   const errors = [];
   if (!isRecord(value)) {
     return { ok: false, errors: ["Public Presence copy audit record must be a JSON object."] };
@@ -798,7 +854,7 @@ export function validatePublicPresenceCopyAuditRecord(value) {
       `Public Presence copy audit record schemaVersion must be ${MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION}.`,
     );
   }
-  if (!isNonEmptyString(value.baseUrl)) {
+  if (!isNonEmptyString(value.baseUrl) || toAuditedOrigin(value.baseUrl) === null) {
     errors.push("Public Presence copy audit record baseUrl must be a non-empty string.");
   }
   if (value.mode !== "prelaunch" && value.mode !== "launch") {
@@ -824,7 +880,11 @@ export function validatePublicPresenceCopyAuditRecord(value) {
     "launchRequiredPolicy",
   );
   validateMembershipPair(errors, value.complianceArticleCount, value.complianceArticleSlugs, "complianceArticle");
-  if (!Number.isInteger(value.uniqueFetchedPathCount) || value.uniqueFetchedPathCount < 0) {
+  if (
+    !Number.isSafeInteger(value.uniqueFetchedPathCount) ||
+    value.uniqueFetchedPathCount < 0 ||
+    value.uniqueFetchedPathCount > 100
+  ) {
     errors.push("Public Presence copy audit record uniqueFetchedPathCount must be a non-negative integer.");
   }
   if (
@@ -837,7 +897,8 @@ export function validatePublicPresenceCopyAuditRecord(value) {
   validateAuditCounselPacket(errors, value);
   validateAuditPages(errors, value);
   validateAuditFetchPlanComposition(errors, value);
-  validateAuditEvidenceCoherence(errors, value);
+  validateCanonicalAuditRows(errors, value, authority);
+  validateAuditEvidenceCoherence(errors, value, authority);
 
   for (const field of [
     "publicPresenceLaunchCopyReviewed",
@@ -857,7 +918,12 @@ export function validatePublicPresenceCopyAuditRecord(value) {
     }
   }
   if (Object.hasOwn(value, "errors")) {
-    if (!Array.isArray(value.errors) || value.errors.length === 0 || !value.errors.every(isNonEmptyString)) {
+    if (
+      !Array.isArray(value.errors) ||
+      value.errors.length === 0 ||
+      value.errors.length > 1000 ||
+      !value.errors.every(isNonEmptyString)
+    ) {
       errors.push("Public Presence copy audit record errors, when present, must be a non-empty array of diagnostics.");
     }
   }
@@ -884,7 +950,7 @@ function validateAuditCounselPacket(errors, value) {
   if (packet.sha256 !== null && !(typeof packet.sha256 === "string" && SHA256_PATTERN.test(packet.sha256))) {
     errors.push("Public Presence copy audit record counselPacket.sha256 must be null or a lowercase sha256 digest.");
   }
-  if (packet.utf8Bytes !== null && !(Number.isInteger(packet.utf8Bytes) && packet.utf8Bytes > 0)) {
+  if (packet.utf8Bytes !== null && !(Number.isSafeInteger(packet.utf8Bytes) && packet.utf8Bytes > 0)) {
     errors.push("Public Presence copy audit record counselPacket.utf8Bytes must be null or a positive integer.");
   }
   if (
@@ -905,7 +971,7 @@ function validateAuditPages(errors, value) {
     errors.push("Public Presence copy audit record pages must be an array.");
     return;
   }
-  if (value.pages.length !== value.uniqueFetchedPathCount) {
+  if (value.pages.length !== value.uniqueFetchedPathCount || value.pages.length > 100) {
     errors.push("Public Presence copy audit record pages must have exactly uniqueFetchedPathCount rows.");
   }
   const seenPaths = new Set();
@@ -919,7 +985,7 @@ function validateAuditPages(errors, value) {
     if (!isNonEmptyString(page.name)) {
       errors.push(`Public Presence copy audit record ${rowPath}.name must be a non-empty string.`);
     }
-    if (typeof page.path !== "string" || !page.path.startsWith("/")) {
+    if (!isNonEmptyString(page.path) || !page.path.startsWith("/")) {
       errors.push(`Public Presence copy audit record ${rowPath}.path must be an absolute route.`);
     } else if (seenPaths.has(page.path)) {
       errors.push(`Public Presence copy audit record ${rowPath}.path duplicates an earlier fetched path.`);
@@ -929,10 +995,10 @@ function validateAuditPages(errors, value) {
     if (!isNonEmptyString(page.url)) {
       errors.push(`Public Presence copy audit record ${rowPath}.url must be a non-empty string.`);
     }
-    if (page.status !== null && !Number.isInteger(page.status)) {
+    if (page.status !== null && (!Number.isInteger(page.status) || page.status < 100 || page.status > 599)) {
       errors.push(`Public Presence copy audit record ${rowPath}.status must be null or an integer.`);
     }
-    if (page.title !== null && typeof page.title !== "string") {
+    if (page.title !== null && (typeof page.title !== "string" || page.title.length > 4096)) {
       errors.push(`Public Presence copy audit record ${rowPath}.title must be null or a string.`);
     }
     if (
@@ -946,11 +1012,28 @@ function validateAuditPages(errors, value) {
       );
     }
     for (const field of ["futureOnlyLaunchCopyMatches", "uncertifiedAgentCommerceClaimMatches"]) {
-      if (!Array.isArray(page[field]) || !page[field].every(isNonEmptyString)) {
+      const patterns =
+        field === "futureOnlyLaunchCopyMatches" ? FUTURE_ONLY_LAUNCH_COPY : UNCERTIFIED_AGENT_COMMERCE_CLAIMS;
+      if (
+        !Array.isArray(page[field]) ||
+        page[field].length > patterns.length ||
+        !page[field].every((match) => patterns.includes(match)) ||
+        !isCanonicallyOrdered(page[field], patterns)
+      ) {
         errors.push(`Public Presence copy audit record ${rowPath}.${field} must be an array of strings.`);
       }
     }
     validateAuditPageMetadata(errors, page, rowPath);
+    if (
+      page.status === null &&
+      (page.title !== null ||
+        page.policyPublicationMetadata !== null ||
+        page.futureOnlyLaunchCopyMatches?.length !== 0 ||
+        page.uncertifiedAgentCommerceClaimMatches?.length !== 0 ||
+        page.url !== resolveTargetUrl(value.baseUrl, page.path))
+    ) {
+      errors.push(`${AUDIT_RECORD_LABEL} ${rowPath} must retain the exact caught-fetch failure shape.`);
+    }
   }
 }
 
@@ -974,7 +1057,7 @@ function validateAuditPageMetadata(errors, page, rowPath) {
   }
   pushClosedFieldErrors(errors, metadata, AUDIT_PAGE_METADATA_FIELDS, `${rowPath}.policyPublicationMetadata.`, []);
   for (const field of AUDIT_PAGE_METADATA_FIELDS) {
-    if (metadata[field] !== null && typeof metadata[field] !== "string") {
+    if (metadata[field] !== null && !isNonEmptyString(metadata[field])) {
       errors.push(
         `Public Presence copy audit record ${rowPath}.policyPublicationMetadata.${field} must be null or a string.`,
       );
@@ -1113,7 +1196,90 @@ function validateAuditFetchPlanComposition(errors, value) {
   }
 }
 
-function validateAuditEvidenceCoherence(errors, value) {
+function validateCanonicalAuditRows(errors, value, authority) {
+  if (!Array.isArray(value.pages)) return;
+  if (authority?.ok) {
+    for (const field of ["launchRequiredPolicyKeys", "complianceArticleSlugs"]) {
+      if (value[field] !== null && !isExactStringArray(value[field], authority[field])) {
+        errors.push(`${AUDIT_RECORD_LABEL} ${field} must match current source order.`);
+      }
+    }
+  }
+  if (value.mode === "prelaunch" && value.legalCorpusDigest !== null) {
+    errors.push(`${AUDIT_RECORD_LABEL} prelaunch legalCorpusDigest must be null.`);
+  }
+  if (value.pages.length === 0 && value.counselPacket?.verified === true) {
+    errors.push(`${AUDIT_RECORD_LABEL} a verified packet requires every post-verification fetch row.`);
+  }
+  const launchRows = value.mode === "launch" && value.pages.length > 0;
+  if (launchRows && !authority?.ok) {
+    errors.push(`${AUDIT_RECORD_LABEL} current source authority is unavailable.`);
+    return;
+  }
+  if (launchRows) {
+    if (value.pages.length !== authority.targets.length) {
+      errors.push(`${AUDIT_RECORD_LABEL} pages must retain every canonical fetch target.`);
+    }
+    if (
+      value.legalCorpusDigest !== authority.legalCorpusDigest ||
+      value.counselPacket?.corpusSha256 !== authority.legalCorpusDigest ||
+      value.counselPacket?.schemaVersion !== COUNSEL_REVIEW_PACKET_VERSION ||
+      value.counselPacket?.sha256 === null ||
+      value.counselPacket?.utf8Bytes === null ||
+      value.counselPacket?.verified !== true
+    ) {
+      errors.push(`${AUDIT_RECORD_LABEL} fetched rows require the verified packet and current source corpus identity.`);
+    }
+    if (value.passesPublicPresenceCopyAudit === true && !authority.publicationReady) {
+      errors.push(`${AUDIT_RECORD_LABEL} a pass requires current source publication readiness.`);
+    }
+  }
+  for (const [index, page] of value.pages.entries()) {
+    if (!isRecord(page)) continue;
+    const target = launchRows ? authority.targets[index] : REQUIRED_PUBLIC_PRESENCE_PAGES[index];
+    if (
+      launchRows &&
+      (!target ||
+        page.name !== target.name ||
+        page.path !== target.path ||
+        !isExactStringArray(page.categories, target.categories))
+    ) {
+      errors.push(
+        `${AUDIT_RECORD_LABEL} pages[${index}] must match its exact canonical identity, path and categories.`,
+      );
+    }
+    const expectsScan = launchRows && target?.complianceSlug === authority.dmca.slug;
+    if (!expectsScan) {
+      if (page.dmcaMarkerScan !== null)
+        errors.push(`${AUDIT_RECORD_LABEL} pages[${index}].dmcaMarkerScan must be null off the launch DMCA member.`);
+      continue;
+    }
+    const scan = page.dmcaMarkerScan;
+    if (!isRecord(scan)) {
+      errors.push(`${AUDIT_RECORD_LABEL} pages[${index}].dmcaMarkerScan must be the retained DMCA scan.`);
+      continue;
+    }
+    pushClosedFieldErrors(
+      errors,
+      scan,
+      ["schemaVersion", "marker", "sourceMarkerPresent", "responseMarkerPresent"],
+      `pages[${index}].dmcaMarkerScan.`,
+      [],
+    );
+    if (
+      scan.schemaVersion !== DMCA_MARKER_SCAN_VERSION ||
+      scan.marker !== authority.dmca.marker ||
+      scan.sourceMarkerPresent !== authority.dmca.sourceMarkerPresent ||
+      (page.status === null ? scan.responseMarkerPresent !== null : typeof scan.responseMarkerPresent !== "boolean")
+    ) {
+      errors.push(
+        `${AUDIT_RECORD_LABEL} pages[${index}].dmcaMarkerScan must match the exact marker, current source and response state.`,
+      );
+    }
+  }
+}
+
+function validateAuditEvidenceCoherence(errors, value, authority) {
   const pages = Array.isArray(value.pages) ? value.pages : [];
   if (!pages.every(isCoherenceReadyRow) || (value.mode !== "launch" && value.mode !== "prelaunch")) {
     return;
@@ -1139,7 +1305,7 @@ function validateAuditEvidenceCoherence(errors, value) {
   }
 
   if (value.mode === "launch") {
-    validateLaunchReviewCoherence(errors, value, pages, baseUrl);
+    validateLaunchReviewCoherence(errors, value, pages, baseUrl, authority);
   }
   if (value.passesPublicPresenceCopyAudit !== true) {
     return;
@@ -1164,31 +1330,33 @@ function validateAuditEvidenceCoherence(errors, value) {
   }
 }
 
-function validateLaunchReviewCoherence(errors, value, pages, baseUrl) {
+function validateLaunchReviewCoherence(errors, value, pages, baseUrl, authority) {
   const policyKeys = Array.isArray(value.launchRequiredPolicyKeys) ? value.launchRequiredPolicyKeys : [];
   const complianceSlugs = Array.isArray(value.complianceArticleSlugs) ? value.complianceArticleSlugs : [];
   const policyRows = pages.filter((page) => page.categories.includes("launch-policy"));
   const complianceRows = pages.filter((page) => page.categories.includes("compliance-article"));
 
-  if (value.policyPagesReviewed === true) {
+  {
     const declaredKeys = resolvePolicyRowKeys(policyRows).filter((key) => key !== null);
     const everyRowProved = policyRows.every((page) => {
       const metadata = page.policyPublicationMetadata;
+      const canonical = authority?.launchPolicies?.find((policy) => policy.path === page.path);
       return (
         isAuditedTargetResponse(baseUrl, page) &&
         isRecord(metadata) &&
         isNonEmptyString(metadata.policyKey) &&
-        policyKeys.includes(metadata.policyKey) &&
-        POLICY_VERSION_PATTERN.test(metadata.version ?? "") &&
+        metadata.policyKey === canonical?.policyKey &&
+        metadata.version === canonical?.version &&
         metadata.publicationStatus === "published" &&
         isIsoTimestamp(metadata.effectiveAt)
       );
     });
     if (
-      policyKeys.length === 0 ||
-      policyRows.length !== policyKeys.length ||
-      declaredKeys.length !== policyKeys.length ||
-      !everyRowProved
+      value.policyPagesReviewed !==
+      (policyKeys.length > 0 &&
+        policyRows.length === policyKeys.length &&
+        declaredKeys.length === policyKeys.length &&
+        everyRowProved)
     ) {
       errors.push(
         `${AUDIT_RECORD_LABEL} policyPagesReviewed=true requires every launch-required policy row to answer 200 on its canonical route with its exact published policy metadata.`,
@@ -1196,11 +1364,12 @@ function validateLaunchReviewCoherence(errors, value, pages, baseUrl) {
     }
   }
 
-  if (value.complianceArticlesReviewed === true) {
+  {
     if (
-      complianceSlugs.length === 0 ||
-      complianceRows.length !== complianceSlugs.length ||
-      !complianceRows.every((page) => isAuditedTargetResponse(baseUrl, page))
+      value.complianceArticlesReviewed !==
+      (complianceSlugs.length > 0 &&
+        complianceRows.length === complianceSlugs.length &&
+        complianceRows.every((page) => isAuditedTargetResponse(baseUrl, page)))
     ) {
       errors.push(
         `${AUDIT_RECORD_LABEL} complianceArticlesReviewed=true requires every compliance article row to answer 200 on its canonical route.`,
@@ -1208,12 +1377,19 @@ function validateLaunchReviewCoherence(errors, value, pages, baseUrl) {
     }
   }
 
-  if (
-    value.dmcaRegistrationMarkerAbsent === true &&
-    !complianceRows.some((page) => isAuditedTargetResponse(baseUrl, page))
-  ) {
+  const dmcaRow = complianceRows.find(
+    (page) => page.name === authority?.dmca?.slug && page.path === authority?.dmca?.path,
+  );
+  const expectedDmcaAbsent = Boolean(
+    dmcaRow &&
+    isAuditedTargetResponse(baseUrl, dmcaRow) &&
+    authority.dmca.sourceMarkerPresent === false &&
+    dmcaRow.dmcaMarkerScan?.sourceMarkerPresent === false &&
+    dmcaRow.dmcaMarkerScan?.responseMarkerPresent === false,
+  );
+  if (value.dmcaRegistrationMarkerAbsent !== expectedDmcaAbsent) {
     errors.push(
-      `${AUDIT_RECORD_LABEL} dmcaRegistrationMarkerAbsent=true requires an audited compliance article response to read the marker from.`,
+      `${AUDIT_RECORD_LABEL} dmcaRegistrationMarkerAbsent must agree with the exact DMCA source and retained response scan.`,
     );
   }
 }
@@ -1268,11 +1444,13 @@ export function projectPublicPresenceCopyAuditPageEvidence(audit) {
   }
   const rows = audit.pages;
   return {
+    schemaVersion: PUBLIC_PRESENCE_AUDIT_PAGE_EVIDENCE_VERSION,
     fetchedPathCount: rows.length,
     requiredPagePaths: rows.filter((row) => row.categories.includes("required-page")).map((row) => row.path),
     launchPolicyPolicyKeys: resolvePolicyRowKeys(rows.filter((row) => row.categories.includes("launch-policy"))),
     complianceArticleSlugs: rows.filter((row) => row.categories.includes("compliance-article")).map((row) => row.name),
     verifiedOnAuditedOriginCount: rows.filter((row) => isAuditedTargetResponse(audit.baseUrl, row)).length,
+    pages: structuredClone(rows),
   };
 }
 
@@ -1284,7 +1462,7 @@ function validateMembershipPair(errors, count, values, label) {
     errors.push(`Public Presence copy audit record ${label}Count/${label}Keys must both be null or both be exact.`);
     return;
   }
-  if (!Array.isArray(values) || values.length === 0 || !values.every(isNonEmptyString)) {
+  if (!Array.isArray(values) || values.length === 0 || values.length > 100 || !values.every(isNonEmptyString)) {
     errors.push(
       `Public Presence copy audit record ${label} membership must be a non-empty ordered array of identities.`,
     );
@@ -1329,7 +1507,7 @@ function isExactStringArray(value, expected) {
 /**
  * The one CLI entrypoint. Option-shape errors are refused before invocation
  * and write no JSON at all (exit 2); every accepted invocation writes exactly
- * one parseable v2 record plus a terminal newline and exits 0 on pass or 1 on
+ * one parseable v3 record plus a terminal newline and exits 0 on pass or 1 on
  * either audit failure branch.
  */
 export async function main(argv, io = {}) {
@@ -1375,7 +1553,8 @@ function readPolicyPublicationMetadata(html) {
 }
 
 function readDataAttribute(html, name) {
-  return html.match(new RegExp(`data-${name}=["']([^"']*)["']`, "i"))?.[1] ?? null;
+  const value = html.match(new RegExp(`data-${name}=["']([^"']*)["']`, "i"))?.[1];
+  return isNonEmptyString(value) ? value : null;
 }
 
 function stripHtml(html) {
@@ -1418,7 +1597,7 @@ function isRecord(value) {
 }
 
 function isNonEmptyString(value) {
-  return typeof value === "string" && value.trim().length > 0;
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 4096;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
