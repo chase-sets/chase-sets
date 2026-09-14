@@ -162,7 +162,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (
     JSON.stringify(candidate.allowedContextDependencies) !==
-    JSON.stringify(["@chase-sets/marketplace", "@chase-sets/inventory"])
+    JSON.stringify(["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"])
   ) {
     violations.push("allowedContextDependencies");
   }
@@ -172,6 +172,11 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     JSON.stringify(candidate.hostPorts) !==
     JSON.stringify([
+      {
+        portName: "connectorOAuth",
+        providedBy: "platform-api",
+        purpose: "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority.",
+      },
       {
         portName: "marketplaceChannelInboundClamp",
         providedBy: "platform-api, platform-worker",
@@ -191,6 +196,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     JSON.stringify(candidate.slices) !==
     JSON.stringify([
+      "connector-feed",
       "connections",
       "publication-port",
       "listing-composition",
@@ -297,6 +303,7 @@ describe("channels-context-foundation", () => {
         "channel-sync-run",
       ]),
       slices: [
+        "connector-feed",
         "connections",
         "publication-port",
         "listing-composition",
@@ -309,9 +316,14 @@ describe("channels-context-foundation", () => {
       ],
       allowedSupportDirectories: ["request-support", "runtime-support"],
       publicExports: [".", "./context", "./server", "./routes/*"],
-      allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory"],
+      allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
       seedRequirements: ["inventory"],
       hostPorts: [
+        {
+          portName: "connectorOAuth",
+          providedBy: "platform-api",
+          purpose: "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority.",
+        },
         {
           portName: "marketplaceChannelInboundClamp",
           providedBy: "platform-api, platform-worker",
@@ -650,6 +662,35 @@ describe("channels-foundation-surface-fence", () => {
     const manifest = readJson(manifestPath);
     const files = listFiles(channelsRoot);
     expect(collectChannelsSurfaceViolations(manifest, files)).toEqual([]);
+    expect(
+      collectChannelsSurfaceViolations(
+        { ...manifest, allowedContextDependencies: [...manifest.allowedContextDependencies, "@chase-sets/identity"] },
+        files,
+      ),
+    ).toEqual(["allowedContextDependencies"]);
+    for (const dependency of manifest.allowedContextDependencies) {
+      expect(
+        collectChannelsSurfaceViolations(
+          {
+            ...manifest,
+            allowedContextDependencies: manifest.allowedContextDependencies.filter((entry) => entry !== dependency),
+          },
+          files,
+        ),
+      ).toEqual(["allowedContextDependencies"]);
+    }
+    expect(
+      collectChannelsSurfaceViolations(
+        { ...manifest, hostPorts: manifest.hostPorts.filter((entry) => entry.portName !== "connectorOAuth") },
+        files,
+      ),
+    ).toEqual(["hostPorts"]);
+    expect(
+      collectChannelsSurfaceViolations(
+        { ...manifest, slices: manifest.slices.filter((entry) => entry !== "connector-feed") },
+        files,
+      ),
+    ).toEqual(["slices"]);
     expect(
       collectChannelsSurfaceViolations(
         manifest,
