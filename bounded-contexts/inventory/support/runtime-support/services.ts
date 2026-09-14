@@ -1,6 +1,6 @@
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
-import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { BcCreateServicesOptions } from "@chase-sets/bounded-context-module";
@@ -20,6 +20,7 @@ import {
   createInventoryExternalChannelSaleRuntime,
   type InventoryExternalChannelSaleServices,
 } from "../../features/channel-sales/api/runtime";
+import type { RecordExternalChannelSale } from "../../features/channel-sales/api/contracts";
 import {
   createInventoryImportBatchRuntime,
   type InventoryDraftListingCreator,
@@ -69,6 +70,27 @@ export function createInventoryHoldCleanupAuthorityForPool(
   pool: PgTransactionalPool,
 ): InventoryHoldCleanupAuthorityServices {
   return createInventoryHoldCleanupAuthority({ eventStore: createPostgresEventStore({ pool }), db: pool });
+}
+
+/**
+ * Binds the existing Inventory external-channel-sale runtime to an explicitly
+ * account-scoped event-store context for a host composition root.
+ */
+export function createInventoryExternalChannelSaleRecorderForPool(
+  pool: PgTransactionalPool,
+  context: EventStoreContext,
+): RecordExternalChannelSale {
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" }),
+  });
+  const deps = {
+    eventStore,
+    checkpointStore: createPostgresProjectionStore({ db: pool }),
+    db: pool,
+  } as const;
+  const holdCollisions = createInventoryHoldCollisionRuntime(deps);
+  return createInventoryExternalChannelSaleRuntime(deps, holdCollisions).bind(context);
 }
 
 export function createInventoryServices(

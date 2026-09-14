@@ -80,6 +80,14 @@ describe("channel-publication-invocation-boundary", () => {
       publishListing: rawPublish,
       updatePriceQuantity: rawUpdate,
       delistListing: rawDelist,
+      fetchChannelState: async () => ({
+        kind: "complete",
+        items: [],
+        collectedCount: 0,
+        authorityTotal: 0,
+        pageCount: 1,
+      }),
+      fetchSales: async () => ({ kind: "complete", lines: [], collectedCount: 0, authorityTotal: 0, pageCount: 1 }),
     };
     const publication = requireInline(createChannelProviderRegistry([createInlineDescriptor(registered)]));
 
@@ -154,6 +162,14 @@ function createCapability(
     publishListing: invoke,
     updatePriceQuantity: invoke,
     delistListing: invoke,
+    fetchChannelState: async () => ({
+      kind: "complete",
+      items: [],
+      collectedCount: 0,
+      authorityTotal: 0,
+      pageCount: 1,
+    }),
+    fetchSales: async () => ({ kind: "complete", lines: [], collectedCount: 0, authorityTotal: 0, pageCount: 1 }),
   };
 }
 

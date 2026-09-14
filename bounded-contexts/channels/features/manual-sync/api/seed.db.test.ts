@@ -10,6 +10,7 @@ import { composeModuleSchemaSql, drainLocalProjectionHandlerSets } from "@chase-
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
+import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/inventory/server";
 import { module as channelsModule } from "../../../index";
 import { channelConnectionEventCodec } from "../../connections/domain/codec";
 import { channelSyncRunEventCodec } from "../../tcgplayer-csv/domain/codec";
@@ -20,17 +21,24 @@ const describeDb = databaseBaseUrl ? describe : describe.skip;
 
 describeDb("manual-sync browser scenario seed", () => {
   let pool: PgTransactionalPool;
+  let inventoryPool: PgTransactionalPool;
 
   beforeAll(async () => {
-    const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["channels"], "manual_sync_scenario_seed");
+    const urls = createMultiContextTestDatabaseUrls(
+      databaseBaseUrl!,
+      ["channels", "inventory"],
+      "manual_sync_scenario_seed",
+    );
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
-    pool = createMultiContextTestPools(urls).channels;
+    const pools = createMultiContextTestPools(urls);
+    pool = pools.channels;
+    inventoryPool = pools.inventory;
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas({ channels: pool });
     await pool.query(composeModuleSchemaSql(channelsModule));
   });
-  afterAll(async () => closeMultiContextTestPools({ channels: pool }));
+  afterAll(async () => closeMultiContextTestPools({ channels: pool, inventory: inventoryPool }));
 
   it("reconciles one real claimed reservation and releases its exact member through the mounted runtime", async () => {
     expect([
@@ -39,7 +47,15 @@ describeDb("manual-sync browser scenario seed", () => {
     ]).toHaveLength(2);
     let engageCalls = 0;
     let recoverCalls = 0;
+    const context: EventStoreContext = {
+      tenantId: "tnt_seed" as never,
+      audit: {
+        performedByUserId: demoIdentitySeedIds.userId,
+        forAccountId: demoIdentitySeedIds.accountId,
+      },
+    };
     const services = channelsModule.createServices(pool, {
+      channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(inventoryPool, context),
       marketplaceChannelInboundClamp: {
         kind: "available",
         port: {
@@ -66,13 +82,6 @@ describeDb("manual-sync browser scenario seed", () => {
         },
       },
     });
-    const context: EventStoreContext = {
-      tenantId: "tnt_seed" as never,
-      audit: {
-        performedByUserId: demoIdentitySeedIds.userId,
-        forAccountId: demoIdentitySeedIds.accountId,
-      },
-    };
     await expect(inspectManualSyncSeedState(pool)).resolves.toEqual([
       expect.objectContaining({ aggregateName: "Channel Connection", kind: "absent", status: null, eventCount: 0 }),
       expect.objectContaining({ aggregateName: "Channel Sync Run", kind: "absent", status: null, eventCount: 0 }),

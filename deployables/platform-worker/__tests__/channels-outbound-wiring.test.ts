@@ -153,6 +153,7 @@ function validChannelsCandidate(
     },
     listingComposition: {},
     outboundSync,
+    reconciliation: { reconcileDueConnections: async () => [] },
     tcgplayerCsv: {},
     manualSync: {},
     projectors: [],

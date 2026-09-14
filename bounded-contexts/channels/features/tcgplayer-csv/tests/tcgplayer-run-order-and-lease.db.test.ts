@@ -1283,6 +1283,7 @@ function createOwnedRuntime(now?: string) {
       db: pools.channels,
       ...(now ? { clock: { now: () => new Date(now) } } : {}),
       recordOutcome: async () => "applied",
+      readAdditionalOutboundHold: async () => ({ held: false, sources: [] }),
       claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(eventStore),
     },
     { assertDelistDirective: () => undefined },

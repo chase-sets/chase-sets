@@ -29,7 +29,8 @@ const tables = [
     availability_stream_version bigint NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS channels_inventory_item_facts (
-    item_id text PRIMARY KEY, account_id text NOT NULL, catalog_item_id text NOT NULL, total_quantity integer NOT NULL,
+    item_id text PRIMARY KEY, account_id text NOT NULL, catalog_item_id text NOT NULL, storage_location_id text NULL,
+    total_quantity integer NOT NULL,
     updated_at timestamptz NOT NULL, item_stream_version bigint NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS channels_inventory_hold_facts (
@@ -141,6 +142,11 @@ export const channelListingCompositionSchemaMigrations: readonly BcSchemaMigrati
     migrationId: "20260911_channels_inventory_allocation_facts",
     description: "Project Inventory Channel Stock Allocation facts for connection-aware desired state.",
     statements: [inventoryAllocationFactTable],
+  },
+  {
+    migrationId: "20260912_channels_inventory_item_storage_location",
+    description: "Retain Inventory's created storage location for exact external sale target resolution.",
+    statements: ["ALTER TABLE channels_inventory_item_facts ADD COLUMN IF NOT EXISTS storage_location_id text NULL"],
   },
 ];
 

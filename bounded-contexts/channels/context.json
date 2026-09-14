@@ -11,7 +11,12 @@
     "channel-listing-desired-state",
     "channel-listing-reconciliation-run",
     "channel-inventory-snapshot",
-    "channel-sync-run"
+    "channel-sync-run",
+    "channel-drift",
+    "channel-drift-decision",
+    "channel-reconciliation-run",
+    "missed-sale-gap",
+    "channel-outbound-hold"
   ],
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
@@ -22,17 +27,23 @@
     "tcgplayer-csv",
     "outbound-sync",
     "connection-health",
-    "manual-sync"
+    "manual-sync",
+    "reconciliation"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support"],
   "publicExports": [".", "./context", "./server", "./routes/*"],
-  "allowedContextDependencies": ["@chase-sets/marketplace"],
+  "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory"],
   "seedRequirements": ["inventory"],
   "hostPorts": [
     {
       "portName": "marketplaceChannelInboundClamp",
       "providedBy": "platform-api, platform-worker",
       "purpose": "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark."
+    },
+    {
+      "portName": "channelSaleRecorder",
+      "providedBy": "inventory",
+      "purpose": "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation."
     }
   ],
   "eventSubscriptions": [
@@ -558,11 +569,6 @@
       "purpose": "Own the context-level Channels runtime service composition contract.",
       "expectedConsumers": ["Root Channels module and API composition"]
     },
-    "tcgplayer-csv": {
-      "classification": "slice",
-      "purpose": "The tcgplayer-csv slice owns TCGplayer export snapshots, staged CSV composition, and replayable Channel Sync Runs.",
-      "expectedConsumers": ["Channels manual and connector sync workflows"]
-    },
     "manual-sync": {
       "classification": "slice",
       "purpose": "Own the manual-sync Channel Sync Run panel, frozen manual lease policy resolution, bounded export ingress, Marketplace clamp coordination, and channel attention source.",
@@ -577,6 +583,11 @@
       "classification": "slice",
       "purpose": "The tcgplayer-csv slice owns TCGplayer export snapshots, staged CSV composition, and replayable Channel Sync Runs.",
       "expectedConsumers": ["Channels manual and connector sync workflows"]
+    },
+    "reconciliation": {
+      "classification": "slice",
+      "purpose": "Own Channel Drift classification, decisions, reconciliation runs, missed-sale gaps, outbound holds, and bounded metrics.",
+      "expectedConsumers": ["Channels worker composition, connection detail, and downstream health and snapshot owners"]
     },
     "routes": {
       "classification": "routes",

@@ -58,6 +58,7 @@ export {
   channelExecutionModes,
   channelPublicationRejectionCodes,
   type ChannelExecutionMode,
+  type ChannelFetchBoundedUnknownReason,
   type ChannelProviderDescriptor,
   type ChannelProviderIdentity,
   type ChannelProviderRegistry,
@@ -69,6 +70,10 @@ export {
   type ChannelPublicationRejectionCode,
   type ChannelPublicationResult,
   type ChannelPublicationSuccess,
+  type ChannelSaleFetchResult,
+  type ChannelSaleLineV1,
+  type ChannelStateFetchResult,
+  type ChannelStateLineV1,
   type DelistListingInput,
   type PublishListingInput,
   type ResolvedChannelProvider,
@@ -127,6 +132,8 @@ import {
   channelConnectionSchemaMigrations,
   channelConnectionSchemaSql,
 } from "./features/connections/read-model/schema";
+import type { RecordExternalChannelSale } from "@chase-sets/inventory/server";
+import { createChannelReconciliationRuntime } from "./features/reconciliation/api/runtime";
 import type { ChannelsServices } from "./support/runtime-support/services";
 import { createConnectionHealthRuntime } from "./features/connection-health/api/runtime";
 import { resolveChannelHealthPolicy } from "./features/connection-health/api/policy";
@@ -136,14 +143,23 @@ import { createManualSyncRuntime } from "./features/manual-sync/api/runtime";
 import { inspectManualSyncSeedState, seedManualSyncScenario } from "./features/manual-sync/api/seed";
 import { manualSyncSchemaMigrations, manualSyncSchemaSql } from "./features/manual-sync/read-model/schema";
 import { manualSyncRetentionExemptions } from "./features/manual-sync/read-model/retention-policy";
+import { channelOutboundKillSwitchPolicy, channelReconciliationPolicy } from "./features/reconciliation/domain/policy";
+import {
+  channelReconciliationSchemaMigrations,
+  channelReconciliationSchemaSql,
+} from "./features/reconciliation/read-model/schema";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
-  Readonly<{ marketplaceChannelInboundClamp?: MarketplaceChannelInboundClampCapability }>;
+  Readonly<{
+    marketplaceChannelInboundClamp?: MarketplaceChannelInboundClampCapability;
+    channelSaleRecorder: RecordExternalChannelSale;
+    readChannelHealthHold?: (connectionId: string) => Promise<boolean>;
+  }>;
 
 export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
@@ -151,12 +167,16 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...tcgplayerCsvSchemaMigrations,
     ...channelHealthSchemaMigrations,
     ...manualSyncSchemaMigrations,
+    ...channelReconciliationSchemaMigrations,
   ],
   retentionExemptions: manualSyncRetentionExemptions,
   seedProfiles: ["scenario-seed"],
   seed: (pool, services) => seedManualSyncScenario(pool, services),
   inspectSeedState: inspectManualSyncSeedState,
   createServices: (pool, ports) => {
+    if (!ports?.channelSaleRecorder) {
+      throw new Error("Channels reconciliation requires the typed Inventory channelSaleRecorder host port.");
+    }
     const eventStore = createPostgresEventStore({
       pool,
       wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "channels" }),
@@ -194,11 +214,42 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
         resolveBudgetPolicy: async () => (await policies.resolvePolicy(outboundOperationBudgetPolicy)).value,
         recordOutcome: createChannelListingPublicationOutcomeRecorder(listingComposition),
         claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(eventStore),
+        readAdditionalOutboundHold: async ({ connectionId, providerIdentity }) => {
+          let killSwitch = null;
+          try {
+            killSwitch = (await policies.resolvePolicy(channelOutboundKillSwitchPolicy)).value;
+          } catch {
+            // An unreadable policy fails closed as an operator hold.
+          }
+          const sources: ("health" | "operator-kill")[] = [];
+          if ((await ports.readChannelHealthHold?.(connectionId)) ?? false) sources.push("health");
+          if (
+            killSwitch === null ||
+            killSwitch.heldConnectionIds.includes(connectionId) ||
+            killSwitch.heldProviderKeys.includes(providerIdentity.providerKey)
+          ) {
+            sources.push("operator-kill");
+          }
+          return { held: sources.length > 0, sources };
+        },
       },
       {
         assertDelistDirective: assertChannelListingDelistDirective,
       },
     );
+    const reconciliation = createChannelReconciliationRuntime({
+      db: pool,
+      eventStore,
+      outboundSync,
+      channelSaleRecorder: ports.channelSaleRecorder,
+      resolvePolicy: async () => {
+        const resolved = await policies.resolvePolicy(channelReconciliationPolicy);
+        const document = resolved.documentId === null ? null : await policies.getPolicyDocument(resolved.documentId);
+        return { value: resolved.value, revision: document?.history?.length ?? 0 };
+      },
+      resolveKillSwitch: async () => (await policies.resolvePolicy(channelOutboundKillSwitchPolicy)).value,
+      ...(ports.readChannelHealthHold ? { readHealthHold: ports.readChannelHealthHold } : {}),
+    });
     const tcgplayerCsv = createTcgplayerCsvRuntime({
       db: pool,
       eventStore,
@@ -220,6 +271,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       connectionHealth,
       listingComposition,
       outboundSync,
+      reconciliation,
       tcgplayerCsv,
       manualSync,
       db: pool,

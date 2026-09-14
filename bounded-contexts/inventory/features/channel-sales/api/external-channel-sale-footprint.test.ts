@@ -77,7 +77,10 @@ describe("external channel sale caller and generated-surface inventory", () => {
     const server = source("bounded-contexts/inventory/server.ts");
     const registry = source("bounded-contexts/inventory/support/runtime-support/services.ts");
     expect(server).toContain("RecordExternalChannelSale");
+    expect(server).toContain("createInventoryExternalChannelSaleRecorderForPool");
     expect(registry).toContain("InventoryExternalChannelSaleServices");
+    expect(registry).toContain("RecordExternalChannelSale");
+    expect(registry).toContain("createInventoryExternalChannelSaleRuntime(deps, holdCollisions).bind(context)");
     expect(registry).not.toMatch(/RecordExternalChannelSale[\s\S]{0,80}\bas\s*\{/);
 
     const packageManifest = JSON.parse(source("bounded-contexts/inventory/package.json")) as {

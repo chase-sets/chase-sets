@@ -145,3 +145,26 @@ The **Manual Sync Panel** is the authorized Channel Connection surface for compo
 ## Channel Inbound Clamp
 
 A **Channel Inbound Clamp** is the Marketplace-owned, revision-fenced pause of every active account Listing represented by a genuine Channel Sync Run while Channel Inbound Coverage is dark.
+## Channel Drift
+
+**Channel Drift** is a divergence between a Channel Listing Link's expected material state and complete channel-reported state.
+
+## Channel Drift Decision
+
+A **Channel Drift Decision** is the durable account decision to accept a foreign Channel Drift fingerprint or request a repush of the expected state.
+
+## Drift Classification
+
+**Drift Classification** is the closed `in-sync`, `repairable`, `foreign-edit`, `structural`, or `source-unavailable` result of comparing expected and observed Channel Listing state.
+
+## Channel Reconciliation Run
+
+A **Channel Reconciliation Run** is the bounded, per-connection process that observes channel state, classifies Channel Drift, records missed external sales, and retains guarded counts.
+
+## Missed-Sale Gap
+
+A **Missed-Sale Gap** is a returned external sale line whose exact external Channel sale key has not yet been recorded by Inventory.
+
+## Channel Outbound Hold
+
+A **Channel Outbound Hold** is the outbound-only admission result composed from seller pause, Channel Health, and the operator kill switch; verified inbound sale recording remains admitted.

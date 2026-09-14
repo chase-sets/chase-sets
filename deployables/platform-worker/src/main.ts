@@ -127,6 +127,10 @@ import {
 import { createAgentWebhookDispatchRunners, createOrderingAgentWebhookOrderResolvers } from "./agent-webhook-runners";
 import { createChannelsOutboundRunners } from "./channels-outbound-runners";
 import { createPlatformWorkerMarketplaceChannelInboundClampBinding } from "./channels-outbound-runners";
+import {
+  createChannelsReconciliationRunners,
+  createPlatformChannelSaleRecorder,
+} from "./channels-reconciliation-runners";
 import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
@@ -312,6 +316,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       // unsupplied nonoptional port can never masquerade as "mounted".
       inventoryCleanupAuthority: { kind: "not-mounted" },
       marketplaceChannelInboundClamp,
+      ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
       searchEmbeddingConfig: config.discoverySearchEmbeddings,
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
     },
@@ -468,6 +473,9 @@ const scheduledJobRunners = platformWorkerGroupsEnabled
           },
         }),
       }),
+      ...(isChannelsServices(runtime.services.channels)
+        ? createChannelsReconciliationRunners({ services: runtime.services.channels, controlPlane })
+        : []),
     ]
   : [];
 // Projection-group-level wake kill switch (WORKER_WAKE_DISABLED_PROJECTIONS):

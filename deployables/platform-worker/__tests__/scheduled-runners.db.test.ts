@@ -20,6 +20,7 @@ import { createWorkerHost, type WorkerHostRuntime, type WorkerRunner } from "@ch
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformWorkerContextsForRuntimeProfile } from "../src/config";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import { createRegisteredScheduledRunners, type RegisteredScheduledRunnerConfig } from "../src/scheduled-runners";
 import { createChannelsOutboundRunners } from "../src/channels-outbound-runners";
 import {
@@ -133,6 +134,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         // Real-registry composition: the worker states the Ordering
         // cleanup-authority capability explicitly as not-mounted (#7222).
         inventoryCleanupAuthority: { kind: "not-mounted" },
+        channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory),
         searchEmbeddingConfig: scheduledRunnerConfig.discoverySearchEmbeddings,
       },
     });

@@ -196,6 +196,8 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     /^bounded-contexts\/settlement\/features\/liability-allocation\/read-model\/reconciliation-signals\.ts$/,
     /^bounded-contexts\/platform-operations\/features\/insights-dashboards\/read-model\/reconciliation-policy\.ts$/,
     /^bounded-contexts\/channels\/features\/listing-composition\/domain\/reconciliation\.ts$/,
+    /^bounded-contexts\/channels\/features\/reconciliation\//,
+    /^deployables\/platform-worker\/src\/channels-reconciliation-runners\.ts$/,
   ]),
 
   // Operational scripts that mutate persistent environments even when invoked

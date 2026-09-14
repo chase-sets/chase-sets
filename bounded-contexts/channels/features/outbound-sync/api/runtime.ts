@@ -498,6 +498,16 @@ async function claimNextInlineBatch(
            WHERE pending.connection_id = eligible.connection_id
              AND pending.status = 'pending' AND pending.next_attempt_at <= $1
              AND pending_lane.blocked_operation_id IS NULL
+             AND pending.operation_id = (
+               SELECT earliest.operation_id FROM channel_outbound_operations AS earliest
+               WHERE earliest.connection_id=pending.connection_id
+                 AND earliest.channel_listing_id=pending.channel_listing_id
+                 AND earliest.status='pending'
+               ORDER BY earliest.enqueued_at,
+                        CASE earliest.operation_origin WHEN 'reconciliation-repair' THEN 1 ELSE 0 END,
+                        earliest.operation_id
+               LIMIT 1
+             )
              AND NOT EXISTS (
                SELECT 1 FROM channel_outbound_operations AS sibling
                WHERE sibling.connection_id = pending.connection_id
@@ -560,6 +570,12 @@ async function claimNextInlineBatch(
         continue;
       }
       if (admission.kind !== "inline") continue;
+      const additionalHold = await dependencies.readAdditionalOutboundHold({
+        connectionId: connection.connectionId,
+        providerIdentity: admission.providerIdentity,
+      });
+      assertAdditionalOutboundHold(additionalHold);
+      if (additionalHold.held) continue;
       const resolved = resolveOutboundOperationBudget(
         policy,
         admission.providerIdentity,
@@ -641,6 +657,24 @@ async function claimNextInlineBatch(
     }
     return { claims, configurationBlocked };
   });
+}
+
+function assertAdditionalOutboundHold(value: unknown): asserts value is Readonly<{
+  held: boolean;
+  sources: readonly ("health" | "operator-kill")[];
+}> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new OutboundSyncError("invalid-input");
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).some((key) => key !== "held" && key !== "sources") ||
+    typeof record.held !== "boolean" ||
+    !Array.isArray(record.sources) ||
+    record.sources.some((source) => source !== "health" && source !== "operator-kill") ||
+    new Set(record.sources).size !== record.sources.length ||
+    record.held !== record.sources.length > 0
+  ) {
+    throw new OutboundSyncError("invalid-input", "Additional outbound hold result is invalid.");
+  }
 }
 
 async function invokeInlineOperation(claim: {
