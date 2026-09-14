@@ -590,6 +590,7 @@ describe("marketplace public presence copy audit: pre-verification failure branc
     expect(invalidPolicyMembership.complianceArticleCount).toBe(5);
     expect(invalidPolicyMembership.complianceArticleSlugs).toHaveLength(5);
     expect(invalidPolicyMembership.uniqueFetchedPathCount).toBe(0);
+    expect(invalidPolicyMembership.counselPacket.verified).toBe(false);
     expect(invalidPolicyMembership.errors.join(" ")).toContain(
       "registers policy key 'terms-of-service' more than once",
     );
@@ -606,6 +607,8 @@ describe("marketplace public presence copy audit: pre-verification failure branc
     expect(invalidComplianceMembership.complianceArticleSlugs).toBeNull();
     expect(invalidComplianceMembership.launchRequiredPolicyCount).toBe(6);
     expect(invalidComplianceMembership.launchRequiredPolicyKeys).toHaveLength(6);
+    expect(invalidComplianceMembership.counselPacket.verified).toBe(false);
+    expect(validatePublicPresenceCopyAuditRecord(invalidComplianceMembership).ok).toBe(true);
     expect(invalidComplianceMembership.errors.join(" ")).toContain("lists article slug 'sales-tax' more than once");
   });
 

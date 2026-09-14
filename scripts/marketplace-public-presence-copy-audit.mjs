@@ -223,7 +223,7 @@ export async function auditPublicPresenceCopy(input, dependencies = {}) {
       policyPair,
       compliancePair,
       legalCorpusDigest: verification ? verification.legalCorpusDigest : null,
-      counselPacket: verification ? verification.counselPacket : null,
+      counselPacket: verification ? { ...verification.counselPacket, verified: false } : null,
       pages: [],
       copyReviewed: false,
       futureOnlyLaunchCopyRemoved: false,
