@@ -332,6 +332,18 @@ describe("channel-drift-detail production loader/action/router", () => {
     });
     expect(h.commands).toHaveLength(1);
   });
+  it("retains the exact request after an actual API 503 without substituting a revision", async () => {
+    const h = harness();
+    await screen.findByText("synthetic-listing");
+    h.accept.mockRejectedValueOnce(new ChannelDriftError("unavailable"));
+    fireEvent.click(screen.getByRole("button", { name: "Accept channel change" }));
+    await screen.findByRole("button", { name: "Retry the same request" });
+    expect(screen.getByRole("button", { name: "Accept channel change" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Retry the same request" }));
+    await waitFor(() => expect(h.commands).toHaveLength(2));
+    expect(h.commands[1]).toEqual(h.commands[0]);
+  });
+
   it("retains exact uncertain request across refresh failure and retries without a new revision", async () => {
     const h = harness();
     await screen.findByText("synthetic-listing");

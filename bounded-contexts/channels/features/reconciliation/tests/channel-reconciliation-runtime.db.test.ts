@@ -603,10 +603,14 @@ describeDb("Channel Reconciliation guarded production path", () => {
       (row) => row.rowKind === "listing" && row.channelListingId === "channel-foreign",
     );
     expect(listing).toMatchObject({
+      actionable: true,
       observedFingerprint: fingerprint("b"),
       expectedMaterialFingerprint: fingerprint("2"),
       decision: { revision: 0, accepted: null, repushRequested: false, operationId: null },
     });
+    expect(
+      [...first.rows, ...second.rows].find((row) => row.rowKind === "listing" && row.channelListingId === "detail-1"),
+    ).toMatchObject({ actionable: false });
     expect(await (await get("?cursor=" + "x".repeat(513))).json()).toEqual({ kind: "stale-page" });
     expect(await (await get("?cursor=e30")).json()).toEqual({ kind: "stale-page" });
     expect(
@@ -630,6 +634,43 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await pools.channels.query("DELETE FROM channel_reconciliation_findings WHERE connection_id='connection-1'");
     expect(await (await get()).json()).toMatchObject({ kind: "loaded", runState: "held", rows: [], hasMore: 0 });
   });
+
+  it.each(["observed", "expected"] as const)(
+    "drift-detail requires matching retained %s fingerprints",
+    async (changed) => {
+      await seedConnectionAndListings(pools.channels);
+      const runtime = detailRuntime();
+      await runtime.reconcileConnection(
+        { connectionId: "connection-1", registry: inlineRegistry(driftItems), sourceAttempt: 1, healthAuthority: null },
+        context,
+      );
+      const observedFingerprint = changed === "observed" ? fingerprint("e") : fingerprint("b");
+      const expectedMaterialFingerprint = changed === "expected" ? fingerprint("e") : fingerprint("2");
+      await pools.channels.query(
+        `UPDATE channel_reconciliation_items SET observed_fingerprint=$1,expected_material_fingerprint=$2,revision=revision+1
+      WHERE connection_id='connection-1' AND channel_listing_id='channel-foreign' AND revision=1`,
+        [observedFingerprint, expectedMaterialFingerprint],
+      );
+      const before = await detailWriteCounts();
+      expect(
+        await runtime.readChannelDriftDetail({ accountId: "account-1", connectionId: "connection-1" }),
+      ).toMatchObject({
+        rows: expect.arrayContaining([
+          expect.objectContaining({ channelListingId: "channel-foreign", actionable: false }),
+        ]),
+      });
+      await expect(
+        runtime.acceptChannelDrift({ ...detailAccept(), observedFingerprint, expectedMaterialFingerprint }, context),
+      ).rejects.toMatchObject({ code: "ineligible" });
+      const response = await detailApi(runtime).request("/connections/connection-1/drift/channel-foreign/repush", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expectedDecisionRevision: 0, operationId: `synthetic-mismatch-${changed}` }),
+      });
+      expect(response.status).toBe(409);
+      expect(await detailWriteCounts()).toEqual(before);
+    },
+  );
 
   it.each(["running", "bounded-unknown", "held"] as const)(
     "drift-detail retained open %s members remain actionable",
@@ -720,17 +761,15 @@ describeDb("Channel Reconciliation guarded production path", () => {
       );
       const app = detailApi(runtime);
       const detail = await (await app.request("/connections/connection-1/drift")).json();
-      expect
-        .soft(detail.rows)
-        .toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({
-              channelListingId: "channel-foreign",
-              classification: "foreign-edit",
-              actionable: false,
-            }),
-          ]),
-        );
+      expect.soft(detail.rows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            channelListingId: "channel-foreign",
+            classification: "foreign-edit",
+            actionable: false,
+          }),
+        ]),
+      );
       const before = await detailWriteCounts();
       expect(await replay()).toEqual(committed);
       for (const kind of ["accept", "repush"] as const) {
