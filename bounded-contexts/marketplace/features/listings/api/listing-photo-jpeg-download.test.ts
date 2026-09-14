@@ -211,9 +211,20 @@ describe("listing-photo-jpeg-download", () => {
 });
 
 describe("listing-photo-jpeg-download-isolation", () => {
-  it.each(["foreign account", "missing listing", "missing photo", "replaced", "removed", "missing source"] as const)(
-    "%s returns the shipped seller listing 404 with no unauthorized object read",
-    async (failure) => {
+  // Run this matrix unchanged against each runtime.ts mutation separately, restoring after each:
+  // ownership-bypass: remove `|| listing.accountId !== accountId` in loadOwnedListingState.
+  // status-bypass: remove `&& entry.status === "active"` in getListingPhotoJpeg.
+  // The named probes must fail both the no-read and 404 checks; all rows pass on the candidate.
+  it.each([
+    { failure: "foreign account", probe: "ownership-bypass" },
+    { failure: "missing listing", probe: "missing-listing control" },
+    { failure: "missing photo", probe: "missing-photo control" },
+    { failure: "replaced", probe: "status-bypass replaced" },
+    { failure: "removed", probe: "status-bypass removed" },
+    { failure: "missing source", probe: "missing-source control" },
+  ] as const)(
+    "$probe: $failure returns the shipped seller listing 404 with no unauthorized object read",
+    async ({ failure }) => {
       const f = await fixture();
       // Candidate-green control: identical source/listing/photo before varying one boundary.
       expect((await f.app.request(route)).status).toBe(200);
@@ -227,9 +238,9 @@ describe("listing-photo-jpeg-download-isolation", () => {
       if (failure === "replaced" || failure === "removed") await f.retire(failure);
       if (failure === "missing source") await f.storage.deleteObjects([sourceKey]);
       const response = await f.app.request(target);
+      expect.soft(f.readObject).toHaveBeenCalledTimes(failure === "missing source" ? 1 : 0);
       expect(response.status).toBe(404);
       expect(await response.text()).toBe(await canonical.text());
-      expect(f.readObject).toHaveBeenCalledTimes(failure === "missing source" ? 1 : 0);
     },
   );
 
