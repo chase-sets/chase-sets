@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -53,6 +53,10 @@ describeDb("ordering purchase limits db", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   async function supply(listingId: string, limit = 1) {
@@ -133,10 +137,10 @@ describeDb("ordering purchase limits db", () => {
   async function snapshot() {
     const [claims, usage, sources, streams] = await Promise.all([
       pools.ordering.query(
-        "SELECT source_reference_id, buyer_account_id, listing_id, quantity, status FROM ordering_listing_purchase_limit_claims ORDER BY source_reference_id, listing_id",
+        "SELECT source_reference_id, buyer_account_id, listing_id, quantity, status, claimed_at::date::text AS claimed_day FROM ordering_listing_purchase_limit_claims ORDER BY source_reference_id, listing_id",
       ),
       pools.ordering.query(
-        "SELECT buyer_account_id, listing_id, day_quantity, customer_account_quantity FROM ordering_listing_purchase_limit_usage ORDER BY buyer_account_id, listing_id",
+        "SELECT buyer_account_id, listing_id, marketplace_day::text, day_quantity, customer_account_quantity FROM ordering_listing_purchase_limit_usage ORDER BY buyer_account_id, listing_id",
       ),
       pools.ordering.query(
         "SELECT source_reference_id, buyer_account_id, order_ids, status FROM ordering_order_source_claims ORDER BY source_reference_id",
@@ -265,7 +269,14 @@ describeDb("ordering purchase limits db", () => {
     expect(after.sources).toEqual([expect.objectContaining({ status: "created", order_ids: result.orderIds })]);
   });
 
-  it("purchase-limit-source-retry-concurrency", async () => {
+  it.each([0, 1])("purchase-limit-source-retry-concurrency: day +%i", async (daysUntilRetry) => {
+    const clock = await pools.ordering.query<{ now: Date }>("SELECT now() AS now");
+    const retryAt = clock.rows[0]!.now;
+    const claimedAt = new Date(retryAt.getTime() - daysUntilRetry * 24 * 60 * 60 * 1_000);
+    const claimedDay = claimedAt.toISOString().slice(0, 10);
+    const retryDay = retryAt.toISOString().slice(0, 10);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(claimedAt);
     await supply("lst_a");
     const store = createPostgresEventStore({ pool: pools.ordering });
     let signalEntered!: () => void;
@@ -279,6 +290,15 @@ describeDb("ordering purchase limits db", () => {
     const failingStore: EventStore = {
       ...store,
       appendToStream: async () => {
+        if (daysUntilRetry > 0) {
+          // Model the historical attempt in PostgreSQL too: its now() does not follow Vitest's clock.
+          await pools.ordering.query(
+            `UPDATE ordering_listing_purchase_limit_claims SET claimed_at = $1::timestamptz
+             WHERE source_type = 'cart-checkout' AND source_reference_id = 'chk_limit'
+               AND buyer_account_id = $2`,
+            [claimedAt.toISOString(), context.audit.forAccountId],
+          );
+        }
         signalEntered();
         await resume;
         throw new Error("owned attempt failed");
@@ -289,11 +309,22 @@ describeDb("ordering purchase limits db", () => {
     await entered;
     const owned = (await getOrderSourceClaim(pools.ordering, "cart-checkout", "chk_limit"))!;
     const before = await snapshot();
+    expect(before.claims).toEqual([expect.objectContaining({ claimed_day: claimedDay, status: "claimed" })]);
+    expect(before.usage).toEqual([
+      expect.objectContaining({ marketplace_day: claimedDay, day_quantity: 1, customer_account_quantity: 1 }),
+    ]);
     await expect(runtime().createOrdersFromCheckout(checkout(), context)).rejects.toThrow("already in progress");
     expect(await snapshot()).toEqual(before);
     signalResume();
     await failed;
-    expect((await snapshot()).claims).toEqual([]);
+    const compensated = await snapshot();
+    expect(compensated.claims).toEqual([]);
+    expect(compensated.sources).toEqual([]);
+    expect(compensated.streams).toEqual([]);
+    expect(compensated.usage).toEqual([
+      expect.objectContaining({ marketplace_day: claimedDay, day_quantity: 0, customer_account_quantity: 0 }),
+    ]);
+    vi.setSystemTime(retryAt);
     const result = await runtime().createOrdersFromCheckout(checkout(), context);
     expect((await runtime().createOrdersFromCheckout(checkout(), context)).orderIds).toEqual(result.orderIds);
     const succeeded = await snapshot();
@@ -301,7 +332,10 @@ describeDb("ordering purchase limits db", () => {
     await compensatePendingOrderSourceClaim(pools.ordering, owned, authorityProbe);
     expect(authorityProbe).not.toHaveBeenCalled();
     expect(await snapshot()).toEqual(succeeded);
-    expect(succeeded.usage).toEqual([expect.objectContaining({ day_quantity: 1, customer_account_quantity: 1 })]);
+    expect(succeeded.claims).toEqual([expect.objectContaining({ claimed_day: retryDay, status: "claimed" })]);
+    expect(succeeded.usage).toEqual([
+      expect.objectContaining({ marketplace_day: retryDay, day_quantity: 1, customer_account_quantity: 1 }),
+    ]);
     const projection = buildOrderingOrderProjectionHandlers(pools.ordering);
     const orderEvents = await store.readStream({ streamId: `ordering.order-${result.orderIds[0]}`, fromVersion: 0 });
     for (const stored of orderEvents) {
@@ -323,7 +357,7 @@ describeDb("ordering purchase limits db", () => {
       releasePurchaseLimitClaimsForOrder(pools.ordering, order),
     ]);
     expect((await snapshot()).usage).toEqual([
-      expect.objectContaining({ day_quantity: 0, customer_account_quantity: 0 }),
+      expect.objectContaining({ marketplace_day: retryDay, day_quantity: 0, customer_account_quantity: 0 }),
     ]);
   });
 
