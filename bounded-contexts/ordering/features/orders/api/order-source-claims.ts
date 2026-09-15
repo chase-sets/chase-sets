@@ -1,6 +1,7 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import { OrderingDomainError, type OrderSourceType } from "../domain/common";
+import { releasePurchaseLimitClaimsForFailedSource } from "./purchase-limits";
 
 export type OrderSourceClaim = Readonly<{
   sourceType: OrderSourceType;
@@ -117,17 +118,31 @@ export async function completeOrderSourceClaim(
   }
 }
 
-export async function releasePendingOrderSourceClaim(
-  db: PgQueryable,
+export async function compensatePendingOrderSourceClaim(
+  db: PgTransactionalPool,
   claim: Pick<OrderSourceClaim, "sourceType" | "sourceReferenceId" | "buyerAccountId" | "orderIds">,
+  hasDurableOrder: () => Promise<boolean>,
 ) {
-  await db.query(
-    `DELETE FROM ordering_order_source_claims
+  await withPgTransaction(db, async (client) => {
+    const owned = await client.query(
+      `SELECT source_type FROM ordering_order_source_claims
+       WHERE source_type = $1 AND source_reference_id = $2 AND buyer_account_id = $3
+         AND order_ids = $4::jsonb AND status = 'pending'
+       FOR UPDATE`,
+      [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(claim.orderIds)],
+    );
+    if (owned.rows.length === 0 || (await hasDurableOrder())) {
+      return;
+    }
+    await releasePurchaseLimitClaimsForFailedSource(client, claim);
+    await client.query(
+      `DELETE FROM ordering_order_source_claims
      WHERE source_type = $1
        AND source_reference_id = $2
        AND buyer_account_id = $3
        AND order_ids = $4::jsonb
        AND status = 'pending'`,
-    [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(claim.orderIds)],
-  );
+      [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(claim.orderIds)],
+    );
+  });
 }
