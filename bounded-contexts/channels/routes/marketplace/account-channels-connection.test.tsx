@@ -371,6 +371,9 @@ describe("Channels account connection route contribution", () => {
           });
         if (url.includes("/outbound-operations")) return Response.json(operationLogBody());
         if (url.endsWith("/manual-sync")) return Response.json(manualSyncPanel());
+        if (url.endsWith("/attention"))
+          return Response.json({ connectionId: "connection-a", healthState: "healthy", health: [], manual: null });
+        if (url.endsWith("/drift")) return Response.json({ kind: "not-yet-observed" });
         if (url.endsWith("/connections/connection-a")) return Response.json(actorConnection());
         return Response.json({ actor: { ...actor(), permissions: ["channels.view", "channels.manage"] } });
       }),
