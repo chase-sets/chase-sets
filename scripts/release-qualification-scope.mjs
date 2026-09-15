@@ -87,6 +87,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-api": "runtime",
     "platform-worker": "runtime",
     "public-web": "runtime",
+    "tcgplayer-connector-extension": "runtime",
   }),
 
   // Infrastructure workspaces/roots by directory name under infrastructure/.

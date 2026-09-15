@@ -11,6 +11,7 @@ import {
   sourceContextWakeRegistry,
   summarizeSourceContextWakeRegistry,
 } from "../../infrastructure/platform-runtime/source-context-wake-registry.ts";
+import { isAllowedDeployableBoundedContextImport } from "./run.mjs";
 
 const channelsRoot = path.join(repoRoot, "bounded-contexts/channels");
 const manifestPath = path.join(channelsRoot, "context.json");
@@ -27,6 +28,7 @@ const requiredRootFiles = [
   "api.ts",
   "GLOSSARY.md",
   "README.md",
+  "client.ts",
   "context.json",
   "index.ts",
   "package.json",
@@ -85,6 +87,9 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   const rootFiles = relativeFiles.filter((file) => !file.includes("/")).sort();
   if (JSON.stringify(rootFiles) !== JSON.stringify([...requiredRootFiles].sort())) violations.push("root-files");
   if (!relativeFiles.some((file) => file.startsWith("features/connections/"))) violations.push("connections-files");
+  if (!relativeFiles.some((file) => file.startsWith("features/connector-client/"))) {
+    violations.push("connector-client-files");
+  }
   if (!relativeFiles.some((file) => file.startsWith("features/publication-port/"))) {
     violations.push("publication-port-files");
   }
@@ -99,6 +104,14 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (!relativeFiles.some((file) => file.startsWith("support/runtime-support/"))) {
     violations.push("runtime-support-files");
+  }
+  if (
+    relativeFiles.some(
+      (file) =>
+        file.startsWith("features/connector-client/") && !/^features\/connector-client\/(?:domain|tests)\//.test(file),
+    )
+  ) {
+    violations.push("connector-client-buckets");
   }
   if (
     relativeFiles.some(
@@ -192,6 +205,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     JSON.stringify(candidate.slices) !==
     JSON.stringify([
       "connections",
+      "connector-client",
       "publication-port",
       "listing-composition",
       "tcgplayer-csv",
@@ -298,6 +312,7 @@ describe("channels-context-foundation", () => {
       ]),
       slices: [
         "connections",
+        "connector-client",
         "publication-port",
         "listing-composition",
         "tcgplayer-csv",
@@ -308,7 +323,7 @@ describe("channels-context-foundation", () => {
         "reconciliation",
       ],
       allowedSupportDirectories: ["request-support", "runtime-support"],
-      publicExports: [".", "./context", "./server", "./routes/*"],
+      publicExports: [".", "./client", "./context", "./server", "./routes/*"],
       allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory"],
       seedRequirements: ["inventory"],
       hostPorts: [
@@ -459,6 +474,13 @@ describe("channels-context-foundation", () => {
     expect(packageJson).toMatchObject({
       name: "@chase-sets/channels",
       chaseSets: { testProfile: "db" },
+      exports: {
+        ".": "./index.ts",
+        "./client": "./client.ts",
+        "./context": "./context.json",
+        "./server": "./server.ts",
+        "./routes/*": "./routes/*.tsx",
+      },
       dependencies: {
         "@chase-sets/design-system": "workspace:*",
         "@chase-sets/http": "workspace:*",
@@ -508,6 +530,9 @@ describe("channels-context-foundation", () => {
       expect.arrayContaining([
         "features/connections/domain/domain.ts",
         "features/connections/api/route.ts",
+        "features/connector-client/domain/identity.ts",
+        "features/connector-client/domain/derive-chrome-extension-id.ts",
+        "features/connector-client/tests/connector-client-public-surface.test.ts",
         "features/publication-port/api/registry.ts",
         "features/publication-port/domain/contracts.ts",
         "features/publication-port/domain/validation.ts",
@@ -666,6 +691,26 @@ describe("channels-foundation-surface-fence", () => {
     expect(
       collectChannelsSurfaceViolations({ ...manifest, sourceRuntimeProfiles: ["neutral-profile"] }, files),
     ).toEqual(["sourceRuntimeProfiles"]);
+  });
+});
+
+describe("channels-client-deployable-import-fence", () => {
+  it("admits the exact client surface throughout the extension deployable", () => {
+    expect(
+      isAllowedDeployableBoundedContextImport(
+        "deployables/tcgplayer-connector-extension/arbitrary/nested/composition-root.ts",
+        "@chase-sets/channels/client",
+      ),
+    ).toBe(true);
+  });
+
+  it("kills an arbitrary-path sibling importer instead of relying on filename vocabulary", () => {
+    expect(
+      isAllowedDeployableBoundedContextImport(
+        "deployables/synthetic-neutral-sibling/arbitrary/nested/connector-looking-file.ts",
+        "@chase-sets/channels/client",
+      ),
+    ).toBe(false);
   });
 });
 

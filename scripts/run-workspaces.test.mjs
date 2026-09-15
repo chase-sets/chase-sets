@@ -486,8 +486,8 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(registry.entries).toHaveLength(60);
-    expect(replay.observations).toHaveLength(85);
+    expect(registry.entries).toHaveLength(61);
+    expect(replay.observations).toHaveLength(86);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {

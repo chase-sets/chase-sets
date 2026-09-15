@@ -6,12 +6,25 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { validateResponsiveEvidenceSourceManifest } from "./check-structure/responsive-evidence-guard.mjs";
+import { e2eSuiteById } from "./e2e-suites.mjs";
 import { collectFiles, defaultSkippedDirectories } from "./lib/files.mjs";
 
 const sourceManifestPath = "infrastructure/playwright-evidence/responsive-evidence-manifest.json";
 const defaultArtifactRoot = "artifacts/playwright/test-results";
 const defaultHostedArtifactRoot = "artifacts/hosted-responsive-evidence";
 const shaPattern = /^[0-9a-f]{40}$/;
+
+export function responsiveEvidenceGrepsForSuiteBatch(suiteBatch) {
+  return suiteBatch
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((suiteId) => {
+      const suite = e2eSuiteById(suiteId);
+      if (!suite) throw new Error(`Unknown E2E suite '${suiteId}'.`);
+      return suite.grep;
+    });
+}
 
 export async function validateResponsiveEvidenceArtifacts({
   repoRoot,
@@ -616,16 +629,7 @@ async function main() {
       ?.slice("--artifact-root=".length) ?? defaultArtifactRoot;
   if (prepareHostedArtifact) {
     if (!suiteBatch) throw new Error("--suite-batch is required when preparing a hosted artifact.");
-    const { e2eSuiteById } = await import("./e2e-suites.mjs");
-    const suiteIds = suiteBatch
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    const suites = suiteIds.map((suiteId) => {
-      const suite = e2eSuiteById(suiteId);
-      if (!suite || Array.isArray(suite.command)) throw new Error(`Unknown Playwright suite '${suiteId}'.`);
-      return suite;
-    });
+    const suiteGreps = responsiveEvidenceGrepsForSuiteBatch(suiteBatch);
     const sourceHeadSha = process.env.RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA ?? "";
     const producer = {
       outcome: process.env.RESPONSIVE_EVIDENCE_PRODUCER_OUTCOME ?? "",
@@ -650,7 +654,7 @@ async function main() {
     };
     const result = await prepareHostedResponsiveEvidenceArtifact({
       repoRoot,
-      selectedGreps: suites.map((suite) => suite.grep),
+      selectedGreps: suiteGreps,
       producer,
       producerLogPath: process.env.RESPONSIVE_EVIDENCE_PRODUCER_LOG ?? "",
       gitIdentity: observeGitIdentity(repoRoot, sourceHeadSha),

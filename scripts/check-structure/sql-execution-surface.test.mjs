@@ -820,8 +820,8 @@ describe("repository-wide SQL execution partition", () => {
     const legacyPartition = partitionFromFiles(repoRoot, legacyModules);
     const partition = partitionFromFiles(repoRoot, governedModules);
 
-    expect(legacyModules).toHaveLength(2475);
-    expect(governedModules).toHaveLength(2470);
+    expect(legacyModules).toHaveLength(2489);
+    expect(governedModules).toHaveLength(2484);
     expect(removedModules).toEqual(exactRemovedModules);
     expect(removedClassification.modules.map(({ file, outcome }) => ({ file, outcome }))).toEqual(
       exactRemovedModules.map((file) => ({ file, outcome: "not-sql" })),
@@ -831,12 +831,12 @@ describe("repository-wide SQL execution partition", () => {
 
     expect(legacyPartition.sqlExecuting).toHaveLength(430);
     expect(legacyPartition.unprovableForm).toHaveLength(3);
-    expect(legacyPartition.notSql).toHaveLength(2042);
+    expect(legacyPartition.notSql).toHaveLength(2056);
     expect(legacyPartition.unresolvedMemberRoots.count).toBe(275);
     expect(partition.sqlExecuting).toEqual(legacyPartition.sqlExecuting);
     expect(partition.unprovableForm).toEqual(legacyPartition.unprovableForm);
     expect(partition.notSql).toEqual(legacyPartition.notSql.filter((file) => !exactRemovedModules.includes(file)));
-    expect(partition.notSql).toHaveLength(2037);
+    expect(partition.notSql).toHaveLength(2051);
     expect(partition.sqlExecuting).toContain("bounded-contexts/channels/features/reconciliation/read-model/detail.ts");
     expect(partition.notSql).toContain("bounded-contexts/channels/features/reconciliation/api/route.ts");
     expect(partition.unresolvedMemberRoots).toEqual(legacyPartition.unresolvedMemberRoots);
