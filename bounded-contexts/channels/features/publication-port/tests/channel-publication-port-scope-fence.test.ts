@@ -11,6 +11,7 @@ describe("channel-publication-port-scope-fence", () => {
     const relativeFiles = listFiles(sliceRoot);
     expect([...new Set(relativeFiles.map((file) => file.split("/")[0]))].sort()).toEqual(["api", "domain", "tests"]);
     expect(manifest.slices).toEqual([
+      "connector-feed",
       "connections",
       "publication-port",
       "listing-composition",
@@ -22,6 +23,11 @@ describe("channel-publication-port-scope-fence", () => {
       "reconciliation",
     ]);
     expect(manifest.hostPorts).toEqual([
+      {
+        portName: "connectorOAuth",
+        providedBy: "platform-api",
+        purpose: "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority.",
+      },
       {
         portName: "marketplaceChannelInboundClamp",
         providedBy: "platform-api, platform-worker",

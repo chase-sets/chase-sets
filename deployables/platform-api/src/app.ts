@@ -3,6 +3,7 @@ import { module as authModule } from "@chase-sets/auth";
 import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
+  createConnectorOAuthService,
   UCP_OAUTH_SUPPORTED_SCOPES,
 } from "@chase-sets/auth/server";
 import {
@@ -38,7 +39,7 @@ import {
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
 } from "@chase-sets/pricing/server";
-import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
+import { isChannelsServices, connectorAuditMiddleware, type ChannelsServices } from "@chase-sets/channels/server";
 import { module as identityModule } from "@chase-sets/identity";
 import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
 import {
@@ -591,6 +592,11 @@ export function createPlatformApiHost(
       ...(channelSaleRecorder ? { channelSaleRecorder } : {}),
       inventorySavedListImportBatchCreator,
       marketplaceChannelInboundClamp,
+      connectorOAuth: createConnectorOAuthService(() => {
+        const auth = runtime?.services.auth as ReturnType<typeof authModule.createServices> | undefined;
+        if (!auth) throw new Error("Connector authentication is unavailable.");
+        return auth;
+      }),
       ...(pricingHostPorts ?? {}),
     },
   });
@@ -902,6 +908,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
 
   app.onError(errorHandler);
   app.use("*", createHonoObservabilityMiddleware());
+  const connectorChannels = runtime.services.channels;
+  if (isChannelsServices(connectorChannels)) app.use("/api/channels/*", connectorAuditMiddleware(connectorChannels.db));
   app.route(
     "/health",
     createHealthRoutes({
