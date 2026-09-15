@@ -26,6 +26,7 @@ import {
   listCandidateRepricingProducts,
   loadRepricingRoundInputsPage,
 } from "../../repricing-engine/read-model/queries";
+import { seedDryRunListings } from "../../repricing-engine/tests/dry-run-fixture";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.
@@ -68,6 +69,54 @@ const defaultRule: RepricingRule = {
 
 describeDb("pricing repricing-policy assignment resolution (#4330)", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>>;
+
+  it("loads a 500-product competing-ask page when only listing statistics exist at scale", async () => {
+    const client = await pools.pricing.connect();
+    let pendingQuery: Promise<unknown> = Promise.resolve();
+    try {
+      await client.query("BEGIN");
+      // Reproduce auto-analyzed listings alongside untouched empty policy tables.
+      // Keep background ANALYZE from changing the statistics during this control.
+      await client.query(`LOCK TABLE pricing_market_listing_inputs, pricing_repricing_policies,
+        pricing_catalog_item_inputs, pricing_repricing_halts IN SHARE UPDATE EXCLUSIVE MODE`);
+      await seedDryRunListings(
+        { query: client.query.bind(client), connect: pools.pricing.connect.bind(pools.pricing) },
+        250_000,
+        30_000,
+      );
+      await client.query("ANALYZE pricing_market_listing_inputs");
+      // Cancel a pathological page in PostgreSQL, before the test/hook deadline.
+      await client.query("SET LOCAL statement_timeout = '25000ms'");
+      let queryCount = 0;
+      const rounds = await loadRepricingRoundInputsPage(
+        {
+          query: <Row>(sql: string, values?: readonly unknown[]) => {
+            queryCount += 1;
+            const result = pendingQuery.then(() => client.query<Row>(sql, values));
+            pendingQuery = result.catch(() => undefined);
+            return result;
+          },
+        },
+        {
+          products: Array.from({ length: 500 }, (_, index) => ({
+            catalogItemId: `cat_${String(index).padStart(8, "0")}`,
+            productId: `prod_${String(index).padStart(8, "0")}`,
+          })),
+        },
+      );
+      expect(queryCount).toBe(4);
+      expect(rounds.size).toBe(500);
+      for (const round of rounds.values()) {
+        expect(round.listings).toEqual([]);
+        expect(round.competingAsks).toHaveLength(9);
+        expect(round.competingAsks.every((ask) => ask.pricingMode === "hard")).toBe(true);
+      }
+    } finally {
+      await pendingQuery;
+      await client.query("ROLLBACK");
+      client.release();
+    }
+  });
 
   it.each([
     { kind: "all-listings" },

@@ -58,7 +58,7 @@ export function repricingPolicyAssignmentsSql(excludedPolicyIdSql = "NULL::text"
    AND policy.policy_id IS DISTINCT FROM ${excludedPolicyIdSql}
    AND NOT EXISTS (
      SELECT 1 FROM pricing_repricing_halts AS halt
-     WHERE halt.seller_account_id = policy.seller_account_id AND halt.engaged
+     WHERE halt.seller_account_id = listing.seller_account_id AND halt.engaged
    )
   LEFT JOIN pricing_catalog_item_inputs AS catalog_item
     ON catalog_item.catalog_item_id = listing.catalog_catalog_item_id
