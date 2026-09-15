@@ -121,9 +121,9 @@ describe("createRepricingPolicyRuntime", () => {
     expect(events.every((event) => event.streamId === streamId)).toBe(true);
   });
 
-  it("exposes exactly one projector wired to the policy pages table", () => {
+  it("exposes policy and halt projectors", () => {
     const { services } = createRuntime();
-    expect(services.projectors).toHaveLength(1);
+    expect(services.projectors).toHaveLength(2);
     expect(services.projectors[0]?.projectionName).toBe("pricing-repricing-policy-projection");
   });
 

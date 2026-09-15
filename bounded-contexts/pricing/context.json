@@ -13,6 +13,8 @@
     "gross-merchandise-value",
     "market-state-snapshot",
     "repricing-policy",
+    "repricing-halt",
+    "scope-preview",
     "repricing-policy-assignment",
     "repricing-dry-run",
     "bulk-reprice-job",
@@ -69,8 +71,13 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "pricing-catalog-input-projection",
-      "subscriptionVersion": 6,
+      "subscriptionVersion": 7,
       "eventTypes": [
+        "catalog.category.created",
+        "catalog.category.revised",
+        "catalog.category.published",
+        "catalog.category.deprecated",
+        "catalog.category.archived",
         "catalog.catalog-item.created",
         "catalog.catalog-item.display-identity-resolved",
         "catalog.catalog-item.published",
@@ -237,10 +244,18 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "pricing-repricing-halt-projection",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": ["pricing_repricing_halts"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "pricing-catalog-input-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": [
         "pricing_catalog_item_inputs",
+        "pricing_catalog_category_inputs",
         "pricing_external_product_reference_inputs",
         "pricing_external_catalog_item_reference_inputs"
       ],
@@ -353,6 +368,31 @@
     ]
   },
   "mutationConsistencyInventory": [
+    {
+      "id": "pricing.repricing-policy-control-snapshots",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/revise",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/pause",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/resume",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/delete",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /halt",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /scope-preview"
+      ],
+      "visibleDestination": {
+        "description": "Policy and halt commands return folded aggregate state; scope preview returns the computed counts without mutation."
+      },
+      "proof": {
+        "authoritativeResponse": "Creation appends and consumes atomically; owned commands fence the aggregate before dispatch and return its state.",
+        "tests": [
+          "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts",
+          "bounded-contexts/pricing/features/repricing-policies/tests/policy-activation.db.test.ts"
+        ]
+      }
+    },
     {
       "id": "pricing.repricing-dry-run-command-snapshot",
       "owner": "pricing",

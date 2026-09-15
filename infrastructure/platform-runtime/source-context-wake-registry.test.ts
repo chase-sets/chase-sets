@@ -167,6 +167,11 @@ describe("source-context wake registry", () => {
       expect(entry.affectedProjectionNames).toEqual(inventory.projectionsBySource.get(sourceContextName) ?? []);
       expect(entry.routeDependencyIds).toEqual(inventory.routeDependencyIdsBySource.get(sourceContextName) ?? []);
     }
+    expect(
+      requireSourceContextWakeRegistryEntry("pricing").affectedProjectionNames.filter(
+        (name) => name === "pricing:pricing-repricing-halt-projection",
+      ),
+    ).toHaveLength(1);
   });
 
   it("prioritizes the checkout and payment hot path before broader platform expansion", () => {

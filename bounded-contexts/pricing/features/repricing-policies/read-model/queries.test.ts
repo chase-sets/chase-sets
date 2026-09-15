@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getInventoryAcquisitionCostAmount,
-  getRepricingPolicy,
+  getAccountRepricingPolicy,
   listAccountRepricingPolicies,
   listRepricingPolicyAssignments,
 } from "./queries";
@@ -25,13 +25,15 @@ function dbReturning(rows: readonly Record<string, unknown>[]) {
   return { query: async <T>() => ({ rows: rows as T[] }) };
 }
 
-describe("getRepricingPolicy", () => {
+describe("getAccountRepricingPolicy", () => {
   it("returns null when no row matches", async () => {
-    expect(await getRepricingPolicy(dbReturning([]), "rpp_missing")).toBeNull();
+    expect(
+      await getAccountRepricingPolicy(dbReturning([]), { accountId: "acc_1", policyId: "rpp_missing" }),
+    ).toBeNull();
   });
 
   it("maps a catalog-filter scope row, parsing rules stored as a JSON string", async () => {
-    const record = await getRepricingPolicy(
+    const record = await getAccountRepricingPolicy(
       dbReturning([
         {
           policy_id: "rpp_1",
@@ -48,7 +50,7 @@ describe("getRepricingPolicy", () => {
           updated_at: "2026-07-11T00:00:00.000Z",
         },
       ]),
-      "rpp_1",
+      { accountId: "acc_1", policyId: "rpp_1" },
     );
 
     expect(record).toEqual({
@@ -66,7 +68,7 @@ describe("getRepricingPolicy", () => {
   });
 
   it("maps a listing-set scope row", async () => {
-    const record = await getRepricingPolicy(
+    const record = await getAccountRepricingPolicy(
       dbReturning([
         {
           policy_id: "rpp_2",
@@ -83,7 +85,7 @@ describe("getRepricingPolicy", () => {
           updated_at: "2026-07-11T00:00:00.000Z",
         },
       ]),
-      "rpp_2",
+      { accountId: "acc_1", policyId: "rpp_2" },
     );
 
     expect(record?.scope).toEqual({ kind: "listing-set", listingIds: ["lst_1", "lst_2"] });

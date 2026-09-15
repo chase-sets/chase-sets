@@ -17,7 +17,7 @@
  * make -- this view remains a correct, always-fresh reference implementation
  * either way.
  */
-function scopeMatchSql(policy: string): string {
+export function scopeMatchSql(policy: string): string {
   return `NOT (listing.listing_id = ANY (${policy}.excluded_listing_ids))
     AND (${policy}.scope_kind = 'all-listings'
       OR (${policy}.scope_kind = 'catalog-filter' AND catalog_item.category_ids && ${policy}.scope_category_ids)
@@ -43,27 +43,8 @@ export const candidateAssignmentSql = `
           AND competing_policy.updated_at >= statement_timestamp()))
   )`;
 
-export const pricingRepricingPolicySchemaSql = `
-CREATE TABLE IF NOT EXISTS pricing_repricing_policies (
-  policy_id text PRIMARY KEY,
-  seller_account_id text NOT NULL,
-  name text NOT NULL,
-  status text NOT NULL,
-  scope_kind text NOT NULL,
-  scope_category_ids text[] NULL,
-  scope_listing_ids text[] NULL,
-  excluded_listing_ids text[] NOT NULL DEFAULT '{}',
-  rules jsonb NOT NULL,
-  max_changes_per_day integer NOT NULL,
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS pricing_repricing_policies_account_idx
-  ON pricing_repricing_policies (seller_account_id, status, updated_at DESC);
-
-CREATE OR REPLACE VIEW pricing_repricing_policy_assignments AS
-WITH candidate_matches AS (
+export function repricingPolicyAssignmentsSql(excludedPolicyIdSql = "NULL::text"): string {
+  return `WITH candidate_matches AS (
   SELECT
     listing.seller_account_id,
     listing.listing_id,
@@ -74,6 +55,11 @@ WITH candidate_matches AS (
   JOIN pricing_repricing_policies AS policy
     ON policy.seller_account_id = listing.seller_account_id
    AND policy.status = 'active'
+   AND policy.policy_id IS DISTINCT FROM ${excludedPolicyIdSql}
+   AND NOT EXISTS (
+     SELECT 1 FROM pricing_repricing_halts AS halt
+     WHERE halt.seller_account_id = listing.seller_account_id AND halt.engaged
+   )
   LEFT JOIN pricing_catalog_item_inputs AS catalog_item
     ON catalog_item.catalog_item_id = listing.catalog_catalog_item_id
   WHERE listing.status <> 'withdrawn'
@@ -99,5 +85,40 @@ SELECT
   scope_specificity,
   policy_updated_at AS assigned_policy_updated_at
 FROM ranked_matches
-WHERE precedence_rank = 1;
+WHERE precedence_rank = 1`;
+}
+
+export const pricingRepricingHaltSchemaSql = `
+CREATE TABLE IF NOT EXISTS pricing_repricing_halts (
+  seller_account_id text PRIMARY KEY,
+  engaged boolean NOT NULL,
+  engaged_at timestamptz NULL,
+  released_at timestamptz NULL,
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL
+);
+`;
+
+export const pricingRepricingPolicySchemaSql = `
+${pricingRepricingHaltSchemaSql}
+CREATE TABLE IF NOT EXISTS pricing_repricing_policies (
+  policy_id text PRIMARY KEY,
+  seller_account_id text NOT NULL,
+  name text NOT NULL,
+  status text NOT NULL,
+  scope_kind text NOT NULL,
+  scope_category_ids text[] NULL,
+  scope_listing_ids text[] NULL,
+  excluded_listing_ids text[] NOT NULL DEFAULT '{}',
+  rules jsonb NOT NULL,
+  max_changes_per_day integer NOT NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS pricing_repricing_policies_account_idx
+  ON pricing_repricing_policies (seller_account_id, status, updated_at DESC);
+
+CREATE OR REPLACE VIEW pricing_repricing_policy_assignments AS
+${repricingPolicyAssignmentsSql()};
 `;
