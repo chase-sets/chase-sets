@@ -337,7 +337,7 @@ describeDb("ordering purchase limits db", () => {
       expect.objectContaining({ marketplace_day: retryDay, day_quantity: 1, customer_account_quantity: 1 }),
     ]);
     const projection = buildOrderingOrderProjectionHandlers(pools.ordering);
-    const orderEvents = await store.readStream({ streamId: `ordering.order-${result.orderIds[0]}`, fromVersion: 0 });
+    const orderEvents = await store.readStream({ streamId: `ordering.order-${result.orderIds[0]}` });
     for (const stored of orderEvents) {
       const event = toTransportEvent(stored);
       await projection[event.type]?.(event);
