@@ -96,6 +96,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-platform-api",
   "@chase-sets/app-platform-worker",
   "@chase-sets/app-public-web",
+  "@chase-sets/app-tcgplayer-connector-extension",
   "@chase-sets/auth",
   "@chase-sets/auth-context",
   "@chase-sets/authenticity",
@@ -647,6 +648,29 @@ function batchDurationSeconds(batch) {
 }
 
 describe("change-scope", () => {
+  it("selects the Chromium authority caller for package and connector-client changes", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const extension = workspaceWithScripts(
+      baseDir,
+      "deployables",
+      "tcgplayer-connector-extension",
+      "@chase-sets/app-tcgplayer-connector-extension",
+      { test: "test", "test:chromium": "test:chromium" },
+    );
+    for (const changedFile of [
+      "deployables/tcgplayer-connector-extension/src/background.ts",
+      "bounded-contexts/channels/features/connector-client/domain/identity.ts",
+    ]) {
+      const scope = classifyChanges({
+        baseDir,
+        changedFiles: [changedFile],
+        workspaces: [extension, workspace(baseDir, "bounded-contexts", "channels", "@chase-sets/channels")],
+      });
+      expect(scope.e2eSuiteIds, changedFile).toEqual(["tcgplayer_connector_extension"]);
+      expect(scope.e2eTestsRequired, changedFile).toBe(true);
+    }
+  });
+
   it("exposes the exact classifier result for the shared CI gate plan", () => {
     const scope = classifyChanges({ changedFiles: ["README.md"] });
     const output = toGithubOutputMap(scope);

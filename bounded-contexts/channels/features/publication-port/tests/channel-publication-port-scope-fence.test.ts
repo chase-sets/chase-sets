@@ -6,12 +6,13 @@ import packageJson from "../../../package.json" with { type: "json" };
 import { collectPublicationCallerEvidence, listTrackedProductionSources, repoRoot } from "./source-evidence";
 
 describe("channel-publication-port-scope-fence", () => {
-  it("ships only domain, api, and tests without owning provider or mutable registry surfaces", () => {
+  it("keeps the publication slice finite while admitting the separate connector-client surface", () => {
     const sliceRoot = path.resolve(import.meta.dirname, "..");
     const relativeFiles = listFiles(sliceRoot);
     expect([...new Set(relativeFiles.map((file) => file.split("/")[0]))].sort()).toEqual(["api", "domain", "tests"]);
     expect(manifest.slices).toEqual([
       "connections",
+      "connector-client",
       "publication-port",
       "listing-composition",
       "tcgplayer-csv",
@@ -36,9 +37,10 @@ describe("channel-publication-port-scope-fence", () => {
       },
     ]);
     expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support"]);
-    expect(manifest.publicExports).toEqual([".", "./context", "./server", "./routes/*"]);
+    expect(manifest.publicExports).toEqual([".", "./client", "./context", "./server", "./routes/*"]);
     expect(packageJson.exports).toEqual({
       ".": "./index.ts",
+      "./client": "./client.ts",
       "./context": "./context.json",
       "./server": "./server.ts",
       "./routes/*": "./routes/*.tsx",

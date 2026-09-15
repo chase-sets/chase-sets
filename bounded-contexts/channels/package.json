@@ -14,6 +14,7 @@
   },
   "exports": {
     ".": "./index.ts",
+    "./client": "./client.ts",
     "./context": "./context.json",
     "./server": "./server.ts",
     "./routes/*": "./routes/*.tsx"

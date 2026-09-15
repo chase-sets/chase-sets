@@ -25,6 +25,9 @@ import {
 
 const sliceAdditions = [
   "ChannelEnvironment",
+  "TCGPLAYER_CONNECTOR_EXTENSION_ID",
+  "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
+  "TCGPLAYER_CONNECTOR_REDIRECT_URI",
   "channelExecutionModes",
   "ChannelExecutionMode",
   "channelPublicationRejectionCodes",

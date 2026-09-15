@@ -724,18 +724,25 @@ describe("lockfile package-entry discipline", () => {
     expect(packageKeys).toContain("sharp@0.34.5");
   });
 
-  it("bounds the whole-lockfile package-entry delta to exactly the two Fontsource keys", () => {
+  it("bounds the whole-lockfile delta to the font and Chromium probe type keys", () => {
     const fontKeys = ["@fontsource/ibm-plex-mono@5.3.0", "@fontsource/space-grotesk@5.3.0"];
-    for (const key of fontKeys) expect(packageKeys).toContain(key);
-    const withoutFonts = packageKeys.filter((k) => !fontKeys.includes(k));
+    const chromiumTypeKeys = [
+      "@types/chrome@0.1.43",
+      "@types/filesystem@0.0.36",
+      "@types/filewriter@0.0.33",
+      "@types/har-format@1.2.16",
+    ];
+    const addedKeys = [...fontKeys, ...chromiumTypeKeys];
+    for (const key of addedKeys) expect(packageKeys).toContain(key);
+    const withoutFonts = packageKeys.filter((k) => !addedKeys.includes(k));
     // sha256 over the sorted package-entry keys of pnpm-lock.yaml at the
     // candidate's base revision 3d20e23b7fdc66865e8459610a6601574960d566,
     // joined with newlines -- derived mechanically from `git show`, so
-    // equality proves the delta added exactly the two font keys and removed
+    // equality proves the delta added exactly the named font/type keys and removed
     // nothing without carrying all 791 base keys here.
     const baseKeyDigest = "2004a44a67e9409ade0dd5469eee0940451dc628fa6cf335ad5bb103e0fefdcb";
     expect(withoutFonts.length).toBe(791);
     expect(createHash("sha256").update(withoutFonts.join("\n")).digest("hex")).toBe(baseKeyDigest);
-    console.log(`whole-lockfile package-entry delta vs base: +${JSON.stringify(fontKeys)} -[]`);
+    console.log(`whole-lockfile package-entry delta vs base: +${JSON.stringify(addedKeys)} -[]`);
   });
 });

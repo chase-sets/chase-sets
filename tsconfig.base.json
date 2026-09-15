@@ -84,6 +84,9 @@
       "@chase-sets/channels": [
         "./bounded-contexts/channels/index.ts"
       ],
+      "@chase-sets/channels/client": [
+        "./bounded-contexts/channels/client.ts"
+      ],
       "@chase-sets/channels/context": [
         "./bounded-contexts/channels/context.json"
       ],

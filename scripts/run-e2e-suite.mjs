@@ -40,6 +40,14 @@ export function buildSuiteGrep(suites) {
   return suites.map((suite) => escapeRegExp(suite.grep)).join("|");
 }
 
+export function commandSuiteInvocation(suite, platform = process.platform, env = process.env) {
+  const invocation = buildPackageManagerInvocation(suite.command);
+  if (suite.requiresDisplay && platform === "linux" && !env.DISPLAY) {
+    return { command: "xvfb-run", args: ["--auto-servernum", invocation.command, ...invocation.args] };
+  }
+  return invocation;
+}
+
 async function main() {
   acquireHeavySlot("script-battery");
   const suites = parseSuiteArgs(process.argv.slice(2));
@@ -67,7 +75,7 @@ async function main() {
   }
 
   for (const suite of suites.filter((candidate) => Array.isArray(candidate.command))) {
-    const invocation = buildPackageManagerInvocation(suite.command);
+    const invocation = commandSuiteInvocation(suite);
     await runCommand(invocation.command, invocation.args, {
       cwd: rootDir,
       stdio: "inherit",
