@@ -5,6 +5,7 @@ import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-se
 import { OrderingDomainError } from "../../features/orders/domain/common";
 import { orderingReservedSeedIds } from "../seed-support/ids";
 import { inspectOrderingSeedState, seedOrderingDatabase } from "./seed";
+import type { OrderingOrderServices } from "../../features/orders/api/runtime";
 
 type StoredEvent = Readonly<{
   stream_id: string;
@@ -141,6 +142,7 @@ function createSeedDb(
     activeOrderIds?: readonly string[];
     cancelledOrderIds?: readonly string[];
     acceptedOfferInput?: Readonly<Record<string, unknown>> | null;
+    activeSupply?: boolean;
   }>,
 ) {
   const events: StoredEvent[] = [...activePostagePolicyEvents()];
@@ -160,7 +162,17 @@ function createSeedDb(
         return eventStore.query(sql, values);
       }
       if (sql.includes("FROM ordering_market_listing_inputs")) {
-        return { rows: [] };
+        return {
+          rows: options.activeSupply
+            ? [
+                {
+                  product_id: `${String(values?.[0])}::`,
+                  product_summary: null,
+                  selected_options: JSON.parse(String(values?.[1])),
+                },
+              ]
+            : [],
+        };
       }
       if (sql.includes("FROM ordering_offer_acceptance_inputs")) {
         return { rows: options.acceptedOfferInput ? [options.acceptedOfferInput] : [] };
@@ -171,6 +183,41 @@ function createSeedDb(
 }
 
 describe("ordering seed", () => {
+  it.each(["chk_seed_checkout_pending", "chk_seed_cancelled"])(
+    "resumes %s through the shared checkout handler after a caught no-Order failure",
+    async (failedSource) => {
+      const db = createSeedDb({
+        activeSupply: true,
+        activeOrderIds: [
+          orderingReservedSeedIds.orders.acceptedOfferReady,
+          reputationReservedSeedIds.orders.reviewEligibleDelivered,
+        ],
+      });
+      let fail = true;
+      const createOrdersFromCheckout = vi.fn<OrderingOrderServices["createOrdersFromCheckout"]>(async (params) => {
+        if (fail && params.checkoutSessionId === failedSource) throw new Error("checkout append failed");
+        return { orderIds: [...params.orderIdsOverride!], rejectedSellerAccountIds: [] };
+      });
+      const services = {
+        db,
+        orders: { createOrdersFromCheckout, createOrdersFromAcceptedOffer: vi.fn(), cancelPurchase: vi.fn() },
+        postagePolicies: { commandHandler: vi.fn() },
+      };
+      await expect(seedOrderingDatabase({} as never, services as never)).rejects.toThrow("checkout append failed");
+      fail = false;
+      await seedOrderingDatabase({} as never, services as never);
+      const resumed = createOrdersFromCheckout.mock.calls.filter(
+        ([params]) => params.checkoutSessionId === failedSource,
+      );
+      expect(resumed).toHaveLength(2);
+      expect(resumed[1]).toEqual(resumed[0]);
+      expect(new Set(createOrdersFromCheckout.mock.calls.map(([params]) => params.checkoutSessionId))).toEqual(
+        new Set(["chk_seed_checkout_pending", "chk_seed_cancelled"]),
+      );
+      expect(db.query.mock.calls.some(([sql]) => /(?:INSERT|UPDATE|DELETE)/.test(sql))).toBe(false);
+    },
+  );
+
   it("waits for active Marketplace supply instead of failing partial preview bootstrap", async () => {
     const createOrdersFromCheckout = vi.fn();
     const createOrdersFromAcceptedOffer = vi.fn();
