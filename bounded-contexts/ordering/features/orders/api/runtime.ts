@@ -114,7 +114,7 @@ import {
   claimOrderSource,
   completeOrderSourceClaim,
   getOrderSourceClaim,
-  releasePendingOrderSourceClaim,
+  compensatePendingOrderSourceClaim,
   type OrderSourceClaim,
 } from "./order-source-claims";
 
@@ -2268,7 +2268,6 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           "Sign in is required to confirm checkout for listings with daily or customer purchase limits.",
         );
       }
-      await claimPlanPurchaseLimitUsage(deps.db, params.buyerAccountId, plan);
       const taxAdjustedPlan = await applyTaxToPlan(
         plan,
         params.buyerAccountId,
@@ -2282,6 +2281,9 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       );
       const proposedOrderIds =
         params.orderIdsOverride ?? taxAdjustedPlan.orderDrafts.map(() => createId("ord") as OrderId);
+      if (proposedOrderIds.length !== taxAdjustedPlan.orderDrafts.length) {
+        throw new OrderingDomainError("Order seed overrides must match the number of generated seller orders.");
+      }
       const sourceClaimResult = await claimOrderSource(deps.db, {
         sourceType: params.sourceType,
         sourceReferenceId: params.checkoutSessionId,
@@ -2298,6 +2300,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
 
       let result: OrderingOrderCreationResult;
       try {
+        await claimPlanPurchaseLimitUsage(deps.db, params.buyerAccountId, taxAdjustedPlan);
         result = await createOrdersFromPlan(
           params.buyerAccountId,
           taxAdjustedPlan,
@@ -2319,9 +2322,11 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
 
         await completeOrderSourceClaim(deps.db, sourceClaimResult.claim, result.orderIds);
       } catch (error) {
-        if ((await claimedOrderStreamStatus(sourceClaimResult.claim)).existingCount === 0) {
-          await releasePendingOrderSourceClaim(deps.db, sourceClaimResult.claim);
-        }
+        await compensatePendingOrderSourceClaim(
+          deps.db,
+          sourceClaimResult.claim,
+          async () => (await claimedOrderStreamStatus(sourceClaimResult.claim)).existingCount > 0,
+        );
         throw error;
       }
 

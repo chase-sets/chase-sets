@@ -149,8 +149,12 @@ export function createSupplyDb(resolver: (params: readonly unknown[] | undefined
     }
   >();
 
-  return {
+  const db = {
+    connect: async () => ({ query: db.query, release: () => {} }),
     query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) {
+        return { rows: [], rowCount: 0 };
+      }
       const sourceClaimKey = `${String(params?.[0] ?? "")}|${String(params?.[1] ?? "")}`;
       if (sql.includes("INSERT INTO ordering_order_source_claims")) {
         if (sourceClaims.has(sourceClaimKey)) {
@@ -191,6 +195,14 @@ export function createSupplyDb(resolver: (params: readonly unknown[] | undefined
 
       if (sql.includes("FROM ordering_order_source_claims")) {
         const claim = sourceClaims.get(sourceClaimKey);
+        if (
+          sql.includes("FOR UPDATE") &&
+          (claim?.status !== "pending" ||
+            claim.buyer_account_id !== String(params?.[2]) ||
+            JSON.stringify(claim.order_ids) !== String(params?.[3]))
+        ) {
+          return { rows: [], rowCount: 0 };
+        }
         return { rows: claim ? [claim] : [], rowCount: claim ? 1 : 0 };
       }
 
@@ -246,4 +258,5 @@ export function createSupplyDb(resolver: (params: readonly unknown[] | undefined
       };
     }),
   };
+  return db;
 }

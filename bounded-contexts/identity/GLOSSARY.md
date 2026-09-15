@@ -14,6 +14,10 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 ## Identity Concepts
 
+### Consent Activation
+
+**Consent Activation** is the authenticated operator act that makes a published policy version required through its Consent Activation Authority. Registration only declares a consent-capable key; a policy document revision alone does not activate it. Deactivation removes the active requirement without deleting authority history or Consent facts.
+
 ### User
 
 A **User** represents a person or system that can perform actions in the marketplace.

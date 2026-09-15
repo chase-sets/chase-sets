@@ -2,6 +2,7 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { EventStreamTooLongError, readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -17,6 +18,7 @@ import {
   consentActivationAuthorityStreamId,
   consentActivationGuardAppendInput,
   decideConsentActivationAuthority,
+  decodeConsentActivationAuthorityEvent,
   evolveConsentActivationAuthority,
   initialConsentActivationAuthorityState,
   readConsentActivationAuthority,
@@ -105,6 +107,11 @@ export type ConsentActivationAuthorityRuntime = Readonly<{
 }>;
 
 export type PolicyRuntime = Readonly<{
+  activateConsentPolicyVersion: (
+    definition: PolicyDefinition<Readonly<{ version: string }>>,
+    params: Readonly<{ version: string; documentId: string; actorUserId: string }>,
+    context: EventStoreContext,
+  ) => Promise<ValidatedConsentActivationAuthoritySnapshot>;
   commandHandler: CommandHandler<PolicyDocumentCommand, PolicyDocumentState, PolicyDocumentEvent>;
   createPolicyDocument: <Value>(
     definition: PolicyDefinition<Value>,
@@ -128,6 +135,20 @@ export type PolicyRuntime = Readonly<{
   consentActivation: ConsentActivationAuthorityRuntime;
   projectors: readonly ProjectionHandlerSet[];
 }>;
+
+export class ConsentActivationDocumentError extends PlatformPolicyDomainError {
+  constructor(
+    public readonly code:
+      | "document_not_found"
+      | "document_policy_mismatch"
+      | "document_version_mismatch"
+      | "document_invalid"
+      | "atomic_append_unavailable",
+  ) {
+    super(code);
+    this.name = "ConsentActivationDocumentError";
+  }
+}
 
 /**
  * Composes the shared platform-policy machinery into one runtime: a context
@@ -241,6 +262,75 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
 
   return {
     commandHandler,
+    async activateConsentPolicyVersion(definition, params, context) {
+      const appendToStreams = deps.eventStore.appendToStreams;
+      if (!appendToStreams) {
+        throw new ConsentActivationDocumentError("atomic_append_unavailable");
+      }
+      const documentStreamId = policyDocumentStreamId(params.documentId);
+      const documentEvents = await readCompleteStream(deps.eventStore, {
+        streamId: documentStreamId,
+        maxEvents: 9_999,
+      });
+      const documentCodec = createPassthroughDomainEventCodec<PolicyDocumentEvent>();
+      let document = initialPolicyDocumentState;
+      for (const stored of documentEvents) {
+        document = evolvePolicyDocument(document, documentCodec.decode(stored));
+      }
+      if (document.documentId === null) {
+        throw new ConsentActivationDocumentError("document_not_found");
+      }
+      if (document.documentId !== params.documentId || document.policyKey !== definition.policyKey) {
+        throw new ConsentActivationDocumentError("document_policy_mismatch");
+      }
+      let version: string;
+      try {
+        version = definition.decodeValue(document.value).version;
+      } catch {
+        throw new ConsentActivationDocumentError("document_invalid");
+      }
+      if (version !== params.version) {
+        throw new ConsentActivationDocumentError("document_version_mismatch");
+      }
+
+      // Registration can survive interruption, but cannot itself activate a key.
+      await consentActivation.read(definition.policyKey);
+      await consentActivation.register(definition, context);
+      const authorityStreamId = consentActivationAuthorityStreamId(definition.policyKey);
+      const authorityEvents = await readCompleteStream(deps.eventStore, {
+        streamId: authorityStreamId,
+        maxEvents: 9_999,
+      });
+      let authority = initialConsentActivationAuthorityState;
+      for (const stored of authorityEvents) {
+        authority = evolveConsentActivationAuthority(authority, decodeConsentActivationAuthorityEvent(stored));
+      }
+      const events = decideConsentActivationAuthority(authority, {
+        type: "ActivateConsentPolicyVersion",
+        policyKey: definition.policyKey,
+        ...params,
+        activatedAt: now().toISOString(),
+      });
+      const codec = createPassthroughDomainEventCodec<ConsentActivationAuthorityEvent>();
+      if (authorityEvents.length + events.length > 9_999) {
+        throw new EventStreamTooLongError(authorityStreamId, 9_999);
+      }
+      await appendToStreams([
+        {
+          streamId: documentStreamId,
+          expectedVersion: documentEvents.at(-1)?.streamVersion ?? "no_stream",
+          events: [],
+          context,
+        },
+        {
+          streamId: authorityStreamId,
+          expectedVersion: authorityEvents.at(-1)?.streamVersion ?? "no_stream",
+          events: events.map(codec.encode),
+          context,
+        },
+      ]);
+      return consentActivation.read(definition.policyKey);
+    },
     async createPolicyDocument(definition, params, context) {
       const documentId = createId("pol");
       await assertNoActiveOverlap({
