@@ -25,6 +25,7 @@ function authenticationRequired() {
 
 export type TermsRouteDeps = Readonly<{
   db: PgQueryable;
+  publication?: Parameters<typeof resolveTermsAcceptanceStatus>[3];
   // The Consent Activation Authority surface, not the whole policy runtime and
   // deliberately not `resolvePolicy`: the acceptance gate's required version
   // comes from one validated authority read, so the cached policy-document
@@ -56,10 +57,15 @@ export function termsOfServiceConsentRoutes(deps: TermsRouteDeps) {
       return c.json(authenticationRequired(), 401);
     }
 
-    const status = await resolveTermsAcceptanceStatus(deps.db, deps.policies.consentActivation, {
-      userId: actor.userId,
-      accountId: actor.accountId,
-    });
+    const status = await resolveTermsAcceptanceStatus(
+      deps.db,
+      deps.policies.consentActivation,
+      {
+        userId: actor.userId,
+        accountId: actor.accountId,
+      },
+      deps.publication,
+    );
     return c.json(status);
   });
 
@@ -70,10 +76,15 @@ export function termsOfServiceConsentRoutes(deps: TermsRouteDeps) {
       return c.json(authenticationRequired(), 401);
     }
 
-    const before = await resolveTermsAcceptanceStatus(deps.db, deps.policies.consentActivation, {
-      userId: actor.userId,
-      accountId: actor.accountId,
-    });
+    const before = await resolveTermsAcceptanceStatus(
+      deps.db,
+      deps.policies.consentActivation,
+      {
+        userId: actor.userId,
+        accountId: actor.accountId,
+      },
+      deps.publication,
+    );
     // Replays and retries of an already-current acceptance are a no-op --
     // the read model is checked before recording so double-clicks and
     // request retries never produce a second consent fact for the same
@@ -134,10 +145,15 @@ export function termsOfServiceConsentRoutes(deps: TermsRouteDeps) {
       throw error;
     }
 
-    const after = await resolveTermsAcceptanceStatus(deps.db, deps.policies.consentActivation, {
-      userId: actor.userId,
-      accountId: actor.accountId,
-    });
+    const after = await resolveTermsAcceptanceStatus(
+      deps.db,
+      deps.policies.consentActivation,
+      {
+        userId: actor.userId,
+        accountId: actor.accountId,
+      },
+      deps.publication,
+    );
     return c.json(after, 201);
   });
 

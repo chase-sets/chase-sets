@@ -442,6 +442,7 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.policyConsole.title": "Policy Console",
   "platformOperations.policyConsole.updatedAt": "Last revised",
   "platformOperations.policyConsole.detail.currentTitle": "Effective now",
+  "platformOperations.policyConsole.detail.publicationRunbook": "Publication and consent activation runbook",
   "platformOperations.policyConsole.detail.effectiveFrom": "Effective from",
   "platformOperations.policyConsole.detail.effectiveFromDescription": "Leave blank to apply immediately.",
   "platformOperations.policyConsole.detail.effectiveFromLabel": "Effective from",
