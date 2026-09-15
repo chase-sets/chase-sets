@@ -898,6 +898,23 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "identity.consent-activation-authority-snapshot",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/features/consents/api/consent-activation-route.ts:POST /:policyKey/activate",
+        "api-route:bounded-contexts/identity/features/consents/api/consent-activation-route.ts:POST /:policyKey/deactivate"
+      ],
+      "visibleDestination": {
+        "description": "Authenticated operators receive the canonical authority snapshot directly from the event stream after activation or deactivation, independently of policy document projections."
+      },
+      "proof": {
+        "authoritativeResponse": "consentActivationRoutes returns the validated Consent Activation Authority snapshot after the guarded activation append or deactivation command.",
+        "tests": ["bounded-contexts/identity/features/consents/api/consent-activation-route.db.test.ts"]
+      }
+    },
+    {
       "id": "identity.account-browser-fresh-read",
       "owner": "identity",
       "risk": "important",

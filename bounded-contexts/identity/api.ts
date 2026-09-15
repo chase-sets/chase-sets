@@ -76,6 +76,10 @@ import { apiKeyRoutes } from "./features/api-keys/api/route";
 import { consentRoutes } from "./features/consents/api/route";
 import { termsOfServiceConsentRoutes } from "./features/consents/api/terms-route";
 import {
+  consentActivationRoutes,
+  type ConsentActivationRouteOptions,
+} from "./features/consents/api/consent-activation-route";
+import {
   assertConsentAuthorizationForContext,
   authorizeConsentForSelfRegistration,
 } from "./features/consents/domain/consent-recording-authorization";
@@ -1529,7 +1533,10 @@ async function getCurrentActorMembershipDisplay(services: IdentityServices, acto
   };
 }
 
-export function buildIdentityApi(services: IdentityServices) {
+export function buildIdentityApi(
+  services: IdentityServices,
+  consentActivationOptions: ConsentActivationRouteOptions = {},
+) {
   const app = new Hono<IdentityApiEnv>();
 
   app.post("/internal/auth/guest-accounts", async (c) => {
@@ -1874,10 +1881,12 @@ export function buildIdentityApi(services: IdentityServices) {
     apiKeyRoutes({ ...services.apiKeys, db: services.db, auth: services.auth, getUser: services.users.getUser }),
   );
   app.route("/consents", consentRoutes(services.consents));
+  app.route("/admin/consents", consentActivationRoutes(services.policies, consentActivationOptions));
   app.route(
     "/consents/terms-of-service",
     termsOfServiceConsentRoutes({
       db: services.db,
+      publication: consentActivationOptions.publications?.["terms-of-service"],
       policies: services.policies,
       consents: services.consents,
     }),

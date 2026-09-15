@@ -1335,6 +1335,7 @@
     "bounded-contexts/identity/features/api-keys/domain/domain.ts",
     "bounded-contexts/identity/features/api-keys/read-model/schema.ts",
     "bounded-contexts/identity/features/api-keys/ui/contracts.ts",
+    "bounded-contexts/identity/features/consents/api/consent-activation-route.ts",
     "bounded-contexts/identity/features/consents/api/contracts.ts",
     "bounded-contexts/identity/features/consents/api/route.ts",
     "bounded-contexts/identity/features/consents/api/runtime.ts",
