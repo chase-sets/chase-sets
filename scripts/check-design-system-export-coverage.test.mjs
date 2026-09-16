@@ -1,3 +1,5 @@
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
   TESTED_DESIGN_SYSTEM_ROOT_EXPORTS,
@@ -9,6 +11,7 @@ import {
 
 describe("design-system export coverage guard", () => {
   it("enumerates the complete runtime namespace through the supplied module loader", async () => {
+    const rootDir = path.resolve("immutable-fixture");
     const importRuntimeModule = vi.fn().mockResolvedValue({
       default: "ignored",
       Button: {},
@@ -16,14 +19,14 @@ describe("design-system export coverage guard", () => {
     });
 
     const runtimeExports = await collectDesignSystemRuntimeExports({
-      rootDir: "D:/immutable-fixture",
+      rootDir,
       entrypoint: "src/index.ts",
       importRuntimeModule,
     });
 
     expect(runtimeExports).toEqual(["Accordion", "Button"]);
     expect(importRuntimeModule).toHaveBeenCalledOnce();
-    expect(importRuntimeModule.mock.calls[0][0]).toBe("file:///D:/immutable-fixture/src/index.ts");
+    expect(importRuntimeModule.mock.calls[0][0]).toBe(pathToFileURL(path.join(rootDir, "src/index.ts")).href);
   });
 
   it("propagates runtime module loader errors instead of accepting partial discovery", async () => {
