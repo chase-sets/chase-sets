@@ -109,7 +109,11 @@ export function createChannelReconciliationRuntime(
     const claim = await claimRun(dependencies, connection, resolvedPolicy.revision, startedAt, context);
     const counts = zeroCounts();
     try {
-      if (hold.held) {
+      const provider = input.registry.get({ providerKey: connection.providerKey, environment: connection.environment });
+      const publication = provider?.publication ?? null;
+      const snapshotAgeScope = publication?.execution === "claimed" && connection.providerKey === "tcgplayer";
+      // Outbound holds must not prevent recovery from locally persisted capture evidence.
+      if (hold.held && !snapshotAgeScope) {
         return finishRun(dependencies, connection, claim, "held", counts, false, policy.cadenceMs, startedAt, context);
       }
 
@@ -117,9 +121,6 @@ export function createChannelReconciliationRuntime(
         connectionId: connection.connectionId,
         limit: policy.maxListingsPerRun,
       });
-      const provider = input.registry.get({ providerKey: connection.providerKey, environment: connection.environment });
-      const publication = provider?.publication ?? null;
-      const snapshotAgeScope = publication?.execution === "claimed" && connection.providerKey === "tcgplayer";
       if (snapshotAgeScope) {
         const snapshots = await readLatestLiveSnapshotMetadata(dependencies.db, connection.connectionId);
         const age = evaluateSnapshotAge(snapshots, startedAt, policy.snapshotMaxAgeMs);
@@ -477,7 +478,11 @@ export function createChannelReconciliationRuntime(
               snapshotAgeAttention,
             })
           : null;
-      const state = stateResult.kind === "complete" && saleComplete ? "completed" : "bounded-unknown";
+      const state = hold.held
+        ? "held"
+        : stateResult.kind === "complete" && saleComplete
+          ? "completed"
+          : "bounded-unknown";
       return finishRun(
         dependencies,
         connection,

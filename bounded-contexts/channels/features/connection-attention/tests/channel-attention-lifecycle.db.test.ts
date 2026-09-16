@@ -75,6 +75,11 @@ describeDb("channel-attention-lifecycle", () => {
     expect(
       await h.services.reconciliation.deliverHealthObservations(h.services.connectionHealth, () => context),
     ).toEqual({ consumed: 1 });
+    for (let repeat = 0; repeat < 2; repeat++) {
+      await h.services.reconciliation.reconcileConnection(input, context);
+      await h.services.reconciliation.deliverHealthObservations(h.services.connectionHealth, () => context);
+    }
+    expect((await h.services.connectionHealth.readConnectionHealth(h.query(id))).health.state).toBe("failing");
     const source = createChannelActionAttentionSourceFromReadModel(h.db);
     const queue = () => source.load({ accountId: context.audit.forAccountId, now: new Date().toISOString() });
     expect((await queue()).filter((item) => item.id === `channel-action:${id}`)).toHaveLength(1);
@@ -97,10 +102,16 @@ describeDb("channel-attention-lifecycle", () => {
           new Date(at.getTime() - (3 - generation) * 1000).toISOString(),
         ],
       );
-    await h.services.reconciliation.reconcileConnection(input, context);
+    expect(await h.services.reconciliation.reconcileConnection(input, context)).toMatchObject({
+      state: "held",
+      clean: false,
+    });
     await h.services.reconciliation.deliverHealthObservations(h.services.connectionHealth, () => context);
     await h.services.reconciliation.reconcileConnection(input, context);
     await h.services.reconciliation.deliverHealthObservations(h.services.connectionHealth, () => context);
+    expect((await queue()).find((item) => item.id === `channel-action:${id}`)).toMatchObject({
+      summary: { params: { reasonCount: 1 } },
+    });
     expect(
       (await h.services.connectionAttention.listOpenAttention(h.query(id)))[0].health.map(
         (reason) => reason.reasonCode,
