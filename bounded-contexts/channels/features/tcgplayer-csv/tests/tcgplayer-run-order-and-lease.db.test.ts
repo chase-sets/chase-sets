@@ -33,7 +33,9 @@ let pools: Readonly<Record<"channels", PgTransactionalPool>>;
 
 describe("snapshot-read-cap-boundary input", () => {
   it("rejects invalid caps and unknown fields on both paths before SQL", async () => {
-    const query = vi.fn<PgQueryable["query"]>();
+    const query = vi.fn(async () => {
+      throw new Error("Unexpected SQL");
+    });
     const db: PgQueryable = { query };
     for (const maxRows of [0, -1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1, 1_000_001]) {
       await expect(readLatestSnapshotRows(db, { connectionId: "synthetic", surface: "live", maxRows })).rejects.toThrow(
@@ -82,8 +84,8 @@ describeDb("tcgplayer-run-order-and-lease", () => {
     for (const maxRows of [1, 2, tcgplayerLocalSnapshotRowCeiling]) {
       const rowReads: { sql: string; values: readonly unknown[] | undefined; count: number }[] = [];
       const db: PgQueryable = {
-        async query(sql, values) {
-          const result = await pools.channels.query(sql, values);
+        async query<Row>(sql: string, values?: readonly unknown[]) {
+          const result = await pools.channels.query<Row>(sql, values);
           if (sql.includes("FROM channel_inventory_snapshot_rows"))
             rowReads.push({ sql, values, count: result.rows.length });
           return result;
