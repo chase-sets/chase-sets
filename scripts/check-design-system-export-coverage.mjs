@@ -1,7 +1,8 @@
+import childProcess from "node:child_process";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
-import { createServer } from "vite";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { tsImport } from "tsx/esm/api";
 
 export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "Accordion",
@@ -419,23 +420,136 @@ export function formatDesignSystemExportCoverageFailure(result) {
   return sections.join("\n");
 }
 
+export const RUNTIME_IMPORT_DEADLINE_MS = 60000;
+const CHILD_CLEANUP_GRACE_MS = 5000;
+const IMPORT_CHILD_FLAG = "--design-system-export-import-child";
+
+function startRuntimeImportChild(rootDir, entrypointUrl) {
+  const child = childProcess.spawn(
+    process.execPath,
+    [fileURLToPath(import.meta.url), IMPORT_CHILD_FLAG, entrypointUrl],
+    {
+      cwd: rootDir,
+      stdio: ["ignore", "inherit", "inherit", "ipc"],
+    },
+  );
+  let closed = false;
+  let message;
+  let failure;
+  let exit;
+  let markClosed;
+  let onClose;
+  const closure = new Promise((resolve) => {
+    markClosed = resolve;
+  });
+  const onMessage = (value) => {
+    const hasKeys =
+      Array.isArray(value?.keys) && value.keys.every((key) => typeof key === "string") && value.error === undefined;
+    const hasError =
+      value?.error &&
+      typeof value.error.name === "string" &&
+      typeof value.error.message === "string" &&
+      typeof value.error.stack === "string" &&
+      value.keys === undefined;
+    if (message || value?.type !== "design-system-runtime-exports" || (!hasKeys && !hasError)) {
+      failure = new Error("Malformed or duplicate runtime import child result");
+      return;
+    }
+    message = value;
+  };
+  const onError = (error) => {
+    failure = error;
+  };
+  const onExit = (code, signal) => {
+    exit = { code, signal };
+  };
+  const result = new Promise((resolve, reject) => {
+    child.on("message", onMessage);
+    child.on("error", onError);
+    child.once("exit", onExit);
+    onClose = (code, signal) => {
+      closed = true;
+      markClosed();
+      if (failure) return reject(failure);
+      if (message?.error) {
+        const error = new Error(message.error.message, { cause: message.error });
+        error.name = message.error.name;
+        error.childExitCode = code;
+        error.childSignal = signal;
+        return reject(error);
+      }
+      if (!exit || exit.code !== 0 || exit.signal || code !== 0 || signal) {
+        return reject(new Error(`Runtime import child exited with code ${code}, signal ${signal}`));
+      }
+      if (!message) return reject(new Error("Runtime import child closed without a result"));
+      resolve(message.keys);
+    };
+    child.once("close", onClose);
+  });
+  return {
+    result,
+    async dispose() {
+      let cleanupTimer;
+      try {
+        if (!closed) {
+          let terminationError;
+          try {
+            child.kill();
+          } catch (error) {
+            terminationError = error;
+          }
+          await Promise.race([
+            closure,
+            new Promise((_, reject) => {
+              cleanupTimer = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `Runtime import child cleanup UNKNOWN: PID ${child.pid} did not close within ${CHILD_CLEANUP_GRACE_MS}ms after termination`,
+                      { cause: terminationError },
+                    ),
+                  ),
+                CHILD_CLEANUP_GRACE_MS,
+              );
+            }),
+          ]);
+        }
+      } finally {
+        clearTimeout(cleanupTimer);
+        child.removeListener("message", onMessage);
+        child.removeListener("error", onError);
+        child.removeListener("exit", onExit);
+        child.removeListener("close", onClose);
+      }
+    },
+  };
+}
+
 export async function collectDesignSystemRuntimeExports({
   rootDir = process.cwd(),
   entrypoint = "packages/design-system/src/index.ts",
+  importRuntimeModule,
 } = {}) {
-  const server = await createServer({
-    root: rootDir,
-    logLevel: "error",
-    server: { middlewareMode: true },
-    appType: "custom",
+  const entrypointUrl = pathToFileURL(path.resolve(rootDir, entrypoint)).href;
+  const started = performance.now();
+  const timeoutError = new Error(`Complete runtime import timed out after ${RUNTIME_IMPORT_DEADLINE_MS}ms`);
+  let timer;
+  let childImport;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(timeoutError), RUNTIME_IMPORT_DEADLINE_MS);
   });
-
   try {
-    const designSystemModule = await server.ssrLoadModule(path.resolve(rootDir, entrypoint));
-
-    return uniqueSorted(Object.keys(designSystemModule).filter((name) => name !== "default"));
+    const result = importRuntimeModule
+      ? Promise.resolve()
+          .then(() => importRuntimeModule(entrypointUrl))
+          .then(Object.keys)
+      : (childImport = startRuntimeImportChild(rootDir, entrypointUrl)).result;
+    const keys = await Promise.race([result, deadline]);
+    if (performance.now() - started >= RUNTIME_IMPORT_DEADLINE_MS) throw timeoutError;
+    return uniqueSorted(keys.filter((name) => name !== "default"));
   } finally {
-    await server.close();
+    clearTimeout(timer);
+    await childImport?.dispose();
   }
 }
 
@@ -459,5 +573,21 @@ export async function runDesignSystemExportCoverageCheck({
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  process.exitCode = await runDesignSystemExportCoverageCheck();
+  if (process.argv[2] === IMPORT_CHILD_FLAG) {
+    let message;
+    try {
+      const namespace = await tsImport(process.argv[3], import.meta.url);
+      message = { type: "design-system-runtime-exports", keys: Object.keys(namespace) };
+    } catch (error) {
+      message = {
+        type: "design-system-runtime-exports",
+        error: { name: error?.name ?? "Error", message: error?.message ?? String(error), stack: error?.stack ?? "" },
+      };
+      process.exitCode = 1;
+    }
+    await new Promise((resolve, reject) => process.send(message, (error) => (error ? reject(error) : resolve())));
+    process.disconnect();
+  } else {
+    process.exitCode = await runDesignSystemExportCoverageCheck();
+  }
 }
