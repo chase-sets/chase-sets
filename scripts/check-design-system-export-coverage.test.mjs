@@ -1,7 +1,7 @@
 import path from "node:path";
 import childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -340,15 +340,37 @@ describe("runtime import child lifetime", () => {
   });
 
   it("reaps a real pending module at the full deadline before rejection", async () => {
-    const rootDir = fixture("export const Partial = {}; await new Promise(resolve => setTimeout(resolve, 120000));");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const rootDir = fixture(`
+      import { writeFileSync } from "node:fs";
+      export const Partial = {};
+      writeFileSync(new URL("./synthetic-pending-evaluation.marker", import.meta.url), "synthetic pending module evaluated");
+      await new Promise(resolve => setTimeout(resolve, 120000));
+    `);
+    const marker = path.join(rootDir, "packages/design-system/src/synthetic-pending-evaluation.marker");
     const observation = trackRealChild();
+    const outcome = collectDesignSystemRuntimeExports({ rootDir });
+    const kill = vi.spyOn(observation.child, "kill");
+    const rejected = vi.fn(() => observation.closed);
+    const rejectionObserved = outcome.catch(rejected);
     const started = performance.now();
-    await expect(collectDesignSystemRuntimeExports({ rootDir })).rejects.toThrow(
-      "Complete runtime import timed out after 60000ms",
-    );
-    expect(performance.now() - started).toBeGreaterThanOrEqual(60000);
+    while (performance.now() - started < 3000) {
+      if (existsSync(marker) && readFileSync(marker, "utf8") === "synthetic pending module evaluated") break;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(readFileSync(marker, "utf8")).toBe("synthetic pending module evaluated");
+    await vi.advanceTimersByTimeAsync(59999);
+    expect(process.kill(observation.child.pid, 0)).toBe(true);
+    expect(observation.closed).toBe(false);
+    expect(kill).not.toHaveBeenCalled();
+    expect(rejected).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(kill).toHaveBeenCalledOnce();
+    await expect(outcome).rejects.toThrow("Complete runtime import timed out after 60000ms");
+    expect(await rejectionObserved).toBe(true);
     expect(observation.closed).toBe(true);
     expect(observation.code === 0 && observation.signal === null).toBe(false);
     expect(() => process.kill(observation.child.pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
