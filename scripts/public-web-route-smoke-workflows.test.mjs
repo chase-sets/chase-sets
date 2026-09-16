@@ -457,7 +457,10 @@ describe("admin API retry", () => {
         authorization: `Bearer ${syntheticSessionToken}`,
       })),
     );
-    expect(result.events.filter((event) => event.kind === "retry-delay")).toEqual([]);
+    expect(
+      result.events.filter((event) => event.kind === "retry-delay"),
+      `${result.stderr}\nClassified events: ${JSON.stringify(result.events)}`,
+    ).toEqual([]);
     const pagePaths = fixture.requests
       .filter((request) => !request.path.startsWith("/api/"))
       .map((request) => request.path);
@@ -507,7 +510,7 @@ describe("admin API retry", () => {
     const lifecycle = result.events
       .filter((event) => event.path === authProbePath || event.kind === "retry-delay")
       .map((event) => event.kind);
-    expect(lifecycle).toEqual([
+    expect(lifecycle, `${result.stderr}\nClassified events: ${JSON.stringify(result.events)}`).toEqual([
       "fetch",
       "cancel-start",
       "cancel-end",
