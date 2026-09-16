@@ -105,6 +105,7 @@ import {
   priceSignalPolicy,
   providerObservationPolicy,
   repricingEnginePolicy,
+  repricingManagementPolicy,
 } from "@chase-sets/pricing/server";
 import {
   createBlockedPayoutAttentionSourceFromReadModel,
@@ -424,6 +425,7 @@ export function createPlatformApiHost(
         priceSignalPolicy,
         providerObservationPolicy,
         repricingEnginePolicy,
+        repricingManagementPolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.pricing as { policies?: PolicyConsoleWritePort } | undefined,

@@ -1,11 +1,13 @@
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import { pricingListingOutcomeSchemaSql } from "./migrations";
 
 /**
  * Durable signal work, seller-visible evaluation facts, and the two small
  * coordination ledgers owned by the reactive repricing engine.
  */
 export const pricingRepricingEngineSchemaSql = `
+${pricingListingOutcomeSchemaSql}
 ${durableJobSchemaSql({
   jobsTable: "pricing_repricing_evaluation_jobs",
   eventsTable: "pricing_repricing_evaluation_job_events",
@@ -82,6 +84,11 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_daily_sweep_cursor (
 `;
 
 export const pricingRepricingEngineSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260916_pricing_listing_outcomes",
+    description: "Retain repricing listing facts and convergent current outcomes with digest-proven compaction.",
+    statements: [pricingListingOutcomeSchemaSql],
+  },
   {
     migrationId: "20260914_pricing_repricing_spiral_breaker",
     description: "Retain product-scoped repricing direction and automatic freeze expiry in the cooldown ledger.",
