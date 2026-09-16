@@ -111,6 +111,7 @@ describeDb("channel-attention-lifecycle", () => {
       (await h.services.reconciliation.readChannelDriftAttentionContribution({ connectionId: id }))?.resolution,
     ).toBeNull();
     expect((await h.db.query("SELECT * FROM channel_sync_runs WHERE connection_id=$1", [id])).rows).toEqual(manual);
+    await h.db.query("DELETE FROM channel_sync_runs WHERE run_id='synthetic-age-manual' AND connection_id=$1", [id]);
   });
 
   it("opens once, resolves once without closing health, and reopens only a changed generation", async () => {
