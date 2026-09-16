@@ -1,4 +1,5 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { parseProcessorSetupSessionCancellationResult } from "@chase-sets/payment-processing";
 import type {
   CreatedProcessorPayment,
   CreatedProcessorRefund,
@@ -18,6 +19,7 @@ import type {
   ProcessorLiabilityShiftOutcome,
   ProcessorThreeDSecureRequest,
   ProcessorSavedPaymentMethod,
+  ProcessorSetupSessionCancellationResult,
   ProcessorSetupSessionResult,
 } from "@chase-sets/payment-processing";
 import {
@@ -1692,6 +1694,100 @@ export function createStripePaymentProcessorGateway(
       }
       return result;
     },
+    async cancelSetupSession(processorSetupReference: string): Promise<ProcessorSetupSessionCancellationResult> {
+      const reference = normalizeOptionalText(processorSetupReference);
+      if (!reference || !reference.startsWith("seti_")) {
+        return closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "invalid-reference",
+          httpStatus: null,
+        });
+      }
+
+      let initial: StripeSetupIntentResponse;
+      try {
+        initial = await stripeRequest<StripeSetupIntentResponse>(`/v1/setup_intents/${encodeURIComponent(reference)}`, {
+          method: "GET",
+        });
+      } catch (error) {
+        return setupCancellationFailure(error);
+      }
+
+      const initialStatus = normalizeOptionalText(initial?.status ?? null);
+      if (initialStatus === "canceled" || initialStatus === "succeeded") {
+        return closedSetupCancellationResult({
+          outcome: "already-terminal",
+          processorStatus: initialStatus,
+        });
+      }
+      if (!isSetupCancellationEligibleStatus(initialStatus)) {
+        return closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "unexpected-status",
+          httpStatus: 200,
+        });
+      }
+
+      let writeObservation: SetupCancellationWriteObservation;
+      try {
+        const canceled = await stripeRequest<StripeSetupIntentResponse>(
+          `/v1/setup_intents/${encodeURIComponent(reference)}/cancel`,
+          { method: "POST", body: toFormBody({}) },
+          { idempotencyKey: setupCancellationIdempotencyKey(reference) },
+        );
+        if (normalizeOptionalText(canceled?.status ?? null) === "canceled") {
+          return closedSetupCancellationResult({ outcome: "cancelled", processorStatus: "canceled" });
+        }
+        writeObservation = { kind: "successful-non-canceled" };
+      } catch (error) {
+        writeObservation = setupCancellationWriteObservation(error);
+      }
+
+      let reconciled: StripeSetupIntentResponse;
+      try {
+        reconciled = await stripeRequest<StripeSetupIntentResponse>(
+          `/v1/setup_intents/${encodeURIComponent(reference)}`,
+          { method: "GET" },
+        );
+      } catch (error) {
+        return setupCancellationFailure(error);
+      }
+
+      const reconciledStatus = normalizeOptionalText(reconciled?.status ?? null);
+      if (reconciledStatus === "canceled" || reconciledStatus === "succeeded") {
+        return closedSetupCancellationResult({
+          outcome: "already-terminal",
+          processorStatus: reconciledStatus,
+        });
+      }
+      if (!isSetupCancellationEligibleStatus(reconciledStatus)) {
+        return closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "unexpected-status",
+          httpStatus: 200,
+        });
+      }
+
+      if (writeObservation.kind === "provider-rejected") {
+        return closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "provider-rejected",
+          httpStatus: writeObservation.httpStatus,
+        });
+      }
+      if (writeObservation.kind === "transport-failure") {
+        return closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "transport-failure",
+          httpStatus: null,
+        });
+      }
+      return closedSetupCancellationResult({
+        outcome: "refused",
+        reason: "unexpected-status",
+        httpStatus: 200,
+      });
+    },
     async retrievePaymentResultByPaymentId(paymentId) {
       const normalizedPaymentId = normalizeOptionalText(paymentId);
       if (!normalizedPaymentId) {
@@ -1955,4 +2051,59 @@ export function createStripePaymentProcessorGateway(
       return mapped;
     },
   };
+}
+
+type SetupCancellationWriteObservation =
+  | Readonly<{ kind: "successful-non-canceled" }>
+  | Readonly<{ kind: "provider-rejected"; httpStatus: number }>
+  | Readonly<{ kind: "transport-failure" }>;
+
+function isSetupCancellationEligibleStatus(status: string | null): boolean {
+  return status === "requires_payment_method" || status === "requires_confirmation" || status === "requires_action";
+}
+
+function setupCancellationIdempotencyKey(reference: string): string {
+  const digest = createHash("sha256").update(reference, "utf8").digest("hex");
+  return `payments:setup-intent-cancel:v1:${digest}`;
+}
+
+function closedSetupCancellationResult(value: unknown): ProcessorSetupSessionCancellationResult {
+  const parsed = parseProcessorSetupSessionCancellationResult(value);
+  if (!parsed) {
+    throw new Error("Stripe produced an invalid setup-session cancellation result.");
+  }
+  return parsed;
+}
+
+function setupCancellationFailure(error: unknown): ProcessorSetupSessionCancellationResult {
+  if (
+    error instanceof ProviderAdapterError &&
+    typeof error.providerStatus === "number" &&
+    Number.isInteger(error.providerStatus) &&
+    error.providerStatus >= 100 &&
+    error.providerStatus <= 599
+  ) {
+    return error.providerStatus === 404
+      ? closedSetupCancellationResult({ outcome: "not-found" })
+      : closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "provider-rejected",
+          httpStatus: error.providerStatus,
+        });
+  }
+  return closedSetupCancellationResult({
+    outcome: "refused",
+    reason: "transport-failure",
+    httpStatus: null,
+  });
+}
+
+function setupCancellationWriteObservation(error: unknown): SetupCancellationWriteObservation {
+  return error instanceof ProviderAdapterError &&
+    typeof error.providerStatus === "number" &&
+    Number.isInteger(error.providerStatus) &&
+    error.providerStatus >= 100 &&
+    error.providerStatus <= 599
+    ? { kind: "provider-rejected", httpStatus: error.providerStatus }
+    : { kind: "transport-failure" };
 }

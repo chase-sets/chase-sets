@@ -66,7 +66,7 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "purchase, following Chase Sets' standard payment-session-create/confirm and capture path.",
     productTruthRefs: [
       "bounded-contexts/payments/features/payments/api/runtime.ts:1890-1943",
-      "infrastructure/stripe-payments/index.ts:1464-1512",
+      "infrastructure/stripe-payments/index.ts:1466-1514",
     ],
     requiredEvidenceKeywords: ["createPaymentSession", "payment_intent", "RecordPaymentCapture"],
   },

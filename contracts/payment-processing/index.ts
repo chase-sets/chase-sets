@@ -118,6 +118,72 @@ export type ProcessorSetupSessionResult = Readonly<{
   savedPaymentMethod: ProcessorSavedPaymentMethod | null;
 }>;
 
+export type ProcessorSetupSessionCancellationResult =
+  | Readonly<{ outcome: "cancelled"; processorStatus: "canceled" }>
+  | Readonly<{ outcome: "already-terminal"; processorStatus: "canceled" | "succeeded" }>
+  | Readonly<{ outcome: "not-found" }>
+  | Readonly<{ outcome: "refused"; reason: "invalid-reference"; httpStatus: null }>
+  | Readonly<{ outcome: "refused"; reason: "transport-failure"; httpStatus: null }>
+  | Readonly<{ outcome: "refused"; reason: "provider-rejected"; httpStatus: number }>
+  | Readonly<{ outcome: "refused"; reason: "unexpected-status"; httpStatus: 200 }>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, expectedKeys: readonly string[]) {
+  const actualKeys = Object.keys(value);
+  return actualKeys.length === expectedKeys.length && expectedKeys.every((key) => Object.hasOwn(value, key));
+}
+
+export function parseProcessorSetupSessionCancellationResult(
+  value: unknown,
+): ProcessorSetupSessionCancellationResult | null {
+  if (!isRecord(value) || typeof value.outcome !== "string") {
+    return null;
+  }
+
+  if (value.outcome === "cancelled") {
+    return hasExactKeys(value, ["outcome", "processorStatus"]) && value.processorStatus === "canceled"
+      ? { outcome: "cancelled", processorStatus: "canceled" }
+      : null;
+  }
+
+  if (value.outcome === "already-terminal") {
+    return hasExactKeys(value, ["outcome", "processorStatus"]) &&
+      (value.processorStatus === "canceled" || value.processorStatus === "succeeded")
+      ? { outcome: "already-terminal", processorStatus: value.processorStatus }
+      : null;
+  }
+
+  if (value.outcome === "not-found") {
+    return hasExactKeys(value, ["outcome"]) ? { outcome: "not-found" } : null;
+  }
+
+  if (value.outcome !== "refused" || !hasExactKeys(value, ["outcome", "reason", "httpStatus"])) {
+    return null;
+  }
+
+  if (value.reason === "invalid-reference" || value.reason === "transport-failure") {
+    return value.httpStatus === null ? { outcome: "refused", reason: value.reason, httpStatus: null } : null;
+  }
+
+  if (value.reason === "provider-rejected") {
+    return typeof value.httpStatus === "number" &&
+      Number.isInteger(value.httpStatus) &&
+      value.httpStatus >= 100 &&
+      value.httpStatus <= 599
+      ? { outcome: "refused", reason: "provider-rejected", httpStatus: value.httpStatus }
+      : null;
+  }
+
+  if (value.reason === "unexpected-status") {
+    return value.httpStatus === 200 ? { outcome: "refused", reason: "unexpected-status", httpStatus: 200 } : null;
+  }
+
+  return null;
+}
+
 export type AgenticPaymentHandlerDeclaration = Readonly<{
   id: "stripe-shared-payment-token";
   provider: "stripe";
@@ -268,6 +334,7 @@ export interface PaymentProcessorGateway {
   createCustomer(input: CreateProcessorCustomerInput): Promise<CreatedProcessorCustomer>;
   createSetupSession(input: CreateProcessorSetupSessionInput): Promise<CreatedProcessorSetupSession>;
   retrieveSetupSessionResult(processorSetupReference: string): Promise<ProcessorSetupSessionResult>;
+  cancelSetupSession(processorSetupReference: string): Promise<ProcessorSetupSessionCancellationResult>;
   retrieveSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
   detachSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
   /**
