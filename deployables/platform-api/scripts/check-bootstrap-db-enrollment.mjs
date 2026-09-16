@@ -310,6 +310,13 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
         referenceDurationMs: 14123,
         identity: "547ba56539985bfc",
       }),
+    ]),
+  }),
+  "catalog-seed-interruption-resume.db.test.ts": Object.freeze({
+    executionUnit: "test:db:1",
+    databaseSuffix: "platform_api_catalog_seed_interruption_resume",
+    bootBearingCases: "all",
+    cases: Object.freeze([
       Object.freeze({
         name: "resumes after Dimensions under scenario-seed and production-like profiles",
         referenceDurationMs: 20952,

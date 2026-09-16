@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -243,7 +244,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(result.violations).toEqual([]);
     expect(result.expectedCaseCount).toBe(54);
     expect(result.caseCount).toBe(result.expectedCaseCount);
-    expect(result.fileCount).toBe(8);
+    expect(result.fileCount).toBe(9);
     expect(result.partitionUnitCount).toBe(2);
   });
 
@@ -413,10 +414,244 @@ describe("Platform API bootstrap DB enrollment", () => {
     // other four. Replaying that exact layout through the shipped model must
     // return at least each observed `Duration`, or the model is projecting a
     // cheaper world than the one the authority measured.
-    const authoritativeCases = Object.entries(bootstrapDbEnrollmentManifest)
+    const previousReferenceCases = {
+      "bootstrap-scenario.db.test.ts": [
+        {
+          name: "boots with context-owned pools and replays cross-context projections",
+          referenceDurationMs: 90877,
+        },
+        {
+          name: "revokes agent-owned saved instruments through the composed OAuth route with a valid audit context",
+          referenceDurationMs: 1202,
+        },
+        {
+          name: "records context schema migrations once during concurrent bootstrap",
+          referenceDurationMs: 1716,
+        },
+      ],
+      "bootstrap-production-reconciliation.db.test.ts": [
+        {
+          name: "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
+          referenceDurationMs: 8250,
+        },
+        {
+          name: "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
+          referenceDurationMs: 16350,
+        },
+        {
+          name: "serializes two concurrent full production-like API host bootstraps with a database advisory lock",
+          referenceDurationMs: 17258,
+        },
+        {
+          name: "limits and reconciles every production-like seed context against current-code state",
+          referenceDurationMs: 20217,
+        },
+        {
+          name: "upgrades legacy published Display Templates through the not-empty Catalog reconciliation path",
+          referenceDurationMs: 20576,
+        },
+        {
+          name: "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
+          referenceDurationMs: 1084,
+        },
+        {
+          name: "keeps every representative Identity creation event count stable on an ordinary day-after bootstrap",
+          referenceDurationMs: 636,
+        },
+        {
+          name: "rejects a conflicting retained representative Account profile with actionable detail",
+          referenceDurationMs: 320,
+        },
+        {
+          name: "rejects a conflicting retained representative User profile with actionable detail",
+          referenceDurationMs: 473,
+        },
+        {
+          name: "rejects a conflicting retained representative Shipping Address profile with actionable detail",
+          referenceDurationMs: 483,
+        },
+        {
+          name: "resumes the real representative commerce command after offer acceptance without duplicate creation events",
+          referenceDurationMs: 61339,
+        },
+      ],
+      "bootstrap-lock-contention.db.test.ts": [
+        {
+          name: "recovers when bootstrap-touched table locks release within the retry budget",
+          referenceDurationMs: 1109,
+        },
+        {
+          name: "fails closed when bootstrap-touched table locks exhaust the retry budget",
+          referenceDurationMs: 1120,
+        },
+        {
+          name: "isolates partition databases and bootstrap advisory locks",
+          referenceDurationMs: 2535,
+        },
+      ],
+      "authoritative-seed-resume-core.db.test.ts": [
+        {
+          name: "derives the exact active and source-only seed universe for every host profile",
+          referenceDurationMs: 348,
+        },
+        {
+          name: "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
+          referenceDurationMs: 75314,
+        },
+        {
+          name: "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
+          referenceDurationMs: 28241,
+        },
+        {
+          name: "does not re-author Settlement while its payout projection lags the stream",
+          referenceDurationMs: 77914,
+        },
+      ],
+      "authoritative-seed-resume-reconciliation.db.test.ts": [
+        {
+          name: "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
+          referenceDurationMs: 73270,
+        },
+        {
+          name: "enumerates stream-sourced seed-state coverage from the runtime mount list",
+          referenceDurationMs: 608,
+        },
+        {
+          name: "resumes every converted context after its UNLOGGED guard projections are truncated",
+          referenceDurationMs: 71709,
+        },
+        {
+          name: "accepts a seeded resolution after the real deadline sweep advances it to closed",
+          referenceDurationMs: 59351,
+        },
+      ],
+      "authoritative-seed-resume-recovery.db.test.ts": [
+        {
+          name: "keeps a cancelled resolution-bearing seed request incomplete and does not silently repair it",
+          referenceDurationMs: 57961,
+        },
+        {
+          name: "recreates only a missing review-eligible payment after a sibling payment has completed",
+          referenceDurationMs: 58195,
+        },
+      ],
+      "inventory-seed-resume.db.test.ts": [
+        {
+          name: "reseeds inventory after its truncated UNLOGGED projections without duplicate creation",
+          referenceDurationMs: 24711,
+        },
+        {
+          name: "appends events only on the first of three same-boot inventory and checkout seed invocations",
+          referenceDurationMs: 21675,
+        },
+        {
+          name: "resumes inventory from a committed-but-incomplete storage location",
+          referenceDurationMs: 28234,
+        },
+        {
+          name: "resumes an archived storage location committed before its archive step",
+          referenceDurationMs: 28971,
+        },
+        {
+          name: "resumes a checkout cart holding only one of its two seeded lines",
+          referenceDurationMs: 24479,
+        },
+        {
+          name: "fails closed on conflicting retained inventory identity metadata",
+          referenceDurationMs: 20292,
+        },
+        {
+          name: "fails closed on a terminal retained inventory aggregate",
+          referenceDurationMs: 16012,
+        },
+        {
+          name: "keeps ordinary duplicate-create rejection unchanged for non-seed commands",
+          referenceDurationMs: 12671,
+        },
+      ],
+      "catalog-seed-aggregate-state.db.test.ts": [
+        {
+          name: "reconciles all required aggregates for a clean scenario-seed-only module seed",
+          referenceDurationMs: 11470,
+        },
+        {
+          name: "does not re-author unchanged Product Measures facts on scenario-seed repeat",
+          referenceDurationMs: 19248,
+        },
+        {
+          name: "NC-1 resumes an undrained Dimension seed without duplicate creation",
+          referenceDurationMs: 13264,
+        },
+        {
+          name: "NC-2 resumes a Component committed at created version one across two ordinary boots",
+          referenceDurationMs: 16156,
+        },
+        {
+          name: "NC-3 restores lagging projections without re-authoring active aggregates",
+          referenceDurationMs: 6218,
+        },
+        {
+          name: "rebuilds lost Catalog Item projections from retained streams without appending item events",
+          referenceDurationMs: 23434,
+        },
+        {
+          name: "NC-4 ignores populated containers when required aggregates have zero events",
+          referenceDurationMs: 25049,
+        },
+        {
+          name: "NC-5a repairs a draft partial aggregate rather than skipping it",
+          referenceDurationMs: 16069,
+        },
+        {
+          name: "NC-5b rejects conflicting retained identity metadata on both boots",
+          referenceDurationMs: 3223,
+        },
+        {
+          name: "NC-5c rejects a terminal retained aggregate on both boots",
+          referenceDurationMs: 14123,
+        },
+        {
+          name: "resumes after Dimensions under scenario-seed and production-like profiles",
+          referenceDurationMs: 20952,
+        },
+        {
+          name: "resumes after Fields under scenario-seed and production-like profiles",
+          referenceDurationMs: 20631,
+        },
+        {
+          name: "resumes after Reference Data under scenario-seed and production-like profiles",
+          referenceDurationMs: 20554,
+        },
+        {
+          name: "resumes after Components under scenario-seed and production-like profiles",
+          referenceDurationMs: 20933,
+        },
+        {
+          name: "resumes after Blueprints under scenario-seed and production-like profiles",
+          referenceDurationMs: 22067,
+        },
+        {
+          name: "resumes after the final Category under scenario-seed and production-like profiles",
+          referenceDurationMs: 20945,
+        },
+        {
+          name: "resumes mid catalog.component.created under scenario-seed and production-like profiles",
+          referenceDurationMs: 20553,
+        },
+        {
+          name: "keeps the required aggregate set equal to the base aggregate streams authored by the seed",
+          referenceDurationMs: 13278,
+        },
+        {
+          name: "preserves duplicate CreateDimension rejection through the non-seed command handler",
+          referenceDurationMs: 13522,
+        },
+      ],
+    };
+    const authoritativeCases = Object.entries(previousReferenceCases)
       .filter(([fileName]) => fileName.startsWith("authoritative-seed-resume-"))
-      .flatMap(([, partition]) => partition.cases);
-    const casesOf = (fileName: string) => bootstrapDbEnrollmentManifest[fileName]!.cases;
+      .flatMap(([, cases]) => cases);
+    const casesOf = (fileName: keyof typeof previousReferenceCases) => previousReferenceCases[fileName];
     const asFixtureCases = (cases: readonly { name: string; referenceDurationMs: number }[]) =>
       cases.map((testCase, index) => ({
         name: testCase.name,
@@ -880,6 +1115,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       "authoritative-seed-resume-core.db.test.ts": "test:db:1",
       "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:1",
       "catalog-seed-aggregate-state.db.test.ts": "test:db:1",
+      "catalog-seed-interruption-resume.db.test.ts": "test:db:1",
       "bootstrap-production-reconciliation.db.test.ts": "test:db:2",
       "authoritative-seed-resume-recovery.db.test.ts": "test:db:2",
       "inventory-seed-resume.db.test.ts": "test:db:2",
@@ -1250,6 +1486,163 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(derived.size).toBe(10);
   });
 
+  it("preserves the Catalog split's original case identities, helpers, profiles, and state plumbing", () => {
+    const files = ["catalog-seed-aggregate-state.db.test.ts", "catalog-seed-interruption-resume.db.test.ts"];
+    const sources = files.map((file) => readFileSync(join(testDirectory, file), "utf8"));
+    const expected = [
+      {
+        name: "reconciles all required aggregates for a clean scenario-seed-only module seed",
+        identity: "f78d626bdd98a1c4",
+      },
+      {
+        name: "does not re-author unchanged Product Measures facts on scenario-seed repeat",
+        identity: "a0661cfb08a350b5",
+      },
+      {
+        name: "NC-1 resumes an undrained Dimension seed without duplicate creation",
+        identity: "ddeee7bac7384389",
+      },
+      {
+        name: "NC-2 resumes a Component committed at created version one across two ordinary boots",
+        identity: "d6b487fe4780b81f",
+      },
+      {
+        name: "NC-3 restores lagging projections without re-authoring active aggregates",
+        identity: "5370dfdb151548b6",
+      },
+      {
+        name: "rebuilds lost Catalog Item projections from retained streams without appending item events",
+        identity: "f7c024ac13659525",
+      },
+      {
+        name: "NC-4 ignores populated containers when required aggregates have zero events",
+        identity: "31ea7ebe99c1ec04",
+      },
+      {
+        name: "NC-5a repairs a draft partial aggregate rather than skipping it",
+        identity: "da4c8d1fc71a5c6b",
+      },
+      {
+        name: "NC-5b rejects conflicting retained identity metadata on both boots",
+        identity: "220cd5f763d298b2",
+      },
+      {
+        name: "NC-5c rejects a terminal retained aggregate on both boots",
+        identity: "547ba56539985bfc",
+      },
+      {
+        name: "resumes after Dimensions under scenario-seed and production-like profiles",
+        identity: "b006b495c2b4a662",
+      },
+      {
+        name: "resumes after Fields under scenario-seed and production-like profiles",
+        identity: "13b82872bb3ba0b8",
+      },
+      {
+        name: "resumes after Reference Data under scenario-seed and production-like profiles",
+        identity: "3cfe7d19f03127f2",
+      },
+      {
+        name: "resumes after Components under scenario-seed and production-like profiles",
+        identity: "7ef841ec166b46d3",
+      },
+      {
+        name: "resumes after Blueprints under scenario-seed and production-like profiles",
+        identity: "9a1c524b0483b012",
+      },
+      {
+        name: "resumes after the final Category under scenario-seed and production-like profiles",
+        identity: "cb5ecec3a418a82a",
+      },
+      {
+        name: "resumes mid catalog.component.created under scenario-seed and production-like profiles",
+        identity: "ea939096e104ab7e",
+      },
+      {
+        name: "keeps the required aggregate set equal to the base aggregate streams authored by the seed",
+        identity: "2be8f4782fdbd9eb",
+      },
+      {
+        name: "preserves duplicate CreateDimension rejection through the non-seed command handler",
+        identity: "b21990765232df57",
+      },
+    ];
+    expect(sources.map((source, index) => deriveBootstrapDbCaseIdentities(files[index]!, source).length)).toEqual([
+      10, 9,
+    ]);
+    const actual = sources.flatMap((source, index) => deriveBootstrapDbCaseIdentities(files[index]!, source));
+    expect(actual).toEqual(expected);
+    expect(deriveBootstrapDbCaseIdentities("catalog-before-split.ts", sources.join("\n"))).toEqual(expected);
+    const support = readFileSync(join(testDirectory, "catalog-seed-test-support.ts"), "utf8");
+    // AST digests captured from f8b1c5eb3a1efb51703ff9df61c0aa6554cf6ef7, excluding only export plumbing.
+    const expectedHelpers = {
+      CatalogServices: "a8e89b7f2c21b03bc9f44258e94d22397bd36823e944e9c8a3a7c8a5743e6872",
+      InterruptionSite: "c4dadca6244573816136cb34ca52f186a2b47b8e32dcf3d6302940783a75d4b2",
+      catalogApiContextRegistry: "18182c8373dbd2f5e45173269916afa76b01ff26fdabedeea967a79732cf656c",
+      profileShapes: "3ac53db3762c52cfff690dc427bea3cdaa82f4b585095736995aab43c1ac00f6",
+      databaseUrls: "14168e4de456370321f00dbba9697c134df3470f0fa860257723d60bd2282ff1",
+      pools: "5260c751c5ee88b848ffa1899726fad225c3283d06d00721d9c04f5cc43de6f9",
+      createCatalogSeedHost: "25c315bf2f227c021c59f158afaaea76469224c41997e0a9a92b22b9e51abe52",
+      prepareCatalog: "7fb847531b8b855767631e51c953bfdb3c1b1afae463f6d63a0c62b6fe22a140",
+      catalogServices: "d46e45a440d6e719db7d53d9a6e9e6368733a6e6472b68f11d185ce25e5a4b1a",
+      bootstrapOptions: "d24074c11b027484bafc2bac41825f4c71637fc61fe323b4be46a3115e6a3356",
+      ordinaryBoot: "af77dd4e0a44542cdd59f540162671b5aa43a41854540b059645805e3ef46dd2",
+      directCatalogSeed: "5f92569adbd12cdf93563627604d131d61a35ebf0869b1bfce692d540fbbddc0",
+      interruptCatalogSeed: "7320441f318dc4297dd1b47ce05347702ee40af10b4b8afcc10331cfe16596c7",
+      requiredEventCounts: "c18ab0d0f7a0e8d2898fe5f377ddecf41afd678d4a0c9ffe36df80c5f75de869",
+      scenarioCatalogItemIds: "36c6b74cf24896748bc58547d830d1207d6223e34762339f5cbff569bbb0f628",
+      scenarioCatalogItemEventCount: "f3addf065f08c6a453e0950421de0d8a917e981eaa21849faacbe17d437ae1c8",
+      scenarioCatalogItemProjectionCount: "6363da0f59ce702d229f9fd80b1c0201fb91754daa2f29324f1de8c2423aed1a",
+      expectAllRequiredAggregatesActive: "369a626a2fab08da27aceb6c2f7d9b02b335a9403c17c3d2fc45a7296c124c89",
+      expectInterruptionSiteResumes: "196253203c6359a242ccc1b93ebb7e09c6ac3eefb051466617a109350ca6f7b9",
+      createSingleCardIdentityDraft: "ec3f0d976f232c1b91d2e4d4f6ea3f3b85e48af4755c73f0d904e562c4348650",
+      countEventType: "8e6bce9f27100dc8908b423c891fba220966ecb25053e543773e78fa87603063",
+      productMeasuresResolvedEventCount: "e2e782cabf3e69987cfef01b5945a395d0dc7dafc886b8921b62bed2c39640ad",
+      expectCatalogOnlyHarnessConnections: "050500884f78834e05044997894a2dc3cb7a54f250232f09d64c80ed6e8e490a",
+    };
+    const { assignCatalogSeedState, ...helpers } = catalogDeclarationDigests(support);
+    expect(helpers).toEqual(expectedHelpers);
+    expect(assignCatalogSeedState).toBeTruthy();
+    for (const [index, source] of sources.entries()) {
+      const suffix = index === 0 ? "aggregate_state" : "interruption_resume";
+      expect(catalogHarnessDeclarations(source)).toEqual(
+        catalogHarnessDeclarations(
+          `createPlatformApiBootstrapTestHarness("platform_api_catalog_seed_${suffix}", assignCatalogSeedState, { activeContextNames: ["catalog"] });`,
+        ),
+      );
+    }
+    expect(support).toContain("databaseUrls = state.databaseUrls;\n  pools = state.pools;");
+    expect(support).not.toContain("createPlatformApiBootstrapTestHarness(");
+
+    // Each independent red control changes only its named variable, never the frozen identity or helper input.
+    const assertion = sources[0]!.replace(".toBe(130)", ".toBe(131)");
+    const profile = sources[0]!.replace(
+      'enabledDataProfiles: ["scenario-seed"]',
+      'enabledDataProfiles: ["integration-seed"]',
+    );
+    const declaration = extractCaseDeclaration(sources[1]!, expected[10]!.name);
+    const timeout = sources[1]!.replace(declaration, declaration.replace(/\);$/u, ", 600000);"));
+    for (const [index, mutant] of [
+      [0, assertion],
+      [0, profile],
+      [1, timeout],
+    ] as const) {
+      expect(mutant).not.toBe(sources[index]);
+      const observed = deriveBootstrapDbCaseIdentities(files[index]!, mutant);
+      const frozen = index === 0 ? expected.slice(0, 10) : expected.slice(10);
+      expect(observed.map((entry) => entry.name)).toEqual(frozen.map((entry) => entry.name));
+      expect(observed.filter((entry, offset) => entry.identity !== frozen[offset]!.identity)).toHaveLength(1);
+    }
+    expect(deriveBootstrapDbCaseIdentities(files[1]!, sources[1]!.replace(declaration, ""))).toHaveLength(8);
+    expect(deriveBootstrapDbCaseIdentities(files[1]!, sources[1]! + "\n" + declaration)).toHaveLength(10);
+    const helperBypass = support.replace("await ordinaryBoot(runtime, profile);", "await Promise.resolve();");
+    expect(helperBypass).not.toBe(support);
+    expect(catalogDeclarationDigests(helperBypass).expectInterruptionSiteResumes).not.toBe(
+      expectedHelpers.expectInterruptionSiteResumes,
+    );
+    expect(catalogDeclarationDigests(helperBypass).profileShapes).toBe(expectedHelpers.profileShapes);
+  });
+
   // -- boot-bearing ceilings ------------------------------------------------
 
   it("rejects an execution unit pushed past its declared boot-bearing ceiling", async () => {
@@ -1372,4 +1765,41 @@ function caseDeclarationsOf(filePath: string): string[] {
   const source = readFileSync(filePath, "utf8");
   const { sourceFile, found } = caseCallExpressions(source);
   return found.map((entry) => source.slice(entry.node.parent.getStart(sourceFile), entry.node.parent.getEnd()));
+}
+
+function catalogDeclarationDigests(source: string): Record<string, string> {
+  const parsed = sourceFileOf(source);
+  const printer = ts.createPrinter({ removeComments: true });
+  return Object.fromEntries(
+    parsed.statements.flatMap((statement) => {
+      const name =
+        ts.isFunctionDeclaration(statement) || ts.isTypeAliasDeclaration(statement)
+          ? statement.name?.text
+          : ts.isVariableStatement(statement)
+            ? statement.declarationList.declarations[0]?.name.getText(parsed)
+            : undefined;
+      if (!name) return [];
+      const text = printer.printNode(ts.EmitHint.Unspecified, statement, parsed).replace(/^export /u, "");
+      return [[name, createHash("sha256").update(text).digest("hex")]];
+    }),
+  );
+}
+
+function catalogHarnessDeclarations(source: string): string[] {
+  const parsed = sourceFileOf(source);
+  function shape(node: ts.Node): unknown {
+    const children: unknown[] = [];
+    ts.forEachChild(node, (child) => {
+      children.push(shape(child));
+    });
+    return [node.kind, ts.isIdentifier(node) || ts.isStringLiteralLike(node) ? node.text : null, children];
+  }
+  return parsed.statements
+    .filter(
+      (statement) =>
+        ts.isExpressionStatement(statement) &&
+        ts.isCallExpression(statement.expression) &&
+        statement.expression.expression.getText(parsed) === "createPlatformApiBootstrapTestHarness",
+    )
+    .map((statement) => JSON.stringify(shape(statement)));
 }
