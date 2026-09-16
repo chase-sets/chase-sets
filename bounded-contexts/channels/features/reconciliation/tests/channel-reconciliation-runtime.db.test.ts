@@ -29,7 +29,8 @@ import type { ChannelProviderDescriptor, ChannelStateLineV1 } from "../../public
 import { createChannelReconciliationRuntime } from "../api/runtime";
 import type { ChannelReconciliationRuntimeDependencies, RepushChannelListing } from "../domain/contracts";
 import { deriveOutboundRepushOperationId } from "../../outbound-sync/api/store";
-import { CHANNEL_RECONCILIATION_POLICY_FALLBACK } from "../domain/policy";
+import { CHANNEL_RECONCILIATION_POLICY_FALLBACK, channelReconciliationPolicy } from "../domain/policy";
+import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { resolveChannelExternalSaleTarget } from "../read-model/sale-target";
 import { readExpectedReconciliationListings } from "../read-model/source";
 import {
@@ -366,6 +367,14 @@ describeDb("Channel Reconciliation guarded production path", () => {
     ).toEqual(old);
     expect((await pools.channels.query("SELECT * FROM platform_policy_documents")).rows).toEqual(policy);
     expect((await pools.channels.query("SELECT * FROM platform_policy_document_history")).rows).toEqual(history);
+    const policies = createPolicyRuntime({
+      db: pools.channels,
+      eventStore: createPostgresEventStore({ pool: pools.channels }),
+    });
+    expect((await policies.resolvePolicy(channelReconciliationPolicy)).value).toEqual({
+      ...legacyPolicy,
+      snapshotMaxAgeMs: 86_400_000,
+    });
     expect(
       (await pools.channels.query("SELECT * FROM bounded_context_schema_migrations ORDER BY migration_id")).rows,
     ).toEqual(ledger);
