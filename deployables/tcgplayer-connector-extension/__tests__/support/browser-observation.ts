@@ -14,13 +14,13 @@ declare global {
 }
 
 export async function launchFixture(extensionRoot: string, userDataDir: string) {
-  const context = await chromium.launchPersistentContext(userDataDir, {
+  // The package's trace: "on" owns recording, including persistent-context relaunches.
+  return chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
     headless: false,
+    ignoreDefaultArgs: ["--disable-extensions"],
     args: [`--load-extension=${extensionRoot}`],
   });
-  await context.tracing.start({ screenshots: false, snapshots: true, sources: false });
-  return context;
 }
 
 export async function fixtureWorker(context: BrowserContext): Promise<Worker> {

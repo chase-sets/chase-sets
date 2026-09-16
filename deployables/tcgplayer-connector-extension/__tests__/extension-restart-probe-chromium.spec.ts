@@ -96,7 +96,6 @@ for (const scenario of cases) {
 
     test.afterAll(async () => {
       if (context) {
-        await context.tracing.stop({ path: resolve(directory, "retained-final-trace.zip") }).catch(() => {});
         await context.close();
       }
       if (server) await server.close();
@@ -169,9 +168,9 @@ for (const scenario of cases) {
       expect(await worker.evaluate(() => globalThis.restartProbe.state.pendingFetch)).toBe(true);
       result.intervenedAt = new Date().toISOString();
       if (scenario.mechanism === "context.close") {
-        await context.tracing.stop({ path: resolve(directory, "retained-boundary-trace.zip") });
         expect(await worker.evaluate(() => globalThis.restartProbe.state.pendingTransaction)).toBe(true);
         result.intervenedAt = new Date().toISOString();
+        // Playwright retains this boundary's trace chunk before closing the context.
         await context.close();
         result.mechanism.available = true;
         result.workerClosed = closed;
@@ -189,6 +188,7 @@ for (const scenario of cases) {
         result.mechanism.available = true;
         result.workerClosed = closed;
         result.mechanism.terminatedMidFetch = closed && server.requests.length === 1 && server.active === 0;
+        if (closed) await fixtureWorker(context);
       } else {
         try {
           // Observe this exact worker attachment, not a page session substituted from documentation.
