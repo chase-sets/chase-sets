@@ -1,5 +1,11 @@
 import type { ProviderObservationCapture } from "../../domain/provider-observation-mapper";
+import type { EndpointFailurePhase, SafeHttpStatusClass, TcgplayerEndpointFailurePhases } from "./market-client";
 import type { TcgplayerResponseFieldSummaryV1 } from "./response-receipt";
+
+type EndpointDiagnostic = Readonly<{
+  failurePhase: EndpointFailurePhase;
+  httpStatusClass: SafeHttpStatusClass | null;
+}>;
 
 export type TcgplayerMarketCaptureReceiptV1 = Readonly<{
   kind: "tcgplayer-market-capture-v1";
@@ -17,6 +23,11 @@ export type TcgplayerMarketCaptureReceiptV1 = Readonly<{
   }>;
   responseSummary: Readonly<{
     fieldPresenceAndTypes: TcgplayerResponseFieldSummaryV1;
+    endpointDiagnostics?: Readonly<{
+      sales: EndpointDiagnostic;
+      listings: EndpointDiagnostic;
+      history: EndpointDiagnostic;
+    }>;
     salesStatus: string;
     listingsStatus: string;
     historyStatus: string;
@@ -79,6 +90,7 @@ export function isTcgplayerMarketCaptureReceiptSink(
 export function sanitizeTcgplayerMarketCaptureReceipt(
   capture: ProviderObservationCapture,
   fieldPresenceAndTypes: TcgplayerResponseFieldSummaryV1,
+  failurePhases: TcgplayerEndpointFailurePhases,
 ): TcgplayerMarketCaptureReceiptV1 {
   const header = capture.header;
   return {
@@ -97,6 +109,11 @@ export function sanitizeTcgplayerMarketCaptureReceipt(
     },
     responseSummary: {
       fieldPresenceAndTypes,
+      endpointDiagnostics: {
+        sales: { failurePhase: failurePhases.sales, httpStatusClass: header.sales?.httpStatusClass ?? null },
+        listings: { failurePhase: failurePhases.listings, httpStatusClass: header.listings?.httpStatusClass ?? null },
+        history: { failurePhase: failurePhases.history, httpStatusClass: header.history?.httpStatusClass ?? null },
+      },
       salesStatus: header.sales?.status ?? "not-requested",
       listingsStatus: header.listings?.status ?? "not-requested",
       historyStatus: header.history?.status ?? "not-requested",

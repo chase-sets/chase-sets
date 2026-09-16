@@ -23,6 +23,12 @@ export type ListingsCoverage = "complete" | "ceiling-truncated" | "page-budget-t
 export type HistoryCoverage = "observed" | "inconsistent" | "unknown";
 
 export type SafeHttpStatusClass = "none" | "4xx" | "5xx" | "other";
+export type EndpointFailurePhase = "transport" | "response-processing" | null;
+export type TcgplayerEndpointFailurePhases = Readonly<{
+  sales: EndpointFailurePhase;
+  listings: EndpointFailurePhase;
+  history: EndpointFailurePhase;
+}>;
 
 export type SalesObservation = Readonly<{
   status: EndpointStatus;
@@ -76,6 +82,7 @@ export type TcgplayerSecondaryObservation = Readonly<{
 export type TcgplayerSecondaryFetch = Readonly<{
   observation: TcgplayerSecondaryObservation;
   responseFieldSummary: TcgplayerResponseFieldSummaryV1;
+  failurePhases: TcgplayerEndpointFailurePhases;
 }>;
 
 export type TcgplayerMarketClient = Readonly<{
@@ -121,6 +128,11 @@ export function createTcgplayerMarketClient(transport: TcgplayerMarketTransport)
           listingPages: listings.responseSummaries,
           history: history.responseSummary,
         },
+        failurePhases: {
+          sales: sales.failurePhase,
+          listings: listings.failurePhase,
+          history: history.failurePhase,
+        },
       };
     },
   };
@@ -130,7 +142,11 @@ async function fetchSales(
   transport: TcgplayerMarketTransport,
   input: Parameters<TcgplayerMarketClient["fetchSecondary"]>[0],
 ): Promise<
-  Readonly<{ observation: SalesObservation; responseSummaries: TcgplayerResponseFieldSummaryV1["salesPages"] }>
+  Readonly<{
+    observation: SalesObservation;
+    responseSummaries: TcgplayerResponseFieldSummaryV1["salesPages"];
+    failurePhase: EndpointFailurePhase;
+  }>
 > {
   const requestedAt = input.now();
   const rows: DecodedSale[] = [];
@@ -145,10 +161,12 @@ async function fetchSales(
   let inconsistent = false;
   const responseSummaries: Array<TcgplayerResponseFieldSummaryV1["salesPages"][number]> = [];
   const seenContinuationBodies = new Set<string>();
+  let failurePhase: EndpointFailurePhase = null;
   try {
     for (let page = 0; page < input.policy.sales.pageBudget && rows.length < input.policy.sales.limit; page += 1) {
       const offset = page * input.policy.sales.pageSize;
       const limit = Math.min(input.policy.sales.pageSize, input.policy.sales.limit - rows.length);
+      failurePhase = "transport";
       const raw = await timed(input.policy.secondaryTimeoutMs, (signal) =>
         transport.mpApi.post<unknown>(
           `/v2/product/${input.productId}/latestsales`,
@@ -163,6 +181,7 @@ async function fetchSales(
           { signal },
         ),
       );
+      failurePhase = "response-processing";
       responseSummaries.push(summarizeSalesResponseAtReceipt(raw));
       const continuationBody = JSON.stringify(raw);
       if (seenContinuationBodies.has(continuationBody)) inconsistent = true;
@@ -226,9 +245,10 @@ async function fetchSales(
         httpStatusClass: "none",
       },
       responseSummaries,
+      failurePhase: null,
     };
   } catch (error) {
-    return { observation: unavailableSales(requestedAt, statusClass(error)), responseSummaries };
+    return { observation: unavailableSales(requestedAt, statusClass(error)), responseSummaries, failurePhase };
   }
 }
 
@@ -236,7 +256,11 @@ async function fetchListings(
   transport: TcgplayerMarketTransport,
   input: Parameters<TcgplayerMarketClient["fetchSecondary"]>[0],
 ): Promise<
-  Readonly<{ observation: ListingsObservation; responseSummaries: TcgplayerResponseFieldSummaryV1["listingPages"] }>
+  Readonly<{
+    observation: ListingsObservation;
+    responseSummaries: TcgplayerResponseFieldSummaryV1["listingPages"];
+    failurePhase: EndpointFailurePhase;
+  }>
 > {
   const requestedAt = input.now();
   const rows: DecodedListing[] = [];
@@ -246,8 +270,10 @@ async function fetchListings(
   let ceilingReached = false;
   let inconsistent = false;
   const responseSummaries: Array<TcgplayerResponseFieldSummaryV1["listingPages"][number]> = [];
+  let failurePhase: EndpointFailurePhase = null;
   try {
     for (let page = 0; page < input.policy.listings.pageBudget; page += 1) {
+      failurePhase = "transport";
       const raw = await timed(input.policy.secondaryTimeoutMs, (signal) =>
         transport.mpSearchApi.post<unknown>(
           `/v1/product/${input.productId}/listings`,
@@ -264,6 +290,7 @@ async function fetchListings(
           { signal },
         ),
       );
+      failurePhase = "response-processing";
       responseSummaries.push(summarizeListingsResponseAtReceipt(raw));
       const decoded = decodeListings(raw);
       pagesFetched += 1;
@@ -302,9 +329,10 @@ async function fetchListings(
         httpStatusClass: "none",
       },
       responseSummaries,
+      failurePhase: null,
     };
   } catch (error) {
-    return { observation: unavailableListings(requestedAt, statusClass(error)), responseSummaries };
+    return { observation: unavailableListings(requestedAt, statusClass(error)), responseSummaries, failurePhase };
   }
 }
 
@@ -315,14 +343,18 @@ async function fetchHistory(
   Readonly<{
     observation: HistoryObservation;
     responseSummary: TcgplayerResponseFieldSummaryV1["history"];
+    failurePhase: EndpointFailurePhase;
   }>
 > {
   const requestedAt = input.now();
   let responseSummary: TcgplayerResponseFieldSummaryV1["history"] = null;
+  let failurePhase: EndpointFailurePhase = null;
   try {
+    failurePhase = "transport";
     const raw = await timed(input.policy.secondaryTimeoutMs, (signal) =>
       transport.infiniteApi.get<unknown>(`/price/history/${input.productId}/detailed`, { range: "annual" }, { signal }),
     );
+    failurePhase = "response-processing";
     responseSummary = summarizeHistoryResponseAtReceipt(raw);
     const decoded = decodePriceHistory(raw);
     const bucketCount = decoded.result.reduce((sum, row) => sum + row.buckets.length, 0);
@@ -339,9 +371,10 @@ async function fetchHistory(
         httpStatusClass: "none",
       },
       responseSummary,
+      failurePhase: null,
     };
   } catch (error) {
-    return { observation: unavailableHistory(requestedAt, statusClass(error)), responseSummary };
+    return { observation: unavailableHistory(requestedAt, statusClass(error)), responseSummary, failurePhase };
   }
 }
 
