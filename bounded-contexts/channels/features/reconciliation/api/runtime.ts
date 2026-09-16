@@ -451,11 +451,9 @@ export function createChannelReconciliationRuntime(
         );
       }
       const driftGeneration =
-        absentByDesign && !snapshotAgeAttention && !claim.driftGeneration
-          ? null
-          : absentByDesign && !snapshotAgeScope
-            ? claim.driftGeneration
-            : retainDriftGeneration(claim.driftGeneration, members, clean);
+        absentByDesign && !snapshotAgeAttention
+          ? claim.driftGeneration
+          : retainDriftGeneration(claim.driftGeneration, members, clean);
       clean = clean && (!driftGeneration || driftGeneration.resolution !== null);
       const health =
         input.healthAuthority &&

@@ -259,9 +259,14 @@ describeDb("Channel Reconciliation guarded production path", () => {
       ...input,
       registry: createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]),
     };
+    await ageSnapshot(1, new Date(at.getTime() - 4_000).toISOString(), at);
+    await ageSnapshot(2, new Date(at.getTime() - 3_000).toISOString(), at);
     await runtime.reconcileConnection(claimed, context);
-    await ageSnapshot(1, new Date(at.getTime() - 2_000).toISOString(), at);
-    await ageSnapshot(2, new Date(at.getTime() - 1_000).toISOString(), at);
+    expect(await runtime.readChannelDriftAttentionContribution(input)).toEqual(previous);
+    await ageSnapshot(3, new Date(at.getTime() - 2_000).toISOString(), at, "ingest");
+    await runtime.reconcileConnection(claimed, context);
+    await ageSnapshot(4, new Date(at.getTime() - 1_000).toISOString(), at);
+    await ageSnapshot(5, at.toISOString(), at);
     await runtime.reconcileConnection(claimed, context);
     await runtime.reconcileConnection(claimed, context);
     const recovered = (await runtime.readChannelDriftAttentionContribution(input))!;
