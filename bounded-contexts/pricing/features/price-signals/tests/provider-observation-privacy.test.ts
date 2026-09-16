@@ -27,13 +27,34 @@ describe("provider observation privacy boundary", () => {
       unresolvedSignalCount: 0,
       observation,
     });
-    const receipt = sanitizeTcgplayerMarketCaptureReceipt(capture, emptyTcgplayerResponseFieldSummary());
+    const phases = { sales: null, listings: null, history: null };
+    const receipt = sanitizeTcgplayerMarketCaptureReceipt(capture, emptyTcgplayerResponseFieldSummary(), phases);
+    expect(receipt.responseSummary.endpointDiagnostics).toEqual({
+      sales: { failurePhase: null, httpStatusClass: "none" },
+      listings: { failurePhase: null, httpStatusClass: "none" },
+      history: { failurePhase: null, httpStatusClass: "none" },
+    });
     const durable = JSON.stringify({ capture, receipt });
     expect(durable).not.toContain("external-seller-secret");
     expect(JSON.stringify(capture)).not.toMatch(
       /sellerKey|sellerId|sellerName|listingId|customListingId|cookie|authorization|responseBody|exceptionMessage/i,
     );
     expect(capture.askDepth.map((row) => row.anonymousCaptureSellerOrdinal)).toEqual([1, 1]);
+    const absent = sanitizeTcgplayerMarketCaptureReceipt(
+      { ...capture, header: { ...capture.header, sales: null, listings: null, history: null } },
+      emptyTcgplayerResponseFieldSummary(),
+      phases,
+    );
+    expect(absent.responseSummary.endpointDiagnostics).toEqual({
+      sales: { failurePhase: null, httpStatusClass: null },
+      listings: { failurePhase: null, httpStatusClass: null },
+      history: { failurePhase: null, httpStatusClass: null },
+    });
+    expect(absent.responseSummary).toMatchObject({
+      salesStatus: "not-requested",
+      listingsStatus: "not-requested",
+      historyStatus: "not-requested",
+    });
   });
 });
 
