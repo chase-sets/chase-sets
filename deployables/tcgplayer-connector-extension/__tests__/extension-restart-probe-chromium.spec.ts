@@ -5,7 +5,16 @@ import { expect, test, type BrowserContext, type Page, type Worker } from "@play
 import { candidateOptions, buildFixture, type FixtureOptions } from "./support/build-fixture";
 import { fixtureWorker, launchFixture, observeUntil, observer, snapshot } from "./support/browser-observation";
 import { holdOrigin, startHoldServer } from "./support/hold-server";
-import { mechanismNames, parseProbeRecord, type Mechanism, type MechanismName } from "./support/probe-record";
+import {
+  mechanismFacts,
+  mechanismNames,
+  mechanismRoutes,
+  parseProbeRecord,
+  selectMechanism,
+  type Mechanism,
+  type MechanismName,
+  type ObservationReason,
+} from "./support/probe-record";
 
 const require = createRequire(import.meta.url);
 const root = resolve(import.meta.dirname, "../../../artifacts/7938", new Date().toISOString().replaceAll(/[:.]/g, "-"));
@@ -22,6 +31,8 @@ type CaseObservation = {
   pendingTransactionAtIntervention: boolean;
   intervenedAt: string;
   attachmentError: string | null;
+  unobservedReason: ObservationReason | null;
+  refireWindow: { startedAt: string; endedAt: string; elapsedMs: number; requiredMs: number; message: string } | null;
   requests: Awaited<ReturnType<typeof startHoldServer>>["requests"];
 };
 
@@ -146,10 +157,13 @@ for (const scenario of cases) {
         mechanism: {
           name: scenario.mechanism,
           available: false,
-          terminatedMidFetch: false,
-          pendingTransactionAtomic: false,
-          refetchOnlyAfterAlarm: false,
-          indexedDbSurvived: false,
+          route: mechanismRoutes[scenario.mechanism],
+          intervenedAt: "",
+          artifactRef: resolve(root, `${scenario.name}.json`),
+          terminatedMidFetch: null,
+          pendingTransactionAtomic: null,
+          refetchOnlyAfterAlarm: null,
+          indexedDbSurvived: null,
         },
         before,
         after: null,
@@ -158,6 +172,8 @@ for (const scenario of cases) {
         pendingTransactionAtIntervention: false,
         intervenedAt: "",
         attachmentError: null,
+        unobservedReason: null,
+        refireWindow: null,
         requests: server.requests,
       };
       await worker.evaluate(() => globalThis.restartProbe.startTwo());
@@ -211,12 +227,22 @@ for (const scenario of cases) {
               .locator("extensions-item")
               .filter({ hasText: "SYNTHETIC restart boundary probe" })
               .waitFor();
+            const accessibility = await diagnostics.locator("body").ariaSnapshot();
+            const disabled = diagnostics.getByText(
+              "Turn on developer mode to use this extension, which can't be reviewed by the Chrome Web Store.",
+              { exact: true },
+            );
+            const disabledMessage = (await disabled.count()) === 1 ? await disabled.textContent() : null;
             save("runtime.reload-extension-page.json", {
               capturedAt: new Date().toISOString(),
-              accessibility: await diagnostics.locator("body").ariaSnapshot(),
+              accessibility,
+              disabledMessage,
             });
             await diagnostics.screenshot({ path: test.info().outputPath("runtime.reload-extensions.png") });
-            throw error;
+            result.unobservedReason = {
+              code: disabledMessage ? "extension-disabled-after-intervention" : "worker-not-replaced",
+              message: disabledMessage ?? (error instanceof Error ? error.message : String(error)),
+            };
           }
         }
       } else {
@@ -243,9 +269,18 @@ for (const scenario of cases) {
           }
         } catch (error) {
           result.attachmentError = error instanceof Error ? error.message : String(error);
+          if (result.mechanism.available) throw error;
+          result.mechanism.unavailableReason = result.attachmentError;
+          result.unobservedReason = { code: "route-unavailable", message: result.attachmentError };
         }
       }
-      if (result.mechanism.available) {
+      result.mechanism.intervenedAt = result.intervenedAt;
+      if (result.unobservedReason) {
+        for (const fact of mechanismFacts) {
+          if (result.mechanism[fact] === null) result.mechanism[`${fact}Reason`] = result.unobservedReason;
+        }
+      }
+      if (result.mechanism.available && !result.unobservedReason) {
         page = await observer(context, extensionId);
         result.after = await snapshot(page);
         const records = result.after.records;
@@ -256,25 +291,51 @@ for (const scenario of cases) {
         result.mechanism.pendingTransactionAtomic = result.pendingTransactionAtIntervention && (both || neither);
         result.mechanism.indexedDbSurvived = before.records.length > 0 && (both || neither);
         result.mechanism.terminatedMidFetch &&= !records.some((record) => record.state === "receipt-captured");
+        result.refireWindow = {
+          startedAt: new Date().toISOString(),
+          endedAt: "",
+          elapsedMs: 0,
+          requiredMs: 30_000 + Date.parse(before.fires[0]!) - before.scheduledAt,
+          message: "",
+        };
       }
       save(`${scenario.name}-boundary.json`, result);
     });
 
     test("observe the first 20 seconds of the refire window", async () => {
-      if (!result?.mechanism.available) return;
+      if (!result?.after) return;
       await observeUntil(() => server.requests.length >= 2, 20_000);
     });
 
     test("record post-restart refire, atomicity, persistence and storage", async () => {
       if (!result) return;
-      if (result.mechanism.available) {
+      if (result.after) {
         await observeUntil(() => server.requests.length >= 2, 20_000);
         result.final = await snapshot(page);
-        result.mechanism.refetchOnlyAfterAlarm =
+        const window = result.refireWindow!;
+        window.endedAt = new Date().toISOString();
+        window.elapsedMs = Date.parse(window.endedAt) - Date.parse(window.startedAt);
+        window.message = JSON.stringify({
+          startedAt: window.startedAt,
+          endedAt: window.endedAt,
+          elapsedMs: window.elapsedMs,
+          requiredMs: window.requiredMs,
+          requests: server.requests.length,
+          fires: result.final.fires.length,
+        });
+        const refetch =
           server.requests.length === 2 &&
           result.final.fires.length === 2 &&
           Date.parse(result.final.fires[1]!) <= Date.parse(server.requests[1]!.at) &&
           Date.parse(result.final.fires[1]!) >= Date.parse(result.intervenedAt);
+        if (refetch || server.requests.length >= 2 || window.elapsedMs >= window.requiredMs) {
+          result.mechanism.refetchOnlyAfterAlarm = refetch;
+        } else {
+          result.mechanism.refetchOnlyAfterAlarmReason = {
+            code: "window-shorter-than-period",
+            message: window.message,
+          };
+        }
         expect(server.requests.length).toBeLessThanOrEqual(2);
         expect(result.final.records.length).toBeLessThanOrEqual(2);
         expect(result.final.records.some((record) => record.state === "receipt-captured")).toBe(false);
@@ -297,31 +358,41 @@ test("publish the closed observed record and discriminating controls", async () 
   expect(ordering.mechanism.terminatedMidFetch).toBe(baseline.mechanism.terminatedMidFetch);
   expect(deleted.mechanism.indexedDbSurvived).toBe(false);
   expect(deleted.after?.records).toEqual([]);
+  let refiredAfterRelaunch: boolean | null = null;
+  if (baseline.final) {
+    if (baseline.final.fires.length >= 2) refiredAfterRelaunch = true;
+    else if (baseline.refireWindow!.elapsedMs >= baseline.refireWindow!.requiredMs) refiredAfterRelaunch = false;
+  }
+  const refireReason = baseline.unobservedReason ?? {
+    code: "window-shorter-than-period",
+    message: baseline.refireWindow?.message,
+  };
   const record = parseProbeRecord({
-    schemaVersion: 1,
+    schemaVersion: 2,
     chromiumVersion: baseline.chromiumVersion,
     playwrightVersion: JSON.parse(readFileSync(require.resolve("@playwright/test/package.json"), "utf8")).version,
     capturedAt: new Date().toISOString(),
     mechanisms: mechanismNames.map((name) => observations.find((entry) => entry.name === name)!.mechanism),
     alarm: {
+      mechanism: baseline.mechanism.name,
+      artifactRef: baseline.mechanism.artifactRef,
       requestedPeriodSeconds: 30,
       observedFirstFireMs: Date.parse(baseline.before.fires[0]!) - baseline.before.scheduledAt,
-      refiredAfterRelaunch: baseline.mechanism.refetchOnlyAfterAlarm,
+      refiredAfterRelaunch,
+      ...(refiredAfterRelaunch === null ? { refiredAfterRelaunchReason: refireReason } : {}),
     },
     storage: {
-      localSurvived: baseline.after?.localCanary === baseline.before.localCanary,
-      sessionSurvived: baseline.after?.sessionCanary === baseline.before.sessionCanary,
+      mechanism: baseline.mechanism.name,
+      artifactRef: baseline.mechanism.artifactRef,
+      localSurvived: baseline.after ? baseline.after.localCanary === baseline.before.localCanary : null,
+      sessionSurvived: baseline.after ? baseline.after.sessionCanary === baseline.before.sessionCanary : null,
+      ...(!baseline.after
+        ? { localSurvivedReason: baseline.unobservedReason, sessionSurvivedReason: baseline.unobservedReason }
+        : {}),
     },
   });
   save("extension-restart-probe-chromium.json", record);
-  const selected = record.mechanisms.find(
-    (row) =>
-      row.available &&
-      row.terminatedMidFetch &&
-      row.pendingTransactionAtomic &&
-      row.refetchOnlyAfterAlarm &&
-      row.indexedDbSurvived,
-  );
+  const selected = selectMechanism(record);
   save("decision.json", {
     downstream: selected ? "observed mechanism candidate; independent review required" : "H1 not ready",
     selectedMechanism: selected?.name ?? null,
