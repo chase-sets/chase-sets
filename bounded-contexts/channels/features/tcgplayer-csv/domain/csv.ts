@@ -1,4 +1,5 @@
 import {
+  tcgplayerLocalSnapshotRowCeiling,
   type ChannelExportSchemaPin,
   type ChannelExportSurface,
   type ParsedTcgplayerExport,
@@ -206,7 +207,7 @@ function assertTcgplayerExportIngestLimits(value: unknown): asserts value is Tcg
     typeof maxRecords !== "number" ||
     !Number.isSafeInteger(maxRecords) ||
     maxRecords < 1 ||
-    maxRecords > 1_000_000
+    maxRecords > tcgplayerLocalSnapshotRowCeiling
   ) {
     throw new Error("maxRecords must be a safe integer from 1 through 1000000.");
   }

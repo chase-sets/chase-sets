@@ -10,8 +10,9 @@ import type {
   ManualClaimLeasePolicySnapshot,
   TcgplayerLocalRefusalReason,
 } from "../domain/contracts";
-import { tcgplayerLocalRefusalReasons } from "../domain/contracts";
+import { tcgplayerLocalRefusalReasons, tcgplayerLocalSnapshotRowCeiling } from "../domain/contracts";
 import { digestChannelSyncRunMembers } from "../domain/digest";
+import { assertBoundedText, assertClosedRecord, assertSafeInteger } from "../domain/validation";
 
 type RunRow = Readonly<{
   run_id: string;
@@ -37,10 +38,20 @@ type RunRow = Readonly<{
   member_digest: string;
 }>;
 
+export type ReadLatestSnapshotRowsInput = Readonly<{
+  connectionId: string;
+  surface: "live" | "staged";
+  maxRows: number;
+}>;
+
 export async function readLatestSnapshotRows(
   db: PgQueryable,
-  input: Readonly<{ connectionId: string; surface: "live" | "staged" }>,
+  input: ReadLatestSnapshotRowsInput,
 ): ReturnType<typeof readSnapshotRows> {
+  assertClosedRecord(input, ["connectionId", "surface", "maxRows"], "latest snapshot rows input");
+  assertBoundedText(input.connectionId, "connectionId");
+  if (input.surface !== "live" && input.surface !== "staged") throw new Error("Snapshot surface is invalid.");
+  assertSafeInteger(input.maxRows, 1, tcgplayerLocalSnapshotRowCeiling, "maxRows");
   return readSnapshotRows(db, input);
 }
 
@@ -86,18 +97,24 @@ export async function readTcgplayerConditionMappingInputs(
   });
 }
 
-export async function readSnapshotRowsById(db: PgQueryable, snapshotId: string): ReturnType<typeof readSnapshotRows> {
+export async function readSnapshotRowsById(
+  db: PgQueryable,
+  input: Readonly<{ snapshotId: string; maxRows: number }>,
+): ReturnType<typeof readSnapshotRows> {
+  assertClosedRecord(input, ["snapshotId", "maxRows"], "snapshot rows by ID input");
+  assertBoundedText(input.snapshotId, "snapshotId");
+  assertSafeInteger(input.maxRows, 1, tcgplayerLocalSnapshotRowCeiling, "maxRows");
   const identity = await db.query<{ connection_id: string; surface: "live" | "staged" }>(
     "SELECT connection_id,surface FROM channel_inventory_snapshots WHERE snapshot_id=$1",
-    [snapshotId],
+    [input.snapshotId],
   );
   const row = identity.rows[0];
-  return row ? readSnapshotRows(db, { connectionId: row.connection_id, surface: row.surface, snapshotId }) : null;
+  return row ? readSnapshotRows(db, { ...input, connectionId: row.connection_id, surface: row.surface }) : null;
 }
 
 async function readSnapshotRows(
   db: PgQueryable,
-  input: Readonly<{ connectionId: string; surface: "live" | "staged"; snapshotId?: string }>,
+  input: ReadLatestSnapshotRowsInput & Readonly<{ snapshotId?: string }>,
 ): Promise<Readonly<{
   snapshot: ChannelInventorySnapshot;
   rows: readonly ChannelInventorySnapshotRow[];
@@ -134,8 +151,8 @@ async function readSnapshotRows(
     row_number: number;
   }>(
     `SELECT external_key,condition_text,total_quantity,pending_quantity_delta,price_amount_text,price_amount_minor,reference_columns,row_number
-     FROM channel_inventory_snapshot_rows WHERE snapshot_id=$1 ORDER BY row_number`,
-    [snapshot.snapshot_id],
+     FROM channel_inventory_snapshot_rows WHERE snapshot_id=$1 ORDER BY row_number LIMIT $2`,
+    [snapshot.snapshot_id, input.maxRows + 1],
   );
   const mappedSnapshot: ChannelInventorySnapshot = {
     snapshotId: snapshot.snapshot_id,
@@ -149,7 +166,8 @@ async function readSnapshotRows(
     capturedAt: instant(snapshot.captured_at),
     capturedAtSource: snapshot.captured_at_source,
   };
-  const mappedRows = rows.rows.map((row) => ({
+  const overflow = rows.rows.length > input.maxRows;
+  const mappedRows = rows.rows.slice(0, input.maxRows).map((row) => ({
     snapshotId: mappedSnapshot.snapshotId,
     snapshotGeneration: mappedSnapshot.snapshotGeneration,
     connectionId: mappedSnapshot.connectionId,
@@ -172,7 +190,7 @@ async function readSnapshotRows(
     snapshot: mappedSnapshot,
     rows: mappedRows,
     membershipCompleteness:
-      mappedRows.length === mappedSnapshot.parsedRowCount
+      !overflow && mappedRows.length === mappedSnapshot.parsedRowCount
         ? { kind: "complete", total: mappedRows.length }
         : { kind: "bounded-incomplete", reason: "parsed-row-count-mismatch" },
   };
