@@ -4,7 +4,8 @@ import { acquireHeavySlot } from "../../scripts/lib/heavy-slot.mjs";
 acquireHeavySlot("playwright");
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: ".",
+  testMatch: ["e2e/**/*.spec.ts", "__tests__/extension-restart-probe-chromium.spec.ts"],
   outputDir: "../../artifacts/chromium-authority/test-results",
   fullyParallel: false,
   workers: 1,
