@@ -7,11 +7,19 @@ import {
   parseProbeRecord,
   reasonCodes,
   selectMechanism,
+  type ProbeRecord,
 } from "./probe-record.ts";
+
+type ProbeFixture = Omit<ProbeRecord, "schemaVersion" | "mechanisms" | "alarm" | "storage"> & {
+  schemaVersion: number;
+  mechanisms: Record<string, unknown>[];
+  alarm: Record<string, unknown>;
+  storage: Record<string, unknown>;
+};
 
 const reason = () => ({ code: "route-unavailable", message: "SYNTHETIC route unavailable control" });
 
-const syntheticRecord = () => ({
+const syntheticRecord = (): ProbeFixture => ({
   schemaVersion: 2,
   chromiumVersion: "149.0.0.0",
   playwrightVersion: "1.60.0",
@@ -52,7 +60,7 @@ test("synthetic schema control round-trips a complete negative record, not Chrom
   assert.deepEqual(parseProbeRecord(syntheticRecord()), syntheticRecord());
 });
 
-const negatives: [string, (record: Record<string, any>) => unknown][] = [
+const negatives: [string, (record: ProbeFixture) => unknown][] = [
   ["empty", () => ({})],
   ["partial", () => ({ schemaVersion: 2 })],
   ["top unknown", (r) => ({ ...r, unknown: true })],
@@ -119,7 +127,7 @@ const negatives: [string, (record: Record<string, any>) => unknown][] = [
       return r;
     },
   ],
-  ...[-1, 60_001, 1.5, Infinity, NaN].map((value): [string, (r: Record<string, any>) => unknown] => [
+  ...[-1, 60_001, 1.5, Infinity, NaN].map((value): [string, (r: ProbeFixture) => unknown] => [
     `latency ${value}`,
     (r) => {
       r.alarm.observedFirstFireMs = value;
@@ -137,8 +145,8 @@ const negatives: [string, (record: Record<string, any>) => unknown][] = [
 for (const [name, mutate] of negatives)
   test(`closed record rejects ${name}`, () => assert.throws(() => parseProbeRecord(mutate(syntheticRecord()))));
 
-function availableRecord(): Record<string, any> {
-  const record: Record<string, any> = syntheticRecord();
+function availableRecord(): ProbeFixture {
+  const record = syntheticRecord();
   for (const row of record.mechanisms) {
     row.available = true;
     delete row.unavailableReason;
@@ -170,7 +178,7 @@ test("available means executed, including independently measured false facts", (
 });
 
 test("executed intervention may have all facts unobserved with captured reasons", () => {
-  const record: Record<string, any> = syntheticRecord();
+  const record = syntheticRecord();
   for (const row of record.mechanisms) {
     row.available = true;
     delete row.unavailableReason;
@@ -184,19 +192,19 @@ test("executed intervention may have all facts unobserved with captured reasons"
 const surfaces = [
   ...mechanismFacts.map((fact) => ({
     label: `mechanism ${fact}`,
-    row: (r: Record<string, any>) => r.mechanisms[0],
+    row: (r: ProbeFixture) => r.mechanisms[0],
     fact,
   })),
-  { label: "alarm latency", row: (r: Record<string, any>) => r.alarm, fact: "observedFirstFireMs" },
-  { label: "alarm refire", row: (r: Record<string, any>) => r.alarm, fact: "refiredAfterRelaunch" },
+  { label: "alarm latency", row: (r: ProbeFixture) => r.alarm, fact: "observedFirstFireMs" },
+  { label: "alarm refire", row: (r: ProbeFixture) => r.alarm, fact: "refiredAfterRelaunch" },
   ...["localSurvived", "sessionSurvived"].map((fact) => ({
     label: `storage ${fact}`,
-    row: (r: Record<string, any>) => r.storage,
+    row: (r: ProbeFixture) => r.storage,
     fact,
   })),
 ];
 for (const { label, row, fact } of surfaces) {
-  const reject = (name: string, mutate: (r: Record<string, any>) => void) =>
+  const reject = (name: string, mutate: (r: Record<string, unknown>) => void) =>
     test(`${label} rejects ${name}`, () => {
       const record = availableRecord();
       mutate(row(record));
@@ -232,7 +240,7 @@ for (const { label, row, fact } of surfaces) {
     });
 }
 
-const v2Negatives: [string, (r: Record<string, any>) => void][] = [
+const v2Negatives: [string, (r: ProbeFixture) => void][] = [
   [
     "v1 record",
     (r) => {
@@ -289,7 +297,7 @@ for (const key of ["route", "artifactRef", "intervenedAt"])
       delete r.mechanisms[0][key];
     },
   ]);
-for (const surface of ["alarm", "storage"])
+for (const surface of ["alarm", "storage"] as const)
   for (const key of ["artifactRef", "mechanism"])
     for (const value of [undefined, "", " ", "unknown", "x".repeat(1025)])
       v2Negatives.push([
@@ -307,7 +315,7 @@ for (const [name, mutate] of v2Negatives)
 for (const fact of mechanismFacts)
   for (const value of [false, true])
     test(`unavailable rejects measured ${fact} ${value}`, () => {
-      const record: Record<string, any> = syntheticRecord();
+      const record = syntheticRecord();
       record.mechanisms[0][fact] = value;
       delete record.mechanisms[0][`${fact}Reason`];
       assert.throws(() => parseProbeRecord(record));
@@ -316,17 +324,17 @@ for (const [surface, fact] of [
   ["alarm", "refiredAfterRelaunch"],
   ["storage", "localSurvived"],
   ["storage", "sessionSurvived"],
-])
+] as const)
   for (const value of [false, true])
     test(`unavailable source rejects ${surface}.${fact} ${value}`, () => {
-      const record: Record<string, any> = syntheticRecord();
+      const record = syntheticRecord();
       record[surface!][fact!] = value;
       delete record[surface!][`${fact}Reason`];
       assert.throws(() => parseProbeRecord(record));
     });
 for (const value of [undefined, "", " ", "x".repeat(1025)])
   test(`unavailable rejects invalid reason ${String(value).slice(0, 12)}`, () => {
-    const record: Record<string, any> = syntheticRecord();
+    const record = syntheticRecord();
     record.mechanisms[0].unavailableReason = value;
     assert.throws(() => parseProbeRecord(record));
   });
@@ -342,7 +350,7 @@ test("downstream requires one source with four true facts, refire, and both stor
     row(copy)[`${fact}Reason`] = reason();
     assert.equal(selectMechanism(parseProbeRecord(copy)), undefined);
   }
-  for (const surface of ["alarm", "storage"]) {
+  for (const surface of ["alarm", "storage"] as const) {
     const copy = structuredClone(record);
     copy[surface].mechanism = "runtime.reload";
     copy[surface].artifactRef = "SYNTHETIC/runtime.reload.json";
