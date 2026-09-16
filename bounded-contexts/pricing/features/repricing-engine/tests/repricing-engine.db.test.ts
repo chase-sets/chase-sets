@@ -1440,10 +1440,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     expect(payload.signalToEvaluationLatencyMs).toBeGreaterThanOrEqual(0);
 
     const projection = buildRepricingEvaluationProjectionHandlers(pool);
-    await projection["pricing.repricing-policy.evaluated"]!({
-      type: facts[0]!.eventType,
-      data: facts[0]!.payload,
-    } as never);
+    await projection["pricing.repricing-policy.evaluated"]!(toTransportEvent(facts[0]!));
     const page = await pool.query<{ listings_changed: number; listings_skipped: number }>(
       `SELECT listings_changed, listings_skipped FROM pricing_repricing_policy_evaluations`,
     );

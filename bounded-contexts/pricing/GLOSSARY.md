@@ -108,6 +108,20 @@ The **Market-Estimate Policy** is Pricing's m110 platform-policy declaration of 
 
 A **Liquidity Estimate** is the modeled expectation of how quickly or reliably a resolved product can transact.
 
+## Repricing Listing Outcome
+
+A **Repricing Listing Outcome** is the current listing-level result derived from retained evaluation
+facts and their compaction summary. Evaluation instant and evaluation ID determine order;
+`global_position` locates digest input, not current state. `floor_binding_since` is the start of the
+trailing uninterrupted floor-binding run. The compaction boundary records the last folded fact and
+the open run start. Compaction retains the greatest fact and never duplicates its payload in the summary.
+
+## Repricing Management Policy
+
+The **Repricing Management Policy** is the platform `pricing.repricing-management` document governing
+seller attention. `floorBindingAlertDays` is an integer from 1 through 90, launching at 7 days and
+defaulting to that value when the stored key is absent.
+
 ## Repricing Policy
 
 A **Repricing Policy** is a seller-owned, event-sourced aggregate declaring the standing strategy that

@@ -8,12 +8,17 @@ import { createBulkRepriceIngestionRoutes } from "./features/bulk-reprice-ingest
 import { createEconomicsRoutes } from "./features/economics/api/route";
 import { createRepricingDryRunRoutes } from "./features/repricing-engine/api/dry-run-route";
 import { createRepricingPolicyRoutes } from "./features/repricing-policies/api/route";
+import {
+  createRepricingActivityRoutes,
+  createRepricingActivityServices,
+} from "./features/repricing-engine/api/activity-route";
 
 export type PricingApiEnv = AuthenticatedApiEnv;
 
 export function buildPricingApi(services: PricingServices) {
   const app = new Hono<PricingApiEnv>();
   app.route("/account/repricing-policies/dry-runs", createRepricingDryRunRoutes(services.repricingEngine));
+  app.route("/account/repricing-policies", createRepricingActivityRoutes(createRepricingActivityServices(services.db)));
   app.route("/account/repricing-policies", createRepricingPolicyRoutes(services.repricingPolicies));
   app.route("/account", createAccountRecommendationRoutes(services.recommendations));
   app.route("/account/economics", createEconomicsRoutes(services.economics, services.economics.overrides));

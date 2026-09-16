@@ -97,6 +97,8 @@ request only while its captured state and claim generation still match.
 
 | Repricing term | System behavior |
 | --- | --- |
+| Repricing Listing Outcome | Current listing activity is derived from retained evaluation facts ordered by evaluation instant and ID, not delivery position. Floor-binding starts at the trailing uninterrupted binding run; freeze expiry comes from the current fact. Activity pages and filter counts share current-state predicates. |
+| Repricing Management Policy | `pricing.repricing-management` bounds `floorBindingAlertDays` to integer days 1-90, default 7. Account attention counts aged floor binding, active missing-input pauses, today's budget-exhausted outcomes, halt state and frozen listings. |
 | Any-Mode Anchor | Seller opt-in `lowest-competing-ask` with `strata: "any"` considers both ask modes; absent strata and `comp-percentile` stay hard-only. Traces expose `any-ask` and counts, not competitor identities or modes. |
 | Anchor Band | Required market-estimate ground and seller-chosen `minPercentOfGround` from 50 through 100; clamps the anchor upward, marking `band-binding` when lifted. Unavailable, stale, or currency-mismatched ground exhausts the anchor and continues the chain. Offsets and existing price clamps apply afterward. |
 | Spiral Breaker | Three consecutive same-direction product rounds freeze repricing across sellers for 120 minutes. Direction is the sign of the sum of applied target-minus-current changes; opposite direction starts at one, and an undirected round clears the count. The trip clears the count and retains the expiry in every policy fact and listing trace. |
@@ -115,6 +117,19 @@ The existing product cooldown ledger owns both damping and the breaker, with gen
 The worker logs one structured `pricing.repricing-spiral-breaker.tripped` record per tripped product round,
 including direction, round count, and affected seller count. It does not page or implement seller attention;
 downstream activity reads retained facts and trace expiry, never a live ledger lookup.
+
+Listing outcome facts are inserted idempotently and recomputed under listing row locks in the projection
+transaction. A late fact at or below the compaction boundary remains available to its digest window but
+does not change current state. `compactListingOutcomeFacts` accepts trusted per-fact `digestedSql` over
+alias `fact` and `retainFrom = now - 90 days`. It deletes only the consecutive eligible prefix strictly
+below the greatest fact, retaining the boundary and any open binding-run start without changing the
+visible outcome. A single greatest fact survives every pass until a newer fact arrives. No compaction
+caller, digest, notification or UI is wired by this slice.
+
+`GET /account/repricing-policies/:policyId/activity` uses account-owned policy resolution, listing-ID
+keyset paging (at most 50 rows), and returns `rows`, `next` and `filterCounts`.
+`GET /account/repricing-policies/attention-summary` is self-scoped to the authenticated account.
+Foreign and absent activity policies return the same 404. Freeze counts never read the live breaker.
 
 ## Incoming Dependencies
 
