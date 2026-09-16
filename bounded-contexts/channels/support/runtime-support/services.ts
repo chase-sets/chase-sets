@@ -8,6 +8,7 @@ import type { ChannelReconciliationServices } from "../../features/reconciliatio
 import type { TcgplayerCsvServices } from "../../features/tcgplayer-csv/api/runtime";
 import type { ManualSyncServices } from "../../features/manual-sync/api/runtime";
 import type { ConnectionAttentionServices } from "../../features/connection-attention/domain/contracts";
+import type { ConnectorFeedServices } from "../../features/connector-feed/api/runtime";
 
 export type ChannelsServices = Readonly<{
   connections: ChannelConnectionServices;
@@ -18,6 +19,7 @@ export type ChannelsServices = Readonly<{
   reconciliation: ChannelReconciliationServices;
   tcgplayerCsv: TcgplayerCsvServices;
   manualSync: ManualSyncServices;
+  connectorFeed: ConnectorFeedServices;
   projectors: readonly ProjectionHandlerSet[];
   db: PgTransactionalPool;
 }>;
@@ -31,6 +33,7 @@ export const channelsServicesMembers = defineChannelsServicesMembers([
   "reconciliation",
   "tcgplayerCsv",
   "manualSync",
+  "connectorFeed",
   "projectors",
   "db",
 ] as const);
@@ -46,6 +49,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   const reconciliation = Reflect.get(value, "reconciliation");
   const tcgplayerCsv = Reflect.get(value, "tcgplayerCsv");
   const manualSync = Reflect.get(value, "manualSync");
+  const connectorFeed = Reflect.get(value, "connectorFeed");
   const projectors = Reflect.get(value, "projectors");
   const db = Reflect.get(value, "db");
 
@@ -72,6 +76,9 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     typeof Reflect.get(reconciliation, "deliverHealthObservations") === "function" &&
     isObject(tcgplayerCsv) &&
     isObject(manualSync) &&
+    isObject(connectorFeed) &&
+    typeof Reflect.get(connectorFeed, "readAuthority") === "function" &&
+    typeof Reflect.get(connectorFeed, "withAuthority") === "function" &&
     Array.isArray(projectors) &&
     isObject(db)
   );

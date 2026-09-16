@@ -71,6 +71,7 @@ Session/token security lifetimes -- values, env vars, bounds, and the env-tier-b
 5. Social Login may auto-link by email only when the provider proves email ownership; otherwise linking requires an authenticated existing-user continuation.
 6. Dynamic Client Registration accepts only public OAuth clients; Auth does not issue, store, or echo client secrets.
 7. Invitation acceptance requires the emailed bearer token, consumes it through Identity exactly once, and starts the resulting session in the invited account with the invited role.
+8. Connector clients use a separate `channel-connector` scope family, PKCE codes, and rotating tokens. Connector credentials never resolve an agent grant or seller actor. Channels owns pairing and orchestrates grant revocation before lifecycle closure; Auth owns credential issuance, rotation, expiry, and revocation using the existing validated OAuth security lifetimes.
 
 ## Tests
 

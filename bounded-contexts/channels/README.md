@@ -42,6 +42,7 @@ outbound-only health and operator holds.
 - Channel Action health-attention generations, independent resolution facts,
   and one shared Seller Desk contribution combining health and manual work
 - The public-key-backed TCGplayer connector extension identity and callback URI
+- Connector Pairing, connection-scoped operation authority, and safe connector request audit
 
 ## Does Not Own
 
@@ -183,6 +184,41 @@ window, with an index on connection and occurrence time; it has no count cap.
 Reconciliation #4382 remains responsible for connecting its landed drift
 producer and hold reader to this service and proving its AC5/AC6 integration.
 Attention #7930 and liveness #7933 own their downstream behavior.
+
+## Connector Pairing
+
+Auth owns the separate public PKCE connector client and rotating grant mechanism.
+Channels owns one-use, ten-minute pairing codes and the one live pairing per
+connection. The seller's current membership and `channels.manage` permission
+authorize pairing. Connector credentials never resolve an agent or seller actor.
+The credential mount is `/channel-connector/oauth`, outside the authenticated
+seller `/api/channels` mount. The existing connection detail owns code generation,
+expiry, current pairing, and unpair controls.
+
+`connectorFeed.readAuthority` returns the bound connection, pairing, grant, and
+current inbound state: `absent`, `live`, or `revoked`. `withAuthority` keeps the
+canonical connection stream locked while an admitted consumer runs. Both active
+and paused connections retain write-only ingest authority after the grantor loses
+membership; claim and report require current membership. Pending setup and
+disconnected connections never admit connector operations. No transport, queue,
+coverage resolver, or heartbeat is implemented here. Last seen remains null until
+the claim producer records a real observation.
+
+Supersession, unpair, and disconnect revoke Auth authority before closing a
+pairing or publishing its replacement. Auth and Channels have separate databases:
+if Channels rolls back after revocation, the old row may remain paired but its
+revoked grant cannot authorize work. Repeated cleanup reconciles that state;
+pairing identities are never reopened. Code consumption and cleanup serialize
+on the canonical connection stream and compare pairing revision/state. Pairing
+transition facts and the indexed lifecycle state commit in one Channels transaction.
+If Auth commits issuance before Channels rolls back consumption, the grant has no
+paired authority. Regeneration revokes by the complete pairing binding before
+replacement; Auth also enforces one unrevoked grant per connection. The credential
+lifecycle tables are durable state, not disposable projection caches.
+
+One request boundary appends one credential-safe audit row. Identities are null
+until resolved from owned state. Tokens, codes, verifiers, cookies, request bodies,
+and exception text never enter pairing events or audit rows.
 
 ## Tests
 
