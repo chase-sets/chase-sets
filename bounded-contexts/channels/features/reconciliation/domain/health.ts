@@ -13,9 +13,16 @@ export function mapChannelDriftToHealthObservation(
     sourceAuthority: ChannelSourceAuthority;
     materialFingerprint: string;
     occurredAt: string;
+    snapshotAgeAttention?: boolean;
   }>,
 ): ChannelHealthObservationV1 | null {
-  if (input.sourceAuthority.kind === "absent-by-design") return null;
+  if (
+    input.sourceAuthority.kind === "absent-by-design" &&
+    (!input.snapshotAgeAttention ||
+      input.sourceAuthority.reason !== "claimed-snapshot-not-installed" ||
+      input.classification === "in-sync")
+  )
+    return null;
   const outcome = input.classification === "in-sync" ? "success" : "failure";
   return Object.freeze({
     schemaVersion: "ChannelHealthObservation/v1",

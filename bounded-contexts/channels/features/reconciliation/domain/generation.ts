@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { SNAPSHOT_AGE_MEMBER_ID } from "./snapshot-age";
 export type DriftGenerationMember = Readonly<{
   identity: string;
   kind: "foreign-edit" | "structural" | "repairable" | "source-unavailable";
@@ -123,28 +124,31 @@ export function retainDriftGeneration(
     return { generation, fingerprint: generationFingerprint(generation, members), members, resolution: null };
   }
   if (!previous || previous.resolution !== null) return previous;
-  const members = previous.members.map((member) => {
-    const current = currentMembers.get(member.identity);
-    if (!current) return clean === true ? { ...member, settlement: "recovered" as const } : member;
-    const accepted =
-      member.kind === "foreign-edit" &&
-      current.settlement === "accepted" &&
-      member.expectedFingerprint === current.expectedFingerprint &&
-      member.observedFingerprint === current.observedFingerprint;
-    return {
-      ...member,
-      recoveryRequested: member.recoveryRequested || current.recoveryRequested,
-      settlement: accepted
-        ? ("accepted" as const)
-        : current.settlement === "recovered"
-          ? ("recovered" as const)
-          : ("open" as const),
-    };
-  });
+  const members = previous.members
+    .map((member) => {
+      const current = currentMembers.get(member.identity);
+      if (!current) return clean === true ? { ...member, settlement: "recovered" as const } : member;
+      const accepted =
+        member.kind === "foreign-edit" &&
+        current.settlement === "accepted" &&
+        member.expectedFingerprint === current.expectedFingerprint &&
+        member.observedFingerprint === current.observedFingerprint;
+      return {
+        ...member,
+        recoveryRequested: member.recoveryRequested || current.recoveryRequested,
+        settlement: accepted
+          ? ("accepted" as const)
+          : current.settlement === "recovered"
+            ? ("recovered" as const)
+            : ("open" as const),
+      };
+    })
+    .filter((member) => member.identity !== SNAPSHOT_AGE_MEMBER_ID || member.settlement !== "recovered");
   const settled = clean && members.every((member) => member.settlement !== "open");
   return {
     ...previous,
     members,
+    fingerprint: generationFingerprint(previous.generation, members),
     resolution: !settled
       ? null
       : members.every(

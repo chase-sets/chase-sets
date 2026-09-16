@@ -9,6 +9,7 @@ export type ChannelReconciliationPolicyValue = Readonly<{
   maxListingsPerRun: number;
   maxSaleLinesPerRun: number;
   attentionListingLimit: number;
+  snapshotMaxAgeMs: number;
 }>;
 
 export const CHANNEL_RECONCILIATION_POLICY_FALLBACK: ChannelReconciliationPolicyValue = Object.freeze({
@@ -19,6 +20,7 @@ export const CHANNEL_RECONCILIATION_POLICY_FALLBACK: ChannelReconciliationPolicy
   maxListingsPerRun: 5_000,
   maxSaleLinesPerRun: 5_000,
   attentionListingLimit: 100,
+  snapshotMaxAgeMs: 86_400_000,
 });
 
 export type ChannelOutboundKillSwitchPolicyValue = Readonly<{
@@ -35,7 +37,7 @@ export const channelReconciliationPolicy: PolicyDefinition<ChannelReconciliation
   policyKey: "channels.reconciliation",
   contextName: "channels",
   schemaSummary:
-    "{ cadenceMs, saleLookbackMs, backdatingAttentionAfterMs, gapPersistenceRuns, maxListingsPerRun, maxSaleLinesPerRun, attentionListingLimit: bounded integers }",
+    "{ cadenceMs, saleLookbackMs, backdatingAttentionAfterMs, gapPersistenceRuns, maxListingsPerRun, maxSaleLinesPerRun, attentionListingLimit, snapshotMaxAgeMs: bounded integers }; exact legacy records default snapshotMaxAgeMs to 86400000",
   defaultValue: CHANNEL_RECONCILIATION_POLICY_FALLBACK,
   decodeValue: decodeChannelReconciliationPolicy,
 });
@@ -50,6 +52,7 @@ export const channelOutboundKillSwitchPolicy: PolicyDefinition<ChannelOutboundKi
 });
 
 export function decodeChannelReconciliationPolicy(raw: JsonValue): ChannelReconciliationPolicyValue {
+  const hasSnapshotAge = typeof raw === "object" && raw !== null && Object.hasOwn(raw, "snapshotMaxAgeMs");
   const record = closed(raw, [
     "cadenceMs",
     "saleLookbackMs",
@@ -58,6 +61,7 @@ export function decodeChannelReconciliationPolicy(raw: JsonValue): ChannelReconc
     "maxListingsPerRun",
     "maxSaleLinesPerRun",
     "attentionListingLimit",
+    ...(hasSnapshotAge ? ["snapshotMaxAgeMs"] : []),
   ]);
   return Object.freeze({
     cadenceMs: integer(record.cadenceMs, 60_000, 86_400_000, "cadenceMs"),
@@ -72,6 +76,9 @@ export function decodeChannelReconciliationPolicy(raw: JsonValue): ChannelReconc
     maxListingsPerRun: integer(record.maxListingsPerRun, 1, 100_000, "maxListingsPerRun"),
     maxSaleLinesPerRun: integer(record.maxSaleLinesPerRun, 1, 100_000, "maxSaleLinesPerRun"),
     attentionListingLimit: integer(record.attentionListingLimit, 1, 1_000, "attentionListingLimit"),
+    snapshotMaxAgeMs: hasSnapshotAge
+      ? integer(record.snapshotMaxAgeMs, 1, 7_776_000_000, "snapshotMaxAgeMs")
+      : CHANNEL_RECONCILIATION_POLICY_FALLBACK.snapshotMaxAgeMs,
   });
 }
 

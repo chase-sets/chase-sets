@@ -7,6 +7,9 @@ import { decodeChannelAttentionFact } from "../domain/codecs";
 import { createConnectionAttentionRuntime } from "../api/runtime";
 import { recordAttentionHealthTransition } from "../api/lifecycle";
 import { createChannelActionAttentionSourceFromReadModel } from "../read-model/attention-source";
+import { createChannelProviderRegistry } from "../../publication-port/api/registry";
+import { buildChannelConnectionProjectionHandlers } from "../../connections/read-model/projection";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 
 describeDb("channel-attention-lifecycle", () => {
   const h = healthDatabase("attention_lifecycle");
@@ -23,6 +26,92 @@ describeDb("channel-attention-lifecycle", () => {
         [`channels.connection-attention-${id}`],
       )
     ).rows;
+
+  it("claimed-reconcile-staleness publishes age attention through the composed runtime and withdraws only drift", async () => {
+    const id = "synthetic_claimed_age_attention";
+    await h.services.connections.connectChannel(
+      { ...h.query(id), providerKey: "tcgplayer" },
+      { deploymentEnvironment: "test" },
+      context,
+    );
+    await h.services.connections.activateChannelConnection(
+      { ...h.query(id), bindings: [{ storageLocationId: "location_health", revision: 1 }] },
+      context,
+    );
+    const handlers = buildChannelConnectionProjectionHandlers(h.db);
+    const events = await createPostgresEventStore({ pool: h.db }).readStream({
+      streamId: `channels.connection-${id}`,
+      fromVersion: 1,
+    });
+    for (const event of events) await handlers[event.eventType]?.(toTransportEvent(event));
+    await h.db.query(
+      `INSERT INTO channel_sync_runs
+      (run_id,revision,sequence,connection_id,provider_key,reservation_id,claimant_kind,claimant_id,lease_expires_at,
+       manual_claim_lease_policy_snapshot,state,basis_snapshot_id,basis_snapshot_generation,csv_header,member_count,member_digest,created_at,updated_at,last_stream_version)
+      VALUES ('synthetic-age-manual',1,1,$1,'tcgplayer','synthetic-age-reservation','manual','synthetic-manual',
+        '2027-01-01T00:00:00Z','{}','composed','synthetic-basis',1,'[]',1,$2,now(),now(),1)`,
+      [id, "a".repeat(64)],
+    );
+    const manual = (await h.db.query("SELECT * FROM channel_sync_runs WHERE connection_id=$1", [id])).rows;
+    const registry = createChannelProviderRegistry([
+      {
+        identity: { providerKey: "tcgplayer", environment: "sandbox" },
+        setup: {
+          providerKey: "tcgplayer",
+          environment: "sandbox",
+          requirements: { credential: "not-required", requiredPolicyKeys: [], binding: "one-or-more-current" },
+        },
+        publication: { execution: "claimed" },
+      },
+    ]);
+    const input = {
+      connectionId: id,
+      registry,
+      sourceAttempt: 1,
+      healthAuthority: (await h.services.connectionHealth.readConnectionHealth(h.query(id))).health,
+    };
+    await h.services.connectionHealth.submitObservation(await h.observation(id, "polling"), context);
+    await h.services.reconciliation.reconcileConnection(input, context);
+    expect(
+      await h.services.reconciliation.deliverHealthObservations(h.services.connectionHealth, () => context),
+    ).toEqual({ consumed: 1 });
+    const source = createChannelActionAttentionSourceFromReadModel(h.db);
+    const queue = () => source.load({ accountId: context.audit.forAccountId, now: new Date().toISOString() });
+    expect((await queue()).filter((item) => item.id === `channel-action:${id}`)).toHaveLength(1);
+    expect(
+      (await h.services.connectionAttention.listOpenAttention(h.query(id)))[0].health
+        .map((reason) => reason.reasonCode)
+        .sort(),
+    ).toEqual(["drift", "polling"]);
+    const at = new Date();
+    for (const generation of [1, 2])
+      await h.db.query(
+        `INSERT INTO channel_inventory_snapshots
+      (snapshot_id,snapshot_generation,connection_id,provider_key,surface,parsed_row_count,completeness,ingested_at,captured_at,captured_at_source)
+      VALUES ($1,$2,$3,'tcgplayer','live',1,'unverified',$4,$5,'operator-declared')`,
+        [
+          `synthetic-attention-age-${generation}`,
+          generation,
+          id,
+          at.toISOString(),
+          new Date(at.getTime() - (3 - generation) * 1000).toISOString(),
+        ],
+      );
+    await h.services.reconciliation.reconcileConnection(input, context);
+    await h.services.reconciliation.deliverHealthObservations(h.services.connectionHealth, () => context);
+    await h.services.reconciliation.reconcileConnection(input, context);
+    await h.services.reconciliation.deliverHealthObservations(h.services.connectionHealth, () => context);
+    expect(
+      (await h.services.connectionAttention.listOpenAttention(h.query(id)))[0].health.map(
+        (reason) => reason.reasonCode,
+      ),
+    ).toEqual(["polling"]);
+    expect((await queue()).filter((item) => item.id === `channel-action:${id}`)).toHaveLength(1);
+    expect(
+      (await h.services.reconciliation.readChannelDriftAttentionContribution({ connectionId: id }))?.resolution,
+    ).toBeNull();
+    expect((await h.db.query("SELECT * FROM channel_sync_runs WHERE connection_id=$1", [id])).rows).toEqual(manual);
+  });
 
   it("opens once, resolves once without closing health, and reopens only a changed generation", async () => {
     const id = await h.connection();

@@ -55,6 +55,8 @@ import type {
 import type { OutboundOperationRecord, OutboundOperationStatusRecord } from "../../outbound-sync/domain/contracts";
 import { deriveOutboundRepushOperationId } from "../../outbound-sync/api/store";
 import { payloadDigest } from "../../outbound-sync/domain/validation";
+import { readLatestLiveSnapshotMetadata } from "../../tcgplayer-csv/read-model/queries";
+import { evaluateSnapshotAge, SNAPSHOT_AGE_FINDING_ID, SNAPSHOT_AGE_MEMBER_ID } from "../domain/snapshot-age";
 
 const zeroCounts = (): MutableCounts => ({
   listingsReconciled: 0,
@@ -117,6 +119,34 @@ export function createChannelReconciliationRuntime(
       });
       const provider = input.registry.get({ providerKey: connection.providerKey, environment: connection.environment });
       const publication = provider?.publication ?? null;
+      const snapshotAgeScope = publication?.execution === "claimed" && connection.providerKey === "tcgplayer";
+      if (snapshotAgeScope) {
+        const snapshots = await readLatestLiveSnapshotMetadata(dependencies.db, connection.connectionId);
+        const age = evaluateSnapshotAge(snapshots, startedAt, policy.snapshotMaxAgeMs);
+        await withPgTransaction(dependencies.db, async (db) => {
+          const owner = await db.query(
+            `SELECT 1 FROM channel_reconciliation_state
+             WHERE connection_id=$1 AND generation=$2 AND revision=$3 AND state='running' FOR UPDATE`,
+            [connection.connectionId, claim.generation, claim.revision],
+          );
+          if (owner.rows.length !== 1) throw new Error("Snapshot age finding lost its run fence.");
+          if (age.kind === "fresh") {
+            await closeFinding(db, connection.connectionId, SNAPSHOT_AGE_FINDING_ID, startedAt);
+          } else {
+            await writeFinding(
+              db,
+              connection.connectionId,
+              SNAPSHOT_AGE_FINDING_ID,
+              claim.generation,
+              "stale-snapshot",
+              null,
+              digest(JSON.stringify([age.reason, snapshots])),
+              age.reason,
+              startedAt,
+            );
+          }
+        });
+      }
       let stateResult: ChannelStateFetchResult = { kind: "bounded-unknown", reason: "source-error" };
       if (expected.bounded) {
         stateResult = { kind: "bounded-unknown", reason: "hard-cap" };
@@ -371,10 +401,14 @@ export function createChannelReconciliationRuntime(
         counts.structural === 0 &&
         counts.sourceUnavailable === 0 &&
         openFindingCount === 0;
-      const findings = await dependencies.db.query<{ finding_id: string; fingerprint: string; open: boolean }>(
-        "SELECT finding_id,fingerprint,open FROM channel_reconciliation_findings WHERE connection_id=$1",
-        [connection.connectionId],
-      );
+      const findings = await dependencies.db.query<{
+        finding_id: string;
+        fingerprint: string;
+        open: boolean;
+        kind: string;
+      }>("SELECT finding_id,fingerprint,open,kind FROM channel_reconciliation_findings WHERE connection_id=$1", [
+        connection.connectionId,
+      ]);
       members.push(
         ...findings.rows.map(
           (finding): DriftGenerationMember => ({
@@ -392,7 +426,7 @@ export function createChannelReconciliationRuntime(
         ["source:state", stateResult.kind === "complete"],
         ["source:sales", saleAuthorityComplete],
       ] as const) {
-        if (complete || !claim.driftGeneration || claim.driftGeneration.resolution !== null)
+        if (complete || snapshotAgeScope || !claim.driftGeneration || claim.driftGeneration.resolution !== null)
           members.push({
             identity,
             kind: "source-unavailable",
@@ -403,13 +437,28 @@ export function createChannelReconciliationRuntime(
             recoveryRequested: false,
           });
       }
-      const driftGeneration = absentByDesign
-        ? claim.driftGeneration
-        : retainDriftGeneration(claim.driftGeneration, members, clean);
+      const snapshotAgeAttention =
+        snapshotAgeScope &&
+        (findings.rows.some((finding) => finding.kind === "stale-snapshot" && finding.open) ||
+          claim.driftGeneration?.members.some((member) => member.identity === SNAPSHOT_AGE_MEMBER_ID) === true);
+      if (snapshotAgeScope) {
+        const observedIdentities = new Set(members.map((member) => member.identity));
+        members.push(
+          ...(claim.driftGeneration?.members ?? []).filter(
+            (member) => member.kind !== "source-unavailable" && !observedIdentities.has(member.identity),
+          ),
+        );
+      }
+      const driftGeneration =
+        absentByDesign && !snapshotAgeAttention && !claim.driftGeneration
+          ? null
+          : absentByDesign && !snapshotAgeScope
+            ? claim.driftGeneration
+            : retainDriftGeneration(claim.driftGeneration, members, clean);
       clean = clean && (!driftGeneration || driftGeneration.resolution !== null);
       const health =
         input.healthAuthority &&
-        !absentByDesign &&
+        (!absentByDesign || snapshotAgeAttention) &&
         (clean ||
           counts.repairable + counts.foreignEdit + counts.structural + counts.sourceUnavailable > 0 ||
           stateResult.kind !== "complete" ||
@@ -425,6 +474,7 @@ export function createChannelReconciliationRuntime(
               sourceAuthority,
               materialFingerprint: driftGeneration?.fingerprint ?? digest(`connection:${connection.connectionId}`),
               occurredAt: startedAt,
+              snapshotAgeAttention,
             })
           : null;
       const state = stateResult.kind === "complete" && saleComplete ? "completed" : "bounded-unknown";
@@ -1300,7 +1350,7 @@ async function writeFinding(
   connectionId: string,
   findingId: string,
   generation: number,
-  kind: "unmappable-sale" | "backdated-sale" | "unmapped-channel-state" | "persistent-sale-gap",
+  kind: "unmappable-sale" | "backdated-sale" | "unmapped-channel-state" | "persistent-sale-gap" | "stale-snapshot",
   channelListingId: string | null,
   fingerprint: string,
   safeReason: string,

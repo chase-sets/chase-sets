@@ -15,6 +15,32 @@ const base = {
 } as const;
 
 describe("channel-reconciliation-health-outcome-table", () => {
+  it("claimed-snapshot-age attention authorizes only a claimed failure, never completeness or unrelated absence", () => {
+    expect(
+      mapChannelDriftToHealthObservation({
+        ...base,
+        classification: "source-unavailable",
+        sourceAuthority: { kind: "absent-by-design", reason: "claimed-snapshot-not-installed" },
+        snapshotAgeAttention: true,
+      }),
+    ).toMatchObject({ outcome: "failure", reasonCode: "drift" });
+    expect(
+      mapChannelDriftToHealthObservation({
+        ...base,
+        classification: "in-sync",
+        sourceAuthority: { kind: "absent-by-design", reason: "claimed-snapshot-not-installed" },
+        snapshotAgeAttention: true,
+      }),
+    ).toBeNull();
+    expect(
+      mapChannelDriftToHealthObservation({
+        ...base,
+        classification: "source-unavailable",
+        sourceAuthority: { kind: "absent-by-design", reason: "reconciliation-capability-unregistered" },
+        snapshotAgeAttention: true,
+      }),
+    ).toBeNull();
+  });
   const foreign: DriftGenerationMember = {
     identity: "listing:synthetic-one",
     kind: "foreign-edit",
