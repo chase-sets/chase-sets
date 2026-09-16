@@ -190,8 +190,8 @@ describeDb("Channel Reconciliation guarded production path", () => {
       await run();
       const recovered = await runtime.readChannelDriftAttentionContribution(input);
       expect(recovered).toMatchObject({ generation: open!.generation, affectedListingCount: 0, resolution: null });
-      expect(recovered!.members.some((m) => m.identity === "finding:snapshot-age")).toBe(false);
       expect(await queue()).toEqual([]);
+      expect(recovered!.members.some((m) => m.identity === "finding:snapshot-age")).toBe(false);
       expect(
         (await services.connectionAttention.listOpenAttention(connection))
           .flatMap((item) => item.health)
