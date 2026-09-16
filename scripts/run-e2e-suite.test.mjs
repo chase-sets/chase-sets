@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it, vi } from "vitest";
 import * as channelsClient from "../bounded-contexts/channels/client.ts";
 import {
   batchE2eSuiteIds,
@@ -31,6 +32,58 @@ function walkFiles(dir) {
 }
 
 describe("run e2e suite", () => {
+  it("claims one playwright root before dispatching registered suites through the production entrypoint", async () => {
+    const events = [];
+    const commandSuites = e2eSuites.filter((suite) => Array.isArray(suite.command));
+    const grepSuites = parseSuiteArgs(["marketplace_checkout,marketplace_seller"]);
+    const argv = process.argv;
+    vi.resetModules();
+    vi.doMock("./lib/heavy-slot.mjs", () => ({
+      acquireHeavySlot: (kind) => events.push({ admission: kind }),
+    }));
+    vi.doMock("./lib/process.mjs", async () => ({
+      ...(await vi.importActual("./lib/process.mjs")),
+      runCommand: async (command, args, options) => events.push({ command, args, options }),
+    }));
+    vi.doMock("./validate-responsive-evidence-artifacts.mjs", () => ({
+      validateResponsiveEvidenceArtifacts: async (options) => {
+        events.push({ artifacts: options });
+        return { violations: [], expectedClaimIds: [], manifests: [] };
+      },
+    }));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      process.argv = [
+        process.execPath,
+        fileURLToPath(new URL("./run-e2e-suite.mjs", import.meta.url)),
+        "--",
+        ...grepSuites.map((suite) => suite.id),
+        ...commandSuites.map((suite) => suite.id),
+      ];
+      await import("./run-e2e-suite.mjs");
+      await vi.dynamicImportSettled();
+      const { buildPackageManagerInvocation } = await vi.importActual("./lib/process.mjs");
+      const rootDir = fileURLToPath(new URL("../", import.meta.url));
+      const options = { cwd: rootDir, stdio: "inherit" };
+      expect(events).toEqual([
+        { admission: "playwright" },
+        {
+          ...buildPackageManagerInvocation(["exec", "playwright", "test", "--grep", buildSuiteGrep(grepSuites)]),
+          options,
+        },
+        { artifacts: { repoRoot: rootDir, selectedGreps: grepSuites.map((suite) => suite.grep) } },
+        ...commandSuites.map((suite) => ({ ...commandSuiteInvocation(suite), options })),
+      ]);
+    } finally {
+      process.argv = argv;
+      log.mockRestore();
+      vi.doUnmock("./lib/heavy-slot.mjs");
+      vi.doUnmock("./lib/process.mjs");
+      vi.doUnmock("./validate-responsive-evidence-artifacts.mjs");
+      vi.resetModules();
+    }
+  });
+
   it("provides a display for the headed Chromium command on Linux without changing package scripts", () => {
     const suite = e2eSuites.find((entry) => entry.id === "tcgplayer_connector_extension");
     const ordinary = commandSuiteInvocation(suite, "win32", {});
@@ -82,6 +135,11 @@ describe("run e2e suite", () => {
         "bounded-contexts/channels/features/connector-client/domain/derive-chrome-extension-id.ts",
       ),
     ).toEqual(["tcgplayer_connector_extension"]);
+  });
+
+  it("rejects missing and unknown suites", () => {
+    expect(() => parseSuiteArgs([])).toThrow("Usage:");
+    expect(() => parseSuiteArgs(["unknown_suite"])).toThrow("Unknown E2E suite 'unknown_suite'");
   });
 
   it("accepts comma-separated and positional suite ids", () => {
