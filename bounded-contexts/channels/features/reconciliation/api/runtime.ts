@@ -1636,8 +1636,24 @@ async function loadRunHistory(
           if (driftGeneration.resolution !== null && JSON.stringify(next) !== JSON.stringify(driftGeneration))
             invalidRunHistory("a resolved drift generation changed");
           const previousMembers = new Map(driftGeneration.members.map((member) => [member.identity, member]));
+          const snapshotAgeRecovered =
+            previousMembers.has(SNAPSHOT_AGE_MEMBER_ID) &&
+            next.members.length === previousMembers.size - 1 &&
+            next.members.every((member) => {
+              const previous = previousMembers.get(member.identity);
+              return (
+                member.identity !== SNAPSHOT_AGE_MEMBER_ID &&
+                previous !== undefined &&
+                member.kind === previous.kind &&
+                member.expectedFingerprint === previous.expectedFingerprint &&
+                member.observedFingerprint === previous.observedFingerprint &&
+                member.settlement === previous.settlement &&
+                member.decisionRevision === previous.decisionRevision &&
+                member.recoveryRequested === previous.recoveryRequested
+              );
+            });
           if (
-            next.fingerprint !== driftGeneration.fingerprint ||
+            (next.fingerprint !== driftGeneration.fingerprint && !snapshotAgeRecovered) ||
             next.members.some((member) => {
               const previous = previousMembers.get(member.identity);
               return (

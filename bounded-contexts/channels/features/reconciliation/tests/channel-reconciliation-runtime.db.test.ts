@@ -47,6 +47,7 @@ import { createChannelActionAttentionSourceFromReadModel } from "../../connectio
 import { readChannelDriftDetail } from "../read-model/detail";
 import { readLatestLiveSnapshotMetadata } from "../../tcgplayer-csv/read-model/queries";
 import { evaluateSnapshotAge } from "../domain/snapshot-age";
+import type { RetainedDriftGeneration } from "../domain/generation";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
@@ -198,6 +199,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
           .some((reason) => reason.reasonCode === "drift"),
       ).toBe(false);
       expect((await services.connectionHealth.readConnectionHealth(connection)).health.state).not.toBe("healthy");
+      const deleted = await pools.channels.query(
+        `DELETE FROM event_store_aggregate_snapshots
+         WHERE stream_id='channels.channel-reconciliation-connection-1'`,
+      );
+      expect(deleted.rowCount).toBe(1);
       await run();
       expect(await runtime.readChannelDriftAttentionContribution(input)).toEqual(recovered);
       expect(await queue()).toEqual([]);
@@ -234,6 +240,141 @@ describeDb("Channel Reconciliation guarded production path", () => {
     },
   );
 
+  it.each([
+    "valid recovery",
+    "wider removal",
+    "member identity",
+    "member kind",
+    "expected fingerprint",
+    "observed fingerprint",
+    "settlement",
+    "decision revision",
+    "recovery provenance",
+    "forged fingerprint",
+    "resolved generation",
+  ] as const)("claimed-snapshot-age canonical replay validates reduced membership: %s", async (scenario) => {
+    const at = new Date("2026-09-16T12:00:00Z");
+    await seedAgeConnection(at);
+    const runtime = reconciliationAt(at);
+    const input = {
+      connectionId: "connection-1",
+      registry: createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]),
+      sourceAttempt: 1,
+      healthAuthority: null,
+    };
+    await runtime.reconcileConnection(input, context);
+    await ageSnapshot(1, new Date(at.getTime() - 2_000).toISOString(), at);
+    await ageSnapshot(2, new Date(at.getTime() - 1_000).toISOString(), at);
+    await runtime.reconcileConnection(input, context);
+    const finishes = await pools.channels.query<{ stream_version: number; drift: RetainedDriftGeneration }>(
+      `SELECT stream_version,payload->'driftGeneration' AS drift FROM event_store_events
+       WHERE stream_id='channels.channel-reconciliation-connection-1'
+         AND event_type='channels.channel-reconciliation.finished' ORDER BY stream_version`,
+    );
+    expect(finishes.rows).toHaveLength(2);
+    const previous = finishes.rows[0]!.drift;
+    const recovered = finishes.rows[1]!.drift;
+    expect([previous.generation, recovered.generation]).toEqual([1, 1]);
+    expect(previous.members).toHaveLength(3);
+    expect(recovered.members).toHaveLength(2);
+    expect(recovered.fingerprint).not.toBe(previous.fingerprint);
+    expect(recovered.resolution).toBeNull();
+    expect(recovered.members).toEqual(previous.members.filter((member) => member.identity !== "finding:snapshot-age"));
+
+    let members = [...recovered.members];
+    const member = members[0]!;
+    switch (scenario) {
+      case "wider removal":
+        members = members.slice(1);
+        break;
+      case "member identity":
+        members[0] = { ...member, identity: "synthetic-replaced-source" };
+        break;
+      case "member kind":
+        members[0] = { ...member, kind: "structural" };
+        break;
+      case "expected fingerprint":
+        members[0] = { ...member, expectedFingerprint: "a".repeat(64) };
+        break;
+      case "observed fingerprint":
+        members[0] = { ...member, observedFingerprint: "b".repeat(64) };
+        break;
+      case "settlement":
+        members[0] = { ...member, settlement: "recovered" };
+        break;
+      case "decision revision":
+        members[0] = { ...member, decisionRevision: member.decisionRevision + 1 };
+        break;
+      case "recovery provenance":
+        members[0] = { ...member, recoveryRequested: !member.recoveryRequested };
+        break;
+    }
+    const fingerprint = (drift: RetainedDriftGeneration) =>
+      createHash("sha256")
+        .update(
+          JSON.stringify([
+            drift.generation,
+            [...drift.members]
+              .sort((a, b) => a.identity.localeCompare(b.identity))
+              .map(({ identity, kind, expectedFingerprint, observedFingerprint }) => [
+                identity,
+                kind,
+                expectedFingerprint,
+                observedFingerprint,
+              ]),
+          ]),
+        )
+        .digest("hex");
+    const replaceFinish = async (index: number, drift: RetainedDriftGeneration) => {
+      await pools.channels.query(
+        `UPDATE event_store_events SET payload=jsonb_set(payload,'{driftGeneration}',$1::jsonb)
+         WHERE stream_id='channels.channel-reconciliation-connection-1' AND stream_version=$2`,
+        [JSON.stringify(drift), finishes.rows[index]!.stream_version],
+      );
+    };
+    if (scenario === "resolved generation") {
+      for (const [index, drift] of [previous, recovered].entries()) {
+        await replaceFinish(index, {
+          ...drift,
+          members: drift.members.map((entry) => ({ ...entry, settlement: "recovered" })),
+          resolution: "recovered-automatically",
+        });
+      }
+      await pools.channels.query(
+        `UPDATE event_store_events SET payload=payload || '{"clean":true,"state":"completed"}'::jsonb
+         WHERE stream_id='channels.channel-reconciliation-connection-1'
+           AND event_type='channels.channel-reconciliation.finished'`,
+      );
+    } else if (scenario !== "valid recovery") {
+      const changed = { ...recovered, members };
+      await replaceFinish(1, {
+        ...changed,
+        fingerprint: scenario === "forged fingerprint" ? previous.fingerprint : fingerprint(changed),
+      });
+    }
+    const deleted = await pools.channels.query(
+      `DELETE FROM event_store_aggregate_snapshots WHERE stream_id='channels.channel-reconciliation-connection-1'`,
+    );
+    expect(deleted.rowCount).toBe(1);
+    if (scenario === "valid recovery") {
+      await runtime.reconcileConnection(input, context);
+      const replayed = await pools.channels.query<{ drift: RetainedDriftGeneration }>(
+        `SELECT payload->'driftGeneration' AS drift FROM event_store_events
+         WHERE stream_id='channels.channel-reconciliation-connection-1'
+           AND event_type='channels.channel-reconciliation.finished' ORDER BY stream_version DESC LIMIT 1`,
+      );
+      expect(replayed.rows[0]!.drift).toEqual(recovered);
+    } else {
+      await expect(runtime.reconcileConnection(input, context)).rejects.toThrow(
+        scenario === "forged fingerprint"
+          ? "membership does not match its fingerprint"
+          : scenario === "resolved generation"
+            ? "a resolved drift generation changed"
+            : "retained drift member identity or provenance changed",
+      );
+    }
+  });
+
   it("claimed-snapshot-age-retained preserves pre-existing inline foreign and structural membership on age recovery", async () => {
     const at = new Date();
     await seedAgeConnection(at);
@@ -268,6 +409,10 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await ageSnapshot(4, new Date(at.getTime() - 1_000).toISOString(), at);
     await ageSnapshot(5, at.toISOString(), at);
     await runtime.reconcileConnection(claimed, context);
+    const deleted = await pools.channels.query(
+      `DELETE FROM event_store_aggregate_snapshots WHERE stream_id='channels.channel-reconciliation-connection-1'`,
+    );
+    expect(deleted.rowCount).toBe(1);
     await runtime.reconcileConnection(claimed, context);
     const recovered = (await runtime.readChannelDriftAttentionContribution(input))!;
     expect(recovered.members).toEqual(expect.arrayContaining(preserved));
