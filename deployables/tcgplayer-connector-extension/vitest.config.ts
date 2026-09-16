@@ -5,6 +5,6 @@ export default defineWorkspaceTestConfig({
   resolve: { alias: createWorkspaceSourceAliases() },
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "__tests__/support/**/*.test.ts"],
   },
 });

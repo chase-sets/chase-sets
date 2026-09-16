@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import {
   mechanismFacts,
   mechanismNames,
@@ -8,7 +8,7 @@ import {
   reasonCodes,
   selectMechanism,
   type ProbeRecord,
-} from "./probe-record.ts";
+} from "./probe-record";
 
 type ProbeFixture = Omit<ProbeRecord, "schemaVersion" | "mechanisms" | "alarm" | "storage"> & {
   schemaVersion: number;
