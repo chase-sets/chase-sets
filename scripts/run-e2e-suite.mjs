@@ -49,7 +49,7 @@ export function commandSuiteInvocation(suite, platform = process.platform, env =
 }
 
 async function main() {
-  acquireHeavySlot("script-battery");
+  acquireHeavySlot("playwright");
   const suites = parseSuiteArgs(process.argv.slice(2));
   console.log(`Running E2E suites: ${suites.map((suite) => suite.id).join(", ")}`);
   const playwrightSuites = suites.filter((suite) => !Array.isArray(suite.command));
