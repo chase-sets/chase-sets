@@ -23,6 +23,8 @@ export type TcgplayerRowRefusalReason = (typeof tcgplayerRowRefusalReasons)[numb
 
 export type TcgplayerExportIngestLimits = Readonly<{ maxRecords: number }>;
 
+export const tcgplayerLocalSnapshotRowCeiling = 1_000_000;
+
 export type ChannelExportSchemaDescriptor = Readonly<{
   providerKey: "tcgplayer";
   surface: ChannelExportSurface;

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -7,7 +7,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { module as channelsModule } from "../../../index";
 import { testContext } from "../../connections/tests/test-support";
@@ -17,19 +17,37 @@ import { createOutboundSyncRuntime } from "../../outbound-sync/api/runtime";
 import { channelProviderRegistry } from "../../publication-port/api/registry";
 import { createTcgplayerCsvRuntime } from "../api/runtime";
 import { channelSyncRunEventCodec } from "../domain/codec";
-import type { ChannelSyncRun } from "../domain/contracts";
+import { tcgplayerLocalSnapshotRowCeiling, type ChannelSyncRun } from "../domain/contracts";
 import { deriveClaimedOperationOutcomes } from "../domain/lifecycle";
-import { tcgplayerCompositionProfiles } from "../domain/profile";
+import { tcgplayerCompositionProfiles, tcgplayerLiveExportHeader } from "../domain/profile";
 import { createTcgplayerClaimedReservationRunSettlementPort } from "../integrations/outbound-sync-settlement";
 import { canonicalManualClaimLeasePolicySnapshotDigest } from "../domain/validation";
 import { projectChannelSyncRunComposed, projectChannelSyncRunTransitioned } from "../read-model/projection";
-import { readRun } from "../read-model/queries";
+import { readLatestSnapshotRows, readSnapshotRowsById, readRun } from "../read-model/queries";
 import { tcgplayerCsvSchemaSql } from "../read-model/schema";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 let pools: Readonly<Record<"channels", PgTransactionalPool>>;
+
+describe("snapshot-read-cap-boundary input", () => {
+  it("rejects invalid caps and unknown fields on both paths before SQL", async () => {
+    const query = vi.fn<PgQueryable["query"]>();
+    const db: PgQueryable = { query };
+    for (const maxRows of [0, -1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1, 1_000_001]) {
+      await expect(readLatestSnapshotRows(db, { connectionId: "synthetic", surface: "live", maxRows })).rejects.toThrow(
+        "maxRows",
+      );
+      await expect(readSnapshotRowsById(db, { snapshotId: "synthetic", maxRows })).rejects.toThrow("maxRows");
+    }
+    const latest = { connectionId: "synthetic", surface: "live" as const, maxRows: 1, evidence: "complete" };
+    const byId = { snapshotId: "synthetic", maxRows: 1, evidence: "complete" };
+    await expect(readLatestSnapshotRows(db, latest)).rejects.toThrow("exactly");
+    await expect(readSnapshotRowsById(db, byId)).rejects.toThrow("exactly");
+    expect(query).not.toHaveBeenCalled();
+  });
+});
 
 describeDb("tcgplayer-run-order-and-lease", () => {
   beforeAll(async () => {
@@ -45,6 +63,147 @@ describeDb("tcgplayer-run-order-and-lease", () => {
 
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it("snapshot-read-cap-boundary limits SQL materialization and returned rows on both paths", async () => {
+    const services = createOwnedRuntime();
+    await seedProductionCompositionFacts([]);
+    await ingestStaged(
+      services,
+      "synthetic-cap",
+      [
+        ["99000003", "Near Mint", "1", "0", "1.00"],
+        ["99000001", "Near Mint", "1", "0", "1.00"],
+        ["99000002", "Near Mint", "1", "0", "1.00"],
+        ["99000004", "Near Mint", "1", "0", "1.00"],
+      ],
+      1,
+    );
+    for (const maxRows of [1, 2, tcgplayerLocalSnapshotRowCeiling]) {
+      const rowReads: { sql: string; values: readonly unknown[] | undefined; count: number }[] = [];
+      const db: PgQueryable = {
+        async query(sql, values) {
+          const result = await pools.channels.query(sql, values);
+          if (sql.includes("FROM channel_inventory_snapshot_rows"))
+            rowReads.push({ sql, values, count: result.rows.length });
+          return result;
+        },
+      };
+      const latest = await readLatestSnapshotRows(db, {
+        connectionId: "connection-production",
+        surface: "staged",
+        maxRows,
+      });
+      const byId = await readSnapshotRowsById(db, { snapshotId: "synthetic-cap", maxRows });
+      expect(byId).toEqual(latest);
+      expect(latest?.rows.map((row) => row.externalKey)).toEqual(
+        ["product:99000003", "product:99000001", "product:99000002", "product:99000004"].slice(0, maxRows),
+      );
+      expect(rowReads).toHaveLength(2);
+      for (const read of rowReads) {
+        expect(read.sql, "remove-row-limit: SQL must bound materialization").toMatch(/ORDER BY row_number LIMIT \$2/);
+        expect(read.values).toEqual(["synthetic-cap", maxRows + 1]);
+        expect(read.count).toBe(Math.min(4, maxRows + 1));
+      }
+    }
+  });
+
+  it("snapshot-read-membership-not-census rejects overflow, missing and partial membership", async () => {
+    const services = createOwnedRuntime();
+    await seedProductionCompositionFacts([]);
+    await ingestStaged(
+      services,
+      "synthetic-membership",
+      [
+        ["99000011", "Near Mint", "1", "0", "1.00"],
+        ["99000012", "Near Mint", "1", "0", "1.00"],
+        ["99000013", "Near Mint", "1", "0", "1.00"],
+      ],
+      1,
+    );
+    const incomplete = { kind: "bounded-incomplete", reason: "parsed-row-count-mismatch" };
+    for (const parsedRowCount of [3, 2, 4]) {
+      await pools.channels.query("UPDATE channel_inventory_snapshots SET parsed_row_count=$1 WHERE snapshot_id=$2", [
+        parsedRowCount,
+        "synthetic-membership",
+      ]);
+      for (const maxRows of [2, 3, 4]) {
+        for (let repeat = 0; repeat < 2; repeat += 1) {
+          const latest = await services.tcgplayerCsv.readLatestSnapshotRows({
+            connectionId: "connection-production",
+            surface: "staged",
+            maxRows,
+          });
+          const byId = await readSnapshotRowsById(pools.channels, { snapshotId: "synthetic-membership", maxRows });
+          expect(byId).toEqual(latest);
+          expect(latest?.snapshot.completeness).toBe("unverified");
+          expect(
+            latest?.membershipCompleteness,
+            "truncate-before-membership-check: extra row beyond cap is not complete",
+          ).toEqual(parsedRowCount === 3 && maxRows >= 3 ? { kind: "complete", total: 3 } : incomplete);
+        }
+      }
+    }
+    await pools.channels.query("DELETE FROM channel_inventory_snapshot_rows WHERE snapshot_id=$1", [
+      "synthetic-membership",
+    ]);
+    expect(
+      (await readSnapshotRowsById(pools.channels, { snapshotId: "synthetic-membership", maxRows: 4 }))
+        ?.membershipCompleteness,
+    ).toEqual(incomplete);
+  });
+
+  it("snapshot-read-callers-retained isolates two connections and surfaces while retaining generation order", async () => {
+    const services = createOwnedRuntime();
+    await seedProductionCompositionFacts([]);
+    await cloneConnection("synthetic-other-connection");
+    for (const connectionId of ["connection-production", "synthetic-other-connection"]) {
+      for (const surface of ["live", "staged"] as const) {
+        for (const generation of [1, 2]) {
+          const snapshotId = `synthetic-${connectionId}-${surface}-${generation}`;
+          await expect(
+            services.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+              snapshotId,
+              connectionId,
+              surface,
+              csv:
+                surface === "staged"
+                  ? stagedCsv([["99000021", "Near Mint", String(generation), "0", "1.00"]])
+                  : `${tcgplayerLiveExportHeader.join(",")}\n${["99000021", "Synthetic", "Synthetic", "Synthetic", "Synthetic", "1", "Common", "Near Mint", "1.00", "1.00", "1.00", "1.00", String(generation), "0", "1.00", ""].join(",")}`,
+              limits: { maxRecords: 1 },
+              ingestedAt: "2026-09-09T00:00:00Z",
+              capturedAt: "2026-09-09T00:00:00Z",
+              capturedAtSource: "ingest",
+            }),
+          ).resolves.toMatchObject({ kind: "parsed" });
+          for (let repeat = 0; repeat < 2; repeat += 1) {
+            const latest = await services.tcgplayerCsv.readLatestSnapshotRows({ connectionId, surface, maxRows: 1 });
+            expect(latest?.snapshot).toMatchObject({
+              snapshotId,
+              snapshotGeneration: generation,
+              connectionId,
+              surface,
+              completeness: "unverified",
+            });
+            expect(latest?.membershipCompleteness).toEqual({ kind: "complete", total: 1 });
+            const first = await readSnapshotRowsById(pools.channels, {
+              snapshotId: `synthetic-${connectionId}-${surface}-1`,
+              maxRows: 1,
+            });
+            expect(first?.snapshot.snapshotGeneration).toBe(1);
+            expect(first?.rows[0]?.totalQuantity).toBe(1);
+          }
+        }
+      }
+    }
+    expect(await readSnapshotRowsById(pools.channels, { snapshotId: "synthetic-absent", maxRows: 1 })).toBeNull();
+    expect(
+      await services.tcgplayerCsv.readLatestSnapshotRows({
+        connectionId: "synthetic-absent",
+        surface: "live",
+        maxRows: 1,
+      }),
+    ).toBeNull();
   });
 
   it("boots twice and admits only one non-terminal run per connection", async () => {
@@ -382,7 +541,7 @@ describeDb("tcgplayer-run-order-and-lease", () => {
     expect(await snapshotPersistenceCounts("connection-condition-absent")).toEqual(absentCounts);
   });
 
-  it("proves two-row application and cap mismatch behavior through the real database runtime", async () => {
+  it("snapshot-read-callers-retained proves two-row application and cap mismatch behavior through the real database runtime", async () => {
     const services = createOwnedRuntime();
     await seedProductionCompositionFacts([
       {
@@ -407,14 +566,29 @@ describeDb("tcgplayer-run-order-and-lease", () => {
       csv: stagedCsv([
         ["90000101", "Near Mint", "2", "0", "0.2500"],
         ["90000102", "Lightly Played", "4", "0", "0.2900"],
+        ["99000103", "Near Mint", "1", "0", "1.00"],
       ]),
-      limits: { maxRecords: 2 },
+      limits: { maxRecords: 3 },
       ingestedAt: "2026-09-09T01:00:00Z",
       capturedAt: "2026-09-09T01:00:00Z",
       capturedAtSource: "operator-declared",
     });
     await services.outboundSync.enqueueDesiredState(desiredState("listing-one", "channel-listing-one", 1, 1, 26));
     await services.outboundSync.enqueueDesiredState(desiredState("listing-two", "channel-listing-two", 1, 3, 30, 2));
+    await pools.channels.query(
+      "UPDATE channel_inventory_snapshots SET parsed_row_count=4 WHERE snapshot_id='snapshot-application-basis'",
+    );
+    const beforeIncompleteBasis = await totalWriteCounts();
+    await expect(
+      services.tcgplayerCsv.composeTcgplayerSyncRun(
+        composeInput("synthetic-incomplete-basis", "connector", "synthetic-connector"),
+        testContext,
+      ),
+    ).rejects.toMatchObject({ code: "staged-basis-unavailable" });
+    expect(await totalWriteCounts()).toEqual(beforeIncompleteBasis);
+    await pools.channels.query(
+      "UPDATE channel_inventory_snapshots SET parsed_row_count=3 WHERE snapshot_id='snapshot-application-basis'",
+    );
     const composed = await services.tcgplayerCsv.composeTcgplayerSyncRun(
       {
         runId: "run-application",
@@ -422,7 +596,7 @@ describeDb("tcgplayer-run-order-and-lease", () => {
         claimant: { claimantKind: "connector", claimantId: "connector-application" },
         leaseMs: 60_000,
         manualClaimLeasePolicySnapshot: null,
-        resolvedPolicy: { maxRowsPerBatch: 500 },
+        resolvedPolicy: { maxRowsPerBatch: 2 },
         composedAt: "2026-09-09T01:01:00Z",
       },
       testContext,
@@ -448,17 +622,22 @@ describeDb("tcgplayer-run-order-and-lease", () => {
       csv: stagedCsv([
         ["90000101", "Near Mint", "1", "0", "0.2600"],
         ["90000102", "Lightly Played", "3", "0", "0.3000"],
+        ["99000103", "Near Mint", "1", "0", "1.00"],
       ]),
-      limits: { maxRecords: 2 },
+      limits: { maxRecords: 3 },
       ingestedAt: "2026-09-09T01:02:00Z",
       capturedAt: "2026-09-09T01:02:00Z",
       capturedAtSource: "operator-declared",
     });
     await pools.channels.query(
-      "UPDATE channel_inventory_snapshots SET parsed_row_count=3 WHERE snapshot_id='snapshot-application-proof'",
+      "UPDATE channel_inventory_snapshots SET parsed_row_count=4 WHERE snapshot_id='snapshot-application-proof'",
     );
     await expect(
-      services.tcgplayerCsv.readLatestSnapshotRows({ connectionId: "connection-production", surface: "staged" }),
+      services.tcgplayerCsv.readLatestSnapshotRows({
+        connectionId: "connection-production",
+        surface: "staged",
+        maxRows: tcgplayerLocalSnapshotRowCeiling,
+      }),
     ).resolves.toMatchObject({ membershipCompleteness: { kind: "bounded-incomplete" } });
     const beforeRefusal = await runWriteCounts("run-application");
     await expect(
@@ -475,7 +654,7 @@ describeDb("tcgplayer-run-order-and-lease", () => {
     expect(await runWriteCounts("run-application")).toEqual(beforeRefusal);
 
     await pools.channels.query(
-      "UPDATE channel_inventory_snapshots SET parsed_row_count=2 WHERE snapshot_id='snapshot-application-proof'",
+      "UPDATE channel_inventory_snapshots SET parsed_row_count=3 WHERE snapshot_id='snapshot-application-proof'",
     );
     await pools.channels.query(`CREATE FUNCTION reject_terminal_run_projection() RETURNS trigger AS $$
       BEGIN

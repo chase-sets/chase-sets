@@ -16,6 +16,7 @@ import { composeTcgplayerReservation, type ComposedTcgplayerReservation } from "
 import { parseTcgplayerFullExport } from "../domain/csv";
 import {
   ChannelSyncRunError,
+  tcgplayerLocalSnapshotRowCeiling,
   type ChannelExportSchemaPin,
   type ChannelInventorySnapshot,
   type ChannelSyncRun,
@@ -47,6 +48,7 @@ import {
   readRun,
   readSnapshotRowsById,
   readTcgplayerConditionMappingInputs,
+  type ReadLatestSnapshotRowsInput,
 } from "../read-model/queries";
 import {
   buildTcgplayerCsvProjectionHandlers,
@@ -89,9 +91,7 @@ export interface TcgplayerCsvServices {
   supersedeRun(input: RunFenceInput, context: EventStoreContext): Promise<ChannelSyncRun>;
   observeNewerBasis(input: RunFenceInput, context: EventStoreContext): Promise<ChannelSyncRun>;
   settleReservationLeaseExpiry(input: RunFenceInput): Promise<ChannelSyncRun>;
-  readLatestSnapshotRows(
-    input: Readonly<{ connectionId: string; surface: "live" | "staged" }>,
-  ): ReturnType<typeof readLatestSnapshotRows>;
+  readLatestSnapshotRows(input: ReadLatestSnapshotRowsInput): ReturnType<typeof readLatestSnapshotRows>;
   readRun(runId: string): ReturnType<typeof readRun>;
   projectors: readonly ProjectionHandlerSet[];
 }
@@ -260,7 +260,11 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
           [input.connectionId],
         );
         if (outstanding.rows.length > 0) throw new ChannelSyncRunError("run-outstanding");
-        const basis = await readLatestSnapshotRows(db, { connectionId: input.connectionId, surface: "staged" });
+        const basis = await readLatestSnapshotRows(db, {
+          connectionId: input.connectionId,
+          surface: "staged",
+          maxRows: tcgplayerLocalSnapshotRowCeiling,
+        });
         if (!basis) throw new ChannelSyncRunError("staged-basis-unavailable");
         if (basis.membershipCompleteness.kind !== "complete") {
           throw new ChannelSyncRunError("staged-basis-unavailable", "Staged basis membership is incomplete.");
@@ -734,7 +738,7 @@ async function readSnapshotById(
   db: PgQueryable,
   snapshotId: string,
 ): Promise<Awaited<ReturnType<typeof readLatestSnapshotRows>>> {
-  return readSnapshotRowsById(db, snapshotId);
+  return readSnapshotRowsById(db, { snapshotId, maxRows: tcgplayerLocalSnapshotRowCeiling });
 }
 
 function sameHeader(left: readonly string[], right: readonly string[]): boolean {
