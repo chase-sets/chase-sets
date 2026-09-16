@@ -188,7 +188,37 @@ for (const scenario of cases) {
         result.mechanism.available = true;
         result.workerClosed = closed;
         result.mechanism.terminatedMidFetch = closed && server.requests.length === 1 && server.active === 0;
-        if (closed) await fixtureWorker(context);
+        if (closed) {
+          try {
+            await fixtureWorker(context);
+          } catch (error) {
+            // Preserve unavailable observations without inventing post-reload boolean facts.
+            save("runtime.reload-lifecycle.json", {
+              chromiumVersion: result.chromiumVersion,
+              capturedAt: new Date().toISOString(),
+              extensionId,
+              before,
+              pendingTransactionAtIntervention: result.pendingTransactionAtIntervention,
+              intervenedAt: result.intervenedAt,
+              workerClosed: closed,
+              remainingWorkerUrls: context.serviceWorkers().map((entry) => entry.url()),
+              requests: server.requests,
+              readinessError: error instanceof Error ? error.message : String(error),
+            });
+            const diagnostics = await context.newPage();
+            await diagnostics.goto("chrome://extensions/");
+            await diagnostics
+              .locator("extensions-item")
+              .filter({ hasText: "SYNTHETIC restart boundary probe" })
+              .waitFor();
+            save("runtime.reload-extension-page.json", {
+              capturedAt: new Date().toISOString(),
+              accessibility: await diagnostics.locator("body").ariaSnapshot(),
+            });
+            await diagnostics.screenshot({ path: test.info().outputPath("runtime.reload-extensions.png") });
+            throw error;
+          }
+        }
       } else {
         try {
           // Observe this exact worker attachment, not a page session substituted from documentation.
