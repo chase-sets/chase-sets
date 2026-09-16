@@ -1,7 +1,7 @@
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
-import { createServer } from "vite";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { tsImport } from "tsx/esm/api";
 
 export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "Accordion",
@@ -422,21 +422,12 @@ export function formatDesignSystemExportCoverageFailure(result) {
 export async function collectDesignSystemRuntimeExports({
   rootDir = process.cwd(),
   entrypoint = "packages/design-system/src/index.ts",
+  importRuntimeModule = (specifier) => tsImport(specifier, import.meta.url),
 } = {}) {
-  const server = await createServer({
-    root: rootDir,
-    logLevel: "error",
-    server: { middlewareMode: true },
-    appType: "custom",
-  });
+  const entrypointUrl = pathToFileURL(path.resolve(rootDir, entrypoint)).href;
+  const designSystemModule = await importRuntimeModule(entrypointUrl);
 
-  try {
-    const designSystemModule = await server.ssrLoadModule(path.resolve(rootDir, entrypoint));
-
-    return uniqueSorted(Object.keys(designSystemModule).filter((name) => name !== "default"));
-  } finally {
-    await server.close();
-  }
+  return uniqueSorted(Object.keys(designSystemModule).filter((name) => name !== "default"));
 }
 
 export async function runDesignSystemExportCoverageCheck({

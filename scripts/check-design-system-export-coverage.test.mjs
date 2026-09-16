@@ -1,12 +1,43 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   TESTED_DESIGN_SYSTEM_ROOT_EXPORTS,
+  collectDesignSystemRuntimeExports,
   compareDesignSystemExportCoverage,
   formatDesignSystemExportCoverageFailure,
   runDesignSystemExportCoverageCheck,
 } from "./check-design-system-export-coverage.mjs";
 
 describe("design-system export coverage guard", () => {
+  it("enumerates the complete runtime namespace through the supplied module loader", async () => {
+    const importRuntimeModule = vi.fn().mockResolvedValue({
+      default: "ignored",
+      Button: {},
+      Accordion: {},
+    });
+
+    const runtimeExports = await collectDesignSystemRuntimeExports({
+      rootDir: "D:/immutable-fixture",
+      entrypoint: "src/index.ts",
+      importRuntimeModule,
+    });
+
+    expect(runtimeExports).toEqual(["Accordion", "Button"]);
+    expect(importRuntimeModule).toHaveBeenCalledOnce();
+    expect(importRuntimeModule.mock.calls[0][0]).toBe("file:///D:/immutable-fixture/src/index.ts");
+  });
+
+  it("propagates runtime module loader errors instead of accepting partial discovery", async () => {
+    const loaderError = new Error("runtime module load failed");
+
+    await expect(
+      collectDesignSystemRuntimeExports({
+        rootDir: "D:/immutable-fixture",
+        entrypoint: "src/index.ts",
+        importRuntimeModule: vi.fn().mockRejectedValue(loaderError),
+      }),
+    ).rejects.toBe(loaderError);
+  });
+
   it("passes when runtime exports match the tested allowlist regardless of order", () => {
     const result = compareDesignSystemExportCoverage({
       runtimeExports: ["Banner", "Button", "Breadcrumbs"],
