@@ -832,16 +832,15 @@ function matches(source, pattern, group) {
   return [...source.matchAll(pattern)].map((match) => match[group]);
 }
 
-async function listFilesIfPresent(directory) {
+async function listFilesIfPresent(directory, files = []) {
   const entries = await readdirIfPresent(directory);
-  const files = [];
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (entry.isDirectory() && EXCLUDED_DIRECTORIES.has(entry.name)) {
       continue;
     }
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await listFilesIfPresent(path)));
+      await listFilesIfPresent(path, files);
     } else if (entry.isFile()) {
       files.push(path);
     }
@@ -928,7 +927,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         totalIngressCount: 0,
         manifestedIngressCount: 0,
         ingressCoverage: "0/0",
-        violations: [{ code: "yaml-parse-failed" }],
+        violations: [{ code: "authority-scan-failed" }],
       })}\n`,
     );
     process.exitCode = 1;
