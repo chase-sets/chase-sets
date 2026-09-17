@@ -15,8 +15,8 @@ const arbitraryWorkflowPath = ".github/workflows/asteroid-field/unfamiliar-probe
 const canonicalActionTarget = "./.github/actions/export-managed-postgres-authority";
 const canonicalActionPath = ".github/actions/export-managed-postgres-authority/action.yml";
 const rootSecretNames = ["SPACES_ACCESS_ID", "SPACES_SECRET_KEY", "DIGITALOCEAN_ACCESS_TOKEN"];
-const constrainedStackSize = 69;
-const largeActionManifestCount = 8_250;
+const constrainedStackSize = 68;
+const largeActionManifestCount = 8_200;
 const smallActionManifestCount = 64;
 const spreadOverflowMarker = `authority-spread-overflow:${largeActionManifestCount}`;
 
@@ -465,8 +465,10 @@ async function addSyntheticActionManifests(root, count) {
     { length: count },
     (_, index) => `oversized-action-subtree/probe-${String(index).padStart(5, "0")}/action.yml`,
   );
-  const source =
-    "{name: Synthetic authority probe, runs: {using: composite, steps: [{uses: synthetic/authority-probe@v1}]}}\n";
+  const source = `${JSON.stringify({
+    name: "Synthetic authority probe",
+    runs: { using: "composite", steps: [{ uses: "synthetic/authority-probe@v1" }] },
+  })}\n`;
   const batchSize = 256;
   for (let start = 0; start < actionPaths.length; start += batchSize) {
     await Promise.all(actionPaths.slice(start, start + batchSize).map((path) => write(join(root, path), source)));
