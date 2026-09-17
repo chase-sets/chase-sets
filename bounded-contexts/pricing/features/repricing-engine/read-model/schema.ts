@@ -85,11 +85,6 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_daily_sweep_cursor (
 
 export const pricingRepricingEngineSchemaMigrations: readonly BcSchemaMigration[] = [
   {
-    migrationId: "20260916_pricing_listing_outcomes",
-    description: "Retain repricing listing facts and convergent current outcomes with digest-proven compaction.",
-    statements: [pricingListingOutcomeSchemaSql],
-  },
-  {
     migrationId: "20260914_pricing_repricing_spiral_breaker",
     description: "Retain product-scoped repricing direction and automatic freeze expiry in the cooldown ledger.",
     statements: [
@@ -99,5 +94,10 @@ export const pricingRepricingEngineSchemaMigrations: readonly BcSchemaMigration[
        ADD COLUMN IF NOT EXISTS frozen_until timestamptz NULL,
        ADD COLUMN IF NOT EXISTS tripped_at timestamptz NULL`,
     ],
+  },
+  {
+    migrationId: "20260916_pricing_listing_outcomes",
+    description: "Retain repricing listing facts and convergent current outcomes with digest-proven compaction.",
+    statements: [pricingListingOutcomeSchemaSql],
   },
 ];
