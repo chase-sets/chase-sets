@@ -287,7 +287,7 @@ export async function ensureMultiContextTestDatabases(
   }
 }
 
-export const seedTestPoolOptions: PgPoolOptions = { idleTimeoutMillis: 1_000 };
+export const seedTestPoolOptions = { idleTimeoutMillis: 1_000 } satisfies PgPoolOptions;
 
 export function createMultiContextTestPools<TContextName extends string>(
   databaseUrls: Readonly<Record<TContextName, string>>,

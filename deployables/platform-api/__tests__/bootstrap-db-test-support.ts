@@ -134,7 +134,12 @@ export function createPlatformApiBootstrapTestHarness(
       sharedDatabaseUrl: null,
       contextDatabaseUrls: databaseUrls,
       port: 6182,
-      pool: seedTestPoolOptions,
+      pool: {
+        // The API config requires these unchanged factory defaults alongside the test idle policy.
+        max: 10,
+        connectionTimeoutMillis: 5_000,
+        ...seedTestPoolOptions,
+      },
     });
     state = { databaseUrls, pools };
     assignState(state);
