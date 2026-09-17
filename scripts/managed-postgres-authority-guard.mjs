@@ -12,7 +12,6 @@ const CANONICAL_BOUNDARY_ACTION = "./.github/actions/export-managed-postgres-aut
 const ROOT_AUTHORITY_SECRETS = new Set(["DIGITALOCEAN_ACCESS_TOKEN", "SPACES_ACCESS_ID", "SPACES_SECRET_KEY"]);
 const YAML_EXTENSIONS = new Set([".yml", ".yaml"]);
 const EXCLUDED_DIRECTORIES = new Set([".git", "node_modules", ".pnpm"]);
-const FILE_DISCOVERY_BATCH_SIZE = 64;
 const SECRET_REFERENCE = /\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)\b/g;
 const REMOTE_PINNED_USES = /^[^/@\s]+\/[^@\s]+(?:\/[^@\s]+)*@[0-9a-f]{40}$/i;
 const TLS_DOWNGRADE =
@@ -833,28 +832,20 @@ function matches(source, pattern, group) {
   return [...source.matchAll(pattern)].map((match) => match[group]);
 }
 
-async function listFilesIfPresent(directory) {
-  const directories = [directory];
-  const files = [];
-  for (let start = 0; start < directories.length; ) {
-    const batch = directories.slice(start, start + FILE_DISCOVERY_BATCH_SIZE);
-    start += batch.length;
-    const entriesByDirectory = await Promise.all(batch.map((path) => readdirIfPresent(path)));
-    for (const [index, entries] of entriesByDirectory.entries()) {
-      for (const entry of entries) {
-        if (entry.isDirectory() && EXCLUDED_DIRECTORIES.has(entry.name)) {
-          continue;
-        }
-        const path = resolve(batch[index], entry.name);
-        if (entry.isDirectory()) {
-          directories.push(path);
-        } else if (entry.isFile()) {
-          files.push(path);
-        }
-      }
+async function listFilesIfPresent(directory, files = []) {
+  const entries = await readdirIfPresent(directory);
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (entry.isDirectory() && EXCLUDED_DIRECTORIES.has(entry.name)) {
+      continue;
+    }
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) {
+      await listFilesIfPresent(path, files);
+    } else if (entry.isFile()) {
+      files.push(path);
     }
   }
-  return files.sort(comparePaths);
+  return files;
 }
 
 async function readdirIfPresent(directory) {

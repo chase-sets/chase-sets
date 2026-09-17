@@ -16,9 +16,8 @@ const canonicalActionTarget = "./.github/actions/export-managed-postgres-authori
 const canonicalActionPath = ".github/actions/export-managed-postgres-authority/action.yml";
 const rootSecretNames = ["SPACES_ACCESS_ID", "SPACES_SECRET_KEY", "DIGITALOCEAN_ACCESS_TOKEN"];
 const constrainedStackSize = 68;
-const largeActionManifestCount = 8_200;
-const smallActionManifestCount = 64;
-const spreadOverflowMarker = `authority-spread-overflow:${largeActionManifestCount}`;
+const largePaddingFileCount = 12_000;
+const smallPaddingFileCount = 64;
 
 afterEach(async () => {
   await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -50,11 +49,11 @@ describe("managed Postgres authority guard real entrypoint", () => {
 
   describe("large subtree discovery", () => {
     let root;
-    let actionPaths;
+    let fixture;
 
     beforeAll(async () => {
       root = await createFixture({ registerForCleanup: false });
-      actionPaths = await addSyntheticActionManifests(root, largeActionManifestCount);
+      fixture = await addSyntheticDiscoverySubtree(root, largePaddingFileCount);
     });
 
     afterAll(async () => {
@@ -66,11 +65,14 @@ describe("managed Postgres authority guard real entrypoint", () => {
     it("completes exact discovery beyond the constrained engine argument-spread limit", async () => {
       const preloadRoot = await mkdtemp(join(tmpdir(), "mpa-spread-calibration-"));
       const preload = join(preloadRoot, "spread-overflow-calibration.cjs");
+      const spreadOverflowMarker = `authority-spread-overflow:${fixture.overflowingSubtreeFileCount}`;
       await write(
         preload,
         `let overflowed = false;
 try {
-  [].push(...new Array(${largeActionManifestCount}));
+  const files = [];
+  const discoveredFiles = new Array(${fixture.overflowingSubtreeFileCount});
+  files.push(...discoveredFiles);
 } catch (error) {
   if (!(error instanceof RangeError)) throw error;
   overflowed = true;
@@ -82,7 +84,7 @@ process.stderr.write(${JSON.stringify(`${spreadOverflowMarker}\n`)});
       try {
         const result = await runGuard(root, { stackSize: constrainedStackSize, preload });
         expect(result.stderr).toBe(`${spreadOverflowMarker}\n`);
-        expectExactSyntheticActionDiscovery(result, actionPaths);
+        expectExactSyntheticActionDiscovery(result, fixture.actionPaths);
       } finally {
         await rm(preloadRoot, { recursive: true, force: true });
       }
@@ -92,18 +94,18 @@ process.stderr.write(${JSON.stringify(`${spreadOverflowMarker}\n`)});
       const result = await runGuard(root);
 
       expect(result.stderr).toBe("");
-      expectExactSyntheticActionDiscovery(result, actionPaths);
+      expectExactSyntheticActionDiscovery(result, fixture.actionPaths);
     });
   });
 
   it("completes the exact below-threshold control at the constrained stack size", async () => {
     const root = await createFixture();
-    const actionPaths = await addSyntheticActionManifests(root, smallActionManifestCount);
+    const fixture = await addSyntheticDiscoverySubtree(root, smallPaddingFileCount);
 
     const result = await runGuard(root, { stackSize: constrainedStackSize });
 
     expect(result.stderr).toBe("");
-    expectExactSyntheticActionDiscovery(result, actionPaths);
+    expectExactSyntheticActionDiscovery(result, fixture.actionPaths);
   });
 
   it.each([
@@ -460,31 +462,60 @@ async function createFixture(options = {}) {
   return root;
 }
 
-async function addSyntheticActionManifests(root, count) {
-  const actionPaths = Array.from(
-    { length: count },
-    (_, index) => `oversized-action-subtree/probe-${String(index).padStart(5, "0")}/action.yml`,
+async function addSyntheticDiscoverySubtree(root, paddingFileCount) {
+  const overflowingRoot = "oversized-action-subtree";
+  const actionPaths = [
+    `${overflowingRoot}/000-front/action.yml`,
+    `${overflowingRoot}/200-interior/action.yml`,
+    `${overflowingRoot}/400-tail/action.yml`,
+    `${overflowingRoot}/400-tail/500-deeper/action.yml`,
+    "zz-sibling-after/action.yml",
+  ];
+  const paddingPaths = Array.from({ length: paddingFileCount }, (_, index) => {
+    const group = index < Math.ceil(paddingFileCount / 2) ? "100-padding" : "300-padding";
+    return `${overflowingRoot}/${group}-${String(index).padStart(5, "0")}.pad`;
+  });
+  const rawPreFilterPaths = [...actionPaths, ...paddingPaths].sort((left, right) => left.localeCompare(right));
+  const orderedActionPaths = rawPreFilterPaths.filter((path) => path.endsWith("/action.yml"));
+  const interiorIndex = rawPreFilterPaths.indexOf(`${overflowingRoot}/200-interior/action.yml`);
+
+  expect(rawPreFilterPaths[0]).toBe(`${overflowingRoot}/000-front/action.yml`);
+  expect(rawPreFilterPaths.at(-1)).toBe("zz-sibling-after/action.yml");
+  expect(rawPreFilterPaths[interiorIndex - 1]).toMatch(new RegExp(`^${overflowingRoot}/100-padding-[0-9]{5}\\.pad$`));
+  expect(rawPreFilterPaths[interiorIndex + 1]).toMatch(new RegExp(`^${overflowingRoot}/300-padding-[0-9]{5}\\.pad$`));
+  expect(orderedActionPaths).toContain(`${overflowingRoot}/400-tail/500-deeper/action.yml`);
+  expect(rawPreFilterPaths.indexOf("zz-sibling-after/action.yml")).toBeGreaterThan(
+    rawPreFilterPaths.lastIndexOf(`${overflowingRoot}/400-tail/500-deeper/action.yml`),
   );
+
   const source = `${JSON.stringify({
     name: "Synthetic authority probe",
     runs: { using: "composite", steps: [{ uses: "synthetic/authority-probe@v1" }] },
   })}\n`;
   const batchSize = 256;
-  for (let start = 0; start < actionPaths.length; start += batchSize) {
-    await Promise.all(actionPaths.slice(start, start + batchSize).map((path) => write(join(root, path), source)));
+  const files = [
+    ...actionPaths.map((path) => ({ path, contents: source })),
+    ...paddingPaths.map((path) => ({ path, contents: "x" })),
+  ];
+  for (let start = 0; start < files.length; start += batchSize) {
+    await Promise.all(
+      files.slice(start, start + batchSize).map(({ path, contents }) => write(join(root, path), contents)),
+    );
   }
-  return actionPaths;
+  return {
+    actionPaths: orderedActionPaths,
+    overflowingSubtreeFileCount:
+      actionPaths.filter((path) => path.startsWith(`${overflowingRoot}/`)).length + paddingPaths.length,
+  };
 }
 
 function expectExactSyntheticActionDiscovery(result, actionPaths) {
-  const expectedViolations = [...actionPaths]
-    .sort((left, right) => left.localeCompare(right))
-    .map((file) => ({
-      code: "uses-kind-unknown",
-      file,
-      jobId: "action",
-      stepAnchor: "uses:synthetic/authority-probe@v1",
-    }));
+  const expectedViolations = actionPaths.map((file) => ({
+    code: "uses-kind-unknown",
+    file,
+    jobId: "action",
+    stepAnchor: "uses:synthetic/authority-probe@v1",
+  }));
   const expectedActionManifestFileCount = actionPaths.length + 1;
   const expectedTotalYamlFileCount = actionPaths.length + 2;
 
