@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -15,6 +15,10 @@ const arbitraryWorkflowPath = ".github/workflows/asteroid-field/unfamiliar-probe
 const canonicalActionTarget = "./.github/actions/export-managed-postgres-authority";
 const canonicalActionPath = ".github/actions/export-managed-postgres-authority/action.yml";
 const rootSecretNames = ["SPACES_ACCESS_ID", "SPACES_SECRET_KEY", "DIGITALOCEAN_ACCESS_TOKEN"];
+const constrainedStackSize = 69;
+const largeActionManifestCount = 8_250;
+const smallActionManifestCount = 64;
+const spreadOverflowMarker = `authority-spread-overflow:${largeActionManifestCount}`;
 
 afterEach(async () => {
   await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -42,6 +46,64 @@ describe("managed Postgres authority guard real entrypoint", () => {
     expect(result.report.violations).toEqual([]);
     expect(result.report.boundaryConsumerCount).toBe(1);
     expect(result.report.ingressCoverage).toBe("3/3");
+  });
+
+  describe("large subtree discovery", () => {
+    let root;
+    let actionPaths;
+
+    beforeAll(async () => {
+      root = await createFixture({ registerForCleanup: false });
+      actionPaths = await addSyntheticActionManifests(root, largeActionManifestCount);
+    });
+
+    afterAll(async () => {
+      if (root) {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("completes exact discovery beyond the constrained engine argument-spread limit", async () => {
+      const preloadRoot = await mkdtemp(join(tmpdir(), "mpa-spread-calibration-"));
+      const preload = join(preloadRoot, "spread-overflow-calibration.cjs");
+      await write(
+        preload,
+        `let overflowed = false;
+try {
+  [].push(...new Array(${largeActionManifestCount}));
+} catch (error) {
+  if (!(error instanceof RangeError)) throw error;
+  overflowed = true;
+}
+if (!overflowed) throw new Error("array spread calibration did not overflow");
+process.stderr.write(${JSON.stringify(`${spreadOverflowMarker}\n`)});
+`,
+      );
+      try {
+        const result = await runGuard(root, { stackSize: constrainedStackSize, preload });
+        expect(result.stderr).toBe(`${spreadOverflowMarker}\n`);
+        expectExactSyntheticActionDiscovery(result, actionPaths);
+      } finally {
+        await rm(preloadRoot, { recursive: true, force: true });
+      }
+    });
+
+    it("retains the same exact discovery at the default stack size", async () => {
+      const result = await runGuard(root);
+
+      expect(result.stderr).toBe("");
+      expectExactSyntheticActionDiscovery(result, actionPaths);
+    });
+  });
+
+  it("completes the exact below-threshold control at the constrained stack size", async () => {
+    const root = await createFixture();
+    const actionPaths = await addSyntheticActionManifests(root, smallActionManifestCount);
+
+    const result = await runGuard(root, { stackSize: constrainedStackSize });
+
+    expect(result.stderr).toBe("");
+    expectExactSyntheticActionDiscovery(result, actionPaths);
   });
 
   it.each([
@@ -265,6 +327,47 @@ describe("managed Postgres authority guard real entrypoint", () => {
 
     expect(result.exitCode).toBe(1);
     expect(codes(result.report)).toContain(code);
+    if (code === "yaml-parse-failed") {
+      expect(result.report.violations).toEqual([
+        {
+          code: "yaml-parse-failed",
+          file: ".github/workflows/nonstandard/broken.yml",
+        },
+      ]);
+      expect(codes(result.report)).not.toContain("authority-scan-failed");
+    }
+  });
+
+  it("reports a non-YAML scanner failure without exposing its cause", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mpa-private-root-"));
+    fixtureRoots.push(root);
+    const pathToken = "private-path-token-8041";
+    const contentsToken = "private-file-contents-8041";
+    const environmentToken = "private-environment-value-8041";
+    const repositoryFile = join(root, pathToken);
+    await writeFile(repositoryFile, contentsToken, "utf8");
+
+    const result = await runGuard(repositoryFile, {
+      env: { AUTHORITY_GUARD_PRIVATE_VALUE: environmentToken },
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(result.report).toEqual({
+      schemaVersion: 1,
+      totalYamlFileCount: 0,
+      scannedYamlFileCount: 0,
+      yamlCoverage: "0/0",
+      totalIngressCount: 0,
+      manifestedIngressCount: 0,
+      ingressCoverage: "0/0",
+      violations: [{ code: "authority-scan-failed" }],
+    });
+    for (const privateValue of [pathToken, contentsToken, environmentToken, "ENOTDIR", "RangeError", "scandir"]) {
+      expect(result.stdout).not.toContain(privateValue);
+    }
+    expect(result.report.violations[0]).not.toHaveProperty("cause");
+    expect(result.report.violations[0]).not.toHaveProperty("file");
   });
 
   it("N13 fails closed for a schema-invalid manifest", async () => {
@@ -308,7 +411,9 @@ describe("managed Postgres authority guard real entrypoint", () => {
 
 async function createFixture(options = {}) {
   const root = await mkdtemp(join(tmpdir(), "mpa-oracle-unfamiliar-"));
-  fixtureRoots.push(root);
+  if (options.registerForCleanup !== false) {
+    fixtureRoots.push(root);
+  }
   const baseSteps = [
     {
       uses: canonicalActionTarget,
@@ -355,6 +460,41 @@ async function createFixture(options = {}) {
   return root;
 }
 
+async function addSyntheticActionManifests(root, count) {
+  const actionPaths = Array.from(
+    { length: count },
+    (_, index) => `oversized-action-subtree/probe-${String(index).padStart(5, "0")}/action.yml`,
+  );
+  const source =
+    "{name: Synthetic authority probe, runs: {using: composite, steps: [{uses: synthetic/authority-probe@v1}]}}\n";
+  const batchSize = 256;
+  for (let start = 0; start < actionPaths.length; start += batchSize) {
+    await Promise.all(actionPaths.slice(start, start + batchSize).map((path) => write(join(root, path), source)));
+  }
+  return actionPaths;
+}
+
+function expectExactSyntheticActionDiscovery(result, actionPaths) {
+  const expectedViolations = [...actionPaths]
+    .sort((left, right) => left.localeCompare(right))
+    .map((file) => ({
+      code: "uses-kind-unknown",
+      file,
+      jobId: "action",
+      stepAnchor: "uses:synthetic/authority-probe@v1",
+    }));
+  const expectedActionManifestFileCount = actionPaths.length + 1;
+  const expectedTotalYamlFileCount = actionPaths.length + 2;
+
+  expect(result.exitCode).toBe(1);
+  expect(result.report.violations).toEqual(expectedViolations);
+  expect(result.report.workflowFileCount).toBe(1);
+  expect(result.report.actionManifestFileCount).toBe(expectedActionManifestFileCount);
+  expect(result.report.totalYamlFileCount).toBe(expectedTotalYamlFileCount);
+  expect(result.report.scannedYamlFileCount).toBe(expectedTotalYamlFileCount);
+  expect(result.report.yamlCoverage).toBe(`${expectedTotalYamlFileCount}/${expectedTotalYamlFileCount}`);
+}
+
 function workflowSource(steps, workflowEnv) {
   const serializedSteps = steps.map((step) => yamlStep(step)).join("");
   const env = workflowEnv ? `env:\n${yamlMap(workflowEnv, 2)}` : "";
@@ -391,11 +531,19 @@ function grant(overrides = {}) {
   };
 }
 
-async function runGuard(root) {
+async function runGuard(root, options = {}) {
+  const nodeArguments = [
+    ...(options.stackSize ? [`--stack-size=${options.stackSize}`] : []),
+    ...(options.preload ? ["--require", options.preload] : []),
+    guardEntrypoint,
+    "--repository-root",
+    root,
+  ];
   try {
-    const { stdout, stderr } = await execFileAsync(process.execPath, [guardEntrypoint, "--repository-root", root], {
+    const { stdout, stderr } = await execFileAsync(process.execPath, nodeArguments, {
       cwd: repositoryRoot,
       encoding: "utf8",
+      ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
       maxBuffer: 10 * 1024 * 1024,
     });
     return { exitCode: 0, stdout, stderr, report: JSON.parse(stdout) };
