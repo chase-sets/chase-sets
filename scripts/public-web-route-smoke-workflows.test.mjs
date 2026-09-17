@@ -193,6 +193,19 @@ function runPlatformSmoke(baseUrl, { env = {}, observer = "" } = {}) {
 
 const syntheticSessionToken = "synthetic-smoke-retry-session";
 const authProbePath = "/api/auth/session";
+const retryDiagnosticPattern = / attempt \d+\/\d+ failed for (https?:\/\/\S+): .*; retrying in 7ms\.$/;
+
+function retryDiagnosticPaths(stderr) {
+  return stderr
+    .split(/\r?\n/)
+    .filter((line) => line.includes("retrying in 7ms"))
+    .map((line) => {
+      const match = line.match(retryDiagnosticPattern);
+      expect(match, `unclassified retry diagnostic: ${line}`).not.toBeNull();
+      const url = new URL(match[1]);
+      return url.pathname + url.search;
+    });
+}
 
 async function startAdminRetryServer(overrides = {}) {
   const fixture = await startCompositionServer({ deliberatelyBroken: false });
@@ -240,19 +253,40 @@ async function startAdminRetryServer(overrides = {}) {
 }
 
 // Observe the real CLI's native fetch/cancel/timer boundaries without replacing its contract.
-function adminRetryObserver({ absentBody = false, cancellationFailure = false } = {}) {
+function adminRetryObserver({ absentBody = false, cancellationFailure = false, unrelatedTimer = false } = {}) {
   return `
     import { writeSync } from "node:fs";
     const send = (event) => writeSync(1, "[admin-retry-observer]" + JSON.stringify(event) + "\\n");
+    let retryPath = null;
+    const nativeWarn = console.warn;
+    console.warn = (...args) => {
+      nativeWarn(...args);
+      const match = typeof args[0] === "string" && args[0].match(${retryDiagnosticPattern});
+      if (match) {
+        const url = new URL(match[1]);
+        retryPath = url.pathname + url.search;
+        // The CLI schedules its delay synchronously after warning, before yielding.
+        queueMicrotask(() => { retryPath = null; });
+      }
+    };
     const nativeTimer = globalThis.setTimeout;
     globalThis.setTimeout = (callback, milliseconds, ...args) => {
-      if (milliseconds === 7) send({ kind: "retry-delay" });
+      if (milliseconds === 7) {
+        send({ kind: retryPath === null ? "unlabeled-timer" : "retry-delay", path: retryPath });
+        retryPath = null;
+      }
       return nativeTimer(callback, milliseconds, ...args);
     };
     const nativeFetch = globalThis.fetch;
+    let unrelatedTimerStarted = false;
     globalThis.fetch = async (input, init) => {
       const path = new URL(input).pathname + new URL(input).search;
       send({ kind: "fetch", path });
+      if (${unrelatedTimer} && path === "${authProbePath}" && !unrelatedTimerStarted) {
+        unrelatedTimerStarted = true;
+        send({ kind: "unrelated-timer-start" });
+        globalThis.setTimeout(() => send({ kind: "unrelated-timer-fired" }), 7);
+      }
       let response = await nativeFetch(input, init);
       if (${absentBody} && path === "${authProbePath}") {
         await response.body?.cancel();
@@ -302,12 +336,87 @@ function expectRetryCount(result, fixture, requestPath, count, succeeded) {
   expect(result.signal).toBeNull();
   expect(fixture.requests.filter((request) => request.path === requestPath)).toHaveLength(count);
   expect(result.events.filter((event) => event.kind === "fetch" && event.path === requestPath)).toHaveLength(count);
-  expect(result.events.filter((event) => event.kind === "retry-delay")).toHaveLength(count - 1);
-  expect(result.stderr.match(/retrying in 7ms/g) ?? []).toHaveLength(count - 1);
+  const delays = result.events.filter((event) => event.kind === "retry-delay");
+  expect(
+    delays.filter((event) => event.path === requestPath),
+    `target retry delays: ${requestPath}`,
+  ).toHaveLength(count - 1);
+  const diagnosticPaths = retryDiagnosticPaths(result.stderr);
+  expect(
+    diagnosticPaths.filter((path) => path === requestPath),
+    `target retry diagnostics: ${requestPath}`,
+  ).toHaveLength(count - 1);
+  expect(
+    delays.map((event) => event.path),
+    "all attributed delays match diagnostics",
+  ).toEqual(diagnosticPaths);
   expect(result.stdout.includes("Platform smoke checks passed.")).toBe(succeeded);
 }
 
 describe("admin API retry", () => {
+  it.each(["native timer", "other endpoint"])("admin API retry: observation discriminator - %s", async (source) => {
+    const otherPath = "/api/health/ready";
+    const fixture = await startAdminRetryServer({
+      [authProbePath]: () => ({ transport: "timeout" }),
+      [otherPath]: (attempt) => (source === "other endpoint" && attempt === 1 ? { status: 503 } : undefined),
+    });
+    const result = await runAdminRetrySmoke(fixture, { unrelatedTimer: source === "native timer" });
+    expectRetryCount(result, fixture, authProbePath, 3, false);
+    const unrelated = source === "native timer";
+    expect(result.events.filter((event) => event.kind === "retry-delay")).toEqual([
+      ...(unrelated ? [] : [{ kind: "retry-delay", path: otherPath }]),
+      { kind: "retry-delay", path: authProbePath },
+      { kind: "retry-delay", path: authProbePath },
+    ]);
+    expect(retryDiagnosticPaths(result.stderr)).toEqual(
+      unrelated ? [authProbePath, authProbePath] : [otherPath, authProbePath, authProbePath],
+    );
+    expect(fixture.requests.filter((request) => request.path === otherPath)).toHaveLength(unrelated ? 1 : 2);
+    expect(result.events.filter((event) => event.kind === "fetch" && event.path === otherPath)).toHaveLength(
+      unrelated ? 1 : 2,
+    );
+    expect(result.events.filter((event) => event.kind === "unrelated-timer-fired")).toHaveLength(unrelated ? 1 : 0);
+    if (unrelated) {
+      const start = result.events.findIndex((event) => event.kind === "unrelated-timer-start");
+      expect(result.events[start + 1]).toEqual({ kind: "unlabeled-timer", path: null });
+    }
+    expect(result.stderr).toContain("timed out after 100ms");
+    expect(fixture.sockets.size).toBe(0);
+
+    // Named pre-repair control: keep the CLI result fixed, restore only global counting.
+    expect(() =>
+      expect(result.events.filter((event) => ["retry-delay", "unlabeled-timer"].includes(event.kind))).toHaveLength(2),
+    ).toThrow(/length of 2 but got/);
+
+    for (const change of ["extra", "missing"]) {
+      const events = [...result.events];
+      const index = events.findIndex((event) => event.kind === "retry-delay" && event.path === authProbePath);
+      events.splice(index, change === "extra" ? 0 : 1, ...(change === "extra" ? [events[index]] : []));
+      expect(() => expectRetryCount({ ...result, events }, fixture, authProbePath, 3, false)).toThrow(
+        /target retry delays/,
+      );
+      const lines = result.stderr.split("\n");
+      const lineIndex = lines.findIndex(
+        (line) => line.includes(`failed for ${fixture.baseUrl}${authProbePath}:`) && line.includes("retrying in 7ms"),
+      );
+      lines.splice(lineIndex, change === "extra" ? 0 : 1, ...(change === "extra" ? [lines[lineIndex]] : []));
+      expect(() => expectRetryCount({ ...result, stderr: lines.join("\n") }, fixture, authProbePath, 3, false)).toThrow(
+        /target retry diagnostics/,
+      );
+    }
+  });
+
+  it("admin API retry: observation discriminator - non-target exhaustion remains a failure", async () => {
+    const otherPath = "/api/health/ready";
+    const fixture = await startAdminRetryServer({ [otherPath]: () => ({ transport: "timeout" }) });
+    const result = await runAdminRetrySmoke(fixture);
+    expectRetryCount(result, fixture, otherPath, 3, false);
+    expect(result.stderr).toContain("platform API health through admin timed out after 100ms");
+    expect(fixture.requests.some((request) => request.path === authProbePath)).toBe(false);
+    expect(result.events.some((event) => event.path === authProbePath)).toBe(false);
+    expect(fixture.sockets.size).toBe(0);
+  });
+
   it.each([
     { name: "HTML 503", status: 503, contentType: "text/html", succeedsAt: 2 },
     { name: "missing type", status: 200, contentType: null, succeedsAt: 2 },
@@ -348,7 +457,10 @@ describe("admin API retry", () => {
         authorization: `Bearer ${syntheticSessionToken}`,
       })),
     );
-    expect(result.events.filter((event) => event.kind === "retry-delay")).toEqual([]);
+    expect(
+      result.events.filter((event) => event.kind === "retry-delay"),
+      `${result.stderr}\nClassified events: ${JSON.stringify(result.events)}`,
+    ).toEqual([]);
     const pagePaths = fixture.requests
       .filter((request) => !request.path.startsWith("/api/"))
       .map((request) => request.path);
@@ -398,7 +510,7 @@ describe("admin API retry", () => {
     const lifecycle = result.events
       .filter((event) => event.path === authProbePath || event.kind === "retry-delay")
       .map((event) => event.kind);
-    expect(lifecycle).toEqual([
+    expect(lifecycle, `${result.stderr}\nClassified events: ${JSON.stringify(result.events)}`).toEqual([
       "fetch",
       "cancel-start",
       "cancel-end",
