@@ -841,7 +841,9 @@ async function listFilesIfPresent(directory) {
     }
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await listFilesIfPresent(path)));
+      for (const nestedFile of await listFilesIfPresent(path)) {
+        files.push(nestedFile);
+      }
     } else if (entry.isFile()) {
       files.push(path);
     }
@@ -928,7 +930,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         totalIngressCount: 0,
         manifestedIngressCount: 0,
         ingressCoverage: "0/0",
-        violations: [{ code: "yaml-parse-failed" }],
+        violations: [{ code: "authority-scan-failed" }],
       })}\n`,
     );
     process.exitCode = 1;
