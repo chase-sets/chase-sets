@@ -101,7 +101,7 @@ export async function getRepricingAttentionSummary(
 ) {
   const floor = await db.query<{ count: number }>(
     `SELECT count(*)::integer AS count FROM pricing_repricing_listing_outcomes
-     WHERE seller_account_id = $1 AND floor_binding_since <= $2::timestamptz - $3 * interval '1 day'`,
+     WHERE seller_account_id = $1 AND floor_binding_since <= $2::timestamptz - make_interval(days => $3)`,
     [input.accountId, input.now, input.floorBindingAlertDays],
   );
   const paused = await db.query<{ count: number }>(
@@ -115,7 +115,7 @@ export async function getRepricingAttentionSummary(
      FROM pricing_repricing_listing_outcomes
      WHERE seller_account_id = $1 AND trace->>'skipReason' = 'budget-exhausted'
        AND evaluated_at >= date_trunc('day', $2::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
-       AND evaluated_at < (date_trunc('day', $2::timestamptz AT TIME ZONE 'UTC') + interval '1 day') AT TIME ZONE 'UTC'
+       AND evaluated_at < (($2::timestamptz AT TIME ZONE 'UTC')::date + 1)::timestamp AT TIME ZONE 'UTC'
      GROUP BY policy_id ORDER BY policy_id`,
     [input.accountId, input.now],
   );
