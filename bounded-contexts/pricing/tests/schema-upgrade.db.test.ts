@@ -238,6 +238,8 @@ describeDb("pricing schema upgrades", () => {
   });
 
   it("persists explicit acquisition and sale occurrences for account-qualified Economics history", async () => {
+    expect(new Date("2026-08-01T04:00:00.000-05:00")).toEqual(new Date("2026-08-01T09:00:00.000Z"));
+    expect(new Date("2026-08-01T09:00:00.000-05:00")).not.toEqual(new Date("2026-08-01T09:00:00.000Z"));
     const pool = pools.pricing;
     await bootstrapContextDatabase(pricingModule, pool);
     const inventoryHandlers = composePricingInventoryEconomicsProjectionHandlers(
@@ -268,7 +270,7 @@ describeDb("pricing schema upgrades", () => {
     await inventoryHandlers["inventory.item.created"]!(created);
     const cleanFirstWrite = await pool.query(
       `SELECT account_id, inventory_item_id, event_stream_version, quantity, occurrence_kind,
-              acquired_at::text, occurrence_source, last_source_event_id, last_source_event_recorded_at::text
+              acquired_at, occurrence_source, last_source_event_id, last_source_event_recorded_at
        FROM pricing_inventory_acquisition_lots`,
     );
     expect(cleanFirstWrite.rows).toEqual([
@@ -278,16 +280,16 @@ describeDb("pricing schema upgrades", () => {
         event_stream_version: 1,
         quantity: 2,
         occurrence_kind: "occurred",
-        acquired_at: "2026-08-01 09:00:00+00",
+        acquired_at: new Date("2026-08-01T09:00:00.000Z"),
         occurrence_source: "import-supplied",
         last_source_event_id: "evt_inventory",
-        last_source_event_recorded_at: "2026-09-01 10:00:05+00",
+        last_source_event_recorded_at: new Date("2026-09-01T10:00:05.000Z"),
       },
     ]);
     await inventoryHandlers["inventory.item.created"]!(created);
     const exactReplay = await pool.query(
       `SELECT account_id, inventory_item_id, event_stream_version, quantity, occurrence_kind,
-              acquired_at::text, occurrence_source, last_source_event_id, last_source_event_recorded_at::text
+              acquired_at, occurrence_source, last_source_event_id, last_source_event_recorded_at
        FROM pricing_inventory_acquisition_lots`,
     );
     expect(exactReplay.rows).toEqual(cleanFirstWrite.rows);
@@ -313,7 +315,7 @@ describeDb("pricing schema upgrades", () => {
     ).rejects.toThrow(/conflicts with a different source event/);
     const conflictingSourceRefused = await pool.query(
       `SELECT account_id, inventory_item_id, event_stream_version, quantity, occurrence_kind,
-              acquired_at::text, occurrence_source, last_source_event_id, last_source_event_recorded_at::text
+              acquired_at, occurrence_source, last_source_event_id, last_source_event_recorded_at
        FROM pricing_inventory_acquisition_lots`,
     );
     expect(conflictingSourceRefused.rows).toEqual(cleanFirstWrite.rows);
@@ -436,10 +438,10 @@ describeDb("pricing schema upgrades", () => {
     const acquisitionRows = await pool.query<{
       event_stream_version: number;
       occurrence_kind: string;
-      acquired_at: string | null;
-      last_source_event_recorded_at: string;
+      acquired_at: Date | null;
+      last_source_event_recorded_at: Date;
     }>(
-      `SELECT event_stream_version, occurrence_kind, acquired_at::text, last_source_event_recorded_at::text
+      `SELECT event_stream_version, occurrence_kind, acquired_at, last_source_event_recorded_at
        FROM pricing_inventory_acquisition_lots
        ORDER BY event_stream_version`,
     );
@@ -447,14 +449,14 @@ describeDb("pricing schema upgrades", () => {
       {
         event_stream_version: 1,
         occurrence_kind: "occurred",
-        acquired_at: "2026-08-01 09:00:00+00",
-        last_source_event_recorded_at: "2026-09-01 10:00:05+00",
+        acquired_at: new Date("2026-08-01T09:00:00.000Z"),
+        last_source_event_recorded_at: new Date("2026-09-01T10:00:05.000Z"),
       },
       {
         event_stream_version: 2,
         occurrence_kind: "unknown",
         acquired_at: null,
-        last_source_event_recorded_at: "2026-09-02 10:00:05+00",
+        last_source_event_recorded_at: new Date("2026-09-02T10:00:05.000Z"),
       },
     ]);
   });
