@@ -1,15 +1,19 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createPgPool, type PgPoolOptions, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { describe, expect, it, vi } from "vitest";
 import {
+  closeMultiContextTestPools,
   createAccountUserTestActor,
   createAdminTestActor,
   createAnonymousTestActor,
   createInternalSystemTestActor,
   createInternalSystemTestRequestContext,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
   createTestApp,
   createTestEventStoreContext,
   resetMockState,
+  seedTestPoolOptions,
 } from "./test-support";
 import { ensureOwnedPostgresDatabases } from "./provisioning";
 
@@ -17,6 +21,59 @@ type QueryCall = Readonly<{
   sql: string;
   params: readonly unknown[];
 }>;
+
+type ConfiguredPool = PgTransactionalPool & { options: PgPoolOptions };
+
+describe("multi-context test pool options", () => {
+  const databaseUrls = {
+    auth: "postgresql://auth:auth@localhost:5432/auth",
+    identity: "postgresql://identity:identity@localhost:5432/identity",
+  };
+
+  it("preserves the pool factory defaults when options are omitted", async () => {
+    const pools = createMultiContextTestPools(databaseUrls);
+    const reference = createPgPool(databaseUrls.auth) as ConfiguredPool;
+    try {
+      for (const pool of Object.values(pools) as ConfiguredPool[]) {
+        expect(pool.options).toMatchObject({
+          max: reference.options.max,
+          idleTimeoutMillis: reference.options.idleTimeoutMillis,
+          connectionTimeoutMillis: reference.options.connectionTimeoutMillis,
+        });
+      }
+    } finally {
+      await closeMultiContextTestPools({ ...pools, reference });
+    }
+  });
+
+  it("forwards explicit options to every context without sharing pools", async () => {
+    const options = { max: 3, idleTimeoutMillis: 250, connectionTimeoutMillis: 700 };
+    const pools = createMultiContextTestPools(databaseUrls, options);
+    try {
+      expect(pools.auth).not.toBe(pools.identity);
+      for (const pool of Object.values(pools) as ConfiguredPool[]) {
+        expect(pool.options).toMatchObject(options);
+      }
+    } finally {
+      await closeMultiContextTestPools(pools);
+    }
+  });
+
+  it("opts seed harnesses into idle expiry without limiting checked-out work", async () => {
+    const pools = createMultiContextTestPools(databaseUrls, seedTestPoolOptions);
+    const reference = createPgPool(databaseUrls.auth) as ConfiguredPool;
+    try {
+      expect(Object.keys(seedTestPoolOptions)).toEqual(["idleTimeoutMillis"]);
+      for (const pool of Object.values(pools) as ConfiguredPool[]) {
+        expect(pool.options.idleTimeoutMillis).toBe(seedTestPoolOptions.idleTimeoutMillis);
+        expect(pool.options.max).toBe(reference.options.max);
+        expect(pool.options.connectionTimeoutMillis).toBe(reference.options.connectionTimeoutMillis);
+      }
+    } finally {
+      await closeMultiContextTestPools({ ...pools, reference });
+    }
+  });
+});
 
 function createAdminPool(options?: { existingRoles?: readonly string[]; existingDatabases?: readonly string[] }) {
   const existingRoles = new Set(options?.existingRoles ?? []);
