@@ -7,6 +7,11 @@ describe("repricing management policy", () => {
     expect(repricingManagementPolicy.defaultValue).toEqual({ floorBindingAlertDays: 7 });
     expect(repricingManagementPolicy.policyKey).toBe("pricing.repricing-management");
   });
+  it("defaults an explicitly undefined stored key to the seven-day launch value", () => {
+    expect(decodeRepricingManagementPolicyValue({ floorBindingAlertDays: undefined })).toEqual({
+      floorBindingAlertDays: 7,
+    });
+  });
   it.each([1, 7, 90])("accepts %s days", (floorBindingAlertDays) => {
     expect(decodeRepricingManagementPolicyValue({ floorBindingAlertDays })).toEqual({ floorBindingAlertDays });
   });
