@@ -125,6 +125,7 @@ alias `fact` and `retainFrom = now - 90 days`. It deletes only the consecutive e
 below the greatest fact, retaining the boundary and any open binding-run start without changing the
 visible outcome. A single greatest fact survives every pass until a newer fact arrives. No compaction
 caller, digest, notification or UI is wired by this slice.
+Compaction takes listing row locks first and recomputes in a second statement of the same caller transaction.
 
 `GET /account/repricing-policies/:policyId/activity` uses account-owned policy resolution, listing-ID
 keyset paging (at most 50 rows), and returns `rows`, `next` and `filterCounts`.

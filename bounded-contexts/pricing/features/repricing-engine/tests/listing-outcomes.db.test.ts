@@ -241,7 +241,7 @@ describeDb("repricing listing outcomes", () => {
             digestedSql: "EXISTS (SELECT 1 FROM emitted WHERE emitted.evaluation_id = fact.evaluation_id)",
           }),
         ).toBe(1);
-        expect(query).toHaveBeenCalledTimes(1);
+        expect(query).toHaveBeenCalledTimes(2);
       } finally {
         query.mockRestore();
       }
