@@ -1,13 +1,15 @@
 import { Hono, type Handler } from "hono";
-import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
+import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PricingApiEnv } from "../../../api";
 import { getAccountRepricingPolicy } from "../../repricing-policies/read-model/queries";
 import { repricingManagementPolicy } from "../domain/management-policy";
 import { getRepricingAttentionSummary, listRepricingActivity, repricingActivityFilters } from "./activity";
 
-export function createRepricingActivityServices(db: PgQueryable) {
-  const resolver = createPolicyResolver({ db });
+export function createRepricingActivityServices({
+  db,
+  policies,
+}: Readonly<{ db: PgQueryable; policies: Pick<PolicyRuntime, "resolvePolicy"> }>) {
   return {
     getAccountRepricingPolicy: (accountId: string, policyId: string) =>
       getAccountRepricingPolicy(db, { accountId, policyId }),
@@ -16,7 +18,7 @@ export function createRepricingActivityServices(db: PgQueryable) {
       getRepricingAttentionSummary(db, {
         accountId,
         now,
-        floorBindingAlertDays: (await resolver.resolvePolicy(repricingManagementPolicy)).value.floorBindingAlertDays,
+        floorBindingAlertDays: (await policies.resolvePolicy(repricingManagementPolicy)).value.floorBindingAlertDays,
       }),
   };
 }

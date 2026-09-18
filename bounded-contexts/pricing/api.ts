@@ -18,7 +18,7 @@ export type PricingApiEnv = AuthenticatedApiEnv;
 export function buildPricingApi(services: PricingServices) {
   const app = new Hono<PricingApiEnv>();
   app.route("/account/repricing-policies/dry-runs", createRepricingDryRunRoutes(services.repricingEngine));
-  app.route("/account/repricing-policies", createRepricingActivityRoutes(createRepricingActivityServices(services.db)));
+  app.route("/account/repricing-policies", createRepricingActivityRoutes(createRepricingActivityServices(services)));
   app.route("/account/repricing-policies", createRepricingPolicyRoutes(services.repricingPolicies));
   app.route("/account", createAccountRecommendationRoutes(services.recommendations));
   app.route("/account/economics", createEconomicsRoutes(services.economics, services.economics.overrides));
