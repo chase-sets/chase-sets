@@ -11,13 +11,14 @@ export function decodeRepricingManagementPolicyValue(raw: JsonValue): RepricingM
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error("Repricing-management policy value must be an object.");
   }
+  const record = raw as Record<string, unknown>;
   if (Object.keys(raw).some((key) => key !== "floorBindingAlertDays")) {
     throw new Error("Unknown repricing-management policy key.");
   }
   const value =
-    raw.floorBindingAlertDays === undefined
+    record.floorBindingAlertDays === undefined
       ? REPRICING_MANAGEMENT_LAUNCH_POLICY_VALUE.floorBindingAlertDays
-      : raw.floorBindingAlertDays;
+      : record.floorBindingAlertDays;
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 90) {
     throw new Error("floorBindingAlertDays must be an integer between 1 and 90.");
   }

@@ -336,6 +336,125 @@ describeDb("repricing listing outcomes", () => {
     }
   });
 
+  it("compaction waits for an uncommitted nonbinding projection without crossing its undigested gap", async () => {
+    const committed = [
+      [fact("a", 1, true), "1"],
+      [fact("c", 3, true), "3"],
+      [fact("d", 4, true), "4"],
+    ] as const;
+    for (const [data, position] of committed) await project(data, position);
+    const projection = await db.connect();
+    const compactor = await db.connect();
+    const observer = await db.connect();
+    let pending: Promise<number> | undefined;
+    try {
+      await compactor.query("CREATE TEMP TABLE emitted (evaluation_id text PRIMARY KEY)");
+      await compactor.query("INSERT INTO emitted VALUES ('a'), ('c'), ('d')");
+      await projection.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+      await compactor.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+      const projectionPid = (await projection.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+      const compactorPid = (await compactor.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+      const gap = fact("b", 2, false);
+      await projectListingOutcomeFacts(projection, gap, "2");
+      const expectedVisible = (
+        await projection.query("SELECT * FROM pricing_repricing_listing_outcomes ORDER BY listing_id")
+      ).rows.map(
+        ({ compacted_through_at: _at, compacted_through_evaluation_id: _id, compaction_run_since: _run, ...row }) => row,
+      );
+      pending = compactListingOutcomeFacts(compactor, {
+        retainFrom,
+        digestedSql: "EXISTS (SELECT 1 FROM emitted WHERE emitted.evaluation_id = fact.evaluation_id)",
+      });
+      void pending.catch(() => undefined);
+      const waitError = await waitForLock(observer, compactorPid).catch((error: unknown) => String(error));
+      const lockState = (
+        await observer.query<{ pid: number; wait_event_type: string | null; blockers: number[] }>(
+          `SELECT pid, wait_event_type, pg_blocking_pids(pid) AS blockers
+           FROM pg_stat_activity WHERE pid = $1`,
+          [compactorPid],
+        )
+      ).rows;
+      const lockDiagnostic = JSON.stringify({ projectionPid, compactorPid, waitError, lockState });
+      expect(waitError, lockDiagnostic).toBeUndefined();
+      expect(lockState[0]?.wait_event_type, lockDiagnostic).toBe("Lock");
+      expect(lockState[0]?.blockers, lockDiagnostic).toContain(projectionPid);
+      await projection.query("COMMIT");
+      const deleted = await pending;
+      await compactor.query("COMMIT");
+
+      const afterCompaction = await outcomes();
+      const visibleAfterCompaction = await visible();
+      const retained = await ids();
+      const digestProof = (
+        await compactor.query<{ evaluation_id: string }>("SELECT evaluation_id FROM emitted ORDER BY evaluation_id")
+      ).rows.map((row) => row.evaluation_id);
+      const newer = fact("e", 5, true);
+      await project(newer, "5");
+      const afterNewer = await outcomes();
+      const visibleAfterNewer = await visible();
+      for (const [data, position] of [
+        committed[0],
+        [gap, "2"],
+        committed[1],
+        committed[2],
+        [newer, "5"],
+      ] as const) {
+        await project(data, position);
+      }
+      const afterReplay = await outcomes();
+      const visibleAfterReplay = await visible();
+      const retainedAfterReplay = await ids();
+      const diagnostic = JSON.stringify({
+        lockState,
+        deleted,
+        digestProof,
+        retained,
+        expectedVisible,
+        afterCompaction,
+        afterNewer,
+        afterReplay,
+        retainedAfterReplay,
+      });
+      expect(deleted, diagnostic).toBeLessThanOrEqual(1);
+      expect(digestProof, diagnostic).toEqual(["a", "c", "d"]);
+      expect(retained, diagnostic).toContain("b");
+      expect(retained, diagnostic).toContain("c");
+      expect(retained.at(-1), diagnostic).toBe("d");
+      expect(afterCompaction, diagnostic).toHaveLength(1);
+      const boundary = afterCompaction[0]!;
+      if (boundary.compacted_through_at === null) {
+        expect(boundary.compacted_through_evaluation_id, diagnostic).toBeNull();
+      } else {
+        expect(boundary.compacted_through_at, diagnostic).toEqual(new Date(at(1)));
+        expect(boundary.compacted_through_evaluation_id, diagnostic).toBe("a");
+      }
+      expect(visibleAfterCompaction, diagnostic).toEqual(expectedVisible);
+      expect(afterCompaction[0], diagnostic).toMatchObject({
+        evaluation_id: "d",
+        floor_binding: true,
+        floor_binding_since: new Date(at(3)),
+      });
+      expect(afterNewer[0], diagnostic).toMatchObject({
+        evaluation_id: "e",
+        evaluated_at: new Date(at(5)),
+        global_position: "5",
+        floor_binding: true,
+        floor_binding_since: new Date(at(3)),
+      });
+      expect(afterReplay, diagnostic).toEqual(afterNewer);
+      expect(visibleAfterReplay, diagnostic).toEqual(visibleAfterNewer);
+      expect(retainedAfterReplay, diagnostic).toEqual(["a", "b", "c", "d", "e"]);
+    } finally {
+      await projection.query("ROLLBACK");
+      await pending?.catch(() => undefined);
+      await compactor.query("ROLLBACK");
+      await compactor.query("DROP TABLE IF EXISTS pg_temp.emitted");
+      projection.release();
+      compactor.release();
+      observer.release();
+    }
+  });
+
   it("boot and the ledgered migration both install the same outcome tables and indexes", async () => {
     const migration = pricingRepricingEngineSchemaMigrations.find(
       ({ migrationId }) => migrationId === "20260916_pricing_listing_outcomes",
