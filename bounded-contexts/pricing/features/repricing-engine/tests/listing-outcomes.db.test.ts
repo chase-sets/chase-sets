@@ -359,7 +359,8 @@ describeDb("repricing listing outcomes", () => {
       const expectedVisible = (
         await projection.query("SELECT * FROM pricing_repricing_listing_outcomes ORDER BY listing_id")
       ).rows.map(
-        ({ compacted_through_at: _at, compacted_through_evaluation_id: _id, compaction_run_since: _run, ...row }) => row,
+        ({ compacted_through_at: _at, compacted_through_evaluation_id: _id, compaction_run_since: _run, ...row }) =>
+          row,
       );
       pending = compactListingOutcomeFacts(compactor, {
         retainFrom,
@@ -392,13 +393,7 @@ describeDb("repricing listing outcomes", () => {
       await project(newer, "5");
       const afterNewer = await outcomes();
       const visibleAfterNewer = await visible();
-      for (const [data, position] of [
-        committed[0],
-        [gap, "2"],
-        committed[1],
-        committed[2],
-        [newer, "5"],
-      ] as const) {
+      for (const [data, position] of [committed[0], [gap, "2"], committed[1], committed[2], [newer, "5"]] as const) {
         await project(data, position);
       }
       const afterReplay = await outcomes();
