@@ -81,14 +81,22 @@ export async function projectListingOutcomeFacts(
   );
 }
 
-/** digestedSql is trusted caller SQL over alias `fact`, proving that fact's own window was emitted. */
+/**
+ * Both statements must use the same caller transaction: lock first, then recompute with a fresh snapshot.
+ * digestedSql is trusted caller SQL over alias `fact`, proving that fact's own window was emitted.
+ */
 export async function compactListingOutcomeFacts(
   db: PgQueryable,
   input: Readonly<{ retainFrom: string; digestedSql: string }>,
 ): Promise<number> {
+  const locked = await db.query<{ listing_id: string }>(
+    `SELECT listing_id FROM pricing_repricing_listing_outcomes
+     ORDER BY listing_id FOR UPDATE`,
+  );
   const result = await db.query<{ deleted: number }>(
     `WITH locked AS MATERIALIZED (
        SELECT outcome.* FROM pricing_repricing_listing_outcomes AS outcome
+       WHERE outcome.listing_id = ANY($2::text[])
        ORDER BY outcome.listing_id FOR UPDATE
      ), ordered AS MATERIALIZED (
        SELECT fact.*, locked.compacted_through_at, locked.compacted_through_evaluation_id,
@@ -127,7 +135,7 @@ export async function compactListingOutcomeFacts(
        WHERE fact.listing_id = prefix.listing_id AND fact.evaluation_id = prefix.evaluation_id
        RETURNING fact.listing_id
      ) SELECT count(*)::integer AS deleted FROM deleted`,
-    [input.retainFrom],
+    [input.retainFrom, locked.rows.map(({ listing_id }) => listing_id)],
   );
   return result.rows[0]!.deleted;
 }
