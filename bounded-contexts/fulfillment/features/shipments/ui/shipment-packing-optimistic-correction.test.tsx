@@ -27,6 +27,7 @@ vi.mock("./mutation-recovery", () => ({
 
 function shipment(): FulfillmentShipmentDetail {
   return {
+    conflicts: [],
     shipment_id: "shp_1",
     order_id: "ord_1",
     display_reference: "shp_1",

@@ -46,7 +46,7 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
               await services.shipments.createShipmentForReadyOrder(params);
             },
             onOrderCancelled: async (params) => {
-              await services.shipments.cancelShipmentForCancelledOrder(params);
+              await services.shipments.cancelShipmentForCancelledOrder({ ...params, origin: "order-cancelled" });
             },
           }),
         "payments.fulfillment-payment-fraud-source-projection": () =>
@@ -55,6 +55,8 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
               await services.shipments.cancelShipmentForCancelledOrder({
                 orderId: params.orderId,
                 cancelledAt: params.receivedAt,
+                reason: null,
+                origin: "payment-fraud-warning",
                 context: params.context,
                 sourceIdentity: params.sourceIdentity,
               });

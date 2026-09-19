@@ -118,6 +118,7 @@ function shipmentRow(overrides: Record<string, unknown> = {}) {
         received_at: "2026-07-08T00:04:01.000Z",
       },
     ],
+    conflicts: [],
     ...overrides,
   };
 }
@@ -142,6 +143,7 @@ function services(): FulfillmentShipmentServices {
       trackingIdentifier: "940000000000000001",
     })),
     voidLabel: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 6 })),
+    cancelShipment: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 7 })),
     dispatchShipment: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 7 })),
     raiseShipmentException: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 8 })),
     startPackingShipment: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 9 })),
@@ -150,6 +152,54 @@ function services(): FulfillmentShipmentServices {
 }
 
 describe("fulfillment shipment MCP handlers", () => {
+  it("cancels only when the read model presents a matching order-cancelled conflict", async () => {
+    const fakeServices = services();
+    vi.mocked(fakeServices.getSellerShipment).mockResolvedValueOnce(
+      shipmentRow({
+        status: "packing",
+        conflicts: [
+          {
+            order_id: "ord_1",
+            conflict_kind: "cancellation",
+            origin: "order-cancelled",
+            reason: "buyer-cancelled",
+            shipment_status: "packing",
+            detected_at: "2026-07-08T00:05:00.000Z",
+          },
+        ],
+      }) as never,
+    );
+    const handlers = createFulfillmentShipmentMcpHandlers(fakeServices);
+    await expect(
+      handlers.toolHandlers["fulfillment.cancel-shipment"]?.(
+        mcpRequest({ accountId: "acc_seller", shipmentId: "shp_1", reason: "Resolve cancelled order" }),
+      ),
+    ).resolves.toMatchObject({ shipmentId: "shp_1", status: "cancelled", action: "cancel-shipment" });
+    expect(fakeServices.cancelShipment).toHaveBeenCalledTimes(1);
+
+    vi.mocked(fakeServices.getSellerShipment).mockResolvedValueOnce(
+      shipmentRow({
+        status: "packing",
+        conflicts: [
+          {
+            order_id: "ord_1",
+            conflict_kind: "cancellation",
+            origin: "payment-fraud-warning",
+            reason: null,
+            shipment_status: "packing",
+            detected_at: "2026-07-08T00:05:00.000Z",
+          },
+        ],
+      }) as never,
+    );
+    await expect(
+      handlers.toolHandlers["fulfillment.cancel-shipment"]?.(
+        mcpRequest({ accountId: "acc_seller", shipmentId: "shp_1", reason: "forged" }),
+      ),
+    ).rejects.toThrow("order cancellation conflict");
+    expect(fakeServices.cancelShipment).toHaveBeenCalledTimes(1);
+  });
+
   it("lists seller shipments with natural account scope", async () => {
     const fakeServices = services();
     const handlers = createFulfillmentShipmentMcpHandlers(fakeServices);

@@ -85,6 +85,7 @@
     "fulfillment.get-tracking",
     "fulfillment.purchase-label",
     "fulfillment.advance-shipment",
+    "fulfillment.cancel-shipment",
     "fulfillment.dispatch-shipment",
     "fulfillment.raise-shipment-exception",
     "fulfillment.void-label",

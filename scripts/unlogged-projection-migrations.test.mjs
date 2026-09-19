@@ -174,6 +174,49 @@ function addForeignKeyStatement(relationship) {
   )}) REFERENCES ${relationship.targetTable} (${relationship.targetColumns.join(", ")})${onDelete} NOT VALID;`;
 }
 
+function readNativelyUnloggedTables() {
+  const nativelyUnloggedTables = new Set();
+
+  for (const contextName of contexts) {
+    const contextDirectory = resolve("bounded-contexts", contextName);
+
+    for (const schemaFile of collectSchemaFiles(contextDirectory)) {
+      const source = readFileSync(schemaFile, "utf8");
+
+      for (const tableMatch of source.matchAll(
+        /CREATE\s+UNLOGGED\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z][a-z0-9_]*)\s*\(/g,
+      )) {
+        nativelyUnloggedTables.add(tableMatch[1]);
+      }
+    }
+  }
+
+  return nativelyUnloggedTables;
+}
+
+// A table created with CREATE UNLOGGED TABLE has no "SET UNLOGGED" migration
+// statement of its own -- real PostgreSQL still accepts an FK between it and
+// an ALTER-converted unlogged table, so both origins count as unlogged here.
+function isEffectivelyUnlogged(tableName, statements, nativelyUnloggedTables) {
+  return statements.includes(`ALTER TABLE ${tableName} SET UNLOGGED;`) || nativelyUnloggedTables.has(tableName);
+}
+
+function findInconsistentRelationships(relationships, migrations, nativelyUnloggedTables) {
+  const inconsistentRelationships = [];
+
+  for (const relationship of relationships) {
+    const statements = migrations.get(relationship.contextName) ?? [];
+    const sourceIsUnlogged = isEffectivelyUnlogged(relationship.sourceTable, statements, nativelyUnloggedTables);
+    const targetIsUnlogged = isEffectivelyUnlogged(relationship.targetTable, statements, nativelyUnloggedTables);
+
+    if (sourceIsUnlogged !== targetIsUnlogged) {
+      inconsistentRelationships.push(`${relationship.sourceTable} -> ${relationship.targetTable}`);
+    }
+  }
+
+  return inconsistentRelationships;
+}
+
 function isSupportedAlterStatement(statement) {
   return (
     /^ALTER TABLE (?:IF EXISTS )?[a-z][a-z0-9_]* SET UNLOGGED;$/.test(statement) ||
@@ -204,24 +247,26 @@ describe("unlogged projection migration ledgers", () => {
 
   it("keeps every foreign-key relationship persistence-consistent during and after conversion", () => {
     const migrations = new Map(contexts.map((contextName) => [contextName, readMigration(contextName).statements]));
-    const inconsistentRelationships = [];
+    const nativelyUnloggedTables = readNativelyUnloggedTables();
+    const relationships = readForeignKeys();
 
-    for (const relationship of readForeignKeys()) {
+    expect(findInconsistentRelationships(relationships, migrations, nativelyUnloggedTables)).toEqual([]);
+
+    for (const relationship of relationships) {
       const statements = migrations.get(relationship.contextName);
       const sourceConversionIndex = statements.indexOf(`ALTER TABLE ${relationship.sourceTable} SET UNLOGGED;`);
       const targetConversionIndex = statements.indexOf(`ALTER TABLE ${relationship.targetTable} SET UNLOGGED;`);
-      const sourceIsUnlogged = sourceConversionIndex >= 0;
-      const targetIsUnlogged = targetConversionIndex >= 0;
 
-      if (sourceIsUnlogged !== targetIsUnlogged) {
-        inconsistentRelationships.push(`${relationship.sourceTable} -> ${relationship.targetTable}`);
+      if (sourceConversionIndex < 0) {
+        // The source table has no ALTER conversion of its own to sequence
+        // against -- either it was created unlogged from birth (its FK is
+        // established directly by CREATE UNLOGGED TABLE, with nothing to
+        // drop/re-add) or it is still logged, which the consistency check
+        // above already covers.
         continue;
       }
 
-      if (!sourceIsUnlogged) {
-        continue;
-      }
-
+      const relevantConversionIndices = [sourceConversionIndex, targetConversionIndex].filter((index) => index >= 0);
       const dropStatement = `ALTER TABLE ${relationship.sourceTable} DROP CONSTRAINT IF EXISTS ${relationship.constraintName};`;
       const addStatement = addForeignKeyStatement(relationship);
       const validateStatement = `ALTER TABLE ${relationship.sourceTable} VALIDATE CONSTRAINT ${relationship.constraintName};`;
@@ -233,23 +278,41 @@ describe("unlogged projection migration ledgers", () => {
         dropIndex,
         `Missing FK drop for ${relationship.sourceTable} -> ${relationship.targetTable}`,
       ).toBeGreaterThanOrEqual(0);
-      expect(dropIndex).toBeLessThan(sourceConversionIndex);
-      expect(dropIndex).toBeLessThan(targetConversionIndex);
+      expect(dropIndex).toBeLessThan(Math.min(...relevantConversionIndices));
       expect(
         addIndex,
         `Missing NOT VALID FK restore for ${relationship.sourceTable} -> ${relationship.targetTable}`,
-      ).toBeGreaterThan(Math.max(sourceConversionIndex, targetConversionIndex));
+      ).toBeGreaterThan(Math.max(...relevantConversionIndices));
       expect(
         validateIndex,
         `Missing FK validation for ${relationship.sourceTable} -> ${relationship.targetTable}`,
       ).toBeGreaterThan(addIndex);
     }
+  });
 
-    expect(inconsistentRelationships).toEqual([]);
+  it("flags a CREATE UNLOGGED table's foreign key to a table that never converts", () => {
+    const relationships = [
+      {
+        contextName: "fulfillment",
+        sourceTable: "fulfillment_test_native_unlogged_child",
+        constraintName: "fulfillment_test_native_unlogged_child_parent_id_fkey",
+        sourceColumns: ["parent_id"],
+        targetTable: "fulfillment_test_never_converted_parent",
+        targetColumns: ["parent_id"],
+        onDelete: undefined,
+      },
+    ];
+    const migrations = new Map([["fulfillment", []]]);
+    const nativelyUnloggedTables = new Set(["fulfillment_test_native_unlogged_child"]);
+
+    expect(findInconsistentRelationships(relationships, migrations, nativelyUnloggedTables)).toEqual([
+      "fulfillment_test_native_unlogged_child -> fulfillment_test_never_converted_parent",
+    ]);
   });
 
   it("records Catalog logged-table exclusions and never converts them", () => {
     const migration = readMigration("catalog");
+    const nativelyUnloggedTables = readNativelyUnloggedTables();
     const recordedExclusions = new Map(
       [...migration.source.matchAll(/tableName:\s*"([^"]+)",\s*reason:\s*"([^"]+)"/g)].map((match) => [
         match[1],
@@ -261,14 +324,17 @@ describe("unlogged projection migration ledgers", () => {
 
     for (const tableName of catalogExclusions.keys()) {
       expect(migration.statements).not.toContain(`ALTER TABLE ${tableName} SET UNLOGGED;`);
+      expect(nativelyUnloggedTables.has(tableName)).toBe(false);
     }
   });
 
   it("keeps source-of-truth, checkpoint, outbox, token, webhook, reaction, and idempotency tables logged", () => {
     const migrations = contexts.map((contextName) => readMigration(contextName).source).join("\n");
+    const nativelyUnloggedTables = readNativelyUnloggedTables();
 
     for (const tableName of durableTables) {
       expect(migrations).not.toContain(`ALTER TABLE ${tableName} SET UNLOGGED`);
+      expect(nativelyUnloggedTables.has(tableName)).toBe(false);
     }
   });
 });

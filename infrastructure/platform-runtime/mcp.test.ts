@@ -308,6 +308,7 @@ describe("MCP runtime routes", () => {
       "discovery.get-item-detail",
       "discovery.search-market",
       "fulfillment.advance-shipment",
+      "fulfillment.cancel-shipment",
       "fulfillment.dispatch-shipment",
       "fulfillment.get-tracking",
       "fulfillment.list-shipments",

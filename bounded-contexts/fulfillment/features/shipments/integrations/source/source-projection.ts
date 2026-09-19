@@ -89,6 +89,7 @@ export function buildFulfillmentOrderProjectionHandlers(
     onOrderCancelled?: (params: {
       orderId: string;
       cancelledAt: string;
+      reason: string | null;
       context: EventStoreContext;
       sourceIdentity: Readonly<{ eventId: string; streamId: string; streamVersion: number; eventType: string }>;
     }) => Promise<void>;
@@ -213,6 +214,7 @@ export function buildFulfillmentOrderProjectionHandlers(
       const data = event.data as {
         orderId: string;
         cancelledAt: string;
+        reason?: string | null;
       };
 
       await db.query(
@@ -227,6 +229,7 @@ export function buildFulfillmentOrderProjectionHandlers(
       await options.onOrderCancelled?.({
         orderId: data.orderId,
         cancelledAt: data.cancelledAt,
+        reason: data.reason ?? null,
         context: {
           tenantId: event.tenantId,
           audit: event.audit,

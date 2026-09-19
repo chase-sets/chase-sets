@@ -29,6 +29,10 @@ function currentStateFrom(formData: FormData): ShipmentActionLegalityInput {
   return {
     status: String(formData.get("status") ?? "") as ShipmentStatus,
     labelStatus: (String(formData.get("labelStatus") ?? "") || null) as PostageLabelStatus | null,
+    conflicts:
+      String(formData.get("hasOrderCancellationConflict") ?? "") === "true"
+        ? [{ conflict_kind: "cancellation", origin: "order-cancelled" }]
+        : [],
   };
 }
 
@@ -65,6 +69,7 @@ export async function runShipmentCommandCenterAction(
         shipmentResult(await api.startPackingShipment(shipmentId, mutationAttemptId), shipmentId),
       completePacking: async () =>
         shipmentResult(await api.packShipment(shipmentId, { packageCount: 1 }, mutationAttemptId), shipmentId),
+      cancelShipment: async () => shipmentResult(await api.cancelShipment(shipmentId, mutationAttemptId), shipmentId),
       dispatch: async () => shipmentResult(await api.dispatchShipment(shipmentId, mutationAttemptId), shipmentId),
       recordDelivery: async () => shipmentResult(await api.deliverShipment(shipmentId, mutationAttemptId), shipmentId),
       returnShipment: async () =>

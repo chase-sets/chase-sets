@@ -205,6 +205,21 @@ export const fulfillmentService = {
       {
         ...writeTool(
           "fulfillment",
+          "cancel-shipment",
+          "Cancel Shipment",
+          "Cancel a shipment whose order was cancelled after packing started.",
+          "fulfillment.manage",
+          mutationInput("shipmentId", "Shipment carrying a resolvable order-cancellation conflict."),
+          "shipment",
+          ["Use only after the shipment read model reports an order-cancelled cancellation conflict."],
+          "destructive",
+        ),
+        availability: "available",
+        outputSchema: fulfillmentShipmentActionOutputSchema,
+      },
+      {
+        ...writeTool(
+          "fulfillment",
           "dispatch-shipment",
           "Dispatch Shipment",
           "Dispatch a labeled shipment through the same state-checked command used by the seller web surface.",

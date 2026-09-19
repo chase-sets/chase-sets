@@ -741,6 +741,120 @@ describe("fulfillment shipment domain", () => {
         type: "CancelShipment",
         cancelledAt: "2026-04-02T00:06:00.000Z",
       }),
-    ).toThrow("Only shipments awaiting package preparation can be cancelled.");
+    ).toThrow("Only shipments with an order cancellation conflict can be cancelled.");
+  });
+
+  it.each(["packing", "awaiting-label", "label-attached", "dispatched", "delivered", "returned", "exception"] as const)(
+    "keeps %s cancellation closed without a matching recorded conflict",
+    (status) => {
+      const state = { ...createPackedShipmentState(), status, conflicts: [] };
+      expect(() =>
+        decideFulfillmentShipment(state, {
+          type: "CancelShipment",
+          cancelledAt: "2026-04-02T00:06:00.000Z",
+        }),
+      ).toThrow("Only shipments with an order cancellation conflict can be cancelled.");
+    },
+  );
+
+  it("does not let an order-cancelled conflict for another order unlock the seller exit", () => {
+    const state = {
+      ...createPackedShipmentState(),
+      conflicts: [
+        {
+          orderId: "ord_other" as never,
+          conflictKind: "cancellation" as const,
+          origin: "order-cancelled" as const,
+          reason: "buyer-cancelled",
+          shipmentStatus: "awaiting-label" as const,
+        },
+      ],
+    };
+    expect(() =>
+      decideFulfillmentShipment(state, {
+        type: "CancelShipment",
+        cancelledAt: "2026-04-02T00:06:00.000Z",
+      }),
+    ).toThrow("Only shipments with an order cancellation conflict can be cancelled.");
+  });
+
+  it("records an advanced-state cancellation conflict and then permits the seller exit", () => {
+    const packingState = decideFulfillmentShipment(createPackedShipmentState(), {
+      type: "RaiseShipmentException",
+      exceptionType: "other",
+      notes: null,
+      raisedAt: "2026-04-02T00:06:00.000Z",
+    }).reduce(evolveFulfillmentShipment, createPackedShipmentState());
+    const [conflict] = decideFulfillmentShipment(packingState, {
+      type: "CancelShipment",
+      cancelledAt: "2026-04-02T00:07:00.000Z",
+      cancellationSignal: {
+        orderId: "ord_1" as never,
+        reason: "buyer-cancelled",
+        origin: "order-cancelled",
+      },
+    });
+    expect(conflict).toEqual({
+      type: "fulfillment.shipment.cancellation-conflict-recorded",
+      data: {
+        shipmentId: "shp_1",
+        orderId: "ord_1",
+        reason: "buyer-cancelled",
+        shipmentStatus: "exception",
+        origin: "order-cancelled",
+      },
+    });
+
+    const awaitingLabel = createPackedShipmentState();
+    const conflicted = evolveFulfillmentShipment(awaitingLabel, {
+      type: "fulfillment.shipment.cancellation-conflict-recorded",
+      data: {
+        shipmentId: "shp_1" as never,
+        orderId: "ord_1" as never,
+        reason: "buyer-cancelled",
+        shipmentStatus: "awaiting-label",
+        origin: "order-cancelled",
+      },
+    });
+    const [cancelled] = decideFulfillmentShipment(conflicted, {
+      type: "CancelShipment",
+      cancelledAt: "2026-04-02T00:08:00.000Z",
+    });
+    expect(cancelled.type).toBe("fulfillment.shipment.cancelled");
+  });
+
+  it("records fraud warnings for visibility without cancelling even before packing", () => {
+    const created = decideFulfillmentShipment(initialFulfillmentShipmentState, {
+      type: "CreateShipment",
+      shipmentId: "shp_1" as never,
+      orderId: "ord_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      shippingOption: "standard",
+      ...shipmentAddressSnapshots,
+      lines: [
+        {
+          lineId: "spl_1" as never,
+          orderLineId: "oli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+      createdAt: "2026-04-02T00:00:00.000Z",
+    }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+    const events = decideFulfillmentShipment(created, {
+      type: "CancelShipment",
+      cancelledAt: "2026-04-02T00:01:00.000Z",
+      cancellationSignal: {
+        orderId: "ord_1" as never,
+        reason: null,
+        origin: "payment-fraud-warning",
+      },
+    });
+    expect(events.map((event) => event.type)).toEqual(["fulfillment.shipment.cancellation-conflict-recorded"]);
   });
 });

@@ -23,6 +23,7 @@ function shipment(
     total_quantity: 1,
     created_at: "2026-07-10T00:00:00.000Z",
     updated_at: "2026-07-10T00:00:00.000Z",
+    conflicts: [],
     ...overrides,
   };
 }
@@ -90,5 +91,96 @@ describe("fulfillment command center", () => {
     expect(center.source).toBe(contractSource?.id);
     expect(center.queue[0]?.attention.source).toBe(contractSource?.id);
     expect(contractSource?.id).toBe("fulfillment-ship-by");
+  });
+
+  it("composes keyed conflicts without fanout and aggregates exact severity", () => {
+    const conflicts = [
+      {
+        order_id: "ord_1",
+        conflict_kind: "destination-correction" as const,
+        origin: "seller-requested",
+        reason: "wrong-address",
+        shipment_status: "packing",
+        detected_at: "2026-07-10T00:03:00.000Z",
+      },
+      {
+        order_id: "ord_1",
+        conflict_kind: "cancellation" as const,
+        origin: "payment-fraud-warning",
+        reason: null,
+        shipment_status: "packing",
+        detected_at: "2026-07-10T00:02:00.000Z",
+      },
+      {
+        order_id: "ord_1",
+        conflict_kind: "cancellation" as const,
+        origin: "order-cancelled",
+        reason: "support-cancel-order",
+        shipment_status: "packing",
+        detected_at: "2026-07-10T00:01:00.000Z",
+      },
+    ];
+    const center = buildFulfillmentCommandCenter([shipment({ shipment_id: "1", status: "packing", conflicts })]);
+    expect(center.queue).toHaveLength(1);
+    expect(center.queue[0]?.bucket).toBe("exceptions");
+    expect(center.queue[0]?.severity).toBe("critical");
+    expect(
+      center.queue[0]?.conflicts.map(({ conflict_kind, origin, reason }) => ({ conflict_kind, origin, reason })),
+    ).toEqual([
+      { conflict_kind: "cancellation", origin: "order-cancelled", reason: "support-cancel-order" },
+      { conflict_kind: "cancellation", origin: "payment-fraud-warning", reason: null },
+      { conflict_kind: "destination-correction", origin: "seller-requested", reason: "wrong-address" },
+    ]);
+    expect(center.queue[0]?.plan.primary).toBe("cancel-shipment");
+  });
+
+  it("uses warning only for the two designed-flow cancellation reasons", () => {
+    for (const reason of ["support-cancel-order", "seller-cannot-fulfill"] as const) {
+      const center = buildFulfillmentCommandCenter([
+        shipment({
+          shipment_id: reason,
+          status: "packing",
+          conflicts: [
+            {
+              order_id: "ord_1",
+              conflict_kind: "cancellation",
+              origin: "order-cancelled",
+              reason,
+              shipment_status: "packing",
+              detected_at: "2026-07-10T00:01:00.000Z",
+            },
+          ],
+        }),
+      ]);
+      expect(center.queue[0]?.severity).toBe("warning");
+    }
+  });
+
+  it.each([
+    ["buyer-cancelled", "order-cancelled"],
+    [null, "order-cancelled"],
+    ["", "order-cancelled"],
+    ["   ", "order-cancelled"],
+    ["zzz-not-a-reason", "order-cancelled"],
+    ["support-cancel-order", "payment-fraud-warning"],
+  ] as const)("keeps non-designed cancellation reason/origin %s/%s critical", (reason, origin) => {
+    const center = buildFulfillmentCommandCenter([
+      shipment({
+        shipment_id: "critical",
+        status: "packing",
+        conflicts: [
+          {
+            order_id: "ord_critical",
+            conflict_kind: "cancellation",
+            origin,
+            reason,
+            shipment_status: "packing",
+            detected_at: "2026-07-10T00:01:00.000Z",
+          },
+        ],
+      }),
+    ]);
+    expect(center.queue[0]?.bucket).toBe("exceptions");
+    expect(center.queue[0]?.severity).toBe("critical");
   });
 });

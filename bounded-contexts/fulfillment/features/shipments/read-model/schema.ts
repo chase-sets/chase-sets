@@ -364,6 +364,20 @@ const fulfillmentShipmentDisplayReferenceUniqueIndexSql = `CREATE UNIQUE INDEX C
   ON fulfillment_shipment_pages (display_reference)
   WHERE display_reference <> '';`;
 
+const fulfillmentShipmentConflictPagesTableSql = `CREATE UNLOGGED TABLE IF NOT EXISTS fulfillment_shipment_conflict_pages (
+  shipment_id text NOT NULL REFERENCES fulfillment_shipment_pages (shipment_id) ON DELETE CASCADE,
+  order_id text NOT NULL,
+  conflict_kind text NOT NULL CHECK (conflict_kind IN ('cancellation', 'destination-correction')),
+  origin text NOT NULL,
+  reason text NULL,
+  shipment_status text NOT NULL,
+  detected_at timestamptz NOT NULL,
+  PRIMARY KEY (shipment_id, order_id, conflict_kind, origin)
+);`;
+
+const fulfillmentShipmentConflictPagesShipmentIndexSql = `CREATE INDEX IF NOT EXISTS fulfillment_shipment_conflict_pages_shipment_idx
+  ON fulfillment_shipment_conflict_pages (shipment_id, conflict_kind, origin);`;
+
 export const fulfillmentShipmentSchemaSql = `
 CREATE TABLE IF NOT EXISTS fulfillment_shipment_pages (
   shipment_id text PRIMARY KEY,
@@ -444,6 +458,10 @@ CREATE TABLE IF NOT EXISTS fulfillment_shipment_exception_pages (
   notes text NULL,
   PRIMARY KEY (shipment_id, raised_at)
 );
+
+${fulfillmentShipmentConflictPagesTableSql}
+
+${fulfillmentShipmentConflictPagesShipmentIndexSql}
 
 ALTER TABLE IF EXISTS fulfillment_shipment_pages
   ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -644,5 +662,10 @@ export const fulfillmentShipmentSchemaMigrations: readonly BcSchemaMigration[] =
       fulfillmentPostageOperationsSubjectTrackingIndexSql,
       fulfillmentPostageOperationsSubjectProviderShipmentIndexSql,
     ],
+  },
+  {
+    migrationId: "20260906_fulfillment_shipment_cancellation_conflicts",
+    description: "Create the keyed Shipment conflict set used by cancellation-race attention and resolution.",
+    statements: [fulfillmentShipmentConflictPagesTableSql],
   },
 ];
