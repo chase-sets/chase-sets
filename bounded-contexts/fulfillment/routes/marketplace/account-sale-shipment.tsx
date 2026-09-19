@@ -125,6 +125,9 @@ async function handleAction(intent: string, { request, params, formData }: FormA
     if (intent === "void-label") {
       result = await api.voidLabel(shipmentId, attemptId);
     }
+    if (intent === "cancel-shipment") {
+      result = await api.cancelShipment(shipmentId, attemptId);
+    }
     if (intent === "dispatch-shipment") {
       result = await api.dispatchShipment(shipmentId, attemptId);
     }
@@ -166,6 +169,7 @@ export const action = defineFormAction({
     "prepare-package": (context) => handleAction("prepare-package", context),
     "purchase-label": (context) => handleAction("purchase-label", context),
     "void-label": (context) => handleAction("void-label", context),
+    "cancel-shipment": (context) => handleAction("cancel-shipment", context),
     "dispatch-shipment": (context) => handleAction("dispatch-shipment", context),
     "deliver-shipment": (context) => handleAction("deliver-shipment", context),
     "return-shipment": (context) => handleAction("return-shipment", context),

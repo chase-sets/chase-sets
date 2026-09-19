@@ -51,6 +51,16 @@ export type FulfillmentShipmentException = Readonly<{
   raisedAt: string;
 }>;
 
+export type ShipmentCancellationConflictOrigin = "order-cancelled" | "payment-fraud-warning";
+
+export type FulfillmentShipmentConflict = Readonly<{
+  orderId: OrderId;
+  conflictKind: "cancellation";
+  origin: ShipmentCancellationConflictOrigin;
+  reason: string | null;
+  shipmentStatus: ShipmentStatus;
+}>;
+
 export type FulfillmentAddressOverrideAudit = Readonly<{
   originalSenderSnapshot: AddressSnapshot;
   submittedSenderAddress: AddressSnapshot;
@@ -96,6 +106,7 @@ export type FulfillmentShipmentState = Readonly<{
   packageCount: number | null;
   lines: FulfillmentShipmentLine[];
   exceptions: FulfillmentShipmentException[];
+  conflicts: FulfillmentShipmentConflict[];
   addressOverrideAudits: FulfillmentAddressOverrideAudit[];
   createdAt: string | null;
   packingStartedAt: string | null;
@@ -145,6 +156,7 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   packageCount: null,
   lines: [],
   exceptions: [],
+  conflicts: [],
   addressOverrideAudits: [],
   createdAt: null,
   packingStartedAt: null,
@@ -265,6 +277,11 @@ export type RecordShipmentLabelRefundStatusCommand = Readonly<{
 export type CancelShipmentCommand = Readonly<{
   type: "CancelShipment";
   cancelledAt: string;
+  cancellationSignal?: Readonly<{
+    orderId: OrderId;
+    reason: string | null;
+    origin: ShipmentCancellationConflictOrigin;
+  }>;
 }>;
 
 export type DispatchShipmentCommand = Readonly<{
@@ -482,6 +499,17 @@ export type ShipmentCancelledEvent = DomainEvent<
   }>
 >;
 
+export type ShipmentCancellationConflictRecordedEvent = DomainEvent<
+  "fulfillment.shipment.cancellation-conflict-recorded",
+  Readonly<{
+    shipmentId: ShipmentId;
+    orderId: OrderId;
+    reason: string | null;
+    shipmentStatus: ShipmentStatus;
+    origin: ShipmentCancellationConflictOrigin;
+  }>
+>;
+
 export type ShipmentDispatchedEvent = DomainEvent<
   "fulfillment.shipment.dispatched",
   Readonly<{
@@ -542,6 +570,7 @@ export type FulfillmentShipmentEvent =
   | ShipmentLabelVoidedEvent
   | ShipmentLabelRefundStatusRecordedEvent
   | ShipmentCancelledEvent
+  | ShipmentCancellationConflictRecordedEvent
   | ShipmentDispatchedEvent
   | ShipmentDeliveredEvent
   | ShipmentReturnedEvent
@@ -883,14 +912,54 @@ export const decideFulfillmentShipment: AggregateDecider<
       });
     }
     case "CancelShipment":
-      assert(state.shipmentId !== null, "Shipment must be created first.");
+      if (state.shipmentId === null || state.status === null) {
+        return [];
+      }
       assert(state.orderId !== null, "Shipment must reference an order before cancellation.");
       assert(state.buyerAccountId !== null, "Shipment must reference a buyer before cancellation.");
       assert(state.sellerAccountId !== null, "Shipment must reference a seller before cancellation.");
       if (state.status === "cancelled") {
         return [];
       }
-      assert(state.status === "awaiting-package", "Only shipments awaiting package preparation can be cancelled.");
+      if (command.cancellationSignal) {
+        assert(
+          command.cancellationSignal.orderId === state.orderId,
+          "Shipment cancellation signal must reference this shipment's order.",
+        );
+        const alreadyRecorded = state.conflicts.some(
+          (conflict) =>
+            conflict.conflictKind === "cancellation" &&
+            conflict.orderId === command.cancellationSignal?.orderId &&
+            conflict.origin === command.cancellationSignal?.origin,
+        );
+        if (alreadyRecorded) {
+          return [];
+        }
+        if (state.status !== "awaiting-package" || command.cancellationSignal.origin === "payment-fraud-warning") {
+          return [
+            {
+              type: "fulfillment.shipment.cancellation-conflict-recorded",
+              data: {
+                shipmentId: state.shipmentId,
+                orderId: state.orderId,
+                reason: command.cancellationSignal.reason,
+                shipmentStatus: state.status,
+                origin: command.cancellationSignal.origin,
+              },
+            },
+          ];
+        }
+      } else if (state.status !== "awaiting-package") {
+        const canResolveOrderCancellation =
+          (state.status === "packing" || state.status === "awaiting-label") &&
+          state.conflicts.some(
+            (conflict) =>
+              conflict.conflictKind === "cancellation" &&
+              conflict.orderId === state.orderId &&
+              conflict.origin === "order-cancelled",
+          );
+        assert(canResolveOrderCancellation, "Only shipments with an order cancellation conflict can be cancelled.");
+      }
       return [
         {
           type: "fulfillment.shipment.cancelled",
@@ -1044,6 +1113,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         packageCount: null,
         lines: normalizeShipmentLines(event.data.lines),
         exceptions: [],
+        conflicts: [],
         addressOverrideAudits: [],
         createdAt: event.data.createdAt,
         packingStartedAt: null,
@@ -1183,6 +1253,20 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         ...state,
         status: "cancelled",
         cancelledAt: event.data.cancelledAt,
+      };
+    case "fulfillment.shipment.cancellation-conflict-recorded":
+      return {
+        ...state,
+        conflicts: [
+          ...state.conflicts,
+          {
+            orderId: event.data.orderId,
+            conflictKind: "cancellation",
+            origin: event.data.origin,
+            reason: event.data.reason,
+            shipmentStatus: event.data.shipmentStatus,
+          },
+        ],
       };
     case "fulfillment.shipment.dispatched":
       return {

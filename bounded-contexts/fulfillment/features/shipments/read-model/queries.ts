@@ -100,6 +100,15 @@ export type FulfillmentPostageProviderEventDiagnosticRow = Readonly<{
   received_at: string;
 }>;
 
+export type FulfillmentShipmentConflictRow = Readonly<{
+  order_id: string;
+  conflict_kind: "cancellation" | "destination-correction";
+  origin: string;
+  reason: string | null;
+  shipment_status: string;
+  detected_at: string;
+}>;
+
 export type FulfillmentShipmentListRow = Readonly<{
   shipment_id: string;
   order_id: string;
@@ -148,6 +157,7 @@ export type FulfillmentShipmentListRow = Readonly<{
   exception_raised_at: string | null;
   line_count: number;
   total_quantity: number;
+  conflicts: readonly FulfillmentShipmentConflictRow[];
 }>;
 
 export type FulfillmentShipmentDetailRow = FulfillmentShipmentListRow &
@@ -485,7 +495,8 @@ const baseShipmentSelect = `
     page.returned_at,
     page.exception_raised_at,
     COALESCE(line_stats.line_count, 0) AS line_count,
-    COALESCE(line_stats.total_quantity, 0) AS total_quantity
+    COALESCE(line_stats.total_quantity, 0) AS total_quantity,
+    COALESCE(conflict_stats.conflicts, '[]'::jsonb) AS conflicts
   FROM fulfillment_shipment_pages AS page
   LEFT JOIN fulfillment_account_pages AS buyer
     ON buyer.account_id = page.buyer_account_id
@@ -500,6 +511,23 @@ const baseShipmentSelect = `
     GROUP BY shipment_id
   ) AS line_stats
     ON line_stats.shipment_id = page.shipment_id
+  LEFT JOIN (
+    SELECT
+      conflict.shipment_id,
+      jsonb_agg(
+        jsonb_build_object(
+          'order_id', conflict.order_id,
+          'conflict_kind', conflict.conflict_kind,
+          'origin', conflict.origin,
+          'reason', conflict.reason,
+          'shipment_status', conflict.shipment_status,
+          'detected_at', conflict.detected_at
+        ) ORDER BY conflict.conflict_kind, conflict.origin
+      ) AS conflicts
+    FROM fulfillment_shipment_conflict_pages AS conflict
+    GROUP BY conflict.shipment_id
+  ) AS conflict_stats
+    ON conflict_stats.shipment_id = page.shipment_id
 `;
 
 export async function listBuyerShipments(

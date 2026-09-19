@@ -624,6 +624,54 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
     }
   });
 
+  app.post("/sales/shipments/:id/cancel", async (c) => {
+    let mutationAttemptId: string;
+    try {
+      mutationAttemptId = readMutationAttemptId(c);
+    } catch {
+      return c.json(
+        {
+          error: {
+            code: "invalid_idempotency_key",
+            message: t("fulfillment.features.shipments.api.route.idempotency.key.required"),
+          },
+        },
+        400,
+      );
+    }
+    const access = requireShipmentAccess(c, "fulfillment.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.missing.5"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.cancelShipment(
+        {
+          shipmentId: c.req.param("id"),
+          sellerAccountId: access.actor.accountId,
+          mutationAttemptId,
+        },
+        context,
+      );
+      return c.json({ id: result.shipmentId, version: result.version, status: "cancelled" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/sales/shipments/:id/dispatch", async (c) => {
     let mutationAttemptId: string;
     try {

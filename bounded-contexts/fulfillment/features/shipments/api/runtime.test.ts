@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { buildTransportEvent, createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -15,6 +15,7 @@ import { PostageLabelProviderError } from "@chase-sets/postage-labels";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { recordFulfillmentPostageLabelOperationPending } from "../read-model/queries";
+import { buildFulfillmentOrderProjectionHandlers } from "../integrations/source/source-projection";
 import { createFulfillmentShipmentRuntime } from "./runtime";
 
 function webhookReceiptQueryResult(sql: string, values: readonly unknown[] = []) {
@@ -507,7 +508,344 @@ function createAuthoritativeVoidOperationDb(
   return db;
 }
 
+type RaceStatus =
+  | "awaiting-package"
+  | "packing"
+  | "awaiting-label"
+  | "label-attached"
+  | "dispatched"
+  | "delivered"
+  | "returned"
+  | "exception"
+  | "cancelled";
+
+async function driveRaceStatus(
+  services: ReturnType<typeof createFulfillmentShipmentRuntime>,
+  context: Parameters<ReturnType<typeof createFulfillmentShipmentRuntime>["commandHandler"]>[0]["context"],
+  status: RaceStatus,
+) {
+  const streamId = "fulfillment.shipment-shp_race";
+  const dispatch = (command: Parameters<typeof services.commandHandler>[0]["command"]) =>
+    services.commandHandler({ streamId, command, context });
+  await dispatch({
+    type: "CreateShipment",
+    shipmentId: "shp_race" as never,
+    orderId: "ord_race" as never,
+    buyerAccountId: "acc_buyer" as never,
+    sellerAccountId: "acc_seller" as never,
+    shippingOption: "standard",
+    shippingDestinationSnapshot,
+    shippingOriginSnapshot,
+    lines: [
+      {
+        lineId: "spl_race" as never,
+        orderLineId: "oli_race",
+        catalogItemId: "cat_race",
+        productId: "cat_race::",
+        itemTitle: "Race fixture",
+        itemSubtitle: null,
+        productSummary: null,
+        quantity: 1,
+      },
+    ],
+    createdAt: "2026-08-02T11:00:00.000Z",
+  });
+  if (status === "awaiting-package") return;
+  if (status === "cancelled") {
+    await dispatch({ type: "CancelShipment", cancelledAt: "2026-08-02T11:30:00.000Z" });
+    return;
+  }
+  await dispatch({ type: "StartShipmentPacking", startedAt: "2026-08-02T11:10:00.000Z" });
+  if (status === "packing") return;
+  if (status === "exception") {
+    await dispatch({
+      type: "RaiseShipmentException",
+      exceptionType: "other",
+      notes: null,
+      raisedAt: "2026-08-02T11:11:00.000Z",
+    });
+    return;
+  }
+  await dispatch({
+    type: "ConfirmShipmentPackingLine",
+    lineId: "spl_race" as never,
+    confirmedAt: "2026-08-02T11:15:00.000Z",
+  });
+  await dispatch({ type: "PrepareShipmentPackage", packageCount: 1, preparedAt: "2026-08-02T11:20:00.000Z" });
+  if (status === "awaiting-label") return;
+  await dispatch({
+    type: "AttachShipmentLabel",
+    shippingMethod: "standard",
+    carrierName: "USPS",
+    labelReference: "lbl_race",
+    trackingIdentifier: "trk_race",
+    postageAmountCents: 499,
+    postageCurrency: "USD",
+    attachedAt: "2026-08-02T11:25:00.000Z",
+  });
+  if (status === "label-attached") return;
+  await dispatch({ type: "DispatchShipment", dispatchedAt: "2026-08-02T11:30:00.000Z" });
+  if (status === "dispatched") return;
+  if (status === "delivered") {
+    await dispatch({ type: "RecordShipmentDelivery", deliveredAt: "2026-08-02T11:40:00.000Z" });
+    return;
+  }
+  await dispatch({ type: "ReturnShipment", reason: "return-to-sender", returnedAt: "2026-08-02T11:40:00.000Z" });
+}
+
+async function raceHarness(status: RaceStatus, pageStatus: RaceStatus = status) {
+  const store = createInMemoryEventStore();
+  const db = {
+    query: vi.fn(async (sql: string) =>
+      sql.includes("FROM fulfillment_shipment_pages")
+        ? { rows: [{ shipment_id: "shp_race", status: pageStatus, package_status: pageStatus }] }
+        : { rows: [] },
+    ),
+  };
+  const services = createFulfillmentShipmentRuntime({
+    eventStore: store.eventStore,
+    checkpointStore: createCheckpointStore(),
+    db: db as never,
+  });
+  const context = {
+    tenantId: "tnt_test" as never,
+    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_buyer" as never },
+  };
+  await driveRaceStatus(services, context, status);
+  const handlers = buildFulfillmentOrderProjectionHandlers(db as never, {
+    onOrderCancelled: async (params) => {
+      await services.cancelShipmentForCancelledOrder({ ...params, origin: "order-cancelled" });
+    },
+  });
+  const cancel = (data: Record<string, unknown>, streamVersion = 2) =>
+    handlers["ordering.order.cancelled"]!(
+      buildTransportEvent("ordering.order.cancelled", data, {
+        id: `evt_cancel_${streamVersion}`,
+        streamId: "ordering.order-ord_race",
+        streamVersion,
+        globalPosition: String(streamVersion),
+        tenantId: "tnt_test",
+        audit: context.audit,
+        timing: {
+          occurredAt: "2026-08-02T12:00:00.000Z",
+          recordedAt: "2026-08-02T12:00:00.000Z",
+        },
+      }),
+    );
+  return { ...store, services, context, cancel };
+}
+
+async function recordFraudSignal(harness: Awaited<ReturnType<typeof raceHarness>>, eventId: string) {
+  return harness.services.cancelShipmentForCancelledOrder({
+    orderId: "ord_race",
+    cancelledAt: "2026-08-02T12:00:00.000Z",
+    reason: null,
+    origin: "payment-fraud-warning",
+    context: harness.context,
+    sourceIdentity: {
+      eventId,
+      streamId: "payments.payment-pay_race",
+      streamVersion: 3,
+      eventType: "payments.payment-fraud-warning-received",
+    },
+  });
+}
+
+const overLengthCancellationReason = "x".repeat(4097);
+
 describe("fulfillment shipment runtime", () => {
+  it.each(["packing", "awaiting-label", "label-attached", "dispatched", "delivered", "returned", "exception"] as const)(
+    "records one verbatim order-cancellation conflict from %s through the real seam",
+    async (status) => {
+      const harness = await raceHarness(status);
+      await harness.cancel({
+        orderId: "ord_race",
+        cancelledAt: "2026-08-02T12:00:00.000Z",
+        reason: "buyer-cancelled",
+      });
+      const conflicts = harness
+        .readAllEvents()
+        .filter((event) => event.eventType === "fulfillment.shipment.cancellation-conflict-recorded");
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]?.payload).toEqual({
+        shipmentId: "shp_race",
+        orderId: "ord_race",
+        reason: "buyer-cancelled",
+        shipmentStatus: status,
+        origin: "order-cancelled",
+      });
+    },
+  );
+
+  it.each(
+    (
+      ["packing", "awaiting-label", "label-attached", "dispatched", "delivered", "returned", "exception"] as const
+    ).flatMap((status) =>
+      (["support-cancel-order", "seller-cannot-fulfill"] as const).map((reason) => [status, reason] as const),
+    ),
+  )("records designed-flow reason %s/%s without rewriting it", async (status, reason) => {
+    const harness = await raceHarness(status);
+    await harness.cancel({ orderId: "ord_race", cancelledAt: "2026-08-02T12:00:00.000Z", reason });
+    const conflicts = harness
+      .readAllEvents()
+      .filter((event) => event.eventType === "fulfillment.shipment.cancellation-conflict-recorded");
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]?.payload).toMatchObject({ shipmentStatus: status, reason, origin: "order-cancelled" });
+  });
+
+  it.each([
+    ["omitted", {}, null],
+    ["whitespace", { reason: "   " }, "   "],
+    ["unrecognized", { reason: "zzz-not-a-reason" }, "zzz-not-a-reason"],
+    ["over-length", { reason: overLengthCancellationReason }, overLengthCancellationReason],
+  ] as const)("preserves the synthetic %s reason control", async (_name, reasonInput, expectedReason) => {
+    const harness = await raceHarness("packing");
+    await harness.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      ...reasonInput,
+    });
+    const conflict = harness
+      .readAllEvents()
+      .find((event) => event.eventType === "fulfillment.shipment.cancellation-conflict-recorded");
+    expect(conflict?.payload.reason).toBe(expectedReason);
+  });
+
+  it("keeps both cancellation origins idempotent and commutative, including after the seller exit", async () => {
+    const orderThenFraud = await raceHarness("packing");
+    await orderThenFraud.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "support-cancel-order",
+    });
+    await recordFraudSignal(orderThenFraud, "evt_fraud_a");
+    await orderThenFraud.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "support-cancel-order",
+    });
+    await recordFraudSignal(orderThenFraud, "evt_fraud_a");
+
+    const fraudThenOrder = await raceHarness("packing");
+    await recordFraudSignal(fraudThenOrder, "evt_fraud_b");
+    await fraudThenOrder.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "support-cancel-order",
+    });
+
+    const conflictPayloads = (harness: Awaited<ReturnType<typeof raceHarness>>) =>
+      harness
+        .readAllEvents()
+        .filter((event) => event.eventType === "fulfillment.shipment.cancellation-conflict-recorded")
+        .map((event) => event.payload)
+        .sort((left, right) => String(left.origin).localeCompare(String(right.origin), "en"));
+
+    expect(conflictPayloads(orderThenFraud)).toEqual(conflictPayloads(fraudThenOrder));
+    expect(conflictPayloads(orderThenFraud)).toHaveLength(2);
+
+    await orderThenFraud.services.commandHandler({
+      streamId: "fulfillment.shipment-shp_race",
+      context: orderThenFraud.context,
+      command: { type: "CancelShipment", cancelledAt: "2026-08-02T12:02:00.000Z" },
+    });
+    const afterExit = orderThenFraud.readAllEvents().length;
+    await expect(
+      orderThenFraud.services.cancelShipmentForCancelledOrder({
+        orderId: "ord_race",
+        cancelledAt: "2026-08-02T12:03:00.000Z",
+        reason: "support-cancel-order",
+        origin: "order-cancelled",
+        context: orderThenFraud.context,
+        sourceIdentity: {
+          eventId: "evt_cancel_after_exit",
+          streamId: "ordering.order-ord_race",
+          streamVersion: 4,
+          eventType: "ordering.order.cancelled",
+        },
+      }),
+    ).resolves.toEqual({ shipmentId: null });
+    expect(orderThenFraud.readAllEvents()).toHaveLength(afterExit);
+  });
+
+  it("keeps a fraud-only conflict visible but refuses the seller cancellation exit", async () => {
+    const harness = await raceHarness("packing");
+    await recordFraudSignal(harness, "evt_fraud_only");
+    const before = harness.readAllEvents();
+    await expect(
+      harness.services.cancelShipment({ shipmentId: "shp_race", sellerAccountId: "acc_seller" }, harness.context),
+    ).rejects.toThrow("Only shipments with an order cancellation conflict can be cancelled.");
+    expect(harness.readAllEvents()).toEqual(before);
+    expect(before.map((event) => event.eventType)).not.toContain("fulfillment.shipment.cancelled");
+  });
+
+  it("decides from the aggregate when the page row lags in either direction", async () => {
+    const advanced = await raceHarness("packing", "awaiting-package");
+    await advanced.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "buyer-cancelled",
+    });
+    expect(advanced.readAllEvents().map((event) => event.eventType)).toContain(
+      "fulfillment.shipment.cancellation-conflict-recorded",
+    );
+    expect(advanced.readAllEvents().map((event) => event.eventType)).not.toContain("fulfillment.shipment.cancelled");
+
+    const early = await raceHarness("awaiting-package", "packing");
+    await early.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "buyer-cancelled",
+    });
+    expect(early.readAllEvents().map((event) => event.eventType)).toContain("fulfillment.shipment.cancelled");
+    expect(early.readAllEvents().map((event) => event.eventType)).not.toContain(
+      "fulfillment.shipment.cancellation-conflict-recorded",
+    );
+  });
+
+  it("keeps the no-shipment and cancelled redelivery branches inert", async () => {
+    const cancelled = await raceHarness("cancelled");
+    const before = cancelled.readAllEvents().length;
+    const result = await cancelled.services.cancelShipmentForCancelledOrder({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "buyer-cancelled",
+      origin: "order-cancelled",
+      context: cancelled.context,
+      sourceIdentity: {
+        eventId: "evt_cancel_2",
+        streamId: "ordering.order-ord_race",
+        streamVersion: 2,
+        eventType: "ordering.order.cancelled",
+      },
+    });
+    expect(result).toEqual({ shipmentId: null });
+    expect(cancelled.readAllEvents()).toHaveLength(before);
+
+    const empty = await raceHarness("packing");
+    vi.mocked(empty.services.cancelShipmentForCancelledOrder);
+    const noShipmentDb = { query: vi.fn(async () => ({ rows: [] })) };
+    const noShipment = createFulfillmentShipmentRuntime({
+      eventStore: empty.eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: noShipmentDb as never,
+    });
+    await expect(
+      noShipment.cancelShipmentForCancelledOrder({
+        orderId: "ord_race",
+        cancelledAt: "2026-08-02T12:00:00.000Z",
+        reason: "buyer-cancelled",
+        origin: "order-cancelled",
+        context: empty.context,
+        sourceIdentity: {
+          eventId: "evt_cancel_3",
+          streamId: "ordering.order-ord_race",
+          streamVersion: 3,
+          eventType: "ordering.order.cancelled",
+        },
+      }),
+    ).resolves.toEqual({ shipmentId: null });
+  });
   it("validates internal cancellation identity, tenant history, and expected Shipment version", async () => {
     const store = createInMemoryEventStore();
     const appendToStream = vi.fn(store.eventStore.appendToStream);
@@ -557,6 +895,8 @@ describe("fulfillment shipment runtime", () => {
     const cancellation = {
       orderId: "ord_1",
       cancelledAt: "2026-08-24T00:01:00.000Z",
+      reason: "buyer-cancelled",
+      origin: "order-cancelled" as const,
       context,
       sourceIdentity: {
         eventId: "evt_cancel_1",

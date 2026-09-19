@@ -84,6 +84,10 @@ describe("fulfillment shipment schema", () => {
           expect.stringContaining("fulfillment_postage_label_operations_subject_provider_shipment_idx"),
         ]),
       }),
+      expect.objectContaining({
+        migrationId: "20260906_fulfillment_shipment_cancellation_conflicts",
+        statements: [expect.stringContaining("CREATE TABLE IF NOT EXISTS fulfillment_shipment_conflict_pages")],
+      }),
     ]);
   });
 

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { FulfillmentApiEnv } from "../../../api";
+import { decideFulfillmentShipment, initialFulfillmentShipmentState } from "../domain/domain";
 import {
   createAccountShipmentRoutes,
   createAccountSaleShipmentRoutes,
@@ -70,6 +71,7 @@ function createServices(): FulfillmentShipmentServices {
     listStalePostageOperationLocators: vi.fn(async () => []),
     reconcilePostageOperationLocator: vi.fn(async () => ({ outcome: "missing" as const })),
     voidLabel: vi.fn(async () => ({ shipmentId: "shp_1", version: 4 })),
+    cancelShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 5 })),
     dispatchShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 4 })),
     deliverShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 5 })),
     returnShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 6 })),
@@ -562,6 +564,91 @@ describe("fulfillment shipment routes", () => {
       },
       expect.any(Object),
     );
+  });
+
+  it("routes seller cancellation through the aggregate-authoritative service", async () => {
+    const services = createServices();
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view", "fulfillment.manage"],
+      },
+      services,
+    });
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/account/sales/shipments/shp_1/cancel", {
+        method: "POST",
+        headers: MUTATION_HEADERS,
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ id: "shp_1", version: 5, status: "cancelled" });
+    expect(services.cancelShipment).toHaveBeenCalledWith(
+      expect.objectContaining({ shipmentId: "shp_1", sellerAccountId: "acc_seller" }),
+      expect.objectContaining({ tenantId: "tnt_identity" }),
+    );
+  });
+
+  it("surfaces the aggregate refusal for a shipment without a matching order-cancelled conflict", async () => {
+    const services = createServices();
+    const fraudOnlyState = {
+      ...initialFulfillmentShipmentState,
+      shipmentId: "shp_1" as never,
+      orderId: "ord_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      status: "packing" as const,
+      packageStatus: "packing" as const,
+      conflicts: [
+        {
+          orderId: "ord_1" as never,
+          conflictKind: "cancellation" as const,
+          origin: "payment-fraud-warning" as const,
+          reason: null,
+          shipmentStatus: "packing" as const,
+        },
+      ],
+    };
+    vi.mocked(services.cancelShipment).mockImplementationOnce(async () => {
+      const events = decideFulfillmentShipment(fraudOnlyState, {
+        type: "CancelShipment",
+        cancelledAt: "2026-08-02T12:00:00.000Z",
+      });
+      return { shipmentId: "shp_1", version: events.length + 1 };
+    });
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view", "fulfillment.manage"],
+      },
+      services,
+    });
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/account/sales/shipments/shp_1/cancel", {
+        method: "POST",
+        headers: MUTATION_HEADERS,
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Only shipments with an order cancellation conflict can be cancelled.",
+      },
+    });
+    expect(services.cancelShipment).toHaveBeenCalledTimes(1);
   });
 
   it("purchases a USPS label through the configured postage provider path", async () => {

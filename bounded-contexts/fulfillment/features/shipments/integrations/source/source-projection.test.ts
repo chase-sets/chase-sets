@@ -143,3 +143,28 @@ describe("fulfillment payment fraud source projection", () => {
     ]);
   });
 });
+
+describe("fulfillment order cancellation source projection", () => {
+  it("threads omitted and verbatim cancellation reasons through the real seam", async () => {
+    const onOrderCancelled = vi.fn(async (_params: { reason: string | null }) => undefined);
+    const handlers = buildFulfillmentOrderProjectionHandlers({ query: vi.fn(async () => ({ rows: [] })) } as never, {
+      onOrderCancelled,
+    });
+    await handlers["ordering.order.cancelled"]!(
+      event("ordering.order.cancelled", { orderId: "ord_1", cancelledAt: "2026-07-06T12:05:00.000Z" }),
+    );
+    await handlers["ordering.order.cancelled"]!(
+      event(
+        "ordering.order.cancelled",
+        {
+          orderId: "ord_2",
+          cancelledAt: "2026-07-06T12:06:00.000Z",
+          reason: "   ",
+        },
+        2,
+      ),
+    );
+    expect(onOrderCancelled.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ reason: null }));
+    expect(onOrderCancelled.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ reason: "   " }));
+  });
+});

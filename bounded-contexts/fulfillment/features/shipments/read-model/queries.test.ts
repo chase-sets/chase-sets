@@ -1,7 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
-import { getSellerShipment } from "./queries";
+import { getSellerShipment, listSellerShipments } from "./queries";
 
 describe("fulfillment shipment read model queries", () => {
+  it("keeps the ordered conflict set on the seller list query without row fanout", async () => {
+    const conflicts = [
+      {
+        order_id: "ord_1",
+        conflict_kind: "cancellation" as const,
+        origin: "order-cancelled",
+        reason: "buyer-cancelled",
+        shipment_status: "packing",
+        detected_at: "2026-04-02T00:06:00.000Z",
+      },
+    ];
+    const db = {
+      query: vi.fn(async (sql: string) =>
+        sql.includes("COUNT(*) AS count")
+          ? { rows: [{ count: "1" }] }
+          : { rows: [{ shipment_id: "shp_1", conflicts }] },
+      ),
+    };
+
+    const result = await listSellerShipments(db as never, { sellerAccountId: "acc_seller" });
+
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.conflicts).toEqual(conflicts);
+    expect(vi.mocked(db.query).mock.calls[1]?.[0]).toContain("ORDER BY conflict.conflict_kind, conflict.origin");
+  });
+
   it("loads bounded postage diagnostics without exposing raw provider payloads", async () => {
     const queries: string[] = [];
     const operationDiagnostic = {
@@ -94,6 +121,16 @@ describe("fulfillment shipment read model queries", () => {
                 exception_raised_at: null,
                 line_count: 1,
                 total_quantity: 1,
+                conflicts: [
+                  {
+                    order_id: "ord_1",
+                    conflict_kind: "cancellation",
+                    origin: "order-cancelled",
+                    reason: "buyer-cancelled",
+                    shipment_status: "awaiting-label",
+                    detected_at: "2026-04-02T00:06:00.000Z",
+                  },
+                ],
               },
             ],
           };
@@ -112,6 +149,12 @@ describe("fulfillment shipment read model queries", () => {
 
     expect(detail?.postage_label_operations).toEqual([operationDiagnostic]);
     expect(detail?.postage_provider_events).toEqual([providerEventDiagnostic]);
+    expect(detail?.conflicts).toEqual([
+      expect.objectContaining({ conflict_kind: "cancellation", origin: "order-cancelled" }),
+    ]);
+    const shipmentSql = queries.find((sql) => sql.includes("FROM fulfillment_shipment_pages AS page")) ?? "";
+    expect(shipmentSql).toContain("fulfillment_shipment_conflict_pages AS conflict");
+    expect(shipmentSql).toContain("ORDER BY conflict.conflict_kind, conflict.origin");
     const operationSql = queries.find((sql) => sql.includes("FROM fulfillment_postage_label_operations")) ?? "";
     expect(operationSql).toContain("request_json #>>");
     expect(operationSql).not.toContain("sender");

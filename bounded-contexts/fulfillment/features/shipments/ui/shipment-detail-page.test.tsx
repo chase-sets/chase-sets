@@ -121,6 +121,7 @@ const shipment: FulfillmentShipmentDetail = {
   exception_raised_at: "2026-04-02T03:00:00.000Z",
   line_count: 3,
   total_quantity: 3,
+  conflicts: [],
   lines: [
     {
       line_id: "spl_1",
@@ -192,5 +193,53 @@ describe("FulfillmentShipmentDetailPage", () => {
       forms: (html.match(/<form\b/g) ?? []).length,
       buttons: (html.match(/<button\b/g) ?? []).length,
     }).toEqual({ mainHeadings: 1, forms: 3, buttons: 3 });
+  });
+
+  it("offers cancellation only to a seller with a matching conflict", () => {
+    const conflict = {
+      order_id: "ord_populated",
+      conflict_kind: "cancellation" as const,
+      origin: "order-cancelled",
+      reason: "buyer-cancelled",
+      shipment_status: "packing",
+      detected_at: "2026-04-02T00:16:00.000Z",
+    };
+    const sellerHtml = renderToString(
+      <FulfillmentShipmentDetailPage
+        role="seller"
+        backHref="/account/sales/shipments"
+        shipment={{ ...shipment, status: "packing", conflicts: [conflict] }}
+      />,
+    );
+    expect(sellerHtml).toContain('value="cancel-shipment"');
+
+    const buyerHtml = renderToString(
+      <FulfillmentShipmentDetailPage
+        role="buyer"
+        backHref="/account/shipments"
+        shipment={{ ...shipment, status: "packing", conflicts: [conflict] }}
+      />,
+    );
+    expect(buyerHtml).not.toContain('value="cancel-shipment"');
+    const fraudHtml = renderToString(
+      <FulfillmentShipmentDetailPage
+        role="seller"
+        backHref="/account/sales/shipments"
+        shipment={{ ...shipment, status: "packing", conflicts: [{ ...conflict, origin: "payment-fraud-warning" }] }}
+      />,
+    );
+    expect(fraudHtml).not.toContain('value="cancel-shipment"');
+    const destinationOnlyHtml = renderToString(
+      <FulfillmentShipmentDetailPage
+        role="seller"
+        backHref="/account/sales/shipments"
+        shipment={{
+          ...shipment,
+          status: "packing",
+          conflicts: [{ ...conflict, conflict_kind: "destination-correction", origin: "seller-requested" }],
+        }}
+      />,
+    );
+    expect(destinationOnlyHtml).not.toContain('value="cancel-shipment"');
   });
 });

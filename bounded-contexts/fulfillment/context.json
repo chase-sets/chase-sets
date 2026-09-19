@@ -104,6 +104,7 @@
         "fulfillment_shipment_pages",
         "fulfillment_shipment_line_pages",
         "fulfillment_shipment_exception_pages",
+        "fulfillment_shipment_conflict_pages",
         "fulfillment_label_address_override_audit_pages",
         "fulfillment_postage_label_operations",
         "fulfillment_postage_provider_events",
@@ -148,6 +149,7 @@
       { "name": "fulfillment.list-shipments", "ownerSlice": "shipments" },
       { "name": "fulfillment.get-tracking", "ownerSlice": "shipments" },
       { "name": "fulfillment.purchase-label", "ownerSlice": "shipments" },
+      { "name": "fulfillment.cancel-shipment", "ownerSlice": "shipments" },
       { "name": "fulfillment.advance-shipment", "ownerSlice": "shipments" },
       { "name": "fulfillment.dispatch-shipment", "ownerSlice": "shipments" },
       { "name": "fulfillment.raise-shipment-exception", "ownerSlice": "shipments" },
@@ -179,6 +181,9 @@
             },
             {
               "readModelTable": "fulfillment_shipment_exception_pages"
+            },
+            {
+              "readModelTable": "fulfillment_shipment_conflict_pages"
             },
             {
               "readModelTable": "fulfillment_label_address_override_audit_pages"
@@ -224,6 +229,7 @@
           "Start packing",
           "Complete packing",
           "Purchase or void label",
+          "Cancel shipment",
           "Dispatch shipment",
           "Record delivery, return, or exception"
         ],
@@ -238,6 +244,7 @@
           "fulfillment_shipment_pages",
           "fulfillment_shipment_line_pages",
           "fulfillment_shipment_exception_pages",
+          "fulfillment_shipment_conflict_pages",
           "fulfillment_label_address_override_audit_pages",
           "fulfillment_postage_label_operations",
           "fulfillment_postage_provider_events"
@@ -287,6 +294,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /postage/webhooks",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/cancel",
         "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/deliver",
         "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/dispatch",
         "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/exception",
@@ -319,6 +327,7 @@
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#5",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#6",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#7",
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#8",
         "route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment.tsx"
       ],
       "visibleDestination": {
@@ -329,6 +338,7 @@
           "fulfillment_shipment_pages",
           "fulfillment_shipment_line_pages",
           "fulfillment_shipment_exception_pages",
+          "fulfillment_shipment_conflict_pages",
           "fulfillment_label_address_override_audit_pages",
           "fulfillment_postage_label_operations",
           "fulfillment_postage_provider_events"

@@ -1568,6 +1568,104 @@ export const mcpToolCatalog = [
     expectedUsage: ["Use after reading the Seller Desk attention queue when the seller wants the canonical next step."],
   },
   {
+    name: "fulfillment.cancel-shipment",
+    title: "Cancel Shipment",
+    description: "Cancel a shipment whose order was cancelled after packing started.",
+    availability: "available",
+    serviceId: "fulfillment",
+    risk: "destructive",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "shipmentId", "reason", "idempotencyKey", "confirmationText"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated account scope.",
+        },
+        shipmentId: {
+          type: "string",
+          description: "Shipment carrying a resolvable order-cancellation conflict.",
+        },
+        reason: {
+          type: "string",
+          description: "Business reason for the action.",
+        },
+        idempotencyKey: {
+          type: "string",
+          description:
+            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        confirmationText: {
+          type: "string",
+          description: "Exact user or policy confirmation text.",
+        },
+        dryRun: {
+          type: "boolean",
+          description: "Validate the action without committing it.",
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "id", "shipmentId", "version", "status", "action", "resourceUri"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated seller account.",
+        },
+        id: {
+          type: "string",
+          description: "Shipment identifier.",
+        },
+        shipmentId: {
+          type: "string",
+          description: "Shipment identifier.",
+        },
+        version: {
+          type: "integer",
+          description: "Committed shipment stream version.",
+        },
+        status: {
+          type: "string",
+          description: "Resulting shipment status.",
+        },
+        action: {
+          type: "string",
+          description: "Concrete state-machine action applied.",
+        },
+        resourceUri: {
+          type: "string",
+          description: "MCP resource URI for the shipment.",
+        },
+        trackingIdentifier: {
+          type: "string",
+          description: "Tracking identifier when label purchase was the next action.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["fulfillment.manage"],
+      requiredScopes: ["fulfillment:write"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: true,
+        prompt: "Confirm the exact business action before invoking this tool.",
+        matchInputField: "confirmationText",
+      },
+      idempotencyKey: "required",
+      idempotencyAuthority: "owner",
+      dryRunSupported: true,
+      notes: ["Write through the owning bounded context and emit normal domain events."],
+    },
+    expectedUsage: ["Use only after the shipment read model reports an order-cancelled cancellation conflict."],
+  },
+  {
     name: "fulfillment.dispatch-shipment",
     title: "Dispatch Shipment",
     description: "Dispatch a labeled shipment through the same state-checked command used by the seller web surface.",

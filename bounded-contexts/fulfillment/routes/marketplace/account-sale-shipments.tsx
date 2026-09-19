@@ -54,6 +54,7 @@ export const action = defineFormAction({
   intents: {
     "buy-label": (context) => runAction("buy-label", context),
     "void-label": (context) => runAction("void-label", context),
+    "cancel-shipment": (context) => runAction("cancel-shipment", context),
     dispatch: (context) => runAction("dispatch", context),
     "record-delivery": (context) => runAction("record-delivery", context),
     return: (context) => runAction("return", context),
