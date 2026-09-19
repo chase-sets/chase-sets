@@ -108,6 +108,13 @@ A **Channel Sync Error** is the actionable failure captured during Channel Sync.
 
 A **Channel Inventory Snapshot** is channel-reported quantity state captured for reconciliation; Inventory remains the source of stock truth.
 
+## Snapshot Staleness
+
+**Snapshot Staleness** is the age of an operator-declared Live capture relative to
+the reconciliation run clock. Age strictly beyond the configured window is stale;
+missing, unattributed, invalid, future, or non-increasing capture evidence is unknown.
+Both require Channel Action attention. Fresh age never proves snapshot completeness.
+
 ## Channel Outbound Operation
 
 A **Channel Outbound Operation** is one durable publish, update, or delist instruction for a Channel Connection and Channel Listing Link.

@@ -101,7 +101,13 @@ const detailMigrationIndexes = detailIndexes.map((statement) =>
 export const retainedDriftGenerationExpansion =
   "ALTER TABLE channel_reconciliation_state ADD COLUMN IF NOT EXISTS drift_generation jsonb NULL";
 
-export const channelReconciliationSchemaSql = `${tables.join(";\n")};\n${retainedDriftGenerationExpansion};\n${detailIdentitySql};\n${[...indexes, ...detailIndexes].join(";\n")};`;
+const snapshotAgeFindingExpansion = [
+  "ALTER TABLE channel_reconciliation_findings DROP CONSTRAINT IF EXISTS channel_reconciliation_findings_kind_check",
+  `ALTER TABLE channel_reconciliation_findings ADD CONSTRAINT channel_reconciliation_findings_kind_check
+   CHECK (kind IN ('unmappable-sale','backdated-sale','unmapped-channel-state','persistent-sale-gap','stale-snapshot'))`,
+] as const;
+
+export const channelReconciliationSchemaSql = `${tables.join(";\n")};\n${retainedDriftGenerationExpansion};\n${detailIdentitySql};\n${[...indexes, ...detailIndexes, ...snapshotAgeFindingExpansion].join(";\n")};`;
 
 export const channelReconciliationSchemaMigrations: readonly BcSchemaMigration[] = [
   {
@@ -134,6 +140,11 @@ export const channelReconciliationSchemaMigrations: readonly BcSchemaMigration[]
     migrationId: "20260914_channels_reconciliation_detail_keyset",
     description: "Index bounded opaque detail keysets without retaining consumer membership.",
     statements: [detailIdentitySql, ...detailMigrationIndexes],
+  },
+  {
+    migrationId: "20260916_channels_reconciliation_snapshot_age",
+    description: "Allow the connection-scoped stale snapshot finding without rewriting existing findings.",
+    statements: ["SET LOCAL lock_timeout = '5s'", ...snapshotAgeFindingExpansion],
   },
 ];
 

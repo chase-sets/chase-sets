@@ -29,7 +29,8 @@ import type { ChannelProviderDescriptor, ChannelStateLineV1 } from "../../public
 import { createChannelReconciliationRuntime } from "../api/runtime";
 import type { ChannelReconciliationRuntimeDependencies, RepushChannelListing } from "../domain/contracts";
 import { deriveOutboundRepushOperationId } from "../../outbound-sync/api/store";
-import { CHANNEL_RECONCILIATION_POLICY_FALLBACK } from "../domain/policy";
+import { CHANNEL_RECONCILIATION_POLICY_FALLBACK, channelReconciliationPolicy } from "../domain/policy";
+import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { resolveChannelExternalSaleTarget } from "../read-model/sale-target";
 import { readExpectedReconciliationListings } from "../read-model/source";
 import {
@@ -44,6 +45,9 @@ import { buildChannelsApi, type ChannelsApiEnv } from "../../../api";
 import type { ChannelDriftDetail, ChannelReconciliationServices } from "../domain/contracts";
 import { createChannelActionAttentionSourceFromReadModel } from "../../connection-attention/read-model/attention-source";
 import { readChannelDriftDetail } from "../read-model/detail";
+import { readLatestLiveSnapshotMetadata } from "../../tcgplayer-csv/read-model/queries";
+import { evaluateSnapshotAge } from "../domain/snapshot-age";
+import type { RetainedDriftGeneration } from "../domain/generation";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
@@ -71,6 +75,460 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
   });
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("claimed-snapshot-age-matrix reads the immediate Live generation pair for exactly one connection", async () => {
+    const at = new Date("2026-09-16T12:00:00Z");
+    await ageSnapshot(1, "2026-09-14T12:00:00Z", at);
+    await ageSnapshot(2, "2026-09-16T11:00:00Z", at);
+    await ageSnapshot(3, "2026-09-15T12:00:00Z", at);
+    await ageSnapshot(4, "2026-09-16T11:30:00Z", at, "operator-declared", "staged");
+    await ageSnapshot(5, "2026-09-16T11:40:00Z", at, "operator-declared", "live", "wrong-connection");
+    const pair = await readLatestLiveSnapshotMetadata(pools.channels, "connection-1");
+    expect(pair.map((row) => row.snapshotGeneration)).toEqual([3, 2]);
+    expect(evaluateSnapshotAge(pair, at.toISOString(), 86_400_000)).toEqual({
+      kind: "unknown",
+      reason: "snapshot-capture-not-increasing",
+    });
+    expect(await readLatestLiveSnapshotMetadata(pools.channels, "absent")).toEqual([]);
+  });
+
+  it.each(["inline", "unregistered", "other-claimed"] as const)(
+    "claimed-reconcile-staleness execution scope excludes %s with the same missing age evidence",
+    async (execution) => {
+      const key = execution === "other-claimed" ? "another-provider" : "tcgplayer";
+      await seedConnectionAndListings(pools.channels, key);
+      const registry = createChannelProviderRegistry(
+        execution === "unregistered"
+          ? []
+          : [
+              descriptor(
+                key,
+                execution === "other-claimed"
+                  ? { execution: "claimed" }
+                  : {
+                      execution: "inline",
+                      publishListing: async () => ({ kind: "succeeded", externalListingId: "unused" }),
+                      updatePriceQuantity: async () => ({ kind: "succeeded", externalListingId: "unused" }),
+                      delistListing: async () => ({ kind: "succeeded", externalListingId: "unused" }),
+                      fetchChannelState: async () => ({
+                        kind: "complete",
+                        items: [],
+                        collectedCount: 0,
+                        authorityTotal: 0,
+                        pageCount: 1,
+                      }),
+                      fetchSales: async () => ({
+                        kind: "complete",
+                        lines: [],
+                        collectedCount: 0,
+                        authorityTotal: 0,
+                        pageCount: 1,
+                      }),
+                    },
+              ),
+            ],
+      );
+      await reconciliationAt(new Date()).reconcileConnection(
+        { connectionId: "connection-1", registry, sourceAttempt: 1, healthAuthority: null },
+        context,
+      );
+      expect(
+        (await pools.channels.query("SELECT 1 FROM channel_reconciliation_findings WHERE kind='stale-snapshot'")).rows,
+      ).toEqual([]);
+    },
+  );
+
+  it.each(["stale", "unknown"] as const)(
+    "claimed-reconcile-staleness claimed-snapshot-age-retained %s repeat, recovery, steady state and reopen through actual attention",
+    async (initial) => {
+      const at = new Date();
+      await seedAgeConnection(at);
+      let runtime = reconciliationAt(at);
+      const services = channelsModule.createServices(pools.channels, {
+        channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
+      });
+      const connection = { accountId: "account-1", connectionId: "connection-1" };
+      const input = {
+        connectionId: "connection-1",
+        registry: createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]),
+        sourceAttempt: 1,
+        healthAuthority: (await services.connectionHealth.readConnectionHealth(connection)).health,
+      };
+      if (initial === "stale") await ageSnapshot(1, new Date(at.getTime() - 86_400_001).toISOString(), at);
+      const source = createChannelActionAttentionSourceFromReadModel(pools.channels);
+      const queue = () => source.load({ accountId: "account-1", now: at.toISOString() });
+      const run = async () => {
+        expect(await runtime.reconcileConnection(input, context)).toMatchObject({
+          clean: false,
+          state: "bounded-unknown",
+          counts: { repairsEnqueued: 0, sourceUnavailable: 3 },
+        });
+        await runtime.deliverHealthObservations(services.connectionHealth, () => context);
+      };
+      await run();
+      const open = await runtime.readChannelDriftAttentionContribution(input);
+      expect(open).toMatchObject({ affectedListingCount: 1, resolution: null });
+      expect(await queue()).toHaveLength(1);
+      expect((await services.connectionAttention.listOpenAttention(connection))[0]?.health).toEqual([
+        expect.objectContaining({ reasonCode: "drift" }),
+      ]);
+      await run();
+      expect(await runtime.readChannelDriftAttentionContribution(input)).toEqual(open);
+      expect(await queue()).toHaveLength(1);
+      const finding = await pools.channels.query(
+        "SELECT finding_id,kind,channel_listing_id,safe_reason FROM channel_reconciliation_findings",
+      );
+      expect(finding.rows).toEqual([
+        {
+          finding_id: "snapshot-age",
+          kind: "stale-snapshot",
+          channel_listing_id: null,
+          safe_reason: initial === "stale" ? "snapshot-capture-stale" : "snapshot-missing",
+        },
+      ]);
+      await ageSnapshot(2, new Date(at.getTime() - 2_000).toISOString(), at);
+      await ageSnapshot(3, new Date(at.getTime() - 1_000).toISOString(), at);
+      await run();
+      const recovered = await runtime.readChannelDriftAttentionContribution(input);
+      expect(recovered).toMatchObject({ generation: open!.generation, affectedListingCount: 0, resolution: null });
+      expect(await queue()).toEqual([]);
+      expect(recovered!.members.some((m) => m.identity === "finding:snapshot-age")).toBe(false);
+      expect(
+        (await services.connectionAttention.listOpenAttention(connection))
+          .flatMap((item) => item.health)
+          .some((reason) => reason.reasonCode === "drift"),
+      ).toBe(false);
+      expect((await services.connectionHealth.readConnectionHealth(connection)).health.state).not.toBe("healthy");
+      const deleted = await pools.channels.query(
+        `DELETE FROM event_store_aggregate_snapshots
+         WHERE stream_id='channels.channel-reconciliation-connection-1'`,
+      );
+      expect(deleted.rowCount).toBe(1);
+      await run();
+      expect(await runtime.readChannelDriftAttentionContribution(input)).toEqual(recovered);
+      expect(await queue()).toEqual([]);
+      await ageSnapshot(4, at.toISOString(), at, "ingest");
+      await run();
+      expect(await queue()).toHaveLength(1);
+      expect((await runtime.readChannelDriftAttentionContribution(input))!.generation).toBeGreaterThan(
+        open!.generation,
+      );
+      await run();
+      expect(await queue()).toHaveLength(1);
+      expect(
+        (await pools.channels.query("SELECT 1 FROM channel_reconciliation_findings WHERE kind='stale-snapshot'")).rows,
+      ).toHaveLength(1);
+      expect((await pools.channels.query("SELECT 1 FROM channel_reconciliation_attention_resolutions")).rows).toEqual(
+        [],
+      );
+      await ageSnapshot(5, new Date(at.getTime() - 500).toISOString(), at);
+      await ageSnapshot(6, at.toISOString(), at);
+      await run();
+      await run();
+      expect(await queue()).toEqual([]);
+      runtime = reconciliationAt(new Date(at.getTime() + 86_400_001));
+      await run();
+      await run();
+      expect(await queue()).toHaveLength(1);
+      expect(
+        (
+          await pools.channels.query(
+            "SELECT safe_reason FROM channel_reconciliation_findings WHERE kind='stale-snapshot'",
+          )
+        ).rows,
+      ).toEqual([{ safe_reason: "snapshot-capture-stale" }]);
+    },
+  );
+
+  it.each([
+    "valid recovery",
+    "wider removal",
+    "member identity",
+    "member kind",
+    "expected fingerprint",
+    "observed fingerprint",
+    "settlement",
+    "decision revision",
+    "recovery provenance",
+    "forged fingerprint",
+    "resolved generation",
+  ] as const)("claimed-snapshot-age canonical replay validates reduced membership: %s", async (scenario) => {
+    const at = new Date("2026-09-16T12:00:00Z");
+    await seedAgeConnection(at);
+    const runtime = reconciliationAt(at);
+    const input = {
+      connectionId: "connection-1",
+      registry: createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]),
+      sourceAttempt: 1,
+      healthAuthority: null,
+    };
+    await runtime.reconcileConnection(input, context);
+    await ageSnapshot(1, new Date(at.getTime() - 2_000).toISOString(), at);
+    await ageSnapshot(2, new Date(at.getTime() - 1_000).toISOString(), at);
+    await runtime.reconcileConnection(input, context);
+    const finishes = await pools.channels.query<{ stream_version: number; drift: RetainedDriftGeneration }>(
+      `SELECT stream_version,payload->'driftGeneration' AS drift FROM event_store_events
+       WHERE stream_id='channels.channel-reconciliation-connection-1'
+         AND event_type='channels.channel-reconciliation.finished' ORDER BY stream_version`,
+    );
+    expect(finishes.rows).toHaveLength(2);
+    const previous = finishes.rows[0]!.drift;
+    const recovered = finishes.rows[1]!.drift;
+    expect([previous.generation, recovered.generation]).toEqual([1, 1]);
+    expect(previous.members).toHaveLength(3);
+    expect(recovered.members).toHaveLength(2);
+    expect(recovered.fingerprint).not.toBe(previous.fingerprint);
+    expect(recovered.resolution).toBeNull();
+    expect(recovered.members).toEqual(previous.members.filter((member) => member.identity !== "finding:snapshot-age"));
+
+    let members = [...recovered.members];
+    const member = members[0]!;
+    switch (scenario) {
+      case "wider removal":
+        members = members.slice(1);
+        break;
+      case "member identity":
+        members[0] = { ...member, identity: "synthetic-replaced-source" };
+        break;
+      case "member kind":
+        members[0] = { ...member, kind: "structural" };
+        break;
+      case "expected fingerprint":
+        members[0] = { ...member, expectedFingerprint: "a".repeat(64) };
+        break;
+      case "observed fingerprint":
+        members[0] = { ...member, observedFingerprint: "b".repeat(64) };
+        break;
+      case "settlement":
+        members[0] = { ...member, settlement: "recovered" };
+        break;
+      case "decision revision":
+        members[0] = { ...member, decisionRevision: member.decisionRevision + 1 };
+        break;
+      case "recovery provenance":
+        members[0] = { ...member, recoveryRequested: !member.recoveryRequested };
+        break;
+    }
+    const fingerprint = (drift: RetainedDriftGeneration) =>
+      createHash("sha256")
+        .update(
+          JSON.stringify([
+            drift.generation,
+            [...drift.members]
+              .sort((a, b) => a.identity.localeCompare(b.identity))
+              .map(({ identity, kind, expectedFingerprint, observedFingerprint }) => [
+                identity,
+                kind,
+                expectedFingerprint,
+                observedFingerprint,
+              ]),
+          ]),
+        )
+        .digest("hex");
+    const replaceFinish = async (index: number, drift: RetainedDriftGeneration) => {
+      await pools.channels.query(
+        `UPDATE event_store_events SET payload=jsonb_set(payload,'{driftGeneration}',$1::jsonb)
+         WHERE stream_id='channels.channel-reconciliation-connection-1' AND stream_version=$2`,
+        [JSON.stringify(drift), finishes.rows[index]!.stream_version],
+      );
+    };
+    if (scenario === "resolved generation") {
+      for (const [index, drift] of [previous, recovered].entries()) {
+        await replaceFinish(index, {
+          ...drift,
+          members: drift.members.map((entry) => ({ ...entry, settlement: "recovered" })),
+          resolution: "recovered-automatically",
+        });
+      }
+      await pools.channels.query(
+        `UPDATE event_store_events SET payload=payload || '{"clean":true,"state":"completed"}'::jsonb
+         WHERE stream_id='channels.channel-reconciliation-connection-1'
+           AND event_type='channels.channel-reconciliation.finished'`,
+      );
+    } else if (scenario !== "valid recovery") {
+      const changed = { ...recovered, members };
+      await replaceFinish(1, {
+        ...changed,
+        fingerprint: scenario === "forged fingerprint" ? previous.fingerprint : fingerprint(changed),
+      });
+    }
+    const deleted = await pools.channels.query(
+      `DELETE FROM event_store_aggregate_snapshots WHERE stream_id='channels.channel-reconciliation-connection-1'`,
+    );
+    expect(deleted.rowCount).toBe(1);
+    if (scenario === "valid recovery") {
+      await runtime.reconcileConnection(input, context);
+      const replayed = await pools.channels.query<{ drift: RetainedDriftGeneration }>(
+        `SELECT payload->'driftGeneration' AS drift FROM event_store_events
+         WHERE stream_id='channels.channel-reconciliation-connection-1'
+           AND event_type='channels.channel-reconciliation.finished' ORDER BY stream_version DESC LIMIT 1`,
+      );
+      expect(replayed.rows[0]!.drift).toEqual(recovered);
+    } else {
+      await expect(runtime.reconcileConnection(input, context)).rejects.toThrow(
+        scenario === "forged fingerprint"
+          ? "membership does not match its fingerprint"
+          : scenario === "resolved generation"
+            ? "a resolved drift generation changed"
+            : "retained drift member identity or provenance changed",
+      );
+    }
+  });
+
+  it("claimed-snapshot-age-retained preserves pre-existing inline foreign and structural membership on age recovery", async () => {
+    const at = new Date();
+    await seedAgeConnection(at);
+    const publication = inlineRegistry(driftItems).get({
+      providerKey: "inline-provider",
+      environment: "sandbox",
+    })!.publication;
+    if (!publication) throw new Error("Inline control capability missing");
+    const runtime = reconciliationAt(at);
+    const input = {
+      connectionId: "connection-1",
+      sourceAttempt: 1,
+      healthAuthority: null,
+      registry: createChannelProviderRegistry([descriptor("tcgplayer", publication)]),
+    };
+    await runtime.reconcileConnection(input, context);
+    const previous = (await runtime.readChannelDriftAttentionContribution(input))!;
+    const preserved = previous.members.filter(
+      (member) => member.kind === "foreign-edit" || member.kind === "structural",
+    );
+    expect(preserved.map((member) => member.kind).sort()).toEqual(["foreign-edit", "structural"]);
+    const claimed = {
+      ...input,
+      registry: createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]),
+    };
+    await ageSnapshot(1, new Date(at.getTime() - 4_000).toISOString(), at);
+    await ageSnapshot(2, new Date(at.getTime() - 3_000).toISOString(), at);
+    await runtime.reconcileConnection(claimed, context);
+    expect(await runtime.readChannelDriftAttentionContribution(input)).toEqual(previous);
+    await ageSnapshot(3, new Date(at.getTime() - 2_000).toISOString(), at, "ingest");
+    await runtime.reconcileConnection(claimed, context);
+    await ageSnapshot(4, new Date(at.getTime() - 1_000).toISOString(), at);
+    await ageSnapshot(5, at.toISOString(), at);
+    await runtime.reconcileConnection(claimed, context);
+    const deleted = await pools.channels.query(
+      `DELETE FROM event_store_aggregate_snapshots WHERE stream_id='channels.channel-reconciliation-connection-1'`,
+    );
+    expect(deleted.rowCount).toBe(1);
+    await runtime.reconcileConnection(claimed, context);
+    const recovered = (await runtime.readChannelDriftAttentionContribution(input))!;
+    expect(recovered.members).toEqual(expect.arrayContaining(preserved));
+    expect(recovered.members.some((member) => member.identity === "finding:snapshot-age")).toBe(false);
+    expect(recovered.resolution).toBeNull();
+  });
+
+  it.each(["close", "open"] as const)(
+    "claimed-snapshot-age-retained fences older %s against a newer committed writer",
+    async (olderAction) => {
+      const at = new Date();
+      await seedAgeConnection(at);
+      const registry = createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]);
+      const input = { connectionId: "connection-1", registry, sourceAttempt: 1, healthAuthority: null };
+      await reconciliationAt(at).reconcileConnection(input, context);
+      if (olderAction === "close") {
+        await ageSnapshot(1, new Date(at.getTime() - 2_000).toISOString(), at);
+        await ageSnapshot(2, new Date(at.getTime() - 1_000).toISOString(), at);
+      }
+      let interleaved = false;
+      let newer: unknown;
+      const db = interceptTransactions(pools.channels, async (sql, phase) => {
+        if (interleaved || phase !== "after" || !sql.includes("FROM channel_inventory_snapshots")) return;
+        interleaved = true;
+        const later = new Date(at.getTime() + 1_860_000);
+        await ageSnapshot(3, new Date(later.getTime() - 2_000).toISOString(), later);
+        await ageSnapshot(
+          4,
+          new Date(later.getTime() - 1_000).toISOString(),
+          later,
+          olderAction === "close" ? "ingest" : "operator-declared",
+        );
+        await reconciliationAt(later).reconcileConnection(input, context);
+        newer = (
+          await pools.channels.query("SELECT * FROM channel_reconciliation_findings WHERE kind='stale-snapshot'")
+        ).rows;
+      });
+      const losing = s5Runtime({
+        db,
+        clock: { now: () => at },
+        resolveKillSwitch: async () => ({ heldProviderKeys: [], heldConnectionIds: [] }),
+      });
+      await expect(losing.reconcileConnection(input, context)).rejects.toThrow(/generation fence/);
+      expect(interleaved).toBe(true);
+      expect(
+        (await pools.channels.query("SELECT * FROM channel_reconciliation_findings WHERE kind='stale-snapshot'")).rows,
+      ).toEqual(newer);
+      expect(newer).toEqual([expect.objectContaining({ open: olderAction === "close" })]);
+    },
+  );
+
+  it("claimed-snapshot-age-schema-upgrade retains existing findings and policy history across ledgered upgrade and two boots", async () => {
+    await resetMultiContextTestSchemas({ channels: pools.channels });
+    const migrationId = "20260916_channels_reconciliation_snapshot_age";
+    const predecessor = {
+      ...channelsModule,
+      schemaSql: channelsModule.schemaSql.replace(channelReconciliationSchemaSql, () => predecessorSchemaSql),
+      schemaMigrations: channelsModule.schemaMigrations!.filter((migration) => migration.migrationId !== migrationId),
+    };
+    await bootstrapContextDatabase(predecessor, pools.channels);
+    const legacyPolicy = {
+      cadenceMs: 60_001,
+      saleLookbackMs: 3_600_001,
+      backdatingAttentionAfterMs: 0,
+      gapPersistenceRuns: 4,
+      maxListingsPerRun: 6,
+      maxSaleLinesPerRun: 7,
+      attentionListingLimit: 8,
+    };
+    await pools.channels.query(
+      `INSERT INTO platform_policy_documents
+      (document_id,policy_key,context_name,schema_summary,status,value,effective_from,created_at,updated_at)
+      VALUES ('synthetic-legacy-policy','channels.reconciliation','channels','legacy seven-key record','active',$1,'2026-01-01',now(),now())`,
+      [legacyPolicy],
+    );
+    await pools.channels.query(
+      `INSERT INTO platform_policy_document_history
+      (event_id,document_id,policy_key,event_type,actor_user_id,status,value,effective_from,recorded_at)
+      VALUES ('synthetic-legacy-policy-event','synthetic-legacy-policy','channels.reconciliation','policy-document-created','synthetic-actor','active',$1,'2026-01-01',now())`,
+      [legacyPolicy],
+    );
+    await pools.channels.query(`INSERT INTO channel_reconciliation_findings
+      (connection_id,finding_id,run_generation,kind,fingerprint,open,safe_reason,updated_at,revision)
+      VALUES ('connection-1','legacy',1,'unmappable-sale',repeat('a',64),true,'unmapped',now(),1)`);
+    const old = (await pools.channels.query("SELECT * FROM channel_reconciliation_findings")).rows;
+    const policy = (await pools.channels.query("SELECT * FROM platform_policy_documents")).rows;
+    const history = (await pools.channels.query("SELECT * FROM platform_policy_document_history")).rows;
+    const insertAge = () =>
+      pools.channels.query(`INSERT INTO channel_reconciliation_findings
+      (connection_id,finding_id,run_generation,kind,fingerprint,open,safe_reason,updated_at,revision)
+      VALUES ('connection-1','snapshot-age',1,'stale-snapshot',repeat('b',64),true,'snapshot-missing',now(),1)`);
+    await expect(insertAge()).rejects.toMatchObject({ code: "23514" });
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await insertAge();
+    const ledger = (await pools.channels.query("SELECT * FROM bounded_context_schema_migrations ORDER BY migration_id"))
+      .rows;
+    expect(ledger).toEqual(expect.arrayContaining([expect.objectContaining({ migration_id: migrationId })]));
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    expect(
+      (await pools.channels.query("SELECT * FROM channel_reconciliation_findings WHERE finding_id='legacy'")).rows,
+    ).toEqual(old);
+    expect((await pools.channels.query("SELECT * FROM platform_policy_documents")).rows).toEqual(policy);
+    expect((await pools.channels.query("SELECT * FROM platform_policy_document_history")).rows).toEqual(history);
+    const policies = createPolicyRuntime({
+      db: pools.channels,
+      eventStore: createPostgresEventStore({ pool: pools.channels }),
+    });
+    expect((await policies.resolvePolicy(channelReconciliationPolicy)).value).toEqual({
+      ...legacyPolicy,
+      snapshotMaxAgeMs: 86_400_000,
+    });
+    expect(
+      (await pools.channels.query("SELECT * FROM bounded_context_schema_migrations ORDER BY migration_id")).rows,
+    ).toEqual(ledger);
+  });
 
   it("drift-detail bounds owned snapshot rows, decision inputs, cursors and retained states without settlement inference", async () => {
     await seedConnectionAndListings(pools.channels);
@@ -2945,6 +3403,59 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await expect(runtime.readPendingHealthObservations({ limit: 10 })).resolves.toEqual([]);
   });
 });
+
+async function ageSnapshot(
+  generation: number,
+  capturedAt: string,
+  at: Date,
+  source: "operator-declared" | "ingest" = "operator-declared",
+  surface: "live" | "staged" = "live",
+  connectionId = "connection-1",
+) {
+  await pools.channels.query(
+    `INSERT INTO channel_inventory_snapshots
+    (snapshot_id,snapshot_generation,connection_id,provider_key,surface,parsed_row_count,completeness,ingested_at,captured_at,captured_at_source)
+    VALUES ($1,$2,$3,'tcgplayer',$4,1,'unverified',$5,$6,$7)`,
+    [
+      `synthetic-age-${connectionId}-${surface}-${generation}`,
+      generation,
+      connectionId,
+      surface,
+      at.toISOString(),
+      capturedAt,
+      source,
+    ],
+  );
+}
+
+async function seedAgeConnection(at: Date) {
+  await seedConnectionAndListings(pools.channels, "tcgplayer");
+  await createPostgresEventStore({ pool: pools.channels }).appendToStream({
+    streamId: "channels.connection-connection-1",
+    expectedVersion: "no_stream",
+    context,
+    events: [
+      {
+        eventType: "channels.connection.connected",
+        payload: {
+          connectionId: "connection-1",
+          accountId: "account-1",
+          providerKey: "tcgplayer",
+          environment: "sandbox",
+          createdAt: at.toISOString(),
+        },
+      },
+      {
+        eventType: "channels.connection.activated",
+        payload: {
+          connectionId: "connection-1",
+          credentialReference: null,
+          bindings: [{ storageLocationId: "location-1", revision: 1 }],
+        },
+      },
+    ],
+  });
+}
 
 function createRuntime(_registry: ReturnType<typeof createChannelProviderRegistry>) {
   return createChannelReconciliationRuntime({

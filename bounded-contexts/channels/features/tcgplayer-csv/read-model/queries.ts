@@ -44,6 +44,38 @@ export type ReadLatestSnapshotRowsInput = Readonly<{
   maxRows: number;
 }>;
 
+export async function readLatestLiveSnapshotMetadata(
+  db: PgQueryable,
+  connectionId: string,
+): Promise<
+  readonly Pick<
+    ChannelInventorySnapshot,
+    "snapshotId" | "snapshotGeneration" | "ingestedAt" | "capturedAt" | "capturedAtSource"
+  >[]
+> {
+  const result = await db.query<{
+    snapshot_id: string;
+    snapshot_generation: string | number;
+    ingested_at: string | Date;
+    captured_at: string | Date;
+    captured_at_source: ChannelInventorySnapshot["capturedAtSource"];
+  }>(
+    `SELECT snapshot_id,snapshot_generation,ingested_at,captured_at,captured_at_source
+     FROM channel_inventory_snapshots WHERE connection_id=$1 AND surface='live'
+     ORDER BY snapshot_generation DESC,snapshot_id COLLATE "C" DESC LIMIT 2`,
+    [connectionId],
+  );
+  const timestamp = (value: string | Date) =>
+    value instanceof Date ? (Number.isFinite(value.getTime()) ? value.toISOString() : "invalid") : value;
+  return result.rows.map((row) => ({
+    snapshotId: row.snapshot_id,
+    snapshotGeneration: number(row.snapshot_generation),
+    ingestedAt: timestamp(row.ingested_at),
+    capturedAt: timestamp(row.captured_at),
+    capturedAtSource: row.captured_at_source,
+  }));
+}
+
 export async function readLatestSnapshotRows(
   db: PgQueryable,
   input: ReadLatestSnapshotRowsInput,
