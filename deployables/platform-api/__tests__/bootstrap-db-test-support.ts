@@ -3,6 +3,7 @@ import {
   createMultiContextTestDatabaseUrls,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
+  seedTestPoolOptions,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE } from "@chase-sets/bounded-context-runtime";
 import type { PgPoolClient } from "@chase-sets/event-core-postgres";
@@ -133,6 +134,12 @@ export function createPlatformApiBootstrapTestHarness(
       sharedDatabaseUrl: null,
       contextDatabaseUrls: databaseUrls,
       port: 6182,
+      pool: {
+        // The API config requires these unchanged factory defaults alongside the test idle policy.
+        max: 10,
+        connectionTimeoutMillis: 5_000,
+        ...seedTestPoolOptions,
+      },
     });
     state = { databaseUrls, pools };
     assignState(state);
