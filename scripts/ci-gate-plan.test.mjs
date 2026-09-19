@@ -174,6 +174,7 @@ function expectedReason(id, category, required, { mode, labels, scope, provenanc
 
 const corpus = [
   { name: "modified documentation", changedFiles: ["README.md"] },
+  { name: "workflow-only change", changedFiles: [".github/workflows/platform-pr.yml"] },
   {
     name: "added test-only provider path",
     changedFiles: ["bounded-contexts/payments/tests/stripe-release-channel.test.ts"],
@@ -201,6 +202,18 @@ const scenarios = [
 ];
 
 describe("shared CI gate plan", () => {
+  it("requires DB tests for platform-pr workflow alone without narrowing the all-DB workspace list", () => {
+    const scope = classifyChanges({ changedFiles: [".github/workflows/platform-pr.yml"] });
+    const plan = createCiGatePlan({ mode: "pull-request", provenance: "same-repository", labels: [], scope });
+    expect(scope.affectedWorkspaces).toEqual([]);
+    expect(scope.dbTestsRequired).toBe(true);
+    expect(plan.gates.find(({ id }) => id === "db-tests")).toMatchObject({
+      selection: "REQUIRED",
+      reason: "scope",
+      affectedWorkspaces: [],
+    });
+  });
+
   it("matches the base workflow over the full parity corpus", () => {
     const baseCategories = derivedCategories(baseWorkflow);
     const deltas = [];
