@@ -13,6 +13,8 @@
     "gross-merchandise-value",
     "market-state-snapshot",
     "repricing-policy",
+    "repricing-listing-outcome",
+    "repricing-management-policy",
     "repricing-halt",
     "scope-preview",
     "repricing-policy-assignment",
@@ -243,6 +245,18 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "pricing-repricing-evaluation-projection",
+      "projectionRevision": 2,
+      "sourceContextNames": ["pricing"],
+      "ownedTables": [
+        "pricing_repricing_policy_evaluations",
+        "pricing_repricing_listing_outcome_facts",
+        "pricing_repricing_listing_outcomes"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
     {
       "projectionName": "pricing-repricing-halt-projection",
       "sourceContextNames": ["pricing"],
