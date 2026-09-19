@@ -14,7 +14,7 @@ import type {
   AcceptChannelDrift,
   AcceptedChannelDrift,
   ChannelDriftDecision,
-  ChannelDriftObservationV1,
+  ChannelDriftObservation,
   ChannelHealthObservationV1,
   ChannelOutboundHold,
   ChannelReconciliationCounts,
@@ -42,6 +42,8 @@ import {
   listDueReconciliationConnectionIds,
   readExpectedReconciliationListings,
   readReconciliationConnection,
+  indexClaimedMaterial,
+  resolveClaimedMaterial,
   type ReconciliationConnectionSource,
   type ReconciliationExpectedListing,
 } from "../read-model/source";
@@ -127,20 +129,59 @@ export function createChannelReconciliationRuntime(
           stateResult = { kind: "bounded-unknown", reason: "source-error" };
         }
       }
-      const absentByDesign = publication?.execution !== "inline";
-      const sourceAuthority: ChannelDriftObservationV1["sourceAuthority"] = absentByDesign
-        ? {
-            kind: "absent-by-design",
-            reason:
-              publication?.execution === "claimed"
-                ? "claimed-snapshot-not-installed"
-                : "reconciliation-capability-unregistered",
+      const readClaimedState =
+        connection.providerKey === "tcgplayer" && publication?.execution === "claimed"
+          ? dependencies.readClaimedChannelState
+          : undefined;
+      let claimedMaterial: ReturnType<typeof indexClaimedMaterial> = null;
+      if (!expected.bounded && readClaimedState) {
+        try {
+          const source = await readClaimedState({
+            connectionId: connection.connectionId,
+            observedAt: startedAt,
+            maxListings: policy.maxListingsPerRun,
+          });
+          if (source.rows.length <= policy.maxListingsPerRun) {
+            claimedMaterial = indexClaimedMaterial(connection.connectionId, source);
           }
-        : stateResult.kind === "complete"
-          ? { kind: "complete", collectedCount: stateResult.collectedCount, authorityTotal: stateResult.authorityTotal }
-          : { kind: "declared-incomplete", reason: stateResult.reason };
+        } catch {
+          claimedMaterial = null;
+        }
+      }
+      const absentByDesign = publication?.execution !== "inline" && !readClaimedState;
+      const stateComplete =
+        stateResult.kind === "complete" ||
+        (claimedMaterial !== null && [...claimedMaterial.items.values()].every((item) => item !== null));
+      const sourceAuthority: ChannelDriftObservation["sourceAuthority"] =
+        claimedMaterial?.sourceAuthority ??
+        (absentByDesign
+          ? {
+              kind: "absent-by-design",
+              reason:
+                publication?.execution === "claimed"
+                  ? "claimed-snapshot-not-installed"
+                  : "reconciliation-capability-unregistered",
+            }
+          : stateResult.kind === "complete"
+            ? {
+                kind: "complete",
+                collectedCount: stateResult.collectedCount,
+                authorityTotal: stateResult.authorityTotal,
+              }
+            : { kind: "declared-incomplete", reason: stateResult.reason });
       const observedByIdentity =
         stateResult.kind === "complete" ? indexObservedState(stateResult.items) : new Map<string, ChannelStateLineV1>();
+      const claimedIdentityCounts = new Map<string, number>();
+      if (claimedMaterial) {
+        for (const listing of expected.items) {
+          if (listing.externalListingId !== null) {
+            claimedIdentityCounts.set(
+              listing.externalListingId,
+              (claimedIdentityCounts.get(listing.externalListingId) ?? 0) + 1,
+            );
+          }
+        }
+      }
       const members: DriftGenerationMember[] = [];
       const priorMembers = new Map(claim.driftGeneration?.members.map((member) => [member.identity, member]));
 
@@ -148,7 +189,7 @@ export function createChannelReconciliationRuntime(
         dependencies.db,
         connection.connectionId,
         claim.generation,
-        stateResult.kind === "complete",
+        stateComplete,
         false,
         startedAt,
       );
@@ -187,11 +228,17 @@ export function createChannelReconciliationRuntime(
           channelListingId: listing.channelListingId,
           revision: decisionHistory.version,
         };
-        const observed = resolveObserved(listing, observedByIdentity);
+        const resolved = readClaimedState
+          ? resolveClaimedMaterial(
+              listing,
+              (claimedIdentityCounts.get(listing.externalListingId ?? "") ?? 0) > 1 ? null : claimedMaterial,
+            )
+          : { observed: resolveObserved(listing, observedByIdentity), sourceAuthority };
+        const { observed } = resolved;
         if (listing.externalListingId) {
           observedByIdentity.delete(externalIdentity(listing.externalListingId, listing.externalOfferId));
         }
-        const observation: ChannelDriftObservationV1 = {
+        const observation: ChannelDriftObservation = {
           connectionId: listing.connectionId,
           channelListingId: listing.channelListingId,
           expectedRevision: listing.expectedRevision,
@@ -200,8 +247,7 @@ export function createChannelReconciliationRuntime(
           expectedMaterialFingerprint: listing.expectedMaterialFingerprint,
           lastAppliedRevision: listing.lastAppliedRevision,
           acceptedForeignEdit: decision.accepted,
-          observed,
-          sourceAuthority,
+          ...resolved,
         };
         const classification = classifyChannelDrift(observation);
         if (classification !== "source-unavailable")
@@ -304,6 +350,30 @@ export function createChannelReconciliationRuntime(
         }
       }
 
+      if (claimedMaterial) {
+        const linked = new Set(expected.items.map((listing) => listing.externalListingId));
+        for (const [identity, item] of claimedMaterial.items) {
+          if (linked.has(identity)) continue;
+          counts.listingsReconciled += 1;
+          if (!item) {
+            counts.sourceUnavailable += 1;
+            continue;
+          }
+          counts.structural += 1;
+          await writeFinding(
+            dependencies.db,
+            connection.connectionId,
+            `state-${digest(identity)}`,
+            claim.generation,
+            "unmapped-channel-state",
+            null,
+            item.fingerprint,
+            "channel-state-link-not-found",
+            startedAt,
+          );
+        }
+      }
+
       let saleComplete = true;
       let saleAuthorityComplete = false;
       if (publication?.execution === "inline") {
@@ -364,7 +434,8 @@ export function createChannelReconciliationRuntime(
 
       const openFindingCount = await countOpenFindings(dependencies.db, connection.connectionId);
       let clean =
-        stateResult.kind === "complete" &&
+        stateComplete &&
+        saleAuthorityComplete &&
         saleComplete &&
         counts.repairable === 0 &&
         counts.foreignEdit === 0 &&
@@ -389,7 +460,7 @@ export function createChannelReconciliationRuntime(
         ),
       );
       for (const [identity, complete] of [
-        ["source:state", stateResult.kind === "complete"],
+        ["source:state", stateComplete],
         ["source:sales", saleAuthorityComplete],
       ] as const) {
         if (complete || !claim.driftGeneration || claim.driftGeneration.resolution !== null)
@@ -412,7 +483,7 @@ export function createChannelReconciliationRuntime(
         !absentByDesign &&
         (clean ||
           counts.repairable + counts.foreignEdit + counts.structural + counts.sourceUnavailable > 0 ||
-          stateResult.kind !== "complete" ||
+          !stateComplete ||
           persistentGaps.length > 0 ||
           driftGeneration?.resolution === null)
           ? mapChannelDriftToHealthObservation({
@@ -427,7 +498,7 @@ export function createChannelReconciliationRuntime(
               occurredAt: startedAt,
             })
           : null;
-      const state = stateResult.kind === "complete" && saleComplete ? "completed" : "bounded-unknown";
+      const state = stateComplete && saleComplete ? "completed" : "bounded-unknown";
       return finishRun(
         dependencies,
         connection,
@@ -996,7 +1067,7 @@ async function decideDrift(
 function resolveObserved(
   listing: ReconciliationExpectedListing,
   observed: ReadonlyMap<string, ChannelStateLineV1>,
-): ChannelDriftObservationV1["observed"] {
+): ChannelDriftObservation["observed"] {
   if (!listing.externalListingId) return { present: false };
   const item = observed.get(externalIdentity(listing.externalListingId, listing.externalOfferId));
   return item
@@ -1023,7 +1094,7 @@ async function writeReconciliationItem(
   listing: ReconciliationExpectedListing,
   generation: number,
   classification: ReturnType<typeof classifyChannelDrift>,
-  observed: ChannelDriftObservationV1["observed"],
+  observed: ChannelDriftObservation["observed"],
   updatedAt: string,
   repair: Readonly<{ repairOperationId: string | null; repairSucceededGeneration: number | null }>,
 ): Promise<void> {
