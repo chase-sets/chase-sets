@@ -86,7 +86,7 @@ describe("fulfillment shipment schema", () => {
       }),
       expect.objectContaining({
         migrationId: "20260906_fulfillment_shipment_cancellation_conflicts",
-        statements: [expect.stringContaining("CREATE TABLE IF NOT EXISTS fulfillment_shipment_conflict_pages")],
+        statements: [expect.stringContaining("CREATE UNLOGGED TABLE IF NOT EXISTS fulfillment_shipment_conflict_pages")],
       }),
     ]);
   });

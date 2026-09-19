@@ -364,7 +364,7 @@ const fulfillmentShipmentDisplayReferenceUniqueIndexSql = `CREATE UNIQUE INDEX C
   ON fulfillment_shipment_pages (display_reference)
   WHERE display_reference <> '';`;
 
-const fulfillmentShipmentConflictPagesTableSql = `CREATE TABLE IF NOT EXISTS fulfillment_shipment_conflict_pages (
+const fulfillmentShipmentConflictPagesTableSql = `CREATE UNLOGGED TABLE IF NOT EXISTS fulfillment_shipment_conflict_pages (
   shipment_id text NOT NULL REFERENCES fulfillment_shipment_pages (shipment_id) ON DELETE CASCADE,
   order_id text NOT NULL,
   conflict_kind text NOT NULL CHECK (conflict_kind IN ('cancellation', 'destination-correction')),

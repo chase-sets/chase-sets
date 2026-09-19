@@ -58,15 +58,36 @@ describeDb("shipment cancellation conflict steady state", () => {
 
   async function readConflictSchema() {
     const relations = await pool.query(
-      `SELECT to_regclass('fulfillment_shipment_conflict_pages')::text AS table_name,
-              to_regclass('fulfillment_shipment_conflict_pages_shipment_idx')::text AS index_name`,
+      `SELECT relname, relpersistence FROM pg_class
+       WHERE oid IN (
+         to_regclass('fulfillment_shipment_pages'),
+         to_regclass('fulfillment_shipment_conflict_pages'),
+         to_regclass('fulfillment_shipment_conflict_pages_shipment_idx')
+       )
+       ORDER BY relname`,
     );
     expect(relations.rows).toEqual([
       {
-        table_name: "fulfillment_shipment_conflict_pages",
-        index_name: "fulfillment_shipment_conflict_pages_shipment_idx",
+        relname: "fulfillment_shipment_conflict_pages",
+        relpersistence: "u",
+      },
+      {
+        relname: "fulfillment_shipment_conflict_pages_shipment_idx",
+        relpersistence: "u",
+      },
+      {
+        relname: "fulfillment_shipment_pages",
+        relpersistence: "u",
       },
     ]);
+    const foreignKey = await pool.query(
+      `SELECT convalidated FROM pg_constraint
+       WHERE conrelid = 'fulfillment_shipment_conflict_pages'::regclass
+         AND confrelid = 'fulfillment_shipment_pages'::regclass
+         AND contype = 'f'
+         AND conname = 'fulfillment_shipment_conflict_pages_shipment_id_fkey'`,
+    );
+    expect(foreignKey.rows).toEqual([{ convalidated: true }]);
     const ledger = await pool.query(
       "SELECT migration_id, description, applied_at FROM bounded_context_schema_migrations WHERE migration_id = $1",
       [conflictMigrationId],
