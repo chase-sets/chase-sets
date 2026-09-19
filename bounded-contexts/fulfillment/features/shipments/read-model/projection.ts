@@ -537,6 +537,36 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
         [data.shipmentId, data.returnedAt],
       );
     },
+    "fulfillment.shipment.cancellation-conflict-recorded": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        orderId: string;
+        reason: string | null;
+        shipmentStatus: string;
+        origin: "order-cancelled" | "payment-fraud-warning";
+      };
+
+      await db.query(
+        `INSERT INTO fulfillment_shipment_conflict_pages (
+           shipment_id,
+           order_id,
+           conflict_kind,
+           origin,
+           reason,
+           shipment_status,
+           detected_at
+         ) VALUES ($1, $2, 'cancellation', $3, $4, $5, $6)
+         ON CONFLICT (shipment_id, order_id, conflict_kind, origin) DO NOTHING`,
+        [
+          data.shipmentId,
+          data.orderId,
+          data.origin,
+          data.reason,
+          data.shipmentStatus,
+          event.timing.occurredAt ?? event.timing.recordedAt,
+        ],
+      );
+    },
     "fulfillment.shipment.exception-raised": async (event) => {
       const data = event.data as {
         shipmentId: string;

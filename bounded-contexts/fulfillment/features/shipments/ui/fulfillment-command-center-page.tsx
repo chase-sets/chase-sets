@@ -50,7 +50,7 @@ function bucketTitle(bucket: FulfillmentCommandCenterBucketId) {
   }
 }
 
-function actionLabel(action: ShipmentActionName) {
+function actionLabel(action: ShipmentActionName): string {
   switch (action) {
     case "start-packing":
       return t("fulfillment.features.shipments.ui.commandCenter.action.startPacking");
@@ -60,6 +60,8 @@ function actionLabel(action: ShipmentActionName) {
       return t("fulfillment.features.shipments.ui.commandCenter.action.buyLabel");
     case "void-label":
       return t("fulfillment.features.shipments.ui.commandCenter.action.voidLabel");
+    case "cancel-shipment":
+      return t("fulfillment.features.shipments.ui.commandCenter.action.cancelShipment");
     case "dispatch":
       return t("fulfillment.features.shipments.ui.commandCenter.action.dispatch");
     case "record-delivery":
@@ -86,6 +88,16 @@ function HiddenState({ item }: { item: FulfillmentCommandCenterItem }) {
       <HiddenInput type="hidden" name="shipmentId" value={item.shipmentId} readOnly />
       <HiddenInput type="hidden" name="status" value={item.status} readOnly />
       <HiddenInput type="hidden" name="labelStatus" value={item.labelStatus} readOnly />
+      <HiddenInput
+        type="hidden"
+        name="hasOrderCancellationConflict"
+        value={String(
+          item.conflicts.some(
+            (conflict) => conflict.conflict_kind === "cancellation" && conflict.origin === "order-cancelled",
+          ),
+        )}
+        readOnly
+      />
     </>
   );
 }

@@ -169,6 +169,11 @@ export function FulfillmentShipmentDetailPage({
   const packingFlowHref = `/account/sales/shipments/${shipment.shipment_id}/packing`;
   const letterMailpiece = isLetterMailpiece(shipment);
   const postagePolicySnapshot = shipment.shipping_plan_snapshot?.postagePolicySnapshot;
+  const canResolveOrderCancellation =
+    (shipment.status === "packing" || shipment.status === "awaiting-label") &&
+    (shipment.conflicts ?? []).some(
+      (conflict) => conflict.conflict_kind === "cancellation" && conflict.origin === "order-cancelled",
+    );
 
   return (
     <Page>
@@ -396,6 +401,16 @@ export function FulfillmentShipmentDetailPage({
       {role === "seller" ? (
         <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.diagnostics")}>
           <Stack gap={3}>
+            {canResolveOrderCancellation ? (
+              <Card elevation="tinted" data-elevation-role="furniture">
+                <Form spacing="none" method="post">
+                  <Button type="submit" name="intent" value="cancel-shipment" tone="secondary">
+                    {t("fulfillment.features.shipments.ui.shipmentDetailPage.cancel.shipment")}
+                  </Button>
+                </Form>
+              </Card>
+            ) : null}
+
             <DetailConfidenceModule
               title={t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.diagnostics")}
               items={[

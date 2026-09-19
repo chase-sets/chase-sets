@@ -204,6 +204,7 @@ async function runSellerShipmentAction(
   const current = {
     status: shipment.status as ShipmentStatus,
     labelStatus: shipment.label_status as PostageLabelStatus,
+    conflicts: shipment.conflicts,
   };
   const action = input.action === "advance" ? resolveShipmentActionPlan(current).primary : input.action;
   if (!action) {
@@ -262,6 +263,15 @@ async function runSellerShipmentAction(
           shipmentId: input.shipmentId,
           sellerAccountId: input.sellerAccountId,
           packageCount: input.packageCount ?? 1,
+          mutationAttemptId: input.mutationAttemptId,
+        },
+        context,
+      ),
+    cancelShipment: () =>
+      services.cancelShipment(
+        {
+          shipmentId: input.shipmentId,
+          sellerAccountId: input.sellerAccountId,
           mutationAttemptId: input.mutationAttemptId,
         },
         context,
@@ -382,7 +392,7 @@ export function createFulfillmentShipmentMcpHandlers(
   };
 
   const runSellerAction =
-    (action: "advance" | "dispatch" | "raise-exception"): McpToolHandler =>
+    (action: "advance" | "cancel-shipment" | "dispatch" | "raise-exception"): McpToolHandler =>
     async ({ actor, arguments: args }) => {
       rejectDryRun(args);
       const accountId = readRequiredString(args, "accountId");
@@ -469,6 +479,7 @@ export function createFulfillmentShipmentMcpHandlers(
       "fulfillment.get-tracking": getTracking,
       "fulfillment.purchase-label": purchaseLabel,
       "fulfillment.void-label": voidLabel,
+      "fulfillment.cancel-shipment": runSellerAction("cancel-shipment"),
       "fulfillment.advance-shipment": runSellerAction("advance"),
       "fulfillment.dispatch-shipment": runSellerAction("dispatch"),
       "fulfillment.raise-shipment-exception": runSellerAction("raise-exception"),

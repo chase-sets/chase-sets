@@ -109,6 +109,13 @@ Notes:
 - The window closes when packing starts.
 - After the cutoff, buyer cancellation requests use Support instead of direct cancellation.
 
+## Cancellation Conflict
+
+A **Cancellation Conflict** is a cancellation signal that arrives after packing has started. Fulfillment records
+the signal as a fact and as one entry in the Shipment's keyed conflict set, retaining its kind, origin, and
+originating reason. Sellers resolve pre-dispatch order-cancelled conflicts by voiding an attached label when
+needed and then cancelling the Shipment; post-dispatch and fraud-origin conflicts remain visible for Support.
+
 ## Return Shipment
 
 A **Return Shipment** is the buyer-to-platform reverse movement that routes an item from a buyer directly to a platform-controlled facility when a support resolution requires platform custody, inspection, or recovery.

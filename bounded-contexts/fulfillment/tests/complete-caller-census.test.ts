@@ -28,7 +28,7 @@ describe("Shipment mutation caller census", () => {
     );
 
     const mcpCatalog = source("infrastructure/platform-runtime/mcp-contracts/catalog/fulfillment.ts", repoRoot);
-    expect(mcpCatalog.match(/\.\.\.writeTool\(/g)).toHaveLength(5);
+    expect(mcpCatalog.match(/\.\.\.writeTool\(/g)).toHaveLength(6);
     expect(mcpCatalog).toContain('idempotencyAuthority: "owner" as const');
     for (const tool of [
       "fulfillment.purchase-label",
@@ -36,6 +36,7 @@ describe("Shipment mutation caller census", () => {
       "fulfillment.dispatch-shipment",
       "fulfillment.raise-shipment-exception",
       "fulfillment.void-label",
+      "fulfillment.cancel-shipment",
     ]) {
       expect(mcpCatalog).toContain(`"${tool.split(".")[1]}"`);
     }
@@ -49,6 +50,7 @@ describe("Shipment mutation caller census", () => {
       .sort();
     expect(runtimeCommandKinds).toEqual([
       "attach-manual-label",
+      "cancel-shipment",
       "confirm-packing-line",
       "deliver-shipment",
       "dispatch-shipment",

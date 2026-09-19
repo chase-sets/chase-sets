@@ -71,6 +71,7 @@ describe("createShipByAttentionSourceFromReadModel", () => {
           total_quantity: 2,
           created_at: "2026-07-13T00:00:00.000Z",
           updated_at: "2026-07-14T00:00:00.000Z",
+          conflicts: [],
         },
       ],
     }));
@@ -78,6 +79,8 @@ describe("createShipByAttentionSourceFromReadModel", () => {
     const items = await createShipByAttentionSourceFromReadModel({ query } as never).load(CONTEXT);
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining("page.seller_account_id = $1"), ["acct-1"]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("fulfillment_shipment_conflict_pages"), ["acct-1"]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("page.status <> 'cancelled'"), ["acct-1"]);
     expect(items).toEqual([
       expect.objectContaining({
         id: "fulfillment-ship-by:shp_1",

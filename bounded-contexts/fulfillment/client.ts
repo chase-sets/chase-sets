@@ -207,6 +207,15 @@ export function createFulfillmentApiClient({
         }),
       );
     },
+    async cancelShipment(shipmentId: string, mutationAttemptId: string) {
+      return parseJsonResponse(
+        await client.account.sales.shipments[":id"].cancel.$post({
+          param: { id: shipmentId },
+          json: {},
+          header: mutationHeaders(mutationAttemptId),
+        }),
+      );
+    },
     async dispatchShipment(shipmentId: string, mutationAttemptId: string) {
       return parseJsonResponse(
         await client.account.sales.shipments[":id"].dispatch.$post({

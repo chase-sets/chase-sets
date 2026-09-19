@@ -75,6 +75,7 @@ import {
   type FulfillmentMutationAttemptReceipt,
   ShipmentHistoryPoisonedError,
 } from "../domain/mutation-attempt";
+import { assertShipmentActionAllowed } from "../domain/shipment-action";
 import {
   claimPostageOperationForFinalization,
   claimReservedPostageOperation,
@@ -266,6 +267,10 @@ export type FulfillmentShipmentServices = Readonly<{
     params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId?: string }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
+  cancelShipment: (
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId?: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ shipmentId: string; version: number }>;
   dispatchShipment: (
     params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId?: string }>,
     context: EventStoreContext,
@@ -300,6 +305,8 @@ export type FulfillmentShipmentServices = Readonly<{
   cancelShipmentForCancelledOrder: (params: {
     orderId: string;
     cancelledAt: string;
+    reason: string | null;
+    origin: "order-cancelled" | "payment-fraud-warning";
     context: EventStoreContext;
     sourceIdentity: Readonly<{ eventId: string; streamId: string; streamVersion: number; eventType: string }>;
   }) => Promise<{ shipmentId: ShipmentId | null }>;
@@ -419,8 +426,6 @@ async function loadReadyOrderSnapshot(db: PgQueryable, orderId: string): Promise
 
 type CancellableShipmentSnapshot = Readonly<{
   shipment_id: string;
-  status: string;
-  package_status: string;
 }>;
 
 async function loadCancellableShipmentForOrder(
@@ -428,7 +433,7 @@ async function loadCancellableShipmentForOrder(
   orderId: string,
 ): Promise<CancellableShipmentSnapshot | null> {
   const result = await db.query<CancellableShipmentSnapshot>(
-    `SELECT shipment_id, status, package_status
+    `SELECT shipment_id
      FROM fulfillment_shipment_pages
      WHERE order_id = $1
      ORDER BY created_at ASC, shipment_id ASC
@@ -1738,29 +1743,67 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         throw new ShipmentHistoryPoisonedError("Shipment cancellation source identity is invalid.");
       }
       const shipment = await loadCancellableShipmentForOrder(deps.db, params.orderId);
-      if (!shipment || shipment.status === "cancelled") {
+      if (!shipment) {
         return { shipmentId: null };
       }
-      if (shipment.status !== "awaiting-package" || shipment.package_status !== "awaiting-package") {
-        return { shipmentId: null };
-      }
-
       const loaded = await repository.load(`fulfillment.shipment-${shipment.shipment_id}`);
       assertCompleteHistoryTenant(loaded.storedEvents, String(params.context.tenantId));
       if (String(loaded.state.orderId) !== params.orderId) {
         throw new ShipmentHistoryPoisonedError("Shipment cancellation source identity was reused for another order.");
       }
-      await commandHandler({
+      const result = await commandHandler({
         streamId: `fulfillment.shipment-${shipment.shipment_id}`,
         command: {
           type: "CancelShipment",
           cancelledAt: params.cancelledAt,
+          cancellationSignal: {
+            orderId: params.orderId as OrderId,
+            reason: params.reason,
+            origin: params.origin,
+          },
         },
         context: params.context,
         expectedVersion: loaded.version,
       });
 
-      return { shipmentId: shipment.shipment_id as ShipmentId };
+      return { shipmentId: result.newEvents.length > 0 ? (shipment.shipment_id as ShipmentId) : null };
+    },
+    cancelShipment: async (params, context) => {
+      await requireSellerShipment(
+        params.shipmentId,
+        params.sellerAccountId,
+        params.mutationAttemptId ? context : undefined,
+      );
+      const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+      if (loaded.state.status === null) {
+        throw new FulfillmentDomainError("Shipment not found.");
+      }
+      assertShipmentActionAllowed("cancel-shipment", {
+        status: loaded.state.status,
+        labelStatus: loaded.state.labelStatus,
+        conflicts: loaded.state.conflicts.map((conflict) => ({
+          conflict_kind: conflict.conflictKind,
+          origin: conflict.origin,
+        })),
+      });
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "cancel-shipment",
+            command: () => ({ type: "CancelShipment", cancelledAt: new Date().toISOString() }),
+            successStatus: "cancelled",
+          },
+          context,
+        );
+      }
+      const result = await commandHandler({
+        streamId: `fulfillment.shipment-${params.shipmentId}`,
+        command: { type: "CancelShipment", cancelledAt: new Date().toISOString() },
+        context,
+      });
+      return { shipmentId: params.shipmentId, version: result.version };
     },
     packShipment: async (params, context) => {
       if (params.mutationAttemptId) {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildFulfillmentShipmentProjectionHandlers } from "./projection";
 
 describe("Fulfillment postage subject tenant projection", () => {
@@ -27,5 +28,42 @@ describe("Fulfillment postage subject tenant projection", () => {
     expect(sql).not.toMatch(/SET\s+(?:tenant_id|seller_account_id)\s*=/);
     expect(sql).toContain("THEN 'resolved' ELSE 'quarantined' END");
     expect(sql).toContain("THEN 'authoritative-history' ELSE 'projection-identity-mismatch' END");
+  });
+});
+
+describe("fulfillment shipment conflict projection", () => {
+  it("inserts a keyed cancellation conflict without overwriting another origin", async () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    const handler = buildFulfillmentShipmentProjectionHandlers({ query } as never)[
+      "fulfillment.shipment.cancellation-conflict-recorded"
+    ];
+    const event = (origin: "order-cancelled" | "payment-fraud-warning", reason: string | null) =>
+      buildTransportEvent(
+        "fulfillment.shipment.cancellation-conflict-recorded",
+        { shipmentId: "shp_race", orderId: "ord_race", reason, shipmentStatus: "packing", origin },
+        {
+          streamId: "fulfillment.shipment-shp_race",
+          timing: {
+            occurredAt: "2026-08-02T12:00:00.000Z",
+            recordedAt: "2026-08-02T12:00:01.000Z",
+          },
+        },
+      );
+    await handler?.(event("order-cancelled", "   "));
+    await handler?.(event("payment-fraud-warning", null));
+    await handler?.(event("order-cancelled", "   "));
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("ON CONFLICT (shipment_id, order_id, conflict_kind, origin) DO NOTHING"),
+      ["shp_race", "ord_race", "order-cancelled", "   ", "packing", "2026-08-02T12:00:00.000Z"],
+    );
+    expect(query).toHaveBeenCalledWith(expect.any(String), [
+      "shp_race",
+      "ord_race",
+      "payment-fraud-warning",
+      null,
+      "packing",
+      "2026-08-02T12:00:00.000Z",
+    ]);
   });
 });

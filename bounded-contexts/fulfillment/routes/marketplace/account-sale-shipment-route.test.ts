@@ -41,6 +41,7 @@ const { MockFulfillmentApiError, fulfillmentCommit, mockApi, mockCreateFulfillme
         packShipment: vi.fn(),
         purchaseUspsLabel: vi.fn(),
         voidLabel: vi.fn(),
+        cancelShipment: vi.fn(),
         dispatchShipment: vi.fn(),
         deliverShipment: vi.fn(),
         returnShipment: vi.fn(),
@@ -112,6 +113,31 @@ describe("fulfillment seller shipment route", () => {
         },
       ],
     });
+  });
+
+  it("enrolls cancel-shipment and calls the client exactly once", async () => {
+    mockApi.cancelShipment.mockResolvedValue(fulfillmentCommit("55"));
+    const response = (await action({
+      request: formRequest({ intent: "cancel-shipment", mutationAttemptId: "attempt-cancel" }),
+      params: { shipmentId: "shp_1" },
+      context: undefined,
+    } as never)) as Response;
+    expect(response.status).toBe(302);
+    expect(mockApi.cancelShipment).toHaveBeenCalledTimes(1);
+    expect(mockApi.cancelShipment).toHaveBeenCalledWith("shp_1", "attempt-cancel");
+  });
+
+  it("propagates aggregate refusal for a forged or ineligible detail-route cancellation", async () => {
+    mockApi.cancelShipment.mockRejectedValueOnce(
+      new Error("Only shipments with an order cancellation conflict can be cancelled."),
+    );
+    const result = await action({
+      request: formRequest({ intent: "cancel-shipment", mutationAttemptId: "attempt-forged" }),
+      params: { shipmentId: "shp_1" },
+      context: undefined,
+    } as never);
+    expect(result).toEqual({ error: "Only shipments with an order cancellation conflict can be cancelled." });
+    expect(mockApi.cancelShipment).toHaveBeenCalledTimes(1);
   });
 
   it("returns temporary recovery when a fresh shipment detail read times out on projection freshness", async () => {
