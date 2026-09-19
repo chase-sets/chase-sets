@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
@@ -17,6 +18,10 @@ import { buildFulfillmentOrderProjectionHandlers } from "../features/shipments/i
 import { buildFulfillmentShipmentProjectionHandlers } from "../features/shipments/read-model/projection";
 import { getSellerShipment, listSellerShipments } from "../features/shipments/read-model/queries";
 import { createShipByAttentionSourceFromReadModel } from "../features/shipments/read-model/seller-attention-source";
+import {
+  fulfillmentShipmentSchemaMigrations,
+  fulfillmentShipmentSchemaSql,
+} from "../features/shipments/read-model/schema";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -46,11 +51,91 @@ describeDb("shipment cancellation conflict steady state", () => {
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas({ fulfillment: pool });
-    await bootstrapContextDatabase(fulfillmentModule, pool);
   });
   afterAll(async () => closeMultiContextTestPools({ fulfillment: pool }));
 
+  const conflictMigrationId = "20260906_fulfillment_shipment_cancellation_conflicts";
+
+  async function readConflictSchema() {
+    const relations = await pool.query(
+      `SELECT to_regclass('fulfillment_shipment_conflict_pages')::text AS table_name,
+              to_regclass('fulfillment_shipment_conflict_pages_shipment_idx')::text AS index_name`,
+    );
+    expect(relations.rows).toEqual([
+      {
+        table_name: "fulfillment_shipment_conflict_pages",
+        index_name: "fulfillment_shipment_conflict_pages_shipment_idx",
+      },
+    ]);
+    const ledger = await pool.query(
+      "SELECT migration_id, description, applied_at FROM bounded_context_schema_migrations WHERE migration_id = $1",
+      [conflictMigrationId],
+    );
+    expect(ledger.rows).toEqual([
+      {
+        migration_id: conflictMigrationId,
+        description: "Create the keyed Shipment conflict set used by cancellation-race attention and resolution.",
+        applied_at: expect.any(Date),
+      },
+    ]);
+    return ledger.rows;
+  }
+
+  it("fresh bootstrap creates the conflict table, boot index and one ledger row across repeated bootstrap", async () => {
+    await bootstrapContextDatabase(fulfillmentModule, pool);
+    const ledger = await readConflictSchema();
+    await bootstrapContextDatabase(fulfillmentModule, pool);
+    expect(await readConflictSchema()).toEqual(ledger);
+  });
+
+  it("upgrades the exact merge-base shipment schema and preserves retained data across repeated bootstrap", async () => {
+    const tableSql = fulfillmentShipmentSchemaMigrations.find(
+      (migration) => migration.migrationId === conflictMigrationId,
+    )!.statements[0]!;
+    const indexSql = `CREATE INDEX IF NOT EXISTS fulfillment_shipment_conflict_pages_shipment_idx
+  ON fulfillment_shipment_conflict_pages (shipment_id, conflict_kind, origin);`;
+    const retainedSchemaSql = fulfillmentShipmentSchemaSql.replace(`\n\n${tableSql}\n\n${indexSql}`, "");
+    // Exact exported SQL at merge-base 8a423dc955640fbd7f5075c8ea7de196a21da524.
+    expect(createHash("sha256").update(retainedSchemaSql).digest("hex")).toBe(
+      "3e533f865f898ab267589cf3cfd600874756dd12d365a6720c5bb2baca347065",
+    );
+    await bootstrapContextDatabase(
+      {
+        ...fulfillmentModule,
+        schemaSql: fulfillmentModule.schemaSql.replace(fulfillmentShipmentSchemaSql, retainedSchemaSql),
+        schemaMigrations: fulfillmentModule.schemaMigrations!.filter(
+          (migration) => migration.migrationId !== conflictMigrationId,
+        ),
+      },
+      pool,
+    );
+    expect((await pool.query("SELECT to_regclass('fulfillment_shipment_conflict_pages') AS relation")).rows).toEqual([
+      { relation: null },
+    ]);
+    expect(
+      (
+        await pool.query("SELECT 1 FROM bounded_context_schema_migrations WHERE migration_id = $1", [
+          conflictMigrationId,
+        ])
+      ).rows,
+    ).toEqual([]);
+    await pool.query(`INSERT INTO fulfillment_shipment_pages (
+      shipment_id, order_id, buyer_account_id, seller_account_id, shipping_option,
+      display_reference, status, package_status, created_at, updated_at
+    ) VALUES ('shp_retained', 'ord_retained', 'acc_buyer', 'acc_seller', 'standard',
+              'SHP-RETAINED', 'packing', 'packing', '2026-08-02T12:00:00Z', '2026-08-02T12:00:00Z')`);
+    const retained = await pool.query("SELECT * FROM fulfillment_shipment_pages WHERE shipment_id = 'shp_retained'");
+    await bootstrapContextDatabase(fulfillmentModule, pool);
+    const ledger = await readConflictSchema();
+    await bootstrapContextDatabase(fulfillmentModule, pool);
+    expect(await readConflictSchema()).toEqual(ledger);
+    expect(
+      (await pool.query("SELECT * FROM fulfillment_shipment_pages WHERE shipment_id = 'shp_retained'")).rows,
+    ).toEqual(retained.rows);
+  });
+
   it("projects idempotently, admits flagged post-dispatch work, and excludes the cancelled steady state", async () => {
+    await bootstrapContextDatabase(fulfillmentModule, pool);
     const eventStore = createPostgresEventStore({ pool });
     const services = createFulfillmentShipmentRuntime({ eventStore, checkpointStore: checkpointStore(), db: pool });
     await services.commandHandler({
