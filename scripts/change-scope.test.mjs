@@ -295,8 +295,8 @@ const dbTestsOldVersusNewCorpus = [
     name: "workflow-only change",
     changedFiles: [".github/workflows/platform-pr.yml"],
     baseDbTests: "false",
-    expectedDbTests: "false",
-    changesDbTests: false,
+    expectedDbTests: "true",
+    changesDbTests: true,
     baseOutputMap: baseCapturedNoWorkspaceOutputMap([".github/workflows/platform-pr.yml"], {
       workflow_lint: "true",
       cluster_preview: "true",
@@ -1445,7 +1445,7 @@ describe("change-scope", () => {
     }
   });
 
-  it("changes db_tests for exactly the scheduler-owned artifact cases across the whole corpus", () => {
+  it("changes db_tests for exactly the scheduler-owned artifacts and platform-pr workflow across the whole corpus", () => {
     const observed = dbTestsOldVersusNewCorpus.map((testCase) => ({
       name: testCase.name,
       changedFiles: testCase.changedFiles,
@@ -1463,8 +1463,20 @@ describe("change-scope", () => {
 
     // Set equality, not containment: a predicate that also flipped an unrelated
     // case would pass a containment check and must fail here.
-    expect(changedCaseFileSets).toEqual(schedulerOwnedArtifacts.map((artifact) => [artifact]));
+    expect(changedCaseFileSets).toEqual([
+      ...schedulerOwnedArtifacts.map((artifact) => [artifact]),
+      [".github/workflows/platform-pr.yml"],
+    ]);
   });
+
+  it.each([".github/workflows/platform-coverage.yml", ".github/actions/setup-pnpm-workspace/action.yml"])(
+    "does not broaden DB selection to the workflow family: %s",
+    (filename) => {
+      const scope = classifyChanges({ changedFiles: [filename] });
+      expect(scope.dbTestsRequired).toBe(false);
+      expect(scope.affectedWorkspaces).toEqual([]);
+    },
+  );
 
   it("keeps every output except db_tests byte-identical to the base commit for every corpus case", () => {
     for (const testCase of dbTestsOldVersusNewCorpus) {

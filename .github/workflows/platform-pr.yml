@@ -243,9 +243,21 @@ jobs:
           # service container and confirms the effective setting before any
           # DB-profile command runs.
           target_max_locks_per_transaction=512
+          # 300 is bounded headroom, not an observed hosted peak. Workspace
+          # concurrency stays 2; pools allocate clients on demand, not at max.
+          target_max_connections=300
+
+          free -m
+          docker inspect --format 'Memory={{.HostConfig.Memory}} MemorySwap={{.HostConfig.MemorySwap}} ShmSize={{.HostConfig.ShmSize}} (bytes; Memory=0 means no Docker limit)' "$POSTGRES_CONTAINER_ID"
+          docker exec "$POSTGRES_CONTAINER_ID" sh -c '
+            for setting in /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.high /sys/fs/cgroup/memory/memory.limit_in_bytes; do
+              if [ -r "$setting" ]; then printf "%s=" "$setting"; cat "$setting"; fi
+            done'
 
           docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
             "ALTER SYSTEM SET max_locks_per_transaction = ${target_max_locks_per_transaction};"
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
+            "ALTER SYSTEM SET max_connections = ${target_max_connections};"
           docker restart "$POSTGRES_CONTAINER_ID"
 
           ready=false
@@ -269,8 +281,43 @@ jobs:
           fi
           echo "PostgreSQL max_locks_per_transaction is now ${effective}."
 
+          effective="$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_connections;' | tr -d '[:space:]')"
+          if [ "$effective" != "$target_max_connections" ]; then
+            echo "Expected max_connections=${target_max_connections} but Postgres reports ${effective}." >&2
+            exit 1
+          fi
+          echo "PostgreSQL max_connections is now ${effective}."
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
+            'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;'
+
       - name: Run DB-profile tests
         run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+
+      - name: Capture post-failure PostgreSQL state
+        if: failure()
+        continue-on-error: true
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/db-profile-diagnostics"
+          {
+            echo 'Post-failure observation only; not failure-instant or peak attribution.'
+            date -u +'%Y-%m-%dT%H:%M:%SZ'
+            timeout 15s docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
+              'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;' || echo 'PostgreSQL settings unavailable.'
+            timeout 15s docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
+              'SELECT datname, application_name, state, count(*) FROM pg_stat_activity GROUP BY 1,2,3 ORDER BY 4 DESC;' || echo 'PostgreSQL activity unavailable.'
+          } > "${RUNNER_TEMP}/db-profile-diagnostics/post-failure.txt" 2>&1
+
+      - name: Upload post-failure PostgreSQL state
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: db-profile-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/db-profile-diagnostics/post-failure.txt
+          retention-days: 7
+          if-no-files-found: warn
 
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})

@@ -424,6 +424,7 @@ export function classifyChanges({
     schedulerOwnedArtifactChanged &&
     affectedWorkspaces.some((workspaceName) => dbTestScripts(workspaceByName.get(workspaceName)).length > 0);
   const dbTestsRequired =
+    normalizedFiles.includes(".github/workflows/platform-pr.yml") ||
     [...runtimeAffectedWorkspaceSet, ...devDependencyTestAffectedWorkspaceSet].some((workspaceName) => {
       const workspace = workspaces.find((entry) => entry.name === workspaceName);
       return dbTestScripts(workspace).length > 0;
