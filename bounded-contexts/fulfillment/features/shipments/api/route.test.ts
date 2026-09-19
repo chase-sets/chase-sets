@@ -1,13 +1,20 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
+import { ZERO_GLOBAL_POSITION, type GlobalPosition } from "@chase-sets/event-core/storage";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { FulfillmentApiEnv } from "../../../api";
-import { decideFulfillmentShipment, initialFulfillmentShipmentState } from "../domain/domain";
+import {
+  decideFulfillmentShipment,
+  evolveFulfillmentShipment,
+  initialFulfillmentShipmentState,
+} from "../domain/domain";
 import {
   createAccountShipmentRoutes,
   createAccountSaleShipmentRoutes,
   createPostageProviderWebhookRoutes,
 } from "./route";
-import type { FulfillmentShipmentServices } from "./runtime";
+import { createFulfillmentShipmentRuntime, type FulfillmentShipmentServices } from "./runtime";
 
 const MUTATION_HEADERS = {
   "Content-Type": "application/json",
@@ -649,6 +656,115 @@ describe("fulfillment shipment routes", () => {
       },
     });
     expect(services.cancelShipment).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses the real seller cancel route for an awaiting-package shipment without a conflict", async () => {
+    const store = createInMemoryEventStore();
+    const checkpoints = new Map<string, GlobalPosition>();
+    const checkpointStore: ProjectionCheckpointStore = {
+      loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
+      saveCheckpoint: async (projectorName, checkpoint) => {
+        checkpoints.set(projectorName, checkpoint);
+      },
+    };
+    const db = {
+      query: vi.fn(async (sql: string) =>
+        sql.includes("FROM fulfillment_shipment_pages")
+          ? {
+              rows: [
+                {
+                  shipment_id: "shp_real",
+                  seller_account_id: "acc_seller",
+                  status: "awaiting-package",
+                  package_status: "awaiting-package",
+                },
+              ],
+            }
+          : { rows: [] },
+      ),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore: store.eventStore,
+      checkpointStore,
+      db: db as never,
+    });
+    const context = {
+      tenantId: "tnt_identity" as never,
+      audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+    };
+    const addressSnapshot = {
+      name: "Buyer",
+      company: null,
+      line1: "2 Market St",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: null,
+      email: null,
+    } as const;
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_real",
+      command: {
+        type: "CreateShipment",
+        shipmentId: "shp_real" as never,
+        orderId: "ord_real" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot: addressSnapshot,
+        shippingOriginSnapshot: { ...addressSnapshot, name: "Seller" },
+        lines: [
+          {
+            lineId: "spl_real" as never,
+            orderLineId: "oli_real",
+            catalogItemId: "cat_real",
+            productId: "cat_real::",
+            itemTitle: "Route fixture",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-08-02T11:00:00.000Z",
+      },
+      context,
+    });
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view", "fulfillment.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/account/sales/shipments/shp_real/cancel", {
+        method: "POST",
+        headers: MUTATION_HEADERS,
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Cannot cancel shipment a shipment that is awaiting-package.",
+      },
+    });
+    const events = store.readAllEvents();
+    expect(events.map((event) => event.eventType)).not.toContain("fulfillment.shipment.cancelled");
+    const state = events
+      .map((event) => ({ type: event.eventType, data: event.payload }) as never)
+      .reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+    expect(state.status).toBe("awaiting-package");
   });
 
   it("purchases a USPS label through the configured postage provider path", async () => {

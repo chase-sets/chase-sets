@@ -935,7 +935,7 @@ export const decideFulfillmentShipment: AggregateDecider<
         if (alreadyRecorded) {
           return [];
         }
-        if (state.status !== "awaiting-package" || command.cancellationSignal.origin === "payment-fraud-warning") {
+        if (state.status !== "awaiting-package") {
           return [
             {
               type: "fulfillment.shipment.cancellation-conflict-recorded",

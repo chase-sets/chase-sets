@@ -557,6 +557,7 @@ export async function listBuyerShipments(
     items: itemsResult.rows.map((row) => ({
       ...row,
       shipping_origin_snapshot: null,
+      conflicts: [],
     })),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
@@ -699,6 +700,7 @@ export async function getBuyerShipment(
   return {
     ...row,
     shipping_origin_snapshot: null,
+    conflicts: [],
     ...detailCollections,
   };
 }

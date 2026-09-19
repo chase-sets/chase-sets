@@ -823,7 +823,7 @@ describe("fulfillment shipment domain", () => {
     expect(cancelled.type).toBe("fulfillment.shipment.cancelled");
   });
 
-  it("records fraud warnings for visibility without cancelling even before packing", () => {
+  it("cancels an awaiting-package shipment on a fraud warning without recording a conflict", () => {
     const created = decideFulfillmentShipment(initialFulfillmentShipmentState, {
       type: "CreateShipment",
       shipmentId: "shp_1" as never,
@@ -855,6 +855,56 @@ describe("fulfillment shipment domain", () => {
         origin: "payment-fraud-warning",
       },
     });
-    expect(events.map((event) => event.type)).toEqual(["fulfillment.shipment.cancellation-conflict-recorded"]);
+    expect(events.map((event) => event.type)).toEqual(["fulfillment.shipment.cancelled"]);
+  });
+
+  it("records exactly one fraud conflict fact once packing has started", () => {
+    const created = decideFulfillmentShipment(initialFulfillmentShipmentState, {
+      type: "CreateShipment",
+      shipmentId: "shp_1" as never,
+      orderId: "ord_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      shippingOption: "standard",
+      ...shipmentAddressSnapshots,
+      lines: [
+        {
+          lineId: "spl_1" as never,
+          orderLineId: "oli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+      createdAt: "2026-04-02T00:00:00.000Z",
+    }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+    const packing = decideFulfillmentShipment(created, {
+      type: "StartShipmentPacking",
+      startedAt: "2026-04-02T00:03:00.000Z",
+    }).reduce(evolveFulfillmentShipment, created);
+    const events = decideFulfillmentShipment(packing, {
+      type: "CancelShipment",
+      cancelledAt: "2026-04-02T00:04:00.000Z",
+      cancellationSignal: {
+        orderId: "ord_1" as never,
+        reason: null,
+        origin: "payment-fraud-warning",
+      },
+    });
+    expect(events).toEqual([
+      {
+        type: "fulfillment.shipment.cancellation-conflict-recorded",
+        data: {
+          shipmentId: "shp_1",
+          orderId: "ord_1",
+          reason: null,
+          shipmentStatus: "packing",
+          origin: "payment-fraud-warning",
+        },
+      },
+    ]);
   });
 });

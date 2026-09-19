@@ -774,7 +774,7 @@ describe("fulfillment shipment runtime", () => {
     const before = harness.readAllEvents();
     await expect(
       harness.services.cancelShipment({ shipmentId: "shp_race", sellerAccountId: "acc_seller" }, harness.context),
-    ).rejects.toThrow("Only shipments with an order cancellation conflict can be cancelled.");
+    ).rejects.toThrow("Cannot cancel shipment without an order cancellation conflict.");
     expect(harness.readAllEvents()).toEqual(before);
     expect(before.map((event) => event.eventType)).not.toContain("fulfillment.shipment.cancelled");
   });

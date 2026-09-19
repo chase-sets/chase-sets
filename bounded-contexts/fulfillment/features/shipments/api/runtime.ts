@@ -75,6 +75,7 @@ import {
   type FulfillmentMutationAttemptReceipt,
   ShipmentHistoryPoisonedError,
 } from "../domain/mutation-attempt";
+import { assertShipmentActionAllowed } from "../domain/shipment-action";
 import {
   claimPostageOperationForFinalization,
   claimReservedPostageOperation,
@@ -1768,6 +1769,23 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: result.newEvents.length > 0 ? (shipment.shipment_id as ShipmentId) : null };
     },
     cancelShipment: async (params, context) => {
+      await requireSellerShipment(
+        params.shipmentId,
+        params.sellerAccountId,
+        params.mutationAttemptId ? context : undefined,
+      );
+      const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+      if (loaded.state.status === null) {
+        throw new FulfillmentDomainError("Shipment not found.");
+      }
+      assertShipmentActionAllowed("cancel-shipment", {
+        status: loaded.state.status,
+        labelStatus: loaded.state.labelStatus,
+        conflicts: loaded.state.conflicts.map((conflict) => ({
+          conflict_kind: conflict.conflictKind,
+          origin: conflict.origin,
+        })),
+      });
       if (params.mutationAttemptId) {
         return executeAttempt(
           {
@@ -1780,7 +1798,6 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           context,
         );
       }
-      await requireSellerShipment(params.shipmentId, params.sellerAccountId, context);
       const result = await commandHandler({
         streamId: `fulfillment.shipment-${params.shipmentId}`,
         command: { type: "CancelShipment", cancelledAt: new Date().toISOString() },
