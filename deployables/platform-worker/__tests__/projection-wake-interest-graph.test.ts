@@ -135,9 +135,13 @@ describe("platform worker projection wake interest graph", () => {
       )
       .sort();
 
+    // #7673: fulfillment.shipment.cancellation-conflict-recorded was added as a
+    // new handler on the existing fulfillment-shipment-projection:fulfillment:v1
+    // runner (self-subscription), so the runner's handler/event-type set grew
+    // without adding or removing a runner.
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
       count: 245,
-      sha256: "20c3da3d07ffc636d339108aaae9493c355eefa95c91aa956ab101b26a9b7739",
+      sha256: "5f4b97f498811215ccd0d5c74f7ada7c8669ba60b6141b3560c18a89005824e2",
     });
     expect(
       fingerprint(
