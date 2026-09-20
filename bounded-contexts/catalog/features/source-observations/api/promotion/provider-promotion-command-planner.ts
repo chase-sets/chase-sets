@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type { CatalogItemCommand } from "../../../catalog-items/domain/domain";
 import type { ProductContentLineInput, ReplaceProductContentsInput } from "../../../product-contents/api/runtime";
@@ -24,6 +25,12 @@ import type {
 } from "../../domain/domain";
 import { sourceObservationLinkExternalKey } from "../../domain/domain";
 import type { CatalogProviderIntegrationProfile } from "../provider-integration-profiles";
+import {
+  promoteAsDraftBypassesDegradedIdentity,
+  validatePromotionDisplayIdentity,
+  type CatalogPromotionDisplayIdentityEvidence,
+  type CatalogPromotionDisplayIdentityOutcome,
+} from "./promotion-display-identity";
 
 export type CatalogProviderPromotionMode = "create" | "refresh";
 
@@ -63,9 +70,12 @@ export type CatalogProviderPromotionCommandPlanDiagnostic = Readonly<{
     | "missing-reference-target"
     | "unsupported-observation-kind"
     | "unsupported-profile-mapping-kind"
+    | "display-identity-unresolvable"
     | CatalogProviderPromotionPreflightBlocked["code"];
   path: string;
   diagnosticText: string;
+  /** Structured resolver evidence; present only on `display-identity-unresolvable`. */
+  displayIdentity?: CatalogPromotionDisplayIdentityEvidence;
 }>;
 
 export type CatalogProviderProductContentsPromotionPlan = Readonly<{
@@ -88,6 +98,10 @@ export type CatalogProviderPromotionCommandPlan = Readonly<{
   requiresReview: true;
   commands: readonly CatalogItemCommand[];
   productContents: CatalogProviderProductContentsPromotionPlan | null;
+  /** Resolver outcome for the complete post-plan item; bound into the fingerprint. */
+  displayIdentity: CatalogPromotionDisplayIdentityOutcome;
+  /** The explicit review choice this plan was validated under. */
+  promoteAsDraft: boolean;
   review: Readonly<{
     normalizedKind: string;
     commandCount: number;
@@ -100,7 +114,9 @@ export type CatalogProviderPromotionCommandPlanResult =
   | Readonly<{
       status: "planned";
       plan: CatalogProviderPromotionCommandPlan;
-      diagnostics: readonly [];
+      /** Non-blocking diagnostics kept visible: the degraded identity an
+       * explicit promote-as-draft choice carried. Empty for a resolved plan. */
+      diagnostics: readonly CatalogProviderPromotionCommandPlanDiagnostic[];
     }>
   | Readonly<{
       status: "blocked";
@@ -110,7 +126,7 @@ export type CatalogProviderPromotionCommandPlanResult =
 
 type CatalogProviderPromotionPreflightBlocked = Extract<CatalogProviderPromotionPreflight, { status: "blocked" }>;
 
-export function planCatalogProviderPromotionCommands(input: {
+export type CatalogProviderPromotionPlanInput = Readonly<{
   profile: CatalogProviderIntegrationProfile;
   profileKey: string;
   profileVersion: string;
@@ -126,7 +142,109 @@ export function planCatalogProviderPromotionCommands(input: {
   productAssetSet: ProductAssetSet | null;
   productContentsPromotion?: SourceObservationProductContentsPromotion | null;
   preflight?: CatalogProviderPromotionPreflight;
-}): CatalogProviderPromotionCommandPlanResult {
+}>;
+
+/**
+ * The validated production planning entry. Pure command construction stays
+ * internal: this entry composes the complete post-plan Catalog Item, awaits
+ * the display identity resolver against `db`, and only then exposes commands.
+ * A degraded identity blocks with a bounded `display-identity-unresolvable`
+ * diagnostic unless `promoteAsDraft` is explicitly true AND the commands are
+ * draft-only (never a published item). Omitting the choice fails closed.
+ */
+export async function planCatalogProviderPromotionCommands(
+  input: CatalogProviderPromotionPlanInput & Readonly<{ db: PgQueryable; promoteAsDraft?: boolean }>,
+): Promise<CatalogProviderPromotionCommandPlanResult> {
+  const constructed = constructCatalogProviderPromotionCommands(input);
+  if (constructed.status === "blocked") {
+    return constructed;
+  }
+
+  const validation = await validatePromotionDisplayIdentity({
+    db: input.db,
+    mode: input.mode,
+    catalogItemId: input.catalogItemId,
+    commands: constructed.commands,
+  });
+  if (validation.status === "missing-current-item") {
+    return {
+      status: "blocked",
+      plan: null,
+      diagnostics: [
+        {
+          code: "missing-catalog-item-target",
+          path: "catalogItemId",
+          diagnosticText: "Catalog Item refresh planning requires the current Catalog Item to exist.",
+        },
+      ],
+    };
+  }
+
+  const promoteAsDraft = input.promoteAsDraft === true;
+  const degradedBypassed =
+    validation.diagnostic !== null &&
+    promoteAsDraftBypassesDegradedIdentity({
+      promoteAsDraft,
+      currentItemStatus: validation.currentItemStatus,
+      commands: constructed.commands,
+    });
+  if (validation.diagnostic && !degradedBypassed) {
+    return { status: "blocked", plan: null, diagnostics: [validation.diagnostic] };
+  }
+
+  const planFingerprint = catalogProviderPromotionPlanFingerprint({
+    providerKey: input.providerKey,
+    profileKey: input.profileKey,
+    profileVersion: input.profileVersion,
+    mode: input.mode,
+    mappingKind: input.profile.normalizedObservationMapping.kind,
+    commands: constructed.commands,
+    productContents: constructed.productContents,
+    displayIdentity: validation.outcome,
+    promoteAsDraft,
+  });
+
+  return {
+    status: "planned",
+    plan: {
+      planKind: "catalog-item-promotion",
+      providerKey: input.providerKey,
+      profileKey: input.profileKey,
+      profileVersion: input.profileVersion,
+      mappingKind: input.profile.normalizedObservationMapping.kind,
+      mode: input.mode,
+      catalogItemId: input.catalogItemId,
+      planFingerprint,
+      requiresReview: true,
+      commands: constructed.commands,
+      productContents: constructed.productContents,
+      displayIdentity: validation.outcome,
+      promoteAsDraft,
+      review: {
+        normalizedKind: input.normalized.kind,
+        commandCount: constructed.commands.length,
+        catalogItemReferencesLinked: uniqueExternalCatalogItemReferences(
+          input.normalized.externalCatalogItemReferences ?? [],
+        ).length,
+        sourceProductReferencesLinked: constructed.sourceProductReferencesLinked,
+      },
+    },
+    diagnostics: validation.diagnostic ? [validation.diagnostic] : [],
+  };
+}
+
+type ConstructedCatalogProviderPromotionCommands =
+  | Readonly<{
+      status: "constructed";
+      commands: readonly CatalogItemCommand[];
+      productContents: CatalogProviderProductContentsPromotionPlan | null;
+      sourceProductReferencesLinked: number;
+    }>
+  | Extract<CatalogProviderPromotionCommandPlanResult, { status: "blocked" }>;
+
+function constructCatalogProviderPromotionCommands(
+  input: CatalogProviderPromotionPlanInput,
+): ConstructedCatalogProviderPromotionCommands {
   const diagnostics = promotionDiagnostics(input);
   if (diagnostics.length > 0) {
     return {
@@ -144,41 +262,8 @@ export function planCatalogProviderPromotionCommands(input: {
   const sourceProductReferencesLinked = commands.filter(
     (command) => command.type === "LinkExternalProductReference",
   ).length;
-  const planFingerprint = catalogProviderPromotionPlanFingerprint({
-    providerKey: input.providerKey,
-    profileKey: input.profileKey,
-    profileVersion: input.profileVersion,
-    mode: input.mode,
-    mappingKind: input.profile.normalizedObservationMapping.kind,
-    commands,
-    productContents,
-  });
 
-  return {
-    status: "planned",
-    plan: {
-      planKind: "catalog-item-promotion",
-      providerKey: input.providerKey,
-      profileKey: input.profileKey,
-      profileVersion: input.profileVersion,
-      mappingKind: input.profile.normalizedObservationMapping.kind,
-      mode: input.mode,
-      catalogItemId: input.catalogItemId,
-      planFingerprint,
-      requiresReview: true,
-      commands,
-      productContents,
-      review: {
-        normalizedKind: input.normalized.kind,
-        commandCount: commands.length,
-        catalogItemReferencesLinked: uniqueExternalCatalogItemReferences(
-          input.normalized.externalCatalogItemReferences ?? [],
-        ).length,
-        sourceProductReferencesLinked,
-      },
-    },
-    diagnostics: [],
-  };
+  return { status: "constructed", commands, productContents, sourceProductReferencesLinked };
 }
 
 function promotionDiagnostics(input: {
@@ -1796,6 +1881,9 @@ export function catalogProviderPromotionPlanFingerprint(input: {
   mode: CatalogProviderPromotionMode;
   commands: readonly CatalogItemCommand[];
   productContents?: CatalogProviderProductContentsPromotionPlan | null;
+  /** Resolver hash/version/outcome: any resolver-input change re-plans. */
+  displayIdentity: CatalogPromotionDisplayIdentityOutcome;
+  promoteAsDraft: boolean;
 }): string {
   return createHash("sha256")
     .update(
@@ -1807,6 +1895,8 @@ export function catalogProviderPromotionPlanFingerprint(input: {
         mode: input.mode,
         commands: input.commands,
         productContents: input.productContents ?? null,
+        displayIdentity: input.displayIdentity,
+        promoteAsDraft: input.promoteAsDraft,
       }),
     )
     .digest("hex");

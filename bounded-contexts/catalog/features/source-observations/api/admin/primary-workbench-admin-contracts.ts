@@ -102,6 +102,7 @@ export type CatalogPrimaryWorkbenchBlockerCategory =
   | "promotion-conflict"
   | "destructive-confirmation-required"
   | "stale-promotion-preview"
+  | "display-identity-unresolvable"
   | "stale-replay"
   | "idempotency-replay"
   | "security-privacy-blocked"
@@ -337,6 +338,12 @@ export type CatalogPrimaryWorkbenchRouteContext = Readonly<{
   reviewLimit: number | null;
   jobId: string | null;
   promotionPreviewId: string | null;
+  /**
+   * The explicit promote-as-draft review choice the current promotion preview
+   * was generated under. Absent means false; changing it invalidates the
+   * preview, so execution always re-confirms against the submitted choice.
+   */
+  promoteAsDraft?: boolean;
   /** Canonical Scope Record identity for scope-first routes. */
   scopeRecordId?: string | null;
   returnPath: string | null;
@@ -1887,8 +1894,34 @@ export type CatalogPrimaryWorkbenchConflictResolutionRow = Readonly<{
   }>;
 }>;
 
+/**
+ * Read-only pre-write validation carried by the current promotion preview.
+ * `coverage: "not-previewed"` means no preview token is in play; `"partial"`
+ * means only the first `coveredCount` eligible observations (id order) were
+ * validated and the rest are validated at execution, never called safe here.
+ */
+export type CatalogPrimaryWorkbenchPromotionValidationReadModel = Readonly<{
+  promoteAsDraft: boolean;
+  coverage: "complete" | "partial" | "not-previewed";
+  coveredCount: number;
+  continuation: string | null;
+  identityDiagnostics: readonly CatalogPrimaryWorkbenchPromotionIdentityDiagnostic[];
+  otherBlockedObservationIds: readonly string[];
+}>;
+
+export type CatalogPrimaryWorkbenchPromotionIdentityDiagnostic = Readonly<{
+  observationId: string;
+  /** False only for the degraded identity an explicit draft choice carries visibly. */
+  blocking: boolean;
+  templateReason: "unresolved-title-tokens" | "no-targeted-template" | "missing-required-fields";
+  diagnosticText: string;
+  missingTokens: readonly string[];
+  templateKey: string | null;
+}>;
+
 export type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
   previewId: string | null;
+  validation: CatalogPrimaryWorkbenchPromotionValidationReadModel;
   freshness: CatalogAdminControlPlaneFreshnessState;
   scope: Readonly<{
     kind: CatalogPrimaryWorkbenchPromotionScopeKind;
@@ -2349,6 +2382,7 @@ export const catalogPrimaryWorkbenchActions = [
       "no-promotion-eligible-observations",
       "duplicate-conflict",
       "stale-promotion-preview",
+      "display-identity-unresolvable",
       "destructive-confirmation-required",
       "promotion-conflict",
       "active-job-conflict",
@@ -2497,6 +2531,7 @@ export const catalogPrimaryWorkbenchBlockers = [
   blocker("promotion-conflict", ["blocked"], "catalog.primary.promotion.previewRequired"),
   blocker("destructive-confirmation-required", ["unsafe"], "catalog.primary.promotion.previewRequired"),
   blocker("stale-promotion-preview", ["blocked"], "catalog.primary.promotion.stalePreview"),
+  blocker("display-identity-unresolvable", ["blocked"], "catalog.primary.promotion.previewRequired"),
   blocker("stale-replay", ["blocked"], "catalog.primary.reapply.originalProfileMissing"),
   blocker("idempotency-replay", ["blocked"], "catalog.primary.import.blocked"),
   blocker("security-privacy-blocked", ["unsafe"], "catalog.primary.promotion.securityBlocked"),
@@ -2728,6 +2763,7 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
     ["promotion-preview", "promotion-result"],
     [
       "promotionPreview.scope",
+      "promotionPreview.validation",
       "promotionPreview.outcomeCounts",
       "promotionPreview.commandPlanHash",
       "promotionPreview.executionSafeguards",
@@ -3481,6 +3517,12 @@ function assertPrimaryWorkbenchPromotionPreview(
   }
   if (value.scope.partialFailureMode !== "per-observation") {
     throw new Error("Primary workbench promotion preview must preserve per-observation partial failure scope.");
+  }
+  if (!value.validation || !["complete", "partial", "not-previewed"].includes(value.validation.coverage)) {
+    throw new Error("Primary workbench promotion preview validation coverage must be explicit.");
+  }
+  if (typeof value.validation.promoteAsDraft !== "boolean") {
+    throw new Error("Primary workbench promotion preview must state the explicit promote-as-draft choice.");
   }
   for (const key of ["eligible", "blocked", "skipped", "conflicting", "failed"] as const) {
     if (typeof value.outcomeCounts?.[key] !== "number") {

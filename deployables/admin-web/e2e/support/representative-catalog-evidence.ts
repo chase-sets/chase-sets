@@ -4,6 +4,7 @@ import { expect, type Page } from "@playwright/test";
 import {
   catalogProviderIntegrationProfileVersions,
   catalogProviderProfileVersionIngestionUnitKey,
+  createSyntheticDisplayIdentityQueryable,
   getActiveCatalogProviderIntegrationProfileVersion,
   normalizeCatalogProviderSourceObservation,
   planCatalogProviderPromotionCommands,
@@ -392,7 +393,10 @@ export function activeMemberProfile(
   return version;
 }
 
-export function memberPromotionPlan(
+// Thin synthetic partition evidence: the real planner runs against a SYNTHETIC
+// display identity queryable so this stays database-free. It proves the
+// partition/command shape, never production identity validation.
+export async function memberPromotionPlan(
   member: RepresentativeCoordinate,
   normalized: SourceObservationNormalized,
   referenceIds: readonly string[],
@@ -413,6 +417,7 @@ export function memberPromotionPlan(
     ...(fieldKeys.packCount ? { packCount: syntheticFieldId(fieldKeys.packCount) } : {}),
   } satisfies CatalogProviderPromotionResolvedCatalogMapping["fieldIds"];
   return planCatalogProviderPromotionCommands({
+    db: createSyntheticDisplayIdentityQueryable(),
     profile: version.profile,
     profileKey: version.profileKey,
     profileVersion: version.profileVersion,
@@ -433,11 +438,11 @@ export function memberPromotionPlan(
   });
 }
 
-export function executableMemberPartition(member: RepresentativeCoordinate) {
+export async function executableMemberPartition(member: RepresentativeCoordinate) {
   const version = activeMemberProfile(member);
   const payload = JSON.parse(readFileSync(`${version.fixtures.fixtureRoot}/normal.json`, "utf8"));
   const observation = mapMemberPayload(member, payload);
-  const plan = memberPromotionPlan(member, observation.normalized, ["synthetic_reference"]);
+  const plan = await memberPromotionPlan(member, observation.normalized, ["synthetic_reference"]);
   if (plan.status === "planned" && plan.plan.commands.length === 0) throw new EvidenceUnknown("empty-promotion-plan");
   if (
     plan.status === "blocked" &&

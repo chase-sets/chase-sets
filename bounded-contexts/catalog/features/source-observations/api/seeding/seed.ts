@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { BlueprintId, CatalogItemId, CategoryId, FieldId, ReferenceRecordId } from "../../../../ids";
 import type { CatalogServices } from "../../../../support/authoring-support/services";
@@ -52,7 +53,7 @@ export type CatalogBrowserE2ePromotedObservationSeedEvidence = Readonly<{
  */
 export async function seedPromotedSourceObservationScenario(services: CatalogServices): Promise<void> {
   await requireExactPromotionTarget(services);
-  const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence();
+  const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(services.db);
   const existing = await services.db.query<StoredSourceObservationEvent>(
     `SELECT event_type, payload
        FROM event_store_events
@@ -99,7 +100,14 @@ export async function seedPromotedSourceObservationScenario(services: CatalogSer
   );
 }
 
-export async function buildCatalogBrowserE2ePromotedObservationSeedEvidence(): Promise<CatalogBrowserE2ePromotedObservationSeedEvidence> {
+/**
+ * The promotion plan is validated against `db`: the seed passes the scenario
+ * database so the refresh plan resolves the exact Pikachu Jungle target's
+ * display identity; database-free tests pass a clearly synthetic queryable.
+ */
+export async function buildCatalogBrowserE2ePromotedObservationSeedEvidence(
+  db: PgQueryable,
+): Promise<CatalogBrowserE2ePromotedObservationSeedEvidence> {
   const payloads = await fetchTcgdexSetObservationPayloads({
     profile: tcgdexPokemonTcgProviderProfile,
     languageCode: "en",
@@ -119,7 +127,8 @@ export async function buildCatalogBrowserE2ePromotedObservationSeedEvidence(): P
     payload: payload.payload,
     observedAt: payload.observedAt,
   });
-  const promotionPlanResult = planCatalogProviderPromotionCommands({
+  const promotionPlanResult = await planCatalogProviderPromotionCommands({
+    db,
     profile: tcgdexPokemonTcgProviderProfile,
     profileKey: tcgdexPokemonCardSourceObservationMappingContract.profileKey,
     profileVersion: tcgdexPokemonCardSourceObservationMappingContract.profileVersion,

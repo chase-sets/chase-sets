@@ -17,12 +17,17 @@ import {
 } from "../domain/domain";
 import {
   getSourceObservationDetail,
+  listSourceObservationIdsForPromotionValidation,
   listSourceObservationIdsForReapply,
   listSourceObservationIdsForPromotion,
   previewSourceObservationPromotionIds,
   previewSourceObservationReapplyScope,
   previewSourceObservationPromotionScope,
   type SourceObservationDetailRow,
+  type SourceObservationFilterScope,
+  type SourceObservationPromotionPreview,
+  type SourceObservationPromotionPreviewDiagnostic,
+  type SourceObservationPromotionValidation,
 } from "../read-model/queries";
 import { writePromotionAliases } from "./promotion/provider-promotion-alias-writer";
 import type { PromotionAliasTargetResolution } from "./promotion/provider-promotion-alias-planner";
@@ -58,6 +63,7 @@ import {
   isPromotableObservationStatus,
   isReviewableObservationStatus,
   loadCatalogItemPromotionProfile,
+  previewCatalogItemPromotionPlan,
   referenceDataPromotionEvidence,
   refreshCatalogItemFromObservation,
   requireCatalogItemPromotionObservation,
@@ -70,6 +76,18 @@ import {
 } from "./source-observation-promotion-execution";
 import { resolveReferenceDataPromotionHierarchy } from "./source-observation-promotion-reference-hierarchy";
 import { sourceObservationStreamId } from "./source-observation-stream-identity";
+
+// Bounded per-preview validation page: sequential resolver calls, observation-id order.
+const PROMOTION_VALIDATION_PAGE_LIMIT = 100;
+// Stand-in id for validating a create plan; no Catalog Item is created by a preview.
+const PROMOTION_PREVIEW_CREATE_CATALOG_ITEM_ID = "cat_promotion_preview_candidate" as CatalogItemId;
+
+function boundedPreflightDiagnostic(
+  observationId: string,
+  diagnosticText: string,
+): SourceObservationPromotionPreviewDiagnostic {
+  return { observationId, code: "runtime-preflight-failed", path: "observation", diagnosticText, blocking: true };
+}
 
 export type SourceObservationPromotionReapplyRuntimeDeps = Readonly<{
   deps: CatalogRuntimeDeps;
@@ -131,6 +149,7 @@ export function createSourceObservationPromotionReapplyRuntime({
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
     productAssetSource?: RepresentativeCatalogProductAssetSource | null;
+    promoteAsDraft?: boolean;
   }): Promise<SourceObservationPromotionTargetResult> {
     if (
       isMagicSetReferenceSourceObservationNormalized(input.observation.normalized) ||
@@ -150,6 +169,7 @@ export function createSourceObservationPromotionReapplyRuntime({
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
     productAssetSource?: RepresentativeCatalogProductAssetSource | null;
+    promoteAsDraft?: boolean;
   }): Promise<SourceObservationPromotionTargetResult & SourceObservationPromotionProfileEvidence> {
     const normalized = requireCatalogItemPromotionObservation(
       input.observation.normalized,
@@ -213,6 +233,7 @@ export function createSourceObservationPromotionReapplyRuntime({
           observedAt: input.observation.observed_at,
           productAssetSource: input.productAssetSource,
           context: input.context,
+          promoteAsDraft: input.promoteAsDraft === true,
         })
       : await createCatalogDraftFromObservation({
           items,
@@ -230,6 +251,7 @@ export function createSourceObservationPromotionReapplyRuntime({
           observedAt: input.observation.observed_at,
           productAssetSource: input.productAssetSource,
           context: input.context,
+          promoteAsDraft: input.promoteAsDraft === true,
         });
 
     await promoteAliasesForObservation({
@@ -311,6 +333,7 @@ export function createSourceObservationPromotionReapplyRuntime({
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
     runPromoteObservation?: DurableSideEffectRunner;
+    promoteAsDraft?: boolean;
   }): Promise<BulkSourceObservationPromotionResult> {
     rolloutControlPolicy.assertAllowed({ capability: "promotion" });
     const requestedIds = uniqueObservationIds(input.observationIds);
@@ -353,6 +376,7 @@ export function createSourceObservationPromotionReapplyRuntime({
           promoteObservationFromRow({
             observation,
             context: input.context,
+            promoteAsDraft: input.promoteAsDraft === true,
           }),
         );
         outcomes.push({
@@ -794,8 +818,131 @@ export function createSourceObservationPromotionReapplyRuntime({
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
 
+  // Read-only validation over a bounded page of eligible observations, in
+  // observation-id order. Sequential per observation: one resolver call per
+  // covered row, no reference creation, no command execution.
+  async function validatePromotionSelection(
+    selection: Readonly<{ scope: SourceObservationFilterScope } | { observationIds: readonly string[] }>,
+    options: Readonly<{ promoteAsDraft?: boolean; validationAfter?: string | null }>,
+  ): Promise<SourceObservationPromotionValidation> {
+    const promoteAsDraft = options.promoteAsDraft === true;
+    const page = await listSourceObservationIdsForPromotionValidation(deps.db, selection, {
+      limit: PROMOTION_VALIDATION_PAGE_LIMIT,
+      after: options.validationAfter ?? null,
+    });
+    const coveredObservationIds = page.slice(0, PROMOTION_VALIDATION_PAGE_LIMIT);
+    const coverage = page.length > PROMOTION_VALIDATION_PAGE_LIMIT ? "partial" : "complete";
+    const diagnostics: SourceObservationPromotionPreviewDiagnostic[] = [];
+    for (const observationId of coveredObservationIds) {
+      diagnostics.push(...(await previewObservationDiagnostics(observationId, promoteAsDraft)));
+    }
+
+    return {
+      promoteAsDraft,
+      pageLimit: PROMOTION_VALIDATION_PAGE_LIMIT,
+      coveredObservationIds,
+      coverage,
+      continuation: coverage === "partial" ? (coveredObservationIds.at(-1) ?? null) : null,
+      diagnostics,
+    };
+  }
+
+  async function previewObservationDiagnostics(
+    observationId: string,
+    promoteAsDraft: boolean,
+  ): Promise<readonly SourceObservationPromotionPreviewDiagnostic[]> {
+    try {
+      const observation = await getSourceObservationDetail(deps.db, observationId);
+      if (!observation) {
+        return [boundedPreflightDiagnostic(observationId, "Source observation was not found.")];
+      }
+      if (
+        isMagicSetReferenceSourceObservationNormalized(observation.normalized) ||
+        isLorcanaSetReferenceSourceObservationNormalized(observation.normalized) ||
+        isOnePieceSetReferenceSourceObservationNormalized(observation.normalized)
+      ) {
+        // Reference-data promotion writes no Catalog Item, so it has no display identity to validate.
+        return [];
+      }
+      const normalized = requireCatalogItemPromotionObservation(observation.normalized, observation.provider_key);
+      const providerProfileVersion = await requireCatalogPromotionProfileVersion(
+        profileVersions,
+        observation.provider_key,
+        normalized,
+      );
+      const providerProfile = providerProfileVersion.profile;
+      const existingCatalogItemId =
+        observation.status === "changed" || observation.status === "promoted"
+          ? (observation.promoted_catalog_item_id as CatalogItemId | null)
+          : null;
+      const catalogMapping = await loadCatalogItemPromotionProfile(deps, providerProfile);
+      const duplicatePreventionResult = !existingCatalogItemId
+        ? await resolveCatalogProviderDuplicatePrevention({
+            db: deps.db,
+            profile: providerProfile,
+            providerKey: observation.provider_key,
+            externalKey: observation.external_key,
+            normalized,
+            catalog: {
+              blueprintId: catalogMapping.blueprintId,
+              categoryId: catalogMapping.categoryId,
+              fieldIds: catalogMapping.fieldIds,
+            },
+          })
+        : null;
+      if (duplicatePreventionResult?.status === "blocked") {
+        return [
+          {
+            observationId,
+            code: "ambiguous-duplicate-candidates",
+            path: "duplicatePrevention",
+            diagnosticText: duplicatePreventionResult.diagnosticText,
+            blocking: true,
+          },
+        ];
+      }
+      const reusableCatalogItemId =
+        existingCatalogItemId ??
+        (duplicatePreventionResult?.status === "matched" ? duplicatePreventionResult.catalogItemId : null);
+      const plan = await previewCatalogItemPromotionPlan({
+        deps,
+        catalogItemId: reusableCatalogItemId ?? PROMOTION_PREVIEW_CREATE_CATALOG_ITEM_ID,
+        mode: reusableCatalogItemId ? "refresh" : "create",
+        normalized,
+        providerKey: observation.provider_key,
+        externalKey: observation.external_key,
+        providerProfile,
+        providerProfileVersion,
+        catalogMapping,
+        promoteAsDraft,
+      });
+      return plan.diagnostics.map((diagnostic) => ({
+        observationId,
+        code: diagnostic.code,
+        path: diagnostic.path,
+        diagnosticText: diagnostic.diagnosticText,
+        blocking: plan.status === "blocked",
+        ...(diagnostic.displayIdentity ? { displayIdentity: diagnostic.displayIdentity } : {}),
+      }));
+    } catch {
+      // Bounded class only: provider bodies and exception text never enter the preview.
+      return [boundedPreflightDiagnostic(observationId, "Promotion preflight could not validate this observation.")];
+    }
+  }
+
+  async function previewPromotionSelection(
+    selection: Readonly<{ scope: SourceObservationFilterScope } | { observationIds: readonly string[] }>,
+    options: Readonly<{ promoteAsDraft?: boolean; validationAfter?: string | null }>,
+  ): Promise<SourceObservationPromotionPreview> {
+    const scopePreview =
+      "observationIds" in selection
+        ? await previewSourceObservationPromotionIds(deps.db, selection.observationIds)
+        : await previewSourceObservationPromotionScope(deps.db, selection.scope);
+    return { ...scopePreview, validation: await validatePromotionSelection(selection, options) };
+  }
+
   const services: SourceObservationReviewServices & PromotionReapplyServices = {
-    promoteObservation: async ({ observationId, context, productAssetSource }) => {
+    promoteObservation: async ({ observationId, context, productAssetSource, promoteAsDraft }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
         throw new Error("Source observation was not found.");
@@ -814,7 +961,12 @@ export function createSourceObservationPromotionReapplyRuntime({
       }
 
       try {
-        const promoted = await promoteObservationFromRow({ observation, context, productAssetSource });
+        const promoted = await promoteObservationFromRow({
+          observation,
+          context,
+          productAssetSource,
+          promoteAsDraft: promoteAsDraft === true,
+        });
         return {
           observationId: promoted.observationId,
           catalogItemId: promoted.catalogItemId,
@@ -832,15 +984,17 @@ export function createSourceObservationPromotionReapplyRuntime({
       }
     },
     promoteObservations: promoteObservationIds,
-    previewPromoteObservations: async ({ observationIds }) =>
-      previewSourceObservationPromotionIds(deps.db, observationIds),
-    previewPromoteObservationScope: async ({ scope }) => previewSourceObservationPromotionScope(deps.db, scope),
-    promoteObservationScope: async ({ scope, context, onProgress }) => {
+    previewPromoteObservations: async ({ observationIds, promoteAsDraft, validationAfter }) =>
+      previewPromotionSelection({ observationIds }, { promoteAsDraft, validationAfter }),
+    previewPromoteObservationScope: async ({ scope, promoteAsDraft, validationAfter }) =>
+      previewPromotionSelection({ scope }, { promoteAsDraft, validationAfter }),
+    promoteObservationScope: async ({ scope, context, onProgress, promoteAsDraft }) => {
       const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
       return promoteObservationIds({
         observationIds,
         context,
         onProgress,
+        promoteAsDraft,
       });
     },
     previewReapplyObservationScope: async ({ scope }) => previewSourceObservationReapplyScope(deps.db, scope),

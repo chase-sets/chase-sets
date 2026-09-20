@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogItemCommand } from "../../../catalog-items/domain/domain";
 import type { BlueprintId, CatalogItemId, CategoryId, FieldId, ReferenceRecordId } from "../../../../ids";
@@ -17,6 +18,12 @@ import type {
 import type { CatalogMergeCandidateListRow } from "../../read-model/queries";
 import type { LocalizedTextMap } from "../../../../support/runtime-support/common";
 import type { ProductAssetSet } from "../../../../support/runtime-support/product-assets";
+import {
+  promoteAsDraftBypassesDegradedIdentity,
+  validatePromotionDisplayIdentity,
+  type CatalogPromotionDisplayIdentityEvidence,
+  type CatalogPromotionDisplayIdentityOutcome,
+} from "./promotion-display-identity";
 
 export type CatalogMergeCandidatePromotionMode = "create" | "refresh" | "link-existing";
 export type CatalogMergeCandidatePromotionApprovalStatus = Extract<CatalogMergeCandidateStatus, "ready" | "promoted">;
@@ -85,9 +92,12 @@ export type CatalogMergeCandidatePromotionPlanDiagnostic = Readonly<{
     | "missing-title"
     | "external-product-reference-missing-selected-options"
     | "external-product-reference-duplicate-dimension"
-    | "unsupported-promotion-intent";
+    | "unsupported-promotion-intent"
+    | "display-identity-unresolvable";
   path: string;
   diagnosticText: string;
+  /** Structured resolver evidence; present only on `display-identity-unresolvable`. */
+  displayIdentity?: CatalogPromotionDisplayIdentityEvidence;
 }>;
 
 export type PromotableCatalogItemProductChange = Readonly<{
@@ -136,6 +146,10 @@ export type CatalogMergeCandidatePromotionCommandPlan = Readonly<{
   requiresReview: true;
   commands: readonly CatalogItemCommand[];
   promotableChange: PromotableCatalogItemProductChange;
+  /** Resolver outcome for the complete post-plan item; bound into the fingerprint. */
+  displayIdentity: CatalogPromotionDisplayIdentityOutcome;
+  /** The explicit review choice this plan was validated under. */
+  promoteAsDraft: boolean;
   review: Readonly<{
     commandCount: number;
     fieldChangeCount: number;
@@ -149,7 +163,9 @@ export type CatalogMergeCandidatePromotionCommandPlanResult =
   | Readonly<{
       status: "planned";
       plan: CatalogMergeCandidatePromotionCommandPlan;
-      diagnostics: readonly [];
+      /** Non-blocking diagnostics kept visible: the degraded identity an
+       * explicit promote-as-draft choice carried. Empty for a resolved plan. */
+      diagnostics: readonly CatalogMergeCandidatePromotionPlanDiagnostic[];
     }>
   | Readonly<{
       status: "blocked";
@@ -157,13 +173,109 @@ export type CatalogMergeCandidatePromotionCommandPlanResult =
       diagnostics: readonly CatalogMergeCandidatePromotionPlanDiagnostic[];
     }>;
 
-export function planCatalogMergeCandidatePromotionCommands(input: {
+export type CatalogMergeCandidatePromotionPlanInput = Readonly<{
   candidate: CatalogMergeCandidatePromotionCandidate;
   catalog: CatalogMergeCandidatePromotionCatalogMapping;
   createCatalogItemId?: CatalogItemId | null;
   assetPlan?: CatalogMergeCandidatePromotionAssetPlan | null;
   resolvedConflicts?: readonly CatalogMergeCandidateConflictResolution[];
-}): CatalogMergeCandidatePromotionCommandPlanResult {
+}>;
+
+/**
+ * The validated production planning entry. Pure command construction stays
+ * internal: this entry composes the complete post-plan Catalog Item (create
+ * from the proposal; refresh overlays every mutation on the current item;
+ * link-existing validates the unchanged current item), awaits the display
+ * identity resolver against `db`, and only then exposes commands. A degraded
+ * identity blocks with a bounded `display-identity-unresolvable` diagnostic
+ * unless `promoteAsDraft` is explicitly true AND the commands are draft-only.
+ */
+export async function planCatalogMergeCandidatePromotionCommands(
+  input: CatalogMergeCandidatePromotionPlanInput & Readonly<{ db: PgQueryable; promoteAsDraft?: boolean }>,
+): Promise<CatalogMergeCandidatePromotionCommandPlanResult> {
+  const constructed = constructCatalogMergeCandidatePromotionCommands(input);
+  if (constructed.status === "blocked") {
+    return constructed;
+  }
+
+  const validation = await validatePromotionDisplayIdentity({
+    db: input.db,
+    mode: constructed.mode,
+    catalogItemId: constructed.catalogItemId,
+    commands: constructed.commands,
+  });
+  if (validation.status === "missing-current-item") {
+    return {
+      status: "blocked",
+      plan: null,
+      diagnostics: [
+        {
+          code: "missing-catalog-item-target",
+          path: "candidate.snapshot.matches.catalogItemId",
+          diagnosticText: "Catalog Merge Candidate promotion requires the matched Catalog Item to exist.",
+        },
+      ],
+    };
+  }
+
+  const promoteAsDraft = input.promoteAsDraft === true;
+  const degradedBypassed =
+    validation.diagnostic !== null &&
+    promoteAsDraftBypassesDegradedIdentity({
+      promoteAsDraft,
+      currentItemStatus: validation.currentItemStatus,
+      commands: constructed.commands,
+    });
+  if (validation.diagnostic && !degradedBypassed) {
+    return { status: "blocked", plan: null, diagnostics: [validation.diagnostic] };
+  }
+
+  const planFingerprint = catalogMergeCandidatePromotionPlanFingerprint({
+    candidateId: constructed.candidateId,
+    mode: constructed.mode,
+    catalogItemId: constructed.catalogItemId,
+    commands: constructed.commands,
+    fieldChanges: constructed.fieldChanges,
+    promotableChange: constructed.promotableChange,
+    displayIdentity: validation.outcome,
+    promoteAsDraft,
+  });
+
+  return {
+    status: "planned",
+    plan: {
+      planKind: "catalog-merge-candidate-promotion",
+      candidateId: constructed.candidateId,
+      mode: constructed.mode,
+      catalogItemId: constructed.catalogItemId,
+      planFingerprint,
+      requiresReview: true,
+      commands: constructed.commands,
+      promotableChange: constructed.promotableChange,
+      displayIdentity: validation.outcome,
+      promoteAsDraft,
+      review: constructed.review,
+    },
+    diagnostics: validation.diagnostic ? [validation.diagnostic] : [],
+  };
+}
+
+type ConstructedCatalogMergeCandidatePromotionCommands =
+  | Readonly<{
+      status: "constructed";
+      candidateId: string;
+      mode: CatalogMergeCandidatePromotionMode;
+      catalogItemId: CatalogItemId;
+      commands: readonly CatalogItemCommand[];
+      fieldChanges: readonly CatalogMergeCandidatePromotionFieldChange[];
+      promotableChange: PromotableCatalogItemProductChange;
+      review: CatalogMergeCandidatePromotionCommandPlan["review"];
+    }>
+  | Extract<CatalogMergeCandidatePromotionCommandPlanResult, { status: "blocked" }>;
+
+function constructCatalogMergeCandidatePromotionCommands(
+  input: CatalogMergeCandidatePromotionPlanInput,
+): ConstructedCatalogMergeCandidatePromotionCommands {
   const candidate = normalizeCandidate(input.candidate);
   const diagnostics = candidatePromotionDiagnostics(candidate, input.catalog, input.createCatalogItemId ?? null);
   if (diagnostics.length > 0) {
@@ -213,35 +325,22 @@ export function planCatalogMergeCandidatePromotionCommands(input: {
     fieldChanges,
     assetPlan,
   });
-  const planFingerprint = catalogMergeCandidatePromotionPlanFingerprint({
+
+  return {
+    status: "constructed",
     candidateId: candidate.candidateId,
     mode,
     catalogItemId,
     commands,
     fieldChanges,
     promotableChange,
-  });
-
-  return {
-    status: "planned",
-    plan: {
-      planKind: "catalog-merge-candidate-promotion",
-      candidateId: candidate.candidateId,
-      mode,
-      catalogItemId,
-      planFingerprint,
-      requiresReview: true,
-      commands,
-      promotableChange,
-      review: {
-        commandCount: commands.length,
-        fieldChangeCount: fieldChanges.length,
-        catalogItemReferencesLinked: candidate.snapshot.proposedExternalCatalogItemReferences.length,
-        productReferencesLinked: candidate.snapshot.proposedExternalProductReferences.length,
-        provenanceEntryCount: fieldChanges.reduce((total, change) => total + change.provenance.length, 0),
-      },
+    review: {
+      commandCount: commands.length,
+      fieldChangeCount: fieldChanges.length,
+      catalogItemReferencesLinked: candidate.snapshot.proposedExternalCatalogItemReferences.length,
+      productReferencesLinked: candidate.snapshot.proposedExternalProductReferences.length,
+      provenanceEntryCount: fieldChanges.reduce((total, change) => total + change.provenance.length, 0),
     },
-    diagnostics: [],
   };
 }
 
@@ -676,6 +775,9 @@ export function catalogMergeCandidatePromotionPlanFingerprint(input: {
   commands: readonly CatalogItemCommand[];
   fieldChanges: readonly CatalogMergeCandidatePromotionFieldChange[];
   promotableChange: PromotableCatalogItemProductChange;
+  /** Resolver hash/version/outcome: any resolver-input change re-plans. */
+  displayIdentity: CatalogPromotionDisplayIdentityOutcome;
+  promoteAsDraft: boolean;
 }): string {
   return `sha256:${createHash("sha256")
     .update(
@@ -686,6 +788,8 @@ export function catalogMergeCandidatePromotionPlanFingerprint(input: {
         commands: input.commands,
         fieldChanges: input.fieldChanges,
         promotableChange: input.promotableChange,
+        displayIdentity: input.displayIdentity,
+        promoteAsDraft: input.promoteAsDraft,
       }),
     )
     .digest("hex")}`;

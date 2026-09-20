@@ -37,6 +37,7 @@ import {
   scrydexOnePieceProfileReview,
   sourceOptionResponse,
   tcgplayerReadinessUnit,
+  emptyPromotionValidation,
 } from "./admin-integrations-route-test-support";
 
 const {
@@ -245,6 +246,7 @@ describe("Catalog integrations route", () => {
         matched: 1,
         eligible: 1,
         terminal: 0,
+        validation: emptyPromotionValidation(),
         scope: { provider: "tcgdex", language: "en", setId: "base1", status: "", search: "" },
       }),
       bulkPromoteSourceObservations: vi.fn().mockResolvedValue({ jobId: "job_promote_round_trip" }),
@@ -266,7 +268,7 @@ describe("Catalog integrations route", () => {
       profileVersion: "2026.06.04",
       selectedObservationIds: "obs_001",
       promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1-no-fingerprint",
+        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1-no-fingerprint-publishable-complete.blocked0.811c9dc5",
     });
     const routedHref = actionResponse.headers.get("Location") ?? "";
     expect(new URL(routedHref, "https://admin.example").searchParams.get("jobId")).toBe("job_promote_round_trip");

@@ -37,6 +37,7 @@ import {
   scrydexOnePieceProfileReview,
   sourceOptionResponse,
   tcgplayerReadinessUnit,
+  emptyPromotionValidation,
 } from "./admin-integrations-route-test-support";
 
 const {
@@ -282,6 +283,7 @@ describe("Catalog integrations route", () => {
       matched: 130,
       eligible: 130,
       terminal: 0,
+      validation: emptyPromotionValidation(),
       scope: { provider: "tcgdex", language: "ja", setId: "sv8", status: "", search: "" },
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
@@ -306,11 +308,13 @@ describe("Catalog integrations route", () => {
       expansionId: "sv8",
       setId: "sv8",
     };
-    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith(selectedScopePromotionFilter);
+    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith(selectedScopePromotionFilter, {
+      promoteAsDraft: false,
+    });
     expect(previewLocation.pathname).toBe("/catalog/integrations");
     expect(previewLocation.searchParams.get("commandResult")).toBe("preview-ready");
     expect(promotionPreviewId).toBe(
-      "preview-tcgdex_tcgdex_pokemon_single-card_source-observation-import_ja_SV_SV8_2026.06.04_ja_sv8_all_none_filtered-130-130-no-fingerprint",
+      "preview-tcgdex_tcgdex_pokemon_single-card_source-observation-import_ja_SV_SV8_2026.06.04_ja_sv8_all_none_filtered-130-130-no-fingerprint-publishable-complete.blocked0.811c9dc5",
     );
 
     const bulkPromoteSourceObservationsByScope = vi.fn().mockResolvedValue({ jobId: "job_promote_ja_sv8" });
@@ -332,7 +336,9 @@ describe("Catalog integrations route", () => {
       selectedScopeUrl,
     );
 
-    expect(bulkPromoteSourceObservationsByScope).toHaveBeenCalledWith(selectedScopePromotionFilter);
+    expect(bulkPromoteSourceObservationsByScope).toHaveBeenCalledWith(selectedScopePromotionFilter, {
+      promoteAsDraft: false,
+    });
     const promoteLocation = redirectLocation(promoteResponse);
     expect(promoteLocation.searchParams.get("jobId")).toBe("job_promote_ja_sv8");
     expect(promoteLocation.searchParams.get("promotionPreviewId")).toBeNull();

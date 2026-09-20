@@ -642,10 +642,16 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.promoted": "Promoted",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.recordedAt": "Outcome recorded",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.outcome.title": "Latest promotion outcome",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.choiceChanged":
+    "The promote-as-draft choice changed since this preview. Refresh the previewed impact before committing.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.fresh": "Previewed impact is current",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.refresh":
     "Refresh the previewed impact before committing.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.title": "Confirm previewed impact",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteAsDraft.description":
+    "Only Catalog Items that stay draft can carry an unresolved display identity; published items are never updated with one.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteAsDraft.label":
+    "Promote as draft even when the display identity is unresolved",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteScope.explicit":
     "Selected scope: {scope}. Matching observations: {count}. No other provider scope is promoted by this action.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteScope.scoped":
@@ -657,6 +663,27 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "{count} Catalog Item(s) created or updated.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.summary.pending":
     "No Catalog writes run until you confirm the previewed impact.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.coverage.complete":
+    "Validated every eligible observation ({count}) before any Catalog write.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.coverage.partial":
+    "Validated the first {count} eligible observation(s) in id order; every remaining observation is validated again before its own write.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.blocked":
+    "{count} observation(s) blocked: display identity unresolvable.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.draftOnly":
+    "{count} observation(s) will be written as draft with an unresolved display identity.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.observation":
+    "{observationId}: {reason} Missing tokens: {tokens}.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.observation.noTokens":
+    "{observationId}: {reason}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.reason.missingRequiredFields":
+    "Missing required fields",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.reason.noTargetedTemplate":
+    "No targeted template",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.reason.unresolvedTitleTokens":
+    "Unresolved title tokens",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.other.blocked":
+    "{count} observation(s) blocked by other planning diagnostics.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.title": "Pre-write validation",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.flow.description":
     "Run sync, review what changed, then create or update Catalog Items. Only the active stage is expanded.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.flow.title": "Import to promotion flow",

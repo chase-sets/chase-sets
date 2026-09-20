@@ -1357,6 +1357,14 @@ describe("Catalog primary workbench admin contracts", () => {
       conflictResolution: conflictResolutionFixture(),
       promotionPreview: {
         previewId: "preview_001",
+        validation: {
+          promoteAsDraft: false,
+          coverage: "complete",
+          coveredCount: 1,
+          continuation: null,
+          identityDiagnostics: [],
+          otherBlockedObservationIds: [],
+        },
         freshness: "fresh",
         scope: {
           kind: "explicit-rows",

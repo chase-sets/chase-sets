@@ -9,6 +9,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { catalogIsoUtcListSql, catalogIsoUtcTimestamp } from "../../../support/runtime-support/iso-utc-timestamp";
 import type { SourceObservationNormalized } from "../domain/domain";
+import type { CatalogPromotionDisplayIdentityEvidence } from "../api/promotion/promotion-display-identity";
 import type {
   CatalogMergeCandidateExternalCatalogItemReference,
   CatalogMergeCandidateExternalProductReference,
@@ -112,7 +113,8 @@ export type CatalogMergeCandidateFilterScope = Readonly<{
   setId?: string;
 }>;
 
-export type SourceObservationPromotionPreview = Readonly<{
+/** Scope counts and content fingerprint: never validation evidence on their own. */
+export type SourceObservationPromotionScopePreview = Readonly<{
   matched: number;
   eligible: number;
   terminal: number;
@@ -125,6 +127,36 @@ export type SourceObservationPromotionPreview = Readonly<{
   // can coincidentally still match after a change.
   fingerprint: string;
 }>;
+
+/** One bounded, per-observation planning diagnostic from read-only validation. */
+export type SourceObservationPromotionPreviewDiagnostic = Readonly<{
+  observationId: string;
+  code: string;
+  path: string;
+  diagnosticText: string;
+  /** False only for the degraded identity an explicit draft choice carries visibly. */
+  blocking: boolean;
+  /** Structured resolver evidence; present only on `display-identity-unresolvable`. */
+  displayIdentity?: CatalogPromotionDisplayIdentityEvidence;
+}>;
+
+/**
+ * Read-only validation executed by the preview over a bounded page of eligible
+ * observations (observation-id order). Rows outside `coveredObservationIds`
+ * were NOT validated and are never called safe; `continuation` names the
+ * observation id to continue from when coverage is partial.
+ */
+export type SourceObservationPromotionValidation = Readonly<{
+  promoteAsDraft: boolean;
+  pageLimit: number;
+  coveredObservationIds: readonly string[];
+  coverage: "complete" | "partial";
+  continuation: string | null;
+  diagnostics: readonly SourceObservationPromotionPreviewDiagnostic[];
+}>;
+
+export type SourceObservationPromotionPreview = SourceObservationPromotionScopePreview &
+  Readonly<{ validation: SourceObservationPromotionValidation }>;
 
 export type SourceObservationReapplyPreview = Readonly<{
   matched: number;
@@ -364,7 +396,7 @@ export async function listSourceObservationIntegrationScopes(
 export async function previewSourceObservationPromotionScope(
   db: PgQueryable,
   params: SourceObservationFilterScope = {},
-): Promise<SourceObservationPromotionPreview> {
+): Promise<SourceObservationPromotionScopePreview> {
   const scope = normalizeSourceObservationFilterScope(params);
   const eligibleStatuses = reviewableStatusesForScope(scope);
   const eligiblePromise =
@@ -385,7 +417,7 @@ export async function previewSourceObservationPromotionScope(
 export async function previewSourceObservationPromotionIds(
   db: PgQueryable,
   observationIds: readonly string[],
-): Promise<SourceObservationPromotionPreview> {
+): Promise<SourceObservationPromotionScopePreview> {
   const uniqueIds = [...new Set(observationIds.map((observationId) => observationId.trim()).filter(Boolean))];
   const scope = normalizeSourceObservationFilterScope({});
   if (uniqueIds.length === 0) {
@@ -468,6 +500,60 @@ export async function listSourceObservationIdsForPromotion(
     filter.values,
   );
 
+  return result.rows.map((row) => row.observation_id);
+}
+
+/**
+ * The next bounded page of eligible observation ids for read-only promotion
+ * validation, in observation-id order. `after` continues a previous page.
+ * Returns one extra id beyond `limit` so callers can disclose continuation
+ * without a second count query.
+ */
+export async function listSourceObservationIdsForPromotionValidation(
+  db: PgQueryable,
+  selection: Readonly<{ scope: SourceObservationFilterScope } | { observationIds: readonly string[] }>,
+  options: Readonly<{ limit: number; after?: string | null }>,
+): Promise<string[]> {
+  const limit = Math.max(1, Math.floor(options.limit));
+  if ("observationIds" in selection) {
+    const uniqueIds = [
+      ...new Set(selection.observationIds.map((observationId) => observationId.trim()).filter(Boolean)),
+    ];
+    if (uniqueIds.length === 0) {
+      return [];
+    }
+    const result = await db.query<{ observation_id: string }>(
+      `SELECT observation_id
+       FROM catalog_source_observations
+       WHERE observation_id = ANY($1)
+         AND status IN ('observed', 'changed')
+         AND ($2::text IS NULL OR observation_id > $2)
+       ORDER BY observation_id ASC
+       LIMIT $3`,
+      [uniqueIds, options.after ?? null, limit + 1],
+    );
+    return result.rows.map((row) => row.observation_id);
+  }
+
+  const scope = normalizeSourceObservationFilterScope(selection.scope);
+  const eligibleStatuses = reviewableStatusesForScope(scope);
+  if (eligibleStatuses.length === 0) {
+    return [];
+  }
+  const filter = buildSourceObservationFilter(scope, { includeListFilters: true, statuses: eligibleStatuses });
+  const values = [...filter.values, options.after ?? null, limit + 1];
+  const conditions = [
+    ...filter.conditions,
+    `($${values.length - 1}::text IS NULL OR observation_id > $${values.length - 1})`,
+  ];
+  const result = await db.query<{ observation_id: string }>(
+    `SELECT observation_id
+     FROM catalog_source_observations
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY observation_id ASC
+     LIMIT $${values.length}`,
+    values,
+  );
   return result.rows.map((row) => row.observation_id);
 }
 

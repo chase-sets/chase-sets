@@ -114,6 +114,8 @@ export const catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations = {
     "Source Observation not found",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.source.observation.projection.stale":
     "Source Observation projection stale",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.display.identity.unresolvable":
+    "Display identity unresolvable",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.stale.promotion.preview":
     "Stale promotion preview",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.stale.provider.cache": "Stale provider cache",

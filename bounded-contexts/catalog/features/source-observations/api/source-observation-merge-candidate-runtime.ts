@@ -315,7 +315,10 @@ export function createSourceObservationMergeCandidateRuntime({
         },
         context: input.context,
       }),
-    previewCatalogMergeCandidatePromotionPlan: (input) => planCatalogMergeCandidatePromotionCommands(input),
+    // Read-only validated planning: awaits the display identity resolver over
+    // the shared db before exposing commands; executes nothing.
+    previewCatalogMergeCandidatePromotionPlan: (input) =>
+      planCatalogMergeCandidatePromotionCommands({ ...input, db: deps.db }),
   };
 
   return {

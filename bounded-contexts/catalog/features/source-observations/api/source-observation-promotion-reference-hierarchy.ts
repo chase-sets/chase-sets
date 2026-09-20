@@ -111,6 +111,53 @@ export async function resolvePromotionReferenceHierarchy(input: {
   };
 }
 
+/**
+ * READ-ONLY reference hierarchy resolution for promotion preview. Resolves the
+ * same deterministic target/type-key ids the executing path would provision,
+ * but never creates or publishes a Reference Type or Reference Record. A record
+ * the executing path would create is reported by its deterministic id; the
+ * display identity resolver then sees it as absent, which is the truthful
+ * preview of the current Catalog data.
+ */
+export async function resolvePromotionReferenceHierarchyReadOnly(input: {
+  deps: CatalogRuntimeDeps;
+  profile: CatalogProviderIntegrationProfile;
+  normalized: ReferenceHierarchySourceObservationNormalized;
+}): Promise<{
+  targetReferenceRecordId: ReferenceRecordId;
+  referenceRecordIdsByTypeKey: Readonly<Record<string, string>>;
+}> {
+  if (input.normalized.kind === "yugioh-sealed-product") {
+    return resolveYugiohSealedProductSetReference({
+      deps: input.deps,
+      normalized: input.normalized,
+    });
+  }
+
+  const result = await provisionCatalogProviderReferenceHierarchy({
+    profile: input.profile,
+    payload: promotionReferenceHierarchyPayload(input.normalized),
+    provisioner: {
+      ensureReferenceType: async () => undefined,
+      ensureReferenceRecord: async (def) =>
+        (await findExistingReferenceRecord(input.deps, def)) ?? def.referenceRecordId,
+    },
+  });
+
+  const referenceRecordIdsByTypeKey: Record<string, string> = {};
+  for (const recordRule of input.profile.referenceHierarchyMapping.referenceRecords) {
+    const referenceRecordId = result.referenceRecordIdsByRuleKey.get(recordRule.ruleKey);
+    if (referenceRecordId) {
+      referenceRecordIdsByTypeKey[recordRule.typeKey.trim().toLowerCase()] = referenceRecordId;
+    }
+  }
+
+  return {
+    targetReferenceRecordId: result.targetReferenceRecordId,
+    referenceRecordIdsByTypeKey,
+  };
+}
+
 export async function resolveYugiohSealedProductSetReference(input: {
   deps: CatalogRuntimeDeps;
   normalized: SourceObservationYugiohSealedProductNormalized;
@@ -356,21 +403,9 @@ async function ensureReferenceRecord(
     relationships?: readonly ReferenceRelationship[];
   },
 ): Promise<ReferenceRecordId> {
-  const existing = await input.deps.db.query<{ reference_record_id: string }>(
-    `SELECT reference_record_id
-     FROM catalog_reference_records
-     WHERE type_key = $1 AND key = $2
-     LIMIT 1`,
-    [def.typeKey, def.key],
-  );
-
-  if (existing.rows[0]?.reference_record_id) {
-    return existing.rows[0].reference_record_id as ReferenceRecordId;
-  }
-
-  const existingByProviderAttribute = await findReferenceRecordByProviderAttribute(input.deps, def);
-  if (existingByProviderAttribute) {
-    return existingByProviderAttribute;
+  const existingReferenceRecordId = await findExistingReferenceRecord(input.deps, def);
+  if (existingReferenceRecordId) {
+    return existingReferenceRecordId;
   }
 
   const streamId = `catalog.reference-record-${def.referenceRecordId}`;
@@ -450,6 +485,29 @@ function isConcurrencyConflict(error: unknown): boolean {
     "code" in error &&
     (error as { code?: unknown }).code === "concurrency_conflict"
   );
+}
+
+async function findExistingReferenceRecord(
+  deps: CatalogRuntimeDeps,
+  def: {
+    typeKey: string;
+    key: string;
+    attributes?: Readonly<Record<string, JsonValue>>;
+  },
+): Promise<ReferenceRecordId | null> {
+  const existing = await deps.db.query<{ reference_record_id: string }>(
+    `SELECT reference_record_id
+     FROM catalog_reference_records
+     WHERE type_key = $1 AND key = $2
+     LIMIT 1`,
+    [def.typeKey, def.key],
+  );
+
+  if (existing.rows[0]?.reference_record_id) {
+    return existing.rows[0].reference_record_id as ReferenceRecordId;
+  }
+
+  return findReferenceRecordByProviderAttribute(deps, def);
 }
 
 async function findReferenceRecordByProviderAttribute(

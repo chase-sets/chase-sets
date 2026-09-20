@@ -154,6 +154,29 @@ describe("source observation routes: review and control-plane reads", () => {
     expect(services.deferCatalogMergeCandidate).not.toHaveBeenCalled();
   });
 
+  it("passes only an explicit boolean promote-as-draft choice to single Source Observation promotion", async () => {
+    const promoteObservation = vi.fn(async () => ({ observationId: "obs_1", catalogItemId: "cat_1" }));
+    const app = buildApp({ promoteObservation } as unknown as SourceObservationRouteServices);
+
+    for (const body of [
+      JSON.stringify({ promoteAsDraft: true }),
+      JSON.stringify({ promoteAsDraft: "true" }),
+      undefined,
+    ]) {
+      const response = await app.request("/source-observations/obs_1/promote", {
+        method: "POST",
+        ...(body ? { body, headers: { "content-type": "application/json" } } : {}),
+      });
+      expect(response.status).toBe(200);
+    }
+
+    expect(promoteObservation.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
+      expect.objectContaining({ observationId: "obs_1", promoteAsDraft: true }),
+      expect.objectContaining({ observationId: "obs_1", promoteAsDraft: false }),
+      expect.objectContaining({ observationId: "obs_1", promoteAsDraft: false }),
+    ]);
+  });
+
   it("requires a reason for single Source Observation rejection", async () => {
     const services = {
       rejectObservation: vi.fn(),
@@ -526,7 +549,77 @@ describe("source observation routes: review and control-plane reads", () => {
         language: "en",
         setId: "base1",
       },
+      promoteAsDraft: false,
+      validationAfter: null,
     });
+  });
+
+  it("passes only a literal true promote-as-draft choice and the validation cursor to the read-only preview", async () => {
+    const validation = {
+      promoteAsDraft: true,
+      pageLimit: 100,
+      coveredObservationIds: ["obs_1"],
+      coverage: "complete",
+      continuation: null,
+      diagnostics: [
+        {
+          observationId: "obs_1",
+          code: "display-identity-unresolvable",
+          path: "displayIdentity",
+          diagnosticText: "No display template targets this item.",
+          blocking: false,
+          displayIdentity: {
+            missingTokens: ["template"],
+            templateKey: null,
+            templateTargetKind: null,
+            templateTargetId: null,
+            templateReason: "no-targeted-template",
+          },
+        },
+      ],
+    };
+    const previewPromoteObservations = vi.fn(async () => ({
+      matched: 1,
+      eligible: 1,
+      terminal: 0,
+      scope: { search: "", status: "", provider: "", language: "", setId: "" },
+      fingerprint: "abc",
+      validation,
+    }));
+    const enqueueBulkReviewJob = vi.fn();
+    const services = {
+      previewPromoteObservations,
+      previewPromoteObservationScope: vi.fn(),
+      enqueueBulkReviewJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const explicit = await app.request("/source-observations/bulk-promote/preview", {
+      method: "POST",
+      body: JSON.stringify({ observationIds: ["obs_1"], promoteAsDraft: true, validationAfter: " obs_0 " }),
+      headers: { "content-type": "application/json" },
+    });
+    await app.request("/source-observations/bulk-promote/preview", {
+      method: "POST",
+      body: JSON.stringify({ observationIds: ["obs_1"], promoteAsDraft: "true" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(explicit.status).toBe(200);
+    await expect(explicit.json()).resolves.toMatchObject({ validation });
+    expect(previewPromoteObservations).toHaveBeenNthCalledWith(1, {
+      observationIds: ["obs_1"],
+      promoteAsDraft: true,
+      validationAfter: "obs_0",
+    });
+    // A string "true" is not the explicit boolean choice: it fails closed.
+    expect(previewPromoteObservations).toHaveBeenNthCalledWith(2, {
+      observationIds: ["obs_1"],
+      promoteAsDraft: false,
+      validationAfter: null,
+    });
+    // The preview route never enqueues or executes anything.
+    expect(enqueueBulkReviewJob).not.toHaveBeenCalled();
   });
 
   it("previews selected Source Observation promotion without using the filter scope", async () => {
@@ -564,7 +657,11 @@ describe("source observation routes: review and control-plane reads", () => {
       eligible: 1,
       terminal: 1,
     });
-    expect(previewPromoteObservations).toHaveBeenCalledWith({ observationIds: ["obs_1", "obs_2"] });
+    expect(previewPromoteObservations).toHaveBeenCalledWith({
+      observationIds: ["obs_1", "obs_2"],
+      promoteAsDraft: false,
+      validationAfter: null,
+    });
     expect(previewPromoteObservationScope).not.toHaveBeenCalled();
   });
 });

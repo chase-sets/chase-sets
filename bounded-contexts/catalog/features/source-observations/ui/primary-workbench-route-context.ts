@@ -24,6 +24,7 @@ const canonicalKeys = new Set([
   "reviewLimit",
   "jobId",
   "promotionPreviewId",
+  "promoteAsDraft",
   "scopeRecordId",
   "returnPath",
 ]);
@@ -187,6 +188,7 @@ function routeContextFromLocation(
     reviewLimit: positiveIntParam(searchParams, "reviewLimit"),
     jobId: nullableParam(searchParams, "jobId"),
     promotionPreviewId: nullableParam(searchParams, "promotionPreviewId"),
+    promoteAsDraft: searchParams.get("promoteAsDraft") === "true",
     scopeRecordId: nullableParam(searchParams, "scopeRecordId"),
     returnPath: includeReturnPath ? sanitizeReturnPath(nullableParam(searchParams, "returnPath")) : null,
   };
@@ -239,6 +241,8 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   }
   setNullable(searchParams, "jobId", context.jobId);
   setNullable(searchParams, "promotionPreviewId", context.promotionPreviewId);
+  // Only the explicit true choice is emitted; false is the default and never a parameter.
+  setNullable(searchParams, "promoteAsDraft", context.promoteAsDraft === true ? "true" : null);
   setNullable(searchParams, "scopeRecordId", context.scopeRecordId ?? null);
   setNullable(searchParams, "returnPath", sanitizeReturnPath(context.returnPath));
 
