@@ -1,4 +1,6 @@
 import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
+// Load the server dependency before UI assertions start their render deadline.
+import "../../../support/request-support/setup-locations";
 import { Hono } from "hono";
 import { vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
