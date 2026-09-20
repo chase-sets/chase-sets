@@ -789,8 +789,9 @@ function prospectiveDecompositionFacts(acceptanceDiagnostics, verificationComman
   };
 }
 
-function exactNone(value) {
-  return /^none\.?$/i.test(value.trim());
+function exactNone(value, explicitForm) {
+  const normalized = value.trim();
+  return /^none\.?$/i.test(normalized) || normalized === explicitForm;
 }
 
 function fastReviewNotApplicable(value) {
@@ -810,7 +811,7 @@ function tier(value) {
 }
 
 function authorityProbeComplete(value) {
-  if (exactNone(value)) return true;
+  if (exactNone(value, "none — no acceptance criterion depends on an external authority.")) return true;
   const evidence = /https:\/\/\S+|`[^`]+`|\b(?:captured|fixture|artifact|probe output|workflow run)\b/i.test(value);
   const timing =
     /\b(?:before|during|after|at|when)\b.{0,80}\b(?:dispatch|queue|merge|run|request|event|webhook|lifecycle|implementation|acceptance)\b/i.test(
@@ -988,13 +989,19 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
     ]),
     rule(
       "ready-07-terms-declared",
-      glossary.length > 0 && (exactNone(glossary) || /GLOSSARY\.md|(?:^|\b)Terms?\s*:/i.test(glossary)),
+      glossary.length > 0 &&
+        (exactNone(glossary, "none — no new or renamed public names.") ||
+          /GLOSSARY\.md|(?:^|\b)Terms?\s*:/i.test(glossary)),
       ["GLOSSARY_IMPACT_UNDECLARED"],
     ),
     rule(
       "ready-08-authority-probe-timed",
       authorityProbeComplete(fields["External authority probe & evidence timing"]) &&
-        (!externalAuthorityDeclared || !exactNone(fields["External authority probe & evidence timing"])),
+        (!externalAuthorityDeclared ||
+          !exactNone(
+            fields["External authority probe & evidence timing"],
+            "none — no acceptance criterion depends on an external authority.",
+          )),
       ["AUTHORITY_PROBE_OR_TIMING_MISSING"],
     ),
     rule(

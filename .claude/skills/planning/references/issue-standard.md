@@ -57,11 +57,11 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   enumerated actions let the orchestrator batch a single operator session and
   dispatch operator-dependent work only into a signaled window.
 - **Glossary impact.** Name changed terms and the owning `GLOSSARY.md`, or
-  state `none`. The receipt proves that the declaration exists; the planning
+  state `none — no new or renamed public names.`. The receipt proves that the declaration exists; the planning
   pressure test still judges whether the terms actually conform.
 - **External authority probe & evidence timing.** Embed the captured probe or
   durable evidence link and name the lifecycle moment it proves, or state
-  `none` when no acceptance criterion depends on an external authority.
+  `none — no acceptance criterion depends on an external authority.`.
 - **Review packet seed.** Full-path work names invariants, likely failure
   modes, and omission-revealing evidence/probes. Fast-path work explicitly
   records `not applicable — fast path`.
