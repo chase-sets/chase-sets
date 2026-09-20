@@ -149,7 +149,6 @@ test.describe.serial("catalog admin scopes", () => {
       buffer: Buffer.from([header.join(","), ...rows].join("\r\n"), "utf8"),
     });
     await page.getByRole("button", { name: "Resolve held sets" }).click();
-    await expectPageOk(page, "/catalog/scopes/sync-batches");
     await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
 
     const resolvedTable = page.getByRole("table", { name: "Resolved held sets" });
@@ -165,7 +164,6 @@ test.describe.serial("catalog admin scopes", () => {
     );
 
     await page.getByRole("button", { name: "Preview resolved sets" }).click();
-    await expectPageOk(page, "/catalog/scopes/sync-batches");
     await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
     const previewIds = ((await page.locator('input[name="scopeRecordIds"]').last().getAttribute("value")) ?? "")
       .split(",")

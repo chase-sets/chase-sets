@@ -18,6 +18,7 @@ import {
   type DataColumn,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
+import type { FormEventHandler } from "react";
 import { catalogScopeProductDomains } from "../../scope-registry/domain/contract";
 import type { ScopeSyncBatchPreview } from "../domain/batch";
 import type { HeldSetResolution } from "../domain/held-set-export";
@@ -28,11 +29,15 @@ export function ScopeSyncBatchPage({
   heldSetResolution,
   batch,
   error,
+  heldSetSubmitting = false,
+  onHeldSetSubmit,
 }: Readonly<{
   preview: ScopeSyncBatchPreview | null;
   heldSetResolution: HeldSetResolution | null;
   batch: ScopeSyncBatchSnapshot | null;
   error: string | null;
+  heldSetSubmitting?: boolean;
+  onHeldSetSubmit?: FormEventHandler<HTMLFormElement>;
 }>) {
   return (
     <Page>
@@ -51,7 +56,7 @@ export function ScopeSyncBatchPage({
           description={error}
         />
       ) : null}
-      <HeldSetExportSection resolution={heldSetResolution} />
+      <HeldSetExportSection resolution={heldSetResolution} submitting={heldSetSubmitting} onSubmit={onHeldSetSubmit} />
       <PageSection title={t("catalog.features.scopeSyncBatches.ui.page.new.batch")}>
         <WorkbenchForm variant="surface" method="post" action="/catalog/scopes/sync-batches">
           <Stack gap={4}>
@@ -146,7 +151,15 @@ export function ScopeSyncBatchPage({
   );
 }
 
-function HeldSetExportSection({ resolution }: { resolution: HeldSetResolution | null }) {
+function HeldSetExportSection({
+  resolution,
+  submitting,
+  onSubmit,
+}: {
+  resolution: HeldSetResolution | null;
+  submitting: boolean;
+  onSubmit?: FormEventHandler<HTMLFormElement>;
+}) {
   const resolvedColumns: DataColumn<HeldSetResolution["resolved"][number]>[] = [
     {
       key: "pair",
@@ -232,6 +245,8 @@ function HeldSetExportSection({ resolution }: { resolution: HeldSetResolution | 
           method="post"
           action="/catalog/scopes/sync-batches"
           encType="multipart/form-data"
+          submitting={submitting}
+          onSubmit={onSubmit}
         >
           <Stack gap={3}>
             <TextInput
@@ -242,7 +257,7 @@ function HeldSetExportSection({ resolution }: { resolution: HeldSetResolution | 
               description={t("catalog.features.scopeSyncBatches.ui.heldSet.file.description")}
             />
             <Inline>
-              <Button type="submit" name="intent" value="resolve-held-sets">
+              <Button type="submit" name="intent" value="resolve-held-sets" loading={submitting}>
                 {t("catalog.features.scopeSyncBatches.ui.heldSet.resolve")}
               </Button>
             </Inline>

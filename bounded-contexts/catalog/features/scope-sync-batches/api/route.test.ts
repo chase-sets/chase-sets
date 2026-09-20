@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { scopeSyncBatchRoutes } from "./route";
 import { ScopeSyncBatchStalePreviewError } from "../domain/batch";
+import { heldSetExportContract } from "../domain/held-set-export";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test",
@@ -62,26 +63,53 @@ describe("Scope Sync Batch routes", () => {
     expect(resolveHeldSets).not.toHaveBeenCalled();
   });
 
-  it("refuses a 16777217-byte file before resolution", async () => {
+  it("accepts an exact 16777216-byte counted file stream", async () => {
+    const resolveHeldSets = vi.fn().mockResolvedValue({ resolved: [], unresolved: [], totals: {} });
+    const counted = countedFileRequest("http://local/resolve-held-sets", [
+      new Uint8Array(heldSetExportContract.maxBytes),
+      multipartFooter,
+    ]);
+
+    const response = await app({ resolveHeldSets }).request(counted.request);
+
+    expect(response.status).toBe(200);
+    expect(resolveHeldSets).toHaveBeenCalledOnce();
+    expect(resolveHeldSets.mock.calls[0]![0].bytes).toHaveLength(heldSetExportContract.maxBytes);
+    expect(counted.cancelled()).toBe(false);
+  });
+
+  it("cancels on file byte 16777217 before another read or resolution", async () => {
     const resolveHeldSets = vi.fn();
-    const form = new FormData();
-    form.set("file", new File([new Uint8Array(16_777_217)], "oversize.csv"));
-    const response = await app({ resolveHeldSets }).request("/resolve-held-sets", { method: "POST", body: form });
+    const counted = countedFileRequest("http://local/resolve-held-sets", [
+      new Uint8Array(heldSetExportContract.maxBytes),
+      concatBytes(new Uint8Array([120]), multipartFooter),
+      new Uint8Array([99]),
+    ]);
+
+    const response = await app({ resolveHeldSets }).request(counted.request);
+
     expect(response.status).toBe(413);
+    expect(counted.emitted()).toBe(3);
+    expect(counted.cancelled()).toBe(true);
     expect(resolveHeldSets).not.toHaveBeenCalled();
   });
 
   it("bounds an undeclared endless upload stream before resolution", async () => {
     const resolveHeldSets = vi.fn();
+    let pulls = 0;
     let cancelled = false;
-    const body = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        controller.enqueue(new Uint8Array(1_048_576));
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls += 1;
+          controller.enqueue(pulls === 1 ? multipartPrefix : new Uint8Array(1_048_576));
+        },
+        cancel() {
+          cancelled = true;
+        },
       },
-      cancel() {
-        cancelled = true;
-      },
-    });
+      { highWaterMark: 0 },
+    );
     const request = new Request("http://local/resolve-held-sets", {
       method: "POST",
       headers: { "content-type": "multipart/form-data; boundary=bounded" },
@@ -91,6 +119,7 @@ describe("Scope Sync Batch routes", () => {
 
     const response = await app({ resolveHeldSets }).request(request);
     expect(response.status).toBe(413);
+    expect(pulls).toBeLessThanOrEqual(19);
     expect(cancelled).toBe(true);
     expect(resolveHeldSets).not.toHaveBeenCalled();
   });
@@ -134,3 +163,48 @@ describe("Scope Sync Batch routes", () => {
     expect(retryUnit).toHaveBeenCalledWith(expect.objectContaining({ scopeRecordId: "scope-1" }));
   });
 });
+
+const multipartPrefix = new TextEncoder().encode(
+  '--bounded\r\nContent-Disposition: form-data; name="file"; filename="held.csv"\r\nContent-Type: text/csv\r\n\r\n',
+);
+const multipartFooter = new TextEncoder().encode("\r\n--bounded--\r\n");
+
+function countedFileRequest(url: string, fileAndFooterChunks: readonly Uint8Array[]) {
+  const chunks = [multipartPrefix, ...fileAndFooterChunks];
+  let emitted = 0;
+  let wasCancelled = false;
+  const body = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        const chunk = chunks[emitted];
+        if (!chunk) {
+          controller.close();
+          return;
+        }
+        emitted += 1;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        wasCancelled = true;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  return {
+    request: new Request(url, {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=bounded" },
+      body,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" }),
+    emitted: () => emitted,
+    cancelled: () => wasCancelled,
+  };
+}
+
+function concatBytes(left: Uint8Array, right: Uint8Array) {
+  const result = new Uint8Array(left.byteLength + right.byteLength);
+  result.set(left);
+  result.set(right, left.byteLength);
+  return result;
+}

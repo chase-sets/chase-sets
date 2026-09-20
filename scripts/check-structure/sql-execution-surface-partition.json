@@ -54,6 +54,7 @@
     "bounded-contexts/catalog/features/reference-data/read-model/queries.ts",
     "bounded-contexts/catalog/features/scope-registry/read-model/projection.ts",
     "bounded-contexts/catalog/features/scope-registry/read-model/queries.ts",
+    "bounded-contexts/catalog/features/scope-sync-batches/api/held-set-resolution.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/api/planner.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts",
     "bounded-contexts/catalog/features/scope-sync-state/read-model/queries.ts",
@@ -619,10 +620,12 @@
     "bounded-contexts/catalog/features/scope-registry/domain/contract.ts",
     "bounded-contexts/catalog/features/scope-registry/read-model/schema.ts",
     "bounded-contexts/catalog/features/scope-registry/ui/contracts.ts",
+    "bounded-contexts/catalog/features/scope-sync-batches/api/held-set-upload.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/api/route.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/api/runtime.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/api/worker.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/domain/batch.ts",
+    "bounded-contexts/catalog/features/scope-sync-batches/domain/held-set-export.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/read-model/schema.ts",
     "bounded-contexts/catalog/features/scope-sync-state/domain/state.ts",
     "bounded-contexts/catalog/features/scope-sync-state/read-model/schema.ts",
@@ -2493,7 +2496,7 @@
     "tailwind.config.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 275,
+    "count": 276,
     "fileList": [
       "bounded-contexts/auth/features/sessions/api/route.ts",
       "bounded-contexts/auth/support/ucp-support/oauth.ts",

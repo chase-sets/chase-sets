@@ -1,7 +1,7 @@
 export const heldSetExportContract = Object.freeze({
   maxBytes: 16_777_216,
   maxRows: 100_000,
-  multipartMaxBytes: 18_874_368,
+  multipartFramingMaxBytes: 65_536,
   fileField: "file",
   requiredHeaders: Object.freeze(["Product Line", "Set Name"] as const),
 } as const);
