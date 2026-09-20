@@ -16,11 +16,13 @@ export async function readHeldSetExportAdminUpload(
 }
 
 type ParsedMultipart = Readonly<{
-  bytes: Uint8Array;
+  bytes: ParserBytes;
   fields: Readonly<Record<string, string>>;
   fileName: string;
   fileContentType: string | null;
 }>;
+
+type ParserBytes = Uint8Array<ArrayBuffer>;
 
 type Part = Readonly<{
   name: string;
@@ -51,10 +53,10 @@ async function readHeldSetMultipart(request: Request, textFieldNames: readonly s
   const reader = body.getReader();
   const openingBoundary = encoder.encode(`--${boundary}`);
   const partBoundary = encoder.encode(`\r\n--${boundary}`);
-  const fileChunks: Uint8Array[] = [];
+  const fileChunks: ParserBytes[] = [];
   const fields: Record<string, string> = {};
   const seen = new Set<string>();
-  let buffer = new Uint8Array();
+  let buffer: ParserBytes = new Uint8Array();
   let ended = false;
   let wireBytes = 0;
   let framingBytes = 0;
@@ -92,11 +94,11 @@ async function readHeldSetMultipart(request: Request, textFieldNames: readonly s
     if (framing) countFraming(count);
     buffer = buffer.slice(count);
   };
-  const appendFile = (bytes: Uint8Array) => {
+  const appendFile = (bytes: Uint8Array<ArrayBufferLike>) => {
     if (fileBytes + bytes.byteLength > heldSetExportContract.maxBytes) {
       uploadTooLarge("Held-set export exceeds 16777216 bytes.");
     }
-    if (bytes.byteLength > 0) fileChunks.push(bytes.slice());
+    if (bytes.byteLength > 0) fileChunks.push(copyBytes(bytes));
     fileBytes += bytes.byteLength;
   };
 
@@ -121,16 +123,16 @@ async function readHeldSetMultipart(request: Request, textFieldNames: readonly s
       seen.add(part.name);
       consume(headerEnd + headerSeparator.byteLength);
 
-      const partChunks: Uint8Array[] = [];
+      const partChunks: ParserBytes[] = [];
       let partBytes = 0;
-      const appendPart = (bytes: Uint8Array) => {
+      const appendPart = (bytes: Uint8Array<ArrayBufferLike>) => {
         if (part.name === heldSetExportContract.fileField) {
           appendFile(bytes);
           return;
         }
         partBytes += bytes.byteLength;
         if (partBytes > maxTextFieldBytes) invalidUpload("Held-set upload field is too large.");
-        if (bytes.byteLength > 0) partChunks.push(bytes.slice());
+        if (bytes.byteLength > 0) partChunks.push(copyBytes(bytes));
         countFraming(bytes.byteLength);
       };
 
@@ -262,15 +264,14 @@ function findBoundary(
   return { kind: "absent" };
 }
 
-function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
-  if (left.byteLength === 0) return right;
+function concat(left: ParserBytes, right: Uint8Array<ArrayBufferLike>): ParserBytes {
   const result = new Uint8Array(left.byteLength + right.byteLength);
   result.set(left);
   result.set(right, left.byteLength);
   return result;
 }
 
-function join(chunks: readonly Uint8Array[], total: number): Uint8Array {
+function join(chunks: readonly Uint8Array<ArrayBufferLike>[], total: number): ParserBytes {
   const joined = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
@@ -278,6 +279,10 @@ function join(chunks: readonly Uint8Array[], total: number): Uint8Array {
     offset += chunk.byteLength;
   }
   return joined;
+}
+
+function copyBytes(bytes: Uint8Array<ArrayBufferLike>): ParserBytes {
+  return new Uint8Array(bytes);
 }
 
 function indexOf(bytes: Uint8Array, target: Uint8Array, from = 0): number {

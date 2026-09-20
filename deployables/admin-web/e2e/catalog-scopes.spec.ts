@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type TestInfo } from "@playwright/test";
+import { createPgPool, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { authenticateAdmin, expectAdminPageReady, expectPageOk, skipDeployedAdminE2e } from "./support/admin-e2e";
 
@@ -98,13 +99,14 @@ test.describe.serial("catalog admin scopes", () => {
 
   test("scope-sync-held-set-entry uploads, resolves, previews exact ids, and confirms @catalog-admin-integrations", async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(120_000);
     test.skip(skipDeployedAdminE2e, SKIP_REASON);
 
     await authenticateAdmin(page, "/catalog/scopes/sync-batches", "/access/sign-in");
     await expectPageOk(page, "/catalog/scopes/sync-batches");
     await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
+    await seedHeldSetScopeSyncScenario(testInfo);
 
     const header = [
       "TCGplayer Id",
@@ -151,8 +153,8 @@ test.describe.serial("catalog admin scopes", () => {
     await page.getByRole("button", { name: "Resolve held sets" }).click();
     await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
 
-    const resolvedTable = page.getByRole("table", { name: "Resolved held sets" });
-    const unresolvedTable = page.getByRole("table", { name: "Unresolved held sets" });
+    const resolvedTable = page.getByRole("table", { name: "Resolved held sets", exact: true });
+    const unresolvedTable = page.getByRole("table", { name: "Unresolved held sets", exact: true });
     await expect(resolvedTable).toBeVisible();
     await expect(unresolvedTable).toContainText("Pokemon Japan / Japanese Set");
     await expect(unresolvedTable).toContainText("product-line-unresolved");
@@ -174,3 +176,117 @@ test.describe.serial("catalog admin scopes", () => {
     await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
   });
 });
+
+const heldSetScopeSyncFixtures = [
+  {
+    scopeRecordId: "scope_e2e_held_set_magic_time_spiral",
+    productDomain: "magic",
+    scopeKind: "set",
+    unitKey: "tcgplayer:mtg:single-card:source-observation-import",
+    externalId: "e2e-held-set-magic-time-spiral",
+    label: "Time Spiral",
+  },
+  {
+    scopeRecordId: "scope_e2e_held_set_pokemon_scarlet_violet",
+    productDomain: "pokemon",
+    scopeKind: "expansion",
+    unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+    externalId: "e2e-held-set-pokemon-scarlet-violet",
+    label: "Scarlet & Violet",
+  },
+  {
+    scopeRecordId: "scope_e2e_held_set_yugioh_starter_yugi",
+    productDomain: "yugioh",
+    scopeKind: "set",
+    unitKey: "tcgplayer:yugioh:single-card:source-observation-import",
+    externalId: "e2e-held-set-yugioh-starter-yugi",
+    label: "Starter Deck: Yugi",
+  },
+  {
+    scopeRecordId: "scope_e2e_held_set_one_piece_romance_dawn",
+    productDomain: "one-piece",
+    scopeKind: "set",
+    unitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+    externalId: "e2e-held-set-one-piece-romance-dawn",
+    label: "Romance Dawn",
+  },
+] as const;
+
+async function seedHeldSetScopeSyncScenario(testInfo: TestInfo): Promise<void> {
+  if (process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true") return;
+
+  const catalogDatabaseUrl = testInfo.config.metadata.catalogDatabaseUrl;
+  if (typeof catalogDatabaseUrl !== "string" || catalogDatabaseUrl.length === 0) {
+    throw new Error("scope-sync-held-set-entry requires the Catalog E2E database target.");
+  }
+  const pool = createPgPool(catalogDatabaseUrl, { max: 1 });
+  try {
+    await withPgTransaction(pool, async (db) => {
+      for (const fixture of heldSetScopeSyncFixtures) {
+        await db.query(
+          `INSERT INTO catalog_scope_records (
+             scope_record_id, product_domain, scope_kind, reference_type_key, reference_record_id,
+             reference_record_key, name, lifecycle_status
+           ) VALUES ($1, $2, $3, $3, $4, $4, $5, 'active')
+           ON CONFLICT (scope_record_id) DO UPDATE SET
+             product_domain = EXCLUDED.product_domain,
+             scope_kind = EXCLUDED.scope_kind,
+             reference_type_key = EXCLUDED.reference_type_key,
+             reference_record_id = EXCLUDED.reference_record_id,
+             reference_record_key = EXCLUDED.reference_record_key,
+             name = EXCLUDED.name,
+             lifecycle_status = EXCLUDED.lifecycle_status`,
+          [
+            fixture.scopeRecordId,
+            fixture.productDomain,
+            fixture.scopeKind,
+            `reference-${fixture.scopeRecordId}`,
+            fixture.label,
+          ],
+        );
+        await db.query(
+          `INSERT INTO catalog_provider_scope_observations (
+             provider_key, unit_key, scope_kind, source_query_kind, language_code, external_id, label,
+             observation_hash, scan_id, scanned_at
+           ) VALUES ('tcgplayer', $1, $2, 'sets', 'en', $3, $4, $5, 'scan-e2e-held-set-scope-sync', now())
+           ON CONFLICT (provider_key, unit_key, scope_kind, language_code, external_id) DO UPDATE SET
+             source_query_kind = EXCLUDED.source_query_kind,
+             label = EXCLUDED.label,
+             observation_hash = EXCLUDED.observation_hash,
+             scan_id = EXCLUDED.scan_id,
+             scanned_at = EXCLUDED.scanned_at`,
+          [fixture.unitKey, fixture.scopeKind, fixture.externalId, fixture.label, `hash-${fixture.externalId}`],
+        );
+        await db.query(
+          `INSERT INTO catalog_provider_scope_mappings (
+             mapping_id, scope_record_id, provider_key, unit_key, set_id, set_name,
+             confidence, review_status, last_actor, last_reason, policy_version, reviewed_at
+           ) VALUES ($1, $2, 'tcgplayer', $3, $4, $5, 'exact', 'accepted',
+                     'scope-sync-held-set-entry', 'E2E scenario fixture', 'provider-scope-mapping-v1', now())
+           ON CONFLICT (mapping_id) DO UPDATE SET
+             scope_record_id = EXCLUDED.scope_record_id,
+             provider_key = EXCLUDED.provider_key,
+             unit_key = EXCLUDED.unit_key,
+             set_id = EXCLUDED.set_id,
+             set_name = EXCLUDED.set_name,
+             confidence = EXCLUDED.confidence,
+             review_status = EXCLUDED.review_status,
+             last_actor = EXCLUDED.last_actor,
+             last_reason = EXCLUDED.last_reason,
+             policy_version = EXCLUDED.policy_version,
+             reviewed_at = EXCLUDED.reviewed_at,
+             updated_at = now()`,
+          [
+            `mapping-${fixture.scopeRecordId}`,
+            fixture.scopeRecordId,
+            fixture.unitKey,
+            fixture.externalId,
+            fixture.label,
+          ],
+        );
+      }
+    });
+  } finally {
+    await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
+  }
+}

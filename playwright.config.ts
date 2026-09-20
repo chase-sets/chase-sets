@@ -49,6 +49,7 @@ const projects = [
 
 export default defineConfig({
   testDir: ".",
+  metadata: { catalogDatabaseUrl: sandbox.contextDatabaseUrls.catalog },
   grepInvert: skipWebServer ? /@browser-e2e-seed/ : undefined,
   outputDir: "artifacts/playwright/test-results",
   fullyParallel: true,
