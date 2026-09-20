@@ -271,15 +271,6 @@ function workflowStep(source, stepName) {
   return next === -1 ? source.slice(start) : source.slice(start, next);
 }
 
-function workflowStepBeforeJob(source, stepName, nextJobName) {
-  const start = source.indexOf(`- name: ${stepName}`);
-  expect(start).not.toBe(-1);
-
-  const end = source.indexOf(`\n  ${nextJobName}:`, start + 1);
-  expect(end).not.toBe(-1);
-  return source.slice(start, end);
-}
-
 function workflowEnvironmentExpression(step, variableName) {
   const match = step.match(new RegExp(`^\\s+${variableName}:\\s+(.+)$`, "m"));
   expect(match).not.toBeNull();
@@ -929,11 +920,8 @@ describe("DigitalOcean platform configuration", () => {
 
   it("captures served-not-public route and invitation-gate smoke evidence", () => {
     const smoke = workflowStep(platformProductionWorkflow, "Smoke served marketplace invitation gate");
-    const smokeUpload = workflowStepBeforeJob(
-      platformProductionWorkflow,
-      "Upload served marketplace smoke evidence",
-      "dispatch-ephemeral-verification",
-    );
+    const productionDeploy = workflowJob(platformProductionWorkflow, "deploy-production");
+    const smokeUpload = workflowStep(productionDeploy, "Upload served marketplace smoke evidence");
     const releaseHealthUpload = workflowStep(platformProductionWorkflow, "Upload release health summary");
     const postureGate =
       "if: always() && env.SHOULD_DEPLOY != 'false' && env.TF_VAR_production_marketplace_served == 'true' && env.TF_VAR_production_marketplace_public_enabled != 'true'";
