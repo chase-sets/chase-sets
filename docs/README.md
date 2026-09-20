@@ -153,6 +153,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Catalog Asset Storage](./runbooks/catalog-asset-storage.md): owned storage for provider-fed catalog imagery.
 - [Catalog Provider Integration Profiles](./runbooks/catalog-provider-integration-profiles.md): profile activation, rollback, retirement, and bootstrap failure response.
 - [TCGplayer Automation Operations](./runbooks/tcgplayer-automation-operations.md): provider cookie handling, throttling, redaction, retention, and recovery for the automation-app client.
+- [Channels Pilot Operations](./runbooks/channels-pilot-operations.md): TCGplayer phase-1 manual-sync round trip, pause/resume, operator kill switch, degraded manual mode, no-redelivery rule, and evidence capture.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, rebuild triage, and poison-event/blocked-stream repair.
 - [Postgres Slow Query Digest](./runbooks/postgres-slow-query-digest.md): support-safe `pg_stat_statements` aggregate evidence, interpretation, redaction exclusions, and extension ownership boundary.
