@@ -47,7 +47,8 @@ connection ids, and state names are not seller-identifying and may be logged.
   `bounded-contexts/channels/features/manual-sync/domain/contracts.ts`
   (`resolveManualSyncActions`).
 - Manual-sync runtime behavior:
-  `bounded-contexts/channels/features/manual-sync/api/runtime.ts`.
+  `bounded-contexts/channels/features/manual-sync/api/runtime.ts`
+  (`buildPanel`, `assertManualRunAction`).
 - Operator evidence: the `phase1WatchLog` record (#7728, #7729).
 
 ## TCGplayer Phase 1
@@ -123,10 +124,11 @@ exposes the actions gated by `resolveManualSyncActions` in
 `bounded-contexts/channels/features/manual-sync/domain/contracts.ts`, keyed
 on the run's current state:
 
-1. **Compose** (`compose`, run state `composed`): builds a new outbound
+1. **Compose** (`compose`, no run yet): builds a new outbound
    reservation into a run.
-2. **Claim and download** (`download`, run state `claimed`): claims the
-   reservation and downloads the CSV export, posted to
+2. **Claim and download** (`download`, run state `composed`): claims the
+   reservation as a side effect of the download call — the run lands in
+   `claimed` only afterward — and downloads the CSV export, posted to
    `/account/channels/${connectionId}/manual-sync/download`.
 3. **Seller Portal Import Prices**: manual, off-platform. Upload the
    downloaded CSV in the TCGplayer Seller Portal price-import flow. Chase
