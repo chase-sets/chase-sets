@@ -14,11 +14,11 @@ const candidateHookUrl = pathToFileURL(
 ).href;
 const expectedCallers = Object.freeze([
   ["scripts/generate-agent-connector-packaging.mjs", "extension", 151, 297],
-  ["scripts/representative-snapshot.mjs", "extension", 404, 1575],
+  ["scripts/representative-snapshot.mjs", "extension", 404, 1580],
   ["scripts/run-catalog-observation-pack-capture.mjs", "extension", 165, 386],
   ["scripts/run-catalog-production-completion-report.mjs", "extension", 8, 12],
   ["scripts/run-catalog-real-provider-proof.mjs", "extension", 203, 529],
-  ["scripts/verify-observation-pack.mjs", "extension", 401, 1565],
+  ["scripts/verify-observation-pack.mjs", "extension", 401, 1570],
   ["scripts/discovery-search-embedding-backfill.mjs", "source", 110, 209],
   ["scripts/discovery-search-relevance-embeddings.mjs", "source", 2, 1],
   ["scripts/discovery-search-relevance.mjs", "source", 12, 14],
