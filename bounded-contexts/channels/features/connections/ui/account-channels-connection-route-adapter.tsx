@@ -1,5 +1,4 @@
 import { t } from "@chase-sets/localization";
-import { readConnectionSetupLocations } from "../../../support/request-support/setup-locations";
 import { OperationalStatusBanner, Stack } from "@chase-sets/design-system";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -65,7 +64,7 @@ function required(value: string | undefined): string {
   return value;
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs): Promise<RouteData> {
+export async function loader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">): Promise<RouteData> {
   const actor = await requireActorFromAuthApi({ request, permission: "channels.view" });
   const connectionId = required(params.connectionId);
   const connectionApi = createChannelsConnectionsRequestApiClient(request);
@@ -74,6 +73,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
   let setupLocations: ConnectionSetupLocations = { kind: "loaded", items: [] };
   if (connection.status === "pending-setup" && actor.permissions.includes("channels.manage")) {
     try {
+      const { readConnectionSetupLocations } = await import("../../../support/request-support/setup-locations");
       setupLocations = {
         kind: "loaded",
         items: await readConnectionSetupLocations(request),
@@ -143,41 +143,43 @@ async function readAuxiliary<T>(response: Promise<Response>): Promise<AuxiliaryR
   }
 }
 
-const connectionAction = defineFormAction({
-  authorization: { permission: "channels.manage" },
-  intents: {
-    activate: async ({ request, params, formData }) => ({
-      kind: "applied" as const,
-      connection: await createConnectionSetupRequestApiClient(request).activate(
-        required(params.connectionId),
-        formData.getAll("storageLocationIds").map(String),
-      ),
+function connectionAction(args: ActionFunctionArgs) {
+  return defineFormAction({
+    authorization: { permission: "channels.manage" },
+    intents: {
+      activate: async ({ request, params, formData }) => ({
+        kind: "applied" as const,
+        connection: await createConnectionSetupRequestApiClient(request).activate(
+          required(params.connectionId),
+          formData.getAll("storageLocationIds").map(String),
+        ),
+      }),
+      pause: async ({ request, params }) => ({
+        kind: "applied" as const,
+        connection: await createChannelsConnectionsRequestApiClient(request).pauseConnection(
+          required(params.connectionId),
+        ),
+      }),
+      resume: async ({ request, params }) => ({
+        kind: "applied" as const,
+        connection: await createChannelsConnectionsRequestApiClient(request).resumeConnection(
+          required(params.connectionId),
+        ),
+      }),
+      disconnect: async ({ request, params }) => ({
+        kind: "applied" as const,
+        connection: await createChannelsConnectionsRequestApiClient(request).disconnectConnection(
+          required(params.connectionId),
+        ),
+      }),
+    },
+    onUnknownIntent: () => ({ kind: "command-error" as const, message: t("channels.connections.action.unknown") }),
+    onError: (error) => ({
+      kind: "command-error" as const,
+      message: error instanceof Error ? error.message : t("channels.connections.action.failed"),
     }),
-    pause: async ({ request, params }) => ({
-      kind: "applied" as const,
-      connection: await createChannelsConnectionsRequestApiClient(request).pauseConnection(
-        required(params.connectionId),
-      ),
-    }),
-    resume: async ({ request, params }) => ({
-      kind: "applied" as const,
-      connection: await createChannelsConnectionsRequestApiClient(request).resumeConnection(
-        required(params.connectionId),
-      ),
-    }),
-    disconnect: async ({ request, params }) => ({
-      kind: "applied" as const,
-      connection: await createChannelsConnectionsRequestApiClient(request).disconnectConnection(
-        required(params.connectionId),
-      ),
-    }),
-  },
-  onUnknownIntent: () => ({ kind: "command-error" as const, message: t("channels.connections.action.unknown") }),
-  onError: (error) => ({
-    kind: "command-error" as const,
-    message: error instanceof Error ? error.message : t("channels.connections.action.failed"),
-  }),
-});
+  })(args);
+}
 
 function driftSubmission(form: FormData, connectionId: string): DriftSubmission | null {
   const intent = String(form.get("intent") ?? "");

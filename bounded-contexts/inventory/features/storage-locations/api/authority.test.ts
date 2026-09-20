@@ -19,19 +19,20 @@ describe("Storage Location Authority", () => {
     { accountId: "owner", storageLocationId: "location", revision: 1 },
     { accountId: "", storageLocationId: "location" },
   ])("closes authority input before any stream read: %j", async (input) => {
-    const loadStream = vi.fn();
-    stores.current = { loadStream };
+    const readStream = vi.fn();
+    stores.current = { readStream };
     const query = vi.fn();
     const authority = createStorageLocationAuthority({ query, connect: query });
     await expect(authority.resolveStorageLocationAuthority(input as never)).rejects.toThrow(
       "Invalid storage location authority input.",
     );
-    expect(loadStream).not.toHaveBeenCalled();
+    expect(readStream).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
   });
 
   it("reads ownership, archive state and committed revision without consulting a projection", async () => {
     const memory = createInMemoryEventStore();
+    const readStream = vi.spyOn(memory.eventStore, "readStream");
     stores.current = memory.eventStore;
     const query = vi.fn(async (): Promise<never> => {
       throw new Error("projection must not be read");
@@ -62,12 +63,15 @@ describe("Storage Location Authority", () => {
     expect(
       await authority.resolveStorageLocationAuthority({ accountId: "owner", storageLocationId: "location" }),
     ).toEqual({ accountId: "owner", storageLocationId: "location", revision: 1, status: "active" });
+    expect(readStream).toHaveBeenCalledTimes(1);
     expect(
       await authority.resolveStorageLocationAuthority({ accountId: "foreign", storageLocationId: "location" }),
     ).toBeNull();
+    expect(readStream).toHaveBeenCalledTimes(2);
     expect(
       await authority.resolveStorageLocationAuthority({ accountId: "owner", storageLocationId: "missing" }),
     ).toBeNull();
+    expect(readStream).toHaveBeenCalledTimes(3);
     await memory.eventStore.appendToStream({
       streamId: "inventory.storage-location-location",
       expectedVersion: 1,
@@ -77,6 +81,7 @@ describe("Storage Location Authority", () => {
     expect(
       await authority.resolveStorageLocationAuthority({ accountId: "owner", storageLocationId: "location" }),
     ).toEqual({ accountId: "owner", storageLocationId: "location", revision: 2, status: "retired" });
+    expect(readStream).toHaveBeenCalledTimes(4);
     expect(query).not.toHaveBeenCalled();
   });
 

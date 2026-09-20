@@ -5,6 +5,7 @@ import {
   Card,
   CheckboxGroup,
   HiddenInput,
+  Inline,
   LinkButton,
   MarketplaceNotice,
   Page,
@@ -110,7 +111,7 @@ export function ChannelConnectionListPage({
       ) : null}
       <PageSection title={t("channels.connections.section.title")}>
         {state.kind === "ready" ? (
-          <Stack direction="row" gap={2}>
+          <Inline gap={2} wrap>
             {listFilters.map((filter) => (
               <LinkButton
                 key={filter.status}
@@ -121,7 +122,7 @@ export function ChannelConnectionListPage({
                 {t(filter.labelKey)}
               </LinkButton>
             ))}
-          </Stack>
+          </Inline>
         ) : null}
         {renderListState(state)}
       </PageSection>

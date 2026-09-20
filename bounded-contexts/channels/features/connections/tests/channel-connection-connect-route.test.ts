@@ -157,6 +157,35 @@ describe("channel-connection-connect-route", () => {
       testContext,
     );
     expect(test.memory.streams.get(`channels.connection-${connection.connectionId}`)).toHaveLength(2);
+    expect(test.authorityCalls.storage).toBe(2);
+  });
+
+  it("loads each selected authority once per request and reads again for a later activation and resume", async () => {
+    let revision = 1;
+    const resolve = vi.fn(
+      async ({ accountId, storageLocationId }: { accountId: string; storageLocationId: string }) => ({
+        accountId,
+        storageLocationId,
+        revision,
+        status: "active" as const,
+      }),
+    );
+    const test = harness({ storageLocationAuthority: { resolve } });
+    const first = await test.create();
+    const second = await test.create();
+    const body = { storageLocationIds: ["location_1", "location_2"] };
+    expect((await test.post(`/${first.connectionId}/activate`, body)).status).toBe(200);
+    expect(resolve).toHaveBeenCalledTimes(2);
+    revision = 2;
+    expect((await test.post(`/${second.connectionId}/activate`, body)).status).toBe(200);
+    expect(resolve).toHaveBeenCalledTimes(4);
+    expect(test.activate.mock.calls[1]?.[0].bindings).toEqual([
+      { storageLocationId: "location_1", revision: 2 },
+      { storageLocationId: "location_2", revision: 2 },
+    ]);
+    expect((await test.post(`/${first.connectionId}/pause`, undefined)).status).toBe(200);
+    expect((await test.post(`/${first.connectionId}/resume`, undefined)).status).toBe(409);
+    expect(resolve).toHaveBeenCalledTimes(5);
   });
 
   it.each([

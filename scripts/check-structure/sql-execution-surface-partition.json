@@ -922,6 +922,8 @@
     "bounded-contexts/channels/features/connection-health/domain/policy.ts",
     "bounded-contexts/channels/features/connection-health/domain/reducer.ts",
     "bounded-contexts/channels/features/connection-health/read-model/schema.ts",
+    "bounded-contexts/channels/features/connections/api/policy-authority.ts",
+    "bounded-contexts/channels/features/connections/api/providers.ts",
     "bounded-contexts/channels/features/connections/api/route.ts",
     "bounded-contexts/channels/features/connections/api/runtime.ts",
     "bounded-contexts/channels/features/connections/domain/codec.ts",
@@ -929,6 +931,7 @@
     "bounded-contexts/channels/features/connections/domain/domain.ts",
     "bounded-contexts/channels/features/connections/domain/validation.ts",
     "bounded-contexts/channels/features/connections/read-model/schema.ts",
+    "bounded-contexts/channels/features/connections/ui/setup-api-client.ts",
     "bounded-contexts/channels/features/connector-client/domain/derive-chrome-extension-id.ts",
     "bounded-contexts/channels/features/connector-client/domain/identity.ts",
     "bounded-contexts/channels/features/listing-composition/api/route.ts",
@@ -982,6 +985,7 @@
     "bounded-contexts/channels/server.ts",
     "bounded-contexts/channels/support/request-support/api-client.ts",
     "bounded-contexts/channels/support/request-support/marketplace-channel-inbound-clamp.ts",
+    "bounded-contexts/channels/support/request-support/setup-locations.ts",
     "bounded-contexts/channels/support/runtime-support/services.ts",
     "bounded-contexts/checkout/api.ts",
     "bounded-contexts/checkout/client.ts",
@@ -1473,6 +1477,7 @@
     "bounded-contexts/inventory/features/restock-decisions/api/route.ts",
     "bounded-contexts/inventory/features/restock-decisions/domain/domain.ts",
     "bounded-contexts/inventory/features/restock-decisions/read-model/schema.ts",
+    "bounded-contexts/inventory/features/storage-locations/api/authority.ts",
     "bounded-contexts/inventory/features/storage-locations/api/contracts.ts",
     "bounded-contexts/inventory/features/storage-locations/api/route.ts",
     "bounded-contexts/inventory/features/storage-locations/api/runtime.ts",
@@ -2496,7 +2501,7 @@
     "tailwind.config.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 276,
+    "count": 277,
     "fileList": [
       "bounded-contexts/auth/features/sessions/api/route.ts",
       "bounded-contexts/auth/support/ucp-support/oauth.ts",

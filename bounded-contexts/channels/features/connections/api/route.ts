@@ -9,6 +9,7 @@ import {
 } from "../domain/contracts";
 import { assertClosedRecord, assertOpaqueId, assertProviderKey, assertSafeInteger } from "../domain/validation";
 import { closePublicChannelConnection, toPublicChannelConnection } from "../read-model/queries";
+import { resolveConnectionStorageLocation, withConnectionAuthoritySnapshot } from "./runtime";
 
 export type ChannelConnectionRouteOptions = Readonly<{
   deploymentEnvironment?: DeploymentEnvironment;
@@ -38,44 +39,49 @@ export function channelConnectionRoutes(
     }
   });
 
-  app.post("/:id/activate", async (c) => {
-    try {
-      const body: unknown = await c.req.json().catch(() => null);
-      assertClosedRecord(body, ["storageLocationIds"], "activate request");
-      if (!Array.isArray(body.storageLocationIds) || body.storageLocationIds.length > 200) {
-        throw new ChannelConnectionError("invalid-input");
-      }
-      const ids: string[] = [];
-      for (const id of body.storageLocationIds) {
-        assertOpaqueId(id, "storageLocationId");
-        if (ids.includes(id)) throw new ChannelConnectionError("invalid-input");
-        ids.push(id);
-      }
-      const input = { accountId: c.get("actor").accountId, connectionId: c.req.param("id") };
-      if (!(await services.getConnection(input))) throw new ChannelConnectionError("connection-not-found");
-      const bindings = [];
-      for (const storageLocationId of ids) {
-        const current = await options.storageLocationAuthority
-          ?.resolve({ accountId: input.accountId, storageLocationId })
-          .catch(() => null);
-        if (!current) throw new ChannelConnectionError("binding-not-current");
-        assertClosedRecord(current, ["accountId", "storageLocationId", "revision", "status"], "storage authority");
-        assertSafeInteger(current.revision, "storage revision");
-        if (
-          current.accountId !== input.accountId ||
-          current.storageLocationId !== storageLocationId ||
-          current.status !== "active"
-        ) {
-          throw new ChannelConnectionError("binding-not-current");
+  app.post("/:id/activate", (c) =>
+    withConnectionAuthoritySnapshot(async () => {
+      try {
+        const body: unknown = await c.req.json().catch(() => null);
+        assertClosedRecord(body, ["storageLocationIds"], "activate request");
+        if (!Array.isArray(body.storageLocationIds) || body.storageLocationIds.length > 200) {
+          throw new ChannelConnectionError("invalid-input");
         }
-        bindings.push({ storageLocationId, revision: current.revision });
+        const ids: string[] = [];
+        for (const id of body.storageLocationIds) {
+          assertOpaqueId(id, "storageLocationId");
+          if (ids.includes(id)) throw new ChannelConnectionError("invalid-input");
+          ids.push(id);
+        }
+        const input = { accountId: c.get("actor").accountId, connectionId: c.req.param("id") };
+        if (!(await services.getConnection(input))) throw new ChannelConnectionError("connection-not-found");
+        const bindings = [];
+        for (const storageLocationId of ids) {
+          const current = options.storageLocationAuthority
+            ? await resolveConnectionStorageLocation(options.storageLocationAuthority, {
+                accountId: input.accountId,
+                storageLocationId,
+              }).catch(() => null)
+            : null;
+          if (!current) throw new ChannelConnectionError("binding-not-current");
+          assertClosedRecord(current, ["accountId", "storageLocationId", "revision", "status"], "storage authority");
+          assertSafeInteger(current.revision, "storage revision");
+          if (
+            current.accountId !== input.accountId ||
+            current.storageLocationId !== storageLocationId ||
+            current.status !== "active"
+          ) {
+            throw new ChannelConnectionError("binding-not-current");
+          }
+          bindings.push({ storageLocationId, revision: current.revision });
+        }
+        const result = await services.activateChannelConnection({ ...input, bindings }, c.get("context"));
+        return c.json(toPublicChannelConnection(result.state));
+      } catch (error) {
+        return routeError(error);
       }
-      const result = await services.activateChannelConnection({ ...input, bindings }, c.get("context"));
-      return c.json(toPublicChannelConnection(result.state));
-    } catch (error) {
-      return routeError(error);
-    }
-  });
+    }),
+  );
 
   app.get("/", async (c) => {
     try {

@@ -23,7 +23,7 @@ describe("channels-services-production-ports", () => {
       "deployables/platform-api/src/admin-qa-actor-fixtures.ts",
       "deployables/platform-api/src/representative-commerce-state.ts",
     ]) {
-      expect(source(file)).toContain("createPlatformApiHost({");
+      expect(source(file)).toMatch(/\bcreatePlatformApiHost\s*\(\{/);
     }
     const module = source("bounded-contexts/channels/index.ts");
     expect(module).toContain("policyAuthority: ports.policyAuthority ?? createConnectionPolicyAuthority(policies)");
@@ -33,7 +33,19 @@ describe("channels-services-production-ports", () => {
     expect(seed).not.toContain("activateChannelConnection(");
   });
 
-  it("withholding the Inventory pool gives binding-not-current, not a throw or silent activation", async () => {
+  it("records the production premise: removing the Inventory pool also removes the required sale recorder", () => {
+    const unavailable = async (): Promise<never> => {
+      throw new Error("not reached");
+    };
+    expect(() =>
+      Reflect.apply(channelsModule.createServices, undefined, [
+        { query: unavailable, connect: unavailable },
+        { storageLocationAuthority: { resolve: async () => null } },
+      ]),
+    ).toThrow("Channels reconciliation requires the typed Inventory channelSaleRecorder host port.");
+  });
+
+  it("withholding storage authority from a constructed Channels service gives binding-not-current and zero events", async () => {
     const unavailable = async (): Promise<never> => {
       throw new Error("no Inventory pool");
     };

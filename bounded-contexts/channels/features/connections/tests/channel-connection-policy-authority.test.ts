@@ -7,15 +7,21 @@ const input = { accountId: "account", connectionId: "connection", policyKey: tcg
 
 describe("channel-connection-policy-authority", () => {
   function policies() {
+    const resolution = vi.fn<PolicyRuntime["resolvePolicy"]>();
+    const resolvePolicy: PolicyRuntime["resolvePolicy"] = async (definition, params) => ({
+      ...(await resolution(definition, params)),
+      value: definition.defaultValue,
+    });
     return {
-      resolvePolicy: vi.fn<PolicyRuntime["resolvePolicy"]>(),
+      resolvePolicy,
+      resolution,
       getPolicyDocument: vi.fn<PolicyRuntime["getPolicyDocument"]>(),
     };
   }
 
   it("reports compiled fallback revision zero as complete without reading a document", async () => {
     const port = policies();
-    port.resolvePolicy.mockResolvedValue({
+    port.resolution.mockResolvedValue({
       policyKey: input.policyKey,
       documentId: null,
       value: {},
@@ -29,13 +35,13 @@ describe("channel-connection-policy-authority", () => {
       revision: 0,
       status: "complete",
     });
-    expect(port.resolvePolicy).toHaveBeenCalledWith(tcgplayerStagedImportPolicy);
+    expect(port.resolution).toHaveBeenCalledWith(tcgplayerStagedImportPolicy, undefined);
     expect(port.getPolicyDocument).not.toHaveBeenCalled();
   });
 
   it("reports stored history length, not a made-up resolver revision", async () => {
     const port = policies();
-    port.resolvePolicy.mockResolvedValue({
+    port.resolution.mockResolvedValue({
       policyKey: input.policyKey,
       documentId: "document",
       value: {},
@@ -80,7 +86,7 @@ describe("channel-connection-policy-authority", () => {
 
   it.each(["resolver", "document", "missing", "history"])("fails closed for %s failure", async (kind) => {
     const port = policies();
-    port.resolvePolicy.mockResolvedValue({
+    port.resolution.mockResolvedValue({
       policyKey: input.policyKey,
       documentId: "document",
       value: {},
@@ -89,7 +95,7 @@ describe("channel-connection-policy-authority", () => {
       effectiveUntil: null,
       resolvedAt: "2026-09-20T00:00:00Z",
     });
-    if (kind === "resolver") port.resolvePolicy.mockRejectedValue(new Error("unavailable"));
+    if (kind === "resolver") port.resolution.mockRejectedValue(new Error("unavailable"));
     if (kind === "document") port.getPolicyDocument.mockRejectedValue(new Error("unavailable"));
     if (kind === "missing") port.getPolicyDocument.mockResolvedValue(null);
     expect(await createConnectionPolicyAuthority(port).resolve(input)).toEqual({

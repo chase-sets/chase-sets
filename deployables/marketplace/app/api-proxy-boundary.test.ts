@@ -39,4 +39,10 @@ describe("marketplace host API route registry (#5145)", () => {
     // proxy config -- the ordinary customer API surface is still forwarded.
     expect(proxyPaths).toEqual(expect.arrayContaining(["/api/marketplace", "/api/auth"]));
   });
+
+  it("forwards seller channel requests to the API instead of returning the web fallback document", async () => {
+    const { default: viteConfig } = await import("../vite.config");
+    expect(viteConfig.server?.proxy?.["/api/channels"]).toEqual(viteConfig.server?.proxy?.["/api/marketplace"]);
+    expect(viteConfig.server?.proxy?.["/api/channels"]).toMatchObject({ changeOrigin: true });
+  });
 });
