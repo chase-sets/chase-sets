@@ -22,5 +22,12 @@ export default function ScopeSyncBatchesRoute() {
     const timer = window.setInterval(() => revalidator.revalidate(), 2_000);
     return () => window.clearInterval(timer);
   }, [batch, revalidator]);
-  return <ScopeSyncBatchPage preview={actionData?.preview ?? null} batch={batch} error={actionData?.error ?? null} />;
+  return (
+    <ScopeSyncBatchPage
+      preview={actionData?.preview ?? null}
+      heldSetResolution={actionData?.heldSetResolution ?? null}
+      batch={batch}
+      error={actionData?.error ?? null}
+    />
+  );
 }

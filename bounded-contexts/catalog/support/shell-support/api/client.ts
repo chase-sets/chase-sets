@@ -2036,6 +2036,11 @@ export function createCatalogApiClient({
     async previewScopeSyncBatch<T>(input: unknown): Promise<T> {
       return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/preview", input);
     },
+    async resolveHeldSetExport<T>(file: File): Promise<T> {
+      const formData = new FormData();
+      formData.set("file", file);
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/resolve-held-sets", formData);
+    },
     async confirmScopeSyncBatch<T>(input: unknown): Promise<T> {
       return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/confirm", input);
     },
@@ -2094,8 +2099,11 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async getUnmappedScopeInbox<T>(limit?: number): Promise<T> {
-      const search = limit ? `?limit=${encodeURIComponent(String(limit))}` : "";
+    async getUnmappedScopeInbox<T>(options: { limit?: number; productDomain?: string } = {}): Promise<T> {
+      const query = new URLSearchParams();
+      if (options.limit) query.set("limit", String(options.limit));
+      if (options.productDomain) query.set("productDomain", options.productDomain);
+      const search = query.size > 0 ? `?${query.toString()}` : "";
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/provider-scope-mappings/inbox${search}`, {
         method: "GET",
         headers: headersToRecord(headers),
@@ -2569,10 +2577,11 @@ async function scopeSyncBatchRequest<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  const multipart = body instanceof FormData;
   const response = await fetch(`${baseUrl.replace(/\/$/, "")}/scope-sync-batches${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...headersToRecord(headers) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    headers: { ...(multipart ? {} : { "content-type": "application/json" }), ...headersToRecord(headers) },
+    ...(body === undefined ? {} : { body: multipart ? body : JSON.stringify(body) }),
   });
   return parseJsonResponse<T>(response);
 }

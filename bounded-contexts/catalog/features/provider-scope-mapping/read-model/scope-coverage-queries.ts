@@ -67,9 +67,14 @@ export type ProviderScopeMappingWithScopeRow = Readonly<{
  */
 export async function listUnmappedScopeInboxRows(
   db: PgQueryable,
-  params: Readonly<{ limit?: number }> = {},
+  params: Readonly<{ limit?: number; productDomain?: CatalogScopeProductDomain }> = {},
 ): Promise<readonly ProviderScopeMappingWithScopeRow[]> {
   const limit = normalizePositiveInt(params.limit, 1000);
+  const values: unknown[] = [];
+  const productDomainCondition = params.productDomain
+    ? `AND r.product_domain = $${values.push(params.productDomain)}`
+    : "";
+  const limitParameter = `$${values.push(limit)}`;
   const result = await db.query<ProviderScopeMappingWithScopeRow>(
     `SELECT
        m.mapping_id,
@@ -100,9 +105,10 @@ export async function listUnmappedScopeInboxRows(
      FROM catalog_provider_scope_mappings m
      JOIN catalog_scope_records r ON r.scope_record_id = m.scope_record_id
      WHERE m.review_status = 'proposed'
+       ${productDomainCondition}
      ORDER BY m.proposed_at ASC
-     LIMIT $1`,
-    [limit],
+     LIMIT ${limitParameter}`,
+    values,
   );
 
   return result.rows;

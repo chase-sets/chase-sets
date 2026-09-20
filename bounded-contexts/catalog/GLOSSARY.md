@@ -24,6 +24,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Scope Coverage`
 - `Scope Sync`
 - `Scope Sync Batch`
+- `Held-Set Export`
 - `Production Catalog Completion Report`
 - `Provider Participation Preview`
 - `Product Asset Set`
@@ -123,6 +124,10 @@ A `Provider Scope Mapping` is a reviewed, Catalog-owned mapping from provider vo
 A `Scope Sync Batch` is Catalog-owned orchestration over existing Scope Sync Runs. Its preview resolves active Catalog Scope Records, accepted or auto-accepted Provider Scope Mappings, active production-capable Provider Integration Profile units, rollout and credential readiness, provider transport authority, and request or credit evidence. Confirmation re-resolves that evidence and fails closed when its plan fingerprint changes.
 
 The batch advances a bounded number of scope units per leased worker turn. It never fans out the complete catalog in one request and never creates a provider-specific execution shortcut. Completed units remain completed through cancel, resume, and failed-unit retry; an unchanged settled fingerprint is a fast no-op.
+
+## Held-Set Export
+
+A `Held-Set Export` is a seller's TCGplayer Live CSV used by a Catalog operator to select Scope Sync Batch scope. Catalog reads only the exact `Product Line` and `Set Name` columns, resolves their distinct normalized pairs through TCGplayer single-card units and accepted Provider Scope Mappings, and discards the upload after the read-only response.
 
 ## Production Catalog Completion Report
 

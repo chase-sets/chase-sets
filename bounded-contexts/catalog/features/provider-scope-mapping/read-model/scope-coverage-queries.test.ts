@@ -33,6 +33,15 @@ describe("Scope coverage queries", () => {
     expect(query.mock.calls[0]?.[1]).toEqual([1000]);
   });
 
+  it("filters the inbox by product domain before applying the limit", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+
+    await listUnmappedScopeInboxRows({ query }, { productDomain: "pokemon", limit: 25 });
+
+    expect(String(query.mock.calls[0]?.[0])).toContain("AND r.product_domain = $1");
+    expect(query.mock.calls[0]?.[1]).toEqual(["pokemon", 25]);
+  });
+
   it("looks up a scope record summary by id", async () => {
     const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({
       rows: [{ scope_record_id: "ref_expansion_paldean_fates" }],
