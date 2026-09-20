@@ -118,6 +118,14 @@ async function publishTwoSellerListings(page: Page, storageLocationId: string) {
         data: { ...selection, storageLocationId, totalQuantity: 4 },
       }),
     );
+    await expect
+      .poll(async () => {
+        const supply = await successfulJson<{ items: readonly { item_id: string }[] }>(
+          await page.request.get(`/api/marketplace/account/listing-inventory?inventoryItemId=${item.id}`),
+        );
+        return supply.items.some((candidate) => candidate.item_id === item.id);
+      })
+      .toBe(true);
     const listing = await successfulJson<{ id: string; feeQuoteFingerprint: string }>(
       await page.request.post("/api/marketplace/account/listings", {
         data: { inventoryItemId: item.id, priceAmount: "5.00", priceCurrencyCode: "USD", quantityCap: 2 },
