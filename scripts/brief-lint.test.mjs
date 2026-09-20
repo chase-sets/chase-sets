@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 import { BRIEF_MAX_BYTES, lintBrief, main } from "./brief-lint.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const issueReadinessFixture = JSON.parse(
+  readFileSync(new URL("./fixtures/issue-readiness-v1.json", import.meta.url), "utf8"),
+);
 const ruleLines = [
   "is at most about 12 KB of body; anything larger splits into sub-issues with native sub-issue links;",
   "carries no collision census. Collision is a controller concern, resolved from GitHub native relationships and the board, not restated in prose;",
@@ -77,6 +80,16 @@ function qualityCodes(body) {
   return lintBrief(body).findings.map((finding) => finding.code);
 }
 
+function replaceIssueField(body, label, value) {
+  const heading = `### ${label}`;
+  const start = body.indexOf(heading);
+  if (start === -1) throw new Error(`Fixture field not found: ${label}`);
+  const contentStart = start + heading.length;
+  const next = body.indexOf("\n### ", contentStart);
+  const end = next === -1 ? body.length : next;
+  return `${body.slice(0, contentStart)}\n\n${value}\n${body.slice(end)}`;
+}
+
 describe("brief body byte limit", () => {
   it("accepts exactly 12 × 1024 UTF-8 bytes and rejects one byte more", () => {
     expect(nonQualityResult("a".repeat(BRIEF_MAX_BYTES))).toMatchObject({ bytes: BRIEF_MAX_BYTES, findings: [] });
@@ -88,6 +101,18 @@ describe("brief body byte limit", () => {
     expect(exact.length).toBeLessThan(BRIEF_MAX_BYTES);
     expect(nonQualityResult(exact)).toMatchObject({ bytes: BRIEF_MAX_BYTES, findings: [] });
     expect(codes(`${exact}a`)).toContain("BRIEF_BODY_BYTES");
+  });
+});
+
+describe("explicit-none vocabulary", () => {
+  it("shared explicit-none forms pass both checkers", () => {
+    const body = replaceIssueField(
+      issueReadinessFixture.readyBody,
+      "Glossary impact",
+      issueReadinessFixture.explicitNone.glossary,
+    );
+
+    expect(lintBrief(body).findings.map((finding) => finding.code)).not.toContain("BRIEF_QUALITY_GLOSSARY_IMPACT");
   });
 });
 

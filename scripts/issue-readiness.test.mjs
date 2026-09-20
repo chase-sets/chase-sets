@@ -1038,6 +1038,33 @@ describe("issue-readiness/v1 receipt and rule contract", () => {
     });
   }
 
+  it("keeps Terms: none. accepted for glossary impact", async () => {
+    const { result } = await runScenario(fixtureScenario("glossary-terms-none"));
+
+    expect(result.receipt.status).toBe("ready");
+    expect(result.receipt.checkedRules).toContainEqual({
+      id: "ready-07-terms-declared",
+      status: "pass",
+      reasonCodes: [],
+    });
+  });
+
+  it("shared explicit-none forms pass both checkers", () => {
+    const body = replaceField(
+      replaceField(fixture.readyBody, "Glossary impact", fixture.explicitNone.glossary),
+      "External authority probe & evidence timing",
+      fixture.explicitNone.externalAuthority,
+    );
+    const result = prospectiveResult(body);
+
+    expect(result.checkedRules).toContainEqual({ id: "ready-07-terms-declared", status: "pass", reasonCodes: [] });
+    expect(result.checkedRules).toContainEqual({
+      id: "ready-08-authority-probe-timed",
+      status: "pass",
+      reasonCodes: [],
+    });
+  });
+
   it("rejects headings-only prose instead of treating heading presence as readiness", async () => {
     const { result } = await runScenario(fixtureScenario("headings-only"));
 
