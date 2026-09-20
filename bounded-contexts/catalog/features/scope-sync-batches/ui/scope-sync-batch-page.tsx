@@ -151,7 +151,14 @@ function HeldSetExportSection({ resolution }: { resolution: HeldSetResolution | 
     {
       key: "pair",
       header: t("catalog.features.scopeSyncBatches.ui.heldSet.pair"),
-      cell: (row) => <Text>{`${row.productLine} / ${row.setName}`}</Text>,
+      cell: (row) => (
+        <Text>
+          {t("catalog.features.scopeSyncBatches.ui.heldSet.pair.value", {
+            productLine: row.productLine,
+            setName: row.setName,
+          })}
+        </Text>
+      ),
     },
     {
       key: "scope",
@@ -161,7 +168,14 @@ function HeldSetExportSection({ resolution }: { resolution: HeldSetResolution | 
     {
       key: "domain",
       header: t("catalog.features.scopeSyncBatches.ui.page.product.domain"),
-      cell: (row) => <Text>{`${row.productDomain} / ${row.scopeKind}`}</Text>,
+      cell: (row) => (
+        <Text>
+          {t("catalog.features.scopeSyncBatches.ui.heldSet.domain.value", {
+            productDomain: row.productDomain,
+            scopeKind: row.scopeKind,
+          })}
+        </Text>
+      ),
     },
     {
       key: "rows",
@@ -173,7 +187,14 @@ function HeldSetExportSection({ resolution }: { resolution: HeldSetResolution | 
     {
       key: "pair",
       header: t("catalog.features.scopeSyncBatches.ui.heldSet.pair"),
-      cell: (row) => <Text>{`${row.productLine} / ${row.setName}`}</Text>,
+      cell: (row) => (
+        <Text>
+          {t("catalog.features.scopeSyncBatches.ui.heldSet.pair.value", {
+            productLine: row.productLine,
+            setName: row.setName,
+          })}
+        </Text>
+      ),
     },
     {
       key: "reason",

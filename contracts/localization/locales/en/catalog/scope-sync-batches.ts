@@ -31,6 +31,8 @@ export const catalogScopeSyncBatchesEnglishTranslations = {
   "catalog.features.scopeSyncBatches.ui.heldSet.summary":
     "{resolved} resolved pairs and {unresolved} unresolved pairs across {rows} rows.",
   "catalog.features.scopeSyncBatches.ui.heldSet.pair": "Held-set pair",
+  "catalog.features.scopeSyncBatches.ui.heldSet.pair.value": "{productLine} / {setName}",
+  "catalog.features.scopeSyncBatches.ui.heldSet.domain.value": "{productDomain} / {scopeKind}",
   "catalog.features.scopeSyncBatches.ui.heldSet.rows": "Rows",
   "catalog.features.scopeSyncBatches.ui.heldSet.reason": "Reason",
   "catalog.features.scopeSyncBatches.ui.heldSet.open.inbox": "Open unmapped-scope inbox",
