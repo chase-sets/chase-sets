@@ -848,7 +848,7 @@ describe("channels-wake-registry-derivation", () => {
         "channels:platform-policy-document-projection",
         "channels:tcgplayer-csv-projection",
       ],
-      routeDependencyIds: ["channels.publication-settings-to-detail"],
+      routeDependencyIds: ["channels.connect-to-detail", "channels.publication-settings-to-detail"],
     });
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
       entryCount: manifests.length,
