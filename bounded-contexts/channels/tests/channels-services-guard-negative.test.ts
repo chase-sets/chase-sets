@@ -51,6 +51,7 @@ describe("channels-services-guard-negative", () => {
     const candidate = validCandidate();
     expect(isChannelsServices(candidate)).toBe(true);
     expect(isChannelsServices({ ...candidate, connections: {} })).toBe(false);
+    expect(isChannelsServices({ ...candidate, storageLocationAuthority: {} })).toBe(false);
     expect(isChannelsServices({ ...candidate, reconciliation: {} })).toBe(false);
     expect(isChannelsServices({ ...candidate, reconciliation: { reconcileDueConnections: vi.fn() } })).toBe(false);
     expect(
@@ -84,6 +85,7 @@ describe("channels-services-guard-negative", () => {
 function validCandidate() {
   return {
     connections: { getConnection: async () => null },
+    storageLocationAuthority: { resolve: async () => null },
     connectionHealth: { submitObservation: vi.fn(), readConnectionHealth: vi.fn(), listOpenReasonGenerations: vi.fn() },
     connectionAttention: { listOpenAttention: vi.fn(), resolveAttention: vi.fn() },
     listingComposition: {},

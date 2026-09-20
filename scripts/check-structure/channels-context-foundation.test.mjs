@@ -174,7 +174,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (
     JSON.stringify((candidate.readAfterWriteRouteInventory ?? []).map((entry) => entry.id)) !==
-    JSON.stringify(["channels.publication-settings-to-detail"])
+    JSON.stringify(["channels.connect-to-detail", "channels.publication-settings-to-detail"])
   ) {
     violations.push("readAfterWriteRouteInventory");
   }
@@ -190,6 +190,12 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     JSON.stringify(candidate.hostPorts) !==
     JSON.stringify([
+      {
+        portName: "storageLocationAuthority",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume.",
+      },
       {
         portName: "marketplaceChannelInboundClamp",
         providedBy: "platform-api, platform-worker",
@@ -332,6 +338,12 @@ describe("channels-context-foundation", () => {
       allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory"],
       seedRequirements: ["inventory"],
       hostPorts: [
+        {
+          portName: "storageLocationAuthority",
+          providedBy: "platform-api, platform-worker",
+          purpose:
+            "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume.",
+        },
         {
           portName: "marketplaceChannelInboundClamp",
           providedBy: "platform-api, platform-worker",

@@ -146,6 +146,7 @@ function validChannelsCandidate(
 ) {
   return {
     connections: { getConnection: async () => null },
+    storageLocationAuthority: { resolve: async () => null },
     connectionHealth: {
       submitObservation: vi.fn(),
       readConnectionHealth: vi.fn(),

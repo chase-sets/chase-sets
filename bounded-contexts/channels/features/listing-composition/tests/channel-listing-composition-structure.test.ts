@@ -150,6 +150,12 @@ describe("channel-listing-composition-scope-fence", () => {
     expect(contextManifest.allowedContextDependencies).toEqual(["@chase-sets/marketplace", "@chase-sets/inventory"]);
     expect(contextManifest.hostPorts).toEqual([
       {
+        portName: "storageLocationAuthority",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume.",
+      },
+      {
         portName: "marketplaceChannelInboundClamp",
         providedBy: "platform-api, platform-worker",
         purpose:

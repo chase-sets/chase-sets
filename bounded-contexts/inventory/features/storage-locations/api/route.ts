@@ -25,9 +25,14 @@ export function inventoryStorageLocationRoutes(services: StorageLocationServices
 
   app.get("/", async (c) => {
     const actor = c.get("actor");
+    const limit = c.req.query("limit");
+    if (limit !== undefined && !/^(?:[1-9]|[1-9]\d|1\d\d|2[0-4]\d|250)$/.test(limit)) {
+      return c.json({ error: { code: "invalid-request", message: "invalid-request" } }, 400);
+    }
     const items = await services.listStorageLocations({
       accountId: actor.accountId,
       includeArchived: c.req.query("includeArchived") === "true",
+      ...(limit === undefined ? {} : { limit: Number(limit) }),
     });
 
     return c.json({

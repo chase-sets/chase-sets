@@ -5,7 +5,7 @@ import manifest from "../../../context.json" with { type: "json" };
 import packageJson from "../../../package.json" with { type: "json" };
 
 describe("channel-connection-scope-fence", () => {
-  it("keeps provider execution, setup replacement, provider integrations, and public connect or activate routes absent", () => {
+  it("keeps provider execution, setup replacement, provider integrations, and alternative connect routes absent", () => {
     const sliceRoot = path.resolve(import.meta.dirname, "..");
     const files = listFiles(sliceRoot);
     const route = readFileSync(path.join(sliceRoot, "api/route.ts"), "utf8");
@@ -17,6 +17,7 @@ describe("channel-connection-scope-fence", () => {
     expect(JSON.stringify(manifest)).not.toContain("landing");
     expect(JSON.stringify(manifest)).not.toMatch(/providerRegistry/);
     expect((manifest.readAfterWriteRouteInventory ?? []).map((entry) => entry.id)).toEqual([
+      "channels.connect-to-detail",
       "channels.publication-settings-to-detail",
     ]);
 
@@ -40,7 +41,7 @@ describe("channel-connection-scope-fence", () => {
 function findForbiddenRoutes(source: string): string[] {
   return [...source.matchAll(/app\.post\("(\/[^"\n]*)"/g)]
     .map((match) => match[1])
-    .filter((route) => route === "/connect" || route.includes("/activate"));
+    .filter((route) => route === "/connect" || (route.includes("/activate") && route !== "/:id/activate"));
 }
 
 function listFiles(root: string, directory = root): string[] {

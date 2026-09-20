@@ -45,6 +45,7 @@ import {
   createInventoryExternalChannelSaleRecorderForPool,
   createImportResolutionAttentionSourceFromReadModel,
   createInventoryHoldCleanupAuthorityForPool,
+  createStorageLocationAuthority,
   type RecordExternalChannelSale,
   type InventoryDraftListingCreator,
   type InventorySavedListImportBatchCreator,
@@ -589,6 +590,11 @@ export function createPlatformApiHost(
       draftListingCreator,
       inventoryCleanupAuthority,
       ...(channelSaleRecorder ? { channelSaleRecorder } : {}),
+      storageLocationAuthority: {
+        resolve: inventoryPool
+          ? createStorageLocationAuthority(inventoryPool).resolveStorageLocationAuthority
+          : async () => null,
+      },
       inventorySavedListImportBatchCreator,
       marketplaceChannelInboundClamp,
       ...(pricingHostPorts ?? {}),

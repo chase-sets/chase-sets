@@ -1,4 +1,9 @@
 export const channelsEnglishTranslations = {
+  "channels.connections.connect": "Connect a channel",
+  "channels.connections.provider": "Sales Channel",
+  "channels.connections.setup": "Connection setup",
+  "channels.connections.locations": "Storage locations",
+  "channels.connections.activate": "Activate",
   "channels.drift.title": "Channel differences",
   "channels.drift.disclaimer":
     "Decisions do not confirm that channel changes were queued or applied, or that the connection is healthy. A later complete check confirms the result.",

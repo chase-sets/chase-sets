@@ -1,6 +1,9 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { ChannelConnectionServices } from "../../features/connections/domain/contracts";
+import type {
+  ChannelConnectionServices,
+  ChannelStorageLocationAuthorityResolver,
+} from "../../features/connections/domain/contracts";
 import type { ConnectionHealthServices } from "../../features/connection-health/domain/contracts";
 import type { ChannelListingCompositionServices } from "../../features/listing-composition/api/runtime";
 import type { OutboundSyncServices } from "../../features/outbound-sync/domain/contracts";
@@ -11,6 +14,7 @@ import type { ConnectionAttentionServices } from "../../features/connection-atte
 
 export type ChannelsServices = Readonly<{
   connections: ChannelConnectionServices;
+  storageLocationAuthority: ChannelStorageLocationAuthorityResolver;
   connectionHealth: ConnectionHealthServices;
   connectionAttention: ConnectionAttentionServices;
   listingComposition: ChannelListingCompositionServices;
@@ -24,6 +28,7 @@ export type ChannelsServices = Readonly<{
 
 export const channelsServicesMembers = defineChannelsServicesMembers([
   "connections",
+  "storageLocationAuthority",
   "connectionHealth",
   "connectionAttention",
   "listingComposition",
@@ -39,6 +44,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   if (!isObject(value) || !channelsServicesMembers.every((member) => Object.hasOwn(value, member))) return false;
 
   const connections = Reflect.get(value, "connections");
+  const storageLocationAuthority = Reflect.get(value, "storageLocationAuthority");
   const connectionHealth = Reflect.get(value, "connectionHealth");
   const connectionAttention = Reflect.get(value, "connectionAttention");
   const listingComposition = Reflect.get(value, "listingComposition");
@@ -52,6 +58,8 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   return (
     isObject(connections) &&
     typeof Reflect.get(connections, "getConnection") === "function" &&
+    isObject(storageLocationAuthority) &&
+    typeof Reflect.get(storageLocationAuthority, "resolve") === "function" &&
     isObject(connectionHealth) &&
     typeof Reflect.get(connectionHealth, "submitObservation") === "function" &&
     typeof Reflect.get(connectionHealth, "readConnectionHealth") === "function" &&

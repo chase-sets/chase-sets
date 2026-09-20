@@ -12,6 +12,12 @@ A **Sales Channel** is an external or native commerce surface connected to an Ac
 
 A **Channel Connection** is the linked relationship between a Chase Sets Account and a Sales Channel.
 
+## Storage Location Authority
+
+**Storage Location Authority** is the account-scoped Inventory read that proves a
+Storage Location's current lifecycle and committed stream revision before a
+Channel Connection binds it. An archived location is retired authority.
+
 ## BYO Channel
 
 A **BYO Channel** is an account-supplied Sales Channel connection that Chase Sets supports without owning the external storefront.
