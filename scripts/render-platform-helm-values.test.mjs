@@ -574,12 +574,15 @@ describe("render platform Helm values", () => {
     expect(doksIngress.hosts.some((host) => host.host.startsWith("marketplace."))).toBe(false);
   });
 
-  it("adds production marketplace ingress only when the existing public-exposure gate is true", () => {
+  it.each([
+    ["served to invited accounts", { PRODUCTION_MARKETPLACE_SERVED: "true" }],
+    ["publicly launched", { PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "true" }],
+  ])("adds production marketplace ingress when it is %s", (_posture, marketplaceEnv) => {
     const doksIngress = buildDoksIngressValues({
       environment: "production",
       env: {
         PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20",
-        PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "true",
+        ...marketplaceEnv,
       },
     });
 
@@ -589,6 +592,7 @@ describe("render platform Helm values", () => {
       "marketplace.chasesets.com",
       "admin.chasesets.com",
     ]);
+    expect(doksIngress.tls.certificate.dnsNames).toEqual(doksIngress.hosts.map((host) => host.host));
   });
 
   it("does not let production inherit the repo-level staging ingress target", () => {

@@ -167,6 +167,7 @@ jobs:
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
         run: |
           set -euo pipefail
           artifact_root="${GITHUB_WORKSPACE}/artifacts/decommission-live-plans"
@@ -186,16 +187,22 @@ jobs:
             target="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_record" and (.name == "app_serving" or .name == "doks_apex")) | .instances[]?.attributes.value) // empty' "$state_file")"
             project_id="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_project_resources") | .instances[]?.attributes.project) // empty' "$state_file")"
             alert_emails="$(jq -c '[.resources[]?.instances[]?.attributes | ((.alerts? // []) + (.notifications? // []))[]?.email[]?] | unique' "$state_file")"
+            marketplace_record_present=false
+            marketplace_served=false
             marketplace_public=false
             has_checkout_pool=false
             runtime_profile=landing
             if [ "$environment" = "production" ]; then
-              marketplace_public="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_record" and .name == "app_serving") | .instances[]?; .index_key == "marketplace")' "$state_file")"
+              marketplace_record_present="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_record" and .name == "app_serving") | .instances[]?; .index_key == "marketplace")' "$state_file")"
+              marketplace_public="${PRODUCTION_MARKETPLACE_PUBLIC_ENABLED:-false}"
               has_checkout_pool="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_database_connection_pool" and .name == "contexts") | .instances[]?; .index_key == "checkout")' "$state_file")"
               if [ "$marketplace_public" = "true" ]; then
                 runtime_profile=public
               elif [ "$has_checkout_pool" = "true" ]; then
                 runtime_profile=proof
+              fi
+              if [ "$marketplace_record_present" = "true" ] && [ "$marketplace_public" = "false" ]; then
+                marketplace_served=true
               fi
             fi
             if [ -z "$target" ]; then
@@ -203,7 +210,7 @@ jobs:
               exit 1
             fi
 
-            TF_VAR_environment="$environment"             TF_VAR_environment_project_id="$project_id"             TF_VAR_doks_ingress_target="$target"             TF_VAR_alert_emails="$alert_emails"             TF_VAR_production_runtime_profile="$runtime_profile"             TF_VAR_production_marketplace_public_enabled="$marketplace_public"             TF_VAR_observability_otlp_headers=plan-only-placeholder               terraform -chdir="$root" plan -lock=false -out="${environment}-platform.tfplan"
+            TF_VAR_environment="$environment"             TF_VAR_environment_project_id="$project_id"             TF_VAR_doks_ingress_target="$target"             TF_VAR_alert_emails="$alert_emails"             TF_VAR_production_runtime_profile="$runtime_profile"             TF_VAR_production_marketplace_served="$marketplace_served"             TF_VAR_production_marketplace_public_enabled="$marketplace_public"             TF_VAR_observability_otlp_headers=plan-only-placeholder               terraform -chdir="$root" plan -lock=false -out="${environment}-platform.tfplan"
             terraform -chdir="$root" show -no-color "${environment}-platform.tfplan"               > "$artifact_root/${environment}-platform-plan.txt"
             terraform -chdir="$root" show -json "${environment}-platform.tfplan"               > "$artifact_root/${environment}-platform-plan.json"
             node scripts/terraform-plan-inspection.mjs list-destructive-changes               "$artifact_root/${environment}-platform-plan.json"               > "$artifact_root/${environment}-platform-delete-set.txt"
@@ -438,13 +445,25 @@ jobs:
           PLATFORM_BOOTSTRAP_OWNER: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || '' }}
           ARGO_ROLLOUTS_ENABLED: ${{ vars[matrix.argo_rollouts_variable] || '' }}
           PRODUCTION_RUNTIME_PROFILE: ${{ vars.PRODUCTION_RUNTIME_PROFILE || '' }}
+          PRODUCTION_MARKETPLACE_SERVED: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
           PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || '' }}
         run: |
+          set -euo pipefail
+          runtime_profile="$PRODUCTION_RUNTIME_PROFILE"
+          if [ "${{ matrix.environment }}" = "production" ] && [ -z "$runtime_profile" ]; then
+            if [ "$PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" = "true" ]; then
+              runtime_profile=public
+            elif [ "$PRODUCTION_MARKETPLACE_SERVED" = "true" ]; then
+              runtime_profile=proof
+            else
+              runtime_profile=landing
+            fi
+          fi
           node ./scripts/deployment-contract-preflight.mjs \
             --root-dir "${{ steps.deployment_contract_inputs.outputs.contract_root }}" \
             --environment "${{ matrix.environment }}" \
             --bootstrap-owner-override "$PLATFORM_BOOTSTRAP_OWNER" \
-            --production-runtime-profile-override "$PRODUCTION_RUNTIME_PROFILE" \
+            --production-runtime-profile-override "$runtime_profile" \
             --production-marketplace-public-enabled "$PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" \
             --argo-rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
             --out "artifacts/deployment-contract/${{ matrix.environment }}.json" \
@@ -1350,6 +1369,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_production_marketplace_served: "false"
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -1384,6 +1404,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_production_marketplace_served: "false"
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -2745,9 +2766,11 @@ jobs:
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}
       PRODUCTION_DOKS_INGRESS_TARGET: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
+      PRODUCTION_MARKETPLACE_SERVED: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
       PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       TF_VAR_doks_ingress_target: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
-      TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}
+      TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' && 'proof' || 'landing') }}
+      TF_VAR_production_marketplace_served: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
       TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_marketplace_promotion_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}
@@ -2777,12 +2800,12 @@ jobs:
       TF_VAR_production_tax_readiness_approved: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_tax_readiness_reference: ${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}
       TF_VAR_tax_provider_backed_quotes_required: ${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED == 'true' && 'true' || 'false' }}
-      TF_VAR_stripe_secret_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}
-      TF_VAR_stripe_publishable_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
-      TF_VAR_stripe_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}
-      TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}
-      TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}
-      TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}
+      TF_VAR_stripe_secret_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}
+      TF_VAR_stripe_publishable_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
+      TF_VAR_stripe_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}
+      TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}
+      TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}
+      TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}
       TF_VAR_ucp_business_signing_key_id: ${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}
       TF_VAR_ucp_business_signing_alg: ${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}
       TF_VAR_ucp_business_signing_private_jwk: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}
@@ -2790,11 +2813,11 @@ jobs:
       TF_VAR_ucp_ap2_verifier_url: ${{ secrets.UCP_AP2_VERIFIER_URL || '' }}
       TF_VAR_ucp_ap2_verifier_auth_token: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}
       TF_VAR_ucp_ap2_verifier_timeout_ms: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}
-      TF_VAR_easypost_api_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}
+      TF_VAR_easypost_api_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}
       TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
-      TF_VAR_easypost_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}
-      TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}
-      TF_VAR_easypost_mode: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}
+      TF_VAR_easypost_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}
+      TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}
+      TF_VAR_easypost_mode: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}
       TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
       TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
       TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
@@ -3265,6 +3288,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_production_marketplace_served: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -3594,6 +3618,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_production_marketplace_served: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -3870,8 +3895,9 @@ jobs:
             --url https://www.chasesets.com/
             --url https://admin.chasesets.com/health/ready
           )
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
-            live_urls+=(--url https://marketplace.chasesets.com/health/ready)
+          marketplace_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -json marketplace_domains | jq -r 'first(.[]) // empty')"
+          if [ -n "$marketplace_domain" ]; then
+            live_urls+=(--url "https://${marketplace_domain}/health/ready")
           fi
           node ./scripts/platform-ingress-wait.mjs "${live_urls[@]}"
 
@@ -3904,11 +3930,6 @@ jobs:
             echo "Required production domains were not present in Terraform outputs." >&2
             exit 1
           fi
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ] && [ "${#marketplace_domains[@]}" -eq 0 ]; then
-            echo "Production marketplace promotion was enabled but no marketplace domains were present in Terraform outputs." >&2
-            exit 1
-          fi
-
           wait_for_domain() {
             local hostname="$1"
             local url="https://${hostname}"
@@ -3918,6 +3939,59 @@ jobs:
           for hostname in "${public_domains[@]}" "${marketplace_domains[@]}" "$admin_domain"; do
             wait_for_domain "$hostname"
           done
+
+      - name: Smoke served marketplace invitation gate
+        if: env.SHOULD_DEPLOY != 'false'
+        run: |
+          set -euo pipefail
+          if [ "${TF_VAR_production_marketplace_served:-false}" != "true" ] || [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            echo "Served-not-public marketplace smoke is not required for this deployment posture."
+            exit 0
+          fi
+
+          base_url="https://marketplace.chasesets.com"
+          evidence_path="artifacts/release-health/served-marketplace-smoke.json"
+          mkdir -p "$(dirname "$evidence_path")"
+          root_body="$(mktemp)"
+          registration_body="$(mktemp)"
+          trap 'rm -f "$root_body" "$registration_body"' EXIT
+
+          root_status="$(curl --silent --show-error --output "$root_body" --write-out '%{http_code}' "$base_url/")"
+          if [ "$root_status" != "200" ]; then
+            echo "Served marketplace root must return 200; got ${root_status}." >&2
+            exit 1
+          fi
+          if ! grep -Eqi '<meta[^>]+name="robots"[^>]+content="noindex,nofollow"' "$root_body"; then
+            echo "Served marketplace root must render noindex,nofollow metadata." >&2
+            exit 1
+          fi
+
+          registration_status="$(curl --silent --show-error --output "$registration_body" --write-out '%{http_code}' \
+            --header 'content-type: application/json' \
+            --data '{"email":"served-marketplace-smoke-uninvited@invalid.example"}' \
+            "$base_url/api/auth/register")"
+          registration_code="$(jq -r '.error.code // empty' "$registration_body")"
+          if [ "$registration_status" != "403" ] || [ "$registration_code" != "registration_admission_required" ]; then
+            echo "Unauthenticated registration must return 403 registration_admission_required; got ${registration_status} ${registration_code:-missing-code}." >&2
+            exit 1
+          fi
+
+          invitation_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            "$base_url/invite/ivt_malformed?token=malformed")"
+          if [ "$invitation_status" != "200" ] && [ "$invitation_status" != "302" ]; then
+            echo "Malformed invitation route must remain routed with 200 or 302; got ${invitation_status}." >&2
+            exit 1
+          fi
+
+          jq -n \
+            --arg checkedAt "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --arg baseUrl "$base_url" \
+            --argjson rootStatus "$root_status" \
+            --argjson registrationStatus "$registration_status" \
+            --arg registrationCode "$registration_code" \
+            --argjson invitationStatus "$invitation_status" \
+            '{schemaVersion:"served-marketplace-smoke/v1",checkedAt:$checkedAt,baseUrl:$baseUrl,root:{status:$rootStatus,noindex:true},registration:{status:$registrationStatus,code:$registrationCode},malformedInvitation:{status:$invitationStatus}}' \
+            | tee "$evidence_path"
 
       # Post-deploy readiness gate (#1237): derive direct production database
       # URLs for the audited wave contexts from Terraform state (same pattern
@@ -4019,12 +4093,8 @@ jobs:
             export SMOKE_REQUIRE_NATIVE_MCP="true"
           fi
           export SMOKE_REQUIRE_FULFILLMENT_POSTAGE="${TF_VAR_production_fulfillment_postage_approved:-false}"
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+          if [ -n "$marketplace_domain" ]; then
             export SMOKE_ADMIN_TOPOLOGY="public-marketplace"
-            if [ -z "$marketplace_domain" ]; then
-              echo "Production marketplace promotion was enabled but no marketplace domain was present in Terraform outputs." >&2
-              exit 1
-            fi
             export SMOKE_REQUIRE_MARKETPLACE="true"
             smoke_urls+=("https://${marketplace_domain}")
           else
@@ -4067,11 +4137,7 @@ jobs:
           admin_domain="$(terraform output -raw admin_domain)"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
           canary_urls=("https://${public_domain}" "https://${admin_domain}")
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
-            if [ -z "$marketplace_domain" ]; then
-              echo "Production marketplace canary was requested but no marketplace domain was present." >&2
-              exit 1
-            fi
+          if [ -n "$marketplace_domain" ]; then
             canary_urls+=("https://${marketplace_domain}")
           fi
 
@@ -4600,6 +4666,7 @@ jobs:
             artifacts/release-health/production-kubernetes-deploy-diagnostics.json
             artifacts/release-health/production-kubernetes-deployment-transition.json
             artifacts/release-health/production-deploy-root-cause.json
+            artifacts/release-health/served-marketplace-smoke.json
           if-no-files-found: ignore
           retention-days: 30
 

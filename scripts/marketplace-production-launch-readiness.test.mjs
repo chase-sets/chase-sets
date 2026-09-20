@@ -17,6 +17,7 @@ function secret(name) {
 
 const completeVariables = [
   variable("PRODUCTION_MARKETPLACE_PUBLIC_ENABLED", "true"),
+  variable("PRODUCTION_MARKETPLACE_SERVED", "false"),
   variable("PRODUCTION_MARKETPLACE_PROOF_ENABLED", "false"),
   variable("PRODUCTION_MARKETPLACE_PROMOTION_APPROVED", "true"),
   variable("PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE", "LAUNCH-REVIEW-2026-05-30"),
@@ -166,6 +167,27 @@ describe("marketplace production launch readiness", () => {
     );
     expect(readiness.operatorSetup.notes).toContain(
       "Complete googleSocialLoginOAuthSetup before smoke-testing production marketplace Google sign-in or admin Google Workspace SSO.",
+    );
+  });
+
+  it("still reports not launched when the marketplace is served privately", () => {
+    const readiness = buildProductionLaunchReadiness({
+      variables: [
+        ...completeVariables.filter(
+          (row) =>
+            row.name !== "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" && row.name !== "PRODUCTION_MARKETPLACE_SERVED",
+        ),
+        variable("PRODUCTION_MARKETPLACE_PUBLIC_ENABLED", "false"),
+        variable("PRODUCTION_MARKETPLACE_SERVED", "true"),
+      ],
+      secrets: REQUIRED_LAUNCH_SECRETS.map(secret),
+      environmentName: "production",
+      checkedAt: "2026-05-30T12:00:00.000Z",
+    });
+
+    expect(readiness.passesProductionLaunchReadinessGate).toBe(false);
+    expect(readiness.errors).toContain(
+      "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED must be true for final public launch readiness.",
     );
   });
 

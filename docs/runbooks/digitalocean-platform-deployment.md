@@ -34,6 +34,14 @@ Retain the incident history that explains this shape: on May 17, 2026, a provide
 
 `landing`, `proof`, and `public` control mounted runtime slices and public exposure. Database lifecycle is a companion track to runtime profile migration, not a side effect of it. Review `provisioned_context_names`, `active_runtime_context_names`, and the exposed route set independently.
 
+### Served Marketplace (Not Public)
+
+The served marketplace is a `proof` deployment with `PRODUCTION_MARKETPLACE_SERVED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`. It is not a fourth runtime profile and does not satisfy or read any public-launch approval. Terraform's `marketplace_served` local owns the marketplace domain, live A record, and uptime-check decision; the Helm renderer uses the same environment posture for ingress and certificate names. Registration remains invitation-gated and marketplace indexing remains disabled.
+
+Enter the posture by setting `PRODUCTION_MARKETPLACE_SERVED=true` in the production GitHub Environment, leaving `PRODUCTION_RUNTIME_PROFILE` unset, and running Platform Deploy. After the deploy smoke artifact is green, admit accounts either by creating the account through the production admin workflow and issuing an Identity invitation, or by admitting the person's waitlist signup in a controlled wave. Do not run ad-hoc Terraform or mutate DNS directly.
+
+Leave the posture by setting `PRODUCTION_MARKETPLACE_SERVED=false` and redeploying. Keep `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false` to return to landing. For a later public launch, disable the served switch first, complete the Marketplace Production Promotion gates, then enable the public switch; the two switches are intentionally mutually exclusive.
+
 Topology/release-health evidence for profile migration must include connection-budget changes, bootstrap success, query and listener key parity, projection readiness, and projection rebuild for derived read models when a newly activated context lacks compatible read state.
 
 ## Staging Reset And Recovery Drills

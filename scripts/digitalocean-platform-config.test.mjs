@@ -366,6 +366,39 @@ function isExactManagedPostgresGrantTrustPlan(plan) {
   );
 }
 
+function productionMarketplacePlanFixture({ runtimeProfile, served, publicEnabled }) {
+  const valid = !served || (runtimeProfile === "proof" && publicEnabled === false);
+  const marketplaceServed = publicEnabled || (runtimeProfile === "proof" && served);
+  return {
+    valid,
+    changedResources: marketplaceServed
+      ? [
+          'digitalocean_record.app_serving["marketplace"]',
+          'digitalocean_uptime_check.platform["marketplace-marketplace-chasesets-com"]',
+        ]
+      : [],
+    launchApprovalChecksRead: publicEnabled,
+  };
+}
+
+function classifyProductionDecommissionState(state, publicEnabled) {
+  const instances = (type, name) =>
+    state.resources
+      .filter((resource) => resource.type === type && resource.name === name)
+      .flatMap((resource) => resource.instances ?? []);
+  const marketplaceRecordPresent = instances("digitalocean_record", "app_serving").some(
+    (instance) => instance.index_key === "marketplace",
+  );
+  const hasCheckoutPool = instances("digitalocean_database_connection_pool", "contexts").some(
+    (instance) => instance.index_key === "checkout",
+  );
+  return {
+    marketplaceServed: marketplaceRecordPresent && !publicEnabled,
+    marketplacePublic: publicEnabled,
+    runtimeProfile: publicEnabled ? "public" : hasCheckoutPool ? "proof" : "landing",
+  };
+}
+
 function workflowJob(source, jobName) {
   const match = new RegExp(`(^|\\n)  ${jobName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:`).exec(source);
   expect(match).not.toBeNull();
@@ -718,6 +751,162 @@ describe("DigitalOcean platform configuration", () => {
       expect(applyStep).not.toMatch(/terraform\s+plan/);
       expect(job.indexOf(planStep)).toBeLessThan(job.indexOf(applyStep));
     }
+  });
+
+  it("serves the proof marketplace without reading public-launch approvals", () => {
+    expect(platformVariables).toContain('variable "production_marketplace_served"');
+    expect(platformVariables).toMatch(
+      /variable "production_marketplace_served" \{[\s\S]*?default\s+= false[\s\S]*?var\.environment == "production" \|\| var\.production_marketplace_served == false/,
+    );
+    expect(platformLocals).toContain(
+      'local.is_non_production || local.marketplace_public_enabled || (local.runtime_profile == "proof" && var.production_marketplace_served)',
+    );
+    expect(platformLocals).toContain("marketplace_domains = local.marketplace_served ? [");
+    expect(platformLocals).toContain("for domain in local.all_marketplace_domains :");
+    expect(platformLocals).not.toContain("production_retained_marketplace_uptime_check_targets");
+    expect(platformLocals).toContain('local.marketplace_served ? ["marketplace"] : []');
+    expect(occurrenceCount(platformLocals, "local.marketplace_served")).toBe(2);
+
+    const servedCheck = /check "production_marketplace_served" \{[\s\S]*?\n\}/.exec(platformMain)?.[0] ?? "";
+    expect(servedCheck).toContain("!var.production_marketplace_served || (");
+    expect(servedCheck).toContain('var.production_runtime_profile == "proof"');
+    expect(servedCheck).toContain("var.production_marketplace_public_enabled == false");
+    expect(servedCheck).not.toMatch(/_approved|_reference/);
+
+    const invitedPlan = productionMarketplacePlanFixture({
+      runtimeProfile: "proof",
+      served: true,
+      publicEnabled: false,
+    });
+    expect(invitedPlan).toEqual({
+      valid: true,
+      changedResources: [
+        'digitalocean_record.app_serving["marketplace"]',
+        'digitalocean_uptime_check.platform["marketplace-marketplace-chasesets-com"]',
+      ],
+      launchApprovalChecksRead: false,
+    });
+    expect(
+      productionMarketplacePlanFixture({ runtimeProfile: "proof", served: true, publicEnabled: true }).valid,
+    ).toBe(false);
+    expect(
+      productionMarketplacePlanFixture({ runtimeProfile: "landing", served: true, publicEnabled: false }).valid,
+    ).toBe(false);
+    expect(
+      productionMarketplacePlanFixture({ runtimeProfile: "proof", served: false, publicEnabled: false }),
+    ).toEqual({ valid: true, changedResources: [], launchApprovalChecksRead: false });
+  });
+
+  it("threads served-marketplace configuration and provider credentials through plan and apply", () => {
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const decommissionPlan = workflowStep(platformProductionWorkflow, "Plan retired staging and production applications");
+    const productionHelmDeploy = workflowStep(platformProductionWorkflow, "Deploy production Kubernetes release");
+
+    const platformPlanApplySteps = [
+      workflowStep(stagingJob, "Terraform plan"),
+      workflowSteps(stagingJob, "Terraform apply").at(-1),
+      workflowStep(productionJob, "Terraform plan"),
+      workflowSteps(productionJob, "Terraform apply").at(-1),
+    ];
+    for (const step of platformPlanApplySteps) {
+      expect(carriesExactProviderCredentials(step)).toBe(true);
+      expect(step).toContain("TF_VAR_production_marketplace_served:");
+    }
+
+    for (const step of [...platformPlanApplySteps, decommissionPlan, productionHelmDeploy]) {
+      expect(carriesExactProviderCredentials(step)).toBe(true);
+      for (const binding of [
+        "TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+        "TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}",
+        "TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}",
+      ]) {
+        expect(carriesExactProviderCredentials(step.replaceAll(binding, ""))).toBe(false);
+      }
+    }
+
+    expect(decommissionPlan).toContain('TF_VAR_production_marketplace_served="$marketplace_served"');
+    expect(productionJob).toContain(
+      "PRODUCTION_MARKETPLACE_SERVED: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+    );
+    expect(productionJob).toContain(
+      "TF_VAR_production_marketplace_served: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+    );
+    expect(productionJob).toContain(
+      "vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' && 'proof' || 'landing'",
+    );
+    expect(productionJob).toContain(
+      "vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY",
+    );
+
+    const deploymentContractPreflight = workflowStep(platformProductionWorkflow, "Preflight deployment contract");
+    expect(deploymentContractPreflight).toContain(
+      "PRODUCTION_MARKETPLACE_SERVED: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+    );
+    expect(deploymentContractPreflight).toContain('elif [ "$PRODUCTION_MARKETPLACE_SERVED" = "true" ]; then');
+    expect(deploymentContractPreflight).toContain("runtime_profile=proof");
+    expect(deploymentContractPreflight).toContain('--production-runtime-profile-override "$runtime_profile"');
+
+    for (const stepName of [
+      "Verify production DOKS live hosts and certificate",
+      "Wait for production domains",
+      "Smoke check",
+      "Stage 1 production canary",
+    ]) {
+      const step = workflowStep(platformProductionWorkflow, stepName);
+      expect(step).toContain("marketplace_domains");
+      expect(step).not.toContain("TF_VAR_production_marketplace_served");
+      expect(step).not.toContain("TF_VAR_production_marketplace_public_enabled");
+    }
+  });
+
+  it("classifies invited marketplace state independently from public launch", () => {
+    const invitedState = {
+      resources: [
+        { type: "digitalocean_record", name: "app_serving", instances: [{ index_key: "marketplace" }] },
+        {
+          type: "digitalocean_database_connection_pool",
+          name: "contexts",
+          instances: [{ index_key: "checkout" }],
+        },
+      ],
+    };
+    expect(classifyProductionDecommissionState(invitedState, false)).toEqual({
+      marketplaceServed: true,
+      marketplacePublic: false,
+      runtimeProfile: "proof",
+    });
+    expect(classifyProductionDecommissionState(invitedState, true)).toEqual({
+      marketplaceServed: false,
+      marketplacePublic: true,
+      runtimeProfile: "public",
+    });
+
+    const decommissionPlan = workflowStep(platformProductionWorkflow, "Plan retired staging and production applications");
+    expect(decommissionPlan).toContain("marketplace_record_present=\"$(jq -r");
+    expect(decommissionPlan).toContain('marketplace_public="${PRODUCTION_MARKETPLACE_PUBLIC_ENABLED:-false}"');
+    expect(decommissionPlan).toContain('if [ "$marketplace_public" = "true" ]; then');
+    expect(decommissionPlan).toContain('elif [ "$has_checkout_pool" = "true" ]; then');
+    expect(decommissionPlan).toContain(
+      'if [ "$marketplace_record_present" = "true" ] && [ "$marketplace_public" = "false" ]; then',
+    );
+    expect(decommissionPlan).not.toContain('marketplace_public="$(jq -r');
+    expect(decommissionPlan).not.toMatch(/PRODUCTION_MARKETPLACE_(?:PROMOTION|CHECKOUT|LAUNCH|SUPPORT|FULFILLMENT|TRANSACTIONAL|TAX)/);
+  });
+
+  it("captures served-not-public route and invitation-gate smoke evidence", () => {
+    const smoke = workflowStep(platformProductionWorkflow, "Smoke served marketplace invitation gate");
+    expect(smoke).toContain('base_url="https://marketplace.chasesets.com"');
+    expect(smoke).toContain('root_status="$(curl');
+    expect(smoke).toContain('name="robots"');
+    expect(smoke).toContain("noindex,nofollow");
+    expect(smoke).toContain('"$base_url/api/auth/register"');
+    expect(smoke).toContain('registration_code="$(jq -r');
+    expect(smoke).toContain("registration_admission_required");
+    expect(smoke).toContain('"$base_url/invite/ivt_malformed?token=malformed"');
+    expect(smoke).toContain('artifacts/release-health/served-marketplace-smoke.json');
+    expect(smoke).not.toMatch(/PROMOTION_APPROVED|_APPROVAL|_REFERENCE/);
+    expect(platformProductionWorkflow).toContain("artifacts/release-health/served-marketplace-smoke.json");
   });
 
   it("retires application compute while preserving live DOKS DNS addresses", () => {
@@ -2137,13 +2326,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingJob).toContain("TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}");
     expect(stagingJob).toContain("TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}");
     expect(productionJob).toContain(
-      "TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
+      "TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
     );
     expect(productionJob).toContain(
-      "TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
+      "TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
     );
     expect(productionJob).toContain(
-      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
     );
     expect(resetJob).toContain('echo "TF_VAR_platform_image_tag=${release_commit}" >> "$GITHUB_ENV"');
 

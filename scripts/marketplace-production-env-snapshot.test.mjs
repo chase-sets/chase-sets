@@ -11,6 +11,7 @@ function variable(name, value) {
 
 const completeVariables = [
   variable("PRODUCTION_MARKETPLACE_PUBLIC_ENABLED", "false"),
+  variable("PRODUCTION_MARKETPLACE_SERVED", "false"),
   variable("PRODUCTION_MARKETPLACE_PROOF_ENABLED", "false"),
   variable("PRODUCTION_MARKETPLACE_PROMOTION_APPROVED", "true"),
   variable("PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE", "LAUNCH-REVIEW-2026-05-30"),
@@ -143,6 +144,26 @@ describe("marketplace production environment snapshot", () => {
     expect(snapshot.passesProductionEnvSnapshotGate).toBe(false);
     expect(snapshot.errors).toContain(
       "PRODUCTION_MARKETPLACE_PROOF_ENABLED must be false when PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true.",
+    );
+  });
+
+  it("rejects serving and public launch being enabled together", () => {
+    const snapshot = buildProductionEnvSnapshot({
+      variables: [
+        ...completeVariables.filter(
+          (row) =>
+            row.name !== "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" && row.name !== "PRODUCTION_MARKETPLACE_SERVED",
+        ),
+        variable("PRODUCTION_MARKETPLACE_PUBLIC_ENABLED", "true"),
+        variable("PRODUCTION_MARKETPLACE_SERVED", "true"),
+      ],
+      environmentName: "production",
+      checkedAt: "2026-05-30T12:00:00.000Z",
+    });
+
+    expect(snapshot.passesProductionEnvSnapshotGate).toBe(false);
+    expect(snapshot.errors).toContain(
+      "PRODUCTION_MARKETPLACE_SERVED must be false when PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true.",
     );
   });
 
