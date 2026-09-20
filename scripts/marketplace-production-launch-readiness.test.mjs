@@ -174,8 +174,7 @@ describe("marketplace production launch readiness", () => {
     const readiness = buildProductionLaunchReadiness({
       variables: [
         ...completeVariables.filter(
-          (row) =>
-            row.name !== "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" && row.name !== "PRODUCTION_MARKETPLACE_SERVED",
+          (row) => row.name !== "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" && row.name !== "PRODUCTION_MARKETPLACE_SERVED",
         ),
         variable("PRODUCTION_MARKETPLACE_PUBLIC_ENABLED", "false"),
         variable("PRODUCTION_MARKETPLACE_SERVED", "true"),

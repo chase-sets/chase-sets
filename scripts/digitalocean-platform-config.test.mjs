@@ -786,21 +786,26 @@ describe("DigitalOcean platform configuration", () => {
       ],
       launchApprovalChecksRead: false,
     });
-    expect(
-      productionMarketplacePlanFixture({ runtimeProfile: "proof", served: true, publicEnabled: true }).valid,
-    ).toBe(false);
+    expect(productionMarketplacePlanFixture({ runtimeProfile: "proof", served: true, publicEnabled: true }).valid).toBe(
+      false,
+    );
     expect(
       productionMarketplacePlanFixture({ runtimeProfile: "landing", served: true, publicEnabled: false }).valid,
     ).toBe(false);
-    expect(
-      productionMarketplacePlanFixture({ runtimeProfile: "proof", served: false, publicEnabled: false }),
-    ).toEqual({ valid: true, changedResources: [], launchApprovalChecksRead: false });
+    expect(productionMarketplacePlanFixture({ runtimeProfile: "proof", served: false, publicEnabled: false })).toEqual({
+      valid: true,
+      changedResources: [],
+      launchApprovalChecksRead: false,
+    });
   });
 
   it("threads served-marketplace configuration and provider credentials through plan and apply", () => {
     const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
     const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
-    const decommissionPlan = workflowStep(platformProductionWorkflow, "Plan retired staging and production applications");
+    const decommissionPlan = workflowStep(
+      platformProductionWorkflow,
+      "Plan retired staging and production applications",
+    );
     const productionHelmDeploy = workflowStep(platformProductionWorkflow, "Deploy production Kubernetes release");
 
     const platformPlanApplySteps = [
@@ -882,8 +887,11 @@ describe("DigitalOcean platform configuration", () => {
       runtimeProfile: "public",
     });
 
-    const decommissionPlan = workflowStep(platformProductionWorkflow, "Plan retired staging and production applications");
-    expect(decommissionPlan).toContain("marketplace_record_present=\"$(jq -r");
+    const decommissionPlan = workflowStep(
+      platformProductionWorkflow,
+      "Plan retired staging and production applications",
+    );
+    expect(decommissionPlan).toContain('marketplace_record_present="$(jq -r');
     expect(decommissionPlan).toContain('marketplace_public="${PRODUCTION_MARKETPLACE_PUBLIC_ENABLED:-false}"');
     expect(decommissionPlan).toContain('if [ "$marketplace_public" = "true" ]; then');
     expect(decommissionPlan).toContain('elif [ "$has_checkout_pool" = "true" ]; then');
@@ -891,7 +899,9 @@ describe("DigitalOcean platform configuration", () => {
       'if [ "$marketplace_record_present" = "true" ] && [ "$marketplace_public" = "false" ]; then',
     );
     expect(decommissionPlan).not.toContain('marketplace_public="$(jq -r');
-    expect(decommissionPlan).not.toMatch(/PRODUCTION_MARKETPLACE_(?:PROMOTION|CHECKOUT|LAUNCH|SUPPORT|FULFILLMENT|TRANSACTIONAL|TAX)/);
+    expect(decommissionPlan).not.toMatch(
+      /PRODUCTION_MARKETPLACE_(?:PROMOTION|CHECKOUT|LAUNCH|SUPPORT|FULFILLMENT|TRANSACTIONAL|TAX)/,
+    );
   });
 
   it("captures served-not-public route and invitation-gate smoke evidence", () => {
@@ -904,7 +914,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(smoke).toContain('registration_code="$(jq -r');
     expect(smoke).toContain("registration_admission_required");
     expect(smoke).toContain('"$base_url/invite/ivt_malformed?token=malformed"');
-    expect(smoke).toContain('artifacts/release-health/served-marketplace-smoke.json');
+    expect(smoke).toContain("artifacts/release-health/served-marketplace-smoke.json");
     expect(smoke).not.toMatch(/PROMOTION_APPROVED|_APPROVAL|_REFERENCE/);
     expect(platformProductionWorkflow).toContain("artifacts/release-health/served-marketplace-smoke.json");
   });
