@@ -184,6 +184,11 @@ Reconciliation #4382 remains responsible for connecting its landed drift
 producer and hold reader to this service and proving its AC5/AC6 integration.
 Attention #7930 and liveness #7933 own their downstream behavior.
 
+## Operations
+
+The TCGplayer phase-1 manual-sync pilot operator procedures live in
+[Channels Pilot Operations](../../docs/runbooks/channels-pilot-operations.md).
+
 ## Tests
 
 Run `pnpm --filter @chase-sets/channels run test:watch` for the watch-mode inner
