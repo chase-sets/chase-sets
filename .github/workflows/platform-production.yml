@@ -4666,8 +4666,16 @@ jobs:
             artifacts/release-health/production-kubernetes-deploy-diagnostics.json
             artifacts/release-health/production-kubernetes-deployment-transition.json
             artifacts/release-health/production-deploy-root-cause.json
-            artifacts/release-health/served-marketplace-smoke.json
           if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload served marketplace smoke evidence
+        if: always() && env.SHOULD_DEPLOY != 'false' && env.TF_VAR_production_marketplace_served == 'true' && env.TF_VAR_production_marketplace_public_enabled != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: served-marketplace-smoke
+          path: artifacts/release-health/served-marketplace-smoke.json
+          if-no-files-found: error
           retention-days: 30
 
   dispatch-ephemeral-verification:

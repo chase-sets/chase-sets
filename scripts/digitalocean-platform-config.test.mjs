@@ -271,10 +271,33 @@ function workflowStep(source, stepName) {
   return next === -1 ? source.slice(start) : source.slice(start, next);
 }
 
+function workflowStepBeforeJob(source, stepName, nextJobName) {
+  const start = source.indexOf(`- name: ${stepName}`);
+  expect(start).not.toBe(-1);
+
+  const end = source.indexOf(`\n  ${nextJobName}:`, start + 1);
+  expect(end).not.toBe(-1);
+  return source.slice(start, end);
+}
+
 function workflowEnvironmentExpression(step, variableName) {
   const match = step.match(new RegExp(`^\\s+${variableName}:\\s+(.+)$`, "m"));
   expect(match).not.toBeNull();
   return match[1];
+}
+
+function servedMarketplaceSmokeUploadViolations(step) {
+  const expectedGate =
+    "if: always() && env.SHOULD_DEPLOY != 'false' && env.TF_VAR_production_marketplace_served == 'true' && env.TF_VAR_production_marketplace_public_enabled != 'true'";
+  const expectedPath = "artifacts/release-health/served-marketplace-smoke.json";
+  const paths = [...step.matchAll(/^\s+path:\s*(\S+)\s*$/gm)].map((match) => match[1]);
+  const violations = [];
+
+  if (!step.includes(expectedGate)) violations.push("exact served-private posture gate");
+  if (paths.length !== 1 || paths[0] !== expectedPath) violations.push("sole served smoke evidence path");
+  if (!step.includes("if-no-files-found: error")) violations.push("fail-closed missing-file policy");
+
+  return violations;
 }
 
 function evaluateRestorePointWorkflowExpression(expression, { eventName, emergencyRelease, restorePointRequired }) {
@@ -906,6 +929,15 @@ describe("DigitalOcean platform configuration", () => {
 
   it("captures served-not-public route and invitation-gate smoke evidence", () => {
     const smoke = workflowStep(platformProductionWorkflow, "Smoke served marketplace invitation gate");
+    const smokeUpload = workflowStepBeforeJob(
+      platformProductionWorkflow,
+      "Upload served marketplace smoke evidence",
+      "dispatch-ephemeral-verification",
+    );
+    const releaseHealthUpload = workflowStep(platformProductionWorkflow, "Upload release health summary");
+    const postureGate =
+      "if: always() && env.SHOULD_DEPLOY != 'false' && env.TF_VAR_production_marketplace_served == 'true' && env.TF_VAR_production_marketplace_public_enabled != 'true'";
+    const evidencePath = "artifacts/release-health/served-marketplace-smoke.json";
     expect(smoke).toContain('base_url="https://marketplace.chasesets.com"');
     expect(smoke).toContain('root_status="$(curl');
     expect(smoke).toContain('name="robots"');
@@ -914,9 +946,21 @@ describe("DigitalOcean platform configuration", () => {
     expect(smoke).toContain('registration_code="$(jq -r');
     expect(smoke).toContain("registration_admission_required");
     expect(smoke).toContain('"$base_url/invite/ivt_malformed?token=malformed"');
-    expect(smoke).toContain("artifacts/release-health/served-marketplace-smoke.json");
+    expect(smoke).toContain(evidencePath);
     expect(smoke).not.toMatch(/PROMOTION_APPROVED|_APPROVAL|_REFERENCE/);
-    expect(platformProductionWorkflow).toContain("artifacts/release-health/served-marketplace-smoke.json");
+    expect(servedMarketplaceSmokeUploadViolations(smokeUpload)).toEqual([]);
+    expect(smokeUpload).toContain("uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(releaseHealthUpload).not.toContain(evidencePath);
+
+    const removalMutants = [
+      ["exact served-private posture gate", smokeUpload.replace(postureGate, "")],
+      ["sole served smoke evidence path", smokeUpload.replace(evidencePath, "")],
+      ["fail-closed missing-file policy", smokeUpload.replace("if-no-files-found: error", "")],
+    ];
+    for (const [violation, mutant] of removalMutants) {
+      expect(mutant).not.toBe(smokeUpload);
+      expect(servedMarketplaceSmokeUploadViolations(mutant)).toContain(violation);
+    }
   });
 
   it("retires application compute while preserving live DOKS DNS addresses", () => {
