@@ -103,7 +103,7 @@ export function syntheticCurrentCatalogItem(
   return {
     language_code: "en",
     status: "draft",
-    title: "Synthetic current title",
+    title: "synthetic-current-title",
     subtitle: null,
     blueprint_id: null,
     field_values: [],
