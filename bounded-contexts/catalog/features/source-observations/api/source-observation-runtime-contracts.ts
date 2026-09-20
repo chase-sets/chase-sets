@@ -168,12 +168,15 @@ export type SourceObservationBulkJobPayload = Readonly<{
   reason: string | null;
   profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
   reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
+  /** Promote action only: the explicit review choice; absent means false. */
+  promoteAsDraft?: boolean;
 }>;
 
 export type SourceObservationBulkWorkUnitPayload = Readonly<{
   observationId: string;
   profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
   reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
+  promoteAsDraft?: boolean;
 }>;
 
 export type SourceObservationBulkWorkUnitResult =
@@ -189,6 +192,7 @@ export type SourceObservationBulkJob = Readonly<{
   reason: string | null;
   profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
   reapplyProfileMode: SourceObservationReapplyProfileMode | null;
+  promoteAsDraft: boolean;
   status: SourceObservationBulkJobStatus;
   progress: BulkSourceObservationProgress;
   result: SourceObservationBulkJobResult | null;
@@ -772,6 +776,8 @@ export type SourceObservationReviewServices = Readonly<{
     observationId: string;
     context: EventStoreContext;
     productAssetSource?: RepresentativeCatalogProductAssetSource | null;
+    /** Explicit review choice; omitted or false fails closed on a degraded identity. */
+    promoteAsDraft?: boolean;
   }) => Promise<SourceObservationPromotionTargetResult>;
   rejectObservation: (input: {
     observationId: string;
@@ -791,17 +797,24 @@ export type PromotionReapplyServices = Readonly<{
     observationIds: readonly string[];
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
+    /** Explicit review choice; omitted or false fails closed on a degraded identity. */
+    promoteAsDraft?: boolean;
   }) => Promise<BulkSourceObservationPromotionResult>;
   previewPromoteObservations: (input: {
     observationIds: readonly string[];
+    promoteAsDraft?: boolean;
+    validationAfter?: string | null;
   }) => Promise<SourceObservationPromotionPreview>;
   previewPromoteObservationScope: (input: {
     scope: SourceObservationFilterScope;
+    promoteAsDraft?: boolean;
+    validationAfter?: string | null;
   }) => Promise<SourceObservationPromotionPreview>;
   promoteObservationScope: (input: {
     scope: SourceObservationFilterScope;
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
+    promoteAsDraft?: boolean;
   }) => Promise<BulkSourceObservationPromotionResult>;
   previewReapplyObservationScope: (input: {
     scope: SourceObservationFilterScope;
@@ -851,6 +864,8 @@ export type BulkReviewJobServices = Readonly<{
     scope?: SourceObservationFilterScope;
     reason?: string | null;
     reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
+    /** Promote action only; omitted or false fails closed on a degraded identity. */
+    promoteAsDraft?: boolean;
     context: EventStoreContext;
   }) => Promise<SourceObservationBulkJob>;
   getBulkReviewJob: (jobId: string, context?: EventStoreContext | null) => Promise<SourceObservationBulkJob | null>;
@@ -1054,7 +1069,9 @@ export type CatalogMergeCandidateServices = Readonly<{
     catalog: CatalogMergeCandidatePromotionCatalogMapping;
     createCatalogItemId?: CatalogItemId | null;
     assetPlan?: CatalogMergeCandidatePromotionAssetPlan | null;
-  }) => CatalogMergeCandidatePromotionCommandPlanResult;
+    /** Explicit review choice; omitted or false fails closed on a degraded identity. */
+    promoteAsDraft?: boolean;
+  }) => Promise<CatalogMergeCandidatePromotionCommandPlanResult>;
 }>;
 
 export type ControlPlaneTelemetryServices = Readonly<{

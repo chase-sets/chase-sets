@@ -60,6 +60,7 @@ import {
 } from "./governance/catalog-integration-control-plane-readiness";
 import {
   resolvePromotionReferenceHierarchy,
+  resolvePromotionReferenceHierarchyReadOnly,
   type CatalogItemPromotableSourceObservationNormalized,
 } from "./source-observation-promotion-reference-hierarchy";
 
@@ -88,6 +89,8 @@ export async function createCatalogDraftFromObservation(input: {
   productAssetSource?: RepresentativeCatalogProductAssetSource | null;
   context: EventStoreContext;
   executeCommands?: boolean;
+  /** Explicit review choice; omitted or false fails closed on a degraded identity. */
+  promoteAsDraft?: boolean;
 }): Promise<CatalogItemPromotionResult> {
   const streamId = `catalog.item-${input.catalogItemId}`;
   const { targetReferenceRecordId, referenceRecordIdsByTypeKey } = await resolvePromotionReferenceHierarchy({
@@ -113,7 +116,9 @@ export async function createCatalogDraftFromObservation(input: {
     input.normalized.kind === "yugioh-sealed-product"
       ? targetReferenceRecordId
       : undefined;
-  const plan = planCatalogProviderPromotionCommands({
+  const plan = await planCatalogProviderPromotionCommands({
+    db: input.deps.db,
+    promoteAsDraft: input.promoteAsDraft === true,
     profile: input.providerProfile,
     profileKey: input.providerProfileVersion.profileKey,
     profileVersion: input.providerProfileVersion.profileVersion,
@@ -167,6 +172,8 @@ export async function refreshCatalogItemFromObservation(input: {
   productAssetSource?: RepresentativeCatalogProductAssetSource | null;
   context: EventStoreContext;
   executeCommands?: boolean;
+  /** Explicit review choice; omitted or false fails closed on a degraded identity. */
+  promoteAsDraft?: boolean;
 }): Promise<CatalogItemPromotionResult> {
   const streamId = `catalog.item-${input.catalogItemId}`;
   const { targetReferenceRecordId, referenceRecordIdsByTypeKey } = await resolvePromotionReferenceHierarchy({
@@ -192,7 +199,9 @@ export async function refreshCatalogItemFromObservation(input: {
     input.normalized.kind === "yugioh-sealed-product"
       ? targetReferenceRecordId
       : undefined;
-  const plan = planCatalogProviderPromotionCommands({
+  const plan = await planCatalogProviderPromotionCommands({
+    db: input.deps.db,
+    promoteAsDraft: input.promoteAsDraft === true,
     profile: input.providerProfile,
     profileKey: input.providerProfileVersion.profileKey,
     profileVersion: input.providerProfileVersion.profileVersion,
@@ -227,6 +236,77 @@ export async function refreshCatalogItemFromObservation(input: {
   }
 
   return { ...promotionEvidenceFromPlan(plan), referenceRecordIdsByTypeKey };
+}
+
+/**
+ * READ-ONLY promotion planning for the review preview. Runs the same validated
+ * planner entry as execution (display identity resolved against the current
+ * Catalog data) but provisions no Reference Records, stores no assets, and
+ * executes no command. Execution always revalidates before its first write.
+ */
+export async function previewCatalogItemPromotionPlan(input: {
+  deps: CatalogRuntimeDeps;
+  catalogItemId: CatalogItemId;
+  mode: "create" | "refresh";
+  normalized: CatalogItemPromotableSourceObservationNormalized;
+  providerKey: string;
+  externalKey: string;
+  providerProfile: CatalogProviderIntegrationProfile;
+  providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
+  catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
+  promoteAsDraft: boolean;
+}): Promise<CatalogProviderPromotionCommandPlanResult> {
+  const { targetReferenceRecordId } = await resolvePromotionReferenceHierarchyReadOnly({
+    deps: input.deps,
+    profile: input.providerProfile,
+    normalized: input.normalized,
+  });
+  const metadata = await formatCatalogItemPromotionMetadata({
+    deps: input.deps,
+    normalized: input.normalized,
+    targetReferenceRecordId,
+  });
+
+  return planCatalogProviderPromotionCommands({
+    db: input.deps.db,
+    promoteAsDraft: input.promoteAsDraft,
+    profile: input.providerProfile,
+    profileKey: input.providerProfileVersion.profileKey,
+    profileVersion: input.providerProfileVersion.profileVersion,
+    providerKey: input.providerKey,
+    externalKey: input.externalKey,
+    mode: input.mode,
+    catalogItemId: input.catalogItemId,
+    normalized: input.normalized,
+    catalog: {
+      blueprintId: input.catalogMapping.blueprintId,
+      categoryId: input.catalogMapping.categoryId,
+      fieldIds: input.catalogMapping.fieldIds,
+    },
+    expansionReferenceId:
+      input.normalized.kind === "pokemon-card" || input.normalized.kind === "pokemon-sealed-product"
+        ? targetReferenceRecordId
+        : undefined,
+    setReferenceId: setReferenceIdFor(input.normalized, targetReferenceRecordId),
+    metadata,
+    productAssetSet: null,
+    preflight: { status: "ready" },
+  });
+}
+
+function setReferenceIdFor(
+  normalized: CatalogItemPromotableSourceObservationNormalized,
+  targetReferenceRecordId: ReferenceRecordId,
+): ReferenceRecordId | undefined {
+  return normalized.kind === "magic-card-print" ||
+    normalized.kind === "magic-sealed-product" ||
+    normalized.kind === "lorcana-card-print" ||
+    normalized.kind === "lorcana-sealed-product" ||
+    normalized.kind === "one-piece-card-print" ||
+    normalized.kind === "one-piece-sealed-product" ||
+    normalized.kind === "yugioh-sealed-product"
+    ? targetReferenceRecordId
+    : undefined;
 }
 
 /**

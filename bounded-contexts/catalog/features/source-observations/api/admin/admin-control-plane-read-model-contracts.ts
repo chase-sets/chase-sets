@@ -95,6 +95,7 @@ export type CatalogAdminControlPlaneErrorCode =
   | "job_not_found"
   | "observation_not_found"
   | "promotion_plan_unavailable"
+  | "display_identity_unresolvable"
   | "audit_projection_unavailable"
   | "permission_denied";
 
@@ -390,20 +391,29 @@ export const catalogAdminControlPlaneQueryContracts = [
   contract({
     key: "promotion-plan-preview",
     readModelName: "CatalogAdminPromotionPlanPreviewReadModel",
-    routeIntent: "Preview promotion commands and blocked checks by ingestion unit before applying Catalog writes.",
+    routeIntent:
+      "Preview promotion commands and blocked checks by ingestion unit, including the resolved display identity of every proposed Catalog Item, before applying Catalog writes.",
     grouping: "ingestion-unit",
     unitKey: "required",
     freshness: "request-time",
     sources: [
       runtimeSource("planCatalogProviderPromotionCommands"),
+      runtimeSource("resolveCatalogItemDisplayIdentity"),
       tableSource("catalog_provider_integration_profile_versions"),
       tableSource("catalog_source_observations"),
+      tableSource("catalog_items"),
+      tableSource("catalog_display_templates"),
     ],
     errorStates: [
       errorState(
         "promotion_plan_unavailable",
         "blocked",
         "Promotion plan cannot be built for the selected profile/scope.",
+      ),
+      errorState(
+        "display_identity_unresolvable",
+        "blocked",
+        "A proposed Catalog Item's display identity cannot resolve; repair the referenced data and re-plan, or explicitly promote as draft.",
       ),
       errorState(
         "observation_not_found",

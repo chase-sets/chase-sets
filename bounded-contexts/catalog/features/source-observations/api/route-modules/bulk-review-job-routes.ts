@@ -4,6 +4,7 @@ import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/
 import type { BulkReviewJobServices, IntegrationJobServices } from "../runtime";
 import {
   parseObservationIds,
+  parsePromoteAsDraft,
   parsePromotionScope,
   parseReapplyProfileMode,
   promotionScopeToIntegrationScope,
@@ -113,6 +114,7 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
       scope?: unknown;
+      promoteAsDraft?: unknown;
     };
     let job;
     try {
@@ -120,6 +122,7 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
         action: "promote",
         observationIds: parseObservationIds(body.observationIds),
         scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+        promoteAsDraft: parsePromoteAsDraft(body.promoteAsDraft),
         context: c.get("context"),
       });
     } catch (error) {
@@ -141,6 +144,7 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
       scope?: unknown;
+      promoteAsDraft?: unknown;
     };
 
     let job;
@@ -149,6 +153,7 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
         action: "promote",
         observationIds: parseObservationIds(body.observationIds),
         scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+        promoteAsDraft: parsePromoteAsDraft(body.promoteAsDraft),
         context: c.get("context"),
       });
     } catch (error) {

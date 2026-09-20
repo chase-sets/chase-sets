@@ -602,8 +602,40 @@ describe("source observation routes: integration and bulk review jobs", () => {
         language: "en",
         setId: "base1",
       },
+      promoteAsDraft: false,
       context,
     });
+  });
+
+  it("carries only an explicit boolean promote-as-draft choice into the promotion job", async () => {
+    const enqueueBulkReviewJob = vi.fn(async () =>
+      bulkJobFixture({
+        jobId: "job_promote_draft",
+        action: "promote",
+        selectionMode: "ids",
+        observationIds: ["obs_1"],
+      }),
+    );
+    const app = buildApp({ enqueueBulkReviewJob } as unknown as SourceObservationRouteServices);
+
+    for (const body of [
+      { observationIds: ["obs_1"], promoteAsDraft: true },
+      { observationIds: ["obs_1"], promoteAsDraft: "true" },
+      { observationIds: ["obs_1"] },
+    ]) {
+      const response = await app.request("/source-observations/bulk-promote", {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+      });
+      expect(response.status).toBe(202);
+    }
+
+    expect(enqueueBulkReviewJob.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
+      expect.objectContaining({ promoteAsDraft: true }),
+      expect.objectContaining({ promoteAsDraft: false }),
+      expect.objectContaining({ promoteAsDraft: false }),
+    ]);
   });
 
   it("returns rollout evidence when bulk promotion is disabled", async () => {
@@ -848,6 +880,7 @@ describe("source observation routes: integration and bulk review jobs", () => {
       action: "promote",
       observationIds: ["obs_1", "obs_2"],
       scope: undefined,
+      promoteAsDraft: false,
       context,
     });
   });

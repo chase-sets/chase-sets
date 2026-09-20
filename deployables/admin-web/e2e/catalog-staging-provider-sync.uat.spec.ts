@@ -1442,11 +1442,12 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     }
   });
 
-  test("partitions every representative unit using the active registry, executable fixture mapper and real planner", () => {
-    const partitions = representativeMembers.map((member) => {
-      expect(() => executableMemberPartition(member), member.id).not.toThrow();
-      return { member, result: executableMemberPartition(member) };
-    });
+  test("partitions every representative unit using the active registry, executable fixture mapper and real planner", async () => {
+    const partitions = [];
+    for (const member of representativeMembers) {
+      await expect(executableMemberPartition(member), member.id).resolves.toBeDefined();
+      partitions.push({ member, result: await executableMemberPartition(member) });
+    }
     expect(partitions).toHaveLength(46);
     console.log(
       `[representative-catalog-inventory] ${JSON.stringify(partitions.map(({ member, result }) => ({ id: member.id, group: member.group, providerKey: member.providerKey, unitKey: result.unitKey, language: member.language, target: member.target, profileKey: result.version.profileKey, profileVersion: result.version.profileVersion, kind: result.normalized.kind, partition: result.partition })))}`,
@@ -1466,9 +1467,9 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       }
       if (member.journey.requiredSetName) {
         expect(result.partition).toBe("catalog-item");
-        expect(memberPromotionPlan(member, result.normalized, ["synthetic_set"]).status).toBe("planned");
-        expect(memberPromotionPlan(member, result.normalized, []).status).toBe("blocked");
-        expect(() => memberPromotionPlan(member, result.normalized, ["synthetic_a", "synthetic_b"])).toThrow();
+        expect((await memberPromotionPlan(member, result.normalized, ["synthetic_set"])).status).toBe("planned");
+        expect((await memberPromotionPlan(member, result.normalized, [])).status).toBe("blocked");
+        await expect(memberPromotionPlan(member, result.normalized, ["synthetic_a", "synthetic_b"])).rejects.toThrow();
       }
     }
     expect(() =>
@@ -1541,7 +1542,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     ).rejects.toThrow("locator failure");
   });
 
-  test("maps both exact Pokemon sealed targets and refuses an unresolved, ambiguous or set-shaped YGOJSON product", () => {
+  test("maps both exact Pokemon sealed targets and refuses an unresolved, ambiguous or set-shaped YGOJSON product", async () => {
     for (const member of representativeMembers.filter(
       (candidate) => candidate.unitKey === "tcgplayer:pokemon:sealed-product:source-observation-import",
     )) {
@@ -1578,7 +1579,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
         setName: member.target,
       });
       expect(
-        memberPromotionPlan(member, mapped.normalized, ["synthetic-expansion"]).plan?.commands.length,
+        (await memberPromotionPlan(member, mapped.normalized, ["synthetic-expansion"])).plan?.commands.length,
       ).toBeGreaterThan(0);
     }
     for (const member of representativeMembers.filter((candidate) => candidate.journey.requiredSetName)) {
@@ -1645,14 +1646,16 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       expect(() =>
         assertMemberObservation(member, { ...observation, normalized: ambiguous.normalized }, selected, refs),
       ).toThrow("unresolved-boxed-set-relation");
-      expect(memberPromotionPlan(member, mapped.normalized, []).status).toBe("blocked");
-      expect(memberPromotionPlan(member, mapped.normalized, ["synthetic-reference"]).status).toBe("planned");
-      const providerProduct = executableMemberPartition(
-        representativeMembers.find(
-          (candidate) => candidate.unitKey === "tcgplayer:yugioh:single-card:source-observation-import",
-        )!,
+      expect((await memberPromotionPlan(member, mapped.normalized, [])).status).toBe("blocked");
+      expect((await memberPromotionPlan(member, mapped.normalized, ["synthetic-reference"])).status).toBe("planned");
+      const providerProduct = (
+        await executableMemberPartition(
+          representativeMembers.find(
+            (candidate) => candidate.unitKey === "tcgplayer:yugioh:single-card:source-observation-import",
+          )!,
+        )
       ).normalized;
-      expect(memberPromotionPlan(member, providerProduct, ["synthetic-reference"]).status).toBe("blocked");
+      expect((await memberPromotionPlan(member, providerProduct, ["synthetic-reference"])).status).toBe("blocked");
     }
   });
 
@@ -2669,7 +2672,7 @@ async function runRepresentativeCatalog(page: Page, remainingMs: number): Promis
     budget,
     async (member, progress) => {
       if (!initialized) throw new EvidenceUnknown("initialization-unavailable");
-      const partition = executableMemberPartition(member);
+      const partition = await executableMemberPartition(member);
       await budget.run(() => openCatalogImporter(page));
       const selected = await budget.run(() => selectProviderScope(page, member.journey));
       const selectedId = selectedRepresentativeIdentity(member, selected);
@@ -2719,7 +2722,7 @@ async function runRepresentativeCatalog(page: Page, remainingMs: number): Promis
         const reference = member.journey.requiredSetName
           ? references.get(member.target)?.referenceRecordId
           : "synthetic-partition-reference";
-        const plan = memberPromotionPlan(member, observation.normalized, reference ? [reference] : []);
+        const plan = await memberPromotionPlan(member, observation.normalized, reference ? [reference] : []);
         if (plan.status !== "planned" || !plan.plan.commands.length)
           throw new EvidenceUnknown("promotion-plan-refused");
       }

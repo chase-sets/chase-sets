@@ -5,6 +5,7 @@ import {
   KeyValueList,
   LinkButton,
   ProgressiveDisclosure,
+  StatusReasonList,
   WorkbenchActionRow,
   WorkbenchDetailPanel,
   WorkbenchGrid,
@@ -29,7 +30,13 @@ export function CatalogIntegrationCreateItemsStage({
 }>) {
   const [confirmed, setConfirmed] = useState(false);
   const preview = readModel.promotionPreview;
-  const previewFresh = preview.executionSafeguards.previewFresh && preview.previewId !== null;
+  // The explicit review choice. It defaults off; the previewed choice comes back
+  // through the route context, and toggling it here makes the saved preview
+  // stale locally (commit disabled) until a fresh preview binds the new choice.
+  const [promoteAsDraft, setPromoteAsDraft] = useState(preview.validation.promoteAsDraft);
+  const choiceChanged = preview.previewId !== null && promoteAsDraft !== preview.validation.promoteAsDraft;
+  const previewFresh = preview.executionSafeguards.previewFresh && preview.previewId !== null && !choiceChanged;
+  const identityBlocked = preview.blockers.includes("display-identity-unresolvable");
   const scopeSummary = preview.scope.filterSummary.join(", ");
 
   return (
@@ -121,16 +128,32 @@ export function CatalogIntegrationCreateItemsStage({
           })}
         </WorkbenchText>
 
+        <Checkbox
+          name="promote-as-draft-choice"
+          checked={promoteAsDraft}
+          onCheckedChange={(checked) => {
+            setPromoteAsDraft(checked === true);
+            setConfirmed(false);
+          }}
+          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteAsDraft.label")}
+          description={t(
+            "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteAsDraft.description",
+          )}
+        />
+
         <WorkbenchActionRow align="between">
           <WorkbenchText size="xs" tone={previewFresh ? "secondary" : "foreground"} weight="semibold">
             {previewFresh
               ? t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.fresh")
-              : t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.refresh")}
+              : choiceChanged
+                ? t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.choiceChanged")
+                : t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.refresh")}
           </WorkbenchText>
           <CommandFormButton
             readModel={readModel}
             intent="observation.promote"
             promotionPhase="preview"
+            promoteAsDraft={promoteAsDraft}
             size="sm"
             tone="secondary"
           >
@@ -138,10 +161,12 @@ export function CatalogIntegrationCreateItemsStage({
           </CommandFormButton>
         </WorkbenchActionRow>
 
+        <CatalogIntegrationPromotionValidation validation={preview.validation} />
+
         <Checkbox
           name="confirm-create-items"
           checked={confirmed}
-          disabled={!previewFresh}
+          disabled={!previewFresh || identityBlocked}
           onCheckedChange={(checked) => setConfirmed(checked === true)}
           label={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.confirm", {
             count: preview.scope.eligibleCount,
@@ -154,8 +179,9 @@ export function CatalogIntegrationCreateItemsStage({
             readModel={readModel}
             intent="observation.promote"
             promotionPhase="execute"
+            promoteAsDraft={promoteAsDraft}
             leadingIcon="check"
-            disabled={!previewFresh || !confirmed}
+            disabled={!previewFresh || !confirmed || identityBlocked}
           >
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.commit")}
           </CommandFormButton>
@@ -174,6 +200,102 @@ export function CatalogIntegrationCreateItemsStage({
       </ProgressiveDisclosure>
     </WorkbenchStack>
   );
+}
+
+// The preview's read-only pre-write validation: which eligible observations
+// were validated, and the bounded identity verdicts. Only structured resolver
+// evidence (reason, token names, template key) is shown; a draft-only carry
+// stays visible as a non-blocking item so the operator sees what they accepted.
+function CatalogIntegrationPromotionValidation({
+  validation,
+}: Readonly<{ validation: CatalogPrimaryWorkbenchReadModel["promotionPreview"]["validation"] }>) {
+  if (validation.coverage === "not-previewed") {
+    return null;
+  }
+  const blockedIdentityCount = validation.identityDiagnostics.filter((diagnostic) => diagnostic.blocking).length;
+  const draftOnlyCount = validation.identityDiagnostics.length - blockedIdentityCount;
+
+  return (
+    <WorkbenchStack gap="sm">
+      <WorkbenchText tone="foreground" weight="semibold" size="sm">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.title")}
+      </WorkbenchText>
+      <WorkbenchText size="xs" tone="secondary">
+        {validation.coverage === "complete"
+          ? t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.coverage.complete", {
+              count: validation.coveredCount,
+            })
+          : t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.coverage.partial", {
+              count: validation.coveredCount,
+            })}
+      </WorkbenchText>
+      {blockedIdentityCount > 0 ? (
+        <WorkbenchText size="xs" tone="foreground" weight="semibold">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.blocked", {
+            count: blockedIdentityCount,
+          })}
+        </WorkbenchText>
+      ) : null}
+      {draftOnlyCount > 0 ? (
+        <WorkbenchText size="xs" tone="secondary">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.draftOnly", {
+            count: draftOnlyCount,
+          })}
+        </WorkbenchText>
+      ) : null}
+      {validation.otherBlockedObservationIds.length > 0 ? (
+        <WorkbenchText size="xs" tone="secondary">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.other.blocked", {
+            count: validation.otherBlockedObservationIds.length,
+          })}
+        </WorkbenchText>
+      ) : null}
+      <StatusReasonList
+        compact
+        items={validation.identityDiagnostics.map((diagnostic) => ({
+          key: `${diagnostic.observationId}:${diagnostic.templateReason}`,
+          label: identityReasonLabel(diagnostic.templateReason),
+          tone: diagnostic.blocking ? "danger" : "warning",
+          reason:
+            diagnostic.missingTokens.length > 0
+              ? t(
+                  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.observation",
+                  {
+                    observationId: diagnostic.observationId,
+                    reason: diagnostic.diagnosticText,
+                    tokens: diagnostic.missingTokens.join(", "),
+                  },
+                )
+              : t(
+                  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.observation.noTokens",
+                  {
+                    observationId: diagnostic.observationId,
+                    reason: diagnostic.diagnosticText,
+                  },
+                ),
+        }))}
+      />
+    </WorkbenchStack>
+  );
+}
+
+function identityReasonLabel(
+  reason: CatalogPrimaryWorkbenchReadModel["promotionPreview"]["validation"]["identityDiagnostics"][number]["templateReason"],
+): string {
+  switch (reason) {
+    case "unresolved-title-tokens":
+      return t(
+        "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.reason.unresolvedTitleTokens",
+      );
+    case "no-targeted-template":
+      return t(
+        "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.reason.noTargetedTemplate",
+      );
+    case "missing-required-fields":
+      return t(
+        "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.validation.identity.reason.missingRequiredFields",
+      );
+  }
 }
 
 function CatalogIntegrationPromotionOutcome({

@@ -263,6 +263,7 @@ function buildCatalogPrimaryWorkbenchCore(
     routeContext,
     sourceObservationReview,
     reviewEvidenceByObservationId,
+    promotionValidation: input.promotionValidation ?? null,
   });
   const mergeCandidateReview = mergeCandidateReviewFor({
     canManage,

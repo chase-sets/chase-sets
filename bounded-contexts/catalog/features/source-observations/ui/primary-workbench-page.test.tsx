@@ -2080,6 +2080,123 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(executeForms.length).toBeGreaterThan(0);
   });
 
+  it("blocks the create/update commit on an unresolvable display identity and requires a fresh preview after the draft choice changes", () => {
+    const identityDiagnostic = {
+      observationId: "obs_001",
+      code: "display-identity-unresolvable",
+      path: "displayIdentity",
+      diagnosticText: "Matched template has unresolved title tokens.",
+      displayIdentity: {
+        missingTokens: ["reference.expansion.attributes.code"],
+        templateKey: "pokemon-card-title",
+        templateTargetKind: "blueprint",
+        templateTargetId: "bp_pokemon_card",
+        templateReason: "unresolved-title-tokens" as const,
+      },
+    };
+    const input = {
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    };
+    const blockedReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      ...input,
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&filter.status=changed&promotionPreviewId=preview_scope",
+      promotionValidation: {
+        promoteAsDraft: false,
+        pageLimit: 100,
+        coveredObservationIds: ["obs_001"],
+        coverage: "complete",
+        continuation: null,
+        diagnostics: [{ ...identityDiagnostic, blocking: true }],
+      },
+    });
+
+    const { unmount } = render(<CatalogIntegrationsSurfacePage surface="daily" readModel={blockedReadModel} />);
+
+    // Error state: bounded identity blocker with structured evidence, no provider text.
+    expect(screen.getAllByText("Display identity unresolvable").length).toBeGreaterThan(0);
+    expect(screen.getByText("Validated every eligible observation (1) before any Catalog write.")).toBeTruthy();
+    expect(screen.getByText("1 observation(s) blocked: display identity unresolvable.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "obs_001: Matched template has unresolved title tokens. Missing tokens: reference.expansion.attributes.code.",
+      ),
+    ).toBeTruthy();
+    const confirmation = screen.getByLabelText(
+      "I confirm this will promote 1 eligible observation(s) from Matching filtered observations.",
+    );
+    expect(confirmation.hasAttribute("disabled")).toBe(true);
+    expect(
+      screen
+        .getAllByRole("button", { name: "Create or update Catalog Items" })
+        .every((button) => button.hasAttribute("disabled")),
+    ).toBe(true);
+
+    // Changing the explicit draft choice makes the saved preview stale locally:
+    // the commit stays disabled and the operator is told to refresh the preview.
+    const draftChoice = screen.getByLabelText("Promote as draft even when the display identity is unresolved");
+    expect((draftChoice as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(draftChoice);
+    expect(
+      screen.getByText(
+        "The promote-as-draft choice changed since this preview. Refresh the previewed impact before committing.",
+      ),
+    ).toBeTruthy();
+    const previewForms = [
+      ...document.querySelectorAll<HTMLFormElement>(
+        'form[data-catalog-primary-workbench-command="observation.promote"]',
+      ),
+    ].filter((form) => form.querySelector<HTMLInputElement>('input[name="promotionPhase"]')?.value === "preview");
+    expect(previewForms.length).toBeGreaterThan(0);
+    expect(
+      previewForms.every(
+        (form) => form.querySelector<HTMLInputElement>('input[name="promoteAsDraft"]')?.value === "true",
+      ),
+    ).toBe(true);
+    unmount();
+
+    // Success state under the explicit draft choice: the diagnostic stays
+    // visible but no longer blocks, and the commit is confirmable.
+    const draftReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      ...input,
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&filter.status=changed&promotionPreviewId=preview_draft&promoteAsDraft=true",
+      promotionValidation: {
+        promoteAsDraft: true,
+        pageLimit: 100,
+        coveredObservationIds: ["obs_001"],
+        coverage: "complete",
+        continuation: null,
+        diagnostics: [{ ...identityDiagnostic, blocking: false }],
+      },
+    });
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={draftReadModel} />);
+
+    expect(screen.queryByText("Display identity unresolvable")).toBeNull();
+    expect(
+      screen.getByText("1 observation(s) will be written as draft with an unresolved display identity."),
+    ).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Promote as draft even when the display identity is unresolved") as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    const draftConfirmation = screen.getByLabelText(
+      "I confirm this will promote 1 eligible observation(s) from Matching filtered observations.",
+    );
+    expect(draftConfirmation.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(draftConfirmation);
+    const commitButton = screen.getAllByRole("button", { name: "Create or update Catalog Items" }).at(0) as
+      | HTMLButtonElement
+      | undefined;
+    expect(commitButton?.hasAttribute("disabled")).toBe(false);
+    expect(commitButton?.form?.querySelector<HTMLInputElement>('input[name="promoteAsDraft"]')?.value).toBe("true");
+  });
+
   it("enables aggregate-backed promotion execution when row review is unavailable", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:

@@ -14,6 +14,8 @@ import { module as catalogModule } from "../../../../index";
 import { createCatalogServices } from "../../../../support/authoring-support/services";
 import { seedCatalogDatabase } from "../../../../support/authoring-support/seed";
 import { seedContext } from "../../../../support/seed-support/context";
+import { localizedTextMapFromEnglish } from "../../../../support/runtime-support/common";
+import type { DisplayTemplateId } from "../../../../ids";
 import {
   decideSourceObservation,
   evolveSourceObservation,
@@ -85,7 +87,7 @@ describeDb("promoted Source Observation scenario seed database lifecycle", () =>
     it(`converges ${initialHistory} history and preserves one record plus one promotion across repeats`, async () => {
       const services = createCatalogServices(pool);
       await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
-      const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence();
+      const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(pool);
       if (initialHistory === "recorded-only") {
         await appendObservationHistory(pool, commandEvents(evidence.recordCommand).events);
       }
@@ -128,7 +130,7 @@ describeDb("promoted Source Observation scenario seed database lifecycle", () =>
     it(`fails deterministically for ${poisonCase} history and does not append a repair promotion`, async () => {
       const services = createCatalogServices(pool);
       await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
-      const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence();
+      const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(pool);
       const history = poisonedHistory(poisonCase, evidence.recordCommand, evidence.promotionCommand);
       await appendObservationHistory(pool, history);
       const countBefore = await observationEventCount(pool);
@@ -290,6 +292,42 @@ async function appendCatalogItemLifecycle(
     ],
   });
   await drainLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
+  await publishGlobalTitleDisplayTemplate(pool, services);
+}
+
+// The exact identity prerequisite the promotion seed now validates: the bare
+// lifecycle item resolves through a published global title template. Without
+// it the seed's refresh plan is blocked as `display-identity-unresolvable`.
+async function publishGlobalTitleDisplayTemplate(
+  pool: PgTransactionalPool,
+  services: ReturnType<typeof createCatalogServices>,
+): Promise<void> {
+  const displayTemplateId = "dtp_01SEEDDBTESTGLOBALTITLE0000" as DisplayTemplateId;
+  const streamId = `catalog.display-template-${displayTemplateId}`;
+  const existing = await pool.query("SELECT 1 FROM event_store_events WHERE stream_id = $1 LIMIT 1", [streamId]);
+  if ((existing.rowCount ?? 0) === 0) {
+    await services.displayTemplates.commandHandler({
+      streamId,
+      command: {
+        type: "CreateDisplayTemplate",
+        displayTemplateId,
+        key: "seed-db-test-global-title",
+        name: localizedTextMapFromEnglish("Seed DB test global title"),
+        description: localizedTextMapFromEnglish(""),
+        target: { kind: "global" },
+        priority: 0,
+        titleTemplate: "{item.title}",
+        subtitleTemplate: null,
+      },
+      context: seedContext,
+    });
+    await services.displayTemplates.commandHandler({
+      streamId,
+      command: { type: "PublishDisplayTemplate" },
+      context: seedContext,
+    });
+  }
+  await drainLocalProjectionHandlerSets("catalog", pool, services.displayTemplates.projectors);
 }
 
 async function projectedObservation(pool: PgTransactionalPool) {

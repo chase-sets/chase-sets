@@ -310,6 +310,102 @@ describe("Catalog primary workbench read model - source observation review", () 
     });
   });
 
+  it("projects the preview's read-only identity validation into blockers and structured evidence", () => {
+    const identityDiagnostic = {
+      observationId: "obs_001",
+      code: "display-identity-unresolvable",
+      path: "displayIdentity",
+      diagnosticText: "Matched template has unresolved title tokens.",
+      displayIdentity: {
+        missingTokens: ["reference.expansion.attributes.code"],
+        templateKey: "pokemon-card-title",
+        templateTargetKind: "blueprint",
+        templateTargetId: "bp_pokemon_card",
+        templateReason: "unresolved-title-tokens" as const,
+      },
+    };
+    const input = {
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    };
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&selectedObservationIds=obs_001&promotionPreviewId=preview_001";
+
+    const blocked = buildCatalogPrimaryWorkbenchReadModel({
+      ...input,
+      requestUrl,
+      promotionValidation: {
+        promoteAsDraft: false,
+        pageLimit: 100,
+        coveredObservationIds: ["obs_001"],
+        coverage: "partial",
+        continuation: "obs_001",
+        diagnostics: [
+          { ...identityDiagnostic, blocking: true },
+          {
+            observationId: "obs_002",
+            code: "runtime-preflight-failed",
+            path: "observation",
+            diagnosticText: "Promotion preflight could not validate this observation.",
+            blocking: true,
+          },
+        ],
+      },
+    });
+    const draftCarried = buildCatalogPrimaryWorkbenchReadModel({
+      ...input,
+      requestUrl: `${requestUrl}&promoteAsDraft=true`,
+      promotionValidation: {
+        promoteAsDraft: true,
+        pageLimit: 100,
+        coveredObservationIds: ["obs_001"],
+        coverage: "complete",
+        continuation: null,
+        diagnostics: [{ ...identityDiagnostic, blocking: false }],
+      },
+    });
+    const notPreviewed = buildCatalogPrimaryWorkbenchReadModel({ ...input, requestUrl });
+
+    expect(blocked.promotionPreview.blockers).toContain("display-identity-unresolvable");
+    expect(blocked.promotionPreview.validation).toEqual({
+      promoteAsDraft: false,
+      coverage: "partial",
+      coveredCount: 1,
+      continuation: "obs_001",
+      identityDiagnostics: [
+        {
+          observationId: "obs_001",
+          blocking: true,
+          templateReason: "unresolved-title-tokens",
+          diagnosticText: "Matched template has unresolved title tokens.",
+          missingTokens: ["reference.expansion.attributes.code"],
+          templateKey: "pokemon-card-title",
+        },
+      ],
+      otherBlockedObservationIds: ["obs_002"],
+    });
+    // The explicit draft choice keeps the diagnostic visible but non-blocking.
+    expect(draftCarried.promotionPreview.blockers).not.toContain("display-identity-unresolvable");
+    expect(draftCarried.routeContext.promoteAsDraft).toBe(true);
+    expect(draftCarried.promotionPreview.validation).toMatchObject({
+      promoteAsDraft: true,
+      coverage: "complete",
+      identityDiagnostics: [expect.objectContaining({ observationId: "obs_001", blocking: false })],
+    });
+    expect(notPreviewed.promotionPreview.validation).toEqual({
+      promoteAsDraft: false,
+      coverage: "not-previewed",
+      coveredCount: 0,
+      continuation: null,
+      identityDiagnostics: [],
+      otherBlockedObservationIds: [],
+    });
+  });
+
   it("models matching-filter promotion scope with skipped and failed outcome counts", () => {
     const overview = controlPlaneOverview({
       unitActivity: {

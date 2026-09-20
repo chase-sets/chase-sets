@@ -24,6 +24,7 @@ import type {
   SourceObservationIntegrationImportPreview,
   SourceObservationIntegrationJobScope,
   SourceObservationIntegrationOptionResponse,
+  SourceObservationPromotionValidation,
 } from "../../../features/source-observations/ui/contracts";
 import type { SourceObservationPromotionOutcomeRecord } from "../../../features/source-observations/api/runtime";
 import {
@@ -56,7 +57,7 @@ import type { CatalogAliasReviewReadModel } from "../../../features/alias-equiva
 import type { CatalogAttentionQueueReadModel } from "../../../features/attention-queue/api/contracts";
 import { CatalogApiError } from "../../../client";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
-import { integrationScopeFromContext } from "./integrations-command-context";
+import { integrationScopeFromContext, previewPromotionForContext } from "./integrations-command-context";
 import {
   loadCatalogListRouteData,
   readCatalogListQuery,
@@ -180,6 +181,7 @@ async function finalizeSurfaceLoad(input: {
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
   mergeCandidates?: ListResponse<CatalogMergeCandidateListItem> | null;
   promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
+  promotionValidation?: SourceObservationPromotionValidation | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   readModelFailures?: readonly CatalogPrimaryWorkbenchReadModelFailure[];
 }) {
@@ -197,6 +199,7 @@ async function finalizeSurfaceLoad(input: {
     reviewObservations: input.reviewObservations ?? null,
     mergeCandidates: input.mergeCandidates ?? null,
     promotionOutcome: input.promotionOutcome ?? null,
+    promotionValidation: input.promotionValidation ?? null,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: null,
     catalogSyncPreview: null,
@@ -249,13 +252,14 @@ export async function loadDailySurfaceForRequest(request: Request) {
     ? catalogApiResult(() => api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery), null)
     : Promise.resolve({ value: null, failed: false } as const);
   const mergeCandidateQuery = buildDailyMergeCandidateQuery(normalizedRouteContext);
-  const [reviewObservationResult, mergeCandidateResult, promotionOutcome] = await Promise.all([
+  const [reviewObservationResult, mergeCandidateResult, promotionOutcome, promotionValidation] = await Promise.all([
     reviewObservationPromise,
     catalogApiResult(
       () => api.listCatalogMergeCandidates<ListResponse<CatalogMergeCandidateListItem>>(mergeCandidateQuery),
       null,
     ),
     selectedPromotionOutcome(api, normalizedRouteContext),
+    selectedPromotionValidation(api, normalizedRouteContext),
   ]);
   const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...normalized.readModelFailures];
   if (reviewObservationResult.failed) {
@@ -273,6 +277,7 @@ export async function loadDailySurfaceForRequest(request: Request) {
     reviewObservations: reviewObservationResult.value,
     mergeCandidates: mergeCandidateResult.value,
     promotionOutcome,
+    promotionValidation,
     reviewPagination,
     readModelFailures,
   });
@@ -535,6 +540,26 @@ async function selectedPromotionOutcome(
   }
 }
 
+// The read-only pre-write validation for the route's promotion preview token.
+// Re-fetched on load so the create/update stage always paints the current
+// per-observation verdicts (identity blockers, draft-only carries) rather than
+// a count-only eligibility. Fail-soft: absence renders as not-previewed.
+async function selectedPromotionValidation(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  context: CatalogPrimaryWorkbenchRouteContext,
+): Promise<SourceObservationPromotionValidation | null> {
+  if (!context.promotionPreviewId) {
+    return null;
+  }
+
+  try {
+    const preview = await previewPromotionForContext(api, context, context.selectedObservationIds);
+    return preview.validation;
+  } catch {
+    return null;
+  }
+}
+
 // The durable per-scope sync state (survives across runs), keyed off the same
 // scope the "Sync scope" action itself submits — so the scope page's state
 // panel and the "Sync scope" fan-out always agree on which scope they mean.
@@ -583,6 +608,7 @@ type BuildSurfaceReadModelInput = Readonly<{
   reviewObservations: ListResponse<SourceObservationListItem> | null;
   mergeCandidates: ListResponse<CatalogMergeCandidateListItem> | null;
   promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
+  promotionValidation?: SourceObservationPromotionValidation | null;
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   catalogSyncPreview: CatalogSyncProviderParticipationPreview | null;
@@ -633,6 +659,7 @@ function surfaceReadModelInput(
     reviewObservations: failures.has("source-observation-review") ? null : input.reviewObservations,
     mergeCandidates: failures.has("merge-candidate-review") ? null : input.mergeCandidates,
     promotionOutcome: input.promotionOutcome,
+    promotionValidation: input.promotionValidation ?? null,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: input.sourceOptionPages,
     catalogSyncPreview: input.catalogSyncPreview,

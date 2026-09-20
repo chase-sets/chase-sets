@@ -71,6 +71,25 @@ export type CatalogBulkActionProgressOptions = Readonly<{
   signal?: AbortSignal;
 }>;
 
+/** Promotion execution options: the explicit draft choice defaults to false. */
+export type CatalogPromotionActionOptions = CatalogBulkActionProgressOptions &
+  Readonly<{
+    promoteAsDraft?: boolean;
+  }>;
+
+/** Promotion preview options: draft choice plus the bounded validation page cursor. */
+export type CatalogPromotionPreviewOptions = Readonly<{
+  promoteAsDraft?: boolean;
+  validationAfter?: string | null;
+}>;
+
+function promotionPreviewBody(options: CatalogPromotionPreviewOptions): {
+  promoteAsDraft: boolean;
+  validationAfter: string | null;
+} {
+  return { promoteAsDraft: options.promoteAsDraft === true, validationAfter: options.validationAfter ?? null };
+}
+
 export type CatalogBulkReviewJob<T = unknown> = Readonly<{
   jobId: string;
   action: "promote" | "reject" | "defer" | "reapply";
@@ -1486,15 +1505,16 @@ export function createCatalogApiClient({
     },
     async bulkPromoteSourceObservations<T>(
       observationIds: string[],
-      options: CatalogBulkActionProgressOptions = {},
+      options: CatalogPromotionActionOptions = {},
     ): Promise<T> {
+      const promoteAsDraft = options.promoteAsDraft === true;
       if (options.onProgress) {
         const job = await startBulkJob<T>({
           baseUrl,
           fetch: configuredFetch,
           headers,
           path: "/source-observations/bulk-promote/jobs",
-          body: { observationIds },
+          body: { observationIds, promoteAsDraft },
           errorMessage: "Bulk Source Observation promotion failed.",
         });
         return streamBulkJob<T>({
@@ -1509,36 +1529,43 @@ export function createCatalogApiClient({
       }
 
       const response = await client["source-observations"]["bulk-promote"].$post({
-        json: { observationIds },
+        json: { observationIds, promoteAsDraft },
         header: headers,
       });
       return parseJsonResponse<T>(response);
     },
-    async previewBulkPromoteSourceObservations<T>(scope: unknown): Promise<T> {
+    async previewBulkPromoteSourceObservations<T>(
+      scope: unknown,
+      options: CatalogPromotionPreviewOptions = {},
+    ): Promise<T> {
       const response = await client["source-observations"]["bulk-promote"].preview.$post({
-        json: { scope },
+        json: { scope, ...promotionPreviewBody(options) },
         header: headers,
       });
       return parseJsonResponse<T>(response);
     },
-    async previewBulkPromoteSourceObservationIds<T>(observationIds: string[]): Promise<T> {
+    async previewBulkPromoteSourceObservationIds<T>(
+      observationIds: string[],
+      options: CatalogPromotionPreviewOptions = {},
+    ): Promise<T> {
       const response = await client["source-observations"]["bulk-promote"].preview.$post({
-        json: { observationIds },
+        json: { observationIds, ...promotionPreviewBody(options) },
         header: headers,
       });
       return parseJsonResponse<T>(response);
     },
     async bulkPromoteSourceObservationsByScope<T>(
       scope: unknown,
-      options: CatalogBulkActionProgressOptions = {},
+      options: CatalogPromotionActionOptions = {},
     ): Promise<T> {
+      const promoteAsDraft = options.promoteAsDraft === true;
       if (options.onProgress) {
         const job = await startBulkJob<T>({
           baseUrl,
           fetch: configuredFetch,
           headers,
           path: "/source-observations/bulk-promote/jobs",
-          body: { scope },
+          body: { scope, promoteAsDraft },
           errorMessage: "Bulk Source Observation promotion failed.",
         });
         return streamBulkJob<T>({
@@ -1553,7 +1580,7 @@ export function createCatalogApiClient({
       }
 
       const response = await client["source-observations"]["bulk-promote"].$post({
-        json: { scope },
+        json: { scope, promoteAsDraft },
         header: headers,
       });
       return parseJsonResponse<T>(response);
@@ -1685,9 +1712,10 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async promoteSourceObservation<T>(id: string): Promise<T> {
+    async promoteSourceObservation<T>(id: string, options: Readonly<{ promoteAsDraft?: boolean }> = {}): Promise<T> {
       const response = await client["source-observations"][":id"].promote.$post({
         param: { id },
+        json: { promoteAsDraft: options.promoteAsDraft === true },
         header: headers,
       });
       return parseJsonResponse<T>(response);

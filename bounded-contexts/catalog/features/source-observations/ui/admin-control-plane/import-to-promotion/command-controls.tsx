@@ -35,6 +35,9 @@ type CommandFormButtonProps = Omit<ButtonProps, "type" | "disabled"> & {
   reason?: string;
   mergeCandidateCommandBody?: string;
   promotionPhase?: "preview" | "execute";
+  // The explicit promote-as-draft review choice; always submitted as a literal
+  // "true"/"false" when provided so the server never has to infer it.
+  promoteAsDraft?: boolean;
   disabled?: boolean;
 };
 
@@ -46,6 +49,7 @@ export function CommandFormButton({
   reason,
   mergeCandidateCommandBody,
   promotionPhase,
+  promoteAsDraft,
   disabled = false,
   children,
   ...buttonProps
@@ -61,6 +65,7 @@ export function CommandFormButton({
         candidateId={candidateId}
         mergeCandidateCommandBody={mergeCandidateCommandBody}
         promotionPhase={promotionPhase}
+        promoteAsDraft={promoteAsDraft}
       />
       {reason ? <HiddenInput name="reason" value={reason} /> : null}
       <Button type="submit" disabled={disabled || !isActionAvailable(readModel, intent)} {...buttonProps}>
@@ -78,6 +83,7 @@ export function CommandHiddenInputs({
   jobId,
   mergeCandidateCommandBody,
   promotionPhase,
+  promoteAsDraft,
 }: {
   readModel: CatalogPrimaryWorkbenchReadModel;
   intent: CatalogPrimaryWorkbenchSubmitIntent;
@@ -86,6 +92,7 @@ export function CommandHiddenInputs({
   jobId?: string | null;
   mergeCandidateCommandBody?: string;
   promotionPhase?: "preview" | "execute";
+  promoteAsDraft?: boolean;
 }) {
   const context = readModel.routeContext;
   const scope = context.scope;
@@ -114,6 +121,9 @@ export function CommandHiddenInputs({
       <HiddenInput name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
       <HiddenInput name="scopeRecordId" value={context.scopeRecordId ?? ""} />
       {promotionPhase ? <HiddenInput name="promotionPhase" value={promotionPhase} /> : null}
+      {promoteAsDraft !== undefined ? (
+        <HiddenInput name="promoteAsDraft" value={promoteAsDraft ? "true" : "false"} />
+      ) : null}
     </>
   );
 }
