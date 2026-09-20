@@ -14,6 +14,7 @@ import {
   type ScopeSyncBatchSelection,
 } from "../domain/batch";
 import { createScopeSyncBatchStore, type ScopeSyncBatchSnapshot } from "../read-model/store";
+import { resolveHeldSetExport } from "./held-set-resolution";
 import { createScopeSyncBatchPlanner } from "./planner";
 import { createScopeSyncBatchWorker } from "./worker";
 
@@ -106,6 +107,8 @@ export function createScopeSyncBatchRuntime(deps: {
   }
 
   return {
+    resolveHeldSets: (input: { bytes: Uint8Array; context: EventStoreContext }) =>
+      resolveHeldSetExport(deps.db, input.bytes),
     preview,
     confirm,
     get: (input: { batchId: string; context: EventStoreContext }) => store.get(input.batchId, input.context),

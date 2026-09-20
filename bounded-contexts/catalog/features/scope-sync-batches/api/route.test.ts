@@ -21,6 +21,80 @@ function app(services: Record<string, unknown>) {
 }
 
 describe("Scope Sync Batch routes", () => {
+  it("resolves one closed multipart file without logging or retaining its body", async () => {
+    const resolveHeldSets = vi.fn().mockResolvedValue({ resolved: [], unresolved: [], totals: {} });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const form = new FormData();
+    form.set("file", new File(["Product Line,Set Name\nMagic,Time Spiral"], "held.csv", { type: "text/csv" }));
+
+    const response = await app({ resolveHeldSets }).request("/resolve-held-sets", { method: "POST", body: form });
+
+    expect(response.status).toBe(200);
+    expect(resolveHeldSets).toHaveBeenCalledWith({ bytes: expect.any(Uint8Array), context });
+    expect(log).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+    log.mockRestore();
+    warn.mockRestore();
+    error.mockRestore();
+  });
+
+  it("refuses declared oversize and unknown multipart fields before resolution", async () => {
+    const resolveHeldSets = vi.fn();
+    const oversize = await app({ resolveHeldSets }).request("/resolve-held-sets", {
+      method: "POST",
+      headers: {
+        "content-type": "multipart/form-data; boundary=bounded",
+        "content-length": "18874369",
+      },
+      body: "",
+    });
+    expect(oversize.status).toBe(413);
+
+    const form = new FormData();
+    form.set("file", new File(["Product Line,Set Name\nMagic,Time Spiral"], "held.csv"));
+    form.set("metadata", JSON.stringify({ nested: { unknown: true } }));
+    const unknown = await app({ resolveHeldSets }).request("/resolve-held-sets", { method: "POST", body: form });
+    expect(unknown.status).toBe(400);
+    expect(await unknown.json()).toMatchObject({ error: { code: "invalid-upload" } });
+    expect(resolveHeldSets).not.toHaveBeenCalled();
+  });
+
+  it("refuses a 16777217-byte file before resolution", async () => {
+    const resolveHeldSets = vi.fn();
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(16_777_217)], "oversize.csv"));
+    const response = await app({ resolveHeldSets }).request("/resolve-held-sets", { method: "POST", body: form });
+    expect(response.status).toBe(413);
+    expect(resolveHeldSets).not.toHaveBeenCalled();
+  });
+
+  it("bounds an undeclared endless upload stream before resolution", async () => {
+    const resolveHeldSets = vi.fn();
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(1_048_576));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const request = new Request("http://local/resolve-held-sets", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=bounded" },
+      body,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    const response = await app({ resolveHeldSets }).request(request);
+    expect(response.status).toBe(413);
+    expect(cancelled).toBe(true);
+    expect(resolveHeldSets).not.toHaveBeenCalled();
+  });
+
   it("previews server-resolved matching scope without browser pagination", async () => {
     const preview = vi.fn().mockResolvedValue({ status: "ready", planFingerprint: "fingerprint" });
     const response = await app({ preview }).request("/preview", {

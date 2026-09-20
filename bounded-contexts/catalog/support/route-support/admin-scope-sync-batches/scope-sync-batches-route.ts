@@ -3,9 +3,16 @@ import { redirect } from "react-router";
 import { createCatalogRequestApiClient } from "../../request-support/api-client";
 import type { ScopeSyncBatchPreview } from "../../../features/scope-sync-batches/domain/batch";
 import type { ScopeSyncBatchSnapshot } from "../../../features/scope-sync-batches/read-model/store";
+import {
+  HeldSetExportError,
+  heldSetExportContract,
+  type HeldSetResolution,
+} from "../../../features/scope-sync-batches/domain/held-set-export";
+import { readBoundedMultipartFormData } from "../../../features/scope-sync-batches/api/held-set-upload";
 
 export type ScopeSyncBatchRouteActionData = Readonly<{
   preview: ScopeSyncBatchPreview | null;
+  heldSetResolution: HeldSetResolution | null;
   error: string | null;
 }>;
 
@@ -17,13 +24,31 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<{ batch: 
 }
 
 export async function action({ request }: ActionFunctionArgs): Promise<ScopeSyncBatchRouteActionData | Response> {
-  const formData = await request.formData();
-  const intent = stringValue(formData.get("intent"));
-  const api = createCatalogRequestApiClient(request);
-
   try {
+    const formData = (request.headers.get("content-type") ?? "").toLowerCase().startsWith("multipart/form-data")
+      ? await readBoundedMultipartFormData(request, heldSetExportContract.multipartMaxBytes)
+      : await request.formData();
+    const intent = stringValue(formData.get("intent"));
+    const api = createCatalogRequestApiClient(request);
+    if (intent === "resolve-held-sets") {
+      if ([...formData.keys()].some((key) => key !== "intent" && key !== heldSetExportContract.fileField)) {
+        throw new HeldSetExportError("invalid-upload", "Held-set upload contains unsupported fields.");
+      }
+      const file = formData.get(heldSetExportContract.fileField);
+      if (!(file instanceof File)) {
+        throw new HeldSetExportError("invalid-upload", "Held-set export CSV is required.");
+      }
+      if (file.size > heldSetExportContract.maxBytes) {
+        throw new HeldSetExportError("upload-too-large", "Held-set export exceeds 16777216 bytes.");
+      }
+      return { heldSetResolution: await api.resolveHeldSetExport<HeldSetResolution>(file), preview: null, error: null };
+    }
     if (intent === "preview") {
-      return { preview: await api.previewScopeSyncBatch<ScopeSyncBatchPreview>(previewRequest(formData)), error: null };
+      return {
+        preview: await api.previewScopeSyncBatch<ScopeSyncBatchPreview>(previewRequest(formData)),
+        heldSetResolution: null,
+        error: null,
+      };
     }
     if (intent === "confirm") {
       const batch = await api.confirmScopeSyncBatch<ScopeSyncBatchSnapshot>({
@@ -44,7 +69,11 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
     } else throw new Error("Scope Sync Batch command is not supported.");
     return redirect(`/catalog/scopes/sync-batches?batchId=${encodeURIComponent(batchId)}`);
   } catch (error) {
-    return { preview: null, error: error instanceof Error ? error.message : "Scope Sync Batch command failed." };
+    return {
+      preview: null,
+      heldSetResolution: null,
+      error: error instanceof Error ? error.message : "Scope Sync Batch command failed.",
+    };
   }
 }
 

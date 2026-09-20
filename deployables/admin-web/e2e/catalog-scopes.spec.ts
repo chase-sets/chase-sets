@@ -95,4 +95,84 @@ test.describe.serial("catalog admin scopes", () => {
 
     await captureResponsiveEvidence({ page, testInfo, claimId: "catalog-scope-table-tablet" });
   });
+
+  test("scope-sync-held-set-entry uploads, resolves, previews exact ids, and confirms @catalog-admin-integrations", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    test.skip(skipDeployedAdminE2e, SKIP_REASON);
+
+    await authenticateAdmin(page, "/catalog/scopes/sync-batches", "/access/sign-in");
+    await expectPageOk(page, "/catalog/scopes/sync-batches");
+    await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
+
+    const header = [
+      "TCGplayer Id",
+      "Product Line",
+      "Set Name",
+      "Product Name",
+      "Title",
+      "Number",
+      "Rarity",
+      "Condition",
+      "TCG Market Price",
+      "TCG Direct Low",
+      "TCG Low Price With Shipping",
+      "TCG Low Price",
+      "Total Quantity",
+      "Add to Quantity",
+      "TCG Marketplace Price",
+      "Photo URL",
+    ];
+    const rows = [
+      ["1", "Magic", "Time Spiral"],
+      ["2", "Pokemon", "Scarlet & Violet"],
+      ["3", "Yu-Gi-Oh!", "Starter Deck: Yugi"],
+      ["4", "One Piece Card Game", "Romance Dawn"],
+      ["5", "Pokemon Japan", "Japanese Set"],
+    ].map(([id, productLine, setName]) =>
+      header
+        .map((column) =>
+          column === "TCGplayer Id"
+            ? id
+            : column === "Product Line"
+              ? productLine
+              : column === "Set Name"
+                ? setName
+                : "ignored",
+        )
+        .join(","),
+    );
+    await page.getByLabel("Held-set export CSV").setInputFiles({
+      name: "held-sets.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from([header.join(","), ...rows].join("\r\n"), "utf8"),
+    });
+    await page.getByRole("button", { name: "Resolve held sets" }).click();
+    await expectPageOk(page, "/catalog/scopes/sync-batches");
+    await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
+
+    const resolvedTable = page.getByRole("table", { name: "Resolved held sets" });
+    const unresolvedTable = page.getByRole("table", { name: "Unresolved held sets" });
+    await expect(resolvedTable).toBeVisible();
+    await expect(unresolvedTable).toContainText("Pokemon Japan / Japanese Set");
+    await expect(unresolvedTable).toContainText("product-line-unresolved");
+    const resolvedIds = await resolvedTable.locator("tbody tr td:nth-child(2)").allTextContents();
+    expect(resolvedIds).toHaveLength(4);
+    await expect(unresolvedTable.getByRole("link", { name: "Open unmapped-scope inbox" })).toHaveAttribute(
+      "href",
+      "/catalog/scope-coverage",
+    );
+
+    await page.getByRole("button", { name: "Preview resolved sets" }).click();
+    await expectPageOk(page, "/catalog/scopes/sync-batches");
+    await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
+    const previewIds = ((await page.locator('input[name="scopeRecordIds"]').last().getAttribute("value")) ?? "")
+      .split(",")
+      .filter(Boolean);
+    expect(previewIds).toEqual(resolvedIds);
+    await page.getByRole("button", { name: "Confirm and enqueue" }).click();
+    await expect(page).toHaveURL(/\/catalog\/scopes\/sync-batches\?batchId=/);
+    await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
+  });
 });

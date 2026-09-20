@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
@@ -11,6 +11,7 @@ describe("Scope Sync Batch admin page", () => {
       <ScopeSyncBatchPage
         batch={null}
         error={null}
+        heldSetResolution={null}
         preview={{
           previewVersion: "scope-sync-batch-preview-v1",
           selection: { mode: "matching-scope", query: { productDomain: "pokemon" } },
@@ -57,6 +58,7 @@ describe("Scope Sync Batch admin page", () => {
       <ScopeSyncBatchPage
         preview={null}
         error={null}
+        heldSetResolution={null}
         batch={{
           batchId: "batch-1",
           selection: { mode: "ids", scopeRecordIds: ["scope-1", "scope-2"] },
@@ -103,6 +105,65 @@ describe("Scope Sync Batch admin page", () => {
     expect(screen.getByText(/1 completed · 1 failed/)).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Retry unit" }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/https?:\/\//)).toBeNull();
+  });
+
+  it("renders held-set resolution and previews exactly its resolved ids", () => {
+    const rendered = renderPage(
+      <ScopeSyncBatchPage
+        preview={null}
+        batch={null}
+        error={null}
+        heldSetResolution={{
+          resolved: [
+            {
+              scopeRecordId: "scope-magic",
+              productDomain: "magic",
+              scopeKind: "set",
+              productLine: "Magic",
+              setName: "Time Spiral",
+              rowCount: 2,
+            },
+            {
+              scopeRecordId: "scope-pokemon",
+              productDomain: "pokemon",
+              scopeKind: "expansion",
+              productLine: "Pokemon",
+              setName: "Shared Name",
+              rowCount: 1,
+            },
+          ],
+          unresolved: [
+            {
+              productLine: "Pokemon",
+              setName: "Missing Set",
+              rowCount: 1,
+              reason: "mapping-missing",
+              productDomain: "pokemon",
+            },
+          ],
+          totals: {
+            rows: 4,
+            distinctPairs: 3,
+            resolvedPairs: 2,
+            unresolvedPairs: 1,
+            resolvedRows: 3,
+            unresolvedRows: 1,
+          },
+        }}
+      />,
+    );
+
+    const page = within(rendered.container);
+    expect(page.getByRole("heading", { name: "From held-set export" })).toBeTruthy();
+    expect(page.getAllByText("Magic / Time Spiral").length).toBeGreaterThan(0);
+    expect(page.getAllByText("mapping-missing").length).toBeGreaterThan(0);
+    expect(page.getAllByRole("link", { name: "Open unmapped-scope inbox" })[0]?.getAttribute("href")).toBe(
+      "/catalog/scope-coverage?productDomain=pokemon",
+    );
+    expect(page.getByRole("button", { name: "Preview resolved sets" })).toBeTruthy();
+    expect(rendered.container.querySelector('input[name="scopeRecordIds"]')?.getAttribute("value")).toBe(
+      "scope-magic,scope-pokemon",
+    );
   });
 });
 
