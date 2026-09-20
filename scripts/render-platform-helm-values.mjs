@@ -561,9 +561,10 @@ export function buildDoksIngressValues(options = {}) {
 
   const enabled = target !== "";
   const marketplacePublicEnabled = env.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED === "true";
+  const marketplaceServed = marketplacePublicEnabled || env.PRODUCTION_MARKETPLACE_SERVED === "true";
   const hosts = enabled
     ? production
-      ? buildProductionDoksIngressHosts({ marketplacePublicEnabled })
+      ? buildProductionDoksIngressHosts({ marketplaceServed })
       : buildDoksIngressHosts(stagingEnvironmentZone, "live", { apexService: "marketplace" })
     : [];
   const certificateDnsNames = production ? hosts.map((host) => host.host) : [];
@@ -663,7 +664,7 @@ function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
 }
 
 function buildProductionDoksIngressHosts(options = {}) {
-  const includeMarketplace = options.marketplacePublicEnabled === true;
+  const includeMarketplace = options.marketplaceServed === true;
   const buildHostSet = (hostMode) =>
     buildDoksIngressHosts(productionEnvironmentZone, hostMode).filter(
       (host) => includeMarketplace || !host.host.startsWith("marketplace."),

@@ -92,6 +92,17 @@ check "production_runtime_profile_public_gate" {
   }
 }
 
+check "production_marketplace_served" {
+  assert {
+    condition = !var.production_marketplace_served || (
+      var.environment == "production" &&
+      var.production_runtime_profile == "proof" &&
+      var.production_marketplace_public_enabled == false
+    )
+    error_message = "production_marketplace_served requires the production proof runtime profile with public marketplace launch disabled."
+  }
+}
+
 check "production_marketplace_launch_approval" {
   assert {
     condition = !var.production_marketplace_public_enabled || (

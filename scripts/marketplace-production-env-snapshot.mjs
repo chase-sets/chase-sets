@@ -34,6 +34,7 @@ export const REQUIRED_LAUNCH_ENV_VARIABLES = [
 ];
 
 export const OPTIONAL_LAUNCH_ENV_VARIABLES = [
+  "PRODUCTION_MARKETPLACE_SERVED",
   "PRODUCTION_MARKETPLACE_PROOF_ENABLED",
   "PRODUCTION_MARKETPLACE_PROOF_REFERENCE",
 ];
@@ -93,6 +94,7 @@ export function buildProductionEnvSnapshot(input) {
     { optional: true },
   );
   validateProofModePublicSwitch(productionEnvironment, errors);
+  validateServedMarketplacePublicSwitch(productionEnvironment, errors);
   validateProductionRuntimeModes(productionEnvironment, errors);
   validateProductionEvidenceReferences(productionEnvironment, errors);
 
@@ -172,6 +174,7 @@ function validateBooleanVariables(productionEnvironment, errors) {
     if (
       !name.endsWith("_APPROVED") &&
       name !== "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" &&
+      name !== "PRODUCTION_MARKETPLACE_SERVED" &&
       name !== "PRODUCTION_MARKETPLACE_PROOF_ENABLED" &&
       name !== "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"
     ) {
@@ -206,6 +209,15 @@ function validateProofModePublicSwitch(productionEnvironment, errors) {
     productionEnvironment.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED === "true"
   ) {
     errors.push("PRODUCTION_MARKETPLACE_PROOF_ENABLED must be false when PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true.");
+  }
+}
+
+function validateServedMarketplacePublicSwitch(productionEnvironment, errors) {
+  if (
+    productionEnvironment.PRODUCTION_MARKETPLACE_SERVED === "true" &&
+    productionEnvironment.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED === "true"
+  ) {
+    errors.push("PRODUCTION_MARKETPLACE_SERVED must be false when PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true.");
   }
 }
 

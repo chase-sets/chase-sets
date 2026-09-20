@@ -4,6 +4,19 @@ Production marketplace promotion is the public-launch posture for `marketplace.c
 
 The private proof-mode collection phase is retired. Historical proof artifacts belong in the closing milestone or release records; this runbook now keeps only the durable public promotion, smoke, rollback, and domain-approval guidance used after launch.
 
+## Served Marketplace (Not Public)
+
+`PRODUCTION_MARKETPLACE_SERVED=true` exposes `marketplace.chasesets.com` to invited production accounts without declaring a public launch. This posture uses the existing `proof` runtime profile, keeps `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, requires none of the public-launch approval variables, leaves registration in `invitation` admission mode, and leaves marketplace indexing disabled.
+
+To enter this posture, set `PRODUCTION_MARKETPLACE_SERVED=true` in the production GitHub Environment, keep `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, leave `PRODUCTION_RUNTIME_PROFILE` unset, and run the normal Platform Deploy workflow. The workflow derives `proof`, applies the reviewed Terraform plan bytes, waits for the marketplace certificate, and captures `served-marketplace-smoke/v1` evidence proving the root returns 200 with `noindex,nofollow`, anonymous registration is rejected with `403 registration_admission_required`, and a malformed invitation URL remains routed rather than returning 404.
+
+Admit a person through one of the existing Identity paths only:
+
+- Create the account through the production admin workflow and issue the recipient an Identity invitation. The recipient follows the invitation link to register or sign in and accept membership.
+- Admit the recipient's waitlist signup through a controlled waitlist wave. The existing registration admission gate recognizes that admission.
+
+Do not create a new invite code, relax registration admission, enable indexing, or set public-launch approvals for this posture. To leave it without launching publicly, set `PRODUCTION_MARKETPLACE_SERVED=false` and redeploy; the marketplace host, certificate name, live A record, and uptime check are removed while production remains in the landing posture. To proceed to public launch, first set `PRODUCTION_MARKETPLACE_SERVED=false`, then complete the gates below and enable `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`; the environment snapshot rejects both switches being true together.
+
 ## Required Gates
 
 - Public Presence: prelaunch copy is replaced or reviewed for live marketplace availability, and terms, privacy, refunds and returns, order protection, and sales fee pages no longer describe live transactions as future-only. The launch-mode copy audit additionally verifies the retained counsel review packet bytes against their receipt, verifies that receipt's reviewed-content corpus identity against current source, and audits all six launch-required policy routes and all five compliance article routes. Authenticity Service Terms stays packet-only and is never audited as launch-required.

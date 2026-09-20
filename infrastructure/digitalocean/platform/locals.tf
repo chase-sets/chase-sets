@@ -26,6 +26,9 @@ locals {
   marketplace_public_enabled = (
     local.is_non_production || local.runtime_profile == "public"
   )
+  marketplace_served = (
+    local.is_non_production || local.marketplace_public_enabled || (local.runtime_profile == "proof" && var.production_marketplace_served)
+  )
   environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
   environment_zone    = "${var.environment}.${var.root_domain}"
   live_dns_zone       = local.is_production ? var.root_domain : local.environment_zone
@@ -39,7 +42,7 @@ locals {
     local.is_staging ? "www.${var.environment}.${var.root_domain}" : "${local.environment_slug}.preview.${var.root_domain}",
   ]
 
-  marketplace_domains = local.marketplace_public_enabled ? [
+  marketplace_domains = local.marketplace_served ? [
     local.is_production ? "marketplace.${var.root_domain}" : local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
   ] : []
 
@@ -379,13 +382,10 @@ locals {
   admin_uptime_check_targets = {
     (format("admin-%s", replace(local.admin_domain, ".", "-"))) = "https://${local.admin_domain}/health/ready"
   }
-  production_retained_marketplace_uptime_check_targets = local.is_production ? {
-    "marketplace-${replace("marketplace.${var.root_domain}", ".", "-")}" = "https://marketplace.${var.root_domain}/health/ready"
-  } : {}
-  marketplace_uptime_check_targets = merge({
+  marketplace_uptime_check_targets = {
     for domain in local.all_marketplace_domains :
     "marketplace-${replace(domain, ".", "-")}" => "https://${domain}/health/ready"
-  }, local.production_retained_marketplace_uptime_check_targets)
+  }
   uptime_check_targets = merge(
     local.public_uptime_check_targets,
     local.admin_uptime_check_targets,
@@ -397,6 +397,6 @@ locals {
     "www",
     ]) : local.is_production ? toset(concat(
     ["admin", "www"],
-    local.marketplace_public_enabled ? ["marketplace"] : [],
+    local.marketplace_served ? ["marketplace"] : [],
   )) : toset([])
 }

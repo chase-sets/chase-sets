@@ -14,7 +14,7 @@ function normalizeSource(source) {
 }
 
 const appServingRecordNamesPattern =
-  /  app_serving_record_names = local\.is_staging \? toset\(\[\n(?<staging>(?:    "[a-z]+",\n)*)    \]\) : local\.is_production \? toset\(concat\(\n    \[(?<production>(?:"[a-z]+",? ?)*)\],\n    local\.marketplace_public_enabled \? \[(?<productionConditional>(?:"[a-z]+",? ?)*)\] : \[\],\n  \)\) : toset\(\[\]\)/;
+  /  app_serving_record_names = local\.is_staging \? toset\(\[\n(?<staging>(?:    "[a-z]+",\n)*)    \]\) : local\.is_production \? toset\(concat\(\n    \[(?<production>(?:"[a-z]+",? ?)*)\],\n    local\.marketplace_served \? \[(?<productionConditional>(?:"[a-z]+",? ?)*)\] : \[\],\n  \)\) : toset\(\[\]\)/;
 
 const authorityAnchors = [
   {

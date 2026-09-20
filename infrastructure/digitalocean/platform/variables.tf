@@ -40,6 +40,17 @@ variable "production_marketplace_public_enabled" {
   }
 }
 
+variable "production_marketplace_served" {
+  type        = bool
+  default     = false
+  description = "Serve the production marketplace to invited accounts while the proof runtime profile is active and public launch remains disabled."
+
+  validation {
+    condition     = var.environment == "production" || var.production_marketplace_served == false
+    error_message = "production_marketplace_served may only be true for production."
+  }
+}
+
 variable "production_runtime_profile" {
   type        = string
   default     = "landing"
