@@ -212,7 +212,7 @@ describeDb("channel-projection-concurrent-write", () => {
 
   it("channel-catalog-facts-replay-safety retains category and both reference tombstones", async () => {
     const handlers = buildChannelCatalogFactsProjectionHandlers(pools.channels);
-    const catalogStream = "catalog.catalog-item-catalog-1";
+    const catalogStream = "catalog.item-catalog-1";
     await handlers["catalog.catalog-item.category-assigned"]!(
       event("catalog.catalog-item.category-assigned", { categoryId: "cards" }, catalogStream, 7),
     );

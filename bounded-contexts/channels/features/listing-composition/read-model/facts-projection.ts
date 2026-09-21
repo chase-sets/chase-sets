@@ -1,9 +1,12 @@
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { deriveChannelSelectedOptionKey } from "../domain/canonical";
 import type { InventoryChannelStockAllocationSetPayload } from "@chase-sets/event-core/public-event-payloads/inventory";
 
 type Transport = Parameters<ProjectorHandlerMap[string]>[0];
+
+export const CATALOG_ITEM_STREAM_PREFIX = "catalog.item-";
 
 export function buildChannelMarketplaceFactsProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -335,7 +338,7 @@ function listingId(event: Transport): string {
   return event.streamId.replace("marketplace.listing-", "");
 }
 function catalogItemId(event: Transport): string {
-  return event.streamId.replace("catalog.catalog-item-", "");
+  return extractIdFromStreamId(event.streamId, CATALOG_ITEM_STREAM_PREFIX);
 }
 function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;

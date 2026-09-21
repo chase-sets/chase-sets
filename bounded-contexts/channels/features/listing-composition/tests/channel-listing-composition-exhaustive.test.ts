@@ -18,6 +18,7 @@ import {
   type ChannelPublicationBlockingReason,
 } from "../domain/contracts";
 import { parseChannelListingCompositionInput } from "../domain/parse";
+import { tcgplayerCompositionProfiles } from "../../tcgplayer-csv/domain/profile";
 import { listingInput, publishedLink, syntheticProfile } from "./test-support";
 
 type Mutable<T> = T extends readonly (infer Item)[]
@@ -392,6 +393,47 @@ describe("channel-listing-blocking-reason-matrix", () => {
       expect(parseChannelListingCompositionInput(input), reason).toMatchObject({ kind: "valid" });
       expect(composeChannelListingPublication(input), reason).toEqual({ kind: "blocked", reasons: [reason] });
     }
+  });
+});
+
+describe("channel-listing-catalog-reference-requirement-mutant", () => {
+  it("turns the provider-catalog-item-reference-unlinked arm red when a profile drops the requirement", () => {
+    const control = reasonCases()["provider-catalog-item-reference-unlinked"]();
+    expectReason(composeChannelListingPublication(control), "provider-catalog-item-reference-unlinked");
+
+    const mutant = mutateInput((input) => {
+      input.providerCatalogItemReference = { kind: "unlinked" };
+      if (input.profile.kind !== "registered") throw new Error("expected registered profile");
+      input.profile.profile.requiresProviderCatalogItemReference = false;
+    });
+    expect(parseChannelListingCompositionInput(mutant)).toMatchObject({ kind: "valid" });
+    expect(() =>
+      expectReason(composeChannelListingPublication(mutant), "provider-catalog-item-reference-unlinked"),
+    ).toThrow();
+    expectPublishable(composeChannelListingPublication(mutant));
+  });
+
+  it("keeps the requirement on every shipped TCGplayer composition profile", () => {
+    expect(
+      tcgplayerCompositionProfiles.map((profile) => ({
+        identity: `${profile.identity.providerKey}:${profile.identity.environment}`,
+        requiresProviderCatalogItemReference: profile.requiresProviderCatalogItemReference,
+      })),
+    ).toEqual([
+      { identity: "tcgplayer:sandbox", requiresProviderCatalogItemReference: true },
+      { identity: "tcgplayer:production", requiresProviderCatalogItemReference: true },
+    ]);
+  });
+
+  it("returns the configuration reason alone when a listing reason is present too", () => {
+    expectReason(
+      composeWith((input) => {
+        input.providerCatalogItemReference = { kind: "unlinked" };
+        if (input.listing.kind !== "present") throw new Error("expected listing facts");
+        input.listing.listingStatus = "draft";
+      }),
+      "provider-catalog-item-reference-unlinked",
+    );
   });
 });
 

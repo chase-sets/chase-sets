@@ -1,10 +1,11 @@
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext, GlobalPosition } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type { ChannelListingCompositionServices } from "../api/runtime";
 import { channelListingEventCodec } from "../domain/codecs";
-import { projectChannelInventoryAllocationFact } from "../read-model/facts-projection";
+import { CATALOG_ITEM_STREAM_PREFIX, projectChannelInventoryAllocationFact } from "../read-model/facts-projection";
 import type { OutboundSyncServices } from "../../outbound-sync/domain/contracts";
 
 type SignalEvent = Readonly<{
@@ -160,7 +161,7 @@ export function buildChannelCatalogDesiredStateReactionHandlers(
       eventType,
       async (value: unknown) => {
         const event = value as SignalEvent;
-        const catalogItemId = event.streamId.replace("catalog.catalog-item-", "");
+        const catalogItemId = extractIdFromStreamId(event.streamId, CATALOG_ITEM_STREAM_PREFIX);
         const result = await db.query<{ connection_id: string }>(
           `SELECT DISTINCT connection.connection_id FROM channels_connection_facts AS connection
        JOIN channels_listing_publication_facts AS listing ON listing.account_id=connection.account_id
