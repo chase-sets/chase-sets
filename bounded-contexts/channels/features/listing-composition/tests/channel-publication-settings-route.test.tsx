@@ -20,6 +20,7 @@ import AccountChannelsPublicationConnectionRoute, {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("channel-publication-settings-route", () => {
@@ -33,6 +34,7 @@ describe("channel-publication-settings-route", () => {
           settings,
           configurationStreamVersion: 1,
         });
+        return 1;
       },
     });
     const router = renderPublicationRoute();
@@ -47,36 +49,54 @@ describe("channel-publication-settings-route", () => {
   });
 
   it("settings-write-freshness-lag", async () => {
-    let projectionVisible = false;
+    let projectedVersion = 0;
+    let appliedVersion = 0;
     let savedSettings = detail().settings;
-    stubPublicationRouteFetch({
+    const stub = stubPublicationRouteFetch({
       readDetail: () =>
-        projectionVisible
-          ? detail({
+        projectedVersion === 0
+          ? detail()
+          : detail({
               connection: { ...detail().connection, settingsState: "configured" },
               settings: savedSettings,
-              configurationStreamVersion: 1,
-            })
-          : detail(),
+              configurationStreamVersion: projectedVersion,
+            }),
       replaceSettings: (settings) => {
         savedSettings = settings;
+        appliedVersion += 1;
+        return appliedVersion;
       },
     });
     const router = renderPublicationRoute();
     expect(await screen.findByText("Settings are required")).toBeTruthy();
+    vi.useFakeTimers();
 
     await act(async () => {
-      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: settingsForm() });
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: settingsForm("0") });
     });
     expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
     expect(screen.queryByText("Settings are required")).toBeNull();
 
-    projectionVisible = true;
-    await act(async () => {
-      await router.revalidate();
-    });
+    const readsAfterWrite = stub.reads();
+    await settle(1_999);
+    expect(stub.reads()).toBe(readsAfterWrite);
+    await settle(1);
+    expect(stub.reads()).toBe(readsAfterWrite + 1);
+    expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
+
+    projectedVersion = 1;
+    await settle(2_000);
     expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
     expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: settingsForm("1") });
+    });
+    expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
+    const readsAfterStuckWrite = stub.reads();
+    for (let tick = 0; tick < 40; tick += 1) await settle(2_000);
+    expect(stub.reads() - readsAfterStuckWrite).toBe(15);
+    expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
   });
 
   it("renders every list loading, empty, error, forbidden and success state through design-system components", () => {
@@ -187,10 +207,10 @@ function renderPublicationRoute() {
   return router;
 }
 
-function settingsForm() {
+function settingsForm(expectedStreamVersion = "0") {
   const form = new FormData();
   form.set("intent", "replace-settings");
-  form.set("expectedStreamVersion", "0");
+  form.set("expectedStreamVersion", expectedStreamVersion);
   form.set("titlePrefix", "[fresh]");
   form.set("titleSuffix", "");
   form.set("descriptionFooter", "saved footer");
@@ -201,8 +221,9 @@ function settingsForm() {
 
 function stubPublicationRouteFetch(options: {
   readDetail: () => ChannelPublicationConnectionDetail;
-  replaceSettings: (settings: NonNullable<ChannelPublicationConnectionDetail["settings"]>) => void;
+  replaceSettings: (settings: NonNullable<ChannelPublicationConnectionDetail["settings"]>) => number;
 }) {
+  let reads = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -225,15 +246,25 @@ function stubPublicationRouteFetch(options: {
         const body = (await request.json()) as {
           settings: NonNullable<ChannelPublicationConnectionDetail["settings"]>;
         };
-        options.replaceSettings(body.settings);
-        return jsonResponse({ kind: "applied", streamVersion: 1 });
+        return jsonResponse({ kind: "applied", streamVersion: options.replaceSettings(body.settings) });
       }
       if (url.pathname.endsWith("/publication/connection-1") && request.method === "GET") {
+        reads += 1;
         return jsonResponse(options.readDetail());
       }
       throw new Error(`Unexpected request: ${request.method} ${url.pathname}`);
     }),
   );
+  return { reads: () => reads };
+}
+
+async function settle(milliseconds = 0) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(milliseconds);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
 }
 
 function jsonResponse(body: unknown, status = 200) {

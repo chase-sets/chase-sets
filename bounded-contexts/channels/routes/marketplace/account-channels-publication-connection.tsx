@@ -55,13 +55,11 @@ export const action = defineFormAction({
         },
         integer(formData, "expectedStreamVersion"),
       );
-      return result.kind === "refused" && result.code === "stream-version-conflict"
-        ? { kind: "stale-version-conflict" as const }
-        : {
-            kind: result.kind === "refused" ? ("command-error" as const) : ("applied" as const),
-            message: result.kind === "refused" ? result.code : null,
-            ...(result.kind === "refused" ? {} : { streamVersion: result.streamVersion }),
-          };
+      if (result.kind === "refused")
+        return result.code === "stream-version-conflict"
+          ? { kind: "stale-version-conflict" as const }
+          : { kind: "command-error" as const, message: result.code };
+      return { kind: "applied" as const, message: null, streamVersion: result.streamVersion };
     },
     "decide-mapping": async ({ request, formData }) => {
       const result = await createChannelsPublicationRequestApiClient(request).decideMapping({
@@ -72,13 +70,11 @@ export const action = defineFormAction({
         targetKey: optionalText(formData, "targetKey"),
         expectedStreamVersion: integer(formData, "expectedStreamVersion"),
       });
-      return result.kind === "refused" && result.code === "stream-version-conflict"
-        ? { kind: "stale-version-conflict" as const }
-        : {
-            kind: result.kind === "refused" ? ("command-error" as const) : ("applied" as const),
-            message: result.kind === "refused" ? result.code : null,
-            ...(result.kind === "refused" ? {} : { streamVersion: result.streamVersion }),
-          };
+      if (result.kind === "refused")
+        return result.code === "stream-version-conflict"
+          ? { kind: "stale-version-conflict" as const }
+          : { kind: "command-error" as const, message: result.code };
+      return { kind: "applied" as const, message: null, streamVersion: result.streamVersion };
     },
   },
   onUnknownIntent: () => ({ kind: "command-error" as const, message: t("channels.publication.action.unknown") }),
@@ -96,12 +92,16 @@ export default function AccountChannelsPublicationConnectionRoute() {
   const navigation = useNavigation();
   const revalidator = useRevalidator();
   const [refreshAttempts, setRefreshAttempts] = useState(0);
-  const expectedStreamVersion = actionData?.kind === "applied" ? actionData.streamVersion : null;
+  const [expectedStreamVersion, setExpectedStreamVersion] = useState<number | null>(null);
+  const appliedStreamVersion = actionData?.kind === "applied" ? actionData.streamVersion : null;
+  if (appliedStreamVersion !== null && appliedStreamVersion !== expectedStreamVersion) {
+    setExpectedStreamVersion(appliedStreamVersion);
+    setRefreshAttempts(0);
+  }
   const freshnessPending =
     data.kind === "ready" &&
     expectedStreamVersion !== null &&
     data.detail.configurationStreamVersion < expectedStreamVersion;
-  useEffect(() => setRefreshAttempts(0), [expectedStreamVersion, freshnessPending]);
   useEffect(() => {
     if (!freshnessPending || navigation.state !== "idle" || revalidator.state !== "idle" || refreshAttempts >= 15)
       return;

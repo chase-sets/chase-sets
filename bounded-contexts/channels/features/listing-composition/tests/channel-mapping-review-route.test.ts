@@ -1,5 +1,11 @@
+// @vitest-environment jsdom
 import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { ChaseRoot } from "@chase-sets/design-system";
+import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { Hono } from "hono";
+import { createElement } from "react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
@@ -7,17 +13,22 @@ import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests
 import { buildChannelsApi, type ChannelsActor, type ChannelsApiEnv } from "../../../api";
 import type { ChannelListingCompositionServices } from "../api/runtime";
 import type { ChannelPublicationConnectionDetail } from "../domain/contracts";
-import {
+import AccountChannelsPublicationConnectionRoute, {
   action as publicationAction,
   loader as publicationLoader,
 } from "../../../routes/marketplace/account-channels-publication-connection";
 
 afterEach(() => {
+  cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("channel-mapping-review-route", () => {
   it("mapping-decision-freshness-lag", async () => {
+    let projectedVersion = 0;
+    let appliedVersion = 0;
+    let reads = 0;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -37,35 +48,48 @@ describe("channel-mapping-review-route", () => {
           });
         }
         if (url.pathname.includes("/mappings/") && request.method === "POST") {
-          return jsonResponse({ kind: "applied", streamVersion: 1 });
+          appliedVersion += 1;
+          return jsonResponse({ kind: "applied", streamVersion: appliedVersion });
         }
         if (url.pathname.endsWith("/publication/connection-1") && request.method === "GET") {
-          return jsonResponse(connectionDetail);
+          reads += 1;
+          return jsonResponse(mappingReviewDetail(projectedVersion));
         }
         throw new Error(`Unexpected request: ${request.method} ${url.pathname}`);
       }),
     );
-    const formData = new FormData();
-    formData.set("intent", "decide-mapping");
-    formData.set("dimension", "category");
-    formData.set("sourceKey", "catalog-category:cards");
-    formData.set("decision", "accept");
-    formData.set("targetKey", "cards");
-    formData.set("expectedStreamVersion", "0");
-    const request = new Request("http://localhost/account/channels/publication/connection-1", {
-      method: "POST",
-      body: formData,
-    });
+    const router = renderPublicationRoute();
+    expect(await screen.findByText("catalog-category:cards")).toBeTruthy();
+    vi.useFakeTimers();
+    expect(screen.getByText(/category · proposed · high/u)).toBeTruthy();
 
-    const actionData = await publicationAction({ request, params: { connectionId: "connection-1" }, context: {} });
-    const loaderData = await publicationLoader({
-      request: new Request("http://localhost/account/channels/publication/connection-1"),
-      params: { connectionId: "connection-1" },
-      context: {},
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: decideMappingForm("0") });
     });
+    expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
+    expect(screen.queryByText("catalog-category:cards")).toBeNull();
 
-    expect(actionData).toMatchObject({ kind: "applied", streamVersion: 1 });
-    expect(loaderData).toMatchObject({ kind: "ready", detail: { configurationStreamVersion: 0 } });
+    const readsAfterDecision = reads;
+    await settle(1_999);
+    expect(reads).toBe(readsAfterDecision);
+    await settle(1);
+    expect(reads).toBe(readsAfterDecision + 1);
+    expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
+
+    projectedVersion = 1;
+    await settle(2_000);
+    expect(screen.getByText(/category · rejected · high/u)).toBeTruthy();
+    expect(screen.getByDisplayValue("cards")).toBeTruthy();
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: decideMappingForm("1") });
+    });
+    expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
+    const readsAfterStuckDecision = reads;
+    for (let tick = 0; tick < 40; tick += 1) await settle(2_000);
+    expect(reads - readsAfterStuckDecision).toBe(15);
+    expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
   });
 
   it("R2 rejects the unscoped foreign-mutation lookup mutant while preserving API permissions", async () => {
@@ -267,6 +291,70 @@ function connectionServices(): ChannelConnectionServices {
     listConnections: vi.fn(),
     projectors: [],
   };
+}
+
+const PUBLICATION_PATH = "/account/channels/publication/connection-1";
+
+function renderPublicationRoute() {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/account/channels/publication/:connectionId",
+        loader: publicationLoader,
+        action: publicationAction,
+        Component: AccountChannelsPublicationConnectionRoute,
+      },
+    ],
+    { initialEntries: [PUBLICATION_PATH] },
+  );
+  render(createElement(ChaseRoot, { linkComponent: RouterLinkAdapter }, createElement(RouterProvider, { router })));
+  return router;
+}
+
+function decideMappingForm(expectedStreamVersion: string) {
+  const form = new FormData();
+  form.set("intent", "decide-mapping");
+  form.set("dimension", "category");
+  form.set("sourceKey", "catalog-category:cards");
+  form.set("decision", "reject");
+  form.set("targetKey", "cards");
+  form.set("expectedStreamVersion", expectedStreamVersion);
+  return form;
+}
+
+function mappingReviewDetail(streamVersion: number): ChannelPublicationConnectionDetail {
+  const decided = streamVersion > 0;
+  return {
+    connection: { ...connectionDetail.connection, reviewCount: 1 },
+    settings: null,
+    mappingReview: {
+      items: [
+        {
+          connectionId: "connection-1",
+          dimension: "category",
+          sourceKey: "catalog-category:cards",
+          targetKey: decided ? "cards" : null,
+          confidenceTier: "high",
+          reviewStatus: decided ? "rejected" : "proposed",
+          provenance: "compose-discovered",
+          evidence: { listingId: "listing-1", derivedFrom: "assigned category cards" },
+          lastStreamVersion: streamVersion,
+        },
+      ],
+      nextCursor: null,
+      completeness: { kind: "complete", total: 1 },
+    },
+    configurationStreamVersion: streamVersion,
+  };
+}
+
+async function settle(milliseconds = 0) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(milliseconds);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
 }
 
 function jsonResponse(body: unknown, status = 200) {
